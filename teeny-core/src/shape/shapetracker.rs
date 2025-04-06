@@ -12,14 +12,3 @@
  * Unauthorized copying, modification, distribution, or use of this Software is
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_shape_module() {
-        // Basic test to ensure the module compiles and runs
-        assert!(true);
-    }
-}

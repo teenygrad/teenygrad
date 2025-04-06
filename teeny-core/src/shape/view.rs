@@ -22,53 +22,70 @@ pub struct View {
 }
 
 impl View {
-    pub fn create(shape: &[usize], strides: &[usize], mask: Option<&[(usize, usize)]>) -> Result<Self, ShapeError> {
-      if !shape.iter().all(|s| *s >= 0) {
-        return Err(ShapeError::NegativeDimension());
-      }
+    // pub fn create(shape: &[usize], strides: &[usize], mask: Option<&[(usize, usize)]>) -> Result<Self, ShapeError> {
+    //   if !shape.iter().all(|s| *s >= 0) {
+    //     return Err(ShapeError::NegativeDimension());
+    //   }
 
-      
-    strides = canonicalize_strides(shape, strides) if strides else strides_for_shape(shape)
-    # canonicalize 0 in shape
-    if 0 in shape: return View(shape, (0,) * len(shape), offset=0, mask=None, contiguous=True)
-    # canonicalize no-op mask
-    if mask is not None and all(m == (0,s) for m,s in zip(mask, shape)): mask = None
-    # if any dimension has size >1, but is masked such that only one index in the dimension is unmasked
-    # then its stride can also be set to 0, albeit with a corresponding adjustment required to the offset
-    if mask and any(elim := [not resolve(b+1 < e) for b,e in mask]):
-      if any(not resolve(b < e) for b,e in mask):
-        strides, offset, mask = (0,) * len(shape), 0, ((0,0),) * len(shape)
-      offset += sum((strides[i] * mask[i][0]) if e else 0 for i, e in enumerate(elim))
-      strides = tuple(0 if e else st for st,e in zip(strides, elim))
-    # simplify as we go
-    if isinstance(offset, UOp): offset = cast(sint, offset.ssimplify())
-    shape = tuple(cast(sint, x.ssimplify()) if isinstance(x, UOp) else x for x in shape)
-    # TODO: enabling stride simplification breaks symbolic jit
-    """
-    strides = tuple(x.ssimplify() if isinstance(x, UOp) else x for x in strides)
-    if mask: mask = tuple((s.ssimplify() if isinstance(s, UOp) else s, e.ssimplify() if isinstance(e, UOp) else e) for s,e in mask)
-    """
-    contiguous = offset == 0 and mask is None and strides == strides_for_shape(shape)
-    return View(shape, strides, offset, mask, contiguous)
-        // Self {
-        //     shape: shape.to_vec(),
-        //     strides: strides.to_vec(),
-        //     mask: mask.map(|m| m.to_vec()),
-        // }
-    }
+    // strides = canonicalize_strides(shape, strides) if strides else strides_for_shape(shape)
+    // # canonicalize 0 in shape
+    // if 0 in shape: return View(shape, (0,) * len(shape), offset=0, mask=None, contiguous=True)
+    // # canonicalize no-op mask
+    // if mask is not None and all(m == (0,s) for m,s in zip(mask, shape)): mask = None
+    // # if any dimension has size >1, but is masked such that only one index in the dimension is unmasked
+    // # then its stride can also be set to 0, albeit with a corresponding adjustment required to the offset
+    // if mask and any(elim := [not resolve(b+1 < e) for b,e in mask]):
+    //   if any(not resolve(b < e) for b,e in mask):
+    //     strides, offset, mask = (0,) * len(shape), 0, ((0,0),) * len(shape)
+    //   offset += sum((strides[i] * mask[i][0]) if e else 0 for i, e in enumerate(elim))
+    //   strides = tuple(0 if e else st for st,e in zip(strides, elim))
+    // # simplify as we go
+    // if isinstance(offset, UOp): offset = cast(sint, offset.ssimplify())
+    // shape = tuple(cast(sint, x.ssimplify()) if isinstance(x, UOp) else x for x in shape)
+    // # TODO: enabling stride simplification breaks symbolic jit
+    // """
+    // strides = tuple(x.ssimplify() if isinstance(x, UOp) else x for x in strides)
+    // if mask: mask = tuple((s.ssimplify() if isinstance(s, UOp) else s, e.ssimplify() if isinstance(e, UOp) else e) for s,e in mask)
+    // """
+    // contiguous = offset == 0 and mask is None and strides == strides_for_shape(shape)
+    // return View(shape, strides, offset, mask, contiguous)
+    //     // Self {
+    //     //     shape: shape.to_vec(),
+    //     //     strides: strides.to_vec(),
+    //     //     mask: mask.map(|m| m.to_vec()),
+    //     // }
+    // }
 
+    //     def canonicalize_strides(shape:tuple[sint, ...], strides:tuple[sint, ...]) -> tuple[sint, ...]:
+    //   return tuple(0 if s == 1 else st for s, st in zip(shape, strides))
     fn canonicalize_strides(shape: &[usize], strides: &[usize]) -> Vec<usize> {
         let mut strides = strides.to_vec();
         for (i, s) in shape.iter().enumerate() {
-            if *s == 0 {
+            if *s == 1 {
                 strides[i] = 0;
-            } else if strides[i] < 0 {
-                strides[i] = -strides[i];
             }
         }
         strides
     }
-    
+
+    //     @functools.cache
+    // def strides_for_shape(shape:tuple[sint, ...]) -> tuple[sint, ...]:
+    //   if not shape: return ()
+    //   strides = tuple(itertools.accumulate(reversed(shape[1:]), operator.mul, initial=1))[::-1]
+    //   return canonicalize_strides(shape, strides)
+    fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
+        if shape.is_empty() {
+            return vec![];
+        }
+        let mut strides = vec![1; shape.len()];
+        for i in (1..shape.len()).rev() {
+            println!("i: {}", i);
+            println!("strides[i]: {}", strides[i]);
+            println!("shape[i]: {}", shape[i]);
+            strides[i - 1] = strides[i] * shape[i];
+        }
+        strides
+    }
 }
 
 #[cfg(test)]
@@ -76,12 +93,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_canonicalize_empty_mask() {
-        let v = View::create(&[2, 2, 2], &[4, 2, 1], Some(&[(0, 2), (0, 2), (0, 2)]));
-        assert!(v.mask.is_none());
-        let v = View::create(&[4, 3, 2], &[1, 4, 10], Some(&[(0, 4), (0, 3), (0, 2)]));
-        assert!(v.mask.is_none());
+    fn test_canonicalize_strides() {
+        // Test empty arrays
+        assert_eq!(View::canonicalize_strides(&[], &[]), vec![]);
+
+        // Test single dimension
+        assert_eq!(View::canonicalize_strides(&[5], &[1]), vec![1]);
+        assert_eq!(View::canonicalize_strides(&[1], &[10]), vec![0]);
+
+        // Test multiple dimensions
+        assert_eq!(View::canonicalize_strides(&[3, 4], &[4, 1]), vec![4, 1]);
+        assert_eq!(View::canonicalize_strides(&[1, 4], &[10, 1]), vec![0, 1]);
+        assert_eq!(View::canonicalize_strides(&[4, 1], &[1, 10]), vec![1, 0]);
+
+        // Test multiple size-1 dimensions
+        assert_eq!(
+            View::canonicalize_strides(&[1, 1, 1], &[10, 20, 30]),
+            vec![0, 0, 0]
+        );
+
+        // Test mixed dimensions
+        assert_eq!(
+            View::canonicalize_strides(&[2, 1, 3, 1], &[12, 4, 1, 10]),
+            vec![12, 0, 1, 0]
+        );
     }
+
+    #[test]
+    fn test_strides_for_shape() {
+        assert_eq!(View::strides_for_shape(&[]), vec![], "Test empty shape");
+        assert_eq!(
+            View::strides_for_shape(&[5]),
+            vec![1],
+            "Test single dimension"
+        );
+        assert_eq!(
+            View::strides_for_shape(&[3, 4]),
+            vec![4, 1],
+            "Test two dimensions"
+        );
+        assert_eq!(
+            View::strides_for_shape(&[2, 3, 4]),
+            vec![12, 4, 1],
+            "Test three dimensions"
+        );
+        assert_eq!(
+            View::strides_for_shape(&[2, 3, 4, 5]),
+            vec![60, 20, 5, 1],
+            "Test four dimensions"
+        );
+        assert_eq!(
+            View::strides_for_shape(&[1, 2, 1, 3]),
+            vec![6, 3, 3, 1],
+            "Test with size 1 dimensions"
+        );
+    }
+
+    // #[test]
+    // fn test_canonicalize_empty_mask() {
+    //     let v = View::create(&[2, 2, 2], &[4, 2, 1], Some(&[(0, 2), (0, 2), (0, 2)]));
+    //     assert!(v.mask.is_none());
+    //     let v = View::create(&[4, 3, 2], &[1, 4, 10], Some(&[(0, 4), (0, 3), (0, 2)]));
+    //     assert!(v.mask.is_none());
+    // }
 
     //     #!/usr/bin/env python
     // import unittest
