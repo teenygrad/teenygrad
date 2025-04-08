@@ -13,7 +13,13 @@
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
 
-pub mod error;
-pub mod shapetracker;
-pub mod symbolic;
-pub mod view;
+pub struct Node {
+    pub b: Box<NodeOrInt>,
+    pub min: i64,
+    pub max: i64,
+}
+
+pub enum NodeOrInt {
+    Node(Node),
+    Int(i64),
+}

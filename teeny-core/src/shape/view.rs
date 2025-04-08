@@ -39,6 +39,20 @@ impl View {
             offset,
         })
     }
+
+    pub fn size(&self) -> i64 {
+        todo!();
+        // self.shape
+        //     .iter()
+        //     .zip(self.strides.iter())
+        //     .filter(|(_, &st)| st != 0)
+        //     .map(|(s, _)| match s {
+        //         Node::Num(n) => *n,
+        //         Node::Var(v) => v.max,
+        //         _ => panic!("unexpected node type"),
+        //     })
+        //     .product()
+    }
 }
 
 pub struct ViewBuilder {
