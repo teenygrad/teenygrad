@@ -16,7 +16,12 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+
 pub enum ShapeError {
     #[error("Trying to create View with negative dimension")]
     NegativeDimension(),
 }
+
+#[derive(Error, Debug)]
+
+pub enum ViewError {}
