@@ -13,10 +13,27 @@
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
 
-pub struct Node {
-    pub b: Box<NodeOrInt>,
-    pub min: i64,
-    pub max: i64,
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+
+use var_node::VarNode;
+
+mod var_node;
+pub trait NodeOps:
+    Sized
+    + Add<Output = Node>
+    + Sub<Output = Node>
+    + Mul<Output = Node>
+    + Div<Output = Node>
+    + Rem<Output = Node>
+    + Neg<Output = Node>
+{
+    fn b() -> NodeOrInt;
+    fn min() -> i64;
+    fn max() -> i64;
+}
+
+pub enum Node {
+    Var(VarNode),
 }
 
 pub enum NodeOrInt {
