@@ -13,17 +13,54 @@
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use super::{Node, NodeOps, NodeOrInt};
 
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct VarNode {
-    expr: String,
-    min: i64,
-    max: i64,
+    pub expr: Option<String>,
+    pub val: Option<i64>,
+    pub min: i64,
+    pub max: i64,
+}
+
+impl VarNode {
+    pub fn create(expr: Option<String>, min: i64, max: i64) -> Node {
+        assert!(min >= 0 && min <= max);
+        if min == max {
+            return Node::Num(min);
+        }
+
+        Node::Var(Self {
+            expr,
+            min,
+            max,
+            val: None,
+        })
+    }
+
+    pub fn bind(&mut self, val: i64) -> &mut Self {
+        assert!(self.val.is_none());
+        assert!(self.min <= val && val <= self.max);
+
+        self.val = Some(val);
+        self
+    }
+
+    pub fn unbind(&mut self) -> (VarNode, i64) {
+        assert!(self.val.is_some());
+
+        let val = self.val.unwrap();
+        self.val = None;
+        (self.clone(), val)
+    }
 }
 
 impl NodeOps for VarNode {
     fn b(&self) -> NodeOrInt {
-        NodeOrInt::Node(Node::Var(self))
+        todo!()
     }
 
     fn min(&self) -> i64 {
@@ -33,70 +70,8 @@ impl NodeOps for VarNode {
     fn max(&self) -> i64 {
         self.max
     }
-}
 
-impl std::ops::Add for VarNode {
-    type Output = Node;
-    fn add(self, rhs: Self) -> Self::Output {
-        Node::Var(VarNode {
-            expr: format!("({} + {})", self.expr, rhs.expr),
-            min: self.min + rhs.min,
-            max: self.max + rhs.max,
-        })
-    }
-}
-
-impl std::ops::Sub for VarNode {
-    type Output = Node;
-    fn sub(self, rhs: Self) -> Self::Output {
-        Node::Var(VarNode {
-            expr: format!("({} - {})", self.expr, rhs.expr),
-            min: self.min - rhs.max,
-            max: self.max - rhs.min,
-        })
-    }
-}
-
-impl std::ops::Mul for VarNode {
-    type Output = Node;
-    fn mul(self, rhs: Self) -> Self::Output {
-        Node::Var(VarNode {
-            expr: format!("({} * {})", self.expr, rhs.expr),
-            min: self.min * rhs.min,
-            max: self.max * rhs.max,
-        })
-    }
-}
-
-impl std::ops::Div for VarNode {
-    type Output = Node;
-    fn div(self, rhs: Self) -> Self::Output {
-        Node::Var(VarNode {
-            expr: format!("({} / {})", self.expr, rhs.expr),
-            min: self.min / rhs.max,
-            max: self.max / rhs.min,
-        })
-    }
-}
-
-impl std::ops::Rem for VarNode {
-    type Output = Node;
-    fn rem(self, rhs: Self) -> Self::Output {
-        Node::Var(VarNode {
-            expr: format!("({} % {})", self.expr, rhs.expr),
-            min: 0,
-            max: rhs.max - 1,
-        })
-    }
-}
-
-impl std::ops::Neg for VarNode {
-    type Output = Node;
-    fn neg(self) -> Self::Output {
-        Node::Var(VarNode {
-            expr: format!("-{}", self.expr),
-            min: -self.max,
-            max: -self.min,
-        })
+    fn vars(&self) -> Vec<VarNode> {
+        Vec::from([self.clone()])
     }
 }

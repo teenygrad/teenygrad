@@ -14,6 +14,7 @@
  */
 
 use super::error::ViewError;
+use alloc::vec::Vec;
 
 pub struct View {
     pub shape: Vec<i64>,
@@ -177,8 +178,8 @@ pub struct ViewBuilder {
 impl ViewBuilder {
     pub fn new() -> Self {
         Self {
-            shape: vec![],
-            strides: vec![],
+            shape: Vec::new(),
+            strides: Vec::new(),
             mask: None,
             offset: 0,
         }
@@ -230,7 +231,6 @@ impl Default for ViewBuilder {
 }
 
 fn filter_strides(shape: &[i64], strides: &[i64]) -> Vec<i64> {
-    println!("filter_strides: {:?}, {:?}", shape, strides);
     strides
         .iter()
         .zip(shape.iter())
@@ -239,11 +239,14 @@ fn filter_strides(shape: &[i64], strides: &[i64]) -> Vec<i64> {
 }
 
 fn strides_for_shape(shape: &[i64]) -> Vec<i64> {
-    let mut strides = if shape.is_empty() { vec![] } else { vec![1] };
+    let mut strides = if shape.is_empty() {
+        Vec::new()
+    } else {
+        Vec::from([1])
+    };
     for d in shape.iter().skip(1).rev() {
         strides.insert(0, d * strides[0]);
     }
-    println!("strides_for_shape-*1: {:?}", strides);
     filter_strides(shape, &strides)
 }
 
@@ -253,92 +256,103 @@ mod tests {
 
     #[test]
     fn test_filter_strides() {
-        assert_eq!(filter_strides(&[], &[]), vec![], "Test empty arrays");
+        assert_eq!(filter_strides(&[], &[]), Vec::new(), "Test empty arrays");
 
-        assert_eq!(filter_strides(&[5], &[1]), vec![1], "Test single dimension");
+        assert_eq!(
+            filter_strides(&[5], &[1]),
+            Vec::from([1]),
+            "Test single dimension"
+        );
         assert_eq!(
             filter_strides(&[1], &[10]),
-            vec![0],
+            Vec::from([0]),
             "Test single dimension"
         );
 
         assert_eq!(
             filter_strides(&[3, 4], &[4, 1]),
-            vec![4, 1],
+            Vec::from([4, 1]),
             "Test multiple dimensions"
         );
         assert_eq!(
             filter_strides(&[1, 4], &[10, 1]),
-            vec![0, 1],
+            Vec::from([0, 1]),
             "Test multiple dimensions"
         );
         assert_eq!(
             filter_strides(&[4, 1], &[1, 10]),
-            vec![1, 0],
+            Vec::from([1, 0]),
             "Test multiple dimensions"
         );
 
         assert_eq!(
             filter_strides(&[1, 1, 1], &[10, 20, 30]),
-            vec![0, 0, 0],
+            Vec::from([0, 0, 0]),
             "Test multiple size-1 dimensions"
         );
 
         assert_eq!(
             filter_strides(&[2, 1, 3, 1], &[12, 4, 1, 10]),
-            vec![12, 0, 1, 0],
+            Vec::from([12, 0, 1, 0]),
             "Test mixed dimensions"
         );
     }
 
     #[test]
     fn test_strides_for_shape() {
-        assert_eq!(strides_for_shape(&[]), vec![], "Test empty shape");
+        assert_eq!(strides_for_shape(&[]), Vec::new(), "Test empty shape");
 
-        assert_eq!(strides_for_shape(&[5]), vec![1], "Test single dimension");
+        assert_eq!(
+            strides_for_shape(&[5]),
+            Vec::from([1]),
+            "Test single dimension"
+        );
 
         assert_eq!(
             strides_for_shape(&[3, 4]),
-            vec![4, 1],
+            Vec::from([4, 1]),
             "Test two dimensions"
         );
 
         assert_eq!(
             strides_for_shape(&[2, 3, 4]),
-            vec![12, 4, 1],
+            Vec::from([12, 4, 1]),
             "Test three dimensions"
         );
 
         assert_eq!(
             strides_for_shape(&[2, 3, 4, 5]),
-            vec![60, 20, 5, 1],
+            Vec::from([60, 20, 5, 1]),
             "Test four dimensions"
         );
 
         assert_eq!(
             strides_for_shape(&[1, 2, 1, 3]),
-            vec![0, 3, 0, 1],
+            Vec::from([0, 3, 0, 1]),
             "Test with size 1 dimensions"
         );
 
         assert_eq!(
             strides_for_shape(&[1, 1, 1]),
-            vec![0, 0, 0],
+            Vec::from([0, 0, 0]),
             "Test with all size 1 dimensions"
         );
 
         assert_eq!(
             strides_for_shape(&[2, 1, 3, 1]),
-            vec![3, 0, 1, 0],
+            Vec::from([3, 0, 1, 0]),
             "Test with mixed dimensions including size 1"
         );
     }
 
     #[test]
     fn test_view_create() {
-        let v = ViewBuilder::new().with_shape(vec![2, 3]).build().unwrap();
-        assert_eq!(v.shape, vec![2, 3]);
-        assert_eq!(v.strides, vec![3, 1]);
+        let v = ViewBuilder::new()
+            .with_shape(Vec::from([2, 3]))
+            .build()
+            .unwrap();
+        assert_eq!(v.shape, Vec::from([2, 3]));
+        assert_eq!(v.strides, Vec::from([3, 1]));
         assert_eq!(v.offset, 0);
         assert!(v.mask.is_none());
         assert!(v.contiguous);
@@ -347,12 +361,12 @@ mod tests {
     #[test]
     fn test_view_with_custom_strides() {
         let v = ViewBuilder::new()
-            .with_shape(vec![2, 3])
-            .with_strides(vec![6, 2])
+            .with_shape(Vec::from([2, 3]))
+            .with_strides(Vec::from([6, 2]))
             .build()
             .unwrap();
-        assert_eq!(v.shape, vec![2, 3]);
-        assert_eq!(v.strides, vec![6, 2]);
+        assert_eq!(v.shape, Vec::from([2, 3]));
+        assert_eq!(v.strides, Vec::from([6, 2]));
         assert_eq!(v.offset, 0);
         assert!(v.mask.is_none());
         assert!(!v.contiguous);
@@ -361,12 +375,12 @@ mod tests {
     #[test]
     fn test_view_with_offset() {
         let v = ViewBuilder::new()
-            .with_shape(vec![2, 3])
+            .with_shape(Vec::from([2, 3]))
             .with_offset(5)
             .build()
             .unwrap();
-        assert_eq!(v.shape, vec![2, 3]);
-        assert_eq!(v.strides, vec![3, 1]);
+        assert_eq!(v.shape, Vec::from([2, 3]));
+        assert_eq!(v.strides, Vec::from([3, 1]));
         assert_eq!(v.offset, 5);
         assert!(v.mask.is_none());
         assert!(!v.contiguous);
@@ -374,14 +388,14 @@ mod tests {
 
     #[test]
     fn test_view_with_mask() {
-        let mask = vec![(0, 1), (1, 2)];
+        let mask = Vec::from([(0, 1), (1, 2)]);
         let v = ViewBuilder::new()
-            .with_shape(vec![2, 3])
+            .with_shape(Vec::from([2, 3]))
             .with_mask(mask.clone())
             .build()
             .unwrap();
-        assert_eq!(v.shape, vec![2, 3]);
-        assert_eq!(v.strides, vec![3, 1]);
+        assert_eq!(v.shape, Vec::from([2, 3]));
+        assert_eq!(v.strides, Vec::from([3, 1]));
         assert_eq!(v.offset, 0);
         assert_eq!(v.mask, Some(mask));
         assert!(!v.contiguous);
@@ -389,9 +403,12 @@ mod tests {
 
     #[test]
     fn test_view_with_size_1_dimensions() {
-        let v = ViewBuilder::new().with_shape(vec![1, 3]).build().unwrap();
-        assert_eq!(v.shape, vec![1, 3], "shape");
-        assert_eq!(v.strides, vec![0, 1], "strides");
+        let v = ViewBuilder::new()
+            .with_shape(Vec::from([1, 3]))
+            .build()
+            .unwrap();
+        assert_eq!(v.shape, Vec::from([1, 3]), "shape");
+        assert_eq!(v.strides, Vec::from([0, 1]), "strides");
         assert_eq!(v.offset, 0, "offset");
         assert!(v.mask.is_none(), "mask");
         assert!(v.contiguous, "contiguous");
@@ -400,12 +417,12 @@ mod tests {
     #[test]
     fn test_view_with_custom_strides_and_size_1_dimensions() {
         let v = ViewBuilder::new()
-            .with_shape(vec![1, 3])
-            .with_strides(vec![10, 2])
+            .with_shape(Vec::from([1, 3]))
+            .with_strides(Vec::from([10, 2]))
             .build()
             .unwrap();
-        assert_eq!(v.shape, vec![1, 3]);
-        assert_eq!(v.strides, vec![0, 2]);
+        assert_eq!(v.shape, Vec::from([1, 3]));
+        assert_eq!(v.strides, Vec::from([0, 2]));
         assert_eq!(v.offset, 0);
         assert!(v.mask.is_none());
         assert!(!v.contiguous);
@@ -413,9 +430,9 @@ mod tests {
 
     #[test]
     fn test_view_with_empty_shape() {
-        let v = ViewBuilder::new().with_shape(vec![]).build().unwrap();
-        assert_eq!(v.shape, vec![]);
-        assert_eq!(v.strides, vec![]);
+        let v = ViewBuilder::new().with_shape(Vec::new()).build().unwrap();
+        assert_eq!(v.shape, Vec::new());
+        assert_eq!(v.strides, Vec::new());
         assert_eq!(v.offset, 0);
         assert!(v.mask.is_none());
         assert!(v.contiguous);

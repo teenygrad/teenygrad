@@ -12,6 +12,10 @@
  * Unauthorized copying, modification, distribution, or use of this Software is
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
+
+#![no_std]
+extern crate alloc;
+
 pub mod shape;
 
 pub fn add(left: u64, right: u64) -> u64 {
