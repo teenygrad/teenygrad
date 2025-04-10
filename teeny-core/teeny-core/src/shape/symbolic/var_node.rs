@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 
 use super::{Node, NodeOps, NodeOrInt};
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VarNode {
     pub expr: Option<String>,
     pub val: Option<i64>,

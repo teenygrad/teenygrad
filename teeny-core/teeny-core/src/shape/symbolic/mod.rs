@@ -13,12 +13,10 @@
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
 
-use alloc::string::String;
 use alloc::vec::Vec;
-use hashbrown::HashMap;
 use var_node::VarNode;
 
-mod var_node;
+pub mod var_node;
 pub trait NodeOps: Sized {
     fn b(&self) -> NodeOrInt;
     fn min(&self) -> i64;
@@ -36,63 +34,21 @@ pub trait NodeOps: Sized {
             .map(VarOrNum::Var)
             .unwrap_or(VarOrNum::Num(0))
     }
-
-    //   def expand(self, idxs:Optional[Tuple[VariableOrNum, ...]]=None) -> List[Node]:
-    //     if idxs is None: idxs = (self.expand_idx(),)
-    //     return [self.substitute(dict(zip(idxs, (NumNode(x) for x in rep)))) for rep in Node.iter_idxs(idxs)]
-    fn expand(&self, idxs: Option<Vec<VarOrNum>>) -> Vec<Node> {
-        let _idxs = idxs.or_else(|| Some(Vec::from([self.expand_idx()])));
-        todo!()
-    }
-
-    fn substitute(&self, _var_vals: HashMap<VarOrNum, Node>) -> Node {
-        todo!()
-    }
-
-    fn unbind(&self) -> (Node, Option<i64>) {
-        todo!()
-    }
-
-    fn key(&self) -> String {
-        todo!()
-    }
-
-    fn hash(&self) -> u64 {
-        todo!()
-    }
-
-    fn bool(&self) -> bool {
-        todo!()
-    }
-
-    fn to_string(&self) -> String {
-        self.key()
-    }
-
-    fn mul(&self, _other: Node) -> Node {
-        todo!()
-    }
 }
 
-//   def iter_idxs(idxs:Tuple[VariableOrNum, ...]) -> Iterator[Tuple[int,...]]:
-//     yield from (x[::-1] for x in product(*[[x for x in range(v.min, v.max + 1)] for v in idxs[::-1]]))
-
-pub fn iter_idxs(_idxs: Vec<VarOrNum>) {
-    todo!()
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Node {
     Var(VarNode),
     Num(i64),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum NodeOrInt {
     Node(Node),
     Int(i64),
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VarOrNum {
     Var(VarNode),
     Num(i64),
