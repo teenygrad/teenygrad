@@ -8,4 +8,7 @@ anyhow.workspace = true
 tokio.workspace = true
 clap.workspace = true
 reqwest.workspace = true
-teeny-core = { path = "../../teeny-core/teeny-core" }
+flate2.workspace = true
+half.workspace = true
+# teenygrad dependencies
+teeny-core.workspace = true

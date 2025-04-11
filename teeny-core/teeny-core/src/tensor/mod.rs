@@ -13,5 +13,18 @@
  * strictly prohibited and may result in severe civil and criminal penalties.
  */
 
-pub mod cpu;
-pub trait Tensor {}
+use alloc::vec::Vec;
+
+pub mod memory;
+
+pub enum ElementType {
+    FP16,
+}
+
+pub trait Tensor<T>: Sized {
+    fn element_type(&self) -> &ElementType;
+    fn shape(&self) -> &[i64];
+    fn data(&self) -> &[T];
+
+    fn reshape(&mut self, shape: Vec<i64>) -> &mut Self;
+}

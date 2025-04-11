@@ -14,6 +14,10 @@
  */
 
 use anyhow::Result;
+use flate2::read::GzDecoder;
+use std::io::Read;
+use teeny_core::tensor::memory::MemoryTensor;
+use teeny_core::tensor::{ElementType, Tensor};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
@@ -27,7 +31,29 @@ const MNIST_TEST_IMAGES: &str =
 const MNIST_TEST_LABELS: &str =
     "https://github.com/spinorml/data/blob/main/models/mnist/train-labels-idx1-ubyte.gz";
 
-pub async fn fetch_mnist_train_data(cache_dir: &str) -> Result<(String, String)> {
+pub async fn read_mnist_train_data(
+    cache_dir: &str,
+) -> Result<(impl Tensor<half::f16>, impl Tensor<half::f16>)> {
+    let (images_path, labels_path) = fetch_mnist_train_data(cache_dir).await?;
+
+    let images = read_mnist_images(images_path).await?;
+    let labels = read_mnist_labels(labels_path).await?;
+
+    Ok((images, labels))
+}
+
+pub async fn read_mnist_test_data(
+    cache_dir: &str,
+) -> Result<(impl Tensor<half::f16>, impl Tensor<half::f16>)> {
+    let (images_path, labels_path) = fetch_mnist_test_data(cache_dir).await?;
+
+    let images = read_mnist_images(images_path).await?;
+    let labels = read_mnist_labels(labels_path).await?;
+
+    Ok((images, labels))
+}
+
+async fn fetch_mnist_train_data(cache_dir: &str) -> Result<(String, String)> {
     let images_path = format!("{}/train-images-idx3-ubyte.gz", cache_dir);
     let labels_path = format!("{}/train-labels-idx1-ubyte.gz", cache_dir);
 
@@ -39,7 +65,7 @@ pub async fn fetch_mnist_train_data(cache_dir: &str) -> Result<(String, String)>
     Ok((images_path, labels_path))
 }
 
-pub async fn fetch_mnist_test_data(cache_dir: &str) -> Result<(String, String)> {
+async fn fetch_mnist_test_data(cache_dir: &str) -> Result<(String, String)> {
     let images_path = format!("{}/t10k-images-idx3-ubyte.gz", cache_dir);
     let labels_path = format!("{}/t10k-labels-idx1-ubyte.gz", cache_dir);
 
@@ -71,4 +97,42 @@ async fn download_file(url: &str, cache_path: &str) -> Result<()> {
     file.write_all(&content).await?;
 
     Ok(())
+}
+
+async fn read_mnist_images(path: String) -> Result<impl Tensor<half::f16>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = GzDecoder::new(file);
+    let mut images = Vec::new();
+    reader.read_to_end(&mut images)?;
+
+    let scale_factor = half::f16::from_bits(255);
+
+    let data = images
+        .iter()
+        .map(|b| half::f16::from_bits(*b as u16) / scale_factor)
+        .collect::<Vec<half::f16>>();
+
+    Ok(MemoryTensor::new(
+        ElementType::FP16,
+        Vec::from([data.len() as i64]),
+        data,
+    ))
+}
+
+async fn read_mnist_labels(path: String) -> Result<impl Tensor<half::f16>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = GzDecoder::new(file);
+    let mut labels = Vec::new();
+    reader.read_to_end(&mut labels)?;
+
+    let data = labels
+        .iter()
+        .map(|b| half::f16::from_bits(*b as u16))
+        .collect::<Vec<half::f16>>();
+
+    Ok(MemoryTensor::new(
+        ElementType::FP16,
+        Vec::from([data.len() as i64]),
+        data,
+    ))
 }
