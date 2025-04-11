@@ -1257,14 +1257,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-core"
-version = "0.1.0"
-dependencies = [
- "hashbrown",
- "thiserror",
-]
-
-[[package]]
 name = "teeny-mnist"
 version = "0.1.0"
 dependencies = [
@@ -1273,8 +1265,24 @@ dependencies = [
  "flate2",
  "half",
  "reqwest",
- "teeny-core",
+ "teeny-tensor",
  "tokio",
+]
+
+[[package]]
+name = "teeny-nn"
+version = "0.1.0"
+
+[[package]]
+name = "teeny-optim"
+version = "0.1.0"
+
+[[package]]
+name = "teeny-tensor"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
+ "thiserror",
 ]
 
 [[package]]

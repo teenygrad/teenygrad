@@ -11,4 +11,4 @@ reqwest.workspace = true
 flate2.workspace = true
 half.workspace = true
 # teenygrad dependencies
-teeny-core.workspace = true
+teeny-tensor.workspace = true

@@ -1,21 +1,23 @@
 /*
- * Copyright (c) SpinorML 2025. All rights reserved.
+ * Copyright (C) 2025 SpinorML Ltd.
  *
- * This software and associated documentation files (the "Software") are proprietary
- * and confidential. The Software is protected by copyright laws and international
- * copyright treaties, as well as other intellectual property laws and treaties.
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
  *
- * No part of this Software may be reproduced, distributed, or transmitted in any
- * form or by any means, including photocopying, recording, or other electronic or
- * mechanical methods, without the prior written permission of SpinorML.
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
  *
- * Unauthorized copying, modification, distribution, or use of this Software is
- * strictly prohibited and may result in severe civil and criminal penalties.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 use anyhow::Result;
 use clap::Parser;
-use teeny_core::tensor::Tensor;
+use teeny_tensor::tensor::Tensor;
 
 mod mnist;
 
@@ -33,8 +35,8 @@ async fn main() -> Result<()> {
     let (mut x_train, mut y_train) = mnist::read_mnist_train_data(&args.cache_dir).await?;
     let (_x_test, _y_test) = mnist::read_mnist_test_data(&args.cache_dir).await?;
 
-    let x_train = x_train.reshape(Vec::from([-1, 28 * 28]));
-    let y_train = y_train.reshape(Vec::from([-1, 28 * 28]));
+    let _x_train = x_train.reshape(Vec::from([-1, 28 * 28]));
+    let _y_train = y_train.reshape(Vec::from([-1, 28 * 28]));
 
     println!("Hello, world!");
     Ok(())

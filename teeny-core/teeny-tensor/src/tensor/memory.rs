@@ -1,16 +1,18 @@
 /*
- * Copyright (c) SpinorML 2025. All rights reserved.
+ * Copyright (C) 2025 SpinorML Ltd.
  *
- * This software and associated documentation files (the "Software") are proprietary
- * and confidential. The Software is protected by copyright laws and international
- * copyright treaties, as well as other intellectual property laws and treaties.
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
  *
- * No part of this Software may be reproduced, distributed, or transmitted in any
- * form or by any means, including photocopying, recording, or other electronic or
- * mechanical methods, without the prior written permission of SpinorML.
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
  *
- * Unauthorized copying, modification, distribution, or use of this Software is
- * strictly prohibited and may result in severe civil and criminal penalties.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 use alloc::vec::Vec;

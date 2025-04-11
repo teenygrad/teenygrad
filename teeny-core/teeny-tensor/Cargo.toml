@@ -1,5 +1,5 @@
 [package]
-name = "teeny-core"
+name = "teeny-tensor"
 version = "0.1.0"
 edition = "2024"
 
