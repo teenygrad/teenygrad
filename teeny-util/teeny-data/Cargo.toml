@@ -1,5 +1,5 @@
 [package]
-name = "teeny-mnist"
+name = "teeny-data"
 version = "0.1.0"
 edition = "2024"
 
@@ -12,6 +12,3 @@ flate2.workspace = true
 half.workspace = true
 # teenygrad dependencies
 teeny-tensor.workspace = true
-teeny-data.workspace = true
-teeny-model.workspace = true
-teeny-optim.workspace = true

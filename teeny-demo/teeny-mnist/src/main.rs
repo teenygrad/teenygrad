@@ -17,9 +17,10 @@
 
 use anyhow::Result;
 use clap::Parser;
+use teeny_data::mnist;
 use teeny_tensor::tensor::Tensor;
 
-mod mnist;
+mod model;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

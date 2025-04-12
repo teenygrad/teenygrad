@@ -15,17 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use crate::tensor::{ElementType, Tensor};
 
+#[derive(Clone)]
 pub struct MemoryTensor<T> {
     pub element_type: ElementType,
     pub shape: Vec<i64>,
     pub data: Vec<T>,
 }
 
-impl<T> Tensor<T> for MemoryTensor<T> {
+impl<T: Clone + 'static> Tensor<T> for MemoryTensor<T> {
     fn element_type(&self) -> &ElementType {
         &self.element_type
     }
@@ -38,9 +39,24 @@ impl<T> Tensor<T> for MemoryTensor<T> {
         &self.data
     }
 
-    fn reshape(&mut self, shape: Vec<i64>) -> &mut Self {
-        self.shape = shape;
-        self
+    fn reshape(&mut self, shape: Vec<i64>) -> Box<dyn Tensor<T>> {
+        Box::new(MemoryTensor::new(
+            self.element_type.clone(),
+            shape,
+            self.data.clone(),
+        ))
+    }
+
+    fn dot(&self, _other: &dyn Tensor<T>) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn relu(&self) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn log_softmax(&self) -> Box<dyn Tensor<T>> {
+        todo!()
     }
 }
 

@@ -15,23 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use alloc::{boxed::Box, vec::Vec};
+use teeny_tensor::tensor::Tensor;
 
-pub mod memory;
+pub trait Parameter {}
 
-#[derive(Clone)]
-pub enum ElementType {
-    FP16,
-}
+pub trait Model<T> {
+    fn parameters(&self) -> Vec<Box<dyn Parameter>>;
 
-pub trait Tensor<T: Clone> {
-    fn element_type(&self) -> &ElementType;
-    fn shape(&self) -> &[i64];
-    fn data(&self) -> &[T];
-
-    fn reshape(&mut self, shape: Vec<i64>) -> Box<dyn Tensor<T>>;
-
-    fn dot(&self, other: &dyn Tensor<T>) -> Box<dyn Tensor<T>>;
-    fn relu(&self) -> Box<dyn Tensor<T>>;
-    fn log_softmax(&self) -> Box<dyn Tensor<T>>;
+    fn forward(&self, x: Box<dyn Tensor<T>>) -> Box<dyn Tensor<T>>;
 }

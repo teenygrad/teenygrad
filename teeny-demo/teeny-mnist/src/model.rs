@@ -15,23 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use alloc::{boxed::Box, vec::Vec};
+use teeny_model::{Model, Parameter};
+use teeny_tensor::tensor::Tensor;
 
-pub mod memory;
-
-#[derive(Clone)]
-pub enum ElementType {
-    FP16,
+pub struct BobNet<T> {
+    l1: Box<dyn Tensor<T>>,
+    l2: Box<dyn Tensor<T>>,
 }
 
-pub trait Tensor<T: Clone> {
-    fn element_type(&self) -> &ElementType;
-    fn shape(&self) -> &[i64];
-    fn data(&self) -> &[T];
+impl<T: Tensor<T> + Clone> Model<T> for BobNet<T> {
+    fn parameters(&self) -> Vec<Box<dyn Parameter>> {
+        vec![]
+    }
 
-    fn reshape(&mut self, shape: Vec<i64>) -> Box<dyn Tensor<T>>;
-
-    fn dot(&self, other: &dyn Tensor<T>) -> Box<dyn Tensor<T>>;
-    fn relu(&self) -> Box<dyn Tensor<T>>;
-    fn log_softmax(&self) -> Box<dyn Tensor<T>>;
+    fn forward(&self, x: Box<dyn Tensor<T>>) -> Box<dyn Tensor<T>> {
+        x.dot(&*self.l1).relu().dot(&*self.l2).log_softmax()
+    }
 }

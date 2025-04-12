@@ -1257,7 +1257,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-mnist"
+name = "teeny-data"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1270,8 +1270,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-nn"
+name = "teeny-mnist"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "flate2",
+ "half",
+ "reqwest",
+ "teeny-data",
+ "teeny-model",
+ "teeny-optim",
+ "teeny-tensor",
+ "tokio",
+]
+
+[[package]]
+name = "teeny-model"
+version = "0.1.0"
+dependencies = [
+ "teeny-tensor",
+]
 
 [[package]]
 name = "teeny-optim"
