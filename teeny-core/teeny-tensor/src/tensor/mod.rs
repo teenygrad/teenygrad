@@ -24,14 +24,26 @@ pub enum ElementType {
     FP16,
 }
 
+pub type Shape = Vec<i64>;
 pub trait Tensor<T: Clone> {
     fn element_type(&self) -> &ElementType;
     fn shape(&self) -> &[i64];
     fn data(&self) -> &[T];
 
-    fn reshape(&mut self, shape: Vec<i64>) -> Box<dyn Tensor<T>>;
+    fn reshape(&mut self, shape: Shape) -> Box<dyn Tensor<T>>;
 
     fn dot(&self, other: &dyn Tensor<T>) -> Box<dyn Tensor<T>>;
     fn relu(&self) -> Box<dyn Tensor<T>>;
     fn log_softmax(&self) -> Box<dyn Tensor<T>>;
+
+    fn zeroes(&self, shape: Shape) -> Box<dyn Tensor<T>>;
+    fn ones(&self, shape: Shape) -> Box<dyn Tensor<T>>;
+    fn empty(&self, shape: Shape) -> Box<dyn Tensor<T>>;
+    fn full(&self, shape: Shape, value: T) -> Box<dyn Tensor<T>>;
+    fn rand(&self, shape: Shape) -> Box<dyn Tensor<T>>;
+    fn randn(&self, shape: Shape) -> Box<dyn Tensor<T>>;
+    fn arange(&self, start: T, end: T, step: T) -> Box<dyn Tensor<T>>;
+    fn linspace(&self, start: T, end: T, steps: i64) -> Box<dyn Tensor<T>>;
+    fn eye(&self, shape: Shape) -> Box<dyn Tensor<T>>;
+    fn diag(&self, shape: Shape) -> Box<dyn Tensor<T>>;
 }

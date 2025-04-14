@@ -58,6 +58,46 @@ impl<T: Clone + 'static> Tensor<T> for MemoryTensor<T> {
     fn log_softmax(&self) -> Box<dyn Tensor<T>> {
         todo!()
     }
+
+    fn zeroes(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn ones(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn empty(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn full(&self, _shape: super::Shape, _value: T) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn rand(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn randn(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn arange(&self, _start: T, _end: T, _step: T) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn linspace(&self, _start: T, _end: T, _steps: i64) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn eye(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
+
+    fn diag(&self, _shape: super::Shape) -> Box<dyn Tensor<T>> {
+        todo!()
+    }
 }
 
 impl<T> MemoryTensor<T> {
