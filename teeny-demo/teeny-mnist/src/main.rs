@@ -17,6 +17,7 @@
 
 use anyhow::Result;
 use clap::Parser;
+use smol::block_on;
 use teeny_data::mnist;
 use teeny_tensor::tensor::Tensor;
 
@@ -30,15 +31,16 @@ struct Args {
     cache_dir: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
-    let (mut x_train, mut y_train) = mnist::read_mnist_train_data(&args.cache_dir).await?;
-    let (_x_test, _y_test) = mnist::read_mnist_test_data(&args.cache_dir).await?;
+    block_on(async {
+        let (mut x_train, mut y_train) = mnist::read_mnist_train_data(&args.cache_dir).await?;
+        let (_x_test, _y_test) = mnist::read_mnist_test_data(&args.cache_dir).await?;
 
-    let _x_train = x_train.reshape(Vec::from([-1, 28 * 28]));
-    let _y_train = y_train.reshape(Vec::from([-1, 28 * 28]));
+        let _x_train = x_train.reshape(Vec::from([-1, 28 * 28]));
+        let _y_train = y_train.reshape(Vec::from([-1, 28 * 28]));
 
-    println!("Hello, world!");
-    Ok(())
+        println!("Hello, world!");
+        Ok(())
+    })
 }

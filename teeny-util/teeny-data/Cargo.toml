@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
-tokio.workspace = true
+smol.workspace = true
 clap.workspace = true
-reqwest.workspace = true
+surf.workspace = true
 flate2.workspace = true
 half.workspace = true
 # teenygrad dependencies

@@ -17,21 +17,21 @@
 
 use anyhow::Result;
 use flate2::read::GzDecoder;
+use smol::fs::File;
+use smol::io::AsyncWriteExt;
 use std::io::Read;
 use teeny_tensor::tensor::memory::MemoryTensor;
 use teeny_tensor::tensor::{ElementType, Tensor};
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 
 const MNIST_TRAIN_IMAGES: &str =
-    "https://github.com/spinorml/data/blob/main/models/mnist/t10k-images-idx3-ubyte.gz";
+    "https://github.com/spinorml/data/blob/main/models/mnist/t10k-images-idx3-ubyte.gz?raw=true";
 const MNIST_TRAIN_LABELS: &str =
-    "https://github.com/spinorml/data/blob/main/models/mnist/t10k-labels-idx1-ubyte.gz";
+    "https://github.com/spinorml/data/blob/main/models/mnist/t10k-labels-idx1-ubyte.gz?raw=true";
 
 const MNIST_TEST_IMAGES: &str =
-    "https://github.com/spinorml/data/blob/main/models/mnist/train-images-idx3-ubyte.gz";
+    "https://github.com/spinorml/data/blob/main/models/mnist/train-images-idx3-ubyte.gz?raw=true";
 const MNIST_TEST_LABELS: &str =
-    "https://github.com/spinorml/data/blob/main/models/mnist/train-labels-idx1-ubyte.gz";
+    "https://github.com/spinorml/data/blob/main/models/mnist/train-labels-idx1-ubyte.gz?raw=true";
 
 pub async fn read_mnist_train_data(
     cache_dir: &str,
@@ -93,10 +93,20 @@ async fn download_file(url: &str, cache_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    let response = reqwest::get(url).await?;
+    let client = surf::client().with(surf::middleware::Redirect::new(20));
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to send request: {}", e))?;
+
     let mut file = File::create(cache_path).await?;
-    let content = response.bytes().await?;
+    let content = response
+        .body_bytes()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
     file.write_all(&content).await?;
+    file.close().await?;
 
     Ok(())
 }

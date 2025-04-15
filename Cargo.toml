@@ -1,4 +1,3 @@
-
 [workspace]
 resolver = "2"
 members = [ "teeny-core/*" , "teeny-nn/*", "teeny-demo/*", "teeny-util/*"]
@@ -7,8 +6,8 @@ members = [ "teeny-core/*" , "teeny-nn/*", "teeny-demo/*", "teeny-util/*"]
 anyhow = "1.0.97"
 thiserror = "2.0.12"
 clap = { version = "4.5.35", features = [ "derive" ]}
-tokio = { version = "1.41.1", features = ["full"] }
-reqwest = { version = "0.12.11", features = ["json"] }
+smol = "2.0.2"
+surf = { version = "2.3.2", features = [ "h1-client" ] }
 hashbrown = "0.15.2"
 flate2 = "1.0.26"
 half = "2.6.0"
