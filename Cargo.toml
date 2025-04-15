@@ -11,6 +11,9 @@ surf = { version = "2.3.2", features = [ "h1-client" ] }
 hashbrown = "0.15.2"
 flate2 = "1.0.26"
 half = "2.6.0"
+protobuf = "3.7.2"
+protobuf-codegen = "3.7.2"
+protoc-bin-vendored = "3.1.0" 
 
 teeny-tensor = { path = "./teeny-core/teeny-tensor" }
 teeny-model = { path = "./teeny-core/teeny-model" }

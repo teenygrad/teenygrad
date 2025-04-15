@@ -15,4 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
+use std::{fs::File, path::PathBuf};
+
+use protobuf::CodedInputStream;
+use protobuf::Message;
+use teeny_onnx::onnx_proto3::ModelProto;
+
+#[test]
+fn test_read_single_relu() {
+    let mut resource_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    resource_path.push("onnx/examples/resources/single_relu.onnx");
+
+    let mut file = File::open(resource_path).unwrap();
+    let mut stream = CodedInputStream::new(&mut file);
+    let model = ModelProto::parse_from(&mut stream).unwrap();
+
+    assert_eq!("backend-test", model.producer_name);
+}

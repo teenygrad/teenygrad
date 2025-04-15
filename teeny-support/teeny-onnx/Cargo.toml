@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+protobuf.workspace = true
+
+[build-dependencies]
+protobuf-codegen.workspace = true
+protoc-bin-vendored.workspace = true 

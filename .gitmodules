@@ -1,0 +1,3 @@
+[submodule "teeny-support/teeny-onnx/onnx"]
+	path = teeny-support/teeny-onnx/onnx
+	url = git@github.com:onnx/onnx.git
