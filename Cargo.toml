@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "teeny-core/*" , "teeny-nn/*", "teeny-demo/*", "teeny-util/*"]
+members = [ "teeny-core/*", "teeny-demo/*", "teeny-util/*", "teeny-deploy/*", "teeny-support/teeny-onnx", ]
 
 [workspace.dependencies]
 anyhow = "1.0.97"
@@ -13,8 +13,8 @@ flate2 = "1.0.26"
 half = "2.6.0"
 
 teeny-tensor = { path = "./teeny-core/teeny-tensor" }
+teeny-model = { path = "./teeny-core/teeny-model" }
+teeny-optim = { path = "./teeny-core/teeny-optim" }
 teeny-data = { path = "./teeny-util/teeny-data" }
-teeny-model = { path = "./teeny-nn/teeny-model" }
-teeny-optim = { path = "./teeny-nn/teeny-optim" }
 
 

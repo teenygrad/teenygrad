@@ -2302,6 +2302,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-agent"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-data"
 version = "0.1.0"
 dependencies = [
@@ -2313,6 +2317,14 @@ dependencies = [
  "surf",
  "teeny-tensor",
 ]
+
+[[package]]
+name = "teeny-infer"
+version = "0.1.0"
+
+[[package]]
+name = "teeny-metrics"
+version = "0.1.0"
 
 [[package]]
 name = "teeny-mnist"
@@ -2337,6 +2349,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-onnx"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-optim"
 version = "0.1.0"
 
@@ -2347,6 +2363,10 @@ dependencies = [
  "hashbrown 0.15.2",
  "thiserror 2.0.12",
 ]
+
+[[package]]
+name = "teeny-train"
+version = "0.1.0"
 
 [[package]]
 name = "tempfile"
