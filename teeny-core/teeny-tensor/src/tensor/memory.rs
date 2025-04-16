@@ -16,35 +16,25 @@
  */
 
 use alloc::{boxed::Box, vec::Vec};
+use smol::io::AsyncRead;
 
-use crate::tensor::{ElementType, Tensor};
+use crate::tensor::Tensor;
+
+use super::{AsyncTensorRead, error::TensorError};
 
 #[derive(Clone)]
 pub struct MemoryTensor<T> {
-    pub element_type: ElementType,
     pub shape: Vec<i64>,
     pub data: Vec<T>,
 }
 
 impl<T: Clone + 'static> Tensor<T> for MemoryTensor<T> {
-    fn element_type(&self) -> &ElementType {
-        &self.element_type
-    }
-
     fn shape(&self) -> &[i64] {
         &self.shape
     }
 
-    fn data(&self) -> &[T] {
-        &self.data
-    }
-
-    fn reshape(&mut self, shape: Vec<i64>) -> Box<dyn Tensor<T>> {
-        Box::new(MemoryTensor::new(
-            self.element_type.clone(),
-            shape,
-            self.data.clone(),
-        ))
+    fn reshape(&mut self, _shape: &[i64]) -> Box<dyn Tensor<T>> {
+        todo!()
     }
 
     fn dot(&self, _other: &dyn Tensor<T>) -> Box<dyn Tensor<T>> {
@@ -61,17 +51,26 @@ impl<T: Clone + 'static> Tensor<T> for MemoryTensor<T> {
 }
 
 impl<T> MemoryTensor<T> {
-    pub fn new(element_type: ElementType, shape: Vec<i64>, data: Vec<T>) -> Self {
+    pub fn new() -> Self {
         Self {
-            element_type,
-            shape,
-            data,
+            shape: Vec::new(),
+            data: Vec::new(),
         }
+    }
+
+    pub fn randn(_shape: &[i64]) -> Self {
+        todo!()
     }
 }
 
 impl<T> Default for MemoryTensor<T> {
     fn default() -> Self {
-        Self::new(ElementType::FP16, Vec::new(), Vec::new())
+        Self::new()
+    }
+}
+
+impl<T: Clone> AsyncTensorRead<T> for MemoryTensor<T> {
+    fn read_from_async(&mut self, _source: &dyn AsyncRead) -> Result<(), TensorError> {
+        todo!()
     }
 }

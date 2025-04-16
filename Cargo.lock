@@ -2536,7 +2536,9 @@ version = "0.1.0"
 name = "teeny-tensor"
 version = "0.1.0"
 dependencies = [
+ "half",
  "hashbrown 0.15.2",
+ "smol",
  "thiserror 2.0.12",
 ]
 

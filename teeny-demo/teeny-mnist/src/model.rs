@@ -23,6 +23,15 @@ pub struct BobNet<T> {
     l2: Box<dyn Tensor<T>>,
 }
 
+impl<T: Tensor<T> + Clone + 'static> BobNet<T> {
+    pub fn new() -> Self {
+        Self {
+            l1: unimplemented!(),
+            l2: unimplemented!(),
+        }
+    }
+}
+
 impl<T: Tensor<T> + Clone> Model<T> for BobNet<T> {
     fn parameters(&self) -> Vec<Box<dyn Parameter>> {
         vec![]

@@ -37,9 +37,16 @@ fn main() -> Result<()> {
         let (mut x_train, mut y_train) = mnist::read_mnist_train_data(&args.cache_dir).await?;
         let (_x_test, _y_test) = mnist::read_mnist_test_data(&args.cache_dir).await?;
 
-        let _x_train = x_train.reshape(Vec::from([-1, 28 * 28]));
-        let _y_train = y_train.reshape(Vec::from([-1, 28 * 28]));
+        let _x_train = x_train.reshape(&[-1, 28 * 28]);
+        let _y_train = y_train.reshape(&[-1, 28 * 28]);
 
+        //     np.random.seed(1337)
+        // model = TinyBobNet()
+        // optimizer = optim.SGD(model.parameters(), lr=0.001)
+        // train(model, X_train, Y_train, optimizer, BS=69, steps=1)
+        // for p in model.parameters(): p.realize()
+
+        // let model = model::BobNet::new();
         println!("Hello, world!");
         Ok(())
     })

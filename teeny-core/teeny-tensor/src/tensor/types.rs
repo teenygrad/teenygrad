@@ -14,23 +14,3 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-use alloc::boxed::Box;
-use error::TensorError;
-use smol::io::AsyncRead;
-
-pub mod error;
-pub mod memory;
-pub mod types;
-pub trait Tensor<T: Clone> {
-    fn shape(&self) -> &[i64];
-    fn reshape(&mut self, shape: &[i64]) -> Box<dyn Tensor<T>>;
-
-    fn dot(&self, other: &dyn Tensor<T>) -> Box<dyn Tensor<T>>;
-    fn relu(&self) -> Box<dyn Tensor<T>>;
-    fn log_softmax(&self) -> Box<dyn Tensor<T>>;
-}
-
-pub trait AsyncTensorRead<T: Clone> {
-    fn read_from_async(&mut self, source: &dyn AsyncRead) -> Result<(), TensorError>;
-}

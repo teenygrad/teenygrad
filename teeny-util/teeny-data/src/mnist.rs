@@ -20,8 +20,8 @@ use flate2::read::GzDecoder;
 use smol::fs::File;
 use smol::io::AsyncWriteExt;
 use std::io::Read;
+use teeny_tensor::tensor::Tensor;
 use teeny_tensor::tensor::memory::MemoryTensor;
-use teeny_tensor::tensor::{ElementType, Tensor};
 
 const MNIST_TRAIN_IMAGES: &str =
     "https://github.com/spinorml/data/blob/main/models/mnist/t10k-images-idx3-ubyte.gz?raw=true";
@@ -119,16 +119,12 @@ async fn read_mnist_images(path: String) -> Result<impl Tensor<half::f16>> {
 
     let scale_factor = half::f16::from_bits(255);
 
-    let data = images
+    let _data = images
         .iter()
         .map(|b| half::f16::from_bits(*b as u16) / scale_factor)
         .collect::<Vec<half::f16>>();
 
-    Ok(MemoryTensor::new(
-        ElementType::FP16,
-        Vec::from([data.len() as i64]),
-        data,
-    ))
+    Ok(MemoryTensor::new())
 }
 
 async fn read_mnist_labels(path: String) -> Result<impl Tensor<half::f16>> {
@@ -137,14 +133,10 @@ async fn read_mnist_labels(path: String) -> Result<impl Tensor<half::f16>> {
     let mut labels = Vec::new();
     reader.read_to_end(&mut labels)?;
 
-    let data = labels
+    let _data = labels
         .iter()
         .map(|b| half::f16::from_bits(*b as u16))
         .collect::<Vec<half::f16>>();
 
-    Ok(MemoryTensor::new(
-        ElementType::FP16,
-        Vec::from([data.len() as i64]),
-        data,
-    ))
+    Ok(MemoryTensor::new())
 }
