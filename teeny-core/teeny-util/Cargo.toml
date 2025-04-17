@@ -1,0 +1,10 @@
+[package]
+name = "teeny-util"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+lazy_static.workspace = true

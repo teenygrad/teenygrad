@@ -15,8 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::model::Model;
+use std::sync::PoisonError;
 
-pub trait Optimizer<T> {
-    fn step(&self, model: &dyn Model<T>);
+use rand::rngs::StdRng;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum Error<'a> {
+    #[error("Mutex error")]
+    MutexError(PoisonError<std::sync::MutexGuard<'a, StdRng>>),
+}
+
+impl<'a> From<PoisonError<std::sync::MutexGuard<'a, StdRng>>> for Error<'a> {
+    fn from(error: PoisonError<std::sync::MutexGuard<'a, StdRng>>) -> Self {
+        Error::MutexError(error)
+    }
 }

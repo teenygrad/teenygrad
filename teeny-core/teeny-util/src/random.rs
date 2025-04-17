@@ -15,8 +15,30 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::model::Model;
+use std::sync::Mutex;
 
-pub trait Optimizer<T> {
-    fn step(&self, model: &dyn Model<T>);
+use lazy_static::lazy_static;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+
+use crate::error::Error;
+
+lazy_static! {
+    static ref RNG: Mutex<StdRng> = Mutex::new(StdRng::from_rng(&mut rand::rng()));
+}
+
+/// Sets the seed for the global random number generator
+pub fn set_seed<'a>(seed: u64) -> Result<(), Error<'a>> {
+    let mut rng = RNG.lock()?;
+    *rng = StdRng::seed_from_u64(seed);
+    Ok(())
+}
+
+pub fn randint<'a>(low: i64, high: i64, size: usize) -> Result<Vec<i64>, Error<'a>> {
+    let mut rng = RNG.lock()?;
+    let result = (0..size)
+        .map(|_| rng.random_range(low..high))
+        .collect::<Vec<_>>();
+
+    Ok(result)
 }

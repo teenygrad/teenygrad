@@ -1,7 +1,7 @@
 [package]
 name = "teeny-tensor"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 thiserror.workspace = true
@@ -9,3 +9,6 @@ hashbrown.workspace = true
 smol.workspace = true
 half.workspace = true
 async-trait.workspace = true
+rand.workspace = true
+lazy_static.workspace = true
+rand_distr.workspace = true

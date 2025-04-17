@@ -18,10 +18,9 @@
 use anyhow::Result;
 use clap::Parser;
 use smol::block_on;
-use teeny_data::mnist;
+use teeny_nn::{model::Model, optim::Optimizer};
 use teeny_tensor::tensor::Tensor;
-
-mod model;
+mod mnist;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -34,8 +33,9 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
     block_on(async {
-        let (mut x_train, mut y_train) = mnist::read_mnist_train_data(&args.cache_dir).await?;
-        let (_x_test, _y_test) = mnist::read_mnist_test_data(&args.cache_dir).await?;
+        let (mut x_train, mut y_train) =
+            teeny_data::mnist::read_mnist_train_data(&args.cache_dir).await?;
+        let (_x_test, _y_test) = teeny_data::mnist::read_mnist_test_data(&args.cache_dir).await?;
 
         let _x_train = x_train.reshape(&[-1, 28 * 28]);
         let _y_train = y_train.reshape(&[-1, 28 * 28]);
@@ -50,6 +50,18 @@ fn main() -> Result<()> {
         println!("Hello, world!");
         Ok(())
     })
+}
+
+fn _train(
+    _model: &dyn Model<f32>,
+    _x_train: &dyn Tensor<f32>,
+    _y_train: &dyn Tensor<f32>,
+    _optim: &dyn Optimizer<f32>,
+    _steps: usize,
+    _block_size: usize,
+    _loss_fn: impl Fn(&dyn Tensor<f32>, &dyn Tensor<f32>) -> Box<dyn Tensor<f32>>,
+) {
+    todo!()
 }
 
 // def train(model, X_train, Y_train, optim, steps, BS=128, lossfn=lambda out,y: out.sparse_categorical_crossentropy(y),

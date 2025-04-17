@@ -15,8 +15,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::model::Model;
-
-pub trait Optimizer<T> {
-    fn step(&self, model: &dyn Model<T>);
-}
+pub mod error;
+pub mod random;
