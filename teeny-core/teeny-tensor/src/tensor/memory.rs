@@ -16,11 +16,8 @@
  */
 
 use alloc::{boxed::Box, vec::Vec};
-use smol::io::AsyncRead;
 
 use crate::tensor::Tensor;
-
-use super::{AsyncTensorRead, error::TensorError};
 
 #[derive(Clone)]
 pub struct MemoryTensor<T> {
@@ -58,6 +55,13 @@ impl<T> MemoryTensor<T> {
         }
     }
 
+    pub fn with_data(shape: &[i64], data: Vec<T>) -> Self {
+        Self {
+            shape: shape.to_vec(),
+            data,
+        }
+    }
+
     pub fn randn(_shape: &[i64]) -> Self {
         todo!()
     }
@@ -66,11 +70,5 @@ impl<T> MemoryTensor<T> {
 impl<T> Default for MemoryTensor<T> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl<T: Clone> AsyncTensorRead<T> for MemoryTensor<T> {
-    fn read_from_async(&mut self, _source: &dyn AsyncRead) -> Result<(), TensorError> {
-        todo!()
     }
 }

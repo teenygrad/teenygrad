@@ -2507,13 +2507,12 @@ dependencies = [
  "half",
  "smol",
  "teeny-data",
- "teeny-model",
- "teeny-optim",
+ "teeny-nn",
  "teeny-tensor",
 ]
 
 [[package]]
-name = "teeny-model"
+name = "teeny-nn"
 version = "0.1.0"
 dependencies = [
  "teeny-tensor",
@@ -2529,13 +2528,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-optim"
-version = "0.1.0"
-
-[[package]]
 name = "teeny-tensor"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "half",
  "hashbrown 0.15.2",
  "smol",

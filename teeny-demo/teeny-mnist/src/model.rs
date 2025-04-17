@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_model::{Model, Parameter};
+use teeny_nn::model::{Model, Parameter};
 use teeny_tensor::tensor::Tensor;
 
 pub struct BobNet<T> {
@@ -23,14 +23,7 @@ pub struct BobNet<T> {
     l2: Box<dyn Tensor<T>>,
 }
 
-impl<T: Tensor<T> + Clone + 'static> BobNet<T> {
-    pub fn new() -> Self {
-        Self {
-            l1: unimplemented!(),
-            l2: unimplemented!(),
-        }
-    }
-}
+impl<T: Tensor<T> + Clone + 'static> BobNet<T> {}
 
 impl<T: Tensor<T> + Clone> Model<T> for BobNet<T> {
     fn parameters(&self) -> Vec<Box<dyn Parameter>> {

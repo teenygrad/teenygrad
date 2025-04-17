@@ -12,5 +12,4 @@ half.workspace = true
 # teenygrad dependencies
 teeny-tensor.workspace = true
 teeny-data.workspace = true
-teeny-model.workspace = true
-teeny-optim.workspace = true
+teeny-nn.workspace = true

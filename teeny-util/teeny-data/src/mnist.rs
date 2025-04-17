@@ -35,7 +35,7 @@ const MNIST_TEST_LABELS: &str =
 
 pub async fn read_mnist_train_data(
     cache_dir: &str,
-) -> Result<(impl Tensor<half::f16>, impl Tensor<half::f16>)> {
+) -> Result<(impl Tensor<f32>, impl Tensor<f32>)> {
     let (images_path, labels_path) = fetch_mnist_train_data(cache_dir).await?;
 
     let images = read_mnist_images(images_path).await?;
@@ -44,9 +44,7 @@ pub async fn read_mnist_train_data(
     Ok((images, labels))
 }
 
-pub async fn read_mnist_test_data(
-    cache_dir: &str,
-) -> Result<(impl Tensor<half::f16>, impl Tensor<half::f16>)> {
+pub async fn read_mnist_test_data(cache_dir: &str) -> Result<(impl Tensor<f32>, impl Tensor<f32>)> {
     let (images_path, labels_path) = fetch_mnist_test_data(cache_dir).await?;
 
     let images = read_mnist_images(images_path).await?;
@@ -111,32 +109,29 @@ async fn download_file(url: &str, cache_path: &str) -> Result<()> {
     Ok(())
 }
 
-async fn read_mnist_images(path: String) -> Result<impl Tensor<half::f16>> {
+async fn read_mnist_images(path: String) -> Result<impl Tensor<f32>> {
     let file = std::fs::File::open(path)?;
     let mut reader = GzDecoder::new(file);
     let mut images = Vec::new();
     reader.read_to_end(&mut images)?;
 
-    let scale_factor = half::f16::from_bits(255);
+    let scale_factor = 255f32;
 
-    let _data = images
+    let data = images
         .iter()
-        .map(|b| half::f16::from_bits(*b as u16) / scale_factor)
-        .collect::<Vec<half::f16>>();
+        .map(|b| *b as f32 / scale_factor)
+        .collect::<Vec<f32>>();
 
-    Ok(MemoryTensor::new())
+    Ok(MemoryTensor::with_data(&[-1, 28], data))
 }
 
-async fn read_mnist_labels(path: String) -> Result<impl Tensor<half::f16>> {
+async fn read_mnist_labels(path: String) -> Result<impl Tensor<f32>> {
     let file = std::fs::File::open(path)?;
     let mut reader = GzDecoder::new(file);
     let mut labels = Vec::new();
     reader.read_to_end(&mut labels)?;
 
-    let _data = labels
-        .iter()
-        .map(|b| half::f16::from_bits(*b as u16))
-        .collect::<Vec<half::f16>>();
+    let data = labels.iter().map(|b| *b as f32).collect::<Vec<f32>>();
 
-    Ok(MemoryTensor::new())
+    Ok(MemoryTensor::with_data(&[-1, 1], data))
 }

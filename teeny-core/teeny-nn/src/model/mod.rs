@@ -15,4 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod adam;
+use teeny_tensor::tensor::Tensor;
+
+pub trait Parameter {}
+
+pub trait Model<T> {
+    fn parameters(&self) -> Vec<Box<dyn Parameter>>;
+    fn forward(&self, x: Box<dyn Tensor<T>>) -> Box<dyn Tensor<T>>;
+}

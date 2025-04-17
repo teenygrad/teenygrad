@@ -8,3 +8,4 @@ thiserror.workspace = true
 hashbrown.workspace = true
 smol.workspace = true
 half.workspace = true
+async-trait.workspace = true

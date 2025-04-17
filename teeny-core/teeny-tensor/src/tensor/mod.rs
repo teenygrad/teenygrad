@@ -15,13 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
+use async_trait::async_trait;
+use core::pin::Pin;
 use error::TensorError;
 use smol::io::AsyncRead;
 
 pub mod error;
 pub mod memory;
 pub mod types;
+
 pub trait Tensor<T: Clone> {
     fn shape(&self) -> &[i64];
     fn reshape(&mut self, shape: &[i64]) -> Box<dyn Tensor<T>>;
@@ -31,6 +34,11 @@ pub trait Tensor<T: Clone> {
     fn log_softmax(&self) -> Box<dyn Tensor<T>>;
 }
 
+#[async_trait]
 pub trait AsyncTensorRead<T: Clone> {
-    fn read_from_async(&mut self, source: &dyn AsyncRead) -> Result<(), TensorError>;
+    async fn read_to_vec(
+        &mut self,
+        source: &mut Pin<&mut (dyn AsyncRead + Send)>,
+        buf: &mut [u8],
+    ) -> Result<Vec<T>, TensorError>;
 }
