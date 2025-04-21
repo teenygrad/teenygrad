@@ -58,7 +58,6 @@ async fn fetch_mnist_train_data(cache_dir: &str) -> Result<(String, String)> {
     let labels_path = format!("{}/train-labels-idx1-ubyte.gz", cache_dir);
 
     check_cache_dir(cache_dir).await?;
-
     download_file(MNIST_TRAIN_IMAGES, &images_path).await?;
     download_file(MNIST_TRAIN_LABELS, &labels_path).await?;
 
@@ -77,12 +76,10 @@ async fn fetch_mnist_test_data(cache_dir: &str) -> Result<(String, String)> {
 }
 
 async fn check_cache_dir(cache_dir: &str) -> Result<()> {
-    if !std::path::Path::new(cache_dir).exists() {
-        return Err(anyhow::anyhow!(
-            "Cache directory does not exist: {}",
-            cache_dir
-        ));
+    if !std::path::Path::new(cache_dir).is_dir() {
+        std::fs::create_dir_all(cache_dir)?;
     }
+
     Ok(())
 }
 
@@ -91,20 +88,63 @@ async fn download_file(url: &str, cache_path: &str) -> Result<()> {
         return Ok(());
     }
 
+    // Add small delay to avoid GitHub rate limiting
+    smol::Timer::after(std::time::Duration::from_secs(1)).await;
+
+    println!("Downloading file from {}", url);
+
     let client = surf::client().with(surf::middleware::Redirect::new(20));
-    let mut response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to send request: {}", e))?;
+
+    let mut response = {
+        let timer = smol::Timer::after(std::time::Duration::from_secs(30));
+        let request = client.get(url).header("User-Agent", "Wget/1.21.4");
+
+        smol::future::race(
+            async {
+                timer.await;
+                Err(anyhow::anyhow!("Request timed out after 30 seconds"))
+            },
+            async {
+                request
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to send request: {}", e))
+            },
+        )
+        .await?
+    };
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "HTTP request failed with status: {}",
+            response.status()
+        ));
+    }
 
     let mut file = File::create(cache_path).await?;
-    let content = response
-        .body_bytes()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
+    let content = {
+        let timer = smol::Timer::after(std::time::Duration::from_secs(30));
+        let body = response.body_bytes();
+
+        smol::future::race(
+            async {
+                timer.await;
+                Err(anyhow::anyhow!(
+                    "Reading response body timed out after 30 seconds"
+                ))
+            },
+            async {
+                body.await
+                    .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))
+            },
+        )
+        .await?
+    };
+
     file.write_all(&content).await?;
     file.close().await?;
+
+    println!("Download complete for {}", cache_path);
 
     Ok(())
 }

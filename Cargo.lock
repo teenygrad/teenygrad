@@ -2545,10 +2545,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-infer"
-version = "0.1.0"
-
-[[package]]
 name = "teeny-metrics"
 version = "0.1.0"
 
@@ -2585,6 +2581,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-serve"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-tensor"
 version = "0.1.0"
 dependencies = [
@@ -2597,10 +2597,6 @@ dependencies = [
  "smol",
  "thiserror 2.0.12",
 ]
-
-[[package]]
-name = "teeny-train"
-version = "0.1.0"
 
 [[package]]
 name = "teeny-util"
