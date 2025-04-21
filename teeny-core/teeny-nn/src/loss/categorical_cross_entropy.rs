@@ -15,13 +15,32 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod adam;
-pub mod error;
-pub mod sgd;
+use super::Loss;
 
-mod lars;
+pub struct SparseCategoricalCrossEntropy {}
 
-pub trait Optimizer<T> {
-    fn step(&self);
-    fn zero_grad(&mut self);
+impl SparseCategoricalCrossEntropy {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for SparseCategoricalCrossEntropy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Clone + 'static> Loss<T> for SparseCategoricalCrossEntropy {
+    fn backward(&self) {
+        todo!()
+    }
+
+    fn compute(
+        &self,
+        _out: &dyn teeny_tensor::tensor::Tensor<T>,
+        _y: &dyn teeny_tensor::tensor::Tensor<T>,
+    ) -> T {
+        todo!()
+    }
 }

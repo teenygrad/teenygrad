@@ -17,8 +17,12 @@
 
 use teeny_tensor::tensor::Tensor;
 
-pub trait Loss<T> {
-    fn backward(&mut self);
-}
+mod categorical_cross_entropy;
 
-pub trait LossFn<T>: Fn(&dyn Tensor<T>, &dyn Tensor<T>) -> Box<dyn Loss<T>> {}
+pub use categorical_cross_entropy::SparseCategoricalCrossEntropy;
+
+pub trait Loss<T> {
+    fn compute(&self, out: &dyn Tensor<T>, y: &dyn Tensor<T>) -> T;
+
+    fn backward(&self);
+}

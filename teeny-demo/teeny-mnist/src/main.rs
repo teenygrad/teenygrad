@@ -19,7 +19,11 @@ use anyhow::Result;
 use clap::Parser;
 use mnist::BobNet;
 use smol::block_on;
-use teeny_nn::{loss::LossFn, model::Model, optim::Optimizer};
+use teeny_nn::{
+    loss::{self, Loss},
+    model::Model,
+    optim::{self, Optimizer},
+};
 use teeny_tensor::tensor::Tensor;
 use teeny_util::random::{self, randint};
 mod mnist;
@@ -39,30 +43,38 @@ fn main() -> Result<()> {
             teeny_data::mnist::read_mnist_train_data(&args.cache_dir).await?;
         let (_x_test, _y_test) = teeny_data::mnist::read_mnist_test_data(&args.cache_dir).await?;
 
-        let _x_train = x_train.reshape(&[-1, 28 * 28]);
-        let _y_train = y_train.reshape(&[-1, 28 * 28]);
+        let x_train = x_train.reshape(&[-1, 28 * 28]);
+        let y_train = y_train.reshape(&[-1, 28 * 28]);
 
         random::set_seed(1337).map_err(|e| anyhow::anyhow!("Failed to set seed: {}", e))?;
-        let _mode: BobNet<f32> = BobNet::new();
-        // model = TinyBobNet()
-        // optimizer = optim.SGD(model.parameters(), lr=0.001)
-        // train(model, X_train, Y_train, optimizer, BS=69, steps=1)
-        // for p in model.parameters(): p.realize()
+        let model: BobNet<f32> = BobNet::new();
+        let mut optimizer = optim::sgd::SGDBuilder::new()
+            .parameters(model.parameters())
+            .build()?;
 
-        // let model = model::BobNet::new();
+        train(
+            &model,
+            x_train.as_ref(),
+            y_train.as_ref(),
+            &mut optimizer,
+            1,
+            69,
+            loss::SparseCategoricalCrossEntropy::default(),
+        )?;
+
         println!("Hello, world!");
         Ok(())
     })
 }
 
-fn _train(
+fn train(
     model: &dyn Model<f32>,
     x_train: &dyn Tensor<f32>,
     y_train: &dyn Tensor<f32>,
     optim: &mut dyn Optimizer<f32>,
     steps: usize,
     block_size: usize,
-    loss_fn: impl LossFn<f32>,
+    loss: impl Loss<f32>,
 ) -> Result<()> {
     for _ in 0..steps {
         let samp = randint(0, x_train.shape()[0], block_size).unwrap();
@@ -76,7 +88,7 @@ fn _train(
 
         let out = model.forward(x);
 
-        let mut loss = loss_fn(out.as_ref(), y.as_ref());
+        loss.compute(out.as_ref(), y.as_ref());
         optim.zero_grad();
         loss.backward();
         optim.step();

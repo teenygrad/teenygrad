@@ -32,7 +32,7 @@ impl<T: Clone + 'static> BobNet<T> {
     }
 }
 
-impl<T: Tensor<T> + Clone> Model<T> for BobNet<T> {
+impl<T: Clone + 'static> Model<T> for BobNet<T> {
     fn parameters(&self) -> &dyn Parameters {
         todo!()
     }
