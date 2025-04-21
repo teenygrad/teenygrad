@@ -21,6 +21,6 @@ lazy_static = "1.4.0"
 
 teeny-tensor = { path = "./teeny-core/teeny-tensor" }
 teeny-nn = { path = "./teeny-core/teeny-nn" }
+teeny-util = { path = "./teeny-core/teeny-util" }
 teeny-data = { path = "./teeny-utils/teeny-data" }
-
 

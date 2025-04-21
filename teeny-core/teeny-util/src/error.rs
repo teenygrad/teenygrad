@@ -22,7 +22,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error<'a> {
-    #[error("Mutex error")]
+    #[error("Mutex error: {0}")]
     MutexError(PoisonError<std::sync::MutexGuard<'a, StdRng>>),
 }
 

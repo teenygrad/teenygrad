@@ -21,13 +21,14 @@ use core::pin::Pin;
 use error::TensorError;
 use smol::io::AsyncRead;
 
+pub mod cpu;
 pub mod error;
-pub mod memory;
 pub mod types;
 
 pub trait Tensor<T: Clone> {
     fn shape(&self) -> &[i64];
     fn reshape(&mut self, shape: &[i64]) -> Box<dyn Tensor<T>>;
+    fn get_slice(&self, indices: &[i64]) -> Option<Box<dyn Tensor<T>>>;
 
     fn dot(&self, other: &dyn Tensor<T>) -> Box<dyn Tensor<T>>;
     fn relu(&self) -> Box<dyn Tensor<T>>;

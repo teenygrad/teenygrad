@@ -19,13 +19,12 @@ use alloc::{boxed::Box, vec::Vec};
 
 use crate::tensor::Tensor;
 
-#[derive(Clone)]
-pub struct MemoryTensor<T> {
+pub struct CpuTensor<T> {
     pub shape: Vec<i64>,
     pub data: Vec<T>,
 }
 
-impl<T: Clone + 'static> Tensor<T> for MemoryTensor<T> {
+impl<T: Clone + 'static> Tensor<T> for CpuTensor<T> {
     fn shape(&self) -> &[i64] {
         &self.shape
     }
@@ -45,9 +44,13 @@ impl<T: Clone + 'static> Tensor<T> for MemoryTensor<T> {
     fn log_softmax(&self) -> Box<dyn Tensor<T>> {
         todo!()
     }
+
+    fn get_slice(&self, _indices: &[i64]) -> Option<Box<dyn Tensor<T>>> {
+        todo!()
+    }
 }
 
-impl<T> MemoryTensor<T> {
+impl<T> CpuTensor<T> {
     pub fn new() -> Self {
         Self {
             shape: Vec::new(),
@@ -67,7 +70,7 @@ impl<T> MemoryTensor<T> {
     }
 }
 
-impl<T> Default for MemoryTensor<T> {
+impl<T> Default for CpuTensor<T> {
     fn default() -> Self {
         Self::new()
     }

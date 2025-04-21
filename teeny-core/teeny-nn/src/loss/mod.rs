@@ -15,6 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod loss;
-pub mod model;
-pub mod optim;
+use teeny_tensor::tensor::Tensor;
+
+pub trait Loss<T> {
+    fn backward(&mut self);
+}
+
+pub trait LossFn<T>: Fn(&dyn Tensor<T>, &dyn Tensor<T>) -> Box<dyn Loss<T>> {}

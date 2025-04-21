@@ -2564,6 +2564,7 @@ dependencies = [
  "teeny-data",
  "teeny-nn",
  "teeny-tensor",
+ "teeny-util",
 ]
 
 [[package]]
@@ -2571,6 +2572,7 @@ name = "teeny-nn"
 version = "0.1.0"
 dependencies = [
  "teeny-tensor",
+ "thiserror 2.0.12",
 ]
 
 [[package]]

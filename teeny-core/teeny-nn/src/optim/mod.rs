@@ -15,8 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::model::Model;
+pub mod adam;
+pub mod error;
 
+mod lars;
 pub trait Optimizer<T> {
-    fn step(&self, model: &dyn Model<T>);
+    fn step(&self);
+    fn zero_grad(&mut self);
 }

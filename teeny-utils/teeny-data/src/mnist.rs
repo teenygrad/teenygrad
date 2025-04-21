@@ -21,7 +21,7 @@ use smol::fs::File;
 use smol::io::AsyncWriteExt;
 use std::io::Read;
 use teeny_tensor::tensor::Tensor;
-use teeny_tensor::tensor::memory::MemoryTensor;
+use teeny_tensor::tensor::cpu::CpuTensor;
 
 const MNIST_TRAIN_IMAGES: &str =
     "https://github.com/spinorml/data/blob/main/models/mnist/t10k-images-idx3-ubyte.gz?raw=true";
@@ -122,7 +122,7 @@ async fn read_mnist_images(path: String) -> Result<impl Tensor<f32>> {
         .map(|b| *b as f32 / scale_factor)
         .collect::<Vec<f32>>();
 
-    Ok(MemoryTensor::with_data(&[-1, 28], data))
+    Ok(CpuTensor::with_data(&[-1, 28], data))
 }
 
 async fn read_mnist_labels(path: String) -> Result<impl Tensor<f32>> {
@@ -133,5 +133,5 @@ async fn read_mnist_labels(path: String) -> Result<impl Tensor<f32>> {
 
     let data = labels.iter().map(|b| *b as f32).collect::<Vec<f32>>();
 
-    Ok(MemoryTensor::with_data(&[-1, 1], data))
+    Ok(CpuTensor::with_data(&[-1, 1], data))
 }

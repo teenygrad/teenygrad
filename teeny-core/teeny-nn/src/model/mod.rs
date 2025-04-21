@@ -17,9 +17,9 @@
 
 use teeny_tensor::tensor::Tensor;
 
-pub trait Parameter {}
+pub trait Parameters {}
 
 pub trait Model<T> {
-    fn parameters(&self) -> Vec<Box<dyn Parameter>>;
+    fn parameters(&self) -> &dyn Parameters;
     fn forward(&self, x: Box<dyn Tensor<T>>) -> Box<dyn Tensor<T>>;
 }

@@ -15,19 +15,26 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_nn::model::{Model, Parameter};
-use teeny_tensor::tensor::Tensor;
+use teeny_nn::model::{Model, Parameters};
+use teeny_tensor::tensor::{Tensor, cpu::CpuTensor};
 
 pub struct BobNet<T> {
     l1: Box<dyn Tensor<T>>,
     l2: Box<dyn Tensor<T>>,
 }
 
-impl<T: Tensor<T> + Clone + 'static> BobNet<T> {}
+impl<T: Clone + 'static> BobNet<T> {
+    pub fn new() -> Self {
+        Self {
+            l1: Box::new(CpuTensor::randn(&[1, 784])),
+            l2: Box::new(CpuTensor::randn(&[1, 10])),
+        }
+    }
+}
 
 impl<T: Tensor<T> + Clone> Model<T> for BobNet<T> {
-    fn parameters(&self) -> Vec<Box<dyn Parameter>> {
-        vec![]
+    fn parameters(&self) -> &dyn Parameters {
+        todo!()
     }
 
     fn forward(&self, x: Box<dyn Tensor<T>>) -> Box<dyn Tensor<T>> {

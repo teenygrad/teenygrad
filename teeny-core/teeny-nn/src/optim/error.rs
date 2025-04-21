@@ -15,6 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod loss;
-pub mod model;
-pub mod optim;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+
+pub enum OptimizerError {
+    #[error("Trying to create Optimizer with no parameters")]
+    NoParameters(),
+}

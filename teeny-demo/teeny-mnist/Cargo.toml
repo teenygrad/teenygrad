@@ -13,3 +13,4 @@ half.workspace = true
 teeny-tensor.workspace = true
 teeny-data.workspace = true
 teeny-nn.workspace = true
+teeny-util.workspace = true

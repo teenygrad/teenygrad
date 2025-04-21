@@ -17,9 +17,11 @@
 
 use anyhow::Result;
 use clap::Parser;
+use mnist::BobNet;
 use smol::block_on;
-use teeny_nn::{model::Model, optim::Optimizer};
+use teeny_nn::{loss::LossFn, model::Model, optim::Optimizer};
 use teeny_tensor::tensor::Tensor;
+use teeny_util::random::{self, randint};
 mod mnist;
 
 #[derive(Parser, Debug)]
@@ -40,7 +42,8 @@ fn main() -> Result<()> {
         let _x_train = x_train.reshape(&[-1, 28 * 28]);
         let _y_train = y_train.reshape(&[-1, 28 * 28]);
 
-        //     np.random.seed(1337)
+        random::set_seed(1337).map_err(|e| anyhow::anyhow!("Failed to set seed: {}", e))?;
+        let _mode: BobNet<f32> = BobNet::new();
         // model = TinyBobNet()
         // optimizer = optim.SGD(model.parameters(), lr=0.001)
         // train(model, X_train, Y_train, optimizer, BS=69, steps=1)
@@ -53,15 +56,33 @@ fn main() -> Result<()> {
 }
 
 fn _train(
-    _model: &dyn Model<f32>,
-    _x_train: &dyn Tensor<f32>,
-    _y_train: &dyn Tensor<f32>,
-    _optim: &dyn Optimizer<f32>,
-    _steps: usize,
-    _block_size: usize,
-    _loss_fn: impl Fn(&dyn Tensor<f32>, &dyn Tensor<f32>) -> Box<dyn Tensor<f32>>,
-) {
-    todo!()
+    model: &dyn Model<f32>,
+    x_train: &dyn Tensor<f32>,
+    y_train: &dyn Tensor<f32>,
+    optim: &mut dyn Optimizer<f32>,
+    steps: usize,
+    block_size: usize,
+    loss_fn: impl LossFn<f32>,
+) -> Result<()> {
+    for _ in 0..steps {
+        let samp = randint(0, x_train.shape()[0], block_size).unwrap();
+        let x = x_train
+            .get_slice(samp.as_slice())
+            .ok_or(anyhow::anyhow!("Failed to get slice"))?;
+
+        let y = y_train
+            .get_slice(samp.as_slice())
+            .ok_or(anyhow::anyhow!("Failed to get slice"))?;
+
+        let out = model.forward(x);
+
+        let mut loss = loss_fn(out.as_ref(), y.as_ref());
+        optim.zero_grad();
+        loss.backward();
+        optim.step();
+    }
+
+    Ok(())
 }
 
 // def train(model, X_train, Y_train, optim, steps, BS=128, lossfn=lambda out,y: out.sparse_categorical_crossentropy(y),
