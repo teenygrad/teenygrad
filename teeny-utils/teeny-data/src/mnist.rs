@@ -97,7 +97,10 @@ async fn download_file(url: &str, cache_path: &str) -> Result<()> {
 
     let mut response = {
         let timer = smol::Timer::after(std::time::Duration::from_secs(30));
-        let request = client.get(url).header("User-Agent", "Wget/1.21.4");
+        let request = client
+            .get(url)
+            .header("User-Agent", "Wget/1.21.4")
+            .header("Accept", "application/octet-stream");
 
         smol::future::race(
             async {
@@ -126,6 +129,7 @@ async fn download_file(url: &str, cache_path: &str) -> Result<()> {
         let timer = smol::Timer::after(std::time::Duration::from_secs(30));
         let body = response.body_bytes();
 
+        println!("Reading response body");
         smol::future::race(
             async {
                 timer.await;
