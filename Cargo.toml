@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "teeny-core/*", "teeny-demo/*", "teeny-utils/*", "teeny-deploy/*", "teeny-support/*", ]
+members = [ "teeny-core/*", "teeny-demo/*", "teeny-utils/*", "teeny-deploy/*", "teeny-support/*", "teeny-compiler/*" ]
 
 [workspace.dependencies]
 anyhow = "1.0.97"

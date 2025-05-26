@@ -2545,7 +2545,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-llvm"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-metrics"
+version = "0.1.0"
+
+[[package]]
+name = "teeny-mlir"
 version = "0.1.0"
 
 [[package]]
