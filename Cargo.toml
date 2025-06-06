@@ -1,26 +1,5 @@
 [workspace]
 resolver = "2"
-members = [ "teeny-core/*", "teeny-demo/*", "teeny-utils/*", "teeny-deploy/*", "teeny-support/*", "teeny-compiler/*" ]
+members = [ "teeny-llvm" ]
 
 [workspace.dependencies]
-anyhow = "1.0.97"
-thiserror = "2.0.12"
-clap = { version = "4.5.35", features = [ "derive" ]}
-smol = "2.0.2"
-surf = { version = "2.3.2", features = [ "h1-client" ] }
-hashbrown = "0.15.2"
-flate2 = "1.0.26"
-half = "2.6.0"
-protobuf = "3.7.2"
-protobuf-codegen = "3.7.2"
-protoc-bin-vendored = "3.1.0" 
-async-trait = "0.1.88"
-rand = "0.9.1"
-rand_distr = "0.5.1"
-lazy_static = "1.4.0"
-
-teeny-tensor = { path = "./teeny-core/teeny-tensor" }
-teeny-nn = { path = "./teeny-core/teeny-nn" }
-teeny-util = { path = "./teeny-core/teeny-util" }
-teeny-data = { path = "./teeny-utils/teeny-data" }
-

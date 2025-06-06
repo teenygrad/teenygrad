@@ -1,3 +1,12 @@
-[submodule "teeny-support/teeny-onnx/onnx"]
-	path = teeny-support/teeny-onnx/onnx
-	url = git@github.com:onnx/onnx.git
+[submodule "teeny-llvm"]
+	path = teeny-llvm
+	url = git@github.com:teenygrad/teeny-llvm.git
+[submodule "teeny-kernels"]
+	path = teeny-kernels
+	url = git@github.com:teenygrad/teeny-kernels.git
+[submodule "teeny-triton"]
+	path = teeny-triton
+	url = git@github.com:teenygrad/teeny-triton.git
+[submodule "teeny-macros"]
+	path = teeny-macros
+	url = git@github.com:teenygrad/teeny-macros.git
