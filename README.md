@@ -23,6 +23,8 @@ We didn't however want to give up on distributed training, and all the features 
 
 ### 2. You are making use of other open source projects which are MIT/Apache licensed. But your project is GPL v3, isn't that a contradiction?
 
+Our aim isn't to just re-package other projects. We use those projects where appropriate as foundation. But our aim is build something new and unique.
+
 We love open source software, because it allows us to share and learn. It is isn't our aim to extort money from startups or even individuals to help learning and development.
 
 In order to avoid the Wordpress debacle, we wish to make clear from day 1 that this project can be used in commercial software. But if you wish to build propietary solutions, then you should get a commercial license.
