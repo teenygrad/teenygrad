@@ -1,0 +1,6 @@
+[submodule "teeny-llvm/modules/llvm-project"]
+	path = teeny-llvm/modules/llvm-project
+	url = git@github.com:teenygrad/llvm-project.git
+[submodule "teeny-llvm/modules/triton"]
+	path = teeny-llvm/modules/triton
+	url = git@github.com:teenygrad/triton.git
