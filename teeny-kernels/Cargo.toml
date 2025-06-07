@@ -9,4 +9,4 @@ license = "GPL v3"
 [lib]
 
 [dependencies]
-teeny_macros = { path = "../teeny-macros" }
+teeny-macros = { path = "../teeny-macros" }
