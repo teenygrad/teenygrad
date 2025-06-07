@@ -19,19 +19,24 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use cargo_metadata::MetadataCommand;
 use cfgrammar::yacc::YaccKind;
 use lrlex::CTLexerBuilder;
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR environment variable not set"));
-    let project_dir = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR environment variable not set"),
-    );
+    let metadata = MetadataCommand::new().exec().unwrap();
 
-    // Create build and install directories
-    create_dir("target/build/llvm");
-    create_dir("target/build/triton");
-    create_dir("target/build/install");
+    let package = metadata
+        .packages
+        .iter()
+        .filter(|p| p.name.as_str() == "teeny-llvm")
+        .next()
+        .unwrap();
+    let project_dir: PathBuf = package.manifest_path.parent().unwrap().into();
+
+    println!("AXM project_dir: {:?}", project_dir);
+    println!("AXM out_dir: {:?}", out_dir);
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
@@ -65,20 +70,13 @@ fn check_command(command: &str) {
     }
 }
 
-fn create_dir(dir: &str) {
-    let build_dir = PathBuf::from(dir);
-    if !build_dir.exists() {
-        std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
-    }
-}
-
 fn build_llvm(project_dir: &Path, out_dir: &Path) {
     let build_dir = out_dir.join("build");
     let modules_dir = project_dir.join("modules");
 
     Command::new("./scripts/build_llvm.sh")
         .env("BUILD_DIR", build_dir)
-        .env("MODULES_DIR", modules_dir.join("modules"))
+        .env("MODULES_DIR", modules_dir)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
@@ -93,7 +91,7 @@ fn build_triton(project_dir: &Path, out_dir: &Path) {
 
     Command::new("./scripts/build_triton.sh")
         .env("BUILD_DIR", build_dir)
-        .env("MODULES_DIR", modules_dir.join("modules"))
+        .env("MODULES_DIR", modules_dir)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
@@ -119,8 +117,8 @@ fn build_toy_lang(out_dir: &Path) {
 }
 
 fn generate_bindings(out_dir: &Path) {
-    let llvm_include_dir = out_dir.join("install/include");
-    let llvm_lib_dir = out_dir.join("install/lib");
+    let llvm_include_dir = String::from(out_dir.join("install/include").to_str().unwrap());
+    let llvm_lib_dir = String::from(out_dir.join("install/lib").to_str().unwrap());
 
     // Tell cargo to look for shared libraries in the specified directory
     println!("cargo:rustc-link-search={llvm_lib_dir}");

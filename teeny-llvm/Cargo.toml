@@ -12,6 +12,7 @@ name = "teeny_llvm"
 [dependencies]
 
 [build-dependencies]
+cargo_metadata = "0.20.0"
 bindgen = "0.71.1"
 cfgrammar = "0.13.10"
 lrlex = "0.13.10"

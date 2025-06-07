@@ -6,27 +6,40 @@ Teenygrad is a high performance Rust based ML training and inference library in 
 
 Our goals:
 
-- Highly concurrent, memory safe ML framework.
-- Low memory footprint to support even the smallest devices.
-- No compromises on performance, hardware accelerated wherever possible.
-- Support a wide variety of devices not such NVidia and AMD.
-- Provide the framework that anyone can use to build high performance   accelerators for their hardware.
-- Embedded support built-in (core components of training and inference ar no-std safe).
+- Highly concurrent, memory-safe ML framework – Designed for scalability and safety.
+
+- Low memory footprint – Optimized to run even on the smallest devices.
+
+- No performance compromises – Hardware-accelerated wherever possible.
+
+- Broad hardware support – Compatible with a wide variety of devices, not just NVIDIA and AMD.
+
+- Extensible framework – Enables developers to build high-performance accelerators for their hardware.
+
+- Embedded-friendly – Core training and inference components are no_std compatible.
+
+- Full async support – Efficient asynchronous operations, even on embedded systems.
+
+- Multi-threaded by default – Maximizes utilization of all available CPU cores.
+
+## Community
+
+[Join our Discord](https://discord.gg/Dvtasac8) to discuss the project or seek help with any issues.
 
 ## FAQ
 
-### 1. Why did you create this project when pytorch, tensorflow and tinygrad already exist?
+### 1. Why create this project when PyTorch, TensorFlow, and Tinygrad already exist?
 
-Those systems are great for development and deployment on massive infrastructure. However, we envision that future AI will exist on all sizes of devices. Each of these frameworks is fairly heavy, the closest to our vision is Tensorflow Lite. However, we would prefer to work with a modern memory safe language rather than C.
+These frameworks excel for development and deployment on large-scale infrastructure. However, we believe the future of AI lies in devices of all sizes—from edge devices to massive clusters. Existing frameworks are relatively heavy; TensorFlow Lite comes closest to our vision, but we wanted a modern, memory-safe language instead of C.
 
-We didn't however want to give up on distributed training, and all the features that the bigger projects have. Hence, Teenygrad.
+Yet, we didn’t want to sacrifice distributed training or other advanced features offered by larger projects. Enter Teenygrad—a lightweight but powerful alternative.
 
-### 2. You are making use of other open source projects which are MIT/Apache licensed. But your project is GPL v3, isn't that a contradiction?
+### 2. You use MIT/Apache-licensed open-source projects but license your project under GPLv3. Isn’t that contradictory?
 
-Our aim isn't to just re-package other projects. We use those projects where appropriate as foundation. But our aim is build something new and unique.
+Our goal isn’t to simply repackage others’ work. We leverage existing projects as foundations where appropriate but aim to build something fundamentally new and unique.
 
-We love open source software, because it allows us to share and learn. It is isn't our aim to extort money from startups or even individuals to help learning and development.
+We embrace open source because it fosters collaboration and learning—not to monetize startups or individuals. To avoid ambiguity (like the WordPress controversy), we’re clarifying upfront:
 
-In order to avoid the Wordpress debacle, we wish to make clear from day 1 that this project can be used in commercial software. But if you wish to build propietary solutions, then you should get a commercial license.
+- Commercial use is allowed, but proprietary solutions require a commercial license.
 
-We intend to offer any startup or company with revenues less than $3 million per year a free commercial license for their proprietary solutions.
+- Startups and companies with under $3M annual revenue qualify for a free commercial license. Once the project is stable and ready for usage, we will provide a simple web interface for you to get a license.

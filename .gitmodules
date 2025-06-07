@@ -4,3 +4,6 @@
 [submodule "teeny-llvm/modules/triton"]
 	path = teeny-llvm/modules/triton
 	url = git@github.com:teenygrad/triton.git
+[submodule "teeny-onnx/onnx"]
+	path = teeny-onnx/onnx
+	url = git@github.com:onnx/onnx.git

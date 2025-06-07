@@ -28,13 +28,14 @@ fi
 
 echo "Building Triton - $BUILD_DIR/triton ($MODULES_DIR/triton)"
 
+export LLVM_BUILD_DIR="$BUILD_DIR/llvm"
+export LLVM_INCLUDE_DIRS="$BUILD_DIR/llvm/include"
+export LLVM_LIBRARY_DIR="$BUILD_DIR/llvm/lib"
+export LLVM_SYSPATH="$BUILD_DIR/llvm"
+
 cmake -B "$BUILD_DIR/triton" -S "$MODULES_DIR/triton" -G Ninja \
-      -DLLVM_BUILD_DIR="$BUILD_DIR/llvm" \
-      -DLLVM_INCLUDE_DIRS="$BUILD_DIR/llvm/include" \
-      -DLLVM_LIBRARY_DIR="$BUILD_DIR/llvm/lib" \
-      -DLLVM_SYSPATH="$BUILD_DIR/llvm" \
       -DCMAKE_BUILD_TYPE=Release \
-      -DTRITON_CODEGEN_BACKENDS=amd;nvidia \
+      -DTRITON_CODEGEN_BACKENDS="amd;nvidia" \
       -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/install"
 
 ninja -C "$BUILD_DIR/triton" install
