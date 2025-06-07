@@ -21,11 +21,6 @@ checkEnv "MODULES_DIR"
 createDir "$BUILD_DIR/llvm"
 createDir "$BUILD_DIR/install"
 
-if [ -f "$BUILD_DIR/llvm.txt" ]; then
-    echo "llvm.txt already exists, skipping build"
-    exit 0
-fi
-
 echo "Building LLVM - $BUILD_DIR/llvm ($MODULES_DIR/llvm-project/llvm)"
 
 cmake -B "$BUILD_DIR/llvm" -S "$MODULES_DIR/llvm-project/llvm" -G Ninja \
@@ -34,5 +29,3 @@ cmake -B "$BUILD_DIR/llvm" -S "$MODULES_DIR/llvm-project/llvm" -G Ninja \
        -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/install"
 
 ninja -C "$BUILD_DIR/llvm" install
-
-touch "$BUILD_DIR/llvm.txt"

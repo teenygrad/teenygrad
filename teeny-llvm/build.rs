@@ -74,7 +74,7 @@ fn build_llvm(project_dir: &Path, out_dir: &Path) {
     let build_dir = out_dir.join("build");
     let modules_dir = project_dir.join("modules");
 
-    Command::new("./scripts/build_llvm.sh")
+    let status = Command::new("./scripts/build_llvm.sh")
         .env("BUILD_DIR", build_dir)
         .env("MODULES_DIR", modules_dir)
         .stdout(std::process::Stdio::inherit())
@@ -83,13 +83,20 @@ fn build_llvm(project_dir: &Path, out_dir: &Path) {
         .expect("Failed to execute cmake command")
         .wait()
         .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {}", e));
+
+    if !status.success() {
+        panic!(
+            "LLVM build failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        );
+    }
 }
 
 fn build_triton(project_dir: &Path, out_dir: &Path) {
     let build_dir = out_dir.join("build");
     let modules_dir = project_dir.join("modules");
 
-    Command::new("./scripts/build_triton.sh")
+    let status = Command::new("./scripts/build_triton.sh")
         .env("BUILD_DIR", build_dir)
         .env("MODULES_DIR", modules_dir)
         .stdout(std::process::Stdio::inherit())
@@ -98,6 +105,13 @@ fn build_triton(project_dir: &Path, out_dir: &Path) {
         .expect("Triton build: Failed to execute cmake command")
         .wait()
         .unwrap_or_else(|e| panic!("Triton build: Failed to wait for cmake command: {}", e));
+
+    if !status.success() {
+        panic!(
+            "Triton build failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        );
+    }
 }
 
 fn build_toy_lang(out_dir: &Path) {
