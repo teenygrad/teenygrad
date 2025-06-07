@@ -1,5 +1,5 @@
 [workspace]
 resolver = "2"
-members = [ "teeny-llvm" ]
+members = [ "teeny-llvm", "teeny-macros", "teeny-kernels", "teeny-triton" , "teeny-models"]
 
 [workspace.dependencies]
