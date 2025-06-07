@@ -1,0 +1,12 @@
+[package]
+name = "teeny-kernels"
+version = "0.1.0"
+edition = "2024"
+description = "Triton based kernels for the Teenygrad project"
+repository = "https://github.com/teenygrad/teeny-kernels"
+license = "GPL v3"
+
+[lib]
+
+[dependencies]
+teeny_macros = { path = "../teeny-macros" }

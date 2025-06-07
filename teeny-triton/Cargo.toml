@@ -1,0 +1,10 @@
+[package]
+name = "teeny-triton"
+version = "0.1.0"
+edition = "2024"
+description = "Triton model for the Teenygrad project"
+repository = "https://github.com/teenygrad/teeny-triton"
+license = "GPL v3"
+
+[lib]
+
