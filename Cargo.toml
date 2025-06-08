@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "teeny-llvm", "teeny-macros", "teeny-kernels", "teeny-triton" , "teeny-models", "teeny-onnx"]
+members = [ "compiler/*", "nn/*", "support/*", "drivers/*"]
 
 [workspace.dependencies]
 protobuf = "3.7.2"
