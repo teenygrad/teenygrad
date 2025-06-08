@@ -1,9 +1,0 @@
-[submodule "compiler/teeny-llvm/modules/llvm-project"]
-	path = compiler/teeny-llvm/modules/llvm-project
-	url = git@github.com:teenygrad/llvm-project.git
-[submodule "compiler/teeny-llvm/modules/triton"]
-	path = compiler/teeny-llvm/modules/triton
-	url = git@github.com:teenygrad/triton.git
-[submodule "support/teeny-onnx/onnx"]
-	path = support/teeny-onnx/onnx
-	url = git@github.com:onnx/onnx.git

@@ -1,6 +1,0 @@
-if (FLANG_INCLUDE_RUNTIME)
-  add_subdirectory(ExternalHelloWorld)
-endif ()
-add_subdirectory(PrintFlangFunctionNames)
-add_subdirectory(FlangOmpReport)
-add_subdirectory(FeatureList)
