@@ -23,4 +23,12 @@ include(AddLLVM)
 include(TableGen)
 include(AddMLIR)
 
+include_directories(".")
+include_directories(${MLIR_INCLUDE_DIRS})
+include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_BINARY_DIR}/include) # Tablegen'd files
+include_directories(${PROJECT_SOURCE_DIR}/third_party)
+include_directories(${PROJECT_BINARY_DIR}/third_party) # Tablegen'd files
+
 add_subdirectory(mlir)

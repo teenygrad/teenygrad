@@ -1,5 +1,0 @@
-{
-  "rust-analyzer.checkOnSave.enable": false,
-  "rust-analyzer.checkOnSave.command": "cargo check"
-}
-

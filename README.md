@@ -2,6 +2,28 @@
 
 > ⚠️ **Warning**: This project is still under active development and not yet ready for production use.
 
+## Community
+
+[Join our Discord](https://discord.gg/Dvtasac8) to discuss the project or seek help with any issues.
+
+## Teenygrad Vision
+
+**Empowering the next generation of AI everywhere—uncompromised performance, unparalleled accessibility.**
+
+We envision a world where machine learning is truly ubiquitous: from the tiniest embedded sensors to the largest distributed clusters, every device can harness the power of AI efficiently, safely, and without constraints.
+
+By redefining lightweight, hardware-agnostic ML frameworks, we break down the barriers between cutting-edge research and real-world deployment. Teenygrad isn’t just a library—it’s the foundation for a future where:
+
+Safety meets scalability: Memory-safe, concurrent, and extensible by design, enabling developers to push boundaries without sacrificing reliability.
+
+Every device is an AI device: From microcontrollers to data centers, performance is never limited by hardware or legacy software bloat.
+
+Innovation is democratized: Open collaboration fuels advancements, while our licensing ensures fairness for both creators and enterprises.
+
+We’re not just building tools for today’s ML—we’re architecting the ecosystem for tomorrow’s intelligent edge.
+
+## Mission
+
 Teenygrad is a high performance Rust based ML training and inference library in the spirit of Pytorch and Tinygrad.
 
 Our goals:
@@ -21,10 +43,6 @@ Our goals:
 - Full async support – Efficient asynchronous operations, even on embedded systems.
 
 - Multi-threaded by default – Maximizes utilization of all available CPU cores.
-
-## Community
-
-[Join our Discord](https://discord.gg/Dvtasac8) to discuss the project or seek help with any issues.
 
 ## FAQ
 

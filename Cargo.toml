@@ -1,8 +1,16 @@
 [workspace]
 resolver = "2"
 members = [ "compiler/*", "nn/*", "support/*", "drivers/*"]
+default_members = [ "compiler/*", "nn/*", "support/*"]
 
 [workspace.dependencies]
 protobuf = "3.7.2"
 protobuf-codegen = "3.7.2"
 protoc-bin-vendored = "3.1.0" 
+
+[workspace.features]
+default = ["vulkan", "std"]
+cuda = []
+vulkan = []
+no_std = []
+std = []

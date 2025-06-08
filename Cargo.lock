@@ -1004,6 +1004,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-cuda"
+version = "0.1.0"
+
+[[package]]
+name = "teeny-driver"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-kernels"
 version = "0.1.0"
 dependencies = [
