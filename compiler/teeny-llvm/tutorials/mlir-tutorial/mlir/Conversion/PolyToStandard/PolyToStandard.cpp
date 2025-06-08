@@ -1,3 +1,7 @@
+/*
+ * Copyright 2025 Jeremy Kun. All rights reserved.
+ */
+ 
 #include "lib/Conversion/PolyToStandard/PolyToStandard.h"
 
 #include "lib/Dialect/Poly/PolyOps.h"

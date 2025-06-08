@@ -35,8 +35,13 @@ fn main() {
         .unwrap();
     let project_dir: PathBuf = package.manifest_path.parent().unwrap().into();
 
+    // Get workspace root from metadata
+    let workspace_root: PathBuf = metadata.workspace_root.into();
+    let build_dir: PathBuf = workspace_root.join("target/cmake-build");
+    std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
+
     println!("AXM project_dir: {:?}", project_dir);
-    println!("AXM out_dir: {:?}", out_dir);
+    println!("AXM build_dir: {:?}", build_dir);
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
@@ -48,11 +53,12 @@ fn main() {
     check_command("cmake");
     check_command("ninja");
 
-    build_llvm(&project_dir, &out_dir);
-    build_triton(&project_dir, &out_dir);
+    build_llvm(&project_dir, &build_dir);
+    build_triton(&project_dir, &build_dir);
+    build_tutorials(&project_dir, &build_dir);
     build_toy_lang(&out_dir);
 
-    generate_bindings(&out_dir);
+    generate_bindings(&build_dir);
 }
 
 fn check_command(command: &str) {
@@ -70,8 +76,7 @@ fn check_command(command: &str) {
     }
 }
 
-fn build_llvm(project_dir: &Path, out_dir: &Path) {
-    let build_dir = out_dir.join("build");
+fn build_llvm(project_dir: &Path, build_dir: &Path) {
     let modules_dir = project_dir.join("modules");
 
     let status = Command::new("./scripts/build_llvm.sh")
@@ -92,8 +97,7 @@ fn build_llvm(project_dir: &Path, out_dir: &Path) {
     }
 }
 
-fn build_triton(project_dir: &Path, out_dir: &Path) {
-    let build_dir = out_dir.join("build");
+fn build_triton(project_dir: &Path, build_dir: &Path) {
     let modules_dir = project_dir.join("modules");
 
     let status = Command::new("./scripts/build_triton.sh")
@@ -109,6 +113,29 @@ fn build_triton(project_dir: &Path, out_dir: &Path) {
     if !status.success() {
         panic!(
             "Triton build failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        );
+    }
+}
+
+fn build_tutorials(project_dir: &Path, build_dir: &Path) {
+    let modules_dir = project_dir.join("modules");
+    let tutorials_dir = project_dir.join("tutorials");
+
+    let status = Command::new("./scripts/build_tutorials.sh")
+        .env("BUILD_DIR", build_dir)
+        .env("MODULES_DIR", modules_dir)
+        .env("TUTORIALS_DIR", tutorials_dir)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .expect("Failed to execute cmake command")
+        .wait()
+        .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {}", e));
+
+    if !status.success() {
+        panic!(
+            "Tutorials build failed with exit code: {}",
             status.code().unwrap_or(-1)
         );
     }
@@ -130,9 +157,9 @@ fn build_toy_lang(out_dir: &Path) {
         .unwrap_or_else(|e| panic!("Failed to build lexer: {}", e));
 }
 
-fn generate_bindings(out_dir: &Path) {
-    let llvm_include_dir = String::from(out_dir.join("install/include").to_str().unwrap());
-    let llvm_lib_dir = String::from(out_dir.join("install/lib").to_str().unwrap());
+fn generate_bindings(build_dir: &Path) {
+    let llvm_include_dir = String::from(build_dir.join("install/include").to_str().unwrap());
+    let llvm_lib_dir = String::from(build_dir.join("install/lib").to_str().unwrap());
 
     // Tell cargo to look for shared libraries in the specified directory
     println!("cargo:rustc-link-search={llvm_lib_dir}");
@@ -165,6 +192,6 @@ fn generate_bindings(out_dir: &Path) {
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     bindings
-        .write_to_file(out_dir.join("bindings.rs"))
+        .write_to_file(build_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 }
