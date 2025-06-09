@@ -21,7 +21,7 @@ use teeny_macros::kernel;
 fn my_kernel(x: i32) -> i32 {
     // Invalid return type
     let _ = x * 2;
-    return x;
+    x
 }
 
 #[test]

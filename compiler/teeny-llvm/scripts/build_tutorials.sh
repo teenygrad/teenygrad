@@ -35,5 +35,5 @@ cmake -B "$BUILD_DIR/tutorials" -S "$TUTORIALS_DIR" -G Ninja \
   -DMLIR_DIR="$BUILD_DIR/llvm/lib/cmake/mlir" \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR"
         
-ninja -C "$BUILD_DIR/tutorials"
+ninja -C "$BUILD_DIR/tutorials" install
 echo "Tutorial build completed: $?"

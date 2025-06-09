@@ -30,8 +30,7 @@ fn main() {
     let package = metadata
         .packages
         .iter()
-        .filter(|p| p.name.as_str() == "teeny-llvm")
-        .next()
+        .find(|p| p.name.as_str() == "teeny-llvm")
         .unwrap();
     let project_dir: PathBuf = package.manifest_path.parent().unwrap().into();
 
