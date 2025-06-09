@@ -37,3 +37,5 @@ cmake -B "$BUILD_DIR/tutorials" -S "$TUTORIALS_DIR" -G Ninja \
         
 ninja -C "$BUILD_DIR/tutorials" install
 echo "Tutorial build completed: $?"
+
+touch "$BUILD_DIR/tutorials/build.done"

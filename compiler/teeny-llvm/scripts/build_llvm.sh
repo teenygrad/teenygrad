@@ -29,3 +29,5 @@ cmake -B "$BUILD_DIR/llvm" -S "$MODULES_DIR/llvm-project/llvm" -G Ninja \
        -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/install"
 
 ninja -C "$BUILD_DIR/llvm" install
+
+touch "$BUILD_DIR/llvm/build.done"

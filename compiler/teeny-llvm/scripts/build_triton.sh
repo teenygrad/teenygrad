@@ -36,3 +36,5 @@ cmake -B "$BUILD_DIR/triton" -S "$MODULES_DIR/triton" -G Ninja \
 
 ninja -C "$BUILD_DIR/triton" install
 echo "Triton build completed: $?"
+
+touch "$BUILD_DIR/triton/build.done"

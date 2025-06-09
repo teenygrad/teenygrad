@@ -52,10 +52,21 @@ fn main() {
     check_command("cmake");
     check_command("ninja");
 
-    build_llvm(&project_dir, &build_dir);
-    build_triton(&project_dir, &build_dir);
-    build_tutorials(&project_dir, &build_dir);
-    build_toy_lang(&out_dir);
+    if !check_build_done(&build_dir, "llvm") {
+        build_llvm(&project_dir, &build_dir);
+    }
+
+    if !check_build_done(&build_dir, "triton") {
+        build_triton(&project_dir, &build_dir);
+    }
+
+    if !check_build_done(&build_dir, "tutorials") {
+        build_tutorials(&project_dir, &build_dir);
+    }
+
+    if !check_build_done(&build_dir, "toy") {
+        build_toy_lang(&build_dir, &out_dir);
+    }
 
     generate_bindings(&build_dir);
 }
@@ -140,7 +151,7 @@ fn build_tutorials(project_dir: &Path, build_dir: &Path) {
     }
 }
 
-fn build_toy_lang(out_dir: &Path) {
+fn build_toy_lang(build_dir: &Path, out_dir: &Path) {
     let out_path1 = out_dir.join("toy_y.rs");
     let out_path2 = out_dir.join("toy_l.rs");
 
@@ -154,6 +165,10 @@ fn build_toy_lang(out_dir: &Path) {
         .output_path(out_path2)
         .build()
         .unwrap_or_else(|e| panic!("Failed to build lexer: {}", e));
+
+    std::fs::create_dir_all(build_dir.join("toy")).expect("Failed to create toy directory");
+    std::fs::File::create(build_dir.join("toy/build.done"))
+        .expect("Failed to create build.done file");
 }
 
 fn generate_bindings(build_dir: &Path) {
@@ -193,4 +208,8 @@ fn generate_bindings(build_dir: &Path) {
     bindings
         .write_to_file(build_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+fn check_build_done(build_dir: &Path, project: &str) -> bool {
+    build_dir.join(format!("{}/build.done", project)).exists()
 }
