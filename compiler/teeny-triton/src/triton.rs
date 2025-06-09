@@ -15,12 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::fmt::Display;
+
 use crate::{
     tensor::{DenseTensor, DynamicShape, Shape},
     types::NumericType,
 };
 
-pub struct ConstExpr<T>(pub T);
+pub struct ConstExpr<T: Display>(pub T);
 
 pub enum Triton<S: Shape, T: NumericType> {
     Arange {

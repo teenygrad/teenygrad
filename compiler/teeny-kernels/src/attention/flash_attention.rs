@@ -15,7 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_macros::constexpr;
 use teeny_triton::{tensor::{DenseTensor, DynamicShape}, triton::{self, Block, ConstExpr}, types::F32};
 
  fn fwd_kernel(

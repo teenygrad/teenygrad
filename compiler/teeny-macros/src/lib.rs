@@ -21,8 +21,3 @@ use proc_macro::TokenStream;
 pub fn kernel(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
-
-#[proc_macro_attribute]
-pub fn constexpr(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    item
-}
