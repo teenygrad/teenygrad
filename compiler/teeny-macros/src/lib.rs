@@ -18,8 +18,11 @@
 use proc_macro::TokenStream;
 
 #[proc_macro_attribute]
-pub fn kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
-    println!("attr: {}", attr);
-    println!("item: {}", item);
+pub fn kernel(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
+#[proc_macro_attribute]
+pub fn constexpr(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }

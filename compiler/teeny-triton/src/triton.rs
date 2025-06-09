@@ -15,7 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{tensor::Shape, types::NumericType};
+use crate::{
+    tensor::{DenseTensor, DynamicShape, Shape},
+    types::NumericType,
+};
+
+pub struct ConstExpr<T>(pub T);
 
 pub enum Triton<S: Shape, T: NumericType> {
     Arange {
@@ -26,11 +31,37 @@ pub enum Triton<S: Shape, T: NumericType> {
     },
 }
 
-pub fn arange<S: Shape, T: NumericType>(start: T, end: T, step: T) -> Triton<S, T> {
-    Triton::Arange {
-        start,
-        end,
-        step,
-        _shape: std::marker::PhantomData,
-    }
+pub fn program_id(_id: i32) -> i32 {
+    unimplemented!("Only used for type checking")
+}
+
+pub struct Block<S: Shape, T: NumericType> {
+    pub base: DenseTensor<DynamicShape, T>,
+    pub shape: S,
+    pub strides: S,
+    pub offsets: S,
+    pub block_shape: S,
+    pub order: S,
+}
+
+pub fn make_block_ptr<S: Shape, T: NumericType>(
+    _block: &BlockPtr<S, T>,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn arange<S: Shape, T: NumericType>(
+    _start: T,
+    _end: T,
+    _step: T,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn zeros<S: Shape, T: NumericType>(_shape: S) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn load<S: Shape, T: NumericType>(_offsets: S) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
 }

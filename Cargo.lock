@@ -1016,6 +1016,7 @@ name = "teeny-kernels"
 version = "0.1.0"
 dependencies = [
  "teeny-macros",
+ "teeny-triton",
 ]
 
 [[package]]
@@ -1034,6 +1035,7 @@ name = "teeny-macros"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "proc-macro2",
  "quote",
  "syn",
  "teeny-triton",
