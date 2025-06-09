@@ -20,8 +20,6 @@ use std::env;
 use lrlex::lrlex_mod;
 use lrpar::lrpar_mod;
 
-use crate::toy_y::Expr;
-
 // Using `lrlex_mod!` brings the lexer for `calc.l` into scope. By default the
 // module name will be `calc_l` (i.e. the file name, minus any extensions,
 // with a suffix of `_l`).
