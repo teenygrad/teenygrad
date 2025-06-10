@@ -15,8 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod kernel;
-pub mod triton_ops;
+use std::ops::Add;
 
-pub use kernel::TritonKernel;
-pub use triton_ops::*;
+use crate::{
+    tensor::{DenseTensor, DynamicShape},
+    types::NumericType,
+};
+
+impl<T: NumericType> Add<T> for DenseTensor<DynamicShape, T> {
+    type Output = DenseTensor<DynamicShape, T>;
+
+    fn add(self, _rhs: T) -> Self::Output {
+        unimplemented!()
+    }
+}

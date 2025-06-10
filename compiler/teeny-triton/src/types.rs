@@ -17,6 +17,12 @@
 /// A type to represent u8 data type
 pub struct U8;
 
+/// A type to represent usize data type
+pub struct USize;
+
+/// A type to represent int data type
+pub struct Int;
+
 /// A type to represent f32 data type
 pub struct F32;
 
@@ -31,4 +37,16 @@ impl NumericType for U8 {
 
 impl NumericType for F32 {
     type RustType = f32;
+}
+
+impl NumericType for USize {
+    type RustType = usize;
+}
+
+impl NumericType for Int {
+    type RustType = isize;
+}
+
+impl NumericType for usize {
+    type RustType = usize;
 }

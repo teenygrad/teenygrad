@@ -33,58 +33,57 @@ fn fwd_kernel(
     sm_scale: F32,
     L: DenseTensor<DynamicShape, F32>,
     Out: DenseTensor<DynamicShape, F32>,
-    stride_qz: i32,
-    stride_qh: i32,
-    stride_qm: i32,
-    stride_qk: i32,
-    stride_kz: i32,
-    stride_kh: i32,
-    stride_kn: i32,
-    stride_kk: i32,
-    stride_vz: i32,
-    stride_vh: i32,
-    stride_vn: i32,
-    stride_vk: i32,
-    stride_oz: i32,
-    stride_oh: i32,
-    stride_om: i32,
-    stride_on: i32,
+    stride_qz: usize,
+    stride_qh: usize,
+    stride_qm: usize,
+    stride_qk: usize,
+    stride_kz: usize,
+    stride_kh: usize,
+    stride_kn: usize,
+    stride_kk: usize,
+    stride_vz: usize,
+    stride_vh: usize,
+    stride_vn: usize,
+    stride_vk: usize,
+    stride_oz: usize,
+    stride_oh: usize,
+    stride_om: usize,
+    stride_on: usize,
     Z: DenseTensor<DynamicShape, F32>,
-    H: i32,
-    N_CTX: i32,
-    Z_H_N_CTX: i32,
-    BLOCK_M: ConstExpr<i32>,
-    BLOCK_DMODEL: ConstExpr<i32>,
-    BLOCK_N: ConstExpr<i32>,
+    H: usize,
+    N_CTX: usize,
+    Z_H_N_CTX: usize,
+    BLOCK_M: ConstExpr<usize>,
+    BLOCK_DMODEL: ConstExpr<usize>,
+    BLOCK_N: ConstExpr<usize>,
     IS_CAUSAL: ConstExpr<bool>,
 ) {
     let start_m = triton::program_id(0);
-    // let off_hz = triton::program_id(1);
-    // let qvk_offset = off_hz * stride_qh;
-    // let vk_offset = qvk_offset; // stride_qm;
+    let off_hz = triton::program_id(1);
+    let qvk_offset = off_hz * stride_qh;
+    let vk_offset = triton::floor_div(qvk_offset, stride_qm);
 
-    // let K_block_ptr = triton::make_block_ptr(Block {
-    //     base: K,
-    //     shape: (BLOCK_DMODEL, Z_H_N_CTX),
-    //     strides: (stride_kk, stride_kn),
-    //     offsets: (0, vk_offset),
-    //     block_shape: (BLOCK_DMODEL, BLOCK_N),
-    //     order: (0, 1)
-    // }
-    // );
+    let K_block_ptr: DenseTensor<DynamicShape, F32> = triton::make_block_ptr(triton::Block {
+        base: K,
+        shape: [BLOCK_DMODEL.0, Z_H_N_CTX].into(),
+        strides: [stride_kk, stride_kn].into(),
+        offsets: [0, vk_offset].into(),
+        block_shape: [BLOCK_DMODEL.0, BLOCK_N.0].into(),
+        order: [0, 1].into(),
+    });
 
-    // let V_block_ptr = triton::make_block_ptr(
-    //     base: V,
-    //     shape: (Z_H_N_CTX, BLOCK_DMODEL),
-    //     strides: (stride_vn, stride_vk),
-    //     offsets: (vk_offset, 0),
-    //     block_shape: (BLOCK_N, BLOCK_DMODEL),
-    //     order: (1, 0)}
-    // );
+    let V_block_ptr = triton::make_block_ptr(triton::Block {
+        base: V,
+        shape: [Z_H_N_CTX, BLOCK_DMODEL.0].into(),
+        strides: [stride_vn, stride_vk].into(),
+        offsets: [vk_offset, 0].into(),
+        block_shape: [BLOCK_N.0, BLOCK_DMODEL.0].into(),
+        order: [1, 0].into(),
+    });
 
     // // initialize offsets
-    // let offs_m = start_m * BLOCK_M + triton::arange(0, BLOCK_M, 1);
-    // let offs_n = triton::arange(0, BLOCK_N, 1);
+    let offs_m = triton::arange(0, BLOCK_M.0, 1) + start_m * BLOCK_M.0;
+    let offs_n = triton::arange(0, BLOCK_N.0, 1);
 
     // // initialize pointer to m and l
     // let m_i = triton::zeros::<_, F32>([BLOCK_M]) /* AXM  - float("inf") */;

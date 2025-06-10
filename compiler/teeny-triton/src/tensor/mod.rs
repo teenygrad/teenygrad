@@ -17,6 +17,8 @@
 
 use crate::types::NumericType;
 
+pub mod tensor_add;
+
 /// A type-level tuple for representing tensor shapes
 pub trait Shape {
     const RANK: usize;
@@ -72,6 +74,14 @@ pub struct DynamicShape {
 impl DynamicShape {
     pub fn new(dims: Vec<usize>) -> Self {
         Self { dims }
+    }
+}
+
+impl<T: AsRef<[usize]>> From<T> for DynamicShape {
+    fn from(dims: T) -> Self {
+        Self {
+            dims: dims.as_ref().to_vec(),
+        }
     }
 }
 
