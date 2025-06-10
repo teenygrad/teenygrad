@@ -22,6 +22,9 @@ use crate::{
     types::NumericType,
 };
 
+pub mod kernel;
+pub use kernel::TritonKernel;
+
 pub struct ConstExpr<T: Display>(pub T);
 
 pub enum Triton<S: Shape, T: NumericType> {
@@ -44,12 +47,6 @@ pub struct Block<S: Shape, T: NumericType> {
     pub offsets: S,
     pub block_shape: S,
     pub order: S,
-}
-
-pub fn make_block_ptr<S: Shape, T: NumericType>(
-    _block: &BlockPtr<S, T>,
-) -> DenseTensor<DynamicShape, T> {
-    unimplemented!("Only used for type checking")
 }
 
 pub fn arange<S: Shape, T: NumericType>(

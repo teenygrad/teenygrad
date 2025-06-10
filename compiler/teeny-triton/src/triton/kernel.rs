@@ -15,16 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_macros::kernel;
-
-#[kernel]
-fn my_kernel(x: i32) -> i32 {
-    // Invalid return type
-    let _ = x * 2;
-    x
-}
-
-#[test]
-fn test_kernel_macro_snapshot() {
-    // todo: add tests
-}
+pub struct TritonKernel {}

@@ -20,8 +20,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cargo_metadata::MetadataCommand;
-use cfgrammar::yacc::YaccKind;
-use lrlex::CTLexerBuilder;
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR environment variable not set"));
@@ -44,9 +42,6 @@ fn main() {
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
-    // Tell cargo to invalidate the built crate whenever toy language files change
-    println!("cargo:rerun-if-changed=examples/toy/toy.l");
-    println!("cargo:rerun-if-changed=examples/toy/toy.y");
 
     // Check if cmake and ninja are installed
     check_command("cmake");
@@ -62,10 +57,6 @@ fn main() {
 
     if !check_build_done(&build_dir, "tutorials") {
         build_tutorials(&project_dir, &build_dir);
-    }
-
-    if !check_build_done(&build_dir, "toy") {
-        build_toy_lang(&build_dir, &out_dir);
     }
 
     generate_bindings(&build_dir);
@@ -149,26 +140,6 @@ fn build_tutorials(project_dir: &Path, build_dir: &Path) {
             status.code().unwrap_or(-1)
         );
     }
-}
-
-fn build_toy_lang(build_dir: &Path, out_dir: &Path) {
-    let out_path1 = out_dir.join("toy_y.rs");
-    let out_path2 = out_dir.join("toy_l.rs");
-
-    let _lexer = CTLexerBuilder::new()
-        .lrpar_config(move |ctp| {
-            ctp.grammar_path("tests/toy/toy.y")
-                .yacckind(YaccKind::Grmtools)
-                .output_path(out_path1.clone())
-        })
-        .lexer_path("tests/toy/toy.l")
-        .output_path(out_path2)
-        .build()
-        .unwrap_or_else(|e| panic!("Failed to build lexer: {}", e));
-
-    std::fs::create_dir_all(build_dir.join("toy")).expect("Failed to create toy directory");
-    std::fs::File::create(build_dir.join("toy/build.done"))
-        .expect("Failed to create build.done file");
 }
 
 fn generate_bindings(build_dir: &Path) {

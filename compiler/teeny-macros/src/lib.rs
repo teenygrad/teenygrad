@@ -17,7 +17,11 @@
 
 use proc_macro::TokenStream;
 
+use crate::macros::kernel_macro;
+
+mod macros;
+
 #[proc_macro_attribute]
-pub fn kernel(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    item
+pub fn kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
+    kernel_macro::kernel_macro(attr, item)
 }
