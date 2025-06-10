@@ -15,4 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub struct TritonKernel {}
+use syn::{Block, parse_str};
+
+pub struct TritonKernel {
+    pub name: &'static str,
+    pub sig: &'static str,
+    pub block_str: &'static str,
+}
+
+impl TritonKernel {
+    pub fn parse_block(&self) -> syn::Result<Block> {
+        parse_str(self.block_str)
+    }
+}

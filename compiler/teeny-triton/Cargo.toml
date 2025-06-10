@@ -8,3 +8,6 @@ license = "GPL v3"
 
 [lib]
 
+[dependencies]
+syn.workspace = true
+

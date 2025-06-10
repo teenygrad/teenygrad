@@ -22,6 +22,7 @@ use teeny_triton::{
     types::F32,
 };
 
+#[allow(unused_variables)]
 #[allow(non_snake_case)]
 #[allow(clippy::too_many_arguments)]
 #[kernel]

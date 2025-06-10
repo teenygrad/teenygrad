@@ -26,18 +26,29 @@ pub fn kernel_macro(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut sig = input.sig.clone();
     sig.ident = Ident::new(&format!("{}_kernel", name), input.sig.ident.span());
     let block = input.block;
+    let attrs = input.attrs;
 
     let function_stream: TokenStream = quote! {
+        #[allow(non_snake_case)]
+        #[allow(clippy::too_many_arguments)]
+        #(#attrs)*
         #vis #sig {
             #block
         }
     }
     .into();
 
+    let kernel_name = &format!("{}_kernel", name);
     let static_ident = Ident::new(&name, input.sig.ident.span());
+    let sig_str = quote!(#sig).to_string();
+    let block_str = quote!(#block).to_string();
     let static_stream: TokenStream = quote! {
         #[allow(non_upper_case_globals)]
-        pub static #static_ident: teeny_triton::triton::TritonKernel = teeny_triton::triton::TritonKernel {};
+        pub static #static_ident: teeny_triton::triton::TritonKernel = teeny_triton::triton::TritonKernel {
+            name: #kernel_name,
+            sig: #sig_str,
+            block_str: #block_str,
+        };
     }
     .into();
 

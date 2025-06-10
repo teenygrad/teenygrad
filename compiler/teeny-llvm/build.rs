@@ -15,14 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cargo_metadata::MetadataCommand;
 
 fn main() {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR environment variable not set"));
     let metadata = MetadataCommand::new().exec().unwrap();
 
     let package = metadata
