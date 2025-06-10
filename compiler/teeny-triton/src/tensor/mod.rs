@@ -18,6 +18,9 @@
 use crate::types::NumericType;
 
 pub mod tensor_add;
+pub mod tensor_div;
+pub mod tensor_mult;
+pub mod tensor_sub;
 
 /// A type-level tuple for representing tensor shapes
 pub trait Shape {

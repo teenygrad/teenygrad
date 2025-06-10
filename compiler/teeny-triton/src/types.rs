@@ -50,3 +50,7 @@ impl NumericType for Int {
 impl NumericType for usize {
     type RustType = usize;
 }
+
+impl NumericType for f32 {
+    type RustType = f32;
+}

@@ -15,39 +15,31 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::{Add, AddAssign};
+use std::ops::{Mul, MulAssign};
 
 use crate::{
     tensor::{DenseTensor, DynamicShape},
     types::NumericType,
 };
 
-impl<T: NumericType> Add<T> for DenseTensor<DynamicShape, T> {
+impl<T: NumericType> Mul<T> for DenseTensor<DynamicShape, T> {
     type Output = DenseTensor<DynamicShape, T>;
 
-    fn add(self, _rhs: T) -> Self::Output {
+    fn mul(self, _rhs: T) -> Self::Output {
         unimplemented!()
     }
 }
 
-impl<T: NumericType> Add<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicShape, T> {
+impl<T: NumericType> Mul<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicShape, T> {
     type Output = DenseTensor<DynamicShape, T>;
 
-    fn add(self, _rhs: DenseTensor<DynamicShape, T>) -> Self::Output {
+    fn mul(self, _rhs: DenseTensor<DynamicShape, T>) -> Self::Output {
         unimplemented!()
     }
 }
 
-impl<T: NumericType> Add<&DenseTensor<DynamicShape, T>> for &DenseTensor<DynamicShape, T> {
-    type Output = DenseTensor<DynamicShape, T>;
-
-    fn add(self, _rhs: &DenseTensor<DynamicShape, T>) -> Self::Output {
-        unimplemented!()
-    }
-}
-
-impl<T: NumericType> AddAssign<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicShape, T> {
-    fn add_assign(&mut self, _rhs: DenseTensor<DynamicShape, T>) {
+impl<T: NumericType> MulAssign<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicShape, T> {
+    fn mul_assign(&mut self, _rhs: DenseTensor<DynamicShape, T>) {
         unimplemented!()
     }
 }

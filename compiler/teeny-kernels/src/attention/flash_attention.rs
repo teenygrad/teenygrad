@@ -19,20 +19,21 @@ use teeny_macros::kernel;
 use teeny_triton::{
     tensor::{DenseTensor, DynamicShape},
     triton::{self, ConstExpr},
-    types::F32,
 };
 
 #[allow(unused_variables)]
 #[allow(non_snake_case)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::excessive_precision)]
+#[allow(clippy::approx_constant)]
 #[kernel]
 fn fwd_kernel(
-    Q: DenseTensor<DynamicShape, F32>,
-    K: DenseTensor<DynamicShape, F32>,
-    V: DenseTensor<DynamicShape, F32>,
-    sm_scale: F32,
-    L: DenseTensor<DynamicShape, F32>,
-    Out: DenseTensor<DynamicShape, F32>,
+    Q: DenseTensor<DynamicShape, f32>,
+    K: DenseTensor<DynamicShape, f32>,
+    V: DenseTensor<DynamicShape, f32>,
+    sm_scale: f32,
+    L: DenseTensor<DynamicShape, f32>,
+    Out: DenseTensor<DynamicShape, f32>,
     stride_qz: usize,
     stride_qh: usize,
     stride_qm: usize,
@@ -49,7 +50,7 @@ fn fwd_kernel(
     stride_oh: usize,
     stride_om: usize,
     stride_on: usize,
-    Z: DenseTensor<DynamicShape, F32>,
+    Z: DenseTensor<DynamicShape, f32>,
     H: usize,
     N_CTX: usize,
     Z_H_N_CTX: usize,
@@ -63,7 +64,7 @@ fn fwd_kernel(
     let qvk_offset = off_hz * stride_qh;
     let vk_offset = triton::floor_div(qvk_offset, stride_qm);
 
-    let K_block_ptr: DenseTensor<DynamicShape, F32> = triton::make_block_ptr(triton::Block {
+    let mut K_block_ptr: DenseTensor<DynamicShape, f32> = triton::make_block_ptr(triton::Block {
         base: K,
         shape: [BLOCK_DMODEL.0, Z_H_N_CTX].into(),
         strides: [stride_kk, stride_kn].into(),
@@ -72,7 +73,7 @@ fn fwd_kernel(
         order: [0, 1].into(),
     });
 
-    let V_block_ptr = triton::make_block_ptr(triton::Block {
+    let mut V_block_ptr = triton::make_block_ptr(triton::Block {
         base: V,
         shape: [Z_H_N_CTX, BLOCK_DMODEL.0].into(),
         strides: [stride_vn, stride_vk].into(),
@@ -82,71 +83,86 @@ fn fwd_kernel(
     });
 
     // // initialize offsets
-    let offs_m = triton::arange(0, BLOCK_M.0, 1) + start_m * BLOCK_M.0;
-    let offs_n = triton::arange(0, BLOCK_N.0, 1);
+    let offs_m = triton::arange::<f32>(0.0, BLOCK_M.0 as f32, 1.0) + (start_m * BLOCK_M.0) as f32;
+    let offs_n = triton::arange::<f32>(0.0, BLOCK_N.0 as f32, 1.0);
 
     // // initialize pointer to m and l
-    // let m_i = triton::zeros::<_, F32>([BLOCK_M]) /* AXM  - float("inf") */;
-    // let l_i = triton::zeros::<_, F32>([BLOCK_M]);
-    // let acc = triton::zeros::<_, F32>([BLOCK_M, BLOCK_DMODEL]);
+    let mut m_i = triton::zeros::<DynamicShape, f32>([BLOCK_M.0].into()) - f32::INFINITY;
+    let mut l_i = triton::zeros::<DynamicShape, f32>([BLOCK_M.0].into());
+    let mut acc = triton::zeros::<DynamicShape, f32>([BLOCK_M.0, BLOCK_DMODEL.0].into());
 
-    // // credits to: Adam P. Goucher (https://github.com/apgoucher):
-    // // scale sm_scale by 1/log_2(e) and use
-    // // 2^x instead of exp in the loop because CSE and LICM
-    // // don't work as expected with `exp` in the loop
-    // let qk_scale = sm_scale * 1.44269504;
+    // credits to: Adam P. Goucher (https://github.com/apgoucher):
+    // scale sm_scale by 1/log_2(e) and use
+    // 2^x instead of exp in the loop because CSE and LICM
+    // don't work as expected with `exp` in the loop
+    let qk_scale = sm_scale * 1.44269504;
 
-    // // load q: it will stay in SRAM throughout
-    // let offs_k = triton::arange(0, BLOCK_DMODEL, 1);
-    // let Q_ptrs = Q + qvk_offset + offs_m/* AXM - [:, None]*/ * stride_qm + offs_k[None, :] * stride_qk;
-    // let q = tl.load(Q_ptrs);
+    // load q: it will stay in SRAM throughout
+    let offs_k = triton::arange::<f32>(0.0, BLOCK_DMODEL.0 as f32, 1.0);
+    let Q_ptrs = Q
+        + (qvk_offset as f32)
+        + triton::append_axis(&offs_m) * (stride_qm as f32)
+        + triton::prepend_axis(&offs_k) * (stride_qk as f32);
+    let q = triton::load(&Q_ptrs);
 
-    // let q = (q * qk_scale).to(K.dtype.element_ty);
-    // let lo = 0;
-    // let hi = if IS_CAUSAL { (start_m + 1) * BLOCK_M } else { N_CTX };
-    // for start_n in lo..hi..BLOCK_N {
-    //     // -- load k, v --
-    //     let k = triton::load(K_block_ptr);
-    //     let v = triton::load(V_block_ptr);
+    let q = q * qk_scale;
+    let lo = 0;
+    let hi = if IS_CAUSAL.0 {
+        (start_m + 1) * BLOCK_M.0
+    } else {
+        N_CTX
+    };
 
-    //     // -- compute qk ---
-    //     let mut qk = triton::zeros::<F32>([BLOCK_M, BLOCK_N]);
-    //     if IS_CAUSAL {
-    //         // AXM - qk = tl.where(
-    //         //     offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf")
-    //         // )
-    //     }
-    //     qk += tl.dot(q, k);
-    //     // -- compute scaling constant ---
-    //     let m_i_new = tl.maximum(m_i, tl.max(qk, 1));
-    //     let alpha = tl.math.exp2(m_i - m_i_new);
-    //     let p = tl.math.exp2(qk - m_i_new/* AXM - [:, None]*/);
-    //     // -- scale and update acc --
-    //     acc *= alpha; // AXM - [:, None]
-    //     acc += tl.dot(p.to(V.dtype.element_ty), v);
-    //     // -- update m_i and l_i --
-    //     let l_i = l_i * alpha + tl.sum(p, 1);
-    //     let m_i = m_i_new;
-    //     // update pointers
-    //     let K_block_ptr = tl.advance(K_block_ptr, (0, BLOCK_N));
-    //     let V_block_ptr = tl.advance(V_block_ptr, (BLOCK_N, 0));
-    // }
+    for start_n in (lo..hi).step_by(BLOCK_N.0) {
+        let k = triton::load(&K_block_ptr);
+        let v = triton::load(&V_block_ptr);
+    }
+
+    for start_n in (lo..hi).step_by(BLOCK_N.0) {
+        // -- load k, v --
+        let k = triton::load(&K_block_ptr);
+        let v = triton::load(&V_block_ptr);
+
+        // -- compute qk ---
+        let mut qk = triton::zeros::<DynamicShape, f32>([BLOCK_M.0, BLOCK_N.0].into());
+        if IS_CAUSAL.0 {
+            // AXM - qk = tl.where(
+            //     offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf")
+            // )
+        }
+        qk += triton::dot(&q, &k);
+        // -- compute scaling constant ---
+        let m_i_new = triton::maximum(&m_i, &triton::max(&qk, 1.0));
+        let alpha = triton::exp2(&triton::sub(&m_i, &m_i_new));
+        let p = triton::exp2(&triton::sub(&qk, &triton::append_axis(&m_i_new)));
+        // // -- scale and update acc --
+        acc *= triton::append_axis(&alpha);
+        acc += triton::dot(&p, &v);
+        // // -- update m_i and l_i --
+        l_i = l_i * alpha + triton::sum(&p, 1.0);
+        m_i = m_i_new;
+        // // update pointers
+        K_block_ptr = triton::advance(&K_block_ptr, [0, BLOCK_N.0].into());
+        V_block_ptr = triton::advance(&V_block_ptr, [BLOCK_N.0, 0].into());
+    }
+
     // // write back l and m
-    // acc = acc / l_i; // AXM - [:, None]
-    // let l_ptrs = L + off_hz * N_CTX + offs_m;
-    // tl.store(l_ptrs, m_i + tl.math.log2(l_i));
-    // // write back O
-    // let O_block_ptr = tl.make_block_ptr(
-    //     base=Out,
-    //     shape=(Z_H_N_CTX, BLOCK_DMODEL),
-    //     strides=(stride_om, stride_on),
-    //     offsets=(vk_offset + start_m * BLOCK_M, 0),
-    //     block_shape=(BLOCK_M, BLOCK_DMODEL),
-    //     order=(1, 0),
-    // );
+    acc = acc / triton::append_axis(&l_i);
 
-    // // O_ptrs = Out + qvk_offset + offs_m[:, None] * stride_qm + offs_k[None, :] * stride_qk
-    // tl.store(O_block_ptr, acc.to(K.dtype.element_ty))
+    let l_ptrs = L + ((off_hz * N_CTX) as f32) + offs_m;
+    triton::store(&l_ptrs, &(&m_i + &triton::log2(&l_i)));
+    // // write back O
+    let O_block_ptr = triton::make_block_ptr(triton::Block {
+        base: Out,
+        shape: [Z_H_N_CTX, BLOCK_DMODEL.0].into(),
+        strides: [stride_om, stride_on].into(),
+        offsets: [vk_offset + start_m * BLOCK_M.0, 0].into(),
+        block_shape: [BLOCK_M.0, BLOCK_DMODEL.0].into(),
+        order: [1, 0].into(),
+    });
+
+    // O_ptrs = Out + qvk_offset + offs_m[:, None] * stride_qm + offs_k[None, :] * stride_qk
+    triton::store(&O_block_ptr, &acc)
 }
 
 // @jit

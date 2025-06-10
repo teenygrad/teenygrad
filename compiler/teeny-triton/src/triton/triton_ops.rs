@@ -54,7 +54,21 @@ pub fn zeros<S: Shape, T: NumericType>(_shape: S) -> DenseTensor<DynamicShape, T
     unimplemented!("Only used for type checking")
 }
 
-pub fn load<S: Shape, T: NumericType>(_offsets: S) -> DenseTensor<DynamicShape, T> {
+pub fn append_axis<T: NumericType>(
+    _tensor: &DenseTensor<DynamicShape, T>,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn prepend_axis<T: NumericType>(
+    _tensor: &DenseTensor<DynamicShape, T>,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn load<T: NumericType>(
+    _offsets: &DenseTensor<DynamicShape, T>,
+) -> DenseTensor<DynamicShape, T> {
     unimplemented!("Only used for type checking")
 }
 
@@ -63,5 +77,62 @@ pub fn floor_div<T: Div<Output = U>, U>(_a: T, _b: T) -> U {
 }
 
 pub fn make_block_ptr<T: NumericType>(_block: Block<T>) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn dot<T: NumericType>(
+    _a: &DenseTensor<DynamicShape, T>,
+    _b: &DenseTensor<DynamicShape, T>,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn maximum<T: NumericType>(
+    _a: &DenseTensor<DynamicShape, T>,
+    _b: &DenseTensor<DynamicShape, T>,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn sub<T: NumericType>(
+    _a: &DenseTensor<DynamicShape, T>,
+    _b: &DenseTensor<DynamicShape, T>,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn max<T: NumericType>(
+    _a: &DenseTensor<DynamicShape, T>,
+    _b: f32,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn exp2<T: NumericType>(_a: &DenseTensor<DynamicShape, T>) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn log2<T: NumericType>(_a: &DenseTensor<DynamicShape, T>) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn sum<T: NumericType>(
+    _a: &DenseTensor<DynamicShape, T>,
+    _axis: T,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn advance<T: NumericType>(
+    _tensor: &DenseTensor<DynamicShape, T>,
+    _offsets: DynamicShape,
+) -> DenseTensor<DynamicShape, T> {
+    unimplemented!("Only used for type checking")
+}
+
+pub fn store<T: NumericType>(
+    _tensor: &DenseTensor<DynamicShape, T>,
+    _offsets: &DenseTensor<DynamicShape, T>,
+) {
     unimplemented!("Only used for type checking")
 }
