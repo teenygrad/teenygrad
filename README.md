@@ -57,6 +57,7 @@ Our goals:
 - v0.5.0/Dec 31 - Run Deepseek R1 on Rockchip 3588
 
 - Not yet planned
+  - Training
   - Performance optimization
   - Sparsity/Quantization support
   - Observability/metrics
