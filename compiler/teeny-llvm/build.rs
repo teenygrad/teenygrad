@@ -53,6 +53,10 @@ fn main() {
         build_triton(&project_dir, &build_dir);
     }
 
+    if !check_build_done(&build_dir, "teeny") {
+        build_teeny(&project_dir, &build_dir);
+    }
+
     if !check_build_done(&build_dir, "tutorials") {
         build_tutorials(&project_dir, &build_dir);
     }
@@ -108,6 +112,27 @@ fn build_triton(project_dir: &Path, build_dir: &Path) {
         .expect("Triton build: Failed to execute cmake command")
         .wait()
         .unwrap_or_else(|e| panic!("Triton build: Failed to wait for cmake command: {}", e));
+
+    if !status.success() {
+        panic!(
+            "Triton build failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        );
+    }
+}
+
+fn build_teeny(project_dir: &Path, build_dir: &Path) {
+    let modules_dir = project_dir.join("modules");
+
+    let status = Command::new("./scripts/build_teeny.sh")
+        .env("BUILD_DIR", build_dir)
+        .env("MODULES_DIR", modules_dir)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .expect("Teeny build: Failed to execute cmake command")
+        .wait()
+        .unwrap_or_else(|e| panic!("Teeny build: Failed to wait for cmake command: {}", e));
 
     if !status.success() {
         panic!(
