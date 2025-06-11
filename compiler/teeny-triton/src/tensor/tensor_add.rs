@@ -38,6 +38,14 @@ impl<T: NumericType> Add<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicSh
     }
 }
 
+impl<T: NumericType> Add<DenseTensor<DynamicShape, T>> for usize {
+    type Output = DenseTensor<DynamicShape, T>;
+
+    fn add(self, _rhs: DenseTensor<DynamicShape, T>) -> Self::Output {
+        unimplemented!()
+    }
+}
+
 impl<T: NumericType> Add<&DenseTensor<DynamicShape, T>> for &DenseTensor<DynamicShape, T> {
     type Output = DenseTensor<DynamicShape, T>;
 

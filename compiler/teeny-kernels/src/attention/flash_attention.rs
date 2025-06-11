@@ -21,7 +21,6 @@ use teeny_triton::{
     triton::{self, ConstExpr},
 };
 
-#[allow(unused_variables)]
 #[allow(non_snake_case)]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::excessive_precision)]
@@ -139,7 +138,7 @@ fn fwd_kernel(
         acc *= triton::append_axis(&alpha);
         acc += triton::dot(&p, &v);
         // // -- update m_i and l_i --
-        l_i = l_i * alpha + triton::sum(&p, 1.0);
+        l_i = l_i * alpha + triton::sum(&p, 1);
         m_i = m_i_new;
         // // update pointers
         K_block_ptr = triton::advance(&K_block_ptr, [0, BLOCK_N.0].into());
@@ -165,23 +164,33 @@ fn fwd_kernel(
     triton::store(&O_block_ptr, &acc)
 }
 
-// @jit
-// def _bwd_preprocess(
-//     Out,
-//     DO,
-//     Delta,
-//     BLOCK_M: tl.constexpr,
-//     D_HEAD: tl.constexpr,
-// ):
-//     off_m = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
-//     off_n = tl.arange(0, D_HEAD)
-//     # load
-//     o = tl.load(Out + off_m[:, None] * D_HEAD + off_n[None, :]).to(tl.float32)
-//     do = tl.load(DO + off_m[:, None] * D_HEAD + off_n[None, :]).to(tl.float32)
-//     # compute
-//     delta = tl.sum(o * do, axis=1)
-//     # write-back
-//     tl.store(Delta + off_m, delta)
+#[allow(non_snake_case)]
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::excessive_precision)]
+#[allow(clippy::approx_constant)]
+#[kernel]
+fn bwd_preprocess(
+    Out: DenseTensor<DynamicShape, f32>,
+    DO: DenseTensor<DynamicShape, f32>,
+    Delta: DenseTensor<DynamicShape, f32>,
+    BLOCK_M: ConstExpr<usize>,
+    D_HEAD: ConstExpr<usize>,
+) {
+    let off_m =
+        triton::program_id(0) * BLOCK_M.0 + triton::arange::<f32>(0.0, BLOCK_M.0 as f32, 1.0);
+    let off_n = triton::arange::<f32>(0.0, D_HEAD.0 as f32, 1.0);
+    // load
+    let o = triton::load(
+        &(Out + triton::append_axis(&off_m) * (D_HEAD.0 as f32) + triton::prepend_axis(&off_n)),
+    );
+    let d0 = triton::load(
+        &(DO + triton::append_axis(&off_m) * (D_HEAD.0 as f32) + triton::prepend_axis(&off_n)),
+    );
+    // compute
+    let delta = triton::sum(&(o * d0), 1);
+    // write-back
+    triton::store(&(Delta + off_m), &delta);
+}
 
 // @jit
 // def _bwd_kernel_one_col_block(

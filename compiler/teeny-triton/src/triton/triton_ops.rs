@@ -118,7 +118,7 @@ pub fn log2<T: NumericType>(_a: &DenseTensor<DynamicShape, T>) -> DenseTensor<Dy
 
 pub fn sum<T: NumericType>(
     _a: &DenseTensor<DynamicShape, T>,
-    _axis: T,
+    _axis: usize,
 ) -> DenseTensor<DynamicShape, T> {
     unimplemented!("Only used for type checking")
 }
