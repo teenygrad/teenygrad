@@ -54,7 +54,7 @@ Our goals:
 
 - v0.4.0/Oct 31 - Run Llama model on Rockchip 3588 using Vulkan/SPIR-V
 
-- v0.5.0/Dec 31 - Run Deepseek R1 on Rockchip 3588
+- v0.5.0/Dec 31 - Run Deepseek R1 on Moorethreads MT4000
 
 - 2026 and beyond
   - Q1: Training/Pytorch JIT
