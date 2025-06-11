@@ -10,7 +10,8 @@ Table of Contents
 
 <!-- tocstop -->
 
-## Contributing to teenygrad
+Contributing to teenygrad
+-------------------------
 
 Thank you for your interest in this project.
 
