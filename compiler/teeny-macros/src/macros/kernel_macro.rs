@@ -23,8 +23,7 @@ pub fn kernel_macro(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let name = input.sig.ident.to_string();
     let vis = input.vis;
-    let mut sig = input.sig.clone();
-    sig.ident = Ident::new(&format!("{}_kernel", name), input.sig.ident.span());
+    let sig = input.sig.clone();
     let block = input.block;
     let attrs = input.attrs;
 
@@ -39,9 +38,14 @@ pub fn kernel_macro(_attr: TokenStream, item: TokenStream) -> TokenStream {
     .into();
 
     let kernel_name = &format!("{}_kernel", name);
-    let static_ident = Ident::new(&name, input.sig.ident.span());
+    let static_ident = Ident::new(kernel_name, input.sig.ident.span());
     let sig_str = quote!(#sig).to_string();
-    let block_str = quote!(#block).to_string();
+    let block_str = quote!({
+      #sig {
+            #block
+        }
+    })
+    .to_string();
     let static_stream: TokenStream = quote! {
         #[allow(non_upper_case_globals)]
         pub static #static_ident: teeny_triton::triton::TritonKernel = teeny_triton::triton::TritonKernel {

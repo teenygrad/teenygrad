@@ -22,7 +22,7 @@ use crate::{
     types::NumericType,
 };
 
-impl<T: NumericType> Add<T> for DenseTensor<DynamicShape, T> {
+impl<T: NumericType> Add<T> for &DenseTensor<DynamicShape, T> {
     type Output = DenseTensor<DynamicShape, T>;
 
     fn add(self, _rhs: T) -> Self::Output {
@@ -42,14 +42,6 @@ impl<T: NumericType> Add<DenseTensor<DynamicShape, T>> for usize {
     type Output = DenseTensor<DynamicShape, T>;
 
     fn add(self, _rhs: DenseTensor<DynamicShape, T>) -> Self::Output {
-        unimplemented!()
-    }
-}
-
-impl<T: NumericType> Add<&DenseTensor<DynamicShape, T>> for &DenseTensor<DynamicShape, T> {
-    type Output = DenseTensor<DynamicShape, T>;
-
-    fn add(self, _rhs: &DenseTensor<DynamicShape, T>) -> Self::Output {
         unimplemented!()
     }
 }

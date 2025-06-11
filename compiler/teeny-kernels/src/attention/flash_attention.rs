@@ -17,7 +17,7 @@
 
 use teeny_macros::kernel;
 use teeny_triton::{
-    tensor::{DenseTensor, DynamicShape},
+    tensor::{self, DenseTensor, DynamicShape, Tensor},
     triton::{self, ConstExpr},
 };
 
@@ -27,30 +27,30 @@ use teeny_triton::{
 #[allow(clippy::approx_constant)]
 #[kernel]
 fn fwd_kernel(
-    Q: DenseTensor<DynamicShape, f32>,
-    K: DenseTensor<DynamicShape, f32>,
-    V: DenseTensor<DynamicShape, f32>,
+    Q: &DenseTensor<DynamicShape, f32>,
+    K: &DenseTensor<DynamicShape, f32>,
+    V: &DenseTensor<DynamicShape, f32>,
     sm_scale: f32,
-    L: DenseTensor<DynamicShape, f32>,
-    Out: DenseTensor<DynamicShape, f32>,
-    stride_qz: usize,
+    L: &DenseTensor<DynamicShape, f32>,
+    Out: &DenseTensor<DynamicShape, f32>,
+    _stride_qz: usize,
     stride_qh: usize,
     stride_qm: usize,
     stride_qk: usize,
-    stride_kz: usize,
-    stride_kh: usize,
+    _stride_kz: usize,
+    _stride_kh: usize,
     stride_kn: usize,
     stride_kk: usize,
-    stride_vz: usize,
-    stride_vh: usize,
+    _stride_vz: usize,
+    _stride_vh: usize,
     stride_vn: usize,
     stride_vk: usize,
-    stride_oz: usize,
-    stride_oh: usize,
+    _stride_oz: usize,
+    _stride_oh: usize,
     stride_om: usize,
     stride_on: usize,
-    Z: DenseTensor<DynamicShape, f32>,
-    H: usize,
+    _Z: usize,
+    _H: usize,
     N_CTX: usize,
     Z_H_N_CTX: usize,
     BLOCK_M: ConstExpr<usize>,
@@ -82,8 +82,8 @@ fn fwd_kernel(
     });
 
     // // initialize offsets
-    let offs_m = triton::arange::<f32>(0.0, BLOCK_M.0 as f32, 1.0) + (start_m * BLOCK_M.0) as f32;
-    let offs_n = triton::arange::<f32>(0.0, BLOCK_N.0 as f32, 1.0);
+    let offs_m = &triton::arange::<f32>(0.0, BLOCK_M.0 as f32, 1.0) + (start_m * BLOCK_M.0) as f32;
+    // let offs_n = triton::arange::<f32>(0.0, BLOCK_N.0 as f32, 1.0);
 
     // // initialize pointer to m and l
     let mut m_i = triton::zeros::<DynamicShape, f32>([BLOCK_M.0].into()) - f32::INFINITY;
@@ -112,12 +112,7 @@ fn fwd_kernel(
         N_CTX
     };
 
-    for start_n in (lo..hi).step_by(BLOCK_N.0) {
-        let k = triton::load(&K_block_ptr);
-        let v = triton::load(&V_block_ptr);
-    }
-
-    for start_n in (lo..hi).step_by(BLOCK_N.0) {
+    for _start_n in (lo..hi).step_by(BLOCK_N.0) {
         // -- load k, v --
         let k = triton::load(&K_block_ptr);
         let v = triton::load(&V_block_ptr);
@@ -149,7 +144,7 @@ fn fwd_kernel(
     acc = acc / triton::append_axis(&l_i);
 
     let l_ptrs = L + ((off_hz * N_CTX) as f32) + offs_m;
-    triton::store(&l_ptrs, &(&m_i + &triton::log2(&l_i)));
+    triton::store(&l_ptrs, &(m_i + triton::log2(&l_i)));
     // // write back O
     let O_block_ptr = triton::make_block_ptr(triton::Block {
         base: Out,
@@ -169,30 +164,103 @@ fn fwd_kernel(
 #[allow(clippy::excessive_precision)]
 #[allow(clippy::approx_constant)]
 #[kernel]
-fn bwd_preprocess(
-    Out: DenseTensor<DynamicShape, f32>,
-    DO: DenseTensor<DynamicShape, f32>,
-    Delta: DenseTensor<DynamicShape, f32>,
-    BLOCK_M: ConstExpr<usize>,
-    D_HEAD: ConstExpr<usize>,
+fn forward(
+    _ctx: usize,
+    q: DenseTensor<DynamicShape, f32>,
+    k: DenseTensor<DynamicShape, f32>,
+    v: DenseTensor<DynamicShape, f32>,
+    causal: bool,
+    sm_scale: f32,
+    _sequence_parallel: bool,
 ) {
-    let off_m =
-        triton::program_id(0) * BLOCK_M.0 + triton::arange::<f32>(0.0, BLOCK_M.0 as f32, 1.0);
-    let off_n = triton::arange::<f32>(0.0, D_HEAD.0 as f32, 1.0);
-    // load
-    let o = triton::load(
-        &(Out + triton::append_axis(&off_m) * (D_HEAD.0 as f32) + triton::prepend_axis(&off_n)),
-    );
-    let d0 = triton::load(
-        &(DO + triton::append_axis(&off_m) * (D_HEAD.0 as f32) + triton::prepend_axis(&off_n)),
-    );
-    // compute
-    let delta = triton::sum(&(o * d0), 1);
-    // write-back
-    triton::store(&(Delta + off_m), &delta);
-}
+    let BLOCK_M = 128;
+    let BLOCK_N = 64;
+    // shape constraints
+    // AXM - TO DO
+    let _Lq = q.shape_of(-1);
+    let Lk = k.shape_of(-1);
+    let _Lv = v.shape_of(-1);
 
-// @jit
+    // AXM - TO DO
+    // assert Lq == Lk and Lk == Lv;
+    // assert Lk in {16, 32, 64, 128};
+    let o = tensor::empty_like(&q);
+    let _grid = (
+        tensor::cdiv(q.shape()[2], BLOCK_M),
+        q.shape()[0] * q.shape()[1],
+        1,
+    );
+    let L = tensor::empty(&[q.shape[0] * q.shape[1], q.shape[2]]);
+    // let num_warps = if Lk <= 64 { 4 } else { 8 };
+    fwd_kernel(
+        &q,
+        &k,
+        &v,
+        sm_scale,
+        &L,
+        &o,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        v.stride(0),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
+        o.stride(0),
+        o.stride(1),
+        o.stride(2),
+        o.stride(3),
+        q.shape_of(0),
+        q.shape_of(1),
+        q.shape_of(2),
+        q.shape_of(0) * q.shape_of(1) * q.shape_of(2),
+        ConstExpr(BLOCK_M),
+        ConstExpr(BLOCK_N),
+        ConstExpr(Lk),
+        ConstExpr(causal),
+    )
+}
+//         ctx.save_for_backward(q, k, v, o, L)
+//         ctx.grid = grid
+//         ctx.sm_scale = sm_scale
+//         ctx.BLOCK_DMODEL = Lk
+//         ctx.causal = causal
+//         ctx.sequence_parallel = sequence_parallel
+//         return o
+
+// #[allow(non_snake_case)]
+// #[allow(clippy::too_many_arguments)]
+// #[allow(clippy::excessive_precision)]
+// #[allow(clippy::approx_constant)]
+// #[kernel]
+// fn bwd_preprocess(
+//     Out: DenseTensor<DynamicShape, f32>,
+//     DO: DenseTensor<DynamicShape, f32>,
+//     Delta: DenseTensor<DynamicShape, f32>,
+//     BLOCK_M: ConstExpr<usize>,
+//     D_HEAD: ConstExpr<usize>,
+// ) {
+//     let off_m =
+//         triton::program_id(0) * BLOCK_M.0 + triton::arange::<f32>(0.0, BLOCK_M.0 as f32, 1.0);
+//     let off_n = triton::arange::<f32>(0.0, D_HEAD.0 as f32, 1.0);
+//     // load
+//     let o = triton::load(
+//         &(Out + triton::append_axis(&off_m) * (D_HEAD.0 as f32) + triton::prepend_axis(&off_n)),
+//     );
+//     let d0 = triton::load(
+//         &(DO + triton::append_axis(&off_m) * (D_HEAD.0 as f32) + triton::prepend_axis(&off_n)),
+//     );
+//     // compute
+//     let delta = triton::sum(&(o * d0), 1);
+//     // write-back
+//     triton::store(&(Delta + off_m), &delta);
+// }
+
 // def _bwd_kernel_one_col_block(
 //     Q,
 //     K,
@@ -535,71 +603,6 @@ fn bwd_preprocess(
 //             CAUSAL=CAUSAL,  #
 //             MMA_V3=MMA_V3,  #
 //         )
-
-// class _attention(torch.autograd.Function):
-
-//     @staticmethod
-//     def forward(ctx, q, k, v, causal, sm_scale, sequence_parallel=False):
-//         # only support for Ampere now
-//         capability = torch.cuda.get_device_capability()
-//         if capability[0] < 8:
-//             raise RuntimeError(
-//                 "Flash attention currently only supported for compute capability >= 80"
-//             )
-//         BLOCK_M = 128
-//         BLOCK_N = 64
-//         # shape constraints
-//         Lq, Lk, Lv = q.shape[-1], k.shape[-1], v.shape[-1]
-//         assert Lq == Lk and Lk == Lv
-//         assert Lk in {16, 32, 64, 128}
-//         o = torch.empty_like(q)
-//         grid = (cdiv(q.shape[2], BLOCK_M), q.shape[0] * q.shape[1], 1)
-//         L = torch.empty(
-//             (q.shape[0] * q.shape[1], q.shape[2]), device=q.device, dtype=torch.float32
-//         )
-//         num_warps = 4 if Lk <= 64 else 8
-//         _fwd_kernel[grid](
-//             q,
-//             k,
-//             v,
-//             sm_scale,  #
-//             L,  #
-//             o,  #
-//             q.stride(0),
-//             q.stride(1),
-//             q.stride(2),
-//             q.stride(3),  #
-//             k.stride(0),
-//             k.stride(1),
-//             k.stride(2),
-//             k.stride(3),  #
-//             v.stride(0),
-//             v.stride(1),
-//             v.stride(2),
-//             v.stride(3),  #
-//             o.stride(0),
-//             o.stride(1),
-//             o.stride(2),
-//             o.stride(3),  #
-//             q.shape[0],
-//             q.shape[1],
-//             q.shape[2],  #
-//             q.shape[0] * q.shape[1] * q.shape[2],  #
-//             BLOCK_M=BLOCK_M,
-//             BLOCK_N=BLOCK_N,
-//             BLOCK_DMODEL=Lk,  #
-//             IS_CAUSAL=causal,  #
-//             num_warps=num_warps,  #
-//             num_stages=4,  #
-//         )
-
-//         ctx.save_for_backward(q, k, v, o, L)
-//         ctx.grid = grid
-//         ctx.sm_scale = sm_scale
-//         ctx.BLOCK_DMODEL = Lk
-//         ctx.causal = causal
-//         ctx.sequence_parallel = sequence_parallel
-//         return o
 
 //     @staticmethod
 //     def backward(ctx, do):

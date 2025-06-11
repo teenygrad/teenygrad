@@ -37,8 +37,8 @@ pub fn program_id(_id: usize) -> usize {
     unimplemented!("Only used for type checking")
 }
 
-pub struct Block<T: NumericType> {
-    pub base: DenseTensor<DynamicShape, T>,
+pub struct Block<'a, T: NumericType> {
+    pub base: &'a DenseTensor<DynamicShape, T>,
     pub shape: DynamicShape,
     pub strides: DynamicShape,
     pub offsets: DynamicShape,
