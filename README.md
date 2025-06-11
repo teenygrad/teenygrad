@@ -56,13 +56,13 @@ Our goals:
 
 - v0.5.0/Dec 31 - Run Deepseek R1 on Rockchip 3588
 
-- Not yet planned
-  - Training
-  - Performance optimization
-  - Sparsity/Quantization support
-  - Observability/metrics
-  - Teeny LLM server
-  - Model storage/versioning
+- 2026 and beyond
+  - Q1: Training/Pytorch JIT
+  - Q2: Teeny LLM server
+  - Q3: Performance optimization
+  - Q4: Sparsity/Quantization support
+  - Q1: Observability/metrics
+  - Q2: Model storage/versioning
 
 ## FAQ
 
@@ -71,6 +71,10 @@ Our goals:
 These frameworks excel for development and deployment on large-scale infrastructure. However, we believe the future of AI lies in devices of all sizes—from edge devices to massive clusters. Existing frameworks are relatively heavy; TensorFlow Lite comes closest to our vision, but we wanted a modern, memory-safe language instead of C.
 
 Yet, we didn’t want to sacrifice distributed training or other advanced features offered by larger projects. Enter Teenygrad—a lightweight but powerful alternative.
+
+### 3. I am interested in contributing to the project, how do I get started?
+
+We welcome contributions both from companies and individuals, please see the CONTRIBUTIONG.md file for more information.
 
 ### 2. You use MIT/Apache-licensed open-source projects but license your project under GPLv3. Isn’t that contradictory?
 
@@ -81,3 +85,5 @@ We embrace open source because it fosters collaboration and learning—not to mo
 - Commercial use is allowed, but proprietary solutions require a commercial license.
 
 - Startups and companies with under $3M annual revenue qualify for a free commercial license. Once the project is stable and ready for usage, we will provide a simple web interface for you to get a license.
+
+- Free commercial license holders get a basic level of support, companies on higher tiers get additional support options as well as an SLA.
