@@ -15,11 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "teeny.h"
 #include <stdio.h>
 
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
+
+#include "teeny.h"
 
 struct compiler_t {
     // Core compiler state
@@ -41,24 +42,50 @@ struct compiler_t {
         char* error_message;
     } error;
 };
+/*----------------------------------------*
+ | Forward declarations                   |
+ *----------------------------------------*/
 
-void init_mlir(compiler_t* compiler) {
+int init_mlir(compiler_t* compiler);
+
+/*----------------------------------------*
+ | Public functions                       |
+ *----------------------------------------*/
+
+extern "C" int teeny_new(compiler_t* compiler) {
+    *compiler = new compiler_t();
+    if (!compiler) {
+        return TEENY_FAILURE;
+    }
+
+    if (!init_mlir(*compiler)) {
+        delete *compiler;
+        *compiler = nullptr;
+        return TEENY_FAILURE;
+    }
+
+    printf("Teeny compiler initialized\n");
+    return TEENY_SUCCESS;
+}
+
+extern "C" int teeny_free(compiler_t* compiler) {
+    if (*compiler) {
+        delete *compiler;
+        *compiler = nullptr;
+    }
+
+    return TEENY_SUCCESS;
+}
+
+/*----------------------------------------*
+ | Private functions                      |
+ *----------------------------------------*/
+
+int init_mlir(compiler_t* compiler) {
     printf("Initializing MLIR\n");
     mlir::registerAllDialects(compiler->registry);
 
     printf("MLIR initialized\n");
     compiler->initialized = true;
-}
-
-extern "C" compiler_t* teeny_compiler_new(void) {
-    compiler_t* compiler = new compiler_t();
-    
-    init_mlir(compiler);
-
-    printf("Teeny compiler initialized\n");
-    return compiler;
-}
-
-extern "C" void teeny_compiler_free(compiler_t* compiler) {
-    delete compiler;
+    return TEENY_SUCCESS;
 }

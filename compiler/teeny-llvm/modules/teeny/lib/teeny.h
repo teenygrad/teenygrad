@@ -18,14 +18,59 @@
 #ifndef TEENY_H
 #define TEENY_H
 
+#define TEENY_SUCCESS 1
+#define TEENY_FAILURE 0
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct compiler_t* compiler_handle_t;
+typedef struct compiler *compiler_t;
 
-compiler_handle_t teeny_compiler_new(void);
-void teeny_compiler_free(compiler_handle_t compiler);
+//
+// Create a new compiler, the argument
+// will be set to the new compiler handle
+//
+// Returns:
+//   TEENY_SUCCESS on success,
+//   TEENY_FAILURE on failure
+//
+int teeny_new(compiler_t *compiler);
+
+//
+// Free the compiler instance, if successfull
+// the compiler handle will be set to NULL
+//
+// Returns:
+//   TEENY_SUCCESS on success,
+//   TEENY_FAILURE on failure
+//
+int teeny_free(compiler_t *compiler);
+
+//
+// Compile the given source code into a module
+//
+// Returns:
+//   TEENY_SUCCESS on success,
+//   TEENY_FAILURE on failure
+//
+int teeny_compile(
+  compiler_t compiler, // the compiler handle
+  const char *source, // the source code to compile (utf-8 encoded)
+  const char *config, // the compiler configuration (utf-8 encoded)
+  char **target, // the target code (binary)
+  int *target_size // the size of the target code (in bytes)
+);
+
+//
+// Free the target code returned by a previous call to teeny_compile, the argument
+// will be set to NULL.
+//
+// Returns:
+//   TEENY_SUCCESS on success,
+//   TEENY_FAILURE on failure
+//
+int free_target(char **target);
 
 #ifdef __cplusplus
 }
