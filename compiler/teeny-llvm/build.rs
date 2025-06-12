@@ -35,6 +35,8 @@ fn main() {
     let build_dir: PathBuf = workspace_root.join("target/cmake-build");
     std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
 
+    let out_dir: PathBuf = std::env::var("OUT_DIR").unwrap().into();
+
     println!("AXM project_dir: {:?}", project_dir);
     println!("AXM build_dir: {:?}", build_dir);
 
@@ -61,7 +63,7 @@ fn main() {
         build_tutorials(&project_dir, &build_dir);
     }
 
-    generate_bindings(&build_dir);
+    generate_bindings(&build_dir, &out_dir);
 }
 
 fn check_command(command: &str) {
@@ -165,7 +167,7 @@ fn build_tutorials(project_dir: &Path, build_dir: &Path) {
     }
 }
 
-fn generate_bindings(build_dir: &Path) {
+fn generate_bindings(build_dir: &Path, out_dir: &Path) {
     let llvm_include_dir = String::from(build_dir.join("install/include").to_str().unwrap());
     let llvm_lib_dir = String::from(build_dir.join("install/lib").to_str().unwrap());
 
@@ -174,7 +176,8 @@ fn generate_bindings(build_dir: &Path) {
     println!("cargo:rustc-link-search={llvm_lib_dir}/stubs");
 
     // Tell cargo to tell rustc to link the cuda and nvrtc libraries
-    println!("cargo:rustc-link-lib=LLVMCore");
+    println!("cargo:rustc-link-lib=teeny");
+    println!("cargo:rustc-link-lib=triton");
 
     // The bindgen::Builder is the main entry point
     // to bindgen, and lets you build up options for
@@ -200,7 +203,7 @@ fn generate_bindings(build_dir: &Path) {
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     bindings
-        .write_to_file(build_dir.join("bindings.rs"))
+        .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 }
 

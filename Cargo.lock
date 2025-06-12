@@ -1020,6 +1020,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-llama"
+version = "0.1.0"
+dependencies = [
+ "teeny-llvm",
+]
+
+[[package]]
 name = "teeny-llvm"
 version = "0.1.0"
 dependencies = [

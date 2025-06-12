@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = [ "compiler/*", "nn/*", "support/*", "drivers/*"]
-default_members = [ "compiler/*", "nn/*", "support/*"]
+members = [ "compiler/*", "nn/*", "support/*", "drivers/*", "examples/*"]
+default_members = [ "compiler/*", "nn/*", "support/*", "examples/teeny-llama"]
 
 [workspace.dependencies]
 protobuf = "3.7.2"

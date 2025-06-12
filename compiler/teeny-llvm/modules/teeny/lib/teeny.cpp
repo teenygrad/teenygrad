@@ -16,8 +16,8 @@
  */
 
 #include "teeny.h"
-#include <cstdio>
+#include <stdio.h>
 
-extern "C" void teeny_lib_init(void) {
-    printf("Teenylib initialized\n");
+extern "C" void teeny_compiler_init(void) {
+    printf("Teeny compiler initialized\n");
 }

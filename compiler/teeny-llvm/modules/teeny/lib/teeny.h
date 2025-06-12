@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-void teeny_lib_init(void);
+void teeny_compiler_init(void);
 
 #ifdef __cplusplus
 }

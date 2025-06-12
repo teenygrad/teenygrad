@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Teenygrad. All rights reserved.
+ * Copyright (C) 2025 SpinorML Ltd.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,4 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use teeny_llvm::teeny_compiler_init;
+fn main() {
+    println!("Hello, world!");
+
+    unsafe {
+        teeny_compiler_init();
+    }
+}
