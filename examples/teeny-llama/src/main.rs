@@ -15,11 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_llvm::teeny_compiler_init;
+use teeny_llvm::{teeny_compiler_free, teeny_compiler_new};
+
 fn main() {
     println!("Hello, world!");
 
     unsafe {
-        teeny_compiler_init();
+        let compiler = teeny_compiler_new();
+        teeny_compiler_free(compiler);
     }
 }

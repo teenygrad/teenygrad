@@ -22,7 +22,10 @@
 extern "C" {
 #endif
 
-void teeny_compiler_init(void);
+typedef struct compiler_t* compiler_handle_t;
+
+compiler_handle_t teeny_compiler_new(void);
+void teeny_compiler_free(compiler_handle_t compiler);
 
 #ifdef __cplusplus
 }

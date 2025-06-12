@@ -18,6 +18,47 @@
 #include "teeny.h"
 #include <stdio.h>
 
-extern "C" void teeny_compiler_init(void) {
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/InitAllDialects.h"
+
+struct compiler_t {
+    // Core compiler state
+    bool initialized;
+    
+    // MLIR context and registry
+    mlir::DialectRegistry registry;
+    
+    // Compiler options
+    struct {
+        bool debug;
+        bool optimize;
+        int optimization_level;
+    } options;
+    
+    // Error handling
+    struct {
+        bool has_error;
+        char* error_message;
+    } error;
+};
+
+void init_mlir(compiler_t* compiler) {
+    printf("Initializing MLIR\n");
+    mlir::registerAllDialects(compiler->registry);
+
+    printf("MLIR initialized\n");
+    compiler->initialized = true;
+}
+
+extern "C" compiler_t* teeny_compiler_new(void) {
+    compiler_t* compiler = new compiler_t();
+    
+    init_mlir(compiler);
+
     printf("Teeny compiler initialized\n");
+    return compiler;
+}
+
+extern "C" void teeny_compiler_free(compiler_t* compiler) {
+    delete compiler;
 }
