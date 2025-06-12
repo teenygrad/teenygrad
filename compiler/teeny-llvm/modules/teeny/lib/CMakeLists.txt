@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
+include_directories(${PROJECT_SOURCE_DIR})
+
 add_library(teeny STATIC teeny.cpp)
 
 # Install headers
