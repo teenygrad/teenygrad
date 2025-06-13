@@ -25,7 +25,12 @@
 extern "C" {
 #endif
 
-typedef struct compiler *compiler_t;
+typedef void *compiler_t;
+
+typedef enum {
+  TeenySuccess = 1,
+  TeenyFailure = 0
+} TeenyStatus;
 
 //
 // Create a new compiler, the argument
@@ -35,7 +40,7 @@ typedef struct compiler *compiler_t;
 //   TEENY_SUCCESS on success,
 //   TEENY_FAILURE on failure
 //
-int teeny_new(compiler_t *compiler);
+TeenyStatus teeny_new(compiler_t *compiler);
 
 //
 // Free the compiler instance, if successfull
@@ -45,7 +50,7 @@ int teeny_new(compiler_t *compiler);
 //   TEENY_SUCCESS on success,
 //   TEENY_FAILURE on failure
 //
-int teeny_free(compiler_t *compiler);
+TeenyStatus teeny_free(compiler_t *compiler);
 
 //
 // Compile the given source code into a module
@@ -54,7 +59,7 @@ int teeny_free(compiler_t *compiler);
 //   TEENY_SUCCESS on success,
 //   TEENY_FAILURE on failure
 //
-int teeny_compile(
+TeenyStatus teeny_compile(
   compiler_t compiler, // the compiler handle
   const char *source, // the source code to compile (utf-8 encoded)
   const char *config, // the compiler configuration (utf-8 encoded)
@@ -70,7 +75,7 @@ int teeny_compile(
 //   TEENY_SUCCESS on success,
 //   TEENY_FAILURE on failure
 //
-int free_target(char **target);
+TeenyStatus teeny_free_target(char **target);
 
 #ifdef __cplusplus
 }

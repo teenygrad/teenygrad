@@ -30,4 +30,4 @@ cmake -B "$BUILD_DIR/teeny" -S "$MODULES_DIR/teeny" -G Ninja \
 
 ninja -C "$BUILD_DIR/teeny" install
 
-touch "$BUILD_DIR/teeny/build.done"
+# touch "$BUILD_DIR/teeny/build.done"

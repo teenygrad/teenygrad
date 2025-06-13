@@ -16,76 +16,68 @@
  */
 
 #include <stdio.h>
-
-#include "mlir/IR/DialectRegistry.h"
-#include "mlir/InitAllDialects.h"
+#include <stdlib.h>
 
 #include "teeny.h"
+#include "compiler.h"
 
-struct compiler_t {
-    // Core compiler state
-    bool initialized;
-    
-    // MLIR context and registry
-    mlir::DialectRegistry registry;
-    
-    // Compiler options
-    struct {
-        bool debug;
-        bool optimize;
-        int optimization_level;
-    } options;
-    
-    // Error handling
-    struct {
-        bool has_error;
-        char* error_message;
-    } error;
-};
-/*----------------------------------------*
- | Forward declarations                   |
- *----------------------------------------*/
-
-int init_mlir(compiler_t* compiler);
-
-/*----------------------------------------*
- | Public functions                       |
- *----------------------------------------*/
-
-extern "C" int teeny_new(compiler_t* compiler) {
-    *compiler = new compiler_t();
-    if (!compiler) {
-        return TEENY_FAILURE;
+extern "C" TeenyStatus teeny_new(compiler_t *compiler) {
+    printf("Teeny compiler initializing\n");
+    Compiler *_compiler = new Compiler();
+    if (!_compiler) {
+        printf("Teeny compiler creation failed\n");
+        return TeenyStatus::TeenyFailure;
     }
 
-    if (!init_mlir(*compiler)) {
-        delete *compiler;
+    printf("Teeny compiler initializing MLIR\n");
+    if (!_compiler->init_mlir()) {
+        delete _compiler;
         *compiler = nullptr;
-        return TEENY_FAILURE;
+
+        printf("Teeny MLIR initialization failed\n");
+        return TeenyStatus::TeenyFailure;
     }
 
+    *compiler = (void *)_compiler;
     printf("Teeny compiler initialized\n");
-    return TEENY_SUCCESS;
+    return TeenyStatus::TeenySuccess;
 }
 
-extern "C" int teeny_free(compiler_t* compiler) {
-    if (*compiler) {
-        delete *compiler;
+extern "C" TeenyStatus teeny_free(compiler_t* compiler) {
+    Compiler *_compiler = static_cast<Compiler *>(*compiler);
+    if (_compiler) {
+        delete _compiler;
         *compiler = nullptr;
     }
 
-    return TEENY_SUCCESS;
+    return TeenyStatus::TeenySuccess;
 }
 
-/*----------------------------------------*
- | Private functions                      |
- *----------------------------------------*/
+extern "C" TeenyStatus teeny_compile(
+  compiler_t compiler, // the compiler handle
+  const char *source, // the source code to compile (utf-8 encoded)
+  const char *config, // the compiler configuration (utf-8 encoded)
+  char **target, // the target code (binary)
+  int *target_size // the size of the target code (in bytes)
+) {
+    Compiler *_compiler = static_cast<Compiler *>(compiler);
+    if (!_compiler) {
+        return TeenyStatus::TeenyFailure;
+    }
 
-int init_mlir(compiler_t* compiler) {
-    printf("Initializing MLIR\n");
-    mlir::registerAllDialects(compiler->registry);
+    if (!_compiler->compile(source, config, target, target_size)) {
+        return TeenyStatus::TeenyFailure;
+    }
 
-    printf("MLIR initialized\n");
-    compiler->initialized = true;
-    return TEENY_SUCCESS;
+    return TeenyStatus::TeenySuccess;
 }
+
+extern "C" TeenyStatus teeny_free_target(char **target) {
+    if (*target) {
+        free(*target);
+        *target = nullptr;
+    }
+
+    return TeenyStatus::TeenySuccess;
+}
+

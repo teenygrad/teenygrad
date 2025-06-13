@@ -2,7 +2,18 @@ cmake_minimum_required(VERSION 3.28)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
-add_library(teeny STATIC teeny.cpp)
+add_library(teeny STATIC 
+  teeny.h teeny.cpp 
+  compiler.h compiler.cpp
+)
+
+target_link_libraries(teeny PUBLIC 
+  # MLIR core
+  MLIRIR
+  MLIROptLib
+  MLIRPass
+  MLIRTransforms
+)
 
 # Install headers
 install(DIRECTORY ./

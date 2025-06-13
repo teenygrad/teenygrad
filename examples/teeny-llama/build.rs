@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 SpinorML Ltd.
+ * Copyright (C) 2025 Teenygrad. All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,14 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_llvm::{teeny_free, teeny_new};
-
 fn main() {
-    println!("Hello, world!");
+    let link_libs = vec![
+        "MLIRIR",
+        "LLVMCore",
+        "LLVMSupport",
+        "LLVMDemangle",
+        "MLIRTransforms",
+        "MLIRPass",
+        "MLIROptLib",
+        "MLIRSupport",
+        "stdc++",
+        "m",
+    ];
 
-    unsafe {
-        let mut compiler = std::ptr::null_mut();
-        teeny_new(&mut compiler);
-        teeny_free(&mut compiler);
+    for lib in link_libs {
+        println!("cargo:rustc-link-arg=-l{}", lib);
     }
 }
