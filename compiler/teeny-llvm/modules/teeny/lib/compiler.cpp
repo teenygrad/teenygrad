@@ -17,26 +17,72 @@
 
 #include "compiler.h"
 
-#include "mlir/InitAllDialects.h"
+#include "third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
+#include "third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
+#include "triton/Dialect/Triton/IR/Dialect.h"
+#include "triton/Dialect/TritonGPU/IR/Dialect.h"
+#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 
- Compiler::Compiler() {
-    initialized = false;
- }
+#include "triton/Dialect/Triton/Transforms/Passes.h"
+#include "triton/Dialect/TritonGPU/Transforms/Passes.h"
+#include "triton/Dialect/TritonNvidiaGPU/Transforms/Passes.h"
 
- Compiler::~Compiler() {
-    // NOP
- }
+#include "nvidia/include/NVGPUToLLVM/Passes.h"
+#include "nvidia/include/TritonNVIDIAGPUToLLVM/Passes.h"
+#include "triton/Conversion/TritonGPUToLLVM/Passes.h"
+#include "triton/Conversion/TritonToTritonGPU/Passes.h"
+#include "triton/Target/LLVMIR/Passes.h"
 
- bool Compiler::init_mlir() {
-    // mlir::registerAllDialects(registry);
-    initialized = true;
-    return true;
- }
+#include "mlir/Dialect/LLVMIR/NVVMDialect.h"
+#include "mlir/InitAllPasses.h"
 
- bool Compiler::compile(const char *source, const char *config, char **target, int *target_size) {
-    return true;
- }
+Compiler::Compiler() {
+   initialized = false;
+}
 
- bool Compiler::free_target(char **target) {
-    return true;
+Compiler::~Compiler() {
+   // NOP
+}
+
+bool Compiler::init_mlir() {
+   registerTritonDialects();
+
+   initialized = true;
+   return true;
+}
+
+bool Compiler::compile(const char *source, const char *config, char **target, int *target_size) {
+   return true;
+}
+
+bool Compiler::free_target(char **target) {
+   return true;
+}
+
+void Compiler::registerTritonDialects() {
+  mlir::registerAllPasses();
+  mlir::registerTritonPasses();
+  mlir::triton::gpu::registerTritonGPUPasses();
+  mlir::registerTritonNvidiaGPUPasses();
+//   mlir::test::registerTestAliasPass();
+//   mlir::test::registerTestAlignmentPass();
+//   mlir::test::registerTestAllocationPass();
+//   mlir::test::registerTestMembarPass();
+  mlir::triton::registerConvertTritonToTritonGPUPass();
+  mlir::triton::gpu::registerAllocateSharedMemoryPass();
+  mlir::triton::gpu::registerTritonGPUAllocateWarpGroups();
+  mlir::triton::gpu::registerTritonGPUGlobalScratchAllocationPass();
+  mlir::triton::registerConvertWarpSpecializeToLLVM();
+  mlir::triton::registerConvertTritonGPUToLLVMPass();
+  mlir::triton::registerConvertNVGPUToLLVMPass();
+  mlir::registerLLVMDIScope();
+
+  registry
+     .insert<mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
+         mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
+         mlir::triton::gpu::TritonGPUDialect, mlir::math::MathDialect,
+         mlir::arith::ArithDialect, mlir::scf::SCFDialect,
+         mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
+         mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect
+      >();
  }

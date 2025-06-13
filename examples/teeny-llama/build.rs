@@ -17,6 +17,7 @@
 
 fn main() {
     let link_libs = vec![
+        "triton",
         "MLIRIR",
         "LLVMCore",
         "LLVMSupport",

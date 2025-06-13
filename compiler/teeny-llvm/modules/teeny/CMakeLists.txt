@@ -32,39 +32,14 @@ include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_BINARY_DIR}) # Tablegen'd files
 
+include_directories(${TRITON_BUILD_DIR}/include)
+include_directories(${TRITON_BUILD_DIR})
+include_directories(${TRITON_BUILD_DIR}/third_party)
+include_directories(${TRITON_SOURCE_DIR}/include)
+include_directories(${TRITON_SOURCE_DIR})
+include_directories(${TRITON_SOURCE_DIR}/third_party)
+
+message(STATUS "AXM Triton build dir:[${TRITON_BUILD_DIR}]")
+message(STATUS "AXM Triton build dir:[${TRITON_SOURCE_DIR}]")
+
 add_subdirectory(lib)
-
-# Function to combine multiple libraries into one
-function(combine_static_libs output_library)
-    set(libraries ${ARGN})
-    
-    # Create a dummy source file
-    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/dummy.cpp "")
-    
-    add_library(${output_library} STATIC ${CMAKE_CURRENT_BINARY_DIR}/dummy.cpp)
-    
-    if(APPLE)
-        # Use libtool on MacOS
-        set(script_contents "libtool -static -o $<TARGET_FILE:${output_library}>")
-        foreach(lib ${libraries})
-            set(script_contents "${script_contents} $<TARGET_FILE:${lib}>")
-        endforeach()
-        add_custom_command(TARGET ${output_library} POST_BUILD
-            COMMAND /bin/sh -c "${script_contents}"
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-            DEPENDS ${libraries})
-    else()
-        # Use ar on Linux
-        set(script_contents "ar crsT $<TARGET_FILE:${output_library}>")
-        foreach(lib ${libraries})
-            set(script_contents "${script_contents} $<TARGET_FILE:${lib}>")
-        endforeach()
-        add_custom_command(TARGET ${output_library} POST_BUILD
-            COMMAND /bin/sh -c "${script_contents}"
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-            DEPENDS ${libraries})
-    endif()
-endfunction()
-
-# Example usage (uncomment and modify as needed):
-# combine_static_libs(combined_lib lib1 lib2 lib3)

@@ -40,6 +40,7 @@ class Compiler {
     bool initialized;
     mlir::DialectRegistry registry;        
 
+    void registerTritonDialects();
  };
 
  #endif /* TEENY_COMPILER_H */
