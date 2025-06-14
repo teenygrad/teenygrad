@@ -82,11 +82,12 @@ void Compiler::registerTritonDialects() {
   mlir::registerLLVMDIScope();
 
   registry
-     .insert<mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
-         mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
-         mlir::triton::gpu::TritonGPUDialect, mlir::math::MathDialect,
-         mlir::arith::ArithDialect, mlir::scf::SCFDialect,
-         mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
-         mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect
+     .insert<
+      mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
+      mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
+      mlir::triton::gpu::TritonGPUDialect, mlir::math::MathDialect,
+      mlir::arith::ArithDialect, mlir::scf::SCFDialect,
+      mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
+      mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect
       >();
  }

@@ -16,53 +16,14 @@
  */
 
 fn main() {
-    let dialect_libs = "MLIRAffineAnalysis;MLIRAffineDialect;MLIRAffineTransforms;MLIRAffineTransformOps;MLIRAffineUtils;MLIRAMDGPUDialect;MLIRAMDGPUTransforms;MLIRAMDGPUUtils;MLIRAMXDialect;MLIRAMXTransforms;MLIRArithDialect;MLIRArithValueBoundsOpInterfaceImpl;MLIRArithTransforms;MLIRArithUtils;MLIRArmNeonDialect;MLIRArmNeonTransforms;MLIRArmSMEDialect;MLIRArmSMETransforms;MLIRArmSVEDialect;MLIRArmSVETransforms;MLIRAsyncDialect;MLIRAsyncTransforms;MLIRBufferizationDialect;MLIRBufferizationPipelines;MLIRBufferizationTransformOps;MLIRBufferizationTransforms;MLIRComplexDialect;MLIRControlFlowDialect;MLIRControlFlowTransforms;MLIRDLTITransformOps;MLIRDLTIDialect;MLIREmitCDialect;MLIREmitCTransforms;MLIRFuncDialect;MLIRFuncTransforms;MLIRFuncTransformOps;MLIRGPUDialect;MLIRGPUTransforms;MLIRGPUTransformOps;MLIRGPUPipelines;MLIRGPUUtils;MLIRIndexDialect;MLIRIRDL;MLIRLinalgDialect;MLIRLinalgTransformOps;MLIRLinalgTransforms;MLIRLinalgUtils;MLIRLLVMIRTransforms;MLIRLLVMDialect;MLIRNVVMDialect;MLIRROCDLDialect;MLIRVCIXDialect;MLIRMathDialect;MLIRMathTransforms;MLIRMemRefDialect;MLIRMemRefTransformOps;MLIRMemRefTransforms;MLIRMemRefUtils;MLIRMeshDialect;MLIRMeshTransforms;MLIRMLProgramDialect;MLIRMLProgramTransforms;MLIRMPIDialect;MLIRNVGPUDialect;MLIRNVGPUUtils;MLIRNVGPUTransformOps;MLIRNVGPUTransforms;MLIROpenACCDialect;MLIROpenACCTransforms;MLIROpenMPDialect;MLIRPDLDialect;MLIRPDLInterpDialect;MLIRPolynomialDialect;MLIRPtrDialect;MLIRQuantDialect;MLIRQuantTransforms;MLIRQuantUtils;MLIRSCFDialect;MLIRSCFTransformOps;MLIRSCFTransforms;MLIRSCFUtils;MLIRShapeDialect;MLIRShapeOpsTransforms;MLIRSparseTensorDialect;MLIRSparseTensorPipelines;MLIRSparseTensorTransformOps;MLIRSparseTensorTransforms;MLIRSparseTensorUtils;MLIRSPIRVDialect;MLIRSPIRVModuleCombiner;MLIRSPIRVConversion;MLIRSPIRVTransforms;MLIRSPIRVUtils;MLIRTensorDialect;MLIRTensorInferTypeOpInterfaceImpl;MLIRTensorTilingInterfaceImpl;MLIRTensorTransforms;MLIRTensorTransformOps;MLIRTensorUtils;MLIRTosaDialect;MLIRTosaShardingInterfaceImpl;MLIRTosaTransforms;MLIRTransformDebugExtension;MLIRTransformDialect;MLIRTransformDialectIRDLExtension;MLIRTransformLoopExtension;MLIRTransformPDLExtension;MLIRTransformDialectTransforms;MLIRTransformDialectUtils;MLIRUBDialect;MLIRVectorDialect;MLIRVectorTransforms;MLIRVectorTransformOps;MLIRVectorUtils;MLIRX86VectorDialect;MLIRX86VectorTransforms;MLIRXeGPUDialect;MLIRXeGPUTransforms;MLIRSPIRVTarget;MLIRNVVMTarget;MLIRROCDLTarget;MLIRTestDynDialect;MLIRTosaTestPasses";
-    let conversion_libs = "MLIRAffineToStandard;MLIRAMDGPUToROCDL;MLIRArithAttrToLLVMConversion;MLIRArithToAMDGPU;MLIRArithToArmSME;MLIRArithToEmitC;MLIRArithToLLVM;MLIRArithToSPIRV;MLIRArmNeon2dToIntr;MLIRArmSMEToSCF;MLIRArmSMEToLLVM;MLIRAsyncToLLVM;MLIRBufferizationToMemRef;MLIRComplexDivisionConversion;MLIRComplexToLibm;MLIRComplexToLLVM;MLIRComplexToSPIRV;MLIRComplexToStandard;MLIRControlFlowToLLVM;MLIRControlFlowToSCF;MLIRControlFlowToSPIRV;MLIRConvertToLLVMInterface;MLIRConvertToLLVMPass;MLIRFuncToEmitC;MLIRFuncToLLVM;MLIRFuncToSPIRV;MLIRGPUToGPURuntimeTransforms;MLIRGPUToLLVMSPV;MLIRGPUToNVVMTransforms;MLIRGPUToROCDLTransforms;MLIRGPUToSPIRV;MLIRIndexToLLVM;MLIRIndexToSPIRV;MLIRLinalgToStandard;MLIRLLVMCommonConversion;MLIRMathToEmitC;MLIRMathToFuncs;MLIRMathToLibm;MLIRMathToLLVM;MLIRMathToROCDL;MLIRMathToSPIRV;MLIRMemRefToEmitC;MLIRMemRefToLLVM;MLIRMemRefToSPIRV;MLIRMeshToMPI;MLIRMPIToLLVM;MLIRNVGPUToNVVM;MLIRNVVMToLLVM;MLIROpenACCToSCF;MLIROpenMPToLLVM;MLIRPDLToPDLInterp;MLIRReconcileUnrealizedCasts;MLIRSCFToControlFlow;MLIRSCFToEmitC;MLIRSCFToGPU;MLIRSCFToOpenMP;MLIRSCFToSPIRV;MLIRShapeToStandard;MLIRSPIRVAttrToLLVMConversion;MLIRSPIRVToLLVM;MLIRTensorToLinalg;MLIRTensorToSPIRV;MLIRTosaToArith;MLIRTosaToLinalg;MLIRTosaToMLProgram;MLIRTosaToSCF;MLIRTosaToTensor;MLIRUBToLLVM;MLIRUBToSPIRV;MLIRVectorToArmSME;MLIRVectorToGPU;MLIRVectorToLLVM;MLIRVectorToLLVMPass;MLIRVectorToSCF;MLIRVectorToSPIRV;MLIRVectorToXeGPU";
+    let dialect_libs = "MLIRAffineAnalysis;MLIRAffineDialect;MLIRAffineTransforms;MLIRAffineTransformOps;MLIRAffineUtils;MLIRAMDGPUDialect;MLIRAMDGPUTransforms;MLIRAMDGPUUtils;MLIRAMXDialect;MLIRAMXTransforms;MLIRArithDialect;MLIRArithValueBoundsOpInterfaceImpl;MLIRArithTransforms;MLIRArithUtils;MLIRArmNeonDialect;MLIRArmNeonTransforms;MLIRArmSMEDialect;MLIRArmSMETransforms;MLIRArmSVEDialect;MLIRArmSVETransforms;MLIRAsyncDialect;MLIRAsyncTransforms;MLIRBufferizationDialect;MLIRBufferizationPipelines;MLIRBufferizationTransformOps;MLIRBufferizationTransforms;MLIRComplexDialect;MLIRControlFlowDialect;MLIRControlFlowTransforms;MLIRDLTITransformOps;MLIRDLTIDialect;MLIREmitCDialect;MLIREmitCTransforms;MLIRFuncDialect;MLIRFuncTransforms;MLIRFuncTransformOps;MLIRGPUDialect;MLIRGPUTransforms;MLIRGPUTransformOps;MLIRGPUPipelines;MLIRGPUUtils;MLIRIndexDialect;MLIRIRDL;MLIRLinalgDialect;MLIRLinalgTransformOps;MLIRLinalgTransforms;MLIRLinalgUtils;MLIRLLVMIRTransforms;MLIRLLVMDialect;MLIRNVVMDialect;MLIRROCDLDialect;MLIRVCIXDialect;MLIRMathDialect;MLIRMathTransforms;MLIRMemRefDialect;MLIRMemRefTransformOps;MLIRMemRefTransforms;MLIRMemRefUtils;MLIRMeshDialect;MLIRMeshTransforms;MLIRMLProgramDialect;MLIRMLProgramTransforms;MLIRMPIDialect;MLIRNVGPUDialect;MLIRNVGPUUtils;MLIRNVGPUTransformOps;MLIRNVGPUTransforms;MLIROpenACCDialect;MLIROpenACCTransforms;MLIROpenMPDialect;MLIRPDLDialect;MLIRPDLInterpDialect;MLIRPolynomialDialect;MLIRPtrDialect;MLIRQuantDialect;MLIRQuantTransforms;MLIRQuantUtils;MLIRSCFDialect;MLIRSCFTransformOps;MLIRSCFTransforms;MLIRSCFUtils;MLIRShapeDialect;MLIRShapeOpsTransforms;MLIRSparseTensorDialect;MLIRSparseTensorPipelines;MLIRSparseTensorTransformOps;MLIRSparseTensorTransforms;MLIRSparseTensorUtils;MLIRSPIRVDialect;MLIRSPIRVModuleCombiner;MLIRSPIRVConversion;MLIRSPIRVTransforms;MLIRSPIRVUtils;MLIRTensorDialect;MLIRTensorInferTypeOpInterfaceImpl;MLIRTensorTilingInterfaceImpl;MLIRTensorTransforms;MLIRTensorTransformOps;MLIRTensorUtils;MLIRTosaDialect;MLIRTosaShardingInterfaceImpl;MLIRTosaTransforms;MLIRTransformDebugExtension;MLIRTransformDialect;MLIRTransformDialectIRDLExtension;MLIRTransformLoopExtension;MLIRTransformPDLExtension;MLIRTransformDialectTransforms;MLIRTransformDialectUtils;MLIRUBDialect;MLIRVectorDialect;MLIRVectorTransforms;MLIRVectorTransformOps;MLIRVectorUtils;MLIRX86VectorDialect;MLIRX86VectorTransforms;MLIRXeGPUDialect;MLIRXeGPUTransforms;MLIRSPIRVTarget;MLIRNVVMTarget;MLIRROCDLTarget;MLIRTestDynDialect;MLIRTosaTestPasses;MLIRAffineToStandard;MLIRAMDGPUToROCDL;MLIRArithAttrToLLVMConversion;MLIRArithToAMDGPU;MLIRArithToArmSME;MLIRArithToEmitC;MLIRArithToLLVM;MLIRArithToSPIRV;MLIRArmNeon2dToIntr;MLIRArmSMEToSCF;MLIRArmSMEToLLVM;MLIRAsyncToLLVM;MLIRBufferizationToMemRef;MLIRComplexDivisionConversion;MLIRComplexToLibm;MLIRComplexToLLVM;MLIRComplexToSPIRV;MLIRComplexToStandard;MLIRControlFlowToLLVM;MLIRControlFlowToSCF;MLIRControlFlowToSPIRV;MLIRConvertToLLVMInterface;MLIRConvertToLLVMPass;MLIRFuncToEmitC;MLIRFuncToLLVM;MLIRFuncToSPIRV;MLIRGPUToGPURuntimeTransforms;MLIRGPUToLLVMSPV;MLIRGPUToNVVMTransforms;MLIRGPUToROCDLTransforms;MLIRGPUToSPIRV;MLIRIndexToLLVM;MLIRIndexToSPIRV;MLIRLinalgToStandard;MLIRLLVMCommonConversion;MLIRMathToEmitC;MLIRMathToFuncs;MLIRMathToLibm;MLIRMathToLLVM;MLIRMathToROCDL;MLIRMathToSPIRV;MLIRMemRefToEmitC;MLIRMemRefToLLVM;MLIRMemRefToSPIRV;MLIRMeshToMPI;MLIRMPIToLLVM;MLIRNVGPUToNVVM;MLIRNVVMToLLVM;MLIROpenACCToSCF;MLIROpenMPToLLVM;MLIRPDLToPDLInterp;MLIRReconcileUnrealizedCasts;MLIRSCFToControlFlow;MLIRSCFToEmitC;MLIRSCFToGPU;MLIRSCFToOpenMP;MLIRSCFToSPIRV;MLIRShapeToStandard;MLIRSPIRVAttrToLLVMConversion;MLIRSPIRVToLLVM;MLIRTensorToLinalg;MLIRTensorToSPIRV;MLIRTosaToArith;MLIRTosaToLinalg;MLIRTosaToMLProgram;MLIRTosaToSCF;MLIRTosaToTensor;MLIRUBToLLVM;MLIRUBToSPIRV;MLIRVectorToArmSME;MLIRVectorToGPU;MLIRVectorToLLVM;MLIRVectorToLLVMPass;MLIRVectorToSCF;MLIRVectorToSPIRV;MLIRVectorToXeGPU;triton;TritonTestDialectTritonGPU;MLIROptLib;MLIRPass;MLIRTransforms";
+    let extra_libs = "teeny;triton;stdc++;m";
 
-    let link_libs = vec![
-        "triton",
-        "MLIRIR",
-        "LLVMCore",
-        "LLVMSupport",
-        "LLVMDemangle",
-        "MLIRTransforms",
-        "MLIRTransformUtils",
-        "MLIRPass",
-        "MLIROptLib",
-        "MLIRSupport",
-        "MLIRNVVMDialect",
-        "MLIRNVVMToLLVMIRTranslation",
-        "MLIRGPUToNVVMTransforms",
-        "MLIRGPUToGPURuntimeTransforms",
-        "MLIRGPUTransforms",
-        "MLIRIR",
-        "MLIRControlFlowToLLVM",
-        "MLIRBytecodeWriter",
-        "MLIRPass",
-        "MLIRTransforms",
-        "MLIRLLVMDialect",
-        "MLIRSupport",
-        "MLIRTargetLLVMIRExport",
-        "MLIRMathToLLVM",
-        "MLIRROCDLToLLVMIRTranslation",
-        "MLIRGPUDialect",
-        "MLIRSCFToControlFlow",
-        "MLIRIndexToLLVM",
-        "MLIRGPUToROCDLTransforms",
-        "MLIRUBToLLVM",
-        "LLVMPasses",
-        "LLVMNVPTXCodeGen",
-        "LLVMAMDGPUCodeGen",
-        "LLVMAMDGPUAsmParser",
-        "LLVMAMDGPUCodeGen",
-        "LLVMAMDGPUAsmParser",
-        "MLIRInferIntRangeCommon",
-        "MLIRInferIntRangeInterface",
-        "MLIRDataLayoutInterfaces",
-        "LLVMCodeGen",
-        "stdc++",
-        "m",
-    ];
+    let link_libs = dialect_libs
+        .split(";")
+        .map(|s| s.to_string())
+        .chain(extra_libs.split(";").map(|s| s.to_string()))
+        .collect::<Vec<String>>();
 
     for lib in link_libs {
         println!("cargo:rustc-link-arg=-l{}", lib);

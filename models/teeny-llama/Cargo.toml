@@ -8,7 +8,7 @@ name = "teeny_llama"
 path = "src/lib.rs"
 
 [[bin]]
-name = "tllama"
+name = "llama"
 path = "src/main.rs"
 
 [dependencies]

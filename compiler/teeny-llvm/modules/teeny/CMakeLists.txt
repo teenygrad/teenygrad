@@ -39,6 +39,8 @@ include_directories(${TRITON_SOURCE_DIR}/include)
 include_directories(${TRITON_SOURCE_DIR})
 include_directories(${TRITON_SOURCE_DIR}/third_party)
 
+link_directories(${CMAKE_INSTALL_PREFIX}/lib)
+
 message(STATUS "AXM Triton build dir:[${TRITON_BUILD_DIR}]")
 message(STATUS "AXM Triton build dir:[${TRITON_SOURCE_DIR}]")
 

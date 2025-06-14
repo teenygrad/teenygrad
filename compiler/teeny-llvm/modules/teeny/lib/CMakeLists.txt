@@ -6,18 +6,18 @@ get_property(triton_libs GLOBAL PROPERTY TRITON_LIBS)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
-add_llvm_executable(teeny-opt teeny-opt.cpp PARTIAL_SOURCES_INTENDED)
+add_llvm_executable(teeny-opt 
+  compiler.cpp compiler.h teeny-opt.cpp 
+  PARTIAL_SOURCES_INTENDED)
 
 llvm_update_compile_flags(teeny-opt)
 target_link_libraries(teeny-opt PRIVATE
   ${dialect_libs}
-  ${conversion_libs}
-  ${triton_libs}
+  ${conversion_libs}  
 
-  # tests
-  TritonTestAnalysis
+  # triton
+  triton 
   TritonTestDialectTritonGPU
-  TritonAMDGPUTestAnalysis
 
   # MLIR core
   MLIROptLib
@@ -57,6 +57,5 @@ install(TARGETS teeny teeny-opt
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)
 
-message(STATUS "AXM: dialect_libs -> ${dialect_libs}")        
-message(STATUS "AXM: conversion_libs -> ${conversion_libs}")        
-message(STATUS "AXM: triton_libs -> ${triton_libs}")        
+get_target_property(my_link_libs teeny-opt LINK_LIBRARIES)
+message(STATUS "AXM LINK_LIBRARIES: ${my_link_libs}")
