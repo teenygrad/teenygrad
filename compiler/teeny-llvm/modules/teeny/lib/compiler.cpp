@@ -59,6 +59,10 @@ bool Compiler::free_target(char **target) {
    return true;
 }
 
+mlir::DialectRegistry &Compiler::get_registry() {
+   return registry;
+}
+
 void Compiler::registerTritonDialects() {
   mlir::registerAllPasses();
   mlir::registerTritonPasses();

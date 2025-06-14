@@ -15,35 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
- #ifndef TEENY_COMPILER_H
- #define TEENY_COMPILER_H
+#include "mlir/Tools/mlir-opt/MlirOptMain.h"
+#include "compiler.h"
 
-#include "mlir/IR/DialectRegistry.h"
+int main(int argc, char **argv) {
+  Compiler compiler;
 
-class Compiler {
-  public:
-    Compiler();
-    ~Compiler();
+  if (!compiler.init_mlir()) {
+    printf("Failed to initialize MLIR\n");
+    return 1;
+  }
 
-    bool init_mlir();
-    
-    bool compile(
-      const char *source, // the source code to compile (utf-8 encoded)
-      const char *config, // the compiler configuration (utf-8 encoded)
-      char **target, // the target code (binary)
-      int *target_size // the size of the target code (in bytes)
-    );
-
-    bool free_target(char **target);
-    
-    mlir::DialectRegistry &get_registry();
-    
-  private:
-    bool initialized;
-    mlir::DialectRegistry registry;        
-
-    void registerTritonDialects();
- };
-
- #endif /* TEENY_COMPILER_H */
- 
+  return mlir::asMainReturnCode(mlir::MlirOptMain(
+      argc, argv, "Triton (GPU) optimizer driver\n", compiler.get_registry()));
+}

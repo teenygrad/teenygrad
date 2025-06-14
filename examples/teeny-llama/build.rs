@@ -23,6 +23,7 @@ fn main() {
         "LLVMSupport",
         "LLVMDemangle",
         "MLIRTransforms",
+        "MLIRTransformUtils",
         "MLIRPass",
         "MLIROptLib",
         "MLIRSupport",
@@ -55,6 +56,7 @@ fn main() {
         "MLIRInferIntRangeCommon",
         "MLIRInferIntRangeInterface",
         "MLIRDataLayoutInterfaces",
+        "LLVMCodeGen",
         "stdc++",
         "m",
     ];
