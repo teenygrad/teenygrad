@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_llvm::{teeny_free, teeny_new};
+
 #[test]
 #[cfg(feature = "cuda")]
 fn test_triton_cuda() {
@@ -79,4 +81,10 @@ module {
 
     // compile to nVidia PTX
     todo!("compile to nVidia PTX");
+
+    unsafe {
+        let mut compiler = std::ptr::null_mut();
+        teeny_new(&mut compiler);
+        teeny_free(&mut compiler);
+    }
 }

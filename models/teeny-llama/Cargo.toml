@@ -3,4 +3,13 @@ name = "teeny-llama"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "teeny_llama"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tllama"
+path = "src/main.rs"
+
 [dependencies]
+teeny-llvm = { path = "../../compiler/teeny-llvm" }

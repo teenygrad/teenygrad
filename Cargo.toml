@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "compiler/*", "models/*", "support/*", "drivers/*", "examples/*"]
+members = [ "compiler/*", "models/*", "support/*", "drivers/*", "interop/*"]
 
 [workspace.dependencies]
 protobuf = "3.7.2"
@@ -9,19 +9,10 @@ protoc-bin-vendored = "3.1.0"
 syn = { version = "2.0.102", features = ["full"] }
 quote = "1.0.40"
 proc-macro2 = "1.0.95"
-
-# std dependencies
-tokio = { version = "1.45.1", features = ["full"], optional = true }
-
-# no_std dependencies
-smol = { version = "2.0.2", optional = true }
+tokio = { version = "1.45.1", features = ["full"] }
+smol = { version = "2.0.2" }
 
 [workspace.metadata]
 features = ["cuda", "vulkan", "std", "no_std"]
 default-features = ["cuda"]
-
-[features]
-std = ["tokio"]
-no_std = ["smol"]
-
 

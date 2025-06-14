@@ -56,3 +56,7 @@ install(TARGETS teeny teeny-opt
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)
+
+message(STATUS "AXM: dialect_libs -> ${dialect_libs}")        
+message(STATUS "AXM: conversion_libs -> ${conversion_libs}")        
+message(STATUS "AXM: triton_libs -> ${triton_libs}")        
