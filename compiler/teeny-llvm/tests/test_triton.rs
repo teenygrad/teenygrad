@@ -17,8 +17,8 @@
 
 use teeny_llvm::{teeny_free, teeny_new};
 
-#[test]
 #[cfg(feature = "cuda")]
+#[test]
 fn test_triton_cuda() {
     let mlir = r#"
 #loc = loc("./vector_addition.py":10:0)
@@ -79,12 +79,11 @@ module {
 #loc13 = loc("./vector_addition.py":34:4)
 "#;
 
-    // compile to nVidia PTX
-    todo!("compile to nVidia PTX");
-
     unsafe {
         let mut compiler = std::ptr::null_mut();
         teeny_new(&mut compiler);
         teeny_free(&mut compiler);
     }
+
+    todo!("compile to nVidia and test PTX");
 }

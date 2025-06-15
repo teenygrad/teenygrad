@@ -6,12 +6,18 @@ get_property(triton_libs GLOBAL PROPERTY TRITON_LIBS)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
-add_llvm_executable(teeny-opt 
-  compiler.cpp compiler.h teeny-opt.cpp 
-  PARTIAL_SOURCES_INTENDED)
+#
+# teeny
+#
 
-llvm_update_compile_flags(teeny-opt)
-target_link_libraries(teeny-opt PRIVATE
+add_library(teeny STATIC 
+  teeny.h teeny.cpp 
+  compiler.h compiler.cpp
+)
+
+target_link_libraries(teeny 
+  PUBLIC 
+  
   ${dialect_libs}
   ${conversion_libs}  
 
@@ -20,25 +26,33 @@ target_link_libraries(teeny-opt PRIVATE
   TritonTestDialectTritonGPU
 
   # MLIR core
-  MLIROptLib
-  MLIRPass
-  MLIRTransforms
-)
-
-mlir_check_all_link_libraries(teeny-opt)
-
-add_library(teeny STATIC 
-  teeny.h teeny.cpp 
-  compiler.h compiler.cpp
-)
-
-target_link_libraries(teeny PUBLIC 
-  # MLIR core
+  MLIRSupport
   MLIRIR
   MLIROptLib
   MLIRPass
   MLIRTransforms
 )
+
+mlir_check_all_link_libraries(teeny)
+
+# Export all dependencies
+set_target_properties(teeny PROPERTIES
+  EXPORT_NAME teeny
+  EXPORT_PROPERTIES "LINK_LIBRARIES"
+)
+
+#
+# teeny-opt
+#
+
+add_llvm_executable(teeny-opt 
+  compiler.cpp compiler.h teeny-opt.cpp 
+  PARTIAL_SOURCES_INTENDED)
+
+llvm_update_compile_flags(teeny-opt)
+target_link_libraries(teeny-opt PRIVATE teeny)
+
+mlir_check_all_link_libraries(teeny-opt)
 
 # Install headers
 install(DIRECTORY ./
@@ -56,6 +70,3 @@ install(TARGETS teeny teeny-opt
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)
-
-get_target_property(my_link_libs teeny-opt LINK_LIBRARIES)
-message(STATUS "AXM LINK_LIBRARIES: ${my_link_libs}")

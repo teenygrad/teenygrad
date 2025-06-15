@@ -12,7 +12,5 @@ proc-macro2 = "1.0.95"
 tokio = { version = "1.45.1", features = ["full"] }
 smol = { version = "2.0.2" }
 
-[workspace.metadata]
-features = ["cuda", "vulkan", "std", "no_std"]
-default-features = ["cuda"]
-
+[workspace.features]
+cuda = ["compiler/teeny-llvm/cuda"]
