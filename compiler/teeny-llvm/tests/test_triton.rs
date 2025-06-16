@@ -81,8 +81,11 @@ module {
 
     unsafe {
         let mut compiler = std::ptr::null_mut();
-        teeny_new(&mut compiler);
-        teeny_free(&mut compiler);
+        let status = teeny_new(&mut compiler);
+        assert_eq!(status, teeny_llvm::TEENY_SUCCESS);
+
+        let status = teeny_free(&mut compiler);
+        assert_eq!(status, teeny_llvm::TEENY_SUCCESS);
     }
 
     todo!("compile to nVidia and test PTX");

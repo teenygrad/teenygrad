@@ -30,7 +30,7 @@ extern "C" TeenyStatus teeny_new(compiler_t *compiler) {
     }
 
     printf("Teeny compiler initializing MLIR\n");
-    if (!_compiler->init_mlir()) {
+    if (!_compiler->initMlir()) {
         delete _compiler;
         *compiler = nullptr;
 

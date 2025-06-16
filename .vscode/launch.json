@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Shared Config",
+      "env": {
+        "LD_LIBRARY_PATH": "{workspaceFolder}/target/cmake-build/install/lib:${env:LD_LIBRARY_PATH}"
+      }
+    },    
+  ]
+}

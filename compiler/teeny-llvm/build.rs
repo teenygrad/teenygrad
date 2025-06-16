@@ -23,6 +23,10 @@ use cargo_metadata::MetadataCommand;
 fn main() {
     let metadata = MetadataCommand::new().exec().unwrap();
 
+    // Get the profile (debug/release) from environment
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    let deps_path: PathBuf = metadata.target_directory.join(profile).join("deps").into();
+
     let package = metadata
         .packages
         .iter()
@@ -36,9 +40,6 @@ fn main() {
     std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
 
     let out_dir: PathBuf = std::env::var("OUT_DIR").unwrap().into();
-
-    println!("AXM project_dir: {:?}", project_dir);
-    println!("AXM build_dir: {:?}", build_dir);
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
@@ -62,6 +63,8 @@ fn main() {
     if !check_build_done(&build_dir, "tutorials") {
         build_tutorials(&project_dir, &build_dir);
     }
+
+    copy_shared_libraries(&build_dir, &deps_path);
 
     generate_bindings(&build_dir, &out_dir);
 }
@@ -129,7 +132,6 @@ fn build_teeny(project_dir: &Path, build_dir: &Path, out_dir: &Path) {
     let status = Command::new("./scripts/build_teeny.sh")
         .env("BUILD_DIR", build_dir)
         .env("MODULES_DIR", modules_dir)
-        .env("OUT_DIR", out_dir)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
@@ -209,4 +211,26 @@ fn generate_bindings(build_dir: &Path, out_dir: &Path) {
 
 fn check_build_done(build_dir: &Path, project: &str) -> bool {
     build_dir.join(format!("{}/build.done", project)).exists()
+}
+
+fn copy_shared_libraries(build_dir: &Path, out_dir: &Path) {
+    let lib_dir = build_dir.join("install/lib");
+
+    // Copy shared libraries from lib directory
+    for entry in std::fs::read_dir(lib_dir).expect("Failed to read lib directory") {
+        let entry = entry.expect("Failed to read directory entry");
+        let path = entry.path();
+        if path.to_str().unwrap().contains("libteeny") {
+            if path.is_symlink() {
+                let target = std::fs::read_link(&path).expect("Failed to read symlink");
+                let dest = out_dir.join(path.file_name().unwrap());
+                if !dest.exists() {
+                    std::os::unix::fs::symlink(&target, &dest).expect("Failed to create symlink");
+                }
+            } else {
+                let dest = out_dir.join(path.file_name().unwrap());
+                std::fs::copy(&path, &dest).expect("Failed to copy shared library");
+            }
+        }
+    }
 }

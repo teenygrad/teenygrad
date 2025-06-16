@@ -21,11 +21,11 @@
 int main(int argc, char **argv) {
   Compiler compiler;
 
-  if (!compiler.init_mlir()) {
+  if (!compiler.initMlir()) {
     printf("Failed to initialize MLIR\n");
     return 1;
   }
 
   return mlir::asMainReturnCode(mlir::MlirOptMain(
-      argc, argv, "Triton (GPU) optimizer driver\n", compiler.get_registry()));
+      argc, argv, "Triton (GPU) optimizer driver\n", compiler.getRegistry()));
 }

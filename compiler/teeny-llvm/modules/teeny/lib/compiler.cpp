@@ -44,7 +44,7 @@ Compiler::~Compiler() {
    // NOP
 }
 
-bool Compiler::init_mlir() {
+bool Compiler::initMlir() {
    registerTritonDialects();
 
    initialized = true;
@@ -55,11 +55,7 @@ bool Compiler::compile(const char *source, const char *config, char **target, in
    return true;
 }
 
-bool Compiler::free_target(char **target) {
-   return true;
-}
-
-mlir::DialectRegistry &Compiler::get_registry() {
+mlir::DialectRegistry &Compiler::getRegistry() {
    return registry;
 }
 

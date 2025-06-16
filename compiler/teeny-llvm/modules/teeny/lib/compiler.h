@@ -25,7 +25,7 @@ class Compiler {
     Compiler();
     ~Compiler();
 
-    bool init_mlir();
+    bool initMlir();
     
     bool compile(
       const char *source, // the source code to compile (utf-8 encoded)
@@ -34,9 +34,7 @@ class Compiler {
       int *target_size // the size of the target code (in bytes)
     );
 
-    bool free_target(char **target);
-    
-    mlir::DialectRegistry &get_registry();
+    mlir::DialectRegistry &getRegistry();
     
   private:
     bool initialized;

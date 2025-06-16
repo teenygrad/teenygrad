@@ -37,7 +37,6 @@ cmake -B "$BUILD_DIR/teeny" -S "$MODULES_DIR/teeny" -G Ninja \
        -DCMAKE_BUILD_TYPE=Release \
        -DTRITON_SOURCE_DIR="$TRITON_SOURCE_DIR" \
        -DTRITON_BUILD_DIR="$TRITON_BUILD_DIR" \
-       -DOUT_DIR="$OUT_DIR" \
        -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/install"
 
 ninja -C "$BUILD_DIR/teeny" install
