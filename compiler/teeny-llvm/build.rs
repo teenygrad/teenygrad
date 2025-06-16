@@ -56,7 +56,7 @@ fn main() {
     }
 
     if !check_build_done(&build_dir, "teeny") {
-        build_teeny(&project_dir, &build_dir);
+        build_teeny(&project_dir, &build_dir, &out_dir);
     }
 
     if !check_build_done(&build_dir, "tutorials") {
@@ -123,12 +123,13 @@ fn build_triton(project_dir: &Path, build_dir: &Path) {
     }
 }
 
-fn build_teeny(project_dir: &Path, build_dir: &Path) {
+fn build_teeny(project_dir: &Path, build_dir: &Path, out_dir: &Path) {
     let modules_dir = project_dir.join("modules");
 
     let status = Command::new("./scripts/build_teeny.sh")
         .env("BUILD_DIR", build_dir)
         .env("MODULES_DIR", modules_dir)
+        .env("OUT_DIR", out_dir)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
@@ -177,7 +178,6 @@ fn generate_bindings(build_dir: &Path, out_dir: &Path) {
 
     // Tell cargo to tell rustc to link the cuda and nvrtc libraries
     println!("cargo:rustc-link-lib=teeny");
-    println!("cargo:rustc-link-lib=triton");
 
     // The bindgen::Builder is the main entry point
     // to bindgen, and lets you build up options for

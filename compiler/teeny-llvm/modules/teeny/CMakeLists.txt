@@ -27,6 +27,16 @@ include(AddLLVM)
 include(TableGen)
 include(AddMLIR)
 
+include(MLIRDetectPythonEnv)
+# Python Interpreter is used to run lit tests
+find_package(Python3 REQUIRED COMPONENTS Development.Embed Interpreter)
+
+mlir_detect_pybind11_install()
+find_package(pybind11 CONFIG REQUIRED HINTS "${Python3_SITELIB}")
+if(NOT TARGET pybind11::module)
+  message(FATAL_ERROR "pybind11::module target not found. Please ensure pybind11 is properly installed.")
+endif()
+
 include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR})

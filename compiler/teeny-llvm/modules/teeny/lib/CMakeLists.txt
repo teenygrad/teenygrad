@@ -8,31 +8,31 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 get_property(triton_libs GLOBAL PROPERTY TRITON_LIBS)
 
 include_directories(${PROJECT_SOURCE_DIR})
+
 #
 # teeny
 #
 
-add_library(teeny STATIC 
+add_library(teeny SHARED 
   teeny.h teeny.cpp 
   compiler.h compiler.cpp
 )
 
-# Use whole-archive to ensure all symbols are included
+# Force static linking of all dependencies
 target_link_options(teeny PRIVATE
-  -Wl,--whole-archive
-  $<TARGET_FILE:teeny>
-  -Wl,--no-whole-archive
+  -Wl,-Bstatic
 )
 
 target_link_libraries(teeny 
   PRIVATE 
   
+  -Wl,--whole-archive
   ${dialect_libs}
   ${conversion_libs}  
 
   # triton
-  triton 
-  TritonTestDialectTritonGPU
+  triton
+  pybind11::module
 
   # MLIR core
   MLIRSupport
@@ -40,6 +40,86 @@ target_link_libraries(teeny
   MLIROptLib
   MLIRPass
   MLIRTransforms
+
+  # transitive dependencies
+  LLVMAArch64AsmParser
+  LLVMAArch64CodeGen
+  LLVMARMAsmParser
+  LLVMARMCodeGen
+  LLVMARMDesc
+  LLVMARMInfo
+  LLVMAVRAsmParser
+  LLVMAVRCodeGen
+  LLVMAVRDesc
+  LLVMAVRInfo
+  LLVMBPFAsmParser
+  LLVMBPFCodeGen
+  LLVMBPFDesc
+  LLVMBPFInfo
+  LLVMHexagonAsmParser
+  LLVMHexagonCodeGen
+  LLVMHexagonDesc
+  LLVMHexagonInfo
+  LLVMLanaiAsmParser
+  LLVMLanaiCodeGen
+  LLVMLanaiDesc
+  LLVMLanaiInfo
+  LLVMLoongArchAsmParser
+  LLVMLoongArchCodeGen
+  LLVMLoongArchDesc
+  LLVMLoongArchInfo
+  LLVMMipsAsmParser
+  LLVMMipsCodeGen
+  LLVMMipsDesc
+  LLVMMipsInfo
+  LLVMMSP430AsmParser
+  LLVMMSP430CodeGen
+  LLVMMSP430Desc
+  LLVMMSP430Info
+  LLVMPowerPCAsmParser
+  LLVMPowerPCCodeGen
+  LLVMPowerPCDesc
+  LLVMPowerPCInfo
+  LLVMRISCVAsmParser
+  LLVMRISCVCodeGen
+  LLVMRISCVDesc
+  LLVMRISCVInfo
+  LLVMRISCVTargetMCA
+  LLVMSparcAsmParser
+  LLVMSparcCodeGen
+  LLVMSparcDesc
+  LLVMSparcInfo
+  LLVMSPIRVCodeGen
+  LLVMSPIRVDesc
+  LLVMSPIRVInfo
+  LLVMSystemZAsmParser
+  LLVMSystemZCodeGen
+  LLVMSystemZDesc
+  LLVMSystemZInfo
+  LLVMVEAsmParser
+  LLVMVECodeGen
+  LLVMVEDesc
+  LLVMVEInfo
+  LLVMWebAssemblyAsmParser
+  LLVMWebAssemblyCodeGen
+  LLVMWebAssemblyDesc
+  LLVMWebAssemblyInfo
+  LLVMX86AsmParser
+  LLVMX86CodeGen
+  LLVMX86Desc
+  LLVMX86Info
+  LLVMX86TargetMCA
+  LLVMXCoreCodeGen
+  LLVMXCoreDesc
+  LLVMXCoreInfo
+  MLIRBuiltinToLLVMIRTranslation
+  MLIRLLVMToLLVMIRTranslation
+  
+  -Wl,--no-whole-archive
+  -Wl,-Bdynamic
+
+  Python3::Python
+  TritonTestDialectTritonGPU
 )
 
 mlir_check_all_link_libraries(teeny)
@@ -49,9 +129,14 @@ set_target_properties(teeny PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+
     # Ensure all symbols are exported
     CXX_VISIBILITY_PRESET default
     VISIBILITY_INLINES_HIDDEN OFF
+
+    # Set the shared library version
+    VERSION 0.1.0
+    SOVERSION 1
 )
 
 #
@@ -59,7 +144,7 @@ set_target_properties(teeny PROPERTIES
 #
 
 add_llvm_executable(teeny-opt 
-  compiler.cpp compiler.h teeny-opt.cpp 
+  compiler.h teeny-opt.cpp 
   PARTIAL_SOURCES_INTENDED)
 
 llvm_update_compile_flags(teeny-opt)
