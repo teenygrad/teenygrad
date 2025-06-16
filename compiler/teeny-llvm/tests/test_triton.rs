@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_llvm::{teeny_free, teeny_new};
+use teeny_llvm::{teeny_compile, teeny_free, teeny_new};
 
 #[cfg(feature = "cuda")]
 #[test]
@@ -82,6 +82,27 @@ module {
     unsafe {
         let mut compiler = std::ptr::null_mut();
         let status = teeny_new(&mut compiler);
+        assert_eq!(status, teeny_llvm::TEENY_SUCCESS);
+
+        let mut ptx_output: *mut ::std::os::raw::c_char = std::ptr::null_mut();
+        let mut ptx_output_size: ::std::os::raw::c_int = 0;
+
+        // Convert MLIR string to C string - since it's a literal, we can use CStr
+        let mlir_cstr = std::ffi::CString::new(mlir).unwrap();
+        let mlir = mlir_cstr.as_ptr();
+
+        // Convert empty config string to C string
+        let config_cstr = std::ffi::CString::new("").unwrap();
+        let config = config_cstr.as_ptr();
+
+        let status = teeny_compile(
+            compiler,
+            mlir,
+            config,
+            &mut ptx_output,
+            &mut ptx_output_size,
+        );
+
         assert_eq!(status, teeny_llvm::TEENY_SUCCESS);
 
         let status = teeny_free(&mut compiler);

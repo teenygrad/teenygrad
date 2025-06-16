@@ -52,6 +52,7 @@ bool Compiler::initMlir() {
 }
 
 bool Compiler::compile(const char *source, const char *config, char **target, int *target_size) {
+   printf("AXM source: %d: %s\n", strlen(source), source);
    return true;
 }
 
