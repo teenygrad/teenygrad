@@ -114,6 +114,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc"
+version = "1.2.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d487aa071b5f64da6f19a3e848e3578944b726ee5a4854b82172f02aa876bfdc"
+dependencies = [
+ "shlex",
+]
+
+[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1023,6 +1032,7 @@ dependencies = [
 name = "teeny-llama"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "teeny-llvm",
 ]
 

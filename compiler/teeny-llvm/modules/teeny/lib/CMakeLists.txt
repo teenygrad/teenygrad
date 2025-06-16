@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.28)
 
+# Add both static libstdc++ and static libgcc
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++ -static-libgcc")
+
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 get_property(triton_libs GLOBAL PROPERTY TRITON_LIBS)
 
 include_directories(${PROJECT_SOURCE_DIR})
-
 #
 # teeny
 #
@@ -15,8 +17,15 @@ add_library(teeny STATIC
   compiler.h compiler.cpp
 )
 
+# Use whole-archive to ensure all symbols are included
+target_link_options(teeny PRIVATE
+  -Wl,--whole-archive
+  $<TARGET_FILE:teeny>
+  -Wl,--no-whole-archive
+)
+
 target_link_libraries(teeny 
-  PUBLIC 
+  PRIVATE 
   
   ${dialect_libs}
   ${conversion_libs}  
@@ -35,10 +44,14 @@ target_link_libraries(teeny
 
 mlir_check_all_link_libraries(teeny)
 
-# Export all dependencies
+# Make the library self-contained
 set_target_properties(teeny PROPERTIES
-  EXPORT_NAME teeny
-  EXPORT_PROPERTIES "LINK_LIBRARIES"
+    POSITION_INDEPENDENT_CODE ON
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    # Ensure all symbols are exported
+    CXX_VISIBILITY_PRESET default
+    VISIBILITY_INLINES_HIDDEN OFF
 )
 
 #
@@ -66,7 +79,13 @@ install(DIRECTORY ./
                       PATTERN "*.td.h")
 
 # Install 
-install(TARGETS teeny teeny-opt
+install(TARGETS teeny-opt
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)
+
+install(TARGETS teeny
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
+        COMPONENT library)

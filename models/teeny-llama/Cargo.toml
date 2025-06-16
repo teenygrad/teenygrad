@@ -13,3 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 teeny-llvm = { path = "../../compiler/teeny-llvm" }
+
+[build-dependencies]
+cc.workspace = true

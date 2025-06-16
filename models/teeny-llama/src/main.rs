@@ -22,7 +22,18 @@ fn main() {
 
     unsafe {
         let mut compiler = std::ptr::null_mut();
-        teeny_new(&mut compiler);
-        teeny_free(&mut compiler);
+        let status = teeny_new(&mut compiler);
+        if status == teeny_llvm::TEENY_SUCCESS {
+            println!("teeny_new succeeded");
+        } else {
+            panic!("teeny_new failed");
+        }
+
+        let status = teeny_free(&mut compiler);
+        if status == teeny_llvm::TEENY_SUCCESS {
+            println!("teeny_free succeeded");
+        } else {
+            panic!("teeny_free failed");
+        }
     }
 }

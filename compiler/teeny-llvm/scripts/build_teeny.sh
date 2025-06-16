@@ -23,6 +23,7 @@ createDir "$BUILD_DIR/install"
 
 echo "Building Teeny - $BUILD_DIR/teeny ($MODULES_DIR/teeny)"
 
+export CC=cc
 export LLVM_BUILD_DIR="$BUILD_DIR/llvm"
 export LLVM_INCLUDE_DIRS="$BUILD_DIR/llvm/include"
 export LLVM_LIBRARY_DIR="$BUILD_DIR/llvm/lib"

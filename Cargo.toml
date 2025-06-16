@@ -2,6 +2,9 @@
 resolver = "2"
 members = [ "compiler/*", "models/*", "support/*", "drivers/*", "interop/*"]
 
+[workspace.features]
+cuda = ["compiler/teeny-llvm/cuda"]
+
 [workspace.dependencies]
 protobuf = "3.7.2"
 protobuf-codegen = "3.7.2"
@@ -11,6 +14,6 @@ quote = "1.0.40"
 proc-macro2 = "1.0.95"
 tokio = { version = "1.45.1", features = ["full"] }
 smol = { version = "2.0.2" }
+cc = "1.2.27"
 
-[workspace.features]
-cuda = ["compiler/teeny-llvm/cuda"]
+[workspace.dev-dependencies]
