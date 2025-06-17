@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/target/cmake-build/install/include/**",
+                "${workspaceFolder}/compiler/teeny-llvm/modules/teeny/lib/**",
+                "${workspaceFolder}/compiler/teeny-llvm/modules/teeny/mlir/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools"
+        }
+    ],
+    "version": 4
+} 

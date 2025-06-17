@@ -1,0 +1,16 @@
+{
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/target/cmake-build/install/include/**",
+        "${workspaceFolder}/compiler/teeny-llvm/modules/teeny/lib/**",
+        "${workspaceFolder}/compiler/teeny-llvm/modules/teeny/mlir/**"
+    ],
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+    "editor.formatOnSave": true,
+    "files.associations": {
+        "*.h": "cpp",
+        "*.hpp": "cpp",
+        "*.cpp": "cpp"
+    }
+} 

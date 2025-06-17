@@ -17,8 +17,8 @@
 
 #include "compiler.h"
 
-#include "third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
-#include "third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
+#include "triton/third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
+#include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 #include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
@@ -27,8 +27,8 @@
 #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 #include "triton/Dialect/TritonNvidiaGPU/Transforms/Passes.h"
 
-#include "nvidia/include/NVGPUToLLVM/Passes.h"
-#include "nvidia/include/TritonNVIDIAGPUToLLVM/Passes.h"
+#include "triton/third_party/nvidia/include/NVGPUToLLVM/Passes.h"
+#include "triton/third_party/nvidia/include/TritonNVIDIAGPUToLLVM/Passes.h"
 #include "triton/Conversion/TritonGPUToLLVM/Passes.h"
 #include "triton/Conversion/TritonToTritonGPU/Passes.h"
 #include "triton/Target/LLVMIR/Passes.h"
@@ -37,6 +37,7 @@
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/ParseUtilities.h"
+#include "mlir/InitAllDialects.h"
 
 #include "llvm/IR/Module.h"
 #include "llvm/Target/TargetMachine.h"
@@ -48,6 +49,27 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Path.h"
+
+#include "triton/third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
+#include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
+#include "triton/Dialect/Triton/IR/Dialect.h"
+#include "triton/Dialect/TritonGPU/IR/Dialect.h"
+#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
+
+#include "triton/Dialect/Triton/Transforms/Passes.h"
+#include "triton/Dialect/TritonGPU/Transforms/Passes.h"
+#include "triton/Dialect/TritonNvidiaGPU/Transforms/Passes.h"
+
+#include "triton/third_party/nvidia/include/NVGPUToLLVM/Passes.h"
+#include "triton/third_party/nvidia/include/TritonNVIDIAGPUToLLVM/Passes.h"
+#include "triton/Conversion/TritonGPUToLLVM/Passes.h"
+#include "triton/Conversion/TritonToTritonGPU/Passes.h"
+#include "triton/Target/LLVMIR/Passes.h"
+
+#include "mlir/Dialect/LLVMIR/NVVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/InitAllPasses.h"
+#include "mlir/Conversion/Passes.h"
 
 Compiler::Compiler() {
    initialized = false;
@@ -179,11 +201,11 @@ void Compiler::registerDialects() {
   mlir::triton::gpu::registerTritonGPUPasses();
   mlir::registerTritonNvidiaGPUPasses();
 
-//   mlir::test::registerTestAliasPass();
-//   mlir::test::registerTestAlignmentPass();
-//   mlir::test::registerTestAllocationPass();
-//   mlir::test::registerTestMembarPass();
- 
+  // mlir::test::registerTestAliasPass();
+  // mlir::test::registerTestAlignmentPass();
+  // mlir::test::registerTestAllocationPass();
+  // mlir::test::registerTestMembarPass();
+
   mlir::triton::registerConvertTritonToTritonGPUPass();
   mlir::triton::gpu::registerAllocateSharedMemoryPass();
   mlir::triton::gpu::registerTritonGPUAllocateWarpGroups();
@@ -193,22 +215,15 @@ void Compiler::registerDialects() {
   mlir::triton::registerConvertNVGPUToLLVMPass();
   mlir::registerLLVMDIScope();
 
-  mlir::registerLLVMDialectTranslation(registry);
-
-  // Initialize LLVM NVPTX target
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllAsmPrinters();
+  mlir::registerBuiltinDialectTranslation(registry);
+  mlir::registerLLVMDialectTranslation(registry);  
 
   registry
-     .insert<
-      mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
-      mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
-      mlir::triton::gpu::TritonGPUDialect, mlir::math::MathDialect,
-      mlir::arith::ArithDialect, mlir::scf::SCFDialect,
-      mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
-      mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect
-      >();
- }
+      .insert<mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
+              mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
+              mlir::triton::gpu::TritonGPUDialect, mlir::math::MathDialect,
+              mlir::arith::ArithDialect, mlir::scf::SCFDialect,
+              mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
+              mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect,
+              mlir::ROCDL::ROCDLDialect>();
+}

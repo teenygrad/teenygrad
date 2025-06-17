@@ -114,6 +114,7 @@ target_link_libraries(teeny
   LLVMXCoreInfo
   MLIRBuiltinToLLVMIRTranslation
   MLIRLLVMToLLVMIRTranslation
+  MLIRGPUToLLVMIRTranslation
   
   -Wl,--no-whole-archive
   -Wl,-Bdynamic
