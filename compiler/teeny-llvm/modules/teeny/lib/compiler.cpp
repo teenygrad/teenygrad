@@ -34,7 +34,20 @@
 #include "triton/Target/LLVMIR/Passes.h"
 
 #include "mlir/Dialect/LLVMIR/NVVMDialect.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Tools/ParseUtilities.h"
+
+#include "llvm/IR/Module.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Program.h"
+#include "llvm/Support/Path.h"
 
 Compiler::Compiler() {
    initialized = false;
@@ -45,30 +58,132 @@ Compiler::~Compiler() {
 }
 
 bool Compiler::initMlir() {
-   registerTritonDialects();
+   registerDialects();
 
    initialized = true;
    return true;
 }
 
-bool Compiler::compile(const char *source, const char *config, char **target, int *target_size) {
-   printf("AXM source: %d: %s\n", strlen(source), source);
-   return true;
+bool Compiler::compile(const char *source, const char *config, const char **output, int *output_size) {
+   std::string mlirModuleStr(source);
+   mlir::MLIRContext context(registry);
+   llvm::LLVMContext llvmContext;
+
+   // Parse the MLIR module
+  llvm::SourceMgr sourceMgr;
+  sourceMgr.AddNewSourceBuffer(
+      llvm::MemoryBuffer::getMemBuffer(mlirModuleStr),
+      llvm::SMLoc());
+  
+  mlir::OwningOpRef<mlir::ModuleOp> module = mlir::parseSourceFile<mlir::ModuleOp>(sourceMgr, &context);
+  if (!module) {
+    printf("Failed to parse MLIR module");
+    return false;
+  }
+
+  printf("Parsed MLIR module\n");
+
+  // Set up the pass manager
+  mlir::PassManager pm(&context);
+  mlir::registerPassManagerCLOptions();
+  auto result = mlir::applyPassManagerCLOptions(pm);
+  printf("applyPassManagerCLOptions - %d\n", result);
+  if (mlir::failed(result)) {
+    printf("Failed to apply pass manager options");
+    return false;
+  }
+
+  printf("Applied pass manager options\n");
+
+  // Add optimization passes
+  // These passes should be tailored to your specific MLIR dialect and target
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
+
+  printf("Added optimization passes\n");
+
+  // Add GPU-specific passes if needed
+  // pm.addPass(createGpuKernelOutliningPass());
+  // pm.addPass(createLowerToLLVMPass());
+
+  // Run the passes
+  if (mlir::failed(pm.run(*module))) {
+    printf("Failed to run passes on MLIR module");
+    return false;
+  }
+
+  printf("Ran passes on MLIR module\n");
+
+  auto llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
+  if (!llvmModule) {
+    printf("Failed to translate MLIR to LLVM IR");
+    return false;
+  }
+
+  printf("Translated MLIR to LLVM IR\n");
+
+  // Initialize NVPTX target
+  auto targetTriple = "nvptx64-nvidia-cuda";
+  llvmModule->setTargetTriple(targetTriple);
+
+  std::string targetError;
+  auto target = llvm::TargetRegistry::lookupTarget(targetTriple, targetError);
+  if (!target) {
+    printf("Failed to lookup NVPTX target: %s", targetError.c_str());
+    return false;
+  }
+
+  printf("Lookup NVPTX target\n");
+
+  // Set target options
+  llvm::TargetOptions opt;
+  auto RM = llvm::Reloc::Model::PIC_;
+  auto targetMachine = target->createTargetMachine(targetTriple, "sm_50", "+ptx60", opt, RM);
+  llvmModule->setDataLayout(targetMachine->createDataLayout());
+
+  printf("Set data layout\n");
+
+  // Generate PTX
+  llvm::SmallVector<char, 0> ptxBuffer;
+  llvm::raw_svector_ostream ptxStream(ptxBuffer);
+  
+  llvm::legacy::PassManager pass;
+  if (targetMachine->addPassesToEmitFile(
+          pass, ptxStream, nullptr, llvm::CodeGenFileType::AssemblyFile)) {
+    printf("Failed to generate PTX");
+    return false;
+  }
+
+  pass.run(*llvmModule);
+
+  printf("Added passes to emit file\n");
+
+  // Return the PTX as a memory buffer
+  auto buffer = llvm::MemoryBuffer::getMemBufferCopy(
+      llvm::StringRef(ptxBuffer.data(), ptxBuffer.size()));
+  *output = buffer->getBuffer().data();
+  *output_size = buffer->getBuffer().size();
+
+  printf("PTX output size: %d\n", buffer->getBuffer().size());
+
+  return true;
 }
 
 mlir::DialectRegistry &Compiler::getRegistry() {
    return registry;
 }
 
-void Compiler::registerTritonDialects() {
+void Compiler::registerDialects() {
   mlir::registerAllPasses();
   mlir::registerTritonPasses();
   mlir::triton::gpu::registerTritonGPUPasses();
   mlir::registerTritonNvidiaGPUPasses();
+
 //   mlir::test::registerTestAliasPass();
 //   mlir::test::registerTestAlignmentPass();
 //   mlir::test::registerTestAllocationPass();
 //   mlir::test::registerTestMembarPass();
+ 
   mlir::triton::registerConvertTritonToTritonGPUPass();
   mlir::triton::gpu::registerAllocateSharedMemoryPass();
   mlir::triton::gpu::registerTritonGPUAllocateWarpGroups();
@@ -77,6 +192,15 @@ void Compiler::registerTritonDialects() {
   mlir::triton::registerConvertTritonGPUToLLVMPass();
   mlir::triton::registerConvertNVGPUToLLVMPass();
   mlir::registerLLVMDIScope();
+
+  mlir::registerLLVMDialectTranslation(registry);
+
+  // Initialize LLVM NVPTX target
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllAsmPrinters();
 
   registry
      .insert<

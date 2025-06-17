@@ -63,7 +63,7 @@ TeenyStatus teeny_compile(
   compiler_t compiler, // the compiler handle
   const char *source, // the source code to compile (utf-8 encoded)
   const char *config, // the compiler configuration (utf-8 encoded)
-  char **target, // the target code (binary)
+  const char **target, // the target code (binary)
   int *target_size // the size of the target code (in bytes)
 );
 

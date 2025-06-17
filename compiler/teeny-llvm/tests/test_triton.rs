@@ -20,6 +20,7 @@ use teeny_llvm::{teeny_compile, teeny_free, teeny_new};
 #[cfg(feature = "cuda")]
 #[test]
 fn test_triton_cuda() {
+    // 123456
     let mlir = r#"
 #loc = loc("./vector_addition.py":10:0)
 module {
@@ -99,7 +100,7 @@ module {
             compiler,
             mlir,
             config,
-            &mut ptx_output,
+            &mut ptx_output as *mut *mut i8 as *mut *const i8,
             &mut ptx_output_size,
         );
 
