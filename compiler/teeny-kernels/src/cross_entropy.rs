@@ -15,42 +15,51 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-//  import torch
-
-// from triton import heuristics, jit
-// from triton import language as tl
-// from triton import next_power_of_2
-
-// def num_warps(N):
-//     if N < 2048:
-//         return 4
-//     elif N < 8192:
-//         return 8
-//     return 16
+fn num_warps(n: usize) -> usize {
+    if n < 2048 {
+        4
+    } else if n < 8192 {
+        8
+    } else {
+        16
+    }
+}
 
 // @heuristics({"num_warps": lambda nargs: num_warps(nargs["N"])})
 // @heuristics({"BLOCK": lambda nargs: next_power_of_2(nargs["N"])})
 // @jit
-// def _forward(LOGITS, PROBS, IDX, LOSS, N, BLOCK: tl.constexpr):
-//     row = tl.program_id(0)
-//     cols = tl.arange(0, BLOCK)
-//     idx = tl.load(IDX + row)
-//     # pointers to logit and probs
-//     LOGITS = LOGITS + row * N + cols
-//     WRIT_PROBS = PROBS + row * N + cols
-//     READ_PROBS = PROBS + row * N + idx
-//     # write-back negative log-probs
-//     logits = tl.load(LOGITS, mask=cols < N, other=-float("inf"))
-//     logits = logits.to(tl.float32)
-//     logits = logits - tl.max(logits, 0)
-//     probs = tl.log(tl.sum(tl.exp(logits), 0)) - logits
-//     tl.store(WRIT_PROBS, probs, mask=cols < N)
-//     # There is a bug in the compiler, which fails to insert a barrier here.
-//     # We add it explicitly for now. Will be fixed soon.
-//     tl.debug_barrier()
-//     # write-back loss
-//     probs = tl.load(READ_PROBS)
-//     tl.store(LOSS + row, probs)
+fn forward(
+    LOGITS: &DenseTensor<DynamicShape, f32>,
+    PROBS: &DenseTensor<DynamicShape, f32>,
+    IDX: &DenseTensor<DynamicShape, i64>,
+    LOSS: &DenseTensor<DynamicShape, f32>,
+    N: usize,
+    BLOCK: usize,
+) {
+    let row = triton::program_id(0);
+    let cols = triton::arange(0, BLOCK, 1);
+    let idx = triton::load(IDX + row);
+
+    // pointers to logit and probs
+    LOGITS = LOGITS + row * N + cols
+    WRIT_PROBS = PROBS + row * N + cols
+    READ_PROBS = PROBS + row * N + idx
+
+    // write-back negative log-probs
+    let logits = triton::load(LOGITS, mask=cols < N, other=-float("inf"));
+    let logits = logits.to(tl.float32);
+    let logits = logits - triton::max(logits, 0);
+    let probs = triton::log(triton::sum(triton::exp(logits), 0)) - logits;
+    triton::store(WRIT_PROBS, probs, mask=cols < N)
+
+    // There is a bug in the compiler, which fails to insert a barrier here.
+    // We add it explicitly for now. Will be fixed soon.
+    triton::debug_barrier()
+
+    // write-back loss
+    let probs = triton::load(READ_PROBS);
+    triton::store(LOSS + row, probs);
+}
 
 // @heuristics({"num_warps": lambda nargs: num_warps(nargs["N"])})
 // @heuristics({"BLOCK": lambda nargs: next_power_of_2(nargs["N"])})

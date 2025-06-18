@@ -191,187 +191,176 @@
 //     }
 // )
 // @jit
-// def _kernel(
-//     A,
-//     B,
-//     C,
-//     M,
-//     N,
-//     K,  #
-//     stride_am,
-//     stride_ak,  #
-//     stride_bk,
-//     stride_bn,  #
-//     stride_cm,
-//     stride_cn,  #
-//     acc_dtype: tl.constexpr,  #
-//     input_precision: tl.constexpr,  #
-//     fp8_fast_accum: tl.constexpr,  #
-//     BLOCK_M: tl.constexpr,
-//     BLOCK_N: tl.constexpr,
-//     BLOCK_K: tl.constexpr,  #
-//     GROUP_M: tl.constexpr,
-//     SPLIT_K: tl.constexpr,
-//     EVEN_K: tl.constexpr,
-//     AB_DTYPE: tl.constexpr,  #
-// ):
-//     # matrix multiplication
-//     pid = tl.program_id(0)
-//     pid_z = tl.program_id(1)
-//     grid_m = tl.cdiv(M, BLOCK_M)
-//     grid_n = tl.cdiv(N, BLOCK_N)
-//     # re-order program ID for better L2 performance
-//     width = GROUP_M * grid_n
-//     group_id = pid // width
-//     group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
-//     pid_m = group_id * GROUP_M + (pid % group_size)
-//     pid_n = (pid % width) // (group_size)
-//     # do matrix multiplication
-//     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-//     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-//     ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
-//     rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
-//     rk = pid_z * BLOCK_K + tl.arange(0, BLOCK_K)
-//     # pointers
-//     A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
-//     B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
-//     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype)
-//     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
-//         if EVEN_K:
-//             a = tl.load(A)
-//             b = tl.load(B)
-//         else:
-//             k_remaining = K - k * (BLOCK_K * SPLIT_K)
-//             _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
-//             a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
-//             b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
-//         if AB_DTYPE is not None:
-//             a = a.to(AB_DTYPE)
-//             b = b.to(AB_DTYPE)
-//         if fp8_fast_accum:
-//             acc = tl.dot(
-//                 a, b, acc, out_dtype=acc_dtype, input_precision=input_precision
-//             )
-//         else:
-//             acc += tl.dot(a, b, out_dtype=acc_dtype, input_precision=input_precision)
-//         A += BLOCK_K * SPLIT_K * stride_ak
-//         B += BLOCK_K * SPLIT_K * stride_bk
-//     acc = acc.to(C.dtype.element_ty)
-//     # rematerialize rm and rn to save registers
-//     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-//     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-//     C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
-//     mask = (rm < M)[:, None] & (rn < N)[None, :]
-//     # handles write-back with reduction-splitting
-//     if SPLIT_K == 1:
-//         tl.store(C, acc, mask=mask)
-//     else:
-//         tl.atomic_add(C, acc, mask=mask)
 
-// class _matmul(torch.autograd.Function):
-//     kernel = _kernel
+fn kernel(
+    A: &DenseTensor<DynamicShape, f32>,
+    B: &DenseTensor<DynamicShape, f32>,
+    C: &DenseTensor<DynamicShape, f32>,
+    M: usize,
+    N: usize,
+    K: usize,
+    stride_am: usize,
+    stride_ak: usize,
+    stride_bk: usize,
+    stride_bn: usize,
+    stride_cm: usize,
+    stride_cn: usize,
+    acc_dtype: usize,
+    input_precision: usize,
+    fp8_fast_accum: usize,
+    BLOCK_M: usize,
+    BLOCK_N: usize,
+    BLOCK_K: usize,
+    GROUP_M: usize,
+    SPLIT_K: usize,
+    EVEN_K: usize,
+    AB_DTYPE: usize,
+) {
+    // matrix multiplication
+    let pid = triton::program_id(0);
+    let pid_z = triton::program_id(1);
+    let grid_m = triton::cdiv(M, BLOCK_M);
+    let grid_n = triton::cdiv(N, BLOCK_N);
+    // re-order program ID for better L2 performance
+    let width = GROUP_M * grid_n;
+    let group_id = pid / width;
+    let group_size = min(grid_m - group_id * GROUP_M, GROUP_M);
+    let pid_m = group_id * GROUP_M + (pid % group_size);
+    let pid_n = (pid % width) / group_size;
+    // do matrix multiplication
+    let rm = pid_m * BLOCK_M + triton::arange(0, BLOCK_M, 1);
+    let rn = pid_n * BLOCK_N + triton::arange(0, BLOCK_N, 1);
+    let ram = triton::max_contiguous(triton::multiple_of(rm % M, BLOCK_M), BLOCK_M);
+    let rbn = triton::max_contiguous(triton::multiple_of(rn % N, BLOCK_N), BLOCK_N);
+    let rk = pid_z * BLOCK_K + triton::arange(0, BLOCK_K, 1);
+    // pointers
+    let A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak);
+    let B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn);
+    let acc = triton::zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype);
+    for k in range(0, triton::cdiv(K, BLOCK_K * SPLIT_K)) {
+      if EVEN_K {
+          let a = triton::load(A);
+          let b = triton::load(B);
+      } else {
+          let k_remaining = K - k * (BLOCK_K * SPLIT_K);
+          let _0 = triton::zeros((1, 1), dtype=C.dtype.element_ty);
+          let a = triton::load(A, mask=rk[None, :] < k_remaining, other=_0);
+          let b = triton::load(B, mask=rk[:, None] < k_remaining, other=_0);
+      }
+      if AB_DTYPE is not None {
+          a = a.to(AB_DTYPE);
+          b = b.to(AB_DTYPE);
+      }
+      if fp8_fast_accum {
+          acc = triton::dot(
+              a, b, acc, out_dtype=acc_dtype, input_precision=input_precision
+          )
+      } else {
+          acc += triton::dot(a, b, out_dtype=acc_dtype, input_precision=input_precision)
+      }
+      let A += BLOCK_K * SPLIT_K * stride_ak;
+      let B += BLOCK_K * SPLIT_K * stride_bk;
+    }
+    
+    let acc = acc.to(C.dtype.element_ty)
 
-//     _locks = {}
+    // rematerialize rm and rn to save registers
+    let rm = pid_m * BLOCK_M + triton::arange(0, BLOCK_M, 1);
+    let rn = pid_n * BLOCK_N + triton::arange(0, BLOCK_N, 1);
+    let C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn);
+    let mask = (rm < M)[:, None] & (rn < N)[None, :];
 
-//     @staticmethod
-//     def _call(a, b, acc_dtype, input_precision, fp8_fast_accum, output_dtype):
-//         device = a.device
-//         # handle non-contiguous inputs if necessary
-//         if a.stride(0) > 1 and a.stride(1) > 1:
-//             a = a.contiguous()
-//         if b.stride(0) > 1 and b.stride(1) > 1:
-//             b = b.contiguous()
-//         # checks constraints
-//         assert (
-//             a.shape[1] == b.shape[0]
-//         ), f"incompatible dimensions {a.shape} and {b.shape}"
-//         M, K = a.shape
-//         _, N = b.shape
+    // handles write-back with reduction-splitting
+    if SPLIT_K == 1 {
+        triton::store(C, acc, mask=mask)
+    } else {
+        triton::atomic_add(C, acc, mask=mask)
+    }  
+}
 
-//         # common type between a and b
-//         ab_dtype = get_higher_dtype(a.dtype, b.dtype)
+fn matmul(a: &DenseTensor<DynamicShape, f32>, b: &DenseTensor<DynamicShape, f32>, acc_dtype: usize, 
+  input_precision: usize, fp8_fast_accum: usize, output_dtype: usize) {
+    let device = a.device
+    // handle non-contiguous inputs if necessary
+    if a.stride(0) > 1 and a.stride(1) > 1 {
+        a = a.contiguous()
+    }
+    if b.stride(0) > 1 and b.stride(1) > 1 {
+        b = b.contiguous()
+    }
+    // checks constraints
+    assert a.shape[1] == b.shape[0], "incompatible dimensions {a.shape} and {b.shape}";
+    let M = a.shape[0];
+    let K = a.shape[1];
+    let N = b.shape[1];
 
-//         # allocates output
-//         if output_dtype is None:
-//             output_dtype = ab_dtype
+    // common type between a and b
+    let ab_dtype = get_higher_dtype(a.dtype, b.dtype)
 
-//         c = torch.empty((M, N), device=device, dtype=output_dtype)
+    // allocates output
+    if output_dtype is None {
+        output_dtype = ab_dtype
+    }
 
-//         # Allowed types for acc_type given the types of a and b.
-//         supported_acc_dtypes = {
-//             torch.float16: (torch.float32, torch.float16),
-//             torch.bfloat16: (torch.float32, torch.bfloat16),
-//             torch.float32: (torch.float32,),
-//             torch.int8: (torch.int32,),
-//         }
+    let c = torch.empty((M, N), device=device, dtype=output_dtype)
 
-//         if acc_dtype is None:
-//             acc_dtype = supported_acc_dtypes[ab_dtype][0]
-//         else:
-//             assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
-//             assert (
-//                 acc_dtype in supported_acc_dtypes[a.dtype]
-//             ), "acc_dtype not compatible with the type of a"
-//             assert (
-//                 acc_dtype in supported_acc_dtypes[b.dtype]
-//             ), "acc_dtype not compatible with the type of b"
+    // Allowed types for acc_type given the types of a and b.
+    let supported_acc_dtypes = {
+        torch.float16: (torch.float32, torch.float16),
+        torch.bfloat16: (torch.float32, torch.bfloat16),
+        torch.float32: (torch.float32,),
+        torch.int8: (torch.int32,),
+    }
 
-//         def to_tl_type(ty):
-//             return getattr(tl, str(ty).split(".")[-1])
+    if acc_dtype is None {
+        acc_dtype = supported_acc_dtypes[ab_dtype][0]
+    } else {
+        assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
+        assert (
+            acc_dtype in supported_acc_dtypes[a.dtype]
+        ), "acc_dtype not compatible with the type of a"
+        assert (
+            acc_dtype in supported_acc_dtypes[b.dtype]
+        ), "acc_dtype not compatible with the type of b"
 
-//         acc_dtype = to_tl_type(acc_dtype)
-//         ab_dtype = to_tl_type(ab_dtype)
-//         output_dtype = to_tl_type(output_dtype)
+    def to_tl_type(ty):
+        return getattr(tl, str(ty).split(".")[-1])
 
-//         # Tensor cores support input with mixed float8 types.
-//         if a.dtype in [tl.float8e4nv, tl.float8e5] and b.dtype in [
-//             tl.float8e4nv,
-//             tl.float8e5,
-//         ]:
-//             ab_dtype = None
-//         # launch kernel
-//         grid = lambda META: (
-//             cdiv(M, META["BLOCK_M"]) * cdiv(N, META["BLOCK_N"]),
-//             META["SPLIT_K"],
-//         )
-//         _kernel[grid](
-//             a,
-//             b,
-//             c,
-//             M,
-//             N,
-//             K,  #
-//             a.stride(0),
-//             a.stride(1),  #
-//             b.stride(0),
-//             b.stride(1),  #
-//             c.stride(0),
-//             c.stride(1),  #
-//             acc_dtype=acc_dtype,  #
-//             input_precision=input_precision,  #
-//             fp8_fast_accum=fp8_fast_accum,  #
-//             GROUP_M=8,
-//             AB_DTYPE=ab_dtype,
-//         )
-//         return c
+    acc_dtype = to_tl_type(acc_dtype)
+    ab_dtype = to_tl_type(ab_dtype)
+    output_dtype = to_tl_type(output_dtype)
 
-//     @staticmethod
-//     def forward(
-//         ctx,
-//         a,
-//         b,
-//         acc_dtype=None,
-//         input_precision=None,
-//         fp8_fast_accum=True,
-//         output_dtype=None,
-//     ):
-//         return _matmul._call(
-//             a,
-//             b,
-//             acc_dtype=acc_dtype,
-//             input_precision=input_precision,
-//             fp8_fast_accum=fp8_fast_accum,
-//             output_dtype=output_dtype,
-//         )
+    // Tensor cores support input with mixed float8 types.
+    if a.dtype in [tl.float8e4nv, tl.float8e5] and b.dtype in [
+        tl.float8e4nv,
+        tl.float8e5,
+    ] {
+        ab_dtype = None
+    }
+    // launch kernel
+    grid = lambda META: (
+        triton::cdiv(M, META["BLOCK_M"]) * triton::cdiv(N, META["BLOCK_N"]),
+        META["SPLIT_K"],
+    )
 
-// matmul = _matmul.apply
+    kernel(
+        a,
+        b,
+        c,
+        M,
+        N,
+        K,
+        a.stride(0),
+        a.stride(1),
+        b.stride(0),
+        b.stride(1),
+        c.stride(0),
+        c.stride(1),
+        acc_dtype,
+        input_precision,
+        fp8_fast_accum,
+        GROUP_M=8,
+        AB_DTYPE=ab_dtype,
+    )
+    return c
+  }
