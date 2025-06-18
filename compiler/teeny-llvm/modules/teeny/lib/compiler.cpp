@@ -38,6 +38,7 @@
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/ParseUtilities.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/Pass/PassRegistry.h"
 
 #include "llvm/IR/Module.h"
 #include "llvm/Target/TargetMachine.h"
@@ -70,6 +71,19 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Conversion/Passes.h"
+
+#include "mlir/Transforms/Passes.h"
+#include "mlir/Conversion/Passes.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
+#include "triton/Analysis/Allocation.h"
+#include "triton/Analysis/Membar.h"
+#include "triton/Conversion/TritonGPUToLLVM/Passes.h"
+#include "triton/Conversion/TritonToTritonGPU/Passes.h"
+#include "triton/Dialect/Triton/Transforms/Passes.h"
+#include "triton/Dialect/TritonGPU/Transforms/Passes.h"
+#include "triton/Target/LLVMIR/Passes.h"
+
 
 Compiler::Compiler() {
    initialized = false;
@@ -218,6 +232,8 @@ void Compiler::registerDialects() {
   mlir::registerBuiltinDialectTranslation(registry);
   mlir::registerLLVMDialectTranslation(registry);  
 
+  mlir::printRegisteredPasses();
+
   registry
       .insert<mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
               mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
@@ -226,4 +242,38 @@ void Compiler::registerDialects() {
               mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
               mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect,
               mlir::ROCDL::ROCDLDialect>();
+}
+
+void Compiler::makeTtir(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
+   mlir::PassManager pm(context);
+   
+   pm.addPass(mlir::createCanonicalizerPass());
+   pm.addPass(mlir::createCSEPass());
+   pm.addPass(createSCCPPass());
+   pm.addPass(createSymbolDCEPass());
+   pm.addPass(createInlinerPass());
+   pm.addPass(createCanonicalizerPass());
+   pm.addPass(createCSEPass());
+   pm.addPass(createLoopInvariantCodeMotionPass());
+   pm.addPass(createPrintIRPass());
+
+   pm.run(mod);
+}
+
+void Compiler::makeTtgir(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
+   mlir::PassManager pm(context);
+   // todo
+   pm.run(mod);
+}
+
+void Compiler::makeLlir(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
+   mlir::PassManager pm(context);
+   // todo
+   pm.run(mod);
+}
+
+void Compiler::makePtx(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
+   mlir::PassManager pm(context);
+   // todo
+   pm.run(mod);
 }

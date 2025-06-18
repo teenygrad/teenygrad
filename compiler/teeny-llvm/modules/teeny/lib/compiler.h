@@ -20,6 +20,11 @@
 
 #include "mlir/IR/DialectRegistry.h"
 
+namespace mlir {
+  class MLIRContext;
+  class ModuleOp;
+}
+
 class Compiler {
   public:
     Compiler();
@@ -41,6 +46,12 @@ class Compiler {
     mlir::DialectRegistry registry;        
 
     void registerDialects();
+
+    void makeTtir(mlir::MLIRContext *context, mlir::ModuleOp *mod);
+    void makeTtgir(mlir::MLIRContext *context, mlir::ModuleOp *mod);
+    void makeLlir(mlir::MLIRContext *context, mlir::ModuleOp *mod);
+    void makePtx(mlir::MLIRContext *context, mlir::ModuleOp *mod);
+    void makeCubin(mlir::MLIRContext *context, mlir::ModuleOp *mod);
  };
 
  #endif /* TEENY_COMPILER_H */
