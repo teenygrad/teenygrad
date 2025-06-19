@@ -119,32 +119,8 @@ bool Compiler::compile(const char *source, const char *config, const char **outp
 
   printf("Parsed MLIR module\n");
 
-  // Set up the pass manager
-  mlir::PassManager pm(&context);
-  mlir::registerPassManagerCLOptions();
-  auto result = mlir::applyPassManagerCLOptions(pm);
-  printf("applyPassManagerCLOptions - %d\n", result);
-  if (mlir::failed(result)) {
-    printf("Failed to apply pass manager options");
-    return false;
-  }
-
-  printf("Applied pass manager options\n");
-
-  // Add optimization passes
-  // These passes should be tailored to your specific MLIR dialect and target
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
-
-  printf("Added optimization passes\n");
-
-  // Add GPU-specific passes if needed
-  // pm.addPass(createGpuKernelOutliningPass());
-  // pm.addPass(createLowerToLLVMPass());
-
-  // Run the passes
-  if (mlir::failed(pm.run(*module))) {
-    printf("Failed to run passes on MLIR module");
+  if (!makeTtir(&context, &module)) {
+    printf("Failed to run TTIR passes on MLIR module");
     return false;
   }
 
@@ -156,6 +132,7 @@ bool Compiler::compile(const char *source, const char *config, const char **outp
     return false;
   }
 
+  // makeLlir(context, llvmModule, false, capability, ptxVersion);
   printf("Translated MLIR to LLVM IR\n");
 
   // Initialize NVPTX target
@@ -244,36 +221,188 @@ void Compiler::registerDialects() {
               mlir::ROCDL::ROCDLDialect>();
 }
 
-void Compiler::makeTtir(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
+bool Compiler::makeTtir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> *module) {
    mlir::PassManager pm(context);
    
-   pm.addPass(mlir::createCanonicalizerPass());
-   pm.addPass(mlir::createCSEPass());
-   pm.addPass(createSCCPPass());
-   pm.addPass(createSymbolDCEPass());
-   pm.addPass(createInlinerPass());
-   pm.addPass(createCanonicalizerPass());
-   pm.addPass(createCSEPass());
-   pm.addPass(createLoopInvariantCodeMotionPass());
-   pm.addPass(createPrintIRPass());
+  pm.addPass(mlir::createInlinerPass());
+  pm.addPass(mlir::triton::createRewriteTensorPointerPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::triton::createCombineOpsPass());
+  pm.addPass(mlir::triton::createReorderBroadcastPass());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::createSymbolDCEPass());
+  pm.addPass(mlir::triton::createLoopUnrollPass());
 
-   pm.run(mod);
+  if (mlir::failed(pm.run(**module))) {
+    printf("Failed to run passes on MLIR module");
+    return false;
+  }
+
+  return true;
 }
 
-void Compiler::makeTtgir(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
-   mlir::PassManager pm(context);
-   // todo
-   pm.run(mod);
+bool Compiler::makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
+  const std::string &target, int capability, int numWarps, int threadsPerWarp, int numCtas, 
+  int numConsumerGroups, int numBuffersWarpSpec, int regDecProducer, int regIncConsumer, 
+  int numStages, bool dumpEnabled) 
+{
+  mlir::PassManager pm(context);
+
+  int majorVersion = capability / 10;
+
+  pm.addPass(mlir::triton::createConvertTritonToTritonGPUPass(target, numWarps, threadsPerWarp, numCtas));
+  pm.addPass(mlir::triton::gpu::createTritonGPUCoalesce());
+  if (majorVersion >= 8) {
+     pm.addPass(mlir::triton::gpu::createTritonGPUF32DotTC());
+  }
+  
+  mlir::triton::nvidia_gpu::ClusterInfo *clusterInfo = nullptr; // AXM TODO - get this from the config
+  pm.addPass(mlir::createTritonNvidiaGPUPlanCTAPass(clusterInfo));
+  pm.addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
+  pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeThreadLocality());
+  pm.addPass(mlir::triton::gpu::createTritonGPUAccelerateMatmul());
+  pm.addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
+
+  mlir::triton::gpu::TritonGPUOptimizeDotOperandsOptions dotOperandsOptions;
+  dotOperandsOptions.hoistLayoutConversion = capability >= 80;
+  pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeDotOperands(dotOperandsOptions));
+
+  pm.addPass(mlir::createCSEPass());
+
+  mlir::triton::gpu::TritonGPUWSLoweringOptions wsLoweringOptions;
+  wsLoweringOptions.numConsumerGroups = numConsumerGroups;
+
+  mlir::triton::gpu::TritonGPUPipelineOptions pipelineOptions;
+  pipelineOptions.numStages = numStages;
+  pipelineOptions.dumpIntermediateSteps = dumpEnabled;
+
+  mlir::triton::gpu::TritonGPUWSTaskPartitionOptions wsTaskPartitionOptions;
+  wsTaskPartitionOptions.numConsumerGroups = numConsumerGroups;
+
+  mlir::triton::gpu::TritonGPUTaskIdPropagateOptions taskIdPropagateOptions;
+  taskIdPropagateOptions.numConsumerGroups = numConsumerGroups;
+
+  mlir::triton::gpu::TritonGPUWSDataPartitionOptions wsDataPartitionOptions;
+  wsDataPartitionOptions.numConsumerGroups = numConsumerGroups;
+
+  mlir::triton::gpu::TritonGPUWSCodePartitionOptions wsCodePartitionOptions;
+  wsCodePartitionOptions.numBuffers = numBuffersWarpSpec;
+  wsCodePartitionOptions.numConsumerGroups = numConsumerGroups;
+  wsCodePartitionOptions.regDecProducer = regDecProducer;
+  wsCodePartitionOptions.regIncConsumer = regIncConsumer;
+
+  mlir::triton::gpu::TritonGPUPingPongSyncOptions pingPongSyncOptions;
+  pingPongSyncOptions.numConsumerGroups = numConsumerGroups;
+
+  if (majorVersion == 8 || majorVersion == 9) {
+    pm.addPass(mlir::triton::gpu::createTritonGPUFuseNestedLoops());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+    pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeAccumulatorInit());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+    pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeAccumulatorInit());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::triton::gpu::createTritonGPUCombineTensorSelectAndIf());
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSTaskPartition(wsTaskPartitionOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUTaskIdPropagate(taskIdPropagateOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSDataPartition(wsDataPartitionOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSCodePartition(wsCodePartitionOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUPipeline(pipelineOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUPingPongSync(pingPongSyncOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSLowering(wsLoweringOptions));
+  } else if (majorVersion >= 10) {
+    pm.addPass(mlir::triton::gpu::createTritonGPUFuseNestedLoops());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+    pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeAccumulatorInit());
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSTaskPartition(wsTaskPartitionOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUTaskIdPropagate(taskIdPropagateOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSDataPartition(wsDataPartitionOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSCodePartition());
+    pm.addPass(mlir::triton::gpu::createTritonGPUPipeline(pipelineOptions));
+    pm.addPass(mlir::triton::gpu::createTritonGPUCombineTensorSelectAndIf());
+    pm.addPass(mlir::createTritonNvidiaGPUPromoteLHSToTMemPass());
+    pm.addPass(mlir::createTritonNvidiaGPUKeepAccInTMemPass());
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSLowering(wsLoweringOptions));
+    pm.addPass(mlir::createCanonicalizerPass());
+  } else {
+    pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  }
+
+  pm.addPass(mlir::triton::gpu::createTritonGPUPrefetch());
+  pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeDotOperands(dotOperandsOptions));
+  pm.addPass(mlir::triton::gpu::createTritonGPUCoalesceAsyncCopy());
+  pm.addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
+  pm.addPass(mlir::triton::gpu::createTritonGPUReduceDataDuplication());
+  pm.addPass(mlir::triton::gpu::createTritonGPUReorderInstructions());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::createSymbolDCEPass());
+  
+  if (majorVersion >= 9) {
+    pm.addPass(mlir::createTritonNvidiaGPUFenceInsertionPass());
+    pm.addPass(mlir::createTritonNvidiaGPUTMALoweringPass());
+  }
+
+  pm.addPass(mlir::createCanonicalizerPass());
+
+  if (majorVersion >= 9) {
+    mlir::triton::gpu::TritonGPUWSCanonicalizationOptions wsCanonicalizationOptions;
+    wsCanonicalizationOptions.numConsumerGroups = numConsumerGroups;
+
+    pm.addPass(mlir::triton::gpu::createTritonGPUWSCanonicalization(wsCanonicalizationOptions));
+  }
+   
+  if (mlir::failed(pm.run(*module))) {
+    printf("Failed to run passes on MLIR module");
+    return false;
+  }
+
+  return true;
 }
 
-void Compiler::makeLlir(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
-   mlir::PassManager pm(context);
-   // todo
-   pm.run(mod);
+bool Compiler::makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
+  bool enableLineInfo, int capability, int ptxVersion) 
+{
+  mlir::PassManager pm(context);
+
+  pm.addPass(mlir::createTritonNvidiaGPUMMALoweringPass());
+  pm.addPass(mlir::triton::gpu::createTritonGPUCombineTensorSelectAndIf());
+  pm.addPass(mlir::triton::gpu::createTritonGPUAllocateWarpGroups());
+  pm.addPass(mlir::createSCFToControlFlowPass());
+  pm.addPass(mlir::triton::gpu::createAllocateSharedMemory());
+  pm.addPass(mlir::createTensorMemoryAllocationPass());
+  pm.addPass(mlir::triton::gpu::createTritonGPUGlobalScratchAllocationPass());
+  pm.addPass(mlir::triton::createConvertTritonGPUToLLVMPass(capability, ptxVersion));
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::triton::createConvertNVGPUToLLVMPass());
+  pm.addPass(mlir::triton::createConvertWarpSpecializeToLLVM());
+
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::createSymbolDCEPass());
+  if (enableLineInfo) {
+    pm.addPass(mlir::createLLVMDIScopePass());
+  }
+
+  if (mlir::failed(pm.run(*module))) {
+    printf("Failed to run passes on MLIR module");
+    return false;
+  }
+
+  return true;
 }
 
-void Compiler::makePtx(mlir::MLIRContext *context, mlir::ModuleOp *mod) {
+bool Compiler::makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module) {
    mlir::PassManager pm(context);
+
    // todo
-   pm.run(mod);
+
+   if (mlir::failed(pm.run(*module))) {
+    printf("Failed to run passes on MLIR module");
+    return false;
+  }
+
+  return true;
 }

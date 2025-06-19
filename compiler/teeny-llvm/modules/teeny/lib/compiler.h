@@ -19,6 +19,7 @@
  #define TEENY_COMPILER_H
 
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/Tools/ParseUtilities.h"
 
 namespace mlir {
   class MLIRContext;
@@ -44,14 +45,22 @@ class Compiler {
   private:
     bool initialized;
     mlir::DialectRegistry registry;        
-
+        
     void registerDialects();
 
-    void makeTtir(mlir::MLIRContext *context, mlir::ModuleOp *mod);
-    void makeTtgir(mlir::MLIRContext *context, mlir::ModuleOp *mod);
-    void makeLlir(mlir::MLIRContext *context, mlir::ModuleOp *mod);
-    void makePtx(mlir::MLIRContext *context, mlir::ModuleOp *mod);
-    void makeCubin(mlir::MLIRContext *context, mlir::ModuleOp *mod);
+    bool makeTtir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> *module);
+
+    bool makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
+      const std::string &target, int capability, int numWarps, int threadsPerWarp, int numCtas, 
+      int numConsumerGroups, int numBuffersWarpSpec, int regDecProducer, int regIncConsumer, 
+      int numStages, bool dumpEnabled);
+
+    bool makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
+      bool enableLineInfo, int capability, int ptxVersion);
+
+    bool makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module);
+
+    bool makeCubin(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module);
  };
 
  #endif /* TEENY_COMPILER_H */
