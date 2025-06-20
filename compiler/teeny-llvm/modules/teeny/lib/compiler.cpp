@@ -163,6 +163,12 @@ bool Compiler::compile(const char *source, const char *_config, const char **out
 
   printf("Ran makeLlir on MLIR module\n");
 
+  if (!makePtx(&context, module, config, false)) {
+    printf("Failed to run PTX passes on MLIR module");
+    return false;
+  }
+
+  printf("Finished Dumping MLIR module\n");
   dumpModule(module);
 
   // // Initialize NVPTX target
@@ -215,12 +221,14 @@ bool Compiler::compile(const char *source, const char *_config, const char **out
 void Compiler::initContext() {
   registry.insert<mlir::triton::TritonDialect, mlir::triton::gpu::TritonGPUDialect,
     mlir::math::MathDialect, mlir::arith::ArithDialect, mlir::scf::SCFDialect,
-    mlir::gpu::GPUDialect, mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
-    mlir::ub::UBDialect>();
+    mlir::gpu::GPUDialect, mlir::NVVM::NVVMDialect, mlir::ROCDL::ROCDLDialect, 
+    mlir::LLVM::LLVMDialect, mlir::ub::UBDialect, mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
+    mlir::triton::nvgpu::NVGPUDialect>();
 
   mlir::LLVM::registerInlinerInterface(registry);
   mlir::registerBuiltinDialectTranslation(registry);
   mlir::registerLLVMDialectTranslation(registry);
+  mlir::registerNVVMDialectTranslation(registry);
   mlir::LLVM::registerInlinerInterface(registry);
   
   context.appendDialectRegistry(registry);
@@ -405,11 +413,12 @@ bool Compiler::makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Modul
   std::string triple = "nvptx64-nvidia-cuda";
   std::string proc = "sm_" + std::to_string(config.capability);
   std::string features = "nvptx-short-ptr";
+  printf("Starting to translate LLVM IR to PTX\n");
   std::string ret = translateLLVMIRToASM(module, triple, proc, features, {features}, 
     enableFpFusion, false, false, false, std::string(""), false);
 
   printf("PTX output: %s\n", ret.c_str());
-  
+
   // # Find kernel names (there should only be one)
   // names = re.findall(r".visible .entry ([a-zA-Z_][a-zA-Z0-9_]*)", ret)
   // assert len(names) == 1
@@ -437,8 +446,8 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
                                  const std::string &features,
                                  const std::vector<std::string> &flags,
                                  bool enableFpFusion, bool isObject, 
-                                 bool enableIrDump, bool disableLLVMOpt,
-                                 const std::string &disableLLVMOptFlags, bool enableTiming) {
+                                 bool enableIrDump, bool enableLLVMOpt,
+                                 const std::string &enableLLVMOptFlags, bool enableTiming) {
   using namespace mlir;
 
   // options
@@ -457,9 +466,9 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
     }
   }
   
-  if (!disableLLVMOpt) {
+  if (enableLLVMOpt) {
     // Check to see if we are passing a list of flags to disable optimizations.
-    auto flagList = disableLLVMOptFlags;
+    auto flagList = enableLLVMOptFlags;
     if (!flagList.empty()) {
       llvm::SmallVector<StringRef, 3> split;
       StringRef(flagList.c_str()).split(split, ',');
@@ -496,7 +505,10 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
     llvm::TimePassesPerRun = true;
   }
 
+  printf("Running passes on LLVM IR - 1\n");
   pm.run(*llvmModule);
+
+  printf("Finished running passes on LLVM IR - 1\n");
 
   SmallString<0> timePassesStr;
   llvm::raw_svector_ostream reportStream(timePassesStr);
@@ -508,10 +520,12 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
   }
   // module->print(llvm::outs(), nullptr);
 
+  printf("Creating target machine\n");
   // create machine
   llvmModule->setTargetTriple(triple);
-  auto machine = createTargetMachine(llvmModule.get(), proc, enableFpFusion, disableLLVMOpt, features);
+  auto machine = createTargetMachine(llvmModule.get(), proc, enableFpFusion, enableLLVMOpt, features);
 
+  printf("Setting data layout\n");
   // set data layout
   llvmModule->setDataLayout(machine->createDataLayout());
 
@@ -527,7 +541,11 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
     auto fileType = isObject ? llvm::CodeGenFileType::ObjectFile
                              : llvm::CodeGenFileType::AssemblyFile;
     machine->addPassesToEmitFile(pass, pstream, nullptr, fileType);
+
+    printf("Running passes on LLVM IR - 2\n");
     pass.run(*llvmModule);
+
+    printf("Finished running passes on LLVM IR - 2\n");
 
     if (enableTiming) {
       reportAndResetTimings(&reportStream);
@@ -540,24 +558,35 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
 }
 
 std::unique_ptr<llvm::TargetMachine> Compiler::createTargetMachine(llvm::Module *module, std::string proc,
-                    bool enableFpFusion, bool disableLLVMOpt, const std::string &features) {
+                    bool enableFpFusion, bool enableLLVMOpt, const std::string &features) {
   std::string error;
-  auto target =
-      llvm::TargetRegistry::lookupTarget(module->getTargetTriple(), error);
+  auto target = llvm::TargetRegistry::lookupTarget(module->getTargetTriple(), error);
+  if (!target) {
+    printf("Failed to lookup NVPTX target: %s", error.c_str());
+    return nullptr;
+  }
+
+  printf("After lookup Target: %d\n", target);
+
   llvm::TargetOptions opt;
   if (enableFpFusion)
     opt.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+
   opt.UnsafeFPMath = false;
   opt.NoInfsFPMath = false;
   opt.NoNaNsFPMath = true;
   opt.TrapUnreachable = true;
   opt.MCOptions.AsmVerbose = true;
   opt.MCOptions.PreserveAsmComments = true;
+
+  printf("Before createTargetMachine\n");
   std::unique_ptr<llvm::TargetMachine> machine{target->createTargetMachine(
       module->getTargetTriple(), proc, features, opt, llvm::Reloc::PIC_,
       std::nullopt,
-      disableLLVMOpt ? llvm::CodeGenOptLevel::None
+      enableLLVMOpt ? llvm::CodeGenOptLevel::None
                      : llvm::CodeGenOptLevel::Aggressive)};
+
+  printf("After createTargetMachine\n");
   return machine;
 }
 
