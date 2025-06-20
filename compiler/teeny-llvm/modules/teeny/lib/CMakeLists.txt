@@ -76,6 +76,9 @@ target_link_libraries(teeny
   LLVMMSP430CodeGen
   LLVMMSP430Desc
   LLVMMSP430Info
+  LLVMNVPTXCodeGen
+  LLVMNVPTXDesc
+  LLVMNVPTXInfo
   LLVMPowerPCAsmParser
   LLVMPowerPCCodeGen
   LLVMPowerPCDesc

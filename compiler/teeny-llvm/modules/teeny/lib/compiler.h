@@ -100,11 +100,11 @@ class Compiler {
                                  const std::string &features,
                                  const std::vector<std::string> &flags,
                                  bool enableFpFusion, bool isObject, 
-                                 bool enableIrDump, bool disableLLVMOpt,
-                                 const std::string &disableLLVMOptFlags, bool enableTiming);
+                                 bool enableIrDump, bool enableLLVMOpt,
+                                 const std::string &enableLLVMOptFlags, bool enableTiming);
 
     std::unique_ptr<llvm::TargetMachine> createTargetMachine(llvm::Module *module, std::string proc,
-                    bool enableFpFusion, bool disableLLVMOpt, const std::string &features);
+                    bool enableFpFusion, bool enableLLVMOpt, const std::string &features);
  };
 }
 

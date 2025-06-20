@@ -103,13 +103,38 @@ Compiler::~Compiler() {
 }
 
 bool Compiler::initLlvm() {
+   printf("Initializing LLVM targets...\n");
+   // Initialize LLVM targets
+   llvm::InitializeAllTargetInfos();
+   llvm::InitializeAllTargets();
+   llvm::InitializeAllTargetMCs();
+   llvm::InitializeAllAsmPrinters();
+   llvm::InitializeAllAsmParsers();
+
+   // Initialize NVPTX target specifically if available
+#if LLVM_HAS_NVPTX_TARGET
+   printf("Initializing NVPTX target...\n");
+   LLVMInitializeNVPTXTargetInfo();
+   LLVMInitializeNVPTXTarget();
+   LLVMInitializeNVPTXTargetMC();
+   printf("NVPTX target initialization complete\n");
+#else
+   printf("NVPTX target not available in this build\n");
+#endif
+
    initContext();
 
    initialized = true;
+   printf("LLVM initialization complete\n");
    return true;
 }
 
 bool Compiler::compile(const char *source, const char *_config, const char **output, int *output_size) {
+   if (!initialized) {
+     printf("Compiler not initialized. Call initLlvm() first.\n");
+     return false;
+   }
+
    std::string mlirModuleStr(source);
    llvm::LLVMContext llvmContext;
 
@@ -525,6 +550,11 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
   llvmModule->setTargetTriple(triple);
   auto machine = createTargetMachine(llvmModule.get(), proc, enableFpFusion, enableLLVMOpt, features);
 
+  if (!machine) {
+    printf("Failed to create target machine, cannot proceed with PTX generation\n");
+    return "";
+  }
+
   printf("Setting data layout\n");
   // set data layout
   llvmModule->setDataLayout(machine->createDataLayout());
@@ -560,13 +590,14 @@ std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &mo
 std::unique_ptr<llvm::TargetMachine> Compiler::createTargetMachine(llvm::Module *module, std::string proc,
                     bool enableFpFusion, bool enableLLVMOpt, const std::string &features) {
   std::string error;
+  printf("Looking up target for triple: %s\n", module->getTargetTriple().c_str());
   auto target = llvm::TargetRegistry::lookupTarget(module->getTargetTriple(), error);
   if (!target) {
-    printf("Failed to lookup NVPTX target: %s", error.c_str());
+    printf("Failed to lookup NVPTX target: %s\n", error.c_str());
     return nullptr;
   }
 
-  printf("After lookup Target: %d\n", target);
+  printf("Successfully found target: %s\n", target->getName());
 
   llvm::TargetOptions opt;
   if (enableFpFusion)
@@ -579,14 +610,19 @@ std::unique_ptr<llvm::TargetMachine> Compiler::createTargetMachine(llvm::Module 
   opt.MCOptions.AsmVerbose = true;
   opt.MCOptions.PreserveAsmComments = true;
 
-  printf("Before createTargetMachine\n");
+  printf("Creating target machine with proc: %s, features: %s\n", proc.c_str(), features.c_str());
   std::unique_ptr<llvm::TargetMachine> machine{target->createTargetMachine(
       module->getTargetTriple(), proc, features, opt, llvm::Reloc::PIC_,
       std::nullopt,
       enableLLVMOpt ? llvm::CodeGenOptLevel::None
                      : llvm::CodeGenOptLevel::Aggressive)};
 
-  printf("After createTargetMachine\n");
+  if (!machine) {
+    printf("Failed to create target machine\n");
+    return nullptr;
+  }
+
+  printf("Successfully created target machine\n");
   return machine;
 }
 
