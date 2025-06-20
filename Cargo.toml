@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "compiler/*", "models/*", "support/*", "drivers/*", "interop/*"]
+members = [ "compiler/*", "models/*", "support/*", "drivers/*", "interop/*", "utilities/*"]
 
 [workspace.features]
 cuda = ["compiler/teeny-llvm/cuda"]

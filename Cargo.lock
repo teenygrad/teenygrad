@@ -1059,6 +1059,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-nlp"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-onnx"
 version = "0.1.0"
 dependencies = [

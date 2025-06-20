@@ -1,0 +1,28 @@
+[package]
+name = "teeny-llvm"
+version = "0.1.0"
+edition = "2024"
+description = "Rust bindings for LLVM/Triton"
+repository = "https://github.com/teenygrad/teeny-llvm"
+license = "GPL v3"
+
+[lib]
+name = "teeny_llvm"
+
+[features]
+default = ["cuda"]
+cuda = []
+
+[dependencies]
+
+[build-dependencies]
+cargo_metadata = "0.20.0"
+bindgen = "0.71.1"
+cfgrammar = "0.13.10"
+lrlex = "0.13.10"
+lrpar = "0.13.10"
+
+[dev-dependencies]
+cfgrammar = "0.13.10"
+lrlex = "0.13.10"
+lrpar = "0.13.10"
