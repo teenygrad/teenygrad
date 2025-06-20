@@ -84,7 +84,8 @@
 #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 #include "triton/Target/LLVMIR/Passes.h"
 
-
+namespace teeny {
+  
 Compiler::Compiler() {
    initialized = false;
 }
@@ -93,16 +94,15 @@ Compiler::~Compiler() {
    // NOP
 }
 
-bool Compiler::initMlir() {
-   registerDialects();
+bool Compiler::initLlvm() {
+   initContext();
 
    initialized = true;
    return true;
 }
 
-bool Compiler::compile(const char *source, const char *config, const char **output, int *output_size) {
+bool Compiler::compile(const char *source, const char *_config, const char **output, int *output_size) {
    std::string mlirModuleStr(source);
-   mlir::MLIRContext context(registry);
    llvm::LLVMContext llvmContext;
 
    // Parse the MLIR module
@@ -124,101 +124,99 @@ bool Compiler::compile(const char *source, const char *config, const char **outp
     return false;
   }
 
-  printf("Ran passes on MLIR module\n");
+  printf("Ran makeTtir on MLIR module\n");
 
-  auto llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
-  if (!llvmModule) {
-    printf("Failed to translate MLIR to LLVM IR");
+  NvidiaGpuConfig config;
+
+  /* Nvidia 3090 GPU*/
+  config.target = "cuda:86";
+  config.capability = 86;
+  config.ptxVersion = 86;
+  config.numWarps = 4;
+  config.threadsPerWarp = 32;
+  config.numCtas = 1;
+  config.numConsumerGroups = 1;
+  config.numBuffersWarpSpec = 1;
+  config.regDecProducer = 0;
+  config.regIncConsumer = 0;
+  config.numStages = 3;
+
+  if (!makeTtgir(&context, module, config, false)) {
+    printf("Failed to run TTGIR passes on MLIR module");
     return false;
   }
 
-  // makeLlir(context, llvmModule, false, capability, ptxVersion);
-  printf("Translated MLIR to LLVM IR\n");
+  printf("Ran makeTtgir on MLIR module\n");
 
-  // Initialize NVPTX target
-  auto targetTriple = "nvptx64-nvidia-cuda";
-  llvmModule->setTargetTriple(targetTriple);
+  // auto llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
+  // if (!llvmModule) {
+  //   printf("Failed to translate MLIR to LLVM IR");
+  //   return false;
+  // }
 
-  std::string targetError;
-  auto target = llvm::TargetRegistry::lookupTarget(targetTriple, targetError);
-  if (!target) {
-    printf("Failed to lookup NVPTX target: %s", targetError.c_str());
-    return false;
-  }
+  // // makeLlir(context, llvmModule, false, capability, ptxVersion);
+  // printf("Translated MLIR to LLVM IR\n");
 
-  printf("Lookup NVPTX target\n");
+  // // Initialize NVPTX target
+  // auto targetTriple = "nvptx64-nvidia-cuda";
+  // llvmModule->setTargetTriple(targetTriple);
 
-  // Set target options
-  llvm::TargetOptions opt;
-  auto RM = llvm::Reloc::Model::PIC_;
-  auto targetMachine = target->createTargetMachine(targetTriple, "sm_50", "+ptx60", opt, RM);
-  llvmModule->setDataLayout(targetMachine->createDataLayout());
+  // std::string targetError;
+  // auto target = llvm::TargetRegistry::lookupTarget(targetTriple, targetError);
+  // if (!target) {
+  //   printf("Failed to lookup NVPTX target: %s", targetError.c_str());
+  //   return false;
+  // }
 
-  printf("Set data layout\n");
+  // printf("Lookup NVPTX target\n");
 
-  // Generate PTX
-  llvm::SmallVector<char, 0> ptxBuffer;
-  llvm::raw_svector_ostream ptxStream(ptxBuffer);
+  // // Set target options
+  // llvm::TargetOptions opt;
+  // auto RM = llvm::Reloc::Model::PIC_;
+  // auto targetMachine = target->createTargetMachine(targetTriple, "sm_50", "+ptx60", opt, RM);
+  // llvmModule->setDataLayout(targetMachine->createDataLayout());
+
+  // printf("Set data layout\n");
+
+  // // Generate PTX
+  // llvm::SmallVector<char, 0> ptxBuffer;
+  // llvm::raw_svector_ostream ptxStream(ptxBuffer);
   
-  llvm::legacy::PassManager pass;
-  if (targetMachine->addPassesToEmitFile(
-          pass, ptxStream, nullptr, llvm::CodeGenFileType::AssemblyFile)) {
-    printf("Failed to generate PTX");
-    return false;
-  }
+  // llvm::legacy::PassManager pass;
+  // if (targetMachine->addPassesToEmitFile(
+  //         pass, ptxStream, nullptr, llvm::CodeGenFileType::AssemblyFile)) {
+  //   printf("Failed to generate PTX");
+  //   return false;
+  // }
 
-  pass.run(*llvmModule);
+  // pass.run(*llvmModule);
 
-  printf("Added passes to emit file\n");
+  // printf("Added passes to emit file\n");
 
-  // Return the PTX as a memory buffer
-  auto buffer = llvm::MemoryBuffer::getMemBufferCopy(
-      llvm::StringRef(ptxBuffer.data(), ptxBuffer.size()));
-  *output = buffer->getBuffer().data();
-  *output_size = buffer->getBuffer().size();
+  // // Return the PTX as a memory buffer
+  // auto buffer = llvm::MemoryBuffer::getMemBufferCopy(
+  //     llvm::StringRef(ptxBuffer.data(), ptxBuffer.size()));
+  // *output = buffer->getBuffer().data();
+  // *output_size = buffer->getBuffer().size();
 
-  printf("PTX output size: %d\n", buffer->getBuffer().size());
+  // printf("PTX output size: %d\n", buffer->getBuffer().size());
 
   return true;
 }
 
-mlir::DialectRegistry &Compiler::getRegistry() {
-   return registry;
-}
+void Compiler::initContext() {
+  registry.insert<mlir::triton::TritonDialect, mlir::triton::gpu::TritonGPUDialect,
+    mlir::math::MathDialect, mlir::arith::ArithDialect, mlir::scf::SCFDialect,
+    mlir::gpu::GPUDialect, mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
+    mlir::ub::UBDialect>();
 
-void Compiler::registerDialects() {
-  mlir::registerAllPasses();
-  mlir::registerTritonPasses();
-  mlir::triton::gpu::registerTritonGPUPasses();
-  mlir::registerTritonNvidiaGPUPasses();
-
-  // mlir::test::registerTestAliasPass();
-  // mlir::test::registerTestAlignmentPass();
-  // mlir::test::registerTestAllocationPass();
-  // mlir::test::registerTestMembarPass();
-
-  mlir::triton::registerConvertTritonToTritonGPUPass();
-  mlir::triton::gpu::registerAllocateSharedMemoryPass();
-  mlir::triton::gpu::registerTritonGPUAllocateWarpGroups();
-  mlir::triton::gpu::registerTritonGPUGlobalScratchAllocationPass();
-  mlir::triton::registerConvertWarpSpecializeToLLVM();
-  mlir::triton::registerConvertTritonGPUToLLVMPass();
-  mlir::triton::registerConvertNVGPUToLLVMPass();
-  mlir::registerLLVMDIScope();
-
+  mlir::LLVM::registerInlinerInterface(registry);
   mlir::registerBuiltinDialectTranslation(registry);
-  mlir::registerLLVMDialectTranslation(registry);  
-
-  mlir::printRegisteredPasses();
-
-  registry
-      .insert<mlir::triton::TritonDialect, mlir::cf::ControlFlowDialect,
-              mlir::triton::nvidia_gpu::TritonNvidiaGPUDialect,
-              mlir::triton::gpu::TritonGPUDialect, mlir::math::MathDialect,
-              mlir::arith::ArithDialect, mlir::scf::SCFDialect,
-              mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect,
-              mlir::NVVM::NVVMDialect, mlir::triton::nvgpu::NVGPUDialect,
-              mlir::ROCDL::ROCDLDialect>();
+  mlir::registerLLVMDialectTranslation(registry);
+  mlir::LLVM::registerInlinerInterface(registry);
+  
+  context.appendDialectRegistry(registry);
+  context.loadAllAvailableDialects();
 }
 
 bool Compiler::makeTtir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> *module) {
@@ -242,15 +240,13 @@ bool Compiler::makeTtir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Modu
 }
 
 bool Compiler::makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
-  const std::string &target, int capability, int numWarps, int threadsPerWarp, int numCtas, 
-  int numConsumerGroups, int numBuffersWarpSpec, int regDecProducer, int regIncConsumer, 
-  int numStages, bool dumpEnabled) 
+  const NvidiaGpuConfig &config, bool dumpEnabled) 
 {
   mlir::PassManager pm(context);
 
-  int majorVersion = capability / 10;
+  int majorVersion = config.capability / 10;
 
-  pm.addPass(mlir::triton::createConvertTritonToTritonGPUPass(target, numWarps, threadsPerWarp, numCtas));
+  pm.addPass(mlir::triton::createConvertTritonToTritonGPUPass(config.target, config.numWarps, config.threadsPerWarp, config.numCtas));
   pm.addPass(mlir::triton::gpu::createTritonGPUCoalesce());
   if (majorVersion >= 8) {
      pm.addPass(mlir::triton::gpu::createTritonGPUF32DotTC());
@@ -264,35 +260,35 @@ bool Compiler::makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Mod
   pm.addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
 
   mlir::triton::gpu::TritonGPUOptimizeDotOperandsOptions dotOperandsOptions;
-  dotOperandsOptions.hoistLayoutConversion = capability >= 80;
+  dotOperandsOptions.hoistLayoutConversion = config.capability >= 80;
   pm.addPass(mlir::triton::gpu::createTritonGPUOptimizeDotOperands(dotOperandsOptions));
 
   pm.addPass(mlir::createCSEPass());
 
   mlir::triton::gpu::TritonGPUWSLoweringOptions wsLoweringOptions;
-  wsLoweringOptions.numConsumerGroups = numConsumerGroups;
+  wsLoweringOptions.numConsumerGroups = config.numConsumerGroups;
 
   mlir::triton::gpu::TritonGPUPipelineOptions pipelineOptions;
-  pipelineOptions.numStages = numStages;
+  pipelineOptions.numStages = config.numStages;
   pipelineOptions.dumpIntermediateSteps = dumpEnabled;
 
   mlir::triton::gpu::TritonGPUWSTaskPartitionOptions wsTaskPartitionOptions;
-  wsTaskPartitionOptions.numConsumerGroups = numConsumerGroups;
+  wsTaskPartitionOptions.numConsumerGroups = config.numConsumerGroups;
 
   mlir::triton::gpu::TritonGPUTaskIdPropagateOptions taskIdPropagateOptions;
-  taskIdPropagateOptions.numConsumerGroups = numConsumerGroups;
+  taskIdPropagateOptions.numConsumerGroups = config.numConsumerGroups;
 
   mlir::triton::gpu::TritonGPUWSDataPartitionOptions wsDataPartitionOptions;
-  wsDataPartitionOptions.numConsumerGroups = numConsumerGroups;
+  wsDataPartitionOptions.numConsumerGroups = config.numConsumerGroups;
 
   mlir::triton::gpu::TritonGPUWSCodePartitionOptions wsCodePartitionOptions;
-  wsCodePartitionOptions.numBuffers = numBuffersWarpSpec;
-  wsCodePartitionOptions.numConsumerGroups = numConsumerGroups;
-  wsCodePartitionOptions.regDecProducer = regDecProducer;
-  wsCodePartitionOptions.regIncConsumer = regIncConsumer;
+  wsCodePartitionOptions.numBuffers = config.numBuffersWarpSpec;
+  wsCodePartitionOptions.numConsumerGroups = config.numConsumerGroups;
+  wsCodePartitionOptions.regDecProducer = config.regDecProducer;
+  wsCodePartitionOptions.regIncConsumer = config.regIncConsumer;
 
   mlir::triton::gpu::TritonGPUPingPongSyncOptions pingPongSyncOptions;
-  pingPongSyncOptions.numConsumerGroups = numConsumerGroups;
+  pingPongSyncOptions.numConsumerGroups = config.numConsumerGroups;
 
   if (majorVersion == 8 || majorVersion == 9) {
     pm.addPass(mlir::triton::gpu::createTritonGPUFuseNestedLoops());
@@ -348,7 +344,7 @@ bool Compiler::makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Mod
 
   if (majorVersion >= 9) {
     mlir::triton::gpu::TritonGPUWSCanonicalizationOptions wsCanonicalizationOptions;
-    wsCanonicalizationOptions.numConsumerGroups = numConsumerGroups;
+    wsCanonicalizationOptions.numConsumerGroups = config.numConsumerGroups;
 
     pm.addPass(mlir::triton::gpu::createTritonGPUWSCanonicalization(wsCanonicalizationOptions));
   }
@@ -362,7 +358,7 @@ bool Compiler::makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Mod
 }
 
 bool Compiler::makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
-  bool enableLineInfo, int capability, int ptxVersion) 
+  bool enableLineInfo, const NvidiaGpuConfig &config) 
 {
   mlir::PassManager pm(context);
 
@@ -373,7 +369,7 @@ bool Compiler::makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Modu
   pm.addPass(mlir::triton::gpu::createAllocateSharedMemory());
   pm.addPass(mlir::createTensorMemoryAllocationPass());
   pm.addPass(mlir::triton::gpu::createTritonGPUGlobalScratchAllocationPass());
-  pm.addPass(mlir::triton::createConvertTritonGPUToLLVMPass(capability, ptxVersion));
+  pm.addPass(mlir::triton::createConvertTritonGPUToLLVMPass(config.capability, config.ptxVersion));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::triton::createConvertNVGPUToLLVMPass());
@@ -405,4 +401,6 @@ bool Compiler::makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Modul
   }
 
   return true;
+}
+
 }

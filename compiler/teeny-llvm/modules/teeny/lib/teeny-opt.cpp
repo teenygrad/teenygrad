@@ -18,10 +18,12 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "compiler.h"
 
+using namespace teeny;
+
 int main(int argc, char **argv) {
   Compiler compiler;
 
-  if (!compiler.initMlir()) {
+  if (!compiler.initLlvm()) {
     printf("Failed to initialize MLIR\n");
     return 1;
   }

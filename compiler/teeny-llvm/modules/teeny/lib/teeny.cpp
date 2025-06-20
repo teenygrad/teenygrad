@@ -21,6 +21,8 @@
 #include "teeny.h"
 #include "compiler.h"
 
+using namespace teeny;
+
 extern "C" TeenyStatus teeny_new(compiler_t *compiler) {
     printf("Teeny compiler initializing\n");
     Compiler *_compiler = new Compiler();
@@ -30,7 +32,7 @@ extern "C" TeenyStatus teeny_new(compiler_t *compiler) {
     }
 
     printf("Teeny compiler initializing MLIR\n");
-    if (!_compiler->initMlir()) {
+    if (!_compiler->initLlvm()) {
         delete _compiler;
         *compiler = nullptr;
 

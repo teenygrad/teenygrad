@@ -26,12 +26,28 @@ namespace mlir {
   class ModuleOp;
 }
 
+namespace teeny {
+
+typedef struct {
+  std::string target;
+  int capability;
+  int numWarps;
+  int threadsPerWarp;
+  int numCtas;
+  int numConsumerGroups;
+  int numBuffersWarpSpec;
+  int regDecProducer;
+  int regIncConsumer;
+  int numStages;
+  int ptxVersion;
+} NvidiaGpuConfig;
+
 class Compiler {
   public:
     Compiler();
     ~Compiler();
 
-    bool initMlir();
+    bool initLlvm();
     
     bool compile(
       const char *source, // the source code to compile (utf-8 encoded)
@@ -40,28 +56,34 @@ class Compiler {
       int *target_size // the size of the target code (in bytes)
     );
 
-    mlir::DialectRegistry &getRegistry();
+    mlir::DialectRegistry &getRegistry() {
+      return registry;
+    }
+
+    mlir::MLIRContext &getContext() {
+      return context;
+    }
     
   private:
     bool initialized;
-    mlir::DialectRegistry registry;        
+    mlir::DialectRegistry registry;
+    mlir::MLIRContext context;        
         
-    void registerDialects();
+    void initContext();
 
     bool makeTtir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> *module);
 
     bool makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
-      const std::string &target, int capability, int numWarps, int threadsPerWarp, int numCtas, 
-      int numConsumerGroups, int numBuffersWarpSpec, int regDecProducer, int regIncConsumer, 
-      int numStages, bool dumpEnabled);
+      const NvidiaGpuConfig &config, bool dumpEnabled);
 
     bool makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
-      bool enableLineInfo, int capability, int ptxVersion);
+      bool enableLineInfo, const NvidiaGpuConfig &config);
 
     bool makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module);
 
     bool makeCubin(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module);
  };
+}
 
  #endif /* TEENY_COMPILER_H */
  
