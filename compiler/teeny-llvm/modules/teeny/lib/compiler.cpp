@@ -1,5 +1,7 @@
 /*
  * Copyright (C) 2025 Teenygrad. All rights reserved.
+ * Copyright 2018-2020 Philippe Tillet
+ * Copyright 2020-2022 OpenAI
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -39,10 +41,14 @@
 #include "mlir/Tools/ParseUtilities.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/Target/LLVM/ModuleToObject.h"
 
 #include "llvm/IR/Module.h"
-#include "llvm/Target/TargetMachine.h"
+#include "llvm/IR/Function.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/LinkAllPasses.h"
+#include "llvm/LinkAllIR.h"
+#include "llvm/IR/PassTimingInfo.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/SourceMgr.h"
@@ -50,6 +56,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "triton/third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
 #include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
@@ -71,11 +78,12 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Conversion/Passes.h"
-
+#include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+
 #include "triton/Analysis/Allocation.h"
 #include "triton/Analysis/Membar.h"
 #include "triton/Conversion/TritonGPUToLLVM/Passes.h"
@@ -148,18 +156,18 @@ bool Compiler::compile(const char *source, const char *_config, const char **out
 
   printf("Ran makeTtgir on MLIR module\n");
 
-  // auto llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
-  // if (!llvmModule) {
-  //   printf("Failed to translate MLIR to LLVM IR");
-  //   return false;
-  // }
+  if (!makeLlir(&context, module, config, false)) {
+    printf("Failed to run LLIR passes on MLIR module");
+    return false;
+  }
 
-  // // makeLlir(context, llvmModule, false, capability, ptxVersion);
-  // printf("Translated MLIR to LLVM IR\n");
+  printf("Ran makeLlir on MLIR module\n");
+
+  dumpModule(module);
 
   // // Initialize NVPTX target
   // auto targetTriple = "nvptx64-nvidia-cuda";
-  // llvmModule->setTargetTriple(targetTriple);
+  // module.setTargetTriple(targetTriple);
 
   // std::string targetError;
   // auto target = llvm::TargetRegistry::lookupTarget(targetTriple, targetError);
@@ -174,7 +182,7 @@ bool Compiler::compile(const char *source, const char *_config, const char **out
   // llvm::TargetOptions opt;
   // auto RM = llvm::Reloc::Model::PIC_;
   // auto targetMachine = target->createTargetMachine(targetTriple, "sm_50", "+ptx60", opt, RM);
-  // llvmModule->setDataLayout(targetMachine->createDataLayout());
+  // module->setDataLayout(targetMachine->createDataLayout());
 
   // printf("Set data layout\n");
 
@@ -189,7 +197,7 @@ bool Compiler::compile(const char *source, const char *_config, const char **out
   //   return false;
   // }
 
-  // pass.run(*llvmModule);
+  // pass.run(*module);
 
   // printf("Added passes to emit file\n");
 
@@ -358,7 +366,7 @@ bool Compiler::makeTtgir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Mod
 }
 
 bool Compiler::makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
-  bool enableLineInfo, const NvidiaGpuConfig &config) 
+  const NvidiaGpuConfig &config, bool enableLineInfo) 
 {
   mlir::PassManager pm(context);
 
@@ -390,17 +398,167 @@ bool Compiler::makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::Modu
   return true;
 }
 
-bool Compiler::makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module) {
-   mlir::PassManager pm(context);
+bool Compiler::makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
+  const NvidiaGpuConfig &config, bool enableFpFusion) {
+  mlir::PassManager pm(context);
 
-   // todo
+  std::string triple = "nvptx64-nvidia-cuda";
+  std::string proc = "sm_" + std::to_string(config.capability);
+  std::string features = "nvptx-short-ptr";
+  std::string ret = translateLLVMIRToASM(module, triple, proc, features, {features}, 
+    enableFpFusion, false, false, false, std::string(""), false);
 
-   if (mlir::failed(pm.run(*module))) {
-    printf("Failed to run passes on MLIR module");
-    return false;
-  }
+  printf("PTX output: %s\n", ret.c_str());
+  
+  // # Find kernel names (there should only be one)
+  // names = re.findall(r".visible .entry ([a-zA-Z_][a-zA-Z0-9_]*)", ret)
+  // assert len(names) == 1
+  // metadata["name"] = names[0]
+  // # post-process
+  // ptx_version = f'{ptx_version//10}.{ptx_version%10}'
+  // ret = re.sub(r'\.version \d+\.\d+', f'.version {ptx_version}', ret, flags=re.MULTILINE)
+  // ret = re.sub(r'\.target sm_\d+', f'.target sm_{capability}', ret, flags=re.MULTILINE)
+  // # Remove the debug flag that prevents ptxas from optimizing the code
+  // ret = re.sub(r",\s*debug|debug,\s*", "", ret)
+  // if os.environ.get("NVPTX_ENABLE_DUMP", "0") == "1":
+  //     print("// -----// NVPTX Dump //----- //")
+  //     print(ret)
 
   return true;
+}
+
+void Compiler::dumpModule(mlir::OwningOpRef<mlir::ModuleOp> &module) {
+  module->print(llvm::errs());
+}
+
+std::string Compiler::translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &module,
+                                 const std::string &triple,
+                                 const std::string &proc,
+                                 const std::string &features,
+                                 const std::vector<std::string> &flags,
+                                 bool enableFpFusion, bool isObject, 
+                                 bool enableIrDump, bool disableLLVMOpt,
+                                 const std::string &disableLLVMOptFlags, bool enableTiming) {
+  using namespace mlir;
+
+  // options
+  auto options = llvm::cl::getRegisteredOptions();
+  for (std::string flag : flags) {
+    auto *shortPtr = static_cast<llvm::cl::opt<bool> *>(options[flag]);
+    assert(shortPtr);
+    shortPtr->setValue(true);
+  }
+
+  if (enableIrDump) {
+    auto optIt = options.find("print-after-all");
+    if (optIt != options.end()) {
+      auto optPtr = static_cast<llvm::cl::opt<bool> *>(optIt->second);
+      *optPtr = true;
+    }
+  }
+  
+  if (!disableLLVMOpt) {
+    // Check to see if we are passing a list of flags to disable optimizations.
+    auto flagList = disableLLVMOptFlags;
+    if (!flagList.empty()) {
+      llvm::SmallVector<StringRef, 3> split;
+      StringRef(flagList.c_str()).split(split, ',');
+      for (auto flag : split) {
+        auto optIt = options.find(flag);
+        if (optIt != options.end()) {
+          auto optPtr = static_cast<llvm::cl::opt<bool> *>(optIt->second);
+          *optPtr = true;
+        }
+      }
+    }
+  }
+
+  // Translate the module to LLVM IR.
+  llvm::LLVMContext llvmContext;
+  auto llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
+  if (!llvmModule) {
+    llvm::errs() << "Failed to translate module to LLVM IR\n";
+    return "";
+  }
+
+  // inline everything
+  for (llvm::Function &f : llvmModule->functions())
+    if (!f.hasFnAttribute(llvm::Attribute::NoInline))
+      f.addFnAttr(llvm::Attribute::AlwaysInline);
+
+  // verify and store llvm
+  llvm::legacy::PassManager pm;
+  pm.add(llvm::createAlwaysInlinerLegacyPass());
+  pm.add(llvm::createVerifierPass());
+
+  if (enableTiming) {
+    llvm::TimePassesIsEnabled = true;
+    llvm::TimePassesPerRun = true;
+  }
+
+  pm.run(*llvmModule);
+
+  SmallString<0> timePassesStr;
+  llvm::raw_svector_ostream reportStream(timePassesStr);
+
+  if (enableTiming) {
+    llvm::reportAndResetTimings(&reportStream);
+    llvm::dbgs() << reportStream.str();
+    timePassesStr.clear();
+  }
+  // module->print(llvm::outs(), nullptr);
+
+  // create machine
+  llvmModule->setTargetTriple(triple);
+  auto machine = createTargetMachine(llvmModule.get(), proc, enableFpFusion, disableLLVMOpt, features);
+
+  // set data layout
+  llvmModule->setDataLayout(machine->createDataLayout());
+
+  // emit machine code
+  std::string result;
+
+  {
+    llvm::raw_string_ostream stream(result);
+    llvm::buffer_ostream pstream(stream);
+    llvm::legacy::PassManager pass;
+
+    // emit
+    auto fileType = isObject ? llvm::CodeGenFileType::ObjectFile
+                             : llvm::CodeGenFileType::AssemblyFile;
+    machine->addPassesToEmitFile(pass, pstream, nullptr, fileType);
+    pass.run(*llvmModule);
+
+    if (enableTiming) {
+      reportAndResetTimings(&reportStream);
+      llvm::dbgs() << reportStream.str();
+      timePassesStr.clear();
+    }
+  }
+
+  return result;
+}
+
+std::unique_ptr<llvm::TargetMachine> Compiler::createTargetMachine(llvm::Module *module, std::string proc,
+                    bool enableFpFusion, bool disableLLVMOpt, const std::string &features) {
+  std::string error;
+  auto target =
+      llvm::TargetRegistry::lookupTarget(module->getTargetTriple(), error);
+  llvm::TargetOptions opt;
+  if (enableFpFusion)
+    opt.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+  opt.UnsafeFPMath = false;
+  opt.NoInfsFPMath = false;
+  opt.NoNaNsFPMath = true;
+  opt.TrapUnreachable = true;
+  opt.MCOptions.AsmVerbose = true;
+  opt.MCOptions.PreserveAsmComments = true;
+  std::unique_ptr<llvm::TargetMachine> machine{target->createTargetMachine(
+      module->getTargetTriple(), proc, features, opt, llvm::Reloc::PIC_,
+      std::nullopt,
+      disableLLVMOpt ? llvm::CodeGenOptLevel::None
+                     : llvm::CodeGenOptLevel::Aggressive)};
+  return machine;
 }
 
 }

@@ -1,5 +1,7 @@
 /*
  * Copyright (C) 2025 Teenygrad. All rights reserved.
+ * Copyright 2018-2020 Philippe Tillet
+ * Copyright 2020-2022 OpenAI
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,11 +17,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
- #ifndef TEENY_COMPILER_H
- #define TEENY_COMPILER_H
+#ifndef TEENY_COMPILER_H
+#define TEENY_COMPILER_H
+
+#include <string>
+#include <vector>
 
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/Tools/ParseUtilities.h"
+
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/IR/Module.h"
 
 namespace mlir {
   class MLIRContext;
@@ -77,11 +85,26 @@ class Compiler {
       const NvidiaGpuConfig &config, bool dumpEnabled);
 
     bool makeLlir(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
-      bool enableLineInfo, const NvidiaGpuConfig &config);
+      const NvidiaGpuConfig &config, bool enableLineInfo);
 
-    bool makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module);
+    bool makePtx(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module, 
+      const NvidiaGpuConfig &config, bool enableFpFusion);
 
     bool makeCubin(mlir::MLIRContext *context, mlir::OwningOpRef<mlir::ModuleOp> &module);
+
+    void dumpModule(mlir::OwningOpRef<mlir::ModuleOp> &module);
+
+    std::string translateLLVMIRToASM(mlir::OwningOpRef<mlir::ModuleOp> &module,
+                                 const std::string &triple,
+                                 const std::string &proc,
+                                 const std::string &features,
+                                 const std::vector<std::string> &flags,
+                                 bool enableFpFusion, bool isObject, 
+                                 bool enableIrDump, bool disableLLVMOpt,
+                                 const std::string &disableLLVMOptFlags, bool enableTiming);
+
+    std::unique_ptr<llvm::TargetMachine> createTargetMachine(llvm::Module *module, std::string proc,
+                    bool enableFpFusion, bool disableLLVMOpt, const std::string &features);
  };
 }
 
