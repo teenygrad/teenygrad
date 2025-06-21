@@ -12,4 +12,7 @@ name = "llama"
 path = "src/main.rs"
 
 [dependencies]
+tokio.workspace = true
 teeny-llvm = { path = "../../compiler/teeny-llvm" }
+teeny-nlp = { path = "../../utilities/teeny-nlp" }
+teeny-data = { path = "../../utilities/teeny-data" }

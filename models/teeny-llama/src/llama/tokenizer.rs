@@ -47,6 +47,18 @@
 
 // Dialog = Sequence[Message]
 
+use teeny_nlp::tokenizer::tiktoken::TiktokenTokenizer;
+
+pub struct LlamaTokenizer {
+    pub tokenizer: TiktokenTokenizer,
+}
+
+impl LlamaTokenizer {
+    pub fn new(_model_path: &str) -> Self {
+        todo!("Implement LlamaTokenizer::new");
+    }
+}
+
 // class Tokenizer:
 //     """
 //     Tokenizing and encoding/decoding text using the Tiktoken tokenizer.

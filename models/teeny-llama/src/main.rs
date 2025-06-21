@@ -15,25 +15,28 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_llvm::{teeny_free, teeny_new};
+use std::{path::PathBuf, time::Duration};
 
-fn main() {
+use teeny_data::hf::{DownloadConfig, download_huggingface_model};
+
+#[tokio::main]
+async fn main() {
     println!("Hello, world!");
 
-    unsafe {
-        let mut compiler = std::ptr::null_mut();
-        let status = teeny_new(&mut compiler);
-        if status == teeny_llvm::TEENY_SUCCESS {
-            println!("teeny_new succeeded");
-        } else {
-            panic!("teeny_new failed");
-        }
+    let config = DownloadConfig {
+        model_id: "meta-llama/Llama-4-Scout-17B-16E-Instruct".to_string(),
+        output_dir: PathBuf::from("/tmp/downloaded_llama"),
+        include_tokenizer: true,
+        include_config: true,
+        include_weights: true,
+        revision: "main".to_string(),
+        auth_token: std::env::var("HF_TOKEN").ok(),
+        timeout: Duration::from_secs(300),
+        max_concurrent: 4,
+    };
 
-        let status = teeny_free(&mut compiler);
-        if status == teeny_llvm::TEENY_SUCCESS {
-            println!("teeny_free succeeded");
-        } else {
-            panic!("teeny_free failed");
-        }
+    let result = download_huggingface_model(config).await;
+    if let Err(e) = result {
+        eprintln!("Error: {:?}", e);
     }
 }
