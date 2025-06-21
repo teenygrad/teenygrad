@@ -48,13 +48,13 @@ Our goals:
 
 - v0.1.0/Jun 30 - Compile Rust based kernel to PTX (nVidia 3090)
 
-- v0.2.0/Jul 31 - Run Llama model on nVidia 3090
+- v0.2.0/Jul 31 - Run Qwen3 1.7B model on nVidia 3090
 
 - v0.3.0/Sep 30 - Compile Triton kernels to SPIR-V
 
-- v0.4.0/Oct 31 - Run Llama model on Rockchip 3588 using Vulkan/SPIR-V
+- v0.4.0/Oct 31 - Run Qwen3 1.7B model on Rockchip 3588 using Vulkan/SPIR-V
 
-- v0.5.0/Dec 31 - Run Deepseek R1 on Moorethreads MT4000
+- v0.5.0/Dec 31 - Run Deepseek R1 on Moorethreads MT-4000
 
 - 2026 and beyond
   - Q1: Training/Pytorch JIT

@@ -24,7 +24,7 @@ async fn main() {
     println!("Hello, world!");
 
     let config = DownloadConfig {
-        model_id: "meta-llama/Llama-4-Scout-17B-16E-Instruct".to_string(),
+        model_id: "Qwen/Qwen3-1.7B".to_string(),
         output_dir: PathBuf::from("/tmp/downloaded_llama"),
         include_tokenizer: true,
         include_config: true,
