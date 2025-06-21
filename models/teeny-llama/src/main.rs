@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use teeny_data::hf::{
     DownloadConfig, create_default_progress_callback, download_huggingface_model,

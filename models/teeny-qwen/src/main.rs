@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use teeny_data::hf::{
     DownloadConfig, create_default_progress_callback, download_huggingface_model,
@@ -27,7 +27,7 @@ async fn main() {
 
     let config = DownloadConfig {
         model_id: "Qwen/Qwen3-1.7B".to_string(),
-        output_dir: PathBuf::from("/tmp/downloaded_llama"),
+        output_dir: PathBuf::from("/tmp/models"),
         include_tokenizer: true,
         include_config: true,
         include_weights: true,
