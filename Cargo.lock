@@ -1799,16 +1799,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-llama"
-version = "0.1.0"
-dependencies = [
- "teeny-data",
- "teeny-llvm",
- "teeny-nlp",
- "tokio",
-]
-
-[[package]]
 name = "teeny-llvm"
 version = "0.1.0"
 dependencies = [
@@ -1829,6 +1819,10 @@ dependencies = [
  "syn",
  "teeny-triton",
 ]
+
+[[package]]
+name = "teeny-model"
+version = "0.1.0"
 
 [[package]]
 name = "teeny-nlp"
