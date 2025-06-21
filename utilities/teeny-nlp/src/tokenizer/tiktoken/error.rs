@@ -15,17 +15,30 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use super::Rank;
+
+#[derive(Debug, Clone)]
+pub struct DecodeKeyError {
+    pub token: Rank,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+impl std::fmt::Display for DecodeKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Invalid token for decoding: {}", self.token)
     }
 }
+
+impl std::error::Error for DecodeKeyError {}
+
+#[derive(Debug, Clone)]
+pub struct DecodeError {
+    pub message: String,
+}
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Could not decode tokens: {}", self.message)
+    }
+}
+
+impl std::error::Error for DecodeError {}

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Teenygrad. All rights reserved.
+ * Copyright \(c\) 2025 Teenygrad. All rights reserved.
  * Copyright 2018-2020 Philippe Tillet
  * Copyright 2020-2022 OpenAI
  *

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "compiler/*", "models/*", "support/*", "drivers/*", "interop/*", "utilities/*"]
+members = [ "core/*", "compiler/*", "models/*", "support/*", "drivers/*", "interop/*", "utilities/*"]
 
 [workspace.features]
 cuda = ["compiler/teeny-llvm/cuda"]
@@ -9,11 +9,14 @@ cuda = ["compiler/teeny-llvm/cuda"]
 protobuf = "3.7.2"
 protobuf-codegen = "3.7.2"
 protoc-bin-vendored = "3.1.0" 
-syn = { version = "2.0.102", features = ["full"] }
+syn = { version = "2.0.104", features = ["full"] }
 quote = "1.0.40"
 proc-macro2 = "1.0.95"
 tokio = { version = "1.45.1", features = ["full"] }
 smol = { version = "2.0.2" }
-cc = "1.2.27"
+fancy-regex = "0.14.0"
+rustc-hash = "2.1.1"
+regex = "1.11.1"
+bstr = "1.12.0"
 
 [workspace.dev-dependencies]

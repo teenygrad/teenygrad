@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 SpinorML Ltd.
+ * Copyright \(c\) 2025 Teenygrad. All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,4 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
- mod tiktoken;
+pub mod tiktoken;
