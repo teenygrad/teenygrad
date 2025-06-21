@@ -1850,6 +1850,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-qwen"
+version = "0.1.0"
+dependencies = [
+ "teeny-data",
+ "teeny-llvm",
+ "teeny-nlp",
+ "tokio",
+]
+
+[[package]]
 name = "teeny-torch"
 version = "0.1.0"
 

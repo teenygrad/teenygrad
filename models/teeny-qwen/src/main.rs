@@ -33,7 +33,7 @@ async fn main() {
         include_weights: true,
         revision: "main".to_string(),
         auth_token: std::env::var("HF_TOKEN").ok(),
-        max_concurrent: 4,
+        max_concurrent: 1,
         progress_callback: Some(create_default_progress_callback()),
     };
 

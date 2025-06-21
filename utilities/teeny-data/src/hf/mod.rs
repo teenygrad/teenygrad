@@ -18,7 +18,8 @@
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -27,6 +28,52 @@ use tokio::fs::create_dir_all;
 pub mod error;
 
 use error::{DownloadError, DownloadResult};
+
+/// Progress tracking for downloads
+#[derive(Debug, Clone)]
+pub struct DownloadProgress {
+    pub total_files: usize,
+    pub completed_files: usize,
+    pub total_bytes: u64,
+    pub downloaded_bytes: u64,
+    pub current_file: Option<String>,
+    pub current_file_progress: f64,
+}
+
+impl DownloadProgress {
+    fn new(total_files: usize, total_bytes: u64) -> Self {
+        Self {
+            total_files,
+            completed_files: 0,
+            total_bytes,
+            downloaded_bytes: 0,
+            current_file: None,
+            current_file_progress: 0.0,
+        }
+    }
+
+    fn overall_progress(&self) -> f64 {
+        if self.total_files == 0 {
+            0.0
+        } else {
+            (self.completed_files as f64) / (self.total_files as f64)
+        }
+    }
+
+    fn bytes_progress(&self) -> f64 {
+        if self.total_bytes == 0 {
+            0.0
+        } else {
+            (self.downloaded_bytes as f64) / (self.total_bytes as f64)
+        }
+    }
+}
+
+/// Progress callback function type
+pub type ProgressCallback = Box<dyn Fn(&DownloadProgress) + Send + Sync>;
+
+/// Progress callback function type (simplified)
+pub type ProgressCallbackFn = fn(&DownloadProgress);
 
 /// Represents a file in a Hugging Face model repository
 #[derive(Debug, Deserialize)]
@@ -83,11 +130,11 @@ pub struct DownloadConfig {
     /// Optional authentication token for private models
     pub auth_token: Option<String>,
 
-    /// Timeout for HTTP requests
-    pub timeout: Duration,
-
     /// Maximum concurrent downloads
     pub max_concurrent: usize,
+
+    /// Optional progress callback function
+    pub progress_callback: Option<ProgressCallbackFn>,
 }
 
 impl Default for DownloadConfig {
@@ -100,8 +147,8 @@ impl Default for DownloadConfig {
             include_config: true,
             include_weights: true,
             auth_token: None,
-            timeout: Duration::from_secs(300), // 5 minutes
             max_concurrent: 4,
+            progress_callback: None,
         }
     }
 }
@@ -122,7 +169,6 @@ pub async fn download_huggingface_model(config: DownloadConfig) -> DownloadResul
 
     // Create HTTP client
     let client = Client::builder()
-        .timeout(config.timeout)
         .build()
         .map_err(DownloadError::HttpError)?;
 
@@ -204,6 +250,17 @@ pub async fn download_huggingface_model(config: DownloadConfig) -> DownloadResul
 
     println!("Found {} files to download", files_to_download.len());
 
+    // Calculate total size for progress tracking
+    let total_size: u64 = files_to_download
+        .iter()
+        .map(|file| file.size.unwrap_or(0))
+        .sum();
+
+    // Initialize progress tracking
+    let progress = Arc::new(DownloadProgress::new(files_to_download.len(), total_size));
+    let completed_files = Arc::new(AtomicU64::new(0));
+    let downloaded_bytes = Arc::new(AtomicU64::new(0));
+
     // Download files concurrently
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(config.max_concurrent));
     let mut download_tasks = Vec::new();
@@ -213,10 +270,22 @@ pub async fn download_huggingface_model(config: DownloadConfig) -> DownloadResul
         let client = client.clone();
         let headers = headers.clone();
         let config = config.clone();
+        let progress = progress.clone();
+        let completed_files = completed_files.clone();
+        let downloaded_bytes = downloaded_bytes.clone();
 
         let task = tokio::spawn(async move {
             let _permit = semaphore.acquire().await?;
-            download_file(&client, &headers, &config, &file).await
+            download_file_with_progress(
+                &client,
+                &headers,
+                &config,
+                &file,
+                &progress,
+                &completed_files,
+                &downloaded_bytes,
+            )
+            .await
         });
 
         download_tasks.push(task);
@@ -228,7 +297,17 @@ pub async fn download_huggingface_model(config: DownloadConfig) -> DownloadResul
 
     for task in download_tasks {
         match task.await {
-            Ok(Ok(())) => success_count += 1,
+            Ok(Ok(())) => {
+                success_count += 1;
+                // Update progress
+                let completed = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
+                let mut current_progress = progress.as_ref().clone();
+                current_progress.completed_files = completed as usize;
+
+                if let Some(callback) = &config.progress_callback {
+                    callback(&current_progress);
+                }
+            }
             Ok(Err(e)) => {
                 error_count += 1;
                 eprintln!("Download error: {:?}", e);
@@ -255,14 +334,28 @@ pub async fn download_huggingface_model(config: DownloadConfig) -> DownloadResul
     Ok(())
 }
 
-/// Downloads a single file from Hugging Face
-async fn download_file(
+/// Downloads a single file from Hugging Face with progress tracking
+async fn download_file_with_progress(
     client: &Client,
     headers: &reqwest::header::HeaderMap,
     config: &DownloadConfig,
     file: &HfFile,
+    progress: &Arc<DownloadProgress>,
+    completed_files: &Arc<AtomicU64>,
+    downloaded_bytes: &Arc<AtomicU64>,
 ) -> DownloadResult<()> {
     let file_path = &file.path;
+
+    // Update current file in progress
+    {
+        let mut current_progress = progress.as_ref().clone();
+        current_progress.current_file = Some(file_path.clone());
+        current_progress.current_file_progress = 0.0;
+
+        if let Some(callback) = &config.progress_callback {
+            callback(&current_progress);
+        }
+    }
 
     // Determine the download URL
     let download_url = if let Some(_lfs_info) = &file.lfs_info {
@@ -280,13 +373,27 @@ async fn download_file(
     };
 
     // Create the local file path
-    let local_path = config.output_dir.join(file_path);
+    let local_path = config
+        .output_dir
+        .join(format!("{}/{}", config.model_id, file_path));
 
     // Create parent directories if they don't exist
     if let Some(parent) = local_path.parent() {
         create_dir_all(parent)
             .await
             .map_err(|e| DownloadError::IoError(io::Error::other(e)))?;
+    }
+
+    // Check if file already exists and has the correct size
+    if local_path.exists() {
+        if let Some(expected_size) = file.size {
+            if let Ok(metadata) = std::fs::metadata(&local_path) {
+                if metadata.len() == expected_size {
+                    println!("File already exists and size matches: {}", file_path);
+                    return Ok(());
+                }
+            }
+        }
     }
 
     println!("Downloading: {}", file_path);
@@ -327,6 +434,20 @@ async fn download_file(
                 ),
             });
         }
+    }
+
+    // Update progress
+    let completed = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
+    let downloaded =
+        downloaded_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed) + bytes.len() as u64;
+    let mut current_progress = progress.as_ref().clone();
+    current_progress.completed_files = completed as usize;
+    current_progress.downloaded_bytes = downloaded;
+    current_progress.current_file = None;
+    current_progress.current_file_progress = 1.0;
+
+    if let Some(callback) = &config.progress_callback {
+        callback(&current_progress);
     }
 
     println!("Downloaded: {} ({} bytes)", file_path, bytes.len());
@@ -412,12 +533,11 @@ pub async fn download_specific_file(
         include_config: false,
         include_weights: false,
         auth_token: auth_token.map(|s| s.to_string()),
-        timeout: Duration::from_secs(300),
         max_concurrent: 1,
+        progress_callback: None,
     };
 
     let client = Client::builder()
-        .timeout(config.timeout)
         .build()
         .map_err(DownloadError::HttpError)?;
 
@@ -473,30 +593,144 @@ pub async fn download_specific_file(
     Ok(())
 }
 
+/// Creates a default progress callback that prints progress to stdout
+pub fn create_default_progress_callback() -> ProgressCallbackFn {
+    |progress: &DownloadProgress| {
+        let overall_pct = (progress.overall_progress() * 100.0) as u32;
+        let bytes_pct = (progress.bytes_progress() * 100.0) as u32;
+
+        if let Some(current_file) = &progress.current_file {
+            let file_pct = (progress.current_file_progress * 100.0) as u32;
+            println!(
+                "Progress: {}% (files: {}/{}, bytes: {}%), Current: {} ({}%)",
+                overall_pct,
+                progress.completed_files,
+                progress.total_files,
+                bytes_pct,
+                current_file,
+                file_pct
+            );
+        } else {
+            println!(
+                "Progress: {}% (files: {}/{}, bytes: {}%)",
+                overall_pct, progress.completed_files, progress.total_files, bytes_pct
+            );
+        }
+    }
+}
+
+/// Downloads a single file from Hugging Face (without progress tracking)
+async fn download_file(
+    client: &Client,
+    headers: &reqwest::header::HeaderMap,
+    config: &DownloadConfig,
+    file: &HfFile,
+) -> DownloadResult<()> {
+    let file_path = &file.path;
+
+    // Determine the download URL
+    let download_url = if let Some(_lfs_info) = &file.lfs_info {
+        // For LFS files, we need to get the actual download URL
+        format!(
+            "https://huggingface.co/{}/resolve/{}/{}",
+            config.model_id, config.revision, file_path
+        )
+    } else {
+        // For regular files
+        format!(
+            "https://huggingface.co/{}/raw/{}/{}",
+            config.model_id, config.revision, file_path
+        )
+    };
+
+    // Create the local file path
+    let local_path = config
+        .output_dir
+        .join(format!("{}/{}", config.model_id, file_path));
+
+    // Create parent directories if they don't exist
+    if let Some(parent) = local_path.parent() {
+        create_dir_all(parent)
+            .await
+            .map_err(|e| DownloadError::IoError(io::Error::other(e)))?;
+    }
+
+    // Check if file already exists and has the correct size
+    if local_path.exists() {
+        if let Some(expected_size) = file.size {
+            if let Ok(metadata) = std::fs::metadata(&local_path) {
+                if metadata.len() == expected_size {
+                    println!("File already exists and size matches: {}", file_path);
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    println!("Downloading: {}", file_path);
+
+    // Download the file
+    let response = client
+        .get(&download_url)
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(DownloadError::HttpError)?;
+
+    if !response.status().is_success() {
+        return Err(DownloadError::DownloadFailed {
+            file_path: file_path.clone(),
+            reason: format!("HTTP {}", response.status()),
+        });
+    }
+
+    // Get file size for progress tracking
+    let content_length = response.content_length();
+
+    // Download and save the file
+    let bytes = response.bytes().await.map_err(DownloadError::HttpError)?;
+
+    // Write to file
+    let mut file = File::create(&local_path).map_err(DownloadError::IoError)?;
+    file.write_all(&bytes).map_err(DownloadError::IoError)?;
+
+    if let Some(expected_size) = content_length {
+        if bytes.len() as u64 != expected_size {
+            return Err(DownloadError::DownloadFailed {
+                file_path: file_path.clone(),
+                reason: format!(
+                    "Size mismatch: expected {}, got {}",
+                    expected_size,
+                    bytes.len()
+                ),
+            });
+        }
+    }
+
+    println!("Downloaded: {} ({} bytes)", file_path, bytes.len());
+    Ok(())
+}
+
+/// Example usage of the Hugging Face downloader with progress tracking
+pub async fn example_usage_with_progress() -> DownloadResult<()> {
+    // Example: Download a complete model with progress tracking
+    let config = DownloadConfig {
+        model_id: "bert-base-uncased".to_string(),
+        revision: "main".to_string(),
+        output_dir: PathBuf::from("./downloaded_bert"),
+        include_tokenizer: true,
+        include_config: true,
+        include_weights: true,
+        auth_token: None, // Set this if downloading private models
+        max_concurrent: 4,
+        progress_callback: Some(create_default_progress_callback()),
+    };
+
+    println!("Starting download with progress tracking...");
+    download_huggingface_model(config).await?;
+    println!("Download completed successfully!");
+
+    Ok(())
+}
+
 // pub async fn example_usage() -> DownloadResult<()> {
-//     // Example 1: Download a complete model
-//     let config = DownloadConfig {
-//         model_id: "bert-base-uncased".to_string(),
-//         revision: "main".to_string(),
-//         output_dir: PathBuf::from("./downloaded_bert"),
-//         include_tokenizer: true,
-//         include_config: true,
-//         include_weights: true,
-//         auth_token: None, // Set this if downloading private models
-//         timeout: Duration::from_secs(300),
-//         max_concurrent: 4,
-//     };
-
-//     download_huggingface_model(config).await?;
-
-//     // Example 2: Download a specific file
-//     download_specific_file(
-//         "bert-base-uncased",
-//         "config.json",
-//         Path::new("./config.json"),
-//         None,
-//     )
-//     .await?;
-
-//     Ok(())
-// }
