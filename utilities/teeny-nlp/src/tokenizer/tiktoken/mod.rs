@@ -1,5 +1,6 @@
 /*
- * Copyright \(c\) 2025 Teenygrad. All rights reserved.
+ * Copyright (c) 2025 Teenygrad. All rights reserved.
+ * Copyright (c) 2022 OpenAI, Shantanu Jain
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +25,8 @@ use rustc_hash::FxHashMap as HashMap;
 
 use error::DecodeKeyError;
 
+use crate::tokenizer::Tokenizer;
+
 pub mod error;
 
 pub type Rank = u32;
@@ -31,7 +34,7 @@ const MAX_NUM_THREADS: usize = 128;
 
 struct FakeThreadId(NonZeroU64);
 
-pub struct Tokenizer {
+pub struct TiktokenTokenizer {
     encoder: HashMap<Vec<u8>, Rank>,
     special_tokens_encoder: HashMap<String, Rank>,
     decoder: HashMap<Rank, Vec<u8>>,
@@ -41,7 +44,9 @@ pub struct Tokenizer {
     sorted_token_bytes: Vec<Vec<u8>>,
 }
 
-impl Tokenizer {
+impl Tokenizer for TiktokenTokenizer {}
+
+impl TiktokenTokenizer {
     pub fn new<E, SE, NSE>(
         encoder: E,
         special_tokens_encoder: SE,
@@ -172,7 +177,7 @@ impl Tokenizer {
         if unstable_bytes.len() > 1 {
             let last_decoded = bstr::decode_last_utf8(unstable_bytes.as_slice());
             if unstable_bytes.len() - last_decoded.1 > 0
-                && last_decoded.0.map_or(false, |c| c.is_whitespace())
+                && last_decoded.0.is_some_and(|c| c.is_whitespace())
             {
                 let mut reencoded = self.byte_pair_encode(
                     &unstable_bytes[..unstable_bytes.len() - last_decoded.1],
@@ -260,6 +265,15 @@ impl Tokenizer {
         (ret, last_piece_token_len)
     }
 
+    pub fn byte_pair_split<'a>(piece: &'a [u8], ranks: &HashMap<Vec<u8>, Rank>) -> Vec<&'a [u8]> {
+        assert!(piece.len() > 1);
+
+        Self::byte_pair_merge(ranks, piece)
+            .windows(2)
+            .map(|part| &piece[part[0].0..part[1].0])
+            .collect()
+    }
+
     fn hash_current_thread(&self) -> usize {
         // It's easier to use unsafe than to use nightly. Rust has this nice u64 thread id counter
         // that works great for our use case of avoiding collisions in our array. Unfortunately,
@@ -274,7 +288,7 @@ impl Tokenizer {
         u64::from(x) as usize
     }
 
-    fn byte_pair_merge(&self, ranks: &HashMap<Vec<u8>, Rank>, piece: &[u8]) -> Vec<(usize, Rank)> {
+    fn byte_pair_merge(ranks: &HashMap<Vec<u8>, Rank>, piece: &[u8]) -> Vec<(usize, Rank)> {
         // This is a vector of (start, rank).
         // The rank is of the pair starting at position start.
         let mut parts = Vec::with_capacity(piece.len() + 1);
@@ -337,22 +351,9 @@ impl Tokenizer {
             return vec![ranks[piece]];
         }
 
-        self.byte_pair_merge(ranks, piece)
+        Self::byte_pair_merge(ranks, piece)
             .windows(2)
             .map(|part| ranks[&piece[part[0].0..part[1].0]])
-            .collect()
-    }
-
-    fn byte_pair_split<'a>(
-        &self,
-        piece: &'a [u8],
-        ranks: &HashMap<Vec<u8>, Rank>,
-    ) -> Vec<&'a [u8]> {
-        assert!(piece.len() > 1);
-
-        self.byte_pair_merge(ranks, piece)
-            .windows(2)
-            .map(|part| &piece[part[0].0..part[1].0])
             .collect()
     }
 
@@ -467,5 +468,29 @@ impl Tokenizer {
                 .collect(),
             sorted_token_bytes,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustc_hash::FxHashMap as HashMap;
+
+    fn setup_ranks() -> HashMap<Vec<u8>, Rank> {
+        HashMap::from_iter([(b"ab".to_vec(), 0), (b"cd".to_vec(), 1)])
+    }
+
+    #[test]
+    fn test_simple_characters() {
+        let ranks = setup_ranks();
+        let res = TiktokenTokenizer::byte_pair_split(b"abcd", &ranks);
+        assert_eq!(res, vec![b"ab", b"cd"]);
+    }
+
+    #[test]
+    fn test_repeated_characters() {
+        let ranks = setup_ranks();
+        let res = TiktokenTokenizer::byte_pair_split(b"abab", &ranks);
+        assert_eq!(res, vec![b"ab", b"ab"]);
     }
 }

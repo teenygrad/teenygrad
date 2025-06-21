@@ -1,5 +1,6 @@
 /*
- * Copyright \(c\) 2025 Teenygrad. All rights reserved.
+ * Copyright (c) 2025 Teenygrad. All rights reserved.
+ * Copyright (c) 2022 OpenAI, Shantanu Jain
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
