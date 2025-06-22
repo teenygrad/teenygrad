@@ -1,18 +1,23 @@
 [package]
-name = "teeny-qwen"
+name = "teeny-hf"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "teeny_qwenn"
+name = "teeny_hf"
 path = "src/lib.rs"
 
 [[bin]]
-name = "qwen"
+name = "hf"
 path = "src/main.rs"
 
 [dependencies]
 tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+reqwest.workspace = true
+clap.workspace = true
 teeny-llvm = { path = "../../compiler/teeny-llvm" }
 teeny-nlp = { path = "../../utilities/teeny-nlp" }
 teeny-data = { path = "../../utilities/teeny-data" }

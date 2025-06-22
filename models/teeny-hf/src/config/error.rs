@@ -14,3 +14,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, ConfigError>;
+
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("Failed to parse model config: {0}")]
+    ParseError(#[from] serde_json::Error),
+}

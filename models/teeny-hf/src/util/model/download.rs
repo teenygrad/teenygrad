@@ -25,9 +25,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tokio::fs::create_dir_all;
 
-pub mod error;
-
-use error::{DownloadError, DownloadResult};
+use super::error::{DownloadError, DownloadResult};
 
 /// Progress tracking for downloads
 #[derive(Debug, Clone)]
@@ -83,7 +81,8 @@ struct HfFile {
     size: Option<u64>,
     oid: String,
     path: String,
-    xetHash: Option<String>,
+    #[serde(rename = "xetHash")]
+    xet_hash: Option<String>,
 
     #[serde(rename = "lfs")]
     lfs_info: Option<LfsInfo>,
@@ -137,24 +136,8 @@ pub struct DownloadConfig {
     pub progress_callback: Option<ProgressCallbackFn>,
 }
 
-impl Default for DownloadConfig {
-    fn default() -> Self {
-        Self {
-            model_id: String::new(),
-            revision: "main".to_string(),
-            output_dir: PathBuf::from("./downloaded_model"),
-            include_tokenizer: true,
-            include_config: true,
-            include_weights: true,
-            auth_token: None,
-            max_concurrent: 4,
-            progress_callback: None,
-        }
-    }
-}
-
 /// Downloads a Hugging Face model to the specified directory
-pub async fn download_huggingface_model(config: DownloadConfig) -> DownloadResult<()> {
+pub async fn download_model(config: DownloadConfig) -> DownloadResult<()> {
     // Validate model ID
     if config.model_id.is_empty() {
         return Err(DownloadError::InvalidModelId {
@@ -594,7 +577,7 @@ pub async fn download_specific_file(
 }
 
 /// Creates a default progress callback that prints progress to stdout
-pub fn create_default_progress_callback() -> ProgressCallbackFn {
+pub fn default_progress_callback() -> ProgressCallbackFn {
     |progress: &DownloadProgress| {
         let overall_pct = (progress.overall_progress() * 100.0) as u32;
         let bytes_pct = (progress.bytes_progress() * 100.0) as u32;
@@ -723,11 +706,11 @@ pub async fn example_usage_with_progress() -> DownloadResult<()> {
         include_weights: true,
         auth_token: None, // Set this if downloading private models
         max_concurrent: 4,
-        progress_callback: Some(create_default_progress_callback()),
+        progress_callback: Some(default_progress_callback()),
     };
 
     println!("Starting download with progress tracking...");
-    download_huggingface_model(config).await?;
+    download_model(config).await?;
     println!("Download completed successfully!");
 
     Ok(())
