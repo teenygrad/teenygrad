@@ -17,31 +17,31 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum Architecture {
     Qwen3ForCausalLM,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum ModelType {
     #[serde(rename = "qwen3")]
     Qwen3,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum HiddenAct {
     #[serde(rename = "silu")]
     Silu,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum TorchDtype {
     #[serde(rename = "bfloat16")]
     Bfloat16,
 }
 
-pub trait ModelConfig {
-    fn architectures(&self) -> Vec<Architecture>;
+pub trait ModelConfig<'a> {
+    fn architectures(&self) -> &[Architecture];
     fn attention_bias(&self) -> bool;
     fn attention_dropout(&self) -> f32;
     fn bos_token_id(&self) -> usize;
