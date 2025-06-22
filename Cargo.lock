@@ -1919,10 +1919,20 @@ dependencies = [
  "serde",
  "serde_json",
  "teeny-data",
+ "teeny-hf-macros",
  "teeny-llvm",
  "teeny-nlp",
  "thiserror 2.0.12",
  "tokio",
+]
+
+[[package]]
+name = "teeny-hf-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

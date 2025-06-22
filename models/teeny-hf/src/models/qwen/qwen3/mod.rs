@@ -15,4 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod model_config;
+pub mod error;
+pub mod qwen3_config;
+pub mod qwen3_model;

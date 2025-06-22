@@ -18,7 +18,11 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use teeny_hf::util::model::download::{DownloadConfig, default_progress_callback, download_model};
+use teeny_hf::{
+    models::Model,
+    tokenizer::auto_tokenizer::AutoTokenizer,
+    util::model::download::{DownloadConfig, default_progress_callback, download_model},
+};
 
 #[derive(Parser)]
 #[command(
@@ -60,18 +64,8 @@ enum Component {
     Weights,
 }
 
-impl Component {
-    fn to_string(&self) -> &'static str {
-        match self {
-            Component::Tokenizer => "tokenizer",
-            Component::Config => "config",
-            Component::Weights => "weights",
-        }
-    }
-}
-
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     // Determine which components to include based on CLI arguments
@@ -99,27 +93,17 @@ async fn main() {
     };
 
     println!("Downloading model: {}", cli.model);
-    println!("Cache directory: {}", cli.cache_dir.display());
-    println!(
-        "Components: {}",
-        cli.components
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
 
-    let result = download_model(config).await;
-    match result {
-        Ok(()) => {
-            println!(
-                "✅ Successfully downloaded model to {}",
-                cli.cache_dir.display()
-            );
-        }
-        Err(e) => {
-            eprintln!("❌ Error downloading model: {:?}", e);
-            std::process::exit(1);
-        }
-    }
+    download_model(config).await?;
+
+    run_model(&cli.model, cli.cache_dir.to_str().unwrap()).await?;
+
+    Ok(())
+}
+
+async fn run_model(model_id: &str, cache_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let _tokenizer = AutoTokenizer::from_pretrained(model_id, cache_dir)?;
+    let _model = Model::from_pretrained(model_id, cache_dir)?;
+
+    Ok(())
 }

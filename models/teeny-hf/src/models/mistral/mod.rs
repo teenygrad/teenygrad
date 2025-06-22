@@ -15,7 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod generation;
-pub mod math_ops;
-pub mod model;
-pub mod tokenizer;
+use crate::models::llama::llama_model::LlamaModel;
+
+pub mod mistral_model;
+
+pub trait MistralModel: LlamaModel {}

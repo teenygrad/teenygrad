@@ -15,4 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod model_config;
+use crate::models::qwen::qwen2::qwen2_model::Qwen2RMSNorm;
+
+pub trait Qwen3RMSNorm: Qwen2RMSNorm {}
+
+pub trait Qwen3ForCausalLM {}

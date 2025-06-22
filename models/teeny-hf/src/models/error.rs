@@ -15,4 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod model_config;
+pub type Result<T> = std::result::Result<T, ModelError>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum ModelError {}

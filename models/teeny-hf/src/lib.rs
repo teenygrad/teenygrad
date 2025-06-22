@@ -16,5 +16,6 @@
  */
 
 pub mod config;
-pub mod llama;
+pub mod models;
+pub mod tokenizer;
 pub mod util;

@@ -15,4 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod model_config;
+use super::error::Result;
+
+pub struct AutoTokenizer {
+    pub model_id: String,
+    pub cache_dir: String,
+}
+
+impl AutoTokenizer {
+    pub fn from_pretrained(_model_id: &str, _cache_dir: &str) -> Result<Self> {
+        todo!("Implement this")
+    }
+}

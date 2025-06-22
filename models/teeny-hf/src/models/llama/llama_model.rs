@@ -15,4 +15,28 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod model_config;
+pub trait LlamaAttention {}
+
+pub trait LlamaDecoderLayer {}
+
+pub trait LlamaForCausalLM {}
+
+pub trait LlamaForQuestionAnswering {}
+
+pub trait LlamaForSequenceClassification {}
+
+pub trait LlamaForTokenClassification {}
+
+pub trait LlamaMLP {}
+
+pub trait LlamaPreTrainedModel {}
+
+pub trait LlamaModel {}
+
+pub fn apply_rotary_pos_emb() {
+    todo!()
+}
+
+pub fn eager_attention_forward() {
+    todo!()
+}

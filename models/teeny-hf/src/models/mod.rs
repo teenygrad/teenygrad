@@ -15,4 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod model_config;
+pub mod error;
+pub mod llama;
+pub mod mistral;
+pub mod qwen;
+
+use error::Result;
+
+pub struct Model {
+    pub model_id: String,
+    pub cache_dir: String,
+}
+
+impl Model {
+    pub fn from_pretrained(_model_id: &str, _cache_dir: &str) -> Result<Self> {
+        todo!("Implement this")
+    }
+}
