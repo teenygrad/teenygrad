@@ -15,4 +15,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod llama_model;
+pub mod qwen3_causal_llm;
+pub mod qwen3_config;

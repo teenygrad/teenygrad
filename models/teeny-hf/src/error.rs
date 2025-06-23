@@ -15,15 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use super::error::Result;
+pub type Result<T> = std::result::Result<T, TeenyHFError>;
 
-pub struct AutoTokenizer {
-    pub model_id: String,
-    pub cache_dir: String,
-}
+#[derive(thiserror::Error, Debug)]
+pub enum TeenyHFError {
+    #[error("IO error: {0}")]
+    IoError(std::io::Error),
 
-impl AutoTokenizer {
-    pub fn from_pretrained(_model_id: &str, _cache_dir: &str) -> Result<Self> {
-        todo!("Implement this")
-    }
+    #[error("Serde error: {0}")]
+    SerdeError(serde_json::Error),
+
+    #[error("Failed to parse config: {0}")]
+    ConfigParseError(#[from] serde_json::Error),
 }

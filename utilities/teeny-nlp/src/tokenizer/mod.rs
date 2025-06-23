@@ -17,4 +17,31 @@
 
 pub mod tiktoken;
 
-pub trait Tokenizer {}
+#[derive(Debug, Clone)]
+pub struct Message {
+    pub role: String,
+    pub content: String,
+}
+
+impl Message {
+    pub fn new(role: &str, content: &str) -> Self {
+        Self {
+            role: role.to_string(),
+            content: content.to_string(),
+        }
+    }
+}
+
+pub trait Tokenizer {
+    fn apply_chat_template(
+        &self,
+        messages: &[Message],
+        tokenize: bool,
+        add_generation_prompt: bool,
+        enable_thinking: bool,
+    ) -> String;
+
+    fn encode(&self, texts: &[String]) -> Vec<usize>;
+
+    fn decode(&self, ids: &[usize]) -> String;
+}

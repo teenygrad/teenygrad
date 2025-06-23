@@ -15,8 +15,26 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::models::llama::llama_model::LlamaModel;
+pub mod qwen;
 
-pub mod mistral_model;
+use crate::error::Result;
 
-pub trait MistralModel: LlamaModel {}
+use crate::{
+    config::model_config::Architecture,
+    model::qwen::qwen3::{qwen3_causal_llm::Qwen3ForCausalLM, qwen3_config::Qwen3Config},
+};
+
+pub trait Model {
+    fn generate(&self, model_inputs: &[usize], max_new_tokens: usize) -> Vec<usize>;
+}
+
+pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Box<dyn Model>> {
+    let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
+
+    match config.architectures[0] {
+        Architecture::Qwen3ForCausalLM => {
+            let model = Qwen3ForCausalLM::new(model_id, cache_dir, config)?;
+            Ok(Box::new(model))
+        }
+    }
+}

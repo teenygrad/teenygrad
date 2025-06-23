@@ -15,25 +15,38 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_nlp::tokenizer::Tokenizer;
+use teeny_nlp::tokenizer::{Message, Tokenizer};
 
-pub mod qwen2_tokenizer;
-pub mod tokenizer_config;
-
-use crate::tokenizer::{
-    qwen2_tokenizer::Qwen2Tokenizer,
-    tokenizer_config::{TokenizerClass, TokenizerConfig},
-};
+use crate::tokenizer::tokenizer_config::TokenizerConfig;
 
 use crate::error::Result;
 
-pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Box<dyn Tokenizer>> {
-    let config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
+pub struct Qwen2Tokenizer {
+    pub config: TokenizerConfig,
+}
 
-    match config.tokenizer_class {
-        TokenizerClass::Qwen2Tokenizer => {
-            let tokenizer = Qwen2Tokenizer::new(model_id, cache_dir, config)?;
-            Ok(Box::new(tokenizer))
-        }
+impl Tokenizer for Qwen2Tokenizer {
+    fn apply_chat_template(
+        &self,
+        _messages: &[Message],
+        _tokenize: bool,
+        _add_generation_prompt: bool,
+        _enable_thinking: bool,
+    ) -> String {
+        todo!()
+    }
+
+    fn encode(&self, _texts: &[String]) -> Vec<usize> {
+        todo!()
+    }
+
+    fn decode(&self, _ids: &[usize]) -> String {
+        todo!()
+    }
+}
+
+impl Qwen2Tokenizer {
+    pub fn new(_model_id: &str, _cache_dir: &str, config: TokenizerConfig) -> Result<Self> {
+        Ok(Self { config })
     }
 }

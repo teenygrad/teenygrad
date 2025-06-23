@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::model_config::{Architecture, HiddenAct, ModelConfig, ModelType, TorchDtype};
 
-use super::error::{ConfigError, Result};
+use crate::error::{Result, TeenyHFError};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Qwen3Config {
@@ -63,8 +63,18 @@ pub struct Qwen3Config {
 }
 
 impl Qwen3Config {
-    pub fn new(config: &str) -> Result<Self> {
-        let mut config: Self = serde_json::from_str(config).map_err(ConfigError::ParseError)?;
+    pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Self> {
+        let config_path = format!("{}/{}/config.json", cache_dir, model_id);
+        let config_str = std::fs::read_to_string(config_path).map_err(TeenyHFError::IoError)?;
+        let config = Self::from_str(&config_str)?;
+
+        Ok(config)
+    }
+
+    pub fn from_str(config_str: &str) -> Result<Self> {
+        let mut config: Self =
+            serde_json::from_str(config_str).map_err(TeenyHFError::ConfigParseError)?;
+
         config.keys_to_ignore_at_inference = vec!["past_key_values".to_string()];
 
         config.base_model_tp_plan = serde_json::from_str(
@@ -255,7 +265,7 @@ mod tests {
         }
         "#;
 
-        let config = Qwen3Config::new(config_str).unwrap();
+        let config = Qwen3Config::from_str(config_str).unwrap();
         assert_eq!(config.model_type, ModelType::Qwen3);
         println!("{:?}", config);
     }

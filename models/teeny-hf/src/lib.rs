@@ -16,6 +16,7 @@
  */
 
 pub mod config;
-pub mod models;
+pub mod error;
+pub mod model;
 pub mod tokenizer;
 pub mod util;

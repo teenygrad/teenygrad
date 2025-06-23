@@ -15,28 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub trait LlamaAttention {}
+use super::qwen3_config::Qwen3Config;
 
-pub trait LlamaDecoderLayer {}
+use crate::{error::Result, model::Model};
 
-pub trait LlamaForCausalLM {}
+pub struct Qwen3ForCausalLM {}
 
-pub trait LlamaForQuestionAnswering {}
-
-pub trait LlamaForSequenceClassification {}
-
-pub trait LlamaForTokenClassification {}
-
-pub trait LlamaMLP {}
-
-pub trait LlamaPreTrainedModel {}
-
-pub trait LlamaModel {}
-
-pub fn apply_rotary_pos_emb() {
-    todo!()
+impl Model for Qwen3ForCausalLM {
+    fn generate(&self, _model_inputs: &[usize], _max_new_tokens: usize) -> Vec<usize> {
+        todo!()
+    }
 }
 
-pub fn eager_attention_forward() {
-    todo!()
+impl Qwen3ForCausalLM {
+    pub fn new(_model_id: &str, _cache_dir: &str, _config: Qwen3Config) -> Result<Self> {
+        Ok(Self {})
+    }
 }

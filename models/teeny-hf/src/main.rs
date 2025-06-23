@@ -19,10 +19,10 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use teeny_hf::{
-    models::Model,
-    tokenizer::auto_tokenizer::AutoTokenizer,
+    model, tokenizer,
     util::model::download::{DownloadConfig, default_progress_callback, download_model},
 };
+use teeny_nlp::tokenizer::Message;
 
 #[derive(Parser)]
 #[command(
@@ -39,7 +39,6 @@ struct Cli {
     /// Directory to cache/download the model files
     #[arg(value_name = "CACHE_DIR", default_value = "/tmp/models")]
     cache_dir: PathBuf,
-
     /// Maximum concurrent downloads
     #[arg(short, long, default_value = "1")]
     max_concurrent: usize,
@@ -102,8 +101,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run_model(model_id: &str, cache_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let _tokenizer = AutoTokenizer::from_pretrained(model_id, cache_dir)?;
-    let _model = Model::from_pretrained(model_id, cache_dir)?;
+    let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
+    let model = model::from_pretrained(model_id, cache_dir)?;
+
+    let prompt = "Give me a short introduction to large language model.";
+    let messages = [Message::new("user", prompt)];
+
+    let text = tokenizer.apply_chat_template(&messages, false, true, true);
+    let model_inputs = tokenizer.encode(&[text]);
+    let generated_ids = model.generate(&model_inputs, 32768);
+
+    let thinking_content = tokenizer.decode(&generated_ids[..]);
+    let content = tokenizer.decode(&generated_ids[thinking_content.len()..]);
+
+    println!("thinking content: {}", thinking_content);
+    println!("content: {}", content);
 
     Ok(())
 }

@@ -44,8 +44,6 @@ pub struct TiktokenTokenizer {
     sorted_token_bytes: Vec<Vec<u8>>,
 }
 
-impl Tokenizer for TiktokenTokenizer {}
-
 impl TiktokenTokenizer {
     pub fn new<E, SE, NSE>(
         encoder: E,
