@@ -15,9 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use serde::{Deserialize, Serialize};
+
 pub mod tiktoken;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
     pub content: String,
@@ -36,6 +38,7 @@ pub trait Tokenizer {
     fn apply_chat_template(
         &self,
         messages: &[Message],
+        chat_template: &str,
         tokenize: bool,
         add_generation_prompt: bool,
         enable_thinking: bool,

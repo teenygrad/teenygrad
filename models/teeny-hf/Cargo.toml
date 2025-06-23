@@ -18,7 +18,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
 clap.workspace = true
-teeny-hf-macros = { path = "../teeny-hf-macros" }
-teeny-llvm = { path = "../../compiler/teeny-llvm" }
+minijinja.workspace = true
+minijinja-contrib.workspace = true
 teeny-nlp = { path = "../../utilities/teeny-nlp" }
 teeny-data = { path = "../../utilities/teeny-data" }

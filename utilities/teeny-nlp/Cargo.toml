@@ -8,3 +8,4 @@ fancy-regex.workspace = true
 rustc-hash.workspace = true
 regex.workspace = true
 bstr.workspace = true
+serde.workspace = true

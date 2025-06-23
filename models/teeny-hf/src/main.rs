@@ -107,7 +107,7 @@ async fn run_model(model_id: &str, cache_dir: &str) -> Result<(), Box<dyn std::e
     let prompt = "Give me a short introduction to large language model.";
     let messages = [Message::new("user", prompt)];
 
-    let text = tokenizer.apply_chat_template(&messages, false, true, true);
+    let text = tokenizer.apply_chat_template(&messages, "", false, true, true);
     let model_inputs = tokenizer.encode(&[text]);
     let generated_ids = model.generate(&model_inputs, 32768);
 

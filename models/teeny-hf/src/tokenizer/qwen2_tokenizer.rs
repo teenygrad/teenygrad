@@ -29,6 +29,7 @@ impl Tokenizer for Qwen2Tokenizer {
     fn apply_chat_template(
         &self,
         _messages: &[Message],
+        _chat_template: &str,
         _tokenize: bool,
         _add_generation_prompt: bool,
         _enable_thinking: bool,
