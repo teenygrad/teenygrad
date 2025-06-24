@@ -30,6 +30,8 @@ export LLVM_LIBRARY_DIR="$BUILD_DIR/llvm/lib"
 export LLVM_SYSPATH="$BUILD_DIR/llvm"
 
 cmake -B "$BUILD_DIR/triton" -S "$MODULES_DIR/triton" -G Ninja \
+      -DTRITON_BUILD_PYTHON_MODULE=ON \
+      -DTRITON_BUILD_PROTON=OFF \
       -DCMAKE_BUILD_TYPE=Release \
       -DTRITON_CODEGEN_BACKENDS="amd;nvidia" \
       -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/install"

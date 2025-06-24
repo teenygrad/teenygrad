@@ -30,8 +30,6 @@ target_link_libraries(teeny
   ${dialect_libs}
   ${conversion_libs}  
 
-  # triton
-  triton
   pybind11::module
 
   # MLIR core
@@ -122,6 +120,7 @@ target_link_libraries(teeny
   -Wl,--no-whole-archive
   -Wl,-Bdynamic
 
+  triton
   Python3::Python
   TritonTestDialectTritonGPU
 )

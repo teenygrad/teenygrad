@@ -20,7 +20,7 @@
 #include "compiler.h"
 
 #include "triton/third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
-#include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
+// #include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 #include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
@@ -59,7 +59,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "triton/third_party/nvidia/include/Dialect/NVGPU/IR/Dialect.h"
-#include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
+// #include "triton/third_party/proton/dialect/include/Dialect/Proton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 #include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
