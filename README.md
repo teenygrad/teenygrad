@@ -32,6 +32,8 @@ Our goals:
 
 - Low memory footprint – Optimized to run even on the smallest devices.
 
+- static type checking, and unit testing of kernels.
+
 - No performance compromises – Hardware-accelerated wherever possible.
 
 - Broad hardware support – Compatible with a wide variety of devices, not just NVIDIA and AMD.
