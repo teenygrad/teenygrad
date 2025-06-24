@@ -21,9 +21,13 @@ use tokenizers::tokenizer::Tokenizer;
 pub mod qwen2_tokenizer;
 pub mod tokenizer_config;
 
-use crate::error::{Result, TeenyHFError};
+use crate::{
+    error::{Result, TeenyHFError},
+    tokenizer::tokenizer_config::TokenizerConfig,
+};
 
 pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
+    let _tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
     let vocab_file = format!("{}/{}/vocab.json", cache_dir, model_id);
     let merges_file = format!("{}/{}/merges.txt", cache_dir, model_id);
     let bpe_builder = BPE::from_file(&vocab_file, &merges_file);

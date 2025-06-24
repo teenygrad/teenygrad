@@ -25,7 +25,7 @@ use crate::{
 };
 
 pub trait Model {
-    fn generate(&self, model_inputs: &[usize], max_new_tokens: usize) -> Vec<usize>;
+    fn generate(&self, model_inputs: &[u32], max_new_tokens: usize) -> Vec<u32>;
 }
 
 pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Box<dyn Model>> {

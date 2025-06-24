@@ -110,23 +110,30 @@ async fn main() -> Result<()> {
 async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
     let tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
     let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
-    let _model = model::from_pretrained(model_id, cache_dir)?;
+    let model = model::from_pretrained(model_id, cache_dir)?;
     let _config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
     let prompt = "Give me a short introduction to large language model.";
     let messages = [Message::new("user", prompt)];
 
     let text = template::apply_chat_template(&tokenizer_config.chat_template, &messages, &[]);
-    let _model_inputs = tokenizer
+    let encoded_inputs = tokenizer
         .encode(text, false)
         .map_err(TeenyHFError::TokenizerError)?;
-    // let generated_ids = model.generate(&model_inputs, 32768);
+    let model_inputs = encoded_inputs.get_ids();
+    println!("model_inputs: {:?}", model_inputs);
+    let generated_ids = model.generate(model_inputs, 32768);
 
-    // let thinking_content = tokenizer.decode(&generated_ids[..], false)?;
-    // let content = tokenizer.decode(&generated_ids[thinking_content.len()..], false)?;
+    let thinking_content = tokenizer
+        .decode(&generated_ids[..], false)
+        .map_err(TeenyHFError::TokenizerError)?;
 
-    // println!("thinking content: {}", thinking_content);
-    // println!("content: {}", content);
+    let content = tokenizer
+        .decode(&generated_ids[thinking_content.len()..], false)
+        .map_err(TeenyHFError::TokenizerError)?;
+
+    println!("thinking content: {}", thinking_content);
+    println!("content: {}", content);
 
     Ok(())
 }

@@ -22,7 +22,7 @@ use crate::{error::Result, model::Model};
 pub struct Qwen3ForCausalLM {}
 
 impl Model for Qwen3ForCausalLM {
-    fn generate(&self, _model_inputs: &[usize], _max_new_tokens: usize) -> Vec<usize> {
+    fn generate(&self, _model_inputs: &[u32], _max_new_tokens: usize) -> Vec<u32> {
         todo!()
     }
 }
