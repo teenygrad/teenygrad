@@ -25,7 +25,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tokio::fs::create_dir_all;
 
-use super::error::{DownloadError, DownloadResult};
+use crate::error::{Result, TeenyHFError};
 
 /// Progress tracking for downloads
 #[derive(Debug, Clone)]
@@ -137,10 +137,10 @@ pub struct DownloadConfig {
 }
 
 /// Downloads a Hugging Face model to the specified directory
-pub async fn download_model(config: DownloadConfig) -> DownloadResult<()> {
+pub async fn download_model(config: DownloadConfig) -> Result<()> {
     // Validate model ID
     if config.model_id.is_empty() {
-        return Err(DownloadError::InvalidModelId {
+        return Err(TeenyHFError::InvalidModelId {
             model_id: config.model_id.clone(),
         });
     }
@@ -148,12 +148,10 @@ pub async fn download_model(config: DownloadConfig) -> DownloadResult<()> {
     // Create output directory
     create_dir_all(&config.output_dir)
         .await
-        .map_err(|e| DownloadError::IoError(io::Error::other(e)))?;
+        .map_err(|e| TeenyHFError::IoError(io::Error::other(e)))?;
 
     // Create HTTP client
-    let client = Client::builder()
-        .build()
-        .map_err(DownloadError::HttpError)?;
+    let client = Client::builder().build().map_err(TeenyHFError::HttpError)?;
 
     // Build API URL for listing files
     let api_url = format!(
@@ -176,24 +174,24 @@ pub async fn download_model(config: DownloadConfig) -> DownloadResult<()> {
         .headers(headers.clone())
         .send()
         .await
-        .map_err(DownloadError::HttpError)?;
+        .map_err(TeenyHFError::HttpError)?;
 
     println!("Response: {:?}", response);
 
     if response.status() == 404 {
-        return Err(DownloadError::ModelNotFound {
+        return Err(TeenyHFError::ModelNotFound {
             model_id: config.model_id.clone(),
         });
     }
 
     if response.status() == 401 {
-        return Err(DownloadError::AuthenticationRequired {
+        return Err(TeenyHFError::AuthenticationRequired {
             model_id: config.model_id.clone(),
         });
     }
 
     if !response.status().is_success() {
-        return Err(DownloadError::InternalServerError {
+        return Err(TeenyHFError::InternalServerError {
             status_code: response.status(),
         });
     }
@@ -308,7 +306,7 @@ pub async fn download_model(config: DownloadConfig) -> DownloadResult<()> {
     );
 
     if error_count > 0 {
-        return Err(DownloadError::DownloadFailed {
+        return Err(TeenyHFError::DownloadFailed {
             file_path: "multiple files".to_string(),
             reason: format!("{} files failed to download", error_count),
         });
@@ -326,7 +324,7 @@ async fn download_file_with_progress(
     progress: &Arc<DownloadProgress>,
     completed_files: &Arc<AtomicU64>,
     downloaded_bytes: &Arc<AtomicU64>,
-) -> DownloadResult<()> {
+) -> Result<()> {
     let file_path = &file.path;
 
     // Update current file in progress
@@ -364,7 +362,7 @@ async fn download_file_with_progress(
     if let Some(parent) = local_path.parent() {
         create_dir_all(parent)
             .await
-            .map_err(|e| DownloadError::IoError(io::Error::other(e)))?;
+            .map_err(|e| TeenyHFError::IoError(io::Error::other(e)))?;
     }
 
     // Check if file already exists and has the correct size
@@ -387,10 +385,10 @@ async fn download_file_with_progress(
         .headers(headers.clone())
         .send()
         .await
-        .map_err(DownloadError::HttpError)?;
+        .map_err(TeenyHFError::HttpError)?;
 
     if !response.status().is_success() {
-        return Err(DownloadError::DownloadFailed {
+        return Err(TeenyHFError::DownloadFailed {
             file_path: file_path.clone(),
             reason: format!("HTTP {}", response.status()),
         });
@@ -400,15 +398,15 @@ async fn download_file_with_progress(
     let content_length = response.content_length();
 
     // Download and save the file
-    let bytes = response.bytes().await.map_err(DownloadError::HttpError)?;
+    let bytes = response.bytes().await.map_err(TeenyHFError::HttpError)?;
 
     // Write to file
-    let mut file = File::create(&local_path).map_err(DownloadError::IoError)?;
-    file.write_all(&bytes).map_err(DownloadError::IoError)?;
+    let mut file = File::create(&local_path).map_err(TeenyHFError::IoError)?;
+    file.write_all(&bytes).map_err(TeenyHFError::IoError)?;
 
     if let Some(expected_size) = content_length {
         if bytes.len() as u64 != expected_size {
-            return Err(DownloadError::DownloadFailed {
+            return Err(TeenyHFError::DownloadFailed {
                 file_path: file_path.clone(),
                 reason: format!(
                     "Size mismatch: expected {}, got {}",
@@ -438,7 +436,7 @@ async fn download_file_with_progress(
 }
 
 /// Checks if a file is a tokenizer file
-fn is_tokenizer_file(path: &str) -> Result<bool, DownloadError> {
+fn is_tokenizer_file(path: &str) -> Result<bool> {
     let tokenizer_files = [
         "tokenizer.json",
         "tokenizer_config.json",
@@ -455,7 +453,7 @@ fn is_tokenizer_file(path: &str) -> Result<bool, DownloadError> {
     let filename = Path::new(path)
         .file_name()
         .and_then(|f| f.to_str())
-        .ok_or_else(|| DownloadError::FileNotFound {
+        .ok_or_else(|| TeenyHFError::FileNotFound {
             file_path: path.to_string(),
         })?;
 
@@ -463,7 +461,7 @@ fn is_tokenizer_file(path: &str) -> Result<bool, DownloadError> {
 }
 
 /// Checks if a file is a configuration file
-fn is_config_file(path: &str) -> Result<bool, DownloadError> {
+fn is_config_file(path: &str) -> Result<bool> {
     let config_files = [
         "config.json",
         "generation_config.json",
@@ -475,7 +473,7 @@ fn is_config_file(path: &str) -> Result<bool, DownloadError> {
     let filename = Path::new(path)
         .file_name()
         .and_then(|f| f.to_str())
-        .ok_or_else(|| DownloadError::FileNotFound {
+        .ok_or_else(|| TeenyHFError::FileNotFound {
             file_path: path.to_string(),
         })?;
 
@@ -483,7 +481,7 @@ fn is_config_file(path: &str) -> Result<bool, DownloadError> {
 }
 
 /// Checks if a file is a model weight file
-fn is_weight_file(path: &str) -> Result<bool, DownloadError> {
+fn is_weight_file(path: &str) -> Result<bool> {
     let weight_extensions = [
         ".bin",
         ".safetensors",
@@ -507,7 +505,7 @@ pub async fn download_specific_file(
     file_path: &str,
     output_path: &Path,
     auth_token: Option<&str>,
-) -> DownloadResult<()> {
+) -> Result<()> {
     let config = DownloadConfig {
         model_id: model_id.to_string(),
         revision: "main".to_string(),
@@ -520,16 +518,14 @@ pub async fn download_specific_file(
         progress_callback: None,
     };
 
-    let client = Client::builder()
-        .build()
-        .map_err(DownloadError::HttpError)?;
+    let client = Client::builder().build().map_err(TeenyHFError::HttpError)?;
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         "User-Agent",
         "rust-huggingface-downloader/1.0"
             .parse()
-            .map_err(DownloadError::InvalidHeaderValue)?,
+            .map_err(TeenyHFError::InvalidHeaderValue)?,
     );
 
     if let Some(token) = auth_token {
@@ -537,7 +533,7 @@ pub async fn download_specific_file(
             "Authorization",
             format!("Bearer {}", token)
                 .parse()
-                .map_err(DownloadError::InvalidHeaderValue)?,
+                .map_err(TeenyHFError::InvalidHeaderValue)?,
         );
     }
 
@@ -551,26 +547,26 @@ pub async fn download_specific_file(
         .headers(headers)
         .send()
         .await
-        .map_err(DownloadError::HttpError)?;
+        .map_err(TeenyHFError::HttpError)?;
 
     if !response.status().is_success() {
-        return Err(DownloadError::DownloadFailed {
+        return Err(TeenyHFError::DownloadFailed {
             file_path: file_path.to_string(),
             reason: format!("HTTP {}", response.status()),
         });
     }
 
-    let bytes = response.bytes().await.map_err(DownloadError::HttpError)?;
+    let bytes = response.bytes().await.map_err(TeenyHFError::HttpError)?;
 
     // Create parent directories if they don't exist
     if let Some(parent) = output_path.parent() {
         create_dir_all(parent)
             .await
-            .map_err(|e| DownloadError::IoError(io::Error::other(e)))?;
+            .map_err(|e| TeenyHFError::IoError(io::Error::other(e)))?;
     }
 
-    let mut file = File::create(output_path).map_err(DownloadError::IoError)?;
-    file.write_all(&bytes).map_err(DownloadError::IoError)?;
+    let mut file = File::create(output_path).map_err(TeenyHFError::IoError)?;
+    file.write_all(&bytes).map_err(TeenyHFError::IoError)?;
 
     println!("Downloaded: {} to {}", file_path, output_path.display());
     Ok(())
@@ -608,7 +604,7 @@ async fn download_file(
     headers: &reqwest::header::HeaderMap,
     config: &DownloadConfig,
     file: &HfFile,
-) -> DownloadResult<()> {
+) -> Result<()> {
     let file_path = &file.path;
 
     // Determine the download URL
@@ -635,7 +631,7 @@ async fn download_file(
     if let Some(parent) = local_path.parent() {
         create_dir_all(parent)
             .await
-            .map_err(|e| DownloadError::IoError(io::Error::other(e)))?;
+            .map_err(|e| TeenyHFError::IoError(io::Error::other(e)))?;
     }
 
     // Check if file already exists and has the correct size
@@ -658,10 +654,10 @@ async fn download_file(
         .headers(headers.clone())
         .send()
         .await
-        .map_err(DownloadError::HttpError)?;
+        .map_err(TeenyHFError::HttpError)?;
 
     if !response.status().is_success() {
-        return Err(DownloadError::DownloadFailed {
+        return Err(TeenyHFError::DownloadFailed {
             file_path: file_path.clone(),
             reason: format!("HTTP {}", response.status()),
         });
@@ -671,15 +667,15 @@ async fn download_file(
     let content_length = response.content_length();
 
     // Download and save the file
-    let bytes = response.bytes().await.map_err(DownloadError::HttpError)?;
+    let bytes = response.bytes().await.map_err(TeenyHFError::HttpError)?;
 
     // Write to file
-    let mut file = File::create(&local_path).map_err(DownloadError::IoError)?;
-    file.write_all(&bytes).map_err(DownloadError::IoError)?;
+    let mut file = File::create(&local_path).map_err(TeenyHFError::IoError)?;
+    file.write_all(&bytes).map_err(TeenyHFError::IoError)?;
 
     if let Some(expected_size) = content_length {
         if bytes.len() as u64 != expected_size {
-            return Err(DownloadError::DownloadFailed {
+            return Err(TeenyHFError::DownloadFailed {
                 file_path: file_path.clone(),
                 reason: format!(
                     "Size mismatch: expected {}, got {}",
@@ -695,7 +691,7 @@ async fn download_file(
 }
 
 /// Example usage of the Hugging Face downloader with progress tracking
-pub async fn example_usage_with_progress() -> DownloadResult<()> {
+pub async fn example_usage_with_progress() -> Result<()> {
     // Example: Download a complete model with progress tracking
     let config = DownloadConfig {
         model_id: "bert-base-uncased".to_string(),
@@ -716,4 +712,4 @@ pub async fn example_usage_with_progress() -> DownloadResult<()> {
     Ok(())
 }
 
-// pub async fn example_usage() -> DownloadResult<()> {
+// pub async fn example_usage() -> Result<()> {

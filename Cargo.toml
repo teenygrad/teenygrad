@@ -26,3 +26,4 @@ chrono = "0.4.41"
 clap = { version = "4.5.28", features = ["derive"] }
 minijinja = "2.10.2"
 minijinja-contrib = { version = "2.10.2", features = ["pycompat"] }
+tokenizers = "0.21.1"

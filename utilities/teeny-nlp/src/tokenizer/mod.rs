@@ -17,8 +17,6 @@
 
 use serde::{Deserialize, Serialize};
 
-pub mod tiktoken;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,

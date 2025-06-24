@@ -15,25 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_nlp::tokenizer::Tokenizer;
+use tokenizers::models::bpe::BPE;
+use tokenizers::tokenizer::Tokenizer;
 
 pub mod qwen2_tokenizer;
 pub mod tokenizer_config;
 
-use crate::tokenizer::{
-    qwen2_tokenizer::Qwen2Tokenizer,
-    tokenizer_config::{TokenizerClass, TokenizerConfig},
-};
+use crate::error::{Result, TeenyHFError};
 
-use crate::error::Result;
+pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
+    let vocab_file = format!("{}/{}/vocab.json", cache_dir, model_id);
+    let merges_file = format!("{}/{}/merges.txt", cache_dir, model_id);
+    let bpe_builder = BPE::from_file(&vocab_file, &merges_file);
 
-pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Box<dyn Tokenizer>> {
-    let config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
+    let bpe = bpe_builder.build().map_err(TeenyHFError::TokenizerError)?;
 
-    match config.tokenizer_class {
-        TokenizerClass::Qwen2Tokenizer => {
-            let tokenizer = Qwen2Tokenizer::new(model_id, cache_dir, config)?;
-            Ok(Box::new(tokenizer))
-        }
-    }
+    Ok(Tokenizer::new(bpe))
 }

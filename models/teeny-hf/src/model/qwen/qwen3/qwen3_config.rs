@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::str::FromStr;
 use std::{collections::HashMap, vec};
 
 use serde::{Deserialize, Serialize};
@@ -70,8 +71,12 @@ impl Qwen3Config {
 
         Ok(config)
     }
+}
 
-    pub fn from_str(config_str: &str) -> Result<Self> {
+impl FromStr for Qwen3Config {
+    type Err = TeenyHFError;
+
+    fn from_str(config_str: &str) -> Result<Self> {
         let mut config: Self =
             serde_json::from_str(config_str).map_err(TeenyHFError::ConfigParseError)?;
 

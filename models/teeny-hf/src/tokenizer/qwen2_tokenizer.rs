@@ -20,6 +20,7 @@ use teeny_nlp::tokenizer::{Message, Tokenizer};
 use crate::tokenizer::tokenizer_config::TokenizerConfig;
 
 use crate::error::Result;
+use crate::util::template;
 
 pub struct Qwen2Tokenizer {
     pub config: TokenizerConfig,
@@ -28,13 +29,13 @@ pub struct Qwen2Tokenizer {
 impl Tokenizer for Qwen2Tokenizer {
     fn apply_chat_template(
         &self,
-        _messages: &[Message],
-        _chat_template: &str,
+        messages: &[Message],
+        chat_template: &str,
         _tokenize: bool,
         _add_generation_prompt: bool,
         _enable_thinking: bool,
     ) -> String {
-        todo!()
+        template::apply_chat_template(chat_template, messages, &[])
     }
 
     fn encode(&self, _texts: &[String]) -> Vec<usize> {
