@@ -15,20 +15,40 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::{TeenyModel, nn::Linear};
+use teeny_torch::torch_nn_linear;
+
 use super::qwen3_config::Qwen3Config;
 
-use crate::{error::Result, model::Model};
+use crate::{
+    error::{Result, TeenyHFError},
+    model::qwen::qwen2::qwen2_model::Qwen2Model,
+};
 
-pub struct Qwen3ForCausalLM {}
-
-impl Model for Qwen3ForCausalLM {
-    fn generate(&self, _model_inputs: &[u32], _max_new_tokens: usize) -> Vec<u32> {
-        todo!()
-    }
+pub struct Qwen3ForCausalLM {
+    pub model: Qwen2Model,
+    pub vocab_size: usize,
+    pub lm_head: Box<dyn Linear>,
 }
 
 impl Qwen3ForCausalLM {
-    pub fn new(_model_id: &str, _cache_dir: &str, _config: Qwen3Config) -> Result<Self> {
-        Ok(Self {})
+    pub fn new(config: &Qwen3Config) -> Result<Self> {
+        Ok(Self {
+            model: Qwen2Model::new(config)?,
+            vocab_size: config.vocab_size,
+            lm_head: torch_nn_linear(),
+        })
+    }
+
+    pub fn generate(&self, model_inputs: &[u32], _max_new_tokens: usize) -> Result<Vec<u32>> {
+        self.forward(model_inputs)
+    }
+}
+
+impl TeenyModel for Qwen3ForCausalLM {
+    type Err = TeenyHFError;
+
+    fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>> {
+        self.model.forward(model_inputs)
     }
 }

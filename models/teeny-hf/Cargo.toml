@@ -21,5 +21,7 @@ clap.workspace = true
 minijinja.workspace = true
 minijinja-contrib.workspace = true
 tokenizers.workspace = true
+teeny-core = { path = "../../core/teeny-core" }
 teeny-nlp = { path = "../../utilities/teeny-nlp" }
 teeny-data = { path = "../../utilities/teeny-data" }
+teeny-torch = { path = "../../interop/teeny-torch" }

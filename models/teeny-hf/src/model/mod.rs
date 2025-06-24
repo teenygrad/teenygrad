@@ -17,23 +17,24 @@
 
 pub mod qwen;
 
-use crate::error::Result;
+use teeny_core::TeenyModel;
+
+use crate::error::{Result, TeenyHFError};
 
 use crate::{
     config::model_config::Architecture,
     model::qwen::qwen3::{qwen3_causal_llm::Qwen3ForCausalLM, qwen3_config::Qwen3Config},
 };
 
-pub trait Model {
-    fn generate(&self, model_inputs: &[u32], max_new_tokens: usize) -> Vec<u32>;
-}
-
-pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Box<dyn Model>> {
+pub fn from_pretrained(
+    model_id: &str,
+    cache_dir: &str,
+) -> Result<Box<dyn TeenyModel<Err = TeenyHFError>>> {
     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
     match config.architectures[0] {
         Architecture::Qwen3ForCausalLM => {
-            let model = Qwen3ForCausalLM::new(model_id, cache_dir, config)?;
+            let model = Qwen3ForCausalLM::new(&config)?;
             Ok(Box::new(model))
         }
     }

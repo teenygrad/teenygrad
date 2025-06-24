@@ -122,7 +122,7 @@ async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
         .map_err(TeenyHFError::TokenizerError)?;
     let model_inputs = encoded_inputs.get_ids();
     println!("model_inputs: {:?}", model_inputs);
-    let generated_ids = model.generate(model_inputs, 32768);
+    let generated_ids = model.forward(model_inputs)?;
 
     let thinking_content = tokenizer
         .decode(&generated_ids[..], false)

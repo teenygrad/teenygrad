@@ -15,11 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod nn;
-
-pub trait TeenyModel {
-    type Err;
-
-    fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>, Self::Err>;
-}
+pub trait Linear {}

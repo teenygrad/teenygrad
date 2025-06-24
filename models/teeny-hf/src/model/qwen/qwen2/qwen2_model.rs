@@ -15,11 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod nn;
+use teeny_core::TeenyModel;
 
-pub trait TeenyModel {
-    type Err;
+use crate::model::qwen::qwen3::qwen3_config::Qwen3Config;
 
-    fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>, Self::Err>;
+use crate::error::{Result, TeenyHFError};
+
+pub struct Qwen2Model {}
+
+impl Qwen2Model {
+    pub fn new(_config: &Qwen3Config) -> Result<Self> {
+        Ok(Self {})
+    }
+}
+
+impl TeenyModel for Qwen2Model {
+    type Err = TeenyHFError;
+
+    fn forward(&self, _model_inputs: &[u32]) -> Result<Vec<u32>> {
+        todo!()
+    }
 }

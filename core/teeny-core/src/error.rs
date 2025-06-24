@@ -15,11 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod nn;
+use thiserror::Error;
 
-pub trait TeenyModel {
-    type Err;
+pub type Result<T> = std::result::Result<T, TeenyError>;
 
-    fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>, Self::Err>;
-}
+#[derive(Error, Debug)]
+pub enum TeenyError {}

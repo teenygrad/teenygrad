@@ -2202,6 +2202,9 @@ dependencies = [
 [[package]]
 name = "teeny-core"
 version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.12",
+]
 
 [[package]]
 name = "teeny-cuda"
@@ -2233,8 +2236,10 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "teeny-core",
  "teeny-data",
  "teeny-nlp",
+ "teeny-torch",
  "thiserror 2.0.12",
  "tokenizers",
  "tokio",
@@ -2293,6 +2298,9 @@ dependencies = [
 [[package]]
 name = "teeny-torch"
 version = "0.1.0"
+dependencies = [
+ "teeny-core",
+]
 
 [[package]]
 name = "teeny-triton"
