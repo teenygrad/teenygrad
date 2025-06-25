@@ -10,4 +10,6 @@ license = "GPL v3"
 
 [dependencies]
 syn.workspace = true
+proc_macro2.workspace = true
+quote.workspace = true
 
