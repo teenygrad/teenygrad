@@ -20,12 +20,13 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use teeny_hf::{
     error::TeenyHFError,
-    model::{self, qwen::qwen3::qwen3_config::Qwen3Config},
-    tokenizer::{self, tokenizer_config::TokenizerConfig},
-    util::{
-        model::download::{DownloadConfig, default_progress_callback, download_model},
-        template,
+    transformer::{
+        self,
+        model::qwen::qwen3::qwen3_config::Qwen3Config,
+        tokenizer::{self, tokenizer_config::TokenizerConfig},
+        util::template,
     },
+    util::download::{DownloadConfig, default_progress_callback, download_model},
 };
 use teeny_nlp::tokenizer::Message;
 
@@ -110,7 +111,7 @@ async fn main() -> Result<()> {
 async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
     let tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
     let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
-    let model = model::from_pretrained(model_id, cache_dir)?;
+    let model = transformer::model::from_pretrained(model_id, cache_dir)?;
     let _config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
     let prompt = "Give me a short introduction to large language model.";

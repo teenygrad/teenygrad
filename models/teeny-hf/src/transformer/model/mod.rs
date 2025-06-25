@@ -15,24 +15,29 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::TeenyModel;
+pub mod qwen;
 
-use crate::model::qwen::qwen3::qwen3_config::Qwen3Config;
+use teeny_core::TeenyModule;
 
 use crate::error::{Result, TeenyHFError};
 
-pub struct Qwen2Model {}
+use crate::{
+    transformer::config::model_config::Architecture,
+    transformer::model::qwen::qwen3::{
+        qwen3_causal_llm::Qwen3ForCausalLM, qwen3_config::Qwen3Config,
+    },
+};
 
-impl Qwen2Model {
-    pub fn new(_config: &Qwen3Config) -> Result<Self> {
-        Ok(Self {})
-    }
-}
+pub fn from_pretrained(
+    model_id: &str,
+    cache_dir: &str,
+) -> Result<Box<dyn TeenyModule<Err = TeenyHFError>>> {
+    let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
-impl TeenyModel for Qwen2Model {
-    type Err = TeenyHFError;
-
-    fn forward(&self, _model_inputs: &[u32]) -> Result<Vec<u32>> {
-        todo!()
+    match config.architectures[0] {
+        Architecture::Qwen3ForCausalLM => {
+            let model = Qwen3ForCausalLM::new(&config)?;
+            Ok(Box::new(model))
+        }
     }
 }

@@ -40,13 +40,13 @@ pub enum TorchDtype {
     Bfloat16,
 }
 
-pub trait ModelConfig<'a> {
+pub trait IPretrainedConfig {
     fn architectures(&self) -> &[Architecture];
     fn attention_bias(&self) -> bool;
     fn attention_dropout(&self) -> f32;
     fn bos_token_id(&self) -> usize;
     fn eos_token_id(&self) -> usize;
-    fn head_dim(&self) -> usize;
+    fn head_dim(&self) -> Option<usize>;
     fn hidden_act(&self) -> HiddenAct;
     fn hidden_size(&self) -> usize;
     fn initializer_range(&self) -> f32;
@@ -67,4 +67,5 @@ pub trait ModelConfig<'a> {
     fn use_cache(&self) -> bool;
     fn use_sliding_window(&self) -> bool;
     fn vocab_size(&self) -> usize;
+    fn partial_rotary_factor(&self) -> Option<f32>;
 }

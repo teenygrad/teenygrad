@@ -20,9 +20,14 @@ use std::{collections::HashMap, vec};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::model_config::{Architecture, HiddenAct, ModelConfig, ModelType, TorchDtype};
+use crate::transformer::config::model_config::{
+    Architecture, HiddenAct, IPretrainedConfig, ModelType, TorchDtype,
+};
 
 use crate::error::{Result, TeenyHFError};
+use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
+
+pub trait IQwen3Config: IQwen2Config {}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Qwen3Config {
@@ -31,7 +36,8 @@ pub struct Qwen3Config {
     pub attention_dropout: f32,
     pub bos_token_id: usize,
     pub eos_token_id: usize,
-    pub head_dim: usize,
+    #[serde(default)]
+    pub head_dim: Option<usize>,
     pub hidden_act: HiddenAct,
     pub hidden_size: usize,
     pub initializer_range: f32,
@@ -61,6 +67,10 @@ pub struct Qwen3Config {
     pub base_model_pp_plan: HashMap<String, [Vec<String>; 2]>,
     #[serde(default)]
     pub layer_types: Vec<String>,
+    #[serde(default)]
+    pub pad_token_id: Option<usize>,
+    #[serde(default)]
+    pub partial_rotary_factor: Option<f32>,
 }
 
 impl Qwen3Config {
@@ -125,7 +135,19 @@ impl FromStr for Qwen3Config {
     }
 }
 
-impl<'a> ModelConfig<'a> for Qwen3Config {
+impl IQwen3Config for Qwen3Config {}
+
+impl IQwen2Config for Qwen3Config {
+    fn pad_token_id(&self) -> Option<usize> {
+        self.pad_token_id
+    }
+
+    fn layer_types(&self) -> &[String] {
+        &self.layer_types
+    }
+}
+
+impl IPretrainedConfig for Qwen3Config {
     fn architectures(&self) -> &[Architecture] {
         &self.architectures
     }
@@ -146,7 +168,7 @@ impl<'a> ModelConfig<'a> for Qwen3Config {
         self.eos_token_id
     }
 
-    fn head_dim(&self) -> usize {
+    fn head_dim(&self) -> Option<usize> {
         self.head_dim
     }
 
@@ -228,6 +250,10 @@ impl<'a> ModelConfig<'a> for Qwen3Config {
 
     fn vocab_size(&self) -> usize {
         self.vocab_size
+    }
+
+    fn partial_rotary_factor(&self) -> Option<f32> {
+        self.partial_rotary_factor
     }
 }
 

@@ -14,32 +14,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-/// A type to represent u8 data type
-pub type U8 = u8;
 
-/// A type to represent int data type
-pub type Int = i32;
-
-/// A type to represent f32 data type
-pub type F32 = f32;
-
-/// Trait for numeric types that can be used in tensors
-pub trait NumericType {
-    type RustType;
-}
-
-impl NumericType for U8 {
-    type RustType = u8;
-}
-
-impl NumericType for F32 {
-    type RustType = f32;
-}
-
-impl NumericType for Int {
-    type RustType = isize;
-}
-
-impl NumericType for usize {
-    type RustType = usize;
-}
+pub mod config;
+pub mod model;
+pub mod tokenizer;
+pub mod util;

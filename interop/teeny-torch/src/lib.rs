@@ -15,8 +15,28 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::nn::Linear;
+use teeny_core::nn::{Embedding, Linear};
+use teeny_triton::{
+    tensor::{DenseTensor, DynamicShape},
+    types::F32,
+};
 
 pub fn torch_nn_linear() -> Box<dyn Linear> {
+    todo!()
+}
+
+pub fn torch_nn_embedding(
+    _vocab_size: usize,
+    _hidden_size: usize,
+    _padding_idx: Option<usize>,
+) -> Box<dyn Embedding> {
+    todo!()
+}
+
+pub fn torch_ones(_shape: &[usize]) -> DenseTensor<DynamicShape, F32> {
+    todo!()
+}
+
+pub fn torch_arange(_start: f32, _end: f32, _step: f32) -> DenseTensor<DynamicShape, F32> {
     todo!()
 }

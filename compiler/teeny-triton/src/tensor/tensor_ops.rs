@@ -16,7 +16,7 @@
  */
 
 use crate::{
-    tensor::{DenseTensor, DynamicShape},
+    tensor::{DenseTensor, DynamicShape, Shape, Tensor},
     types::NumericType,
 };
 
@@ -31,5 +31,13 @@ pub fn empty<T: NumericType>(_shape: &[usize]) -> DenseTensor<DynamicShape, T> {
 }
 
 pub fn cdiv(_a: usize, _b: usize) -> usize {
+    unimplemented!()
+}
+
+pub fn exponential<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
+    unimplemented!()
+}
+
+pub fn inverse<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
     unimplemented!()
 }

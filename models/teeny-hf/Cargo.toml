@@ -25,3 +25,4 @@ teeny-core = { path = "../../core/teeny-core" }
 teeny-nlp = { path = "../../utilities/teeny-nlp" }
 teeny-data = { path = "../../utilities/teeny-data" }
 teeny-torch = { path = "../../interop/teeny-torch" }
+teeny-triton = { path = "../../compiler/teeny-triton" }

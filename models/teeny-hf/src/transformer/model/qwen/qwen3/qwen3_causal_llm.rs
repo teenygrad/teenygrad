@@ -15,14 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::{TeenyModel, nn::Linear};
+use teeny_core::{TeenyModule, nn::Linear};
 use teeny_torch::torch_nn_linear;
 
 use super::qwen3_config::Qwen3Config;
 
 use crate::{
     error::{Result, TeenyHFError},
-    model::qwen::qwen2::qwen2_model::Qwen2Model,
+    transformer::model::qwen::qwen2::qwen2_model::Qwen2Model,
 };
 
 pub struct Qwen3ForCausalLM {
@@ -45,7 +45,7 @@ impl Qwen3ForCausalLM {
     }
 }
 
-impl TeenyModel for Qwen3ForCausalLM {
+impl TeenyModule for Qwen3ForCausalLM {
     type Err = TeenyHFError;
 
     fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>> {

@@ -16,3 +16,7 @@
  */
 
 pub trait Linear {}
+
+pub trait Embedding {}
+
+pub trait Parameter {}

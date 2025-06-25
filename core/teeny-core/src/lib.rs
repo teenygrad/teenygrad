@@ -18,7 +18,7 @@
 pub mod error;
 pub mod nn;
 
-pub trait TeenyModel {
+pub trait TeenyModule {
     type Err;
 
     fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>, Self::Err>;

@@ -2240,6 +2240,7 @@ dependencies = [
  "teeny-data",
  "teeny-nlp",
  "teeny-torch",
+ "teeny-triton",
  "thiserror 2.0.12",
  "tokenizers",
  "tokio",
@@ -2300,6 +2301,7 @@ name = "teeny-torch"
 version = "0.1.0"
 dependencies = [
  "teeny-core",
+ "teeny-triton",
 ]
 
 [[package]]

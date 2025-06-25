@@ -17,10 +17,10 @@
 
 use teeny_nlp::tokenizer::{Message, Tokenizer};
 
-use crate::tokenizer::tokenizer_config::TokenizerConfig;
+use crate::transformer::tokenizer::tokenizer_config::TokenizerConfig;
 
 use crate::error::Result;
-use crate::util::template;
+use crate::transformer::util::template;
 
 pub struct Qwen2Tokenizer {
     pub config: TokenizerConfig,

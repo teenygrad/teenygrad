@@ -15,27 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod qwen;
+use tokenizers::models::bpe::BPE;
+use tokenizers::tokenizer::Tokenizer;
 
-use teeny_core::TeenyModel;
-
-use crate::error::{Result, TeenyHFError};
+pub mod qwen2_tokenizer;
+pub mod tokenizer_config;
 
 use crate::{
-    config::model_config::Architecture,
-    model::qwen::qwen3::{qwen3_causal_llm::Qwen3ForCausalLM, qwen3_config::Qwen3Config},
+    error::{Result, TeenyHFError},
+    transformer::tokenizer::tokenizer_config::TokenizerConfig,
 };
 
-pub fn from_pretrained(
-    model_id: &str,
-    cache_dir: &str,
-) -> Result<Box<dyn TeenyModel<Err = TeenyHFError>>> {
-    let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
+pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
+    let _tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
+    let vocab_file = format!("{}/{}/vocab.json", cache_dir, model_id);
+    let merges_file = format!("{}/{}/merges.txt", cache_dir, model_id);
+    let bpe_builder = BPE::from_file(&vocab_file, &merges_file);
 
-    match config.architectures[0] {
-        Architecture::Qwen3ForCausalLM => {
-            let model = Qwen3ForCausalLM::new(&config)?;
-            Ok(Box::new(model))
-        }
-    }
+    let bpe = bpe_builder.build().map_err(TeenyHFError::TokenizerError)?;
+
+    Ok(Tokenizer::new(bpe))
 }

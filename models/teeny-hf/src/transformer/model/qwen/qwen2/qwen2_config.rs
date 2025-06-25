@@ -15,24 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use tokenizers::models::bpe::BPE;
-use tokenizers::tokenizer::Tokenizer;
+use crate::transformer::config::model_config::IPretrainedConfig;
 
-pub mod qwen2_tokenizer;
-pub mod tokenizer_config;
-
-use crate::{
-    error::{Result, TeenyHFError},
-    tokenizer::tokenizer_config::TokenizerConfig,
-};
-
-pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
-    let _tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
-    let vocab_file = format!("{}/{}/vocab.json", cache_dir, model_id);
-    let merges_file = format!("{}/{}/merges.txt", cache_dir, model_id);
-    let bpe_builder = BPE::from_file(&vocab_file, &merges_file);
-
-    let bpe = bpe_builder.build().map_err(TeenyHFError::TokenizerError)?;
-
-    Ok(Tokenizer::new(bpe))
+pub trait IQwen2Config: IPretrainedConfig {
+    fn pad_token_id(&self) -> Option<usize>;
+    fn layer_types(&self) -> &[String];
 }

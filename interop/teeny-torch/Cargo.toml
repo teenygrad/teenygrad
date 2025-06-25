@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
+teeny-triton = { path = "../../compiler/teeny-triton" }
