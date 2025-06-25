@@ -36,7 +36,7 @@ impl Qwen3ForCausalLM {
         Ok(Self {
             model: Qwen2Model::new(config)?,
             vocab_size: config.vocab_size,
-            lm_head: torch_nn_linear(),
+            lm_head: torch_nn_linear(config.hidden_size, config.vocab_size, false),
         })
     }
 

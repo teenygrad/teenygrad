@@ -16,11 +16,12 @@
  */
 
 use teeny_core::TeenyModule;
-use teeny_core::nn::Embedding;
-use teeny_torch::{torch_nn_embedding, torch_ones};
+use teeny_core::nn::{Embedding, Linear};
+use teeny_torch::{torch_nn_embedding, torch_nn_linear, torch_ones};
 use teeny_triton::tensor::{DenseTensor, DynamicShape};
 use teeny_triton::types::F32;
 
+use crate::transformer::activations::get_activation;
 use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
 
 use crate::error::{Result, TeenyHFError};
@@ -71,21 +72,25 @@ impl TeenyModule for Qwen2Model {
 
 pub struct Qwen2DecoderLayer {
     pub hidden_size: usize,
+    pub self_attn: Qwen2Attention,
+    pub mlp: Qwen2MLP,
+    pub input_layernorm: Qwen2RMSNorm,
+    pub post_attention_layernorm: Qwen2RMSNorm,
+    pub attention_type: String,
 }
 
 impl Qwen2DecoderLayer {
-    pub fn new(_config: &impl IQwen2Config, layer_idx: usize) -> Self {
-        //    super().__init__()
-        //     self.hidden_size = config.hidden_size
-
-        //     self.self_attn = Qwen2Attention(config=config, layer_idx=layer_idx)
-
-        //     self.mlp = Qwen2MLP(config)
-        //     self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        //     self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        //     self.attention_type = config.layer_types[layer_idx]
+    pub fn new(config: &impl IQwen2Config, layer_idx: usize) -> Self {
         Self {
-            hidden_size: _config.hidden_size(),
+            hidden_size: config.hidden_size(),
+            self_attn: Qwen2Attention::new(config, layer_idx),
+            mlp: Qwen2MLP::new(config),
+            input_layernorm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
+            post_attention_layernorm: Qwen2RMSNorm::new(
+                config.hidden_size(),
+                config.rms_norm_eps(),
+            ),
+            attention_type: config.layer_types()[layer_idx].clone(),
         }
     }
 }
@@ -148,10 +153,83 @@ impl TeenyModule for Qwen2RotaryEmbedding {
     }
 }
 
-pub struct Qwen2Attention {}
+pub struct Qwen2Attention {
+    pub layer_idx: usize,
+    pub head_dim: usize,
+    pub num_key_value_groups: usize,
+    pub scaling: f32,
+    pub attention_dropout: f32,
+    pub is_causal: bool,
+    pub q_proj: Box<dyn Linear>,
+    pub k_proj: Box<dyn Linear>,
+    pub v_proj: Box<dyn Linear>,
+    pub o_proj: Box<dyn Linear>,
+    pub sliding_window: Option<f32>,
+}
 
 impl Qwen2Attention {
-    pub fn new(_config: &impl IQwen2Config, _layer_idx: usize) -> Self {
+    pub fn new(config: &impl IQwen2Config, layer_idx: usize) -> Self {
+        assert!(config.num_key_value_heads().is_some());
+
+        let num_key_value_heads = config.num_key_value_heads().unwrap();
+        let head_dim = config
+            .head_dim()
+            .unwrap_or(config.hidden_size() / config.num_attention_heads());
+
+        Self {
+            layer_idx,
+            head_dim,
+            num_key_value_groups: config.num_attention_heads() / num_key_value_heads,
+            scaling: (head_dim as f32).powf(-0.5),
+            attention_dropout: config.attention_dropout(),
+            is_causal: true,
+            q_proj: torch_nn_linear(
+                config.hidden_size(),
+                config.num_attention_heads() * head_dim,
+                true,
+            ),
+            k_proj: torch_nn_linear(config.hidden_size(), num_key_value_heads * head_dim, true),
+            v_proj: torch_nn_linear(config.hidden_size(), num_key_value_heads * head_dim, true),
+            o_proj: torch_nn_linear(
+                config.num_attention_heads() * head_dim,
+                config.hidden_size(),
+                false,
+            ),
+            sliding_window: if config.layer_types()[layer_idx] == "sliding_attention" {
+                config.sliding_window()
+            } else {
+                None
+            },
+        }
+    }
+}
+
+pub struct Qwen2MLP {
+    pub hidden_size: usize,
+    pub intermediate_size: usize,
+    pub gate_proj: Box<dyn Linear>,
+    pub up_proj: Box<dyn Linear>,
+    pub down_proj: Box<dyn Linear>,
+    pub act_fn: Box<dyn TeenyModule<Err = TeenyHFError>>,
+}
+
+impl Qwen2MLP {
+    pub fn new(config: &impl IQwen2Config) -> Self {
+        Self {
+            hidden_size: config.hidden_size(),
+            intermediate_size: config.intermediate_size(),
+            gate_proj: torch_nn_linear(config.hidden_size(), config.intermediate_size(), false),
+            up_proj: torch_nn_linear(config.hidden_size(), config.intermediate_size(), false),
+            down_proj: torch_nn_linear(config.intermediate_size(), config.hidden_size(), false),
+            act_fn: get_activation(config.hidden_act()),
+        }
+    }
+}
+
+impl TeenyModule for Qwen2MLP {
+    type Err = TeenyHFError;
+
+    fn forward(&self, _model_inputs: &[u32]) -> std::result::Result<Vec<u32>, Self::Err> {
         todo!()
     }
 }

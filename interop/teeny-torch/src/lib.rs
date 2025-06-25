@@ -21,7 +21,7 @@ use teeny_triton::{
     types::F32,
 };
 
-pub fn torch_nn_linear() -> Box<dyn Linear> {
+pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> Box<dyn Linear> {
     todo!()
 }
 
