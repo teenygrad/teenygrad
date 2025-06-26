@@ -36,6 +36,10 @@ pub trait Tensor<S: Shape> {
         unimplemented!("not implemented")
     }
 
+    fn reshape(&self, _shape: &[isize]) -> Box<dyn Tensor<S, Element = Self::Element>> {
+        unimplemented!("not implemented")
+    }
+
     // Get the shape of the tensor at the given index
     fn shape_of(&self, _index: isize) -> usize {
         unimplemented!("not implemented")
@@ -157,5 +161,15 @@ where
         // This is just a placeholder
         //
         todo!("Implement addition")
+    }
+}
+
+pub trait Reshape<S: Shape> {
+    fn reshape(&self, shape: &[usize]) -> Self;
+}
+
+impl<S: Shape, T: NumericType> Reshape<S> for DenseTensor<S, T> {
+    fn reshape(&self, shape: &[usize]) -> Self {
+        todo!("Implement reshape")
     }
 }

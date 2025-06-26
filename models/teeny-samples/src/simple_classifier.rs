@@ -31,13 +31,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     #[allow(non_snake_case)]
     let _X = teeny_core::tensor::from_ndarray::<_, f32>(&x).unwrap();
-    let _y = teeny_core::tensor::from_ndarray::<_, f32>(&y).unwrap();
-
-    // let X = teeny_core::tensor(x);
-    // let y = teeny_core::tensor(y);
-
-    // println!("X: {:?}", X);
-    // println!("y: {:?}", y);
+    let _y = teeny_core::tensor::from_ndarray::<_, f32>(&y)
+        .unwrap()
+        .reshape(&[-1, 1]);
 
     Ok(())
 }

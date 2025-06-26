@@ -17,7 +17,6 @@
 
 use crate::{
     device::{Device, get_current_device},
-    error::TeenyError,
     tensor::{DenseTensor, DynamicShape, Shape, Tensor},
     types::NumericType,
 };
@@ -43,6 +42,7 @@ pub fn exp<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
 pub fn inv<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
     unimplemented!()
 }
+
 pub fn from_ndarray<S: ndarray::Dimension, T: NumericType + 'static>(
     arr: &ndarray::ArrayBase<ndarray::ViewRepr<&T::RustType>, S>,
 ) -> crate::error::Result<Box<dyn Tensor<DynamicShape, Element = T> + Send + Sync>>
