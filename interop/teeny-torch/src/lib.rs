@@ -16,10 +16,8 @@
  */
 
 use teeny_core::nn::{Embedding, Linear};
-use teeny_triton::{
-    tensor::{DenseTensor, DynamicShape},
-    types::F32,
-};
+use teeny_core::tensor::{DenseTensor, DynamicShape};
+use teeny_core::types::F32;
 
 pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> Box<dyn Linear> {
     todo!()

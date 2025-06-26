@@ -17,9 +17,9 @@
 
 use teeny_core::TeenyModule;
 use teeny_core::nn::{Embedding, Linear};
+use teeny_core::tensor::{DenseTensor, DynamicShape};
+use teeny_core::types::F32;
 use teeny_torch::{torch_nn_embedding, torch_nn_linear, torch_ones};
-use teeny_triton::tensor::{DenseTensor, DynamicShape};
-use teeny_triton::types::F32;
 
 use crate::transformer::activations::get_activation;
 use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;

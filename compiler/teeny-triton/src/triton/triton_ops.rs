@@ -17,7 +17,7 @@
 
 use std::{fmt::Display, ops::Div};
 
-use crate::{
+use teeny_core::{
     tensor::{DenseTensor, DynamicShape, Shape},
     types::NumericType,
 };

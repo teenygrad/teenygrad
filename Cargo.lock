@@ -2275,6 +2275,8 @@ dependencies = [
 name = "teeny-core"
 version = "0.1.0"
 dependencies = [
+ "ndarray",
+ "once_cell",
  "thiserror 2.0.12",
 ]
 
@@ -2321,7 +2323,9 @@ dependencies = [
 name = "teeny-kernels"
 version = "0.1.0"
 dependencies = [
+ "teeny-core",
  "teeny-macros",
+ "teeny-torch",
  "teeny-triton",
 ]
 
@@ -2393,6 +2397,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+ "teeny-core",
 ]
 
 [[package]]

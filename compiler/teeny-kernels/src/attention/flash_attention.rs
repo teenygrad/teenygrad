@@ -15,11 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::tensor::{self, DenseTensor, DynamicShape, Tensor};
 use teeny_macros::kernel;
-use teeny_triton::{
-    tensor::{self, DenseTensor, DynamicShape, Tensor},
-    triton::{self, ConstExpr},
-};
+use teeny_triton::triton::{self, ConstExpr};
 
 #[allow(non_snake_case)]
 #[allow(clippy::too_many_arguments)]

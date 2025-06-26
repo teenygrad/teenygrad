@@ -26,8 +26,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .unwrap();
 
-    let _x = dataset.slice(s![.., ..8]);
-    let _y = dataset.slice(s![.., 8]);
+    let x = dataset.slice(s![.., ..8]);
+    let y = dataset.slice(s![.., 8]);
+
+    #[allow(non_snake_case)]
+    let _X = teeny_core::tensor::from_ndarray::<_, f32>(&x).unwrap();
+    let _y = teeny_core::tensor::from_ndarray::<_, f32>(&y).unwrap();
 
     // let X = teeny_core::tensor(x);
     // let y = teeny_core::tensor(y);

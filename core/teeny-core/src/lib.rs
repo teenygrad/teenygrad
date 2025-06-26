@@ -15,8 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod device;
 pub mod error;
 pub mod nn;
+pub mod tensor;
+pub mod types;
 
 pub trait TeenyModule {
     type Err;

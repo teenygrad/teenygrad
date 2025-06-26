@@ -16,6 +16,4 @@
  */
 
 pub mod ast;
-pub mod tensor;
 pub mod triton;
-pub mod types;

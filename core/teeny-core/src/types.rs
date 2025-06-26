@@ -14,30 +14,32 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+/// A type to represent u8 data type
+pub type U8 = u8;
 
-use crate::{
-    tensor::{DenseTensor, DynamicShape, Shape, Tensor},
-    types::NumericType,
-};
+/// A type to represent int data type
+pub type Int = i32;
 
-pub fn empty_like<T: NumericType>(
-    _tensor: &DenseTensor<DynamicShape, T>,
-) -> DenseTensor<DynamicShape, T> {
-    unimplemented!()
+/// A type to represent f32 data type
+pub type F32 = f32;
+
+/// Trait for numeric types that can be used in tensors
+pub trait NumericType {
+    type RustType: Send + Sync + Clone + 'static;
 }
 
-pub fn empty<T: NumericType>(_shape: &[usize]) -> DenseTensor<DynamicShape, T> {
-    unimplemented!()
+impl NumericType for U8 {
+    type RustType = u8;
 }
 
-pub fn cdiv(_a: usize, _b: usize) -> usize {
-    unimplemented!()
+impl NumericType for F32 {
+    type RustType = f32;
 }
 
-pub fn exponential<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
-    unimplemented!()
+impl NumericType for Int {
+    type RustType = isize;
 }
 
-pub fn inverse<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
-    unimplemented!()
+impl NumericType for usize {
+    type RustType = usize;
 }

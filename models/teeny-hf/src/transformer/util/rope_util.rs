@@ -15,9 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::tensor::{DenseTensor, DynamicShape, exp, inv};
+use teeny_core::types::F32;
 use teeny_torch::torch_arange;
-use teeny_triton::tensor::{DenseTensor, DynamicShape, exponential, inverse};
-use teeny_triton::types::F32;
 
 use crate::transformer::config::model_config::IPretrainedConfig;
 
@@ -33,9 +33,9 @@ pub fn compute_default_rope_parameters(
 
     let attention_factor = 1.0; // Unused in this type of RoPE
 
-    let inv_freq = inverse(
+    let inv_freq = inv(
         1.0,
-        exponential(base as F32, torch_arange(0.0, dim, 2.0) / (dim as F32)),
+        exp(base as F32, torch_arange(0.0, dim, 2.0) / (dim as F32)),
     );
 
     (inv_freq, attention_factor)
