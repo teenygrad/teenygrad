@@ -18,7 +18,7 @@
 use std::ops::Div;
 
 use crate::{
-    tensor::{DenseTensor, DynamicShape, Shape, Tensor},
+    tensor::{DenseTensor, DynamicShape},
     types::NumericType,
 };
 

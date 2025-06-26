@@ -1,0 +1,18 @@
+[package]
+name = "teeny-samples"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "teeny_samples"
+path = "src/main.rs"
+
+[lib]
+name = "teeny_samples"
+path = "src/lib.rs"
+
+[dependencies]
+clap.workspace = true
+tokio.workspace = true
+ndarray.workspace = true
+teeny-data = { path = "../../utilities/teeny-data" }

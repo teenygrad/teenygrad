@@ -15,5 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod dataset;
-pub mod error;
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, TeenyDataError>;
+
+#[derive(Error, Debug)]
+pub enum TeenyDataError {
+    #[error("Failed to download CSV: {0}")]
+    DownloadError(#[from] reqwest::Error),
+
+    #[error("Failed to parse CSV: {0}")]
+    ParseError(#[from] csv::Error),
+
+    #[error("Failed to convert to ndarray: {0}")]
+    ArrayError(#[from] ndarray::ShapeError),
+
+    #[error("Failed to parse value: {0}")]
+    ParseValueError(String),
+}
