@@ -15,11 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 
 use crate::{
     nn::module::ForwardModule,
-    tensor::{self, Add, Shape, Tensor},
+    tensor::{self, Shape, Tensor},
     types::NumericType,
 };
 
@@ -41,18 +41,19 @@ impl<S: Shape, T: NumericType> Linear<S, T> {
     }
 }
 
-impl<'a, S: Shape + 'static, T: NumericType + 'static, U, V> ForwardModule<U, V> for Linear<S, T>
-where
-    U: Tensor<S, Element = T>
-        + Mul<&'a dyn Tensor<S, Element = T>, Output = Box<dyn Tensor<S, Element = T>>>
-        + Add<&'a dyn Tensor<S, Element = T>, Output = Box<dyn Tensor<S, Element = T>>>,
-    V: Tensor<S, Element = T>
-        + Add<&'a dyn Tensor<S, Element = T>, Output = Box<dyn Tensor<S, Element = T>>>,
+impl<S: Shape, T: NumericType>
+    ForwardModule<Box<dyn Tensor<S, Element = T>>, Box<dyn Tensor<S, Element = T>>>
+    for Linear<S, T>
 {
-    fn forward(&self, input: U) -> V {
-        let output: Box<dyn Tensor<S, Element = T>> = input * self.weight.as_ref();
-        if let Some(bias) = self.bias {
-            bias.as_ref() + output.as_ref()
+    fn forward(&self, input: Box<dyn Tensor<S, Element = T>>) -> Box<dyn Tensor<S, Element = T>> {
+        // Perform matrix multiplication: input @ weight
+        // For now, we'll use element-wise multiplication as a placeholder
+        // In a real implementation, you'd need proper matrix multiplication
+        let output = input * self.weight.clone();
+
+        // Add bias if present
+        if let Some(ref bias) = self.bias {
+            output + bias.clone()
         } else {
             output
         }

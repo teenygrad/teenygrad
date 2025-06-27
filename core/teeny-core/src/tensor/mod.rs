@@ -74,6 +74,15 @@ pub struct DenseTensor<S: Shape, T: NumericType> {
     pub data: Vec<T::RustType>,
 }
 
+impl<S: Shape, T: NumericType> Clone for DenseTensor<S, T> {
+    fn clone(&self) -> Self {
+        Self {
+            shape: self.shape.clone(),
+            data: self.data.clone(),
+        }
+    }
+}
+
 impl<S: Shape, T: NumericType> DenseTensor<S, T> {
     pub fn new(data: Vec<T::RustType>, shape: S::Dims) -> Self {
         Self { data, shape }
