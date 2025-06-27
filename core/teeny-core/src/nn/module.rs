@@ -14,20 +14,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-pub mod linear;
-pub mod module;
-
-pub use linear::Linear;
-
-// pub trait Module<S, T> {
-//     fn forward(&self, input: S) -> T;
-// }
-
-// pub struct Sequential {}
-
-// pub struct Linear {}
-
-// pub struct ReLU {}
-
-// pub struct Sigmoid {}
+pub trait ForwardModule<S, T> {
+    fn forward(&self, input: S) -> T;
+}

@@ -15,8 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::types::NumericType;
+use crate::{device::Device, types::NumericType};
 
+pub mod example;
 pub mod shape;
 pub mod tensor_add;
 pub mod tensor_div;
@@ -26,6 +27,10 @@ pub mod tensor_sub;
 
 pub use shape::*;
 pub use tensor_ops::*;
+
+pub enum TensorExpr<'a, S: Shape, T: NumericType> {
+    Reshape(Box<dyn Tensor<S, Element = T> + 'a>, &'a [isize]),
+}
 
 /// The Tensor trait now takes a shape parameter
 pub trait Tensor<S: Shape> {
@@ -52,6 +57,14 @@ pub trait Tensor<S: Shape> {
     /// Get the rank of the tensor
     fn rank(&self) -> usize {
         S::RANK
+    }
+
+    fn device(&self) -> Device {
+        unimplemented!("not implemented")
+    }
+
+    fn to_device(&self, _device: Device) -> Box<dyn Tensor<S, Element = Self::Element>> {
+        unimplemented!("not implemented")
     }
 }
 
@@ -138,38 +151,12 @@ impl<S: Shape> BroadcastShape<S> for S {
     type Output = S;
 }
 
-// Example of how to use broadcasting in operations
-pub trait Add<Rhs> {
-    type Output;
-    fn add(self, rhs: Rhs) -> Self::Output;
-}
-
-impl<S1: Shape, S2: Shape, T: NumericType> Add<DenseTensor<S2, T>> for DenseTensor<S1, T>
-where
-    S1: BroadcastShape<S2>,
-    S2: BroadcastShape<S1>,
-    <S1 as BroadcastShape<S2>>::Output: Shape,
-    T::RustType: Clone + std::ops::Add<Output = T::RustType>,
-{
-    type Output = DenseTensor<<S1 as BroadcastShape<S2>>::Output, T>;
-
-    fn add(self, _rhs: DenseTensor<S2, T>) -> Self::Output {
-        // Broadcast both tensors to the same shape and then add
-        let _broadcasted_self = self.broadcast_to();
-
-        // In a real implementation, you'd need to handle the actual addition
-        // This is just a placeholder
-        //
-        todo!("Implement addition")
-    }
-}
-
 pub trait Reshape<S: Shape> {
     fn reshape(&self, shape: &[usize]) -> Self;
 }
 
 impl<S: Shape, T: NumericType> Reshape<S> for DenseTensor<S, T> {
-    fn reshape(&self, shape: &[usize]) -> Self {
+    fn reshape(&self, _shape: &[usize]) -> Self {
         todo!("Implement reshape")
     }
 }

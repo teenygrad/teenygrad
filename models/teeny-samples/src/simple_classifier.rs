@@ -18,6 +18,25 @@
 use ndarray::s;
 use teeny_data::dataset::loader::load_csv;
 
+// pub struct SimpleClassifier {
+//     model: nn::Sequential,
+// }
+
+// impl SimpleClassifier {
+//     pub fn new() -> Self {
+//         Self {
+//             model: nn::Sequential::new([
+//                 nn::Linear::new(8, 12),
+//                 nn::ReLU::new(),
+//                 nn::Linear::new(12, 8),
+//                 nn::ReLU::new(),
+//                 nn::Linear::new(8, 1),
+//                 nn::Sigmoid::new(),
+//             ]),
+//         }
+//     }
+// }
+
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let dataset = load_csv::<f32>(
         "https://raw.githubusercontent.com/teenygrad/data/main/pima-indians-diabetes/diabetes.csv",

@@ -43,6 +43,10 @@ pub fn inv<S: Shape, T: Tensor<S>>(_a: f32, _b: T) -> T {
     unimplemented!()
 }
 
+pub fn zeros<S: Shape, T: NumericType>(_shape: &[usize]) -> Box<dyn Tensor<S, Element = T>> {
+    unimplemented!()
+}
+
 pub fn from_ndarray<S: ndarray::Dimension, T: NumericType + 'static>(
     arr: &ndarray::ArrayBase<ndarray::ViewRepr<&T::RustType>, S>,
 ) -> crate::error::Result<Box<dyn Tensor<DynamicShape, Element = T> + Send + Sync>>
