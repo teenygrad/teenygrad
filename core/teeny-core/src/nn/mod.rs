@@ -15,19 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod embedding;
 pub mod linear;
 pub mod module;
 
+pub use embedding::Embedding;
 pub use linear::Linear;
-
-// pub trait Module<S, T> {
-//     fn forward(&self, input: S) -> T;
-// }
-
-// pub struct Sequential {}
-
-// pub struct Linear {}
-
-// pub struct ReLU {}
-
-// pub struct Sigmoid {}

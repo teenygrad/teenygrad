@@ -25,7 +25,7 @@ pub type F32 = f32;
 
 /// Trait for numeric types that can be used in tensors
 pub trait NumericType {
-    type RustType: Send + Sync + Clone + 'static;
+    type RustType: Send + Sync + Clone + Copy + 'static;
 }
 
 impl NumericType for U8 {

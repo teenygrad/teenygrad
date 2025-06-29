@@ -15,28 +15,28 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::tensor::{DenseTensor, DynamicShape, exp, inv};
-use teeny_core::types::F32;
-use teeny_torch::torch_arange;
+// use teeny_core::tensor::{DenseTensor, DynamicShape, exp, inv};
+// use teeny_core::types::F32;
+// use teeny_torch::torch_arange;
 
-use crate::transformer::config::model_config::IPretrainedConfig;
+// use crate::transformer::config::model_config::IPretrainedConfig;
 
-pub fn compute_default_rope_parameters(
-    config: &impl IPretrainedConfig,
-) -> (DenseTensor<DynamicShape, F32>, f32) {
-    let base = config.rope_theta();
-    let partial_rotary_factor = config.partial_rotary_factor().unwrap_or(1.0);
-    let head_dim = config
-        .head_dim()
-        .unwrap_or(config.hidden_size() / config.num_attention_heads());
-    let dim = head_dim as f32 * partial_rotary_factor;
+// pub fn compute_default_rope_parameters(
+//     config: &impl IPretrainedConfig,
+// ) -> (DenseTensor<DynamicShape, F32>, f32) {
+//     let base = config.rope_theta();
+//     let partial_rotary_factor = config.partial_rotary_factor().unwrap_or(1.0);
+//     let head_dim = config
+//         .head_dim()
+//         .unwrap_or(config.hidden_size() / config.num_attention_heads());
+//     let dim = head_dim as f32 * partial_rotary_factor;
 
-    let attention_factor = 1.0; // Unused in this type of RoPE
+//     let attention_factor = 1.0; // Unused in this type of RoPE
 
-    let inv_freq = inv(
-        1.0,
-        exp(base as F32, torch_arange(0.0, dim, 2.0) / (dim as F32)),
-    );
+//     let inv_freq = inv(
+//         1.0,
+//         exp(base as F32, torch_arange(0.0, dim, 2.0) / (dim as F32)),
+//     );
 
-    (inv_freq, attention_factor)
-}
+//     (inv_freq, attention_factor)
+// }

@@ -16,10 +16,9 @@
  */
 
 use teeny_core::nn::{Embedding, Linear};
-use teeny_core::tensor::{DenseTensor, DynamicShape};
-use teeny_core::types::F32;
+use teeny_core::tensor::Tensor;
 
-pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> Box<dyn Linear> {
+pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> Linear {
     todo!()
 }
 
@@ -27,14 +26,14 @@ pub fn torch_nn_embedding(
     _vocab_size: usize,
     _hidden_size: usize,
     _padding_idx: Option<usize>,
-) -> Box<dyn Embedding> {
+) -> Embedding {
     todo!()
 }
 
-pub fn torch_ones(_shape: &[usize]) -> DenseTensor<DynamicShape, F32> {
+pub fn torch_ones(_shape: &[usize]) -> Tensor {
     todo!()
 }
 
-pub fn torch_arange(_start: f32, _end: f32, _step: f32) -> DenseTensor<DynamicShape, F32> {
+pub fn torch_arange(_start: f32, _end: f32, _step: f32) -> Tensor {
     todo!()
 }

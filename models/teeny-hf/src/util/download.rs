@@ -75,6 +75,7 @@ pub type ProgressCallbackFn = fn(&DownloadProgress);
 
 /// Represents a file in a Hugging Face model repository
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct HfFile {
     #[serde(rename = "type")]
     file_type: String,
@@ -90,6 +91,7 @@ struct HfFile {
 
 /// LFS (Large File Storage) information for large files
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct LfsInfo {
     oid: String,
     #[serde(rename = "pointerSize")]
@@ -99,6 +101,7 @@ struct LfsInfo {
 
 /// Represents the response from the Hugging Face API when listing files
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct HfApiResponse {
     #[serde(rename = "type")]
     response_type: String,
@@ -506,7 +509,7 @@ pub async fn download_specific_file(
     output_path: &Path,
     auth_token: Option<&str>,
 ) -> Result<()> {
-    let config = DownloadConfig {
+    let _config = DownloadConfig {
         model_id: model_id.to_string(),
         revision: "main".to_string(),
         output_dir: output_path.parent().unwrap_or(Path::new(".")).to_path_buf(),
@@ -599,7 +602,7 @@ pub fn default_progress_callback() -> ProgressCallbackFn {
 }
 
 /// Downloads a single file from Hugging Face (without progress tracking)
-async fn download_file(
+async fn _download_file(
     client: &Client,
     headers: &reqwest::header::HeaderMap,
     config: &DownloadConfig,

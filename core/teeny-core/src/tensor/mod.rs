@@ -15,157 +15,153 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{device::Device, types::NumericType};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-pub mod example;
 pub mod shape;
-pub mod tensor_add;
-pub mod tensor_div;
-pub mod tensor_mult;
-pub mod tensor_ops;
-pub mod tensor_sub;
 
 pub use shape::*;
-pub use tensor_ops::*;
 
-pub enum TensorExpr<'a, S: Shape, T: NumericType> {
-    Reshape(Box<dyn Tensor<S, Element = T> + 'a>, &'a [isize]),
+/// Value represents either an input or the result of an operation
+#[derive(Debug, Clone)]
+pub struct Value {
+    pub id: usize,
+    pub data: Option<f32>, // Concrete value if computed
+    pub operation: Operation,
+    pub dependencies: Vec<ValueRef>,
 }
 
-/// The Tensor trait now takes a shape parameter
-pub trait Tensor<S: Shape> {
-    type Element: NumericType;
+/// Reference-counted pointer to a Value
+pub type ValueRef = Rc<RefCell<Value>>;
 
-    /// Get the shape of the tensor
-    fn shape(&self) -> S::Dims {
-        unimplemented!("not implemented")
-    }
-
-    fn reshape(&self, _shape: &[isize]) -> Box<dyn Tensor<S, Element = Self::Element>> {
-        unimplemented!("not implemented")
-    }
-
-    // Get the shape of the tensor at the given index
-    fn shape_of(&self, _index: isize) -> usize {
-        unimplemented!("not implemented")
-    }
-
-    fn stride(&self, _index: isize) -> usize {
-        unimplemented!("not implemented")
-    }
-
-    /// Get the rank of the tensor
-    fn rank(&self) -> usize {
-        S::RANK
-    }
-
-    fn device(&self) -> Device {
-        unimplemented!("not implemented")
-    }
-
-    fn to_device(&self, _device: Device) -> Box<dyn Tensor<S, Element = Self::Element>> {
-        unimplemented!("not implemented")
-    }
+/// Operations that can be performed
+#[derive(Debug, Clone)]
+pub enum Operation {
+    Input,
+    Add,
+    Transpose,
+    Multiply,
+    MatrixMultiply,
+    Convolution2D,
+    ReLU,
+    // Other operations...
 }
 
-// Example implementation for a concrete tensor type
-pub struct DenseTensor<S: Shape, T: NumericType> {
-    pub shape: S::Dims,
-    pub data: Vec<T::RustType>,
+/// A tensor in our computation graph
+#[derive(Debug, Clone)]
+pub struct Tensor {
+    pub values: Vec<ValueRef>,
+    pub shape: Vec<usize>,
 }
 
-impl<S: Shape, T: NumericType> Clone for DenseTensor<S, T> {
-    fn clone(&self) -> Self {
-        Self {
+impl Tensor {
+    pub fn new(shape: Vec<usize>) -> Self {
+        let size = shape.iter().product();
+        let mut values = Vec::with_capacity(size);
+
+        for _ in 0..size {
+            values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Input,
+                dependencies: Vec::new(),
+            })));
+        }
+
+        Tensor { values, shape }
+    }
+
+    pub fn add(&self, other: &Tensor) -> Tensor {
+        assert_eq!(self.shape, other.shape, "Shape mismatch in addition");
+
+        let mut result_values = Vec::with_capacity(self.values.len());
+
+        for (a, b) in self.values.iter().zip(other.values.iter()) {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Add,
+                dependencies: vec![a.clone(), b.clone()],
+            })));
+        }
+
+        Tensor {
+            values: result_values,
             shape: self.shape.clone(),
-            data: self.data.clone(),
         }
     }
-}
 
-impl<S: Shape, T: NumericType> DenseTensor<S, T> {
-    pub fn new(data: Vec<T::RustType>, shape: S::Dims) -> Self {
-        Self { data, shape }
+    pub fn mult(&self, other: &Tensor) -> Tensor {
+        // Matrix multiplication that returns a new tensor with graph nodes
+        // For simplicity, we'll assume 2D matrices
+        assert_eq!(self.shape.len(), 2, "matmul requires 2D tensors");
+        assert_eq!(other.shape.len(), 2, "matmul requires 2D tensors");
+        assert_eq!(self.shape[1], other.shape[0], "matmul dimension mismatch");
+
+        let rows = self.shape[0];
+        let cols = other.shape[1];
+        let mut result_values = Vec::with_capacity(rows * cols);
+
+        for i in 0..rows {
+            for j in 0..cols {
+                let mut dependencies = Vec::new();
+
+                for k in 0..self.shape[1] {
+                    let a_idx = i * self.shape[1] + k;
+                    let b_idx = k * other.shape[1] + j;
+
+                    dependencies.push(self.values[a_idx].clone());
+                    dependencies.push(other.values[b_idx].clone());
+                }
+
+                result_values.push(Rc::new(RefCell::new(Value {
+                    id: rand::random::<f32>() as usize,
+                    data: None,
+                    operation: Operation::MatrixMultiply,
+                    dependencies,
+                })));
+            }
+        }
+
+        Tensor {
+            values: result_values,
+            shape: vec![rows, cols],
+        }
     }
-}
 
-impl<S: Shape, T: NumericType> Tensor<S> for DenseTensor<S, T> {
-    type Element = T;
-}
+    pub fn relu(&self) -> Tensor {
+        let mut result_values = Vec::with_capacity(self.values.len());
 
-/// Trait for broadcasting shapes
-pub trait BroadcastTo<Target: Shape> {
-    type Output: Shape;
-}
+        for value in &self.values {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::ReLU,
+                dependencies: vec![value.clone()],
+            })));
+        }
 
-/// Implement broadcasting for same shapes (no broadcast needed)
-impl<S: Shape> BroadcastTo<S> for S {
-    type Output = S;
-}
-
-/// Broadcast 1D to 2D by repeating along first dimension
-impl<const N: usize, const M: usize> BroadcastTo<Dim2<M, N>> for Dim1<N> {
-    type Output = Dim2<M, N>;
-}
-
-/// Broadcast 1D to 3D by repeating along first two dimensions
-impl<const N: usize, const M: usize, const P: usize> BroadcastTo<Dim3<M, P, N>> for Dim1<N> {
-    type Output = Dim3<M, P, N>;
-}
-
-/// Broadcast 2D to 3D by repeating along first dimension
-impl<const M: usize, const N: usize, const P: usize> BroadcastTo<Dim3<P, M, N>> for Dim2<M, N> {
-    type Output = Dim3<P, M, N>;
-}
-
-/// Extension trait for broadcasting operations
-pub trait Broadcast {
-    type Shape: Shape;
-    type Element: NumericType;
-
-    /// Broadcast this tensor to match the target shape
-    fn broadcast_to<Target: Shape>(self) -> DenseTensor<Target, Self::Element>
-    where
-        Self::Shape: BroadcastTo<Target, Output = Target>;
-}
-
-impl<S: Shape, T: NumericType> Broadcast for DenseTensor<S, T>
-where
-    T::RustType: Clone,
-{
-    type Shape = S;
-    type Element = T;
-
-    fn broadcast_to<Target: Shape>(self) -> DenseTensor<Target, T>
-    where
-        S: BroadcastTo<Target, Output = Target>,
-    {
-        // For now, we'll just clone the data
-        // In a real implementation, you'd need to handle the actual broadcasting logic
-        // DenseTensor {
-        //     data: self.data,
-        //     _shape: std::marker::PhantomData,
-        // }
-
-        todo!("Implement broadcasting")
+        Tensor {
+            values: result_values,
+            shape: self.shape.clone(),
+        }
     }
-}
 
-/// Common shape for broadcasting two shapes
-pub trait BroadcastShape<Rhs: Shape> {
-    type Output: Shape;
-}
+    pub fn transpose(&self) -> Tensor {
+        let mut result_values = Vec::with_capacity(self.values.len());
 
-impl<S: Shape> BroadcastShape<S> for S {
-    type Output = S;
-}
+        for value in &self.values {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Transpose,
+                dependencies: vec![value.clone()],
+            })));
+        }
 
-pub trait Reshape<S: Shape> {
-    fn reshape(&self, shape: &[usize]) -> Self;
-}
-
-impl<S: Shape, T: NumericType> Reshape<S> for DenseTensor<S, T> {
-    fn reshape(&self, _shape: &[usize]) -> Self {
-        todo!("Implement reshape")
+        Tensor {
+            values: result_values,
+            shape: self.shape.clone(),
+        }
     }
 }

@@ -15,25 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Sub;
+use crate::tensor::Tensor;
 
-use crate::{
-    tensor::{DenseTensor, DynamicShape},
-    types::NumericType,
-};
-
-impl<T: NumericType> Sub<T> for DenseTensor<DynamicShape, T> {
-    type Output = DenseTensor<DynamicShape, T>;
-
-    fn sub(self, _rhs: T) -> Self::Output {
-        unimplemented!()
-    }
+pub struct Embedding {
+    pub weight: Tensor,
 }
 
-impl<T: NumericType> Sub<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicShape, T> {
-    type Output = DenseTensor<DynamicShape, T>;
-
-    fn sub(self, _rhs: DenseTensor<DynamicShape, T>) -> Self::Output {
-        unimplemented!()
+impl Embedding {
+    pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
+        Self {
+            weight: Tensor::new(vec![hidden_size, vocab_size]),
+        }
     }
 }

@@ -15,47 +15,47 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::{Add, Mul};
+use crate::{nn::module::Module, tensor::Tensor};
 
-use crate::{
-    nn::module::ForwardModule,
-    tensor::{self, Shape, Tensor},
-    types::NumericType,
-};
-
-pub struct Linear<S: Shape, T: NumericType> {
-    pub weight: Box<dyn Tensor<S, Element = T>>,
-    pub bias: Option<Box<dyn Tensor<S, Element = T>>>,
+pub struct Linear {
+    weight: Tensor,
+    bias: Option<Tensor>,
 }
 
-impl<S: Shape, T: NumericType> Linear<S, T> {
-    pub fn new(in_features: usize, out_features: usize, bias: bool) -> Self {
-        Self {
-            weight: tensor::zeros::<S, T>(&[in_features, out_features]),
-            bias: if bias {
-                Some(tensor::zeros::<S, T>(&[out_features]))
-            } else {
-                None
-            },
-        }
+impl Linear {
+    pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
+        // Initialize weight tensor with proper shape
+        let weight = Tensor::new(vec![output_dim, input_dim]);
+
+        // Initialize bias if needed
+        let bias = if use_bias {
+            Some(Tensor::new(vec![output_dim]))
+        } else {
+            None
+        };
+
+        Linear { weight, bias }
     }
 }
 
-impl<S: Shape, T: NumericType>
-    ForwardModule<Box<dyn Tensor<S, Element = T>>, Box<dyn Tensor<S, Element = T>>>
-    for Linear<S, T>
-{
-    fn forward(&self, input: Box<dyn Tensor<S, Element = T>>) -> Box<dyn Tensor<S, Element = T>> {
-        // Perform matrix multiplication: input @ weight
-        // For now, we'll use element-wise multiplication as a placeholder
-        // In a real implementation, you'd need proper matrix multiplication
-        let output = input * self.weight.clone();
+impl Module for Linear {
+    fn forward(&self, input: &Tensor) -> Tensor {
+        // Matrix multiplication
+        let output = input.mult(&self.weight.transpose());
 
         // Add bias if present
-        if let Some(ref bias) = self.bias {
-            output + bias.clone()
+        if let Some(bias) = &self.bias {
+            output.add(bias)
         } else {
             output
         }
+    }
+
+    fn parameters(&self) -> Vec<Tensor> {
+        let mut params = vec![self.weight.clone()];
+        if let Some(bias) = &self.bias {
+            params.push(bias.clone());
+        }
+        params
     }
 }

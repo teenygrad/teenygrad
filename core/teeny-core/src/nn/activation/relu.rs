@@ -15,25 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Div;
+use crate::{nn::module::Module, tensor::Tensor};
 
-use crate::{
-    tensor::{DenseTensor, DynamicShape},
-    types::NumericType,
-};
+pub struct ReLU;
 
-impl<T: NumericType> Div<T> for DenseTensor<DynamicShape, T> {
-    type Output = DenseTensor<DynamicShape, T>;
-
-    fn div(self, _rhs: T) -> Self::Output {
-        unimplemented!()
+impl Module for ReLU {
+    fn forward(&self, input: &Tensor) -> Tensor {
+        input.relu()
     }
-}
 
-impl<T: NumericType> Div<DenseTensor<DynamicShape, T>> for DenseTensor<DynamicShape, T> {
-    type Output = DenseTensor<DynamicShape, T>;
-
-    fn div(self, _rhs: DenseTensor<DynamicShape, T>) -> Self::Output {
-        unimplemented!()
+    fn parameters(&self) -> Vec<Tensor> {
+        Vec::new() // No parameters
     }
 }

@@ -6,4 +6,6 @@ edition = "2024"
 [dependencies]
 thiserror.workspace = true
 ndarray.workspace = true
+ndarray-rand.workspace = true
 once_cell.workspace = true
+rand.workspace = true

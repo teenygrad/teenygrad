@@ -17,27 +17,27 @@
 
 pub mod qwen;
 
-use teeny_core::TeenyModule;
+// use teeny_core::TeenyModule;
 
-use crate::error::{Result, TeenyHFError};
+// use crate::error::{Result, TeenyHFError};
 
-use crate::{
-    transformer::config::model_config::Architecture,
-    transformer::model::qwen::qwen3::{
-        qwen3_causal_llm::Qwen3ForCausalLM, qwen3_config::Qwen3Config,
-    },
-};
+// use crate::{
+//     transformer::config::model_config::Architecture,
+//     transformer::model::qwen::qwen3::{
+//         qwen3_causal_llm::Qwen3ForCausalLM, qwen3_config::Qwen3Config,
+//     },
+// };
 
-pub fn from_pretrained(
-    model_id: &str,
-    cache_dir: &str,
-) -> Result<Box<dyn TeenyModule<Err = TeenyHFError>>> {
-    let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
+// pub fn from_pretrained(
+//     model_id: &str,
+//     cache_dir: &str,
+// ) -> Result<Box<dyn TeenyModule<Err = TeenyHFError>>> {
+//     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
-    match config.architectures[0] {
-        Architecture::Qwen3ForCausalLM => {
-            let model = Qwen3ForCausalLM::new(&config)?;
-            Ok(Box::new(model))
-        }
-    }
-}
+//     match config.architectures[0] {
+//         Architecture::Qwen3ForCausalLM => {
+//             let model = Qwen3ForCausalLM::new(&config)?;
+//             Ok(Box::new(model))
+//         }
+//     }
+// }

@@ -1,5 +1,3 @@
-use crate::tensor::Tensor;
-
 /*
  * Copyright (c) 2025 Teenygrad. All rights reserved.
  *
@@ -16,11 +14,5 @@ use crate::tensor::Tensor;
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-/// Trait for all neural network components
-pub trait Module {
-    /// Forward pass that returns a computation graph node
-    fn forward(&self, input: &Tensor) -> Tensor;
 
-    /// Returns all trainable parameters
-    fn parameters(&self) -> Vec<Tensor>;
-}
+pub mod relu;
