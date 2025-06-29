@@ -15,28 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
-pub mod loss;
-pub mod macros;
-pub mod module;
-pub mod optim;
-pub mod sequential;
-
-// modules
-pub use embedding::Embedding;
-pub use linear::Linear;
-pub use module::Module;
-pub use sequential::Sequential;
-
-// activations
-pub use activation::relu::ReLU;
-pub use activation::sigmoid::Sigmoid;
-
-// losses
-pub use loss::bce_loss::BCELoss;
-
-// optimizers
-pub use optim::adam::Adam;
-pub use optim::adam::AdamBuilder;
+pub mod adam;

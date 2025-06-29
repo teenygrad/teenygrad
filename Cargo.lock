@@ -2333,6 +2333,7 @@ dependencies = [
 name = "teeny-core"
 version = "0.1.0"
 dependencies = [
+ "derive_builder",
  "ndarray",
  "ndarray-rand",
  "once_cell",

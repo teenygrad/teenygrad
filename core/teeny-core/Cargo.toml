@@ -9,3 +9,4 @@ ndarray.workspace = true
 ndarray-rand.workspace = true
 once_cell.workspace = true
 rand.workspace = true
+derive_builder.workspace = true

@@ -39,12 +39,15 @@ pub type ValueRef = Rc<RefCell<Value>>;
 pub enum Operation {
     Input,
     Add,
+    Sub,
     Transpose,
     Multiply,
     MatrixMultiply,
     Convolution2D,
     ReLU,
     Sigmoid,
+    Log,
+    Mean,
     // Other operations...
 }
 
@@ -82,6 +85,26 @@ impl Tensor {
                 id: rand::random::<f32>() as usize,
                 data: None,
                 operation: Operation::Add,
+                dependencies: vec![a.clone(), b.clone()],
+            })));
+        }
+
+        Tensor {
+            values: result_values,
+            shape: self.shape.clone(),
+        }
+    }
+
+    pub fn sub(&self, other: &Tensor) -> Tensor {
+        assert_eq!(self.shape, other.shape, "Shape mismatch in subtraction");
+
+        let mut result_values = Vec::with_capacity(self.values.len());
+
+        for (a, b) in self.values.iter().zip(other.values.iter()) {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Sub,
                 dependencies: vec![a.clone(), b.clone()],
             })));
         }
@@ -183,10 +206,84 @@ impl Tensor {
             shape: self.shape.clone(),
         }
     }
+
+    pub fn log(&self) -> Tensor {
+        let mut result_values = Vec::with_capacity(self.values.len());
+
+        for value in &self.values {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Log,
+                dependencies: vec![value.clone()],
+            })));
+        }
+
+        Tensor {
+            values: result_values,
+            shape: self.shape.clone(),
+        }
+    }
+
+    pub fn mean(&self) -> Tensor {
+        let mut result_values = Vec::with_capacity(self.values.len());
+
+        for value in &self.values {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Mean,
+                dependencies: vec![value.clone()],
+            })));
+        }
+
+        Tensor {
+            values: result_values,
+            shape: vec![1],
+        }
+    }
 }
 
 impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>> for Tensor {
     fn from(array: ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>) -> Self {
+        let shape = array.shape().to_vec();
+        let values = array
+            .iter()
+            .map(|v| {
+                Rc::new(RefCell::new(Value {
+                    id: rand::random::<f32>() as usize,
+                    data: Some(*v),
+                    operation: Operation::Input,
+                    dependencies: Vec::new(),
+                }))
+            })
+            .collect();
+
+        Tensor { values, shape }
+    }
+}
+
+impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>> for Tensor {
+    fn from(array: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>) -> Self {
+        let shape = array.shape().to_vec();
+        let values = array
+            .iter()
+            .map(|v| {
+                Rc::new(RefCell::new(Value {
+                    id: rand::random::<f32>() as usize,
+                    data: Some(*v),
+                    operation: Operation::Input,
+                    dependencies: Vec::new(),
+                }))
+            })
+            .collect();
+
+        Tensor { values, shape }
+    }
+}
+
+impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>> for Tensor {
+    fn from(array: ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>) -> Self {
         let shape = array.shape().to_vec();
         let values = array
             .iter()

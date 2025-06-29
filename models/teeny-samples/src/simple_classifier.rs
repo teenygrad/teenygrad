@@ -16,7 +16,8 @@
  */
 
 use ndarray::s;
-use teeny_core::nn::{self};
+use teeny_core::nn::loss::LossFn;
+use teeny_core::nn::{self, Module};
 use teeny_core::sequential;
 use teeny_core::tensor::Tensor;
 use teeny_data::dataset::loader::load_csv;
@@ -28,6 +29,16 @@ pub struct SimpleClassifier {
 impl Default for SimpleClassifier {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl nn::Module for SimpleClassifier {
+    fn forward(&self, x: &Tensor) -> Tensor {
+        self.model.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<Tensor> {
+        self.model.parameters()
     }
 }
 
@@ -55,11 +66,30 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     .unwrap();
 
     let x = dataset.slice(s![.., ..8]);
-    let y = dataset.slice(s![.., 8]);
 
-    #[allow(non_snake_case)]
-    let _X: Tensor = x.into();
-    let _y: Tensor = y.into();
+    let y = dataset.slice(s![.., 8]);
+    let y = y.to_shape((dataset.shape()[0], 1)).unwrap();
+
+    let model = SimpleClassifier::new();
+    let mut optimizer = nn::AdamBuilder::default().build().unwrap();
+    let loss_fn = nn::BCELoss::new();
+    const BATCH_SIZE: usize = 10;
+
+    for epoch in 0..100 {
+        for i in (0..y.shape()[0]).step_by(BATCH_SIZE) {
+            let x_batch = x.slice(s![i..i + BATCH_SIZE, ..]).into();
+            let y_pred = model.forward(&x_batch);
+
+            let y_batch = y.slice(s![i..i + BATCH_SIZE, ..]).into();
+            let mut loss = loss_fn.compute(&y_pred, &y_batch);
+
+            optimizer.zero_grad();
+            loss.backward();
+            optimizer.update();
+        }
+
+        println!("Epoch {:?}, loss {:?}", epoch, epoch);
+    }
 
     Ok(())
 }

@@ -15,28 +15,38 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
-pub mod loss;
-pub mod macros;
-pub mod module;
-pub mod optim;
-pub mod sequential;
+use derive_builder::Builder;
 
-// modules
-pub use embedding::Embedding;
-pub use linear::Linear;
-pub use module::Module;
-pub use sequential::Sequential;
+#[derive(Builder, Debug, Clone)]
+pub struct Adam {
+    #[builder(default = "0.001")]
+    pub lr: f32,
 
-// activations
-pub use activation::relu::ReLU;
-pub use activation::sigmoid::Sigmoid;
+    #[builder(default = "0.9")]
+    pub beta1: f32,
 
-// losses
-pub use loss::bce_loss::BCELoss;
+    #[builder(default = "0.999")]
+    pub beta2: f32,
 
-// optimizers
-pub use optim::adam::Adam;
-pub use optim::adam::AdamBuilder;
+    #[builder(default = "1e-8")]
+    pub eps: f32,
+}
+
+impl Adam {
+    pub fn new(lr: f32, beta1: f32, beta2: f32, eps: f32) -> Self {
+        Self {
+            lr,
+            beta1,
+            beta2,
+            eps,
+        }
+    }
+
+    pub fn zero_grad(&mut self) {
+        todo!()
+    }
+
+    pub fn update(&mut self) {
+        todo!()
+    }
+}
