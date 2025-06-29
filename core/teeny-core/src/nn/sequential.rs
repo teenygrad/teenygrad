@@ -15,15 +15,33 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
-pub mod macros;
-pub mod module;
-pub mod sequential;
+use crate::{nn::module::Module, tensor::Tensor};
 
-pub use activation::relu::ReLU;
-pub use activation::sigmoid::Sigmoid;
-pub use embedding::Embedding;
-pub use linear::Linear;
-pub use sequential::Sequential;
+pub struct Sequential {
+    layers: Vec<Box<dyn Module>>,
+}
+
+impl Sequential {
+    pub fn new(layers: Vec<Box<dyn Module>>) -> Self {
+        Sequential { layers }
+    }
+}
+
+impl Module for Sequential {
+    fn forward(&self, input: &Tensor) -> Tensor {
+        let mut output = input.clone();
+
+        for layer in &self.layers {
+            output = layer.forward(&output);
+        }
+
+        output
+    }
+
+    fn parameters(&self) -> Vec<Tensor> {
+        self.layers
+            .iter()
+            .flat_map(|layer| layer.parameters())
+            .collect()
+    }
+}

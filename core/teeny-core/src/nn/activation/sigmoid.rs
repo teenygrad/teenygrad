@@ -15,15 +15,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
-pub mod macros;
-pub mod module;
-pub mod sequential;
+use crate::{nn::module::Module, tensor::Tensor};
 
-pub use activation::relu::ReLU;
-pub use activation::sigmoid::Sigmoid;
-pub use embedding::Embedding;
-pub use linear::Linear;
-pub use sequential::Sequential;
+#[derive(Debug, Clone, Default)]
+pub struct Sigmoid;
+
+impl Sigmoid {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Module for Sigmoid {
+    fn forward(&self, input: &Tensor) -> Tensor {
+        input.sigmoid()
+    }
+
+    fn parameters(&self) -> Vec<crate::tensor::Tensor> {
+        todo!()
+    }
+}

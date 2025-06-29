@@ -44,6 +44,7 @@ pub enum Operation {
     MatrixMultiply,
     Convolution2D,
     ReLU,
+    Sigmoid,
     // Other operations...
 }
 
@@ -147,6 +148,24 @@ impl Tensor {
         }
     }
 
+    pub fn sigmoid(&self) -> Tensor {
+        let mut result_values = Vec::with_capacity(self.values.len());
+
+        for value in &self.values {
+            result_values.push(Rc::new(RefCell::new(Value {
+                id: rand::random::<f32>() as usize,
+                data: None,
+                operation: Operation::Sigmoid,
+                dependencies: vec![value.clone()],
+            })));
+        }
+
+        Tensor {
+            values: result_values,
+            shape: self.shape.clone(),
+        }
+    }
+
     pub fn transpose(&self) -> Tensor {
         let mut result_values = Vec::with_capacity(self.values.len());
 
@@ -163,5 +182,24 @@ impl Tensor {
             values: result_values,
             shape: self.shape.clone(),
         }
+    }
+}
+
+impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>> for Tensor {
+    fn from(array: ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>) -> Self {
+        let shape = array.shape().to_vec();
+        let values = array
+            .iter()
+            .map(|v| {
+                Rc::new(RefCell::new(Value {
+                    id: rand::random::<f32>() as usize,
+                    data: Some(*v),
+                    operation: Operation::Input,
+                    dependencies: Vec::new(),
+                }))
+            })
+            .collect();
+
+        Tensor { values, shape }
     }
 }

@@ -15,15 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
-pub mod macros;
-pub mod module;
-pub mod sequential;
-
-pub use activation::relu::ReLU;
-pub use activation::sigmoid::Sigmoid;
-pub use embedding::Embedding;
-pub use linear::Linear;
-pub use sequential::Sequential;
+#[macro_export]
+macro_rules! sequential {
+    ($($layer:expr),*) => {
+        $crate::nn::Sequential::new(vec![$(Box::new($layer)),*])
+    };
+}

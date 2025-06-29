@@ -17,7 +17,14 @@
 
 use crate::{nn::module::Module, tensor::Tensor};
 
+#[derive(Debug, Clone, Default)]
 pub struct ReLU;
+
+impl ReLU {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
 impl Module for ReLU {
     fn forward(&self, input: &Tensor) -> Tensor {

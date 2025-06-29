@@ -16,26 +16,35 @@
  */
 
 use ndarray::s;
+use teeny_core::nn::{self};
+use teeny_core::sequential;
+use teeny_core::tensor::Tensor;
 use teeny_data::dataset::loader::load_csv;
 
-// pub struct SimpleClassifier {
-//     model: nn::Sequential,
-// }
+pub struct SimpleClassifier {
+    pub model: nn::Sequential,
+}
 
-// impl SimpleClassifier {
-//     pub fn new() -> Self {
-//         Self {
-//             model: nn::Sequential::new([
-//                 nn::Linear::new(8, 12),
-//                 nn::ReLU::new(),
-//                 nn::Linear::new(12, 8),
-//                 nn::ReLU::new(),
-//                 nn::Linear::new(8, 1),
-//                 nn::Sigmoid::new(),
-//             ]),
-//         }
-//     }
-// }
+impl Default for SimpleClassifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SimpleClassifier {
+    pub fn new() -> Self {
+        Self {
+            model: sequential![
+                nn::Linear::new(8, 12, false),
+                nn::ReLU::new(),
+                nn::Linear::new(12, 8, false),
+                nn::ReLU::new(),
+                nn::Linear::new(8, 1, false),
+                nn::Sigmoid::new()
+            ],
+        }
+    }
+}
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let dataset = load_csv::<f32>(
@@ -49,10 +58,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let y = dataset.slice(s![.., 8]);
 
     #[allow(non_snake_case)]
-    let _X = teeny_core::tensor::from_ndarray::<_, f32>(&x).unwrap();
-    let _y = teeny_core::tensor::from_ndarray::<_, f32>(&y)
-        .unwrap()
-        .reshape(&[-1, 1]);
+    let _X: Tensor = x.into();
+    let _y: Tensor = y.into();
 
     Ok(())
 }
