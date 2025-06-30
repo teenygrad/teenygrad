@@ -15,16 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::Tensor;
+pub mod add_op;
+pub mod conv2d_op;
+pub mod input_op;
+pub mod log_op;
+pub mod mean_op;
+pub mod mult_op;
+pub mod relu_op;
+pub mod sigmoid_op;
+pub mod sub_op;
+pub mod transpose_op;
 
-pub struct Embedding {
-    pub weight: Tensor,
-}
+use std::fmt::Debug;
 
-impl Embedding {
-    pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
-        Self {
-            weight: Tensor::new(vec![hidden_size, vocab_size], true),
-        }
-    }
+use crate::tensor::ValueRef;
+pub trait TensorOp: Debug {
+    fn backward(&self, dependencies: &[ValueRef], grad: f32);
 }

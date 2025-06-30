@@ -25,11 +25,11 @@ pub struct Linear {
 impl Linear {
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
         // Initialize weight tensor with proper shape
-        let weight = Tensor::new(vec![output_dim, input_dim]);
+        let weight = Tensor::new(vec![output_dim, input_dim], true);
 
         // Initialize bias if needed
         let bias = if use_bias {
-            Some(Tensor::new(vec![output_dim]))
+            Some(Tensor::new(vec![output_dim], true))
         } else {
             None
         };

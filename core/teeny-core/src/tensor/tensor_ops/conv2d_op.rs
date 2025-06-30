@@ -15,16 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::Tensor;
+use crate::tensor::{ValueRef, tensor_ops::TensorOp};
 
-pub struct Embedding {
-    pub weight: Tensor,
-}
+#[derive(Debug, Clone)]
+pub struct Conv2dOp;
 
-impl Embedding {
-    pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
-        Self {
-            weight: Tensor::new(vec![hidden_size, vocab_size], true),
+impl TensorOp for Conv2dOp {
+    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+        if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
+            dependencies[0].borrow_mut().accumulate_grad(grad);
         }
     }
 }
