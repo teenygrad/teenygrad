@@ -17,18 +17,23 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct MeanOp;
 
 impl TensorOp for MeanOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
+        assert_eq!(dependencies.len(), 1);
+        todo!("Implement mean op")
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         let n = dependencies.len() as f32;
         let grad_per_element = grad / n;
         for dep in dependencies {
             if dep.borrow().requires_grad {
-                dep.borrow_mut().accumulate_grad(grad_per_element);
+                dep.borrow_mut().accumulate_grad(&grad_per_element);
             }
         }
     }
@@ -36,20 +41,18 @@ impl TensorOp for MeanOp {
 
 impl Tensor {
     pub fn mean(&self) -> Tensor {
-        let mut result_values = Vec::with_capacity(1);
+        let requires_grad = self.value.borrow().requires_grad;
 
-        let result_value = Value::new(
+        let value = Rc::new(RefCell::new(Value::new(
             rand::random::<f32>() as usize,
             None,
             Box::new(MeanOp),
-            self.values.clone(),
-            self.values.iter().any(|v| v.borrow().requires_grad),
-        );
-
-        result_values.push(Rc::new(RefCell::new(result_value)));
+            vec![self.value.clone()],
+            requires_grad,
+        )));
 
         Tensor {
-            values: result_values,
+            value,
             shape: vec![1],
         }
     }

@@ -23,8 +23,10 @@ pub struct Embedding {
 
 impl Embedding {
     pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
+        let embedding_shape = vec![hidden_size, vocab_size];
+
         Self {
-            weight: Tensor::new(vec![hidden_size, vocab_size], true),
+            weight: Tensor::new(ndarray::Array::zeros(embedding_shape), true),
         }
     }
 }

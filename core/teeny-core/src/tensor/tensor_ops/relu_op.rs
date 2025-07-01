@@ -17,39 +17,56 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct ReLuOp;
 
 impl TensorOp for ReLuOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
+        assert_eq!(dependencies.len(), 1);
+        dependencies[0]
+            .borrow()
+            .data
+            .as_ref()
+            .unwrap()
+            .map(|v| if *v > 0.0 { *v } else { 0.0 })
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
-            let input_val = dependencies[0].borrow().data.unwrap_or(0.0);
-            let relu_grad = if input_val > 0.0 { grad } else { 0.0 };
-            dependencies[0].borrow_mut().accumulate_grad(relu_grad);
+            let input = dependencies[0].borrow();
+            let input_val = input.data.as_ref().unwrap();
+            let _relu_grad = input_val
+                .iter()
+                .zip(grad.iter())
+                .map(|(input, grad)| if *input > 0.0 { *grad } else { 0.0 })
+                .collect::<Vec<f32>>();
+            todo!("Fixme")
+            // let relu_grad = Array::from_vec(relu_grad)
+            //     .to_shape(input_val.shape())
+            //     .unwrap();
+            // dependencies[0].borrow_mut().accumulate_grad(&relu_grad);
+            // let relu_grad = if input_val > 0.0 { grad } else { 0.0 };
+            // dependencies[0].borrow_mut().accumulate_grad(relu_grad);
         }
     }
 }
 
 impl Tensor {
     pub fn relu(&self) -> Tensor {
-        let mut result_values = Vec::with_capacity(self.values.len());
+        let requires_grad = self.value.borrow().requires_grad;
 
-        for value in &self.values {
-            let result_value = Value::new(
-                rand::random::<f32>() as usize,
-                None,
-                Box::new(ReLuOp),
-                vec![value.clone()],
-                value.borrow().requires_grad,
-            );
-
-            result_values.push(Rc::new(RefCell::new(result_value)));
-        }
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            None,
+            Box::new(ReLuOp),
+            vec![self.value.clone()],
+            requires_grad,
+        )));
 
         Tensor {
-            values: result_values,
+            value,
             shape: self.shape.clone(),
         }
     }

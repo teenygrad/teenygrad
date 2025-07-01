@@ -17,13 +17,29 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct TransposeOp;
 
 impl TensorOp for TransposeOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
+        assert_eq!(dependencies.len(), 1);
+        dependencies[0]
+            .borrow()
+            .data
+            .as_ref()
+            .unwrap()
+            .clone()
+            .t()
+            .to_owned()
+    }
+
+    fn backward(
+        &self,
+        dependencies: &[ValueRef],
+        grad: &ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>,
+    ) {
         if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
             dependencies[0].borrow_mut().accumulate_grad(grad);
         }
@@ -32,22 +48,18 @@ impl TensorOp for TransposeOp {
 
 impl Tensor {
     pub fn transpose(&self) -> Tensor {
-        let mut result_values = Vec::with_capacity(self.values.len());
+        let requires_grad = self.value.borrow().requires_grad;
 
-        for value in &self.values {
-            let result_value = Value::new(
-                rand::random::<f32>() as usize,
-                None,
-                Box::new(TransposeOp),
-                vec![value.clone()],
-                value.borrow().requires_grad,
-            );
-
-            result_values.push(Rc::new(RefCell::new(result_value)));
-        }
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            None,
+            Box::new(TransposeOp),
+            vec![self.value.clone()],
+            requires_grad,
+        )));
 
         Tensor {
-            values: result_values,
+            value,
             shape: self.shape.clone(),
         }
     }

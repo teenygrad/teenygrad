@@ -17,13 +17,21 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct InputOp;
 
 impl TensorOp for InputOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn is_input(&self) -> bool {
+        true
+    }
+
+    fn eval(&self, _dependencies: &[ValueRef]) -> TensorData {
+        unreachable!("InputOp should never be evaluated")
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         for dep in dependencies {
             if dep.borrow().requires_grad {
                 dep.borrow_mut().accumulate_grad(grad);
@@ -33,20 +41,17 @@ impl TensorOp for InputOp {
 }
 
 impl Tensor {
-    pub fn new(shape: Vec<usize>, requires_grad: bool) -> Self {
-        let size = shape.iter().product();
-        let mut values = Vec::with_capacity(size);
+    pub fn new(data: TensorData, requires_grad: bool) -> Self {
+        let shape = data.shape().to_vec();
 
-        for _ in 0..size {
-            values.push(Rc::new(RefCell::new(Value::new(
-                rand::random::<f32>() as usize,
-                None,
-                Box::new(InputOp),
-                Vec::new(),
-                requires_grad,
-            ))));
-        }
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            Some(data),
+            Box::new(InputOp),
+            Vec::new(),
+            requires_grad,
+        )));
 
-        Tensor { values, shape }
+        Tensor { value, shape }
     }
 }

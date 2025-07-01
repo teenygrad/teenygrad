@@ -15,13 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::{ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{TensorData, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct Conv2dOp;
 
 impl TensorOp for Conv2dOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, _dependencies: &[ValueRef]) -> TensorData {
+        todo!()
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
             dependencies[0].borrow_mut().accumulate_grad(grad);
         }

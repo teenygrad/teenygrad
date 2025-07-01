@@ -25,11 +25,12 @@ pub struct Linear {
 impl Linear {
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
         // Initialize weight tensor with proper shape
-        let weight = Tensor::new(vec![output_dim, input_dim], true);
+        let weight: Tensor = ndarray::Array::zeros((input_dim, output_dim)).into();
 
         // Initialize bias if needed
         let bias = if use_bias {
-            Some(Tensor::new(vec![output_dim], true))
+            let bias_shape = vec![output_dim];
+            Some(Tensor::new(ndarray::Array::zeros(bias_shape), true))
         } else {
             None
         };

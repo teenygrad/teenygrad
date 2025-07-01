@@ -28,7 +28,17 @@ pub mod transpose_op;
 
 use std::fmt::Debug;
 
-use crate::tensor::ValueRef;
+use crate::tensor::{TensorData, ValueRef};
 pub trait TensorOp: Debug {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32);
+    fn is_input(&self) -> bool {
+        false
+    }
+
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData;
+
+    fn backward(
+        &self,
+        dependencies: &[ValueRef],
+        grad: &ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>,
+    );
 }

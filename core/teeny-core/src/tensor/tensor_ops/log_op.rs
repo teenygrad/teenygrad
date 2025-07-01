@@ -17,43 +17,45 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct LogOp;
 
 impl TensorOp for LogOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
+        assert_eq!(dependencies.len(), 1);
+        dependencies[0].borrow().data.as_ref().unwrap().log(10.0)
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], _grad: &TensorData) {
         if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
-            let input_val = dependencies[0].borrow().data.unwrap_or(0.0);
-            let log_grad = if input_val > 0.0 {
-                grad / input_val
-            } else {
-                0.0
-            };
-            dependencies[0].borrow_mut().accumulate_grad(log_grad);
+            let _input_val = dependencies[0].borrow().data.as_ref().unwrap();
+            todo!("Fixme")
+            // let log_grad = if input_val > 0.0 {
+            //     grad / input_val
+            // } else {
+            //     // array![0.0]
+            // };
+            // dependencies[0].borrow_mut().accumulate_grad(log_grad);
         }
     }
 }
 
 impl Tensor {
     pub fn log(&self) -> Tensor {
-        let mut result_values = Vec::with_capacity(self.values.len());
+        let requires_grad = self.value.borrow().requires_grad;
 
-        for value in &self.values {
-            let result_value = Value::new(
-                rand::random::<f32>() as usize,
-                None,
-                Box::new(LogOp),
-                vec![value.clone()],
-                value.borrow().requires_grad,
-            );
-
-            result_values.push(Rc::new(RefCell::new(result_value)));
-        }
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            None,
+            Box::new(LogOp),
+            vec![self.value.clone()],
+            requires_grad,
+        )));
 
         Tensor {
-            values: result_values,
+            value,
             shape: self.shape.clone(),
         }
     }

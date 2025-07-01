@@ -17,13 +17,29 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct AddOp;
 
 impl TensorOp for AddOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
+        dependencies.iter().for_each(|v| v.borrow_mut().eval());
+
+        println!("AppOp dependencies: {:?}", dependencies.len());
+        dependencies.iter().for_each(|v| {
+            println!("{:?}", v.borrow().data.clone().unwrap());
+        });
+
+        dependencies
+            .iter()
+            .map(|v| v.borrow().data.clone().unwrap())
+            .reduce(|a, b| a + b)
+            .unwrap()
+            .to_owned()
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         if dependencies.len() >= 2 {
             if dependencies[0].borrow().requires_grad {
                 dependencies[0].borrow_mut().accumulate_grad(grad);
@@ -39,22 +55,20 @@ impl Tensor {
     pub fn add(&self, other: &Tensor) -> Tensor {
         assert_eq!(self.shape, other.shape, "Shape mismatch in addition");
 
-        let mut result_values = Vec::with_capacity(self.values.len());
+        let a = self.value.clone();
+        let b = other.value.clone();
+        let required_grad = a.borrow().requires_grad || b.borrow().requires_grad;
 
-        for (a, b) in self.values.iter().zip(other.values.iter()) {
-            let result_value = Value::new(
-                rand::random::<f32>() as usize,
-                None,
-                Box::new(AddOp),
-                vec![a.clone(), b.clone()],
-                a.borrow().requires_grad || b.borrow().requires_grad,
-            );
-
-            result_values.push(Rc::new(RefCell::new(result_value)));
-        }
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            None,
+            Box::new(AddOp),
+            vec![a, b],
+            required_grad,
+        )));
 
         Tensor {
-            values: result_values,
+            value,
             shape: self.shape.clone(),
         }
     }
@@ -62,15 +76,25 @@ impl Tensor {
 
 #[cfg(test)]
 mod tests {
+    use ndarray::array;
+
     use super::*;
 
     #[test]
     fn test_add_op() {
-        let a = Tensor::new(vec![2, 2], true);
-        let b = Tensor::new(vec![2, 2], true);
+        let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        let b: Tensor = array![[5.0, 6.0], [7.0, 8.0]].into();
 
         let c = a.add(&b);
 
         assert_eq!(c.shape, vec![2, 2]);
+
+        c.eval();
+
+        println!("C:{:?}", c.eval());
+        // c.backward();
+
+        // assert_eq!(a.gradients(), vec![TensorData::ones(vec![2, 2])]);
+        // assert_eq!(b.gradients(), vec![TensorData::ones(vec![2, 2])]);
     }
 }

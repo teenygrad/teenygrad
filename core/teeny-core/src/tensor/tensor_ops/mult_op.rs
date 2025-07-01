@@ -17,13 +17,19 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct MultOp;
 
 impl TensorOp for MultOp {
-    fn backward(&self, dependencies: &[ValueRef], grad: f32) {
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
+        assert_eq!(dependencies.len(), 2);
+        dependencies[0].borrow().data.as_ref().unwrap()
+            * dependencies[1].borrow().data.as_ref().unwrap()
+    }
+
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         if dependencies.len() >= 2 {
             if dependencies[0].borrow().requires_grad {
                 dependencies[0].borrow_mut().accumulate_grad(grad);
@@ -43,38 +49,19 @@ impl Tensor {
         assert_eq!(other.shape.len(), 2, "matmul requires 2D tensors");
         assert_eq!(self.shape[1], other.shape[0], "matmul dimension mismatch");
 
-        let rows = self.shape[0];
-        let cols = other.shape[1];
-        let mut result_values = Vec::with_capacity(rows * cols);
+        let requires_grad = self.value.borrow().requires_grad || other.value.borrow().requires_grad;
 
-        for i in 0..rows {
-            for j in 0..cols {
-                let mut dependencies = Vec::new();
-
-                for k in 0..self.shape[1] {
-                    let a_idx = i * self.shape[1] + k;
-                    let b_idx = k * other.shape[1] + j;
-
-                    dependencies.push(self.values[a_idx].clone());
-                    dependencies.push(other.values[b_idx].clone());
-                }
-
-                let result_value = Value::new(
-                    rand::random::<f32>() as usize,
-                    None,
-                    Box::new(MultOp),
-                    dependencies,
-                    self.values.iter().any(|v| v.borrow().requires_grad)
-                        || other.values.iter().any(|v| v.borrow().requires_grad),
-                );
-
-                result_values.push(Rc::new(RefCell::new(result_value)));
-            }
-        }
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            None,
+            Box::new(MultOp),
+            vec![self.value.clone(), other.value.clone()],
+            requires_grad,
+        )));
 
         Tensor {
-            values: result_values,
-            shape: vec![rows, cols],
+            value,
+            shape: self.shape.clone(),
         }
     }
 }
