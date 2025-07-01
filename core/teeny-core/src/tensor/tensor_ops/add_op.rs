@@ -92,7 +92,11 @@ mod tests {
         c.eval();
 
         println!("C:{:?}", c.eval());
-        // c.backward();
+        c.backward();
+
+        println!("A: {:?}", a.gradients());
+        println!("B: {:?}", b.gradients());
+        println!("C: {:?}", c.gradients());
 
         // assert_eq!(a.gradients(), vec![TensorData::ones(vec![2, 2])]);
         // assert_eq!(b.gradients(), vec![TensorData::ones(vec![2, 2])]);

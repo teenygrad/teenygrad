@@ -112,13 +112,14 @@ impl Tensor {
 
     /// Backward pass through the entire tensor
     pub fn backward(&self) {
+        let mut value = self.value.borrow_mut();
+        let shape = value.data.as_ref().unwrap().shape();
+
         // Start with gradient of 1.0 for the output tensor
-        self.value.borrow_mut().grad = Some(ndarray::Array::ones(
-            self.value.borrow().data.as_ref().unwrap().shape(),
-        ));
+        value.grad = Some(ndarray::Array::ones(shape));
 
         // Perform backward pass for each value
-        self.value.borrow().backward();
+        value.backward();
     }
 
     /// Get gradients for all values in the tensor
