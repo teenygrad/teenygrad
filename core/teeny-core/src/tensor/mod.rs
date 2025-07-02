@@ -20,83 +20,19 @@ use std::rc::Rc;
 
 pub mod shape;
 pub mod tensor_ops;
+pub mod value;
 
 pub use shape::*;
 
-use crate::tensor::tensor_ops::TensorOp;
 use crate::tensor::tensor_ops::input_op::InputOp;
-
-pub type TensorData = ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>;
-
-/// Value represents either an input or the result of an operation
-#[derive(Debug)]
-pub struct Value {
-    pub id: usize,
-    pub data: Option<TensorData>, // Concrete value if computed
-    pub operation: Box<dyn TensorOp>,
-    pub dependencies: Vec<ValueRef>,
-    // Autodifferentiation fields
-    pub grad: Option<TensorData>, // Gradient with respect to this value``
-    pub requires_grad: bool,      // Whether this value needs gradients
-}
-
-/// Reference-counted pointer to a Value
-pub type ValueRef = Rc<RefCell<Value>>;
+use crate::tensor::tensor_ops::log_op::LogOp;
+use crate::tensor::value::{TensorData, Value, ValueRef};
 
 /// A tensor in our computation graph
 #[derive(Debug, Clone)]
 pub struct Tensor {
     pub value: ValueRef,
     pub shape: Vec<usize>,
-}
-
-impl Value {
-    /// Create a new value with autodifferentiation support
-    pub fn new(
-        id: usize,
-        data: Option<TensorData>,
-        operation: Box<dyn TensorOp>,
-        dependencies: Vec<ValueRef>,
-        requires_grad: bool,
-    ) -> Self {
-        let shape = data.as_ref().map(|d| d.shape().to_vec());
-        let grad = shape.map(ndarray::Array::zeros);
-
-        Value {
-            id,
-            data,
-            operation,
-            dependencies,
-            grad,
-            requires_grad,
-        }
-    }
-
-    /// Accumulate gradient (for handling multiple paths in computation graph)
-    pub fn accumulate_grad(&mut self, grad: &TensorData) {
-        if let Some(g) = self.grad.as_mut() {
-            *g += grad;
-        }
-    }
-
-    /// Clear the gradient
-    pub fn zero_grad(&mut self) {
-        self.grad = None;
-    }
-
-    /// Backward pass for this value
-    pub fn backward(&self) {
-        self.operation
-            .backward(&self.dependencies, self.grad.as_ref().unwrap());
-    }
-
-    pub fn eval(&mut self) {
-        if self.operation.is_input() {
-            return;
-        }
-
-        self.data = Some(self.operation.eval(&self.dependencies));
-    }
 }
 
 impl Tensor {
@@ -134,6 +70,23 @@ impl Tensor {
         if let Some(ref mut data) = self.value.borrow_mut().data {
             *data = learning_rate * grad;
         }
+    }
+}
+
+pub fn log(x: Tensor) -> Tensor {
+    let requires_grad = x.value.borrow().requires_grad;
+
+    let value = Rc::new(RefCell::new(Value::new(
+        rand::random::<f32>() as usize,
+        None,
+        Box::new(LogOp),
+        vec![x.value.clone()],
+        requires_grad,
+    )));
+
+    Tensor {
+        value,
+        shape: x.shape.clone(),
     }
 }
 

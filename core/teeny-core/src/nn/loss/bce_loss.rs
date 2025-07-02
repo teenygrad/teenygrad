@@ -17,7 +17,7 @@
 
 use crate::{
     nn::loss::{Loss, LossFn},
-    tensor::Tensor,
+    tensor::{Tensor, log, value::topsort_graph},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -30,7 +30,12 @@ impl BCELoss {
 }
 
 impl LossFn for BCELoss {
-    fn compute(&self, _y_pred: &Tensor, _y_target: &Tensor) -> Box<dyn Loss> {
-        todo!()
+    fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
+        let loss = -(y * log(p.clone()) + (1.0 - y) * log(1.0 - p.clone()));
+
+        Loss {
+            params: topsort_graph(&p.value),
+            loss,
+        }
     }
 }

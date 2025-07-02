@@ -15,7 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{cell::RefCell, ops::Sub, rc::Rc};
+use std::{
+    cell::RefCell,
+    ops::{Mul, Neg, Sub},
+    rc::Rc,
+};
 
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
@@ -61,5 +65,49 @@ impl Sub<Tensor> for Tensor {
             value,
             shape: self.shape.clone(),
         }
+    }
+}
+
+impl Sub<&Tensor> for Tensor {
+    type Output = Tensor;
+
+    fn sub(self, other: &Tensor) -> Self::Output {
+        self.sub(other.clone())
+    }
+}
+
+impl Sub<Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn sub(self, other: Tensor) -> Self::Output {
+        self.clone().sub(other)
+    }
+}
+
+impl Sub<&Tensor> for f32 {
+    type Output = Tensor;
+
+    fn sub(self, other: &Tensor) -> Self::Output {
+        other
+            .clone()
+            .sub(Tensor::new(ndarray::Array::from_elem(vec![1], self), true))
+    }
+}
+
+impl Sub<Tensor> for f32 {
+    type Output = Tensor;
+
+    fn sub(self, other: Tensor) -> Self::Output {
+        other
+            .clone()
+            .sub(Tensor::new(ndarray::Array::from_elem(vec![1], self), true))
+    }
+}
+
+impl Neg for Tensor {
+    type Output = Tensor;
+
+    fn neg(self) -> Self::Output {
+        self.mul(Tensor::new(ndarray::Array::from_elem(vec![1], -1.0), true))
     }
 }

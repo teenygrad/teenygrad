@@ -49,14 +49,14 @@ impl Add<Tensor> for Tensor {
 
         let a = self.value.clone();
         let b = other.value.clone();
-        let required_grad = a.borrow().requires_grad || b.borrow().requires_grad;
+        let requires_grad = a.borrow().requires_grad || b.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
             rand::random::<f32>() as usize,
             None,
             Box::new(AddOp),
             vec![a, b],
-            required_grad,
+            requires_grad,
         )));
 
         Tensor {

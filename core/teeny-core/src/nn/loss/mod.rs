@@ -15,14 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, value::ValueRef};
 
 pub mod bce_loss;
 
 pub trait LossFn {
-    fn compute(&self, _y_pred: &Tensor, _y_target: &Tensor) -> Box<dyn Loss>;
+    fn compute(&self, _y_pred: &Tensor, _y_target: &Tensor) -> Loss;
 }
 
-pub trait Loss {
-    fn backward(&mut self);
+pub struct Loss {
+    pub params: Vec<ValueRef>,
+    pub loss: Tensor,
+}
+
+impl Loss {
+    pub fn backward(&mut self) {
+        self.loss.eval();
+
+        for param in self.params.iter().rev() {
+            param.borrow_mut().backward();
+        }
+    }
 }

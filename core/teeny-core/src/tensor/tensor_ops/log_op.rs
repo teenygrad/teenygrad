@@ -15,9 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{cell::RefCell, rc::Rc};
-
-use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensor::{TensorData, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct LogOp;
@@ -38,25 +36,6 @@ impl TensorOp for LogOp {
             //     // array![0.0]
             // };
             // dependencies[0].borrow_mut().accumulate_grad(log_grad);
-        }
-    }
-}
-
-impl Tensor {
-    pub fn log(self) -> Tensor {
-        let requires_grad = self.value.borrow().requires_grad;
-
-        let value = Rc::new(RefCell::new(Value::new(
-            rand::random::<f32>() as usize,
-            None,
-            Box::new(LogOp),
-            vec![self.value.clone()],
-            requires_grad,
-        )));
-
-        Tensor {
-            value,
-            shape: self.shape.clone(),
         }
     }
 }
