@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::Sub, rc::Rc};
 
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
@@ -41,8 +41,10 @@ impl TensorOp for SubOp {
     }
 }
 
-impl Tensor {
-    pub fn sub(&self, other: &Tensor) -> Tensor {
+impl Sub<Tensor> for Tensor {
+    type Output = Tensor;
+
+    fn sub(self, other: Tensor) -> Self::Output {
         assert_eq!(self.shape, other.shape, "Shape mismatch in subtraction");
 
         let requires_grad = self.value.borrow().requires_grad || other.value.borrow().requires_grad;

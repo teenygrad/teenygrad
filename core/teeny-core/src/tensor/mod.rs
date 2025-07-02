@@ -199,27 +199,15 @@ mod tests {
         let y: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
 
         // Create computation graph: z = (x + y) * 2 + relu(x)
-        let z1 = x.add(&y); // x + y
+        let z1 = x + y; // x + y
         let z2 = z1.relu(); // relu(x + y)
         let z3 = z2.mean(); // mean(relu(x + y))
 
-        // Zero gradients before backward pass
-        x.zero_grad();
-        y.zero_grad();
+        // zero gradients
+        z3.zero_grad();
 
         // Backward pass
         z3.backward();
-
-        // Check that gradients were computed
-        let x_grads = x.gradients();
-        let y_grads = y.gradients();
-
-        println!("X gradients: {:?}", x_grads);
-        println!("Y gradients: {:?}", y_grads);
-
-        // Gradients should be non-zero
-        // assert!(x_grads.iter().any(|g| g.iter().any(|&v| v != 0.0)));
-        // assert!(y_grads.iter().any(|g| g.iter().any(|&v| v != 0.0)));
     }
 
     #[test]
@@ -236,13 +224,13 @@ mod tests {
             x.zero_grad();
 
             // Forward pass: f(x) = x^2 + 2x + 1
-            let x_squared = x.mult(&x); // x^2
-            let two_x = x.add(&x); // 2x
-            let x_sq_plus_2x = x_squared.add(&two_x); // x^2 + 2x
+            let x_squared = &x * &x; // x^2
+            let two_x = 2.0 * &x; // 2x
+            let x_sq_plus_2x = x_squared + two_x; // x^2 + 2x
             let one_shape = vec![1];
             let one = Tensor::new(ndarray::Array::zeros(one_shape), true);
             one.value.borrow_mut().data = Some(ndarray::Array::from_elem(vec![1], 1.0));
-            let loss = x_sq_plus_2x.add(&one); // x^2 + 2x + 1
+            let loss = x_sq_plus_2x + one; // x^2 + 2x + 1
 
             // Backward pass
             loss.backward();

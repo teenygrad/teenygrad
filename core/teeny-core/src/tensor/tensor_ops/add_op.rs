@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::Add, rc::Rc};
 
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
@@ -26,11 +26,6 @@ impl TensorOp for AddOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
         dependencies.iter().for_each(|v| v.borrow_mut().eval());
 
-        println!("AppOp dependencies: {:?}", dependencies.len());
-        dependencies.iter().for_each(|v| {
-            println!("{:?}", v.borrow().data.clone().unwrap());
-        });
-
         dependencies
             .iter()
             .map(|v| v.borrow().data.clone().unwrap())
@@ -40,19 +35,16 @@ impl TensorOp for AddOp {
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
-        if dependencies.len() >= 2 {
-            if dependencies[0].borrow().requires_grad {
-                dependencies[0].borrow_mut().accumulate_grad(grad);
-            }
-            if dependencies[1].borrow().requires_grad {
-                dependencies[1].borrow_mut().accumulate_grad(grad);
-            }
-        }
+        dependencies
+            .iter()
+            .for_each(|v| v.borrow_mut().accumulate_grad(grad));
     }
 }
 
-impl Tensor {
-    pub fn add(&self, other: &Tensor) -> Tensor {
+impl Add<Tensor> for Tensor {
+    type Output = Tensor;
+
+    fn add(self, other: Tensor) -> Self::Output {
         assert_eq!(self.shape, other.shape, "Shape mismatch in addition");
 
         let a = self.value.clone();
@@ -74,6 +66,22 @@ impl Tensor {
     }
 }
 
+impl Add<&Tensor> for Tensor {
+    type Output = Tensor;
+
+    fn add(self, other: &Tensor) -> Self::Output {
+        self.add(other.clone())
+    }
+}
+
+impl Add<Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn add(self, other: Tensor) -> Self::Output {
+        self.clone().add(other)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ndarray::array;
@@ -85,18 +93,12 @@ mod tests {
         let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
         let b: Tensor = array![[5.0, 6.0], [7.0, 8.0]].into();
 
-        let c = a.add(&b);
+        let c = a + b;
 
         assert_eq!(c.shape, vec![2, 2]);
 
-        c.eval();
-
         println!("C:{:?}", c.eval());
         c.backward();
-
-        println!("A: {:?}", a.gradients());
-        println!("B: {:?}", b.gradients());
-        println!("C: {:?}", c.gradients());
 
         // assert_eq!(a.gradients(), vec![TensorData::ones(vec![2, 2])]);
         // assert_eq!(b.gradients(), vec![TensorData::ones(vec![2, 2])]);

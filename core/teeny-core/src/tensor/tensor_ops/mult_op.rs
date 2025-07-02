@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::Mul, rc::Rc};
 
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
@@ -41,10 +41,10 @@ impl TensorOp for MultOp {
     }
 }
 
-impl Tensor {
-    pub fn mult(&self, other: &Tensor) -> Tensor {
-        // Matrix multiplication that returns a new tensor with graph nodes
-        // For simplicity, we'll assume 2D matrices
+impl Mul<Tensor> for Tensor {
+    type Output = Tensor;
+
+    fn mul(self, other: Tensor) -> Self::Output {
         assert_eq!(self.shape.len(), 2, "matmul requires 2D tensors");
         assert_eq!(other.shape.len(), 2, "matmul requires 2D tensors");
         assert_eq!(self.shape[1], other.shape[0], "matmul dimension mismatch");
@@ -63,5 +63,53 @@ impl Tensor {
             value,
             shape: self.shape.clone(),
         }
+    }
+}
+
+impl Mul<f32> for Tensor {
+    type Output = Tensor;
+
+    fn mul(self, other: f32) -> Self::Output {
+        self.mul(Tensor::new(ndarray::Array::from_elem(vec![1], other), true))
+    }
+}
+
+impl Mul<Tensor> for f32 {
+    type Output = Tensor;
+
+    fn mul(self, other: Tensor) -> Self::Output {
+        other.mul(Tensor::new(ndarray::Array::from_elem(vec![1], self), true))
+    }
+}
+
+impl Mul<&Tensor> for f32 {
+    type Output = Tensor;
+
+    fn mul(self, other: &Tensor) -> Self::Output {
+        other.mul(Tensor::new(ndarray::Array::from_elem(vec![1], self), true))
+    }
+}
+
+impl Mul<&Tensor> for Tensor {
+    type Output = Tensor;
+
+    fn mul(self, other: &Tensor) -> Self::Output {
+        self.mul(other.clone())
+    }
+}
+
+impl Mul<Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn mul(self, other: Tensor) -> Self::Output {
+        self.clone().mul(other)
+    }
+}
+
+impl Mul<&Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn mul(self, other: &Tensor) -> Self::Output {
+        self.clone().mul(other.clone())
     }
 }

@@ -43,7 +43,7 @@ impl TensorOp for LogOp {
 }
 
 impl Tensor {
-    pub fn log(&self) -> Tensor {
+    pub fn log(self) -> Tensor {
         let requires_grad = self.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
