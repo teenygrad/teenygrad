@@ -15,7 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::{Tensor, value::ValueRef};
+use ndarray::array;
+
+use crate::tensor::{
+    Tensor,
+    tensor_ops::loss_op::{self, LossOp},
+    value::{ValueRef, toposort_graph},
+};
 
 pub mod bce_loss;
 
@@ -23,16 +29,27 @@ pub trait LossFn {
     fn compute(&self, _y_pred: &Tensor, _y_target: &Tensor) -> Loss;
 }
 
+#[derive(Debug, Clone)]
 pub struct Loss {
     pub params: Vec<ValueRef>,
     pub loss: Tensor,
 }
 
 impl Loss {
+    pub fn new(p: &Tensor, loss: Tensor) -> Self {
+        let loss_op = LossOp::wrap(p.clone());
+        loss_op.value.borrow_mut().grad = Some(array![1.0].into_dyn());
+        loss_op.value.borrow_mut().eval();
+
+        let params = toposort_graph(&loss_op.value);
+
+        Self { params, loss }
+    }
+}
+
+impl Loss {
     pub fn backward(&mut self) {
         self.loss.eval();
-
-        println!("Params: {:?}", self.params);
 
         for param in self.params.iter().rev() {
             param.borrow_mut().backward();

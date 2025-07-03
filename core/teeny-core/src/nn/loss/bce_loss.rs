@@ -15,11 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ndarray::array;
-
 use crate::{
     nn::loss::{Loss, LossFn},
-    tensor::{Tensor, log, tensor_ops::loss_op, value::topsort_graph},
+    tensor::{Tensor, log},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -34,14 +32,8 @@ impl BCELoss {
 impl LossFn for BCELoss {
     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
         let bce_loss = -(y * log(p.clone()) + (1.0 - y) * log(1.0 - p.clone()));
-        let p1 = loss_op::loss(p.clone());
-        p1.value.borrow_mut().grad = Some(array![1.0].into_dyn());
-        p1.value.borrow_mut().eval();
 
-        Loss {
-            params: topsort_graph(&p1.value),
-            loss: bce_loss,
-        }
+        Loss::new(p, bce_loss)
     }
 }
 
@@ -68,7 +60,5 @@ mod tests {
 
         println!("Loss: {:?}", loss.loss);
         println!("Params: {:?}", loss.params);
-
-        todo!()
     }
 }

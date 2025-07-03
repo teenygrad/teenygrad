@@ -41,20 +41,22 @@ impl TensorOp for LossOp {
     }
 }
 
-pub fn loss(x: Tensor) -> Tensor {
-    let requires_grad = x.value.borrow().requires_grad;
+impl LossOp {
+    pub fn wrap(x: Tensor) -> Tensor {
+        let requires_grad = x.value.borrow().requires_grad;
 
-    let value = Rc::new(RefCell::new(Value::new(
-        rand::random::<f32>() as usize,
-        None,
-        Box::new(LossOp),
-        vec![x.value.clone()],
-        requires_grad,
-    )));
+        let value = Rc::new(RefCell::new(Value::new(
+            rand::random::<f32>() as usize,
+            None,
+            Box::new(LossOp),
+            vec![x.value.clone()],
+            requires_grad,
+        )));
 
-    Tensor {
-        value,
-        shape: x.shape.clone(),
+        Tensor {
+            value,
+            shape: x.shape.clone(),
+        }
     }
 }
 
@@ -71,7 +73,7 @@ mod tests {
 
         let c = &a * &b;
         let d = &c * &a + &b;
-        let e = loss(d);
+        let e = LossOp::wrap(d);
 
         e.eval();
         println!("E: {:?}", e);

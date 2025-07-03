@@ -88,7 +88,7 @@ impl Value {
     }
 }
 
-pub fn topsort_graph(value: &ValueRef) -> Vec<ValueRef> {
+pub fn toposort_graph(value: &ValueRef) -> Vec<ValueRef> {
     let mut sorted = Vec::new();
     let mut visited = HashSet::<usize>::new();
 
