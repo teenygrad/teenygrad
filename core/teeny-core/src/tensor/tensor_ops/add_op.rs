@@ -31,13 +31,15 @@ impl TensorOp for AddOp {
             .map(|v| v.borrow().data.clone().unwrap())
             .reduce(|a, b| a + b)
             .unwrap()
-            .to_owned()
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
-        dependencies
-            .iter()
-            .for_each(|v| v.borrow_mut().accumulate_grad(grad));
+        assert_eq!(dependencies.len(), 2);
+        let mut a = dependencies[0].borrow_mut();
+        let mut b = dependencies[1].borrow_mut();
+
+        a.accumulate_grad(grad);
+        b.accumulate_grad(grad);
     }
 }
 

@@ -23,19 +23,16 @@ pub struct LogOp;
 impl TensorOp for LogOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
         assert_eq!(dependencies.len(), 1);
-        dependencies[0].borrow().data.as_ref().unwrap().log(10.0)
+
+        dependencies[0].borrow_mut().eval();
+        dependencies[0].borrow().data.as_ref().unwrap().ln()
     }
 
-    fn backward(&self, dependencies: &[ValueRef], _grad: &TensorData) {
-        if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
-            let _input_val = dependencies[0].borrow().data.as_ref().unwrap();
-            todo!("Fixme")
-            // let log_grad = if input_val > 0.0 {
-            //     grad / input_val
-            // } else {
-            //     // array![0.0]
-            // };
-            // dependencies[0].borrow_mut().accumulate_grad(log_grad);
-        }
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
+        assert_eq!(dependencies.len(), 1);
+        let mut a = dependencies[0].borrow_mut();
+
+        let grad_a = grad / a.data.clone().unwrap();
+        a.accumulate_grad(&grad_a);
     }
 }

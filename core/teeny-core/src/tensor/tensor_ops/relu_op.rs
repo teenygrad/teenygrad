@@ -34,22 +34,11 @@ impl TensorOp for ReLuOp {
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
-        if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
-            let input = dependencies[0].borrow();
-            let input_val = input.data.as_ref().unwrap();
-            let _relu_grad = input_val
-                .iter()
-                .zip(grad.iter())
-                .map(|(input, grad)| if *input > 0.0 { *grad } else { 0.0 })
-                .collect::<Vec<f32>>();
-            todo!("Fixme")
-            // let relu_grad = Array::from_vec(relu_grad)
-            //     .to_shape(input_val.shape())
-            //     .unwrap();
-            // dependencies[0].borrow_mut().accumulate_grad(&relu_grad);
-            // let relu_grad = if input_val > 0.0 { grad } else { 0.0 };
-            // dependencies[0].borrow_mut().accumulate_grad(relu_grad);
-        }
+        assert_eq!(dependencies.len(), 1);
+        let mut a = dependencies[0].borrow_mut();
+
+        let grad_a = grad.map(|v| if *v > 0.0 { 1.0 } else { 0.0 });
+        a.accumulate_grad(&grad_a);
     }
 }
 

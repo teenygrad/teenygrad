@@ -25,19 +25,23 @@ pub struct MultOp;
 impl TensorOp for MultOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
         assert_eq!(dependencies.len(), 2);
+
+        dependencies.iter().for_each(|v| v.borrow_mut().eval());
+
         dependencies[0].borrow().data.as_ref().unwrap()
             * dependencies[1].borrow().data.as_ref().unwrap()
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
-        if dependencies.len() >= 2 {
-            if dependencies[0].borrow().requires_grad {
-                dependencies[0].borrow_mut().accumulate_grad(grad);
-            }
-            if dependencies[1].borrow().requires_grad {
-                dependencies[1].borrow_mut().accumulate_grad(grad);
-            }
-        }
+        assert_eq!(dependencies.len(), 2);
+        let mut a = dependencies[0].borrow_mut();
+        let mut b = dependencies[1].borrow_mut();
+
+        let grad_a = grad * b.data.clone().unwrap();
+        let grad_b = grad * a.data.clone().unwrap();
+
+        a.accumulate_grad(&grad_a);
+        b.accumulate_grad(&grad_b);
     }
 }
 
@@ -45,10 +49,6 @@ impl Mul<Tensor> for Tensor {
     type Output = Tensor;
 
     fn mul(self, other: Tensor) -> Self::Output {
-        assert_eq!(self.shape.len(), 2, "matmul requires 2D tensors");
-        assert_eq!(other.shape.len(), 2, "matmul requires 2D tensors");
-        assert_eq!(self.shape[1], other.shape[0], "matmul dimension mismatch");
-
         let requires_grad = self.value.borrow().requires_grad || other.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(

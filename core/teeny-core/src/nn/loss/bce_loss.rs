@@ -17,7 +17,7 @@
 
 use crate::{
     nn::loss::{Loss, LossFn},
-    tensor::{Tensor, log, value::topsort_graph},
+    tensor::{Tensor, log, tensor_ops::loss_op, value::topsort_graph},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -31,11 +31,40 @@ impl BCELoss {
 
 impl LossFn for BCELoss {
     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
-        let loss = -(y * log(p.clone()) + (1.0 - y) * log(1.0 - p.clone()));
+        let bce_loss = -(y * log(p.clone()) + (1.0 - y) * log(1.0 - p.clone()));
+        let p1 = loss_op::loss(p.clone());
 
         Loss {
-            params: topsort_graph(&p.value),
-            loss,
+            params: topsort_graph(&p1.value),
+            loss: bce_loss,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ndarray::array;
+
+    use super::*;
+
+    #[test]
+    fn test_bce_loss() {
+        // Create prediction and target tensors using the correct constructor
+        let a: Tensor = array![0.5, 0.5].into();
+        let b: Tensor = array![1.0, 0.0].into();
+
+        let c = &a * &b;
+        let d = &c * &a + &b;
+        let p: Tensor = array![0.5, 0.5].into();
+
+        let bce = BCELoss::new();
+        let mut loss = bce.compute(&p, &d);
+
+        loss.backward();
+
+        println!("Loss: {:?}", loss.loss);
+        println!("Params: {:?}", loss.params);
+
+        todo!()
     }
 }

@@ -34,14 +34,12 @@ impl TensorOp for SubOp {
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
-        if dependencies.len() >= 2 {
-            if dependencies[0].borrow().requires_grad {
-                dependencies[0].borrow_mut().accumulate_grad(grad);
-            }
-            if dependencies[1].borrow().requires_grad {
-                dependencies[1].borrow_mut().accumulate_grad(&-grad);
-            }
-        }
+        assert_eq!(dependencies.len(), 2);
+        let mut a = dependencies[0].borrow_mut();
+        let mut b = dependencies[1].borrow_mut();
+
+        a.accumulate_grad(grad);
+        b.accumulate_grad(&-grad);
     }
 }
 
@@ -49,8 +47,6 @@ impl Sub<Tensor> for Tensor {
     type Output = Tensor;
 
     fn sub(self, other: Tensor) -> Self::Output {
-        assert_eq!(self.shape, other.shape, "Shape mismatch in subtraction");
-
         let requires_grad = self.value.borrow().requires_grad || other.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
