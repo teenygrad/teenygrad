@@ -19,7 +19,7 @@ use ndarray::array;
 
 use crate::tensor::{
     Tensor,
-    tensor_ops::loss_op::{self, LossOp},
+    tensor_ops::loss_op::LossOp,
     value::{ValueRef, toposort_graph},
 };
 

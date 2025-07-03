@@ -84,25 +84,47 @@ impl Add<Tensor> for &Tensor {
     }
 }
 
+impl Add<&Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn add(self, other: &Tensor) -> Self::Output {
+        self.clone().add(other.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ndarray::array;
 
+    use crate::tensor::{tensor_ops::loss_op::LossOp, value::toposort_graph};
+
     use super::*;
 
     #[test]
-    fn test_add_op() {
+    fn test_add_backprop() {
         let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
         let b: Tensor = array![[5.0, 6.0], [7.0, 8.0]].into();
 
-        let c = a + b;
+        let c = LossOp::wrap(&a + &b);
+        c.value.borrow_mut().grad = Some(array![1.0].into_dyn());
+
+        c.eval();
+        let params = toposort_graph(&c.value);
+        println!("Params: {:?}", params.len());
+        for p in params.iter().rev() {
+            p.borrow_mut().backward();
+            println!("====");
+            println!("P: {:?}", p);
+        }
 
         assert_eq!(c.shape, vec![2, 2]);
 
-        println!("C:{:?}", c.eval());
-        c.backward();
+        assert_eq!(
+            c.value.borrow().data,
+            Some(array![[6.0, 8.0], [10.0, 12.0]].into_dyn())
+        );
 
-        // assert_eq!(a.gradients(), vec![TensorData::ones(vec![2, 2])]);
-        // assert_eq!(b.gradients(), vec![TensorData::ones(vec![2, 2])]);
+        assert_eq!(a.grad(), array![[1.0, 1.0], [1.0, 1.0]].into_dyn());
+        assert_eq!(b.grad(), array![[1.0, 1.0], [1.0, 1.0]].into_dyn());
     }
 }

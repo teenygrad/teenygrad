@@ -42,24 +42,22 @@ impl Tensor {
     }
 
     pub fn eval(&self) -> TensorData {
+        if self.value.borrow().operation.is_input() {
+            return self.value.borrow().data.clone().unwrap();
+        }
+
         self.value.borrow_mut().eval();
         self.value.borrow().data.clone().unwrap()
     }
 
     /// Backward pass through the entire tensor
     pub fn backward(&self) {
-        let mut value = self.value.borrow_mut();
-        let shape = value.data.as_ref().unwrap().shape();
-
-        // Start with gradient of 1.0 for the output tensor
-        value.grad = Some(ndarray::Array::ones(shape));
-
-        // Perform backward pass for each value
+        let value = self.value.borrow_mut();
         value.backward();
     }
 
     /// Get gradients for all values in the tensor
-    pub fn gradients(&self) -> TensorData {
+    pub fn grad(&self) -> TensorData {
         self.value.borrow().grad.as_ref().unwrap().clone()
     }
 

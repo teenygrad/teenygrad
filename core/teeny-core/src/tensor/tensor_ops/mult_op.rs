@@ -113,3 +113,31 @@ impl Mul<&Tensor> for &Tensor {
         self.clone().mul(other.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ndarray::array;
+
+    use super::*;
+
+    #[test]
+    fn test_mult_backprop() {
+        let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        let b: Tensor = array![[5.0, 6.0], [7.0, 8.0]].into();
+
+        let c = &a * &b;
+        c.value.borrow_mut().grad = Some(array![1.0].into_dyn());
+
+        c.eval();
+        c.backward();
+
+        assert_eq!(c.shape, vec![2, 2]);
+        assert_eq!(
+            c.value.borrow().data,
+            Some(array![[5.0, 12.0], [21.0, 32.0]].into_dyn())
+        );
+
+        assert_eq!(a.grad(), array![[5.0, 6.0], [7.0, 8.0]].into_dyn());
+        assert_eq!(b.grad(), array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
+    }
+}
