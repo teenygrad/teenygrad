@@ -71,7 +71,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let y = y.to_shape((dataset.shape()[0], 1)).unwrap();
 
     let model = SimpleClassifier::new();
-    let mut optimizer = nn::AdamBuilder::default().build().unwrap();
+    let mut _optimizer = nn::AdamBuilder::default().build().unwrap();
     let loss_fn = nn::BCELoss::new();
     const BATCH_SIZE: usize = 10;
 
@@ -83,9 +83,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             let y_batch = y.slice(s![i..i + BATCH_SIZE, ..]).into();
             let mut loss = loss_fn.compute(&y_pred, &y_batch);
 
-            optimizer.zero_grad();
+            // optimizer.zero_grad();
             loss.backward();
-            optimizer.update();
+            // optimizer.update();
         }
 
         println!("Epoch {:?}, loss {:?}", epoch, epoch);

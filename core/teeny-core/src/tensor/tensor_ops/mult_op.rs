@@ -28,8 +28,27 @@ impl TensorOp for MultOp {
 
         dependencies.iter().for_each(|v| v.borrow_mut().eval());
 
-        dependencies[0].borrow().data.as_ref().unwrap()
-            * dependencies[1].borrow().data.as_ref().unwrap()
+        let a = dependencies[0].borrow();
+        let b = dependencies[1].borrow();
+
+        let a_data = a.data.as_ref().unwrap();
+        let b_data = b.data.as_ref().unwrap();
+
+        // we can multiply only if the two values are 2D
+        assert_eq!(a_data.shape().len(), 2);
+        assert_eq!(b_data.shape().len(), 2);
+
+        let a_2d = a_data
+            .to_shape((a_data.shape()[0], a_data.shape()[1]))
+            .unwrap();
+
+        let b_2d = b_data
+            .to_shape((b_data.shape()[0], b_data.shape()[1]))
+            .unwrap();
+
+        let result = a_2d.dot(&b_2d);
+
+        result.into_dyn()
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {

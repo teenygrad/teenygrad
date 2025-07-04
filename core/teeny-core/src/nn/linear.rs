@@ -42,7 +42,7 @@ impl Linear {
 impl Module for Linear {
     fn forward(&self, input: &Tensor) -> Tensor {
         // Matrix multiplication
-        let output = input * self.weight.transpose();
+        let output = input * &self.weight;
 
         // Add bias if present
         if let Some(bias) = &self.bias {

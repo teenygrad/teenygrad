@@ -47,8 +47,6 @@ impl Add<Tensor> for Tensor {
     type Output = Tensor;
 
     fn add(self, other: Tensor) -> Self::Output {
-        assert_eq!(self.shape, other.shape, "Shape mismatch in addition");
-
         let a = self.value.clone();
         let b = other.value.clone();
         let requires_grad = a.borrow().requires_grad || b.borrow().requires_grad;

@@ -11,7 +11,12 @@ enum Model {
 #[command(about = "A CLI application for running teenygrad models")]
 struct Args {
     /// The model to run
-    #[arg(value_enum, short = 'm', long = "model")]
+    #[arg(
+        value_enum,
+        short = 'm',
+        long = "model",
+        default_value = "simple-classifier"
+    )]
     model: Model,
 }
 
