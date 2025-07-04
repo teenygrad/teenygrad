@@ -79,6 +79,14 @@ impl Sub<Tensor> for &Tensor {
     }
 }
 
+impl Sub<&Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn sub(self, other: &Tensor) -> Self::Output {
+        self.clone().sub(other.clone())
+    }
+}
+
 impl Sub<&Tensor> for f32 {
     type Output = Tensor;
 
@@ -104,5 +112,33 @@ impl Neg for Tensor {
 
     fn neg(self) -> Self::Output {
         self.mul(Tensor::new(ndarray::Array::from_elem(vec![1], -1.0), true))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ndarray::array;
+
+    use crate::{nn::loss::Loss, tensor::Tensor};
+
+    #[test]
+    fn test_sub_backprop() {
+        let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        let b: Tensor = array![[5.0, 6.0], [7.0, 8.0]].into();
+
+        let c = &a - &b;
+        let mut loss = Loss::new(c.clone());
+        loss.backward();
+
+        assert_eq!(
+            c.value.borrow().data,
+            Some(array![[-4.0, -4.0], [-4.0, -4.0]].into_dyn())
+        );
+
+        assert_eq!(a.grad(), Some(array![[1.0, 1.0], [1.0, 1.0]].into_dyn()));
+        assert_eq!(
+            b.grad(),
+            Some(array![[-1.0, -1.0], [-1.0, -1.0]].into_dyn())
+        );
     }
 }

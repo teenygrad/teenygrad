@@ -35,13 +35,13 @@ impl TensorOp for TransposeOp {
             .to_owned()
     }
 
-    fn backward(
-        &self,
-        dependencies: &[ValueRef],
-        grad: &ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>,
-    ) {
+    fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
         if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
-            dependencies[0].borrow_mut().accumulate_grad(grad);
+            // Transpose the gradient back to match the original tensor shape
+            let transposed_grad = grad.t().to_owned();
+            dependencies[0]
+                .borrow_mut()
+                .accumulate_grad(&transposed_grad);
         }
     }
 }
@@ -61,5 +61,32 @@ impl Tensor {
             value,
             shape: self.shape.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nn::loss::Loss;
+    use ndarray::array;
+
+    #[test]
+    fn test_transpose_backprop() {
+        let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+
+        let b = a.transpose();
+        let mut loss = Loss::new(b.clone());
+        loss.backward();
+
+        // Check that the transposed tensor has the correct shape and values
+        assert_eq!(b.shape, vec![2, 2]);
+        assert_eq!(
+            b.value.borrow().data,
+            Some(array![[1.0, 3.0], [2.0, 4.0]].into_dyn())
+        );
+
+        // Check that the gradient is correctly transposed back
+        // The gradient should be [[1.0, 1.0], [1.0, 1.0]] transposed back to [[1.0, 1.0], [1.0, 1.0]]
+        assert_eq!(a.grad(), Some(array![[1.0, 1.0], [1.0, 1.0]].into_dyn()));
     }
 }
