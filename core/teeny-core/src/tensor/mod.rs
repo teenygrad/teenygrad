@@ -42,10 +42,6 @@ impl Tensor {
     }
 
     pub fn eval(&self) -> TensorData {
-        if self.value.borrow().operation.is_input() {
-            return self.value.borrow().data.clone().unwrap();
-        }
-
         self.value.borrow_mut().eval();
         self.value.borrow().data.clone().unwrap()
     }
@@ -57,8 +53,8 @@ impl Tensor {
     }
 
     /// Get gradients for all values in the tensor
-    pub fn grad(&self) -> TensorData {
-        self.value.borrow().grad.as_ref().unwrap().clone()
+    pub fn grad(&self) -> Option<TensorData> {
+        self.value.borrow().grad.clone()
     }
 
     /// Update values using gradients (for optimization)
@@ -75,7 +71,6 @@ pub fn log(x: Tensor) -> Tensor {
     let requires_grad = x.value.borrow().requires_grad;
 
     let value = Rc::new(RefCell::new(Value::new(
-        rand::random::<f32>() as usize,
         None,
         Box::new(LogOp),
         vec![x.value.clone()],
@@ -92,14 +87,12 @@ impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>>
     fn from(array: ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>) -> Self {
         let shape = array.shape().to_vec();
         let data = array.to_owned().into_dyn();
-        let value = Rc::new(RefCell::new(Value {
-            id: rand::random::<f32>() as usize,
-            data: Some(data),
-            operation: Box::new(InputOp),
-            dependencies: Vec::new(),
-            grad: Some(TensorData::zeros(shape.clone())),
-            requires_grad: true,
-        }));
+        let value = Rc::new(RefCell::new(Value::new(
+            Some(data),
+            Box::new(InputOp),
+            Vec::new(),
+            true,
+        )));
 
         Tensor { value, shape }
     }
@@ -108,14 +101,12 @@ impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>>
 impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>> for Tensor {
     fn from(array: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>) -> Self {
         let shape = array.shape().to_vec();
-        let value = Rc::new(RefCell::new(Value {
-            id: rand::random::<f32>() as usize,
-            data: Some(array.to_owned().into_dyn()),
-            operation: Box::new(InputOp),
-            dependencies: Vec::new(),
-            grad: Some(TensorData::zeros(array.shape().to_vec())),
-            requires_grad: true,
-        }));
+        let value = Rc::new(RefCell::new(Value::new(
+            Some(array.to_owned().into_dyn()),
+            Box::new(InputOp),
+            Vec::new(),
+            true,
+        )));
 
         Tensor { value, shape }
     }
@@ -124,14 +115,12 @@ impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>>
 impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>> for Tensor {
     fn from(array: ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>) -> Self {
         let shape = array.shape().to_vec();
-        let value = Rc::new(RefCell::new(Value {
-            id: rand::random::<f32>() as usize,
-            data: Some(array.to_owned().into_dyn()),
-            operation: Box::new(InputOp),
-            dependencies: Vec::new(),
-            grad: Some(TensorData::zeros(array.shape().to_vec())),
-            requires_grad: true,
-        }));
+        let value = Rc::new(RefCell::new(Value::new(
+            Some(array.to_owned().into_dyn()),
+            Box::new(InputOp),
+            Vec::new(),
+            true,
+        )));
 
         Tensor { value, shape }
     }

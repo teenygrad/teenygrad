@@ -50,7 +50,6 @@ impl Sub<Tensor> for Tensor {
         let requires_grad = self.value.borrow().requires_grad || other.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
-            rand::random::<f32>() as usize,
             None,
             Box::new(SubOp),
             vec![self.value.clone(), other.value.clone()],

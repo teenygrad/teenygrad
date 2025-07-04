@@ -17,6 +17,8 @@
 
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
+use uuid::Uuid;
+
 use crate::tensor::tensor_ops::TensorOp;
 
 pub type TensorData = ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>;
@@ -24,7 +26,7 @@ pub type TensorData = ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn
 /// Value represents either an input or the result of an operation
 #[derive(Debug)]
 pub struct Value {
-    pub id: usize,
+    pub id: String,
     pub data: Option<TensorData>, // Concrete value if computed
     pub operation: Box<dyn TensorOp>,
     pub dependencies: Vec<ValueRef>,
@@ -39,12 +41,12 @@ pub type ValueRef = Rc<RefCell<Value>>;
 impl Value {
     /// Create a new value with autodifferentiation support
     pub fn new(
-        id: usize,
         data: Option<TensorData>,
         operation: Box<dyn TensorOp>,
         dependencies: Vec<ValueRef>,
         requires_grad: bool,
     ) -> Self {
+        let id = Uuid::new_v4().to_string();
         let shape = data.as_ref().map(|d| d.shape().to_vec());
         let grad = shape.map(ndarray::Array::zeros);
 
@@ -62,6 +64,8 @@ impl Value {
     pub fn accumulate_grad(&mut self, grad: &TensorData) {
         if let Some(g) = self.grad.as_mut() {
             *g += grad;
+        } else {
+            self.grad = Some(grad.clone());
         }
     }
 
@@ -75,8 +79,14 @@ impl Value {
 
     /// Backward pass for this value
     pub fn backward(&self) {
-        self.operation
-            .backward(&self.dependencies, self.grad.as_ref().unwrap());
+        if self.requires_grad {
+            if self.grad.is_none() {
+                println!("Grad is none: {:?}", self);
+            }
+
+            self.operation
+                .backward(&self.dependencies, self.grad.as_ref().unwrap());
+        }
     }
 
     pub fn eval(&mut self) {
@@ -90,14 +100,14 @@ impl Value {
 
 pub fn toposort_graph(value: &ValueRef) -> Vec<ValueRef> {
     let mut sorted = Vec::new();
-    let mut visited = HashSet::<usize>::new();
+    let mut visited = HashSet::<String>::new();
 
-    fn visit(value: &ValueRef, sorted: &mut Vec<ValueRef>, visited: &mut HashSet<usize>) {
+    fn visit(value: &ValueRef, sorted: &mut Vec<ValueRef>, visited: &mut HashSet<String>) {
         if visited.contains(&value.borrow().id) {
             return;
         }
 
-        visited.insert(value.borrow().id);
+        visited.insert(value.borrow().id.clone());
 
         for dependency in &value.borrow().dependencies {
             visit(dependency, sorted, visited);

@@ -25,8 +25,6 @@ pub mod sigmoid_op;
 pub mod sub_op;
 pub mod transpose_op;
 
-pub(crate) mod loss_op;
-
 use std::fmt::Debug;
 
 use crate::tensor::{TensorData, ValueRef};

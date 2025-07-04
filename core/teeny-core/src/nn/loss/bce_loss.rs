@@ -33,7 +33,7 @@ impl LossFn for BCELoss {
     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
         let bce_loss = -(y * log(p.clone()) + (1.0 - y) * log(1.0 - p.clone()));
 
-        Loss::new(p, bce_loss)
+        Loss::new(bce_loss)
     }
 }
 

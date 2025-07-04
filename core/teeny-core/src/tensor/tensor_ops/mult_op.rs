@@ -40,6 +40,9 @@ impl TensorOp for MultOp {
         let grad_a = grad * b.data.clone().unwrap();
         let grad_b = grad * a.data.clone().unwrap();
 
+        println!("Incoming: {:?} Grad A: {:?}", grad, grad_a);
+        println!("Grad B: {:?}", grad_b);
+
         a.accumulate_grad(&grad_a);
         b.accumulate_grad(&grad_b);
     }
@@ -52,7 +55,6 @@ impl Mul<Tensor> for Tensor {
         let requires_grad = self.value.borrow().requires_grad || other.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
-            rand::random::<f32>() as usize,
             None,
             Box::new(MultOp),
             vec![self.value.clone(), other.value.clone()],
@@ -137,7 +139,7 @@ mod tests {
             Some(array![[5.0, 12.0], [21.0, 32.0]].into_dyn())
         );
 
-        assert_eq!(a.grad(), array![[5.0, 6.0], [7.0, 8.0]].into_dyn());
-        assert_eq!(b.grad(), array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
+        assert_eq!(a.grad(), Some(array![[5.0, 6.0], [7.0, 8.0]].into_dyn()));
+        assert_eq!(b.grad(), Some(array![[1.0, 2.0], [3.0, 4.0]].into_dyn()));
     }
 }

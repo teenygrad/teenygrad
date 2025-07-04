@@ -45,7 +45,6 @@ impl Tensor {
         let shape = data.shape().to_vec();
 
         let value = Rc::new(RefCell::new(Value::new(
-            rand::random::<f32>() as usize,
             Some(data),
             Box::new(InputOp),
             Vec::new(),

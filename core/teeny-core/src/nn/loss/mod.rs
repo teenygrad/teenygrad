@@ -19,7 +19,6 @@ use ndarray::array;
 
 use crate::tensor::{
     Tensor,
-    tensor_ops::loss_op::LossOp,
     value::{ValueRef, toposort_graph},
 };
 
@@ -36,12 +35,10 @@ pub struct Loss {
 }
 
 impl Loss {
-    pub fn new(p: &Tensor, loss: Tensor) -> Self {
-        let loss_op = LossOp::wrap(p.clone());
-        loss_op.value.borrow_mut().grad = Some(array![1.0].into_dyn());
-        loss_op.value.borrow_mut().eval();
+    pub fn new(loss: Tensor) -> Self {
+        loss.value.borrow_mut().grad = Some(array![1.0].into_dyn());
 
-        let params = toposort_graph(&loss_op.value);
+        let params = toposort_graph(&loss.value);
 
         Self { params, loss }
     }
@@ -51,8 +48,12 @@ impl Loss {
     pub fn backward(&mut self) {
         self.loss.eval();
 
+        println!("====::: {:?}", self.params.len());
         for param in self.params.iter().rev() {
             param.borrow_mut().backward();
+            println!("====");
+            println!("Param: {:?}", param.borrow().data);
+            println!("Grad: {:?}", param.borrow().grad);
         }
     }
 }

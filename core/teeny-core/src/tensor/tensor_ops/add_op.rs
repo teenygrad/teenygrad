@@ -54,7 +54,6 @@ impl Add<Tensor> for Tensor {
         let requires_grad = a.borrow().requires_grad || b.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
-            rand::random::<f32>() as usize,
             None,
             Box::new(AddOp),
             vec![a, b],
@@ -96,7 +95,7 @@ impl Add<&Tensor> for &Tensor {
 mod tests {
     use ndarray::array;
 
-    use crate::tensor::{tensor_ops::loss_op::LossOp, value::toposort_graph};
+    use crate::nn::loss::Loss;
 
     use super::*;
 
@@ -105,17 +104,9 @@ mod tests {
         let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
         let b: Tensor = array![[5.0, 6.0], [7.0, 8.0]].into();
 
-        let c = LossOp::wrap(&a + &b);
-        c.value.borrow_mut().grad = Some(array![1.0].into_dyn());
-
-        c.eval();
-        let params = toposort_graph(&c.value);
-        println!("Params: {:?}", params.len());
-        for p in params.iter().rev() {
-            p.borrow_mut().backward();
-            println!("====");
-            println!("P: {:?}", p);
-        }
+        let c = &a + &b;
+        let mut loss = Loss::new(c.clone());
+        loss.backward();
 
         assert_eq!(c.shape, vec![2, 2]);
 
@@ -124,7 +115,7 @@ mod tests {
             Some(array![[6.0, 8.0], [10.0, 12.0]].into_dyn())
         );
 
-        assert_eq!(a.grad(), array![[1.0, 1.0], [1.0, 1.0]].into_dyn());
-        assert_eq!(b.grad(), array![[1.0, 1.0], [1.0, 1.0]].into_dyn());
+        assert_eq!(a.grad(), Some(array![[1.0, 1.0], [1.0, 1.0]].into_dyn()));
+        assert_eq!(b.grad(), Some(array![[1.0, 1.0], [1.0, 1.0]].into_dyn()));
     }
 }

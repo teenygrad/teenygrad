@@ -44,7 +44,6 @@ impl Tensor {
         let requires_grad = self.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
-            rand::random::<f32>() as usize,
             None,
             Box::new(MeanOp),
             vec![self.value.clone()],
