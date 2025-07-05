@@ -84,6 +84,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut loss = loss_fn.compute(&y_pred, &y_batch);
 
             // optimizer.zero_grad();
+            println!("Loss: {:?}", loss.loss.value.borrow());
             loss.backward();
             // optimizer.update();
         }

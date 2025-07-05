@@ -34,8 +34,6 @@ impl TensorOp for LogOp {
 
         let grad_a = grad / a.data.clone().unwrap();
         a.accumulate_grad(&grad_a);
-
-        println!("LogOp Grad: {:?} >>>>> {:?} ***** {:?}", grad, grad_a, a);
     }
 }
 

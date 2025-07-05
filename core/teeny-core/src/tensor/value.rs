@@ -63,6 +63,11 @@ impl Value {
     /// Accumulate gradient (for handling multiple paths in computation graph)
     pub fn accumulate_grad(&mut self, grad: &TensorData) {
         // AXM FIXME - cleanup this mess
+        println!("Accumulating grad: {:?}", self.id);
+        if self.operation.is_input() {
+            return;
+        }
+
         if let Some(g) = self.grad.as_mut() {
             if Self::is_1d(grad.shape()) {
                 let g1 = grad[0];
@@ -89,10 +94,6 @@ impl Value {
     /// Backward pass for this value
     pub fn backward(&self) {
         if self.requires_grad {
-            if self.grad.is_none() {
-                println!("Grad is none: {:?}", self);
-            }
-
             self.operation
                 .backward(&self.dependencies, self.grad.as_ref().unwrap());
         }

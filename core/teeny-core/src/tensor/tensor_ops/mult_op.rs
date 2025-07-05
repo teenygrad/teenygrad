@@ -81,11 +81,13 @@ impl TensorOp for MultOp {
         let mut a = dependencies[0].borrow_mut();
         let mut b = dependencies[1].borrow_mut();
 
+        println!(
+            "Incoming: {:?} Grad B data: {:?}",
+            grad,
+            b.data.clone().unwrap()
+        );
         let grad_a = grad * b.data.clone().unwrap();
         let grad_b = grad * a.data.clone().unwrap();
-
-        println!("Incoming: {:?} Grad A: {:?}", grad, grad_a);
-        println!("Grad B: {:?}", grad_b);
 
         a.accumulate_grad(&grad_a);
         b.accumulate_grad(&grad_b);

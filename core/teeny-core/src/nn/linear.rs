@@ -25,7 +25,7 @@ pub struct Linear {
 impl Linear {
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
         // Initialize weight tensor with proper shape
-        let weight: Tensor = ndarray::Array::zeros((input_dim, output_dim)).into();
+        let weight: Tensor = ndarray::Array::zeros((output_dim, input_dim)).into();
 
         // Initialize bias if needed
         let bias = if use_bias {
@@ -42,7 +42,7 @@ impl Linear {
 impl Module for Linear {
     fn forward(&self, input: &Tensor) -> Tensor {
         // Matrix multiplication
-        let output = input * &self.weight;
+        let output = input * &self.weight.t();
 
         // Add bias if present
         if let Some(bias) = &self.bias {

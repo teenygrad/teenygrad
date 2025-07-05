@@ -48,12 +48,8 @@ impl Loss {
     pub fn backward(&mut self) {
         self.loss.eval();
 
-        println!("====::: {:?}", self.params.len());
         for param in self.params.iter().rev() {
             param.borrow_mut().backward();
-            println!("====");
-            println!("Param: {:?}", param.borrow().data);
-            println!("Grad: {:?}", param.borrow().grad);
         }
     }
 }
