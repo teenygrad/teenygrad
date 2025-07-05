@@ -32,6 +32,7 @@ impl BCELoss {
 impl LossFn for BCELoss {
     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
         let bce_loss = -(y * log(p.clone().t()) + (1.0 - y) * log(1.0 - p.clone().t()));
+        // let bce_loss = -(y * log(p.clone().t()) + y * log(p.clone().t()));
 
         Loss::new(bce_loss)
     }
@@ -55,18 +56,14 @@ mod tests {
 
         d.eval();
 
-        println!("A: {:?}", a.value.borrow().data.as_ref().unwrap());
-        println!("B: {:?}", b.value.borrow().data.as_ref().unwrap());
-        println!("C: {:?}", c.value.borrow().data.as_ref().unwrap());
-        println!("D: {:?}", d.value.borrow().data.as_ref().unwrap());
-        println!("T: {:?}", t.value.borrow().data.as_ref().unwrap());
-
         let bce = BCELoss::new();
         let mut loss = bce.compute(&d, &t);
 
         loss.backward();
 
-        println!("Loss: {:?}", loss.loss);
-        println!("Params: {:?}", loss.params);
+        assert_eq!(
+            format!("{:?}", loss.loss.value.borrow().data.as_ref().unwrap()),
+            "[[-0.3465736, -0.25541282],\n [-0.3465736, -0.25541282]], shape=[2, 2], strides=[2, 1], layout=Cc (0x5), dynamic ndim=2"
+        );
     }
 }

@@ -21,6 +21,8 @@ use std::{
     rc::Rc,
 };
 
+use ndarray::array;
+
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
@@ -114,7 +116,8 @@ impl Neg for Tensor {
     type Output = Tensor;
 
     fn neg(self) -> Self::Output {
-        self.mul(Tensor::new(ndarray::Array::from_elem(vec![1], -1.0), true))
+        let neg_one: Tensor = array![-1.0].into();
+        self.mul(neg_one)
     }
 }
 

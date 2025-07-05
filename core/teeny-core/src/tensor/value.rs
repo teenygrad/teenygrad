@@ -62,8 +62,17 @@ impl Value {
 
     /// Accumulate gradient (for handling multiple paths in computation graph)
     pub fn accumulate_grad(&mut self, grad: &TensorData) {
+        // AXM FIXME - cleanup this mess
         if let Some(g) = self.grad.as_mut() {
-            *g += grad;
+            if Self::is_1d(grad.shape()) {
+                let g1 = grad[0];
+                *g += g1;
+            } else if Self::is_1d(g.shape()) {
+                let g1 = g[0];
+                *g = grad + g1;
+            } else {
+                *g += grad;
+            }
         } else {
             self.grad = Some(grad.clone());
         }
@@ -95,6 +104,10 @@ impl Value {
         }
 
         self.data = Some(self.operation.eval(&self.dependencies));
+    }
+
+    pub fn is_1d(shape: &[usize]) -> bool {
+        shape.len() == 1
     }
 }
 

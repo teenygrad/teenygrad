@@ -17,7 +17,7 @@
 
 use std::{cell::RefCell, ops::Mul, rc::Rc};
 
-use ndarray::{Array2, ArrayBase, CowRepr, Dim};
+use ndarray::{ArrayBase, CowRepr, Dim};
 
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
@@ -25,12 +25,20 @@ use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 pub struct MultOp;
 
 impl MultOp {
+    fn is_1d(data: &TensorData) -> bool {
+        data.shape().len() == 1
+    }
+
     fn is_2d(data: &TensorData) -> bool {
         data.shape().len() == 2
     }
 
     fn to_2d(data: &TensorData) -> ArrayBase<CowRepr<f32>, Dim<[usize; 2]>> {
         data.to_shape((data.shape()[0], data.shape()[1])).unwrap()
+    }
+
+    fn to_1d(data: &TensorData) -> ArrayBase<CowRepr<f32>, Dim<[usize; 1]>> {
+        data.to_shape(data.shape()[0]).unwrap()
     }
 }
 
@@ -51,13 +59,19 @@ impl TensorOp for MultOp {
             let b_2d = Self::to_2d(b_data);
             let result = a_2d.dot(&b_2d);
             result.into_dyn()
+        } else if Self::is_2d(a_data) && Self::is_1d(b_data) {
+            let a_2d = Self::to_2d(a_data);
+            let b_1d = b_data[0];
+            let result = a_2d * b_1d;
+            result.to_owned().into_dyn()
         } else {
             panic!(
-                "A and B must be 1D or 2D, got {:?}, {:?} and {:?}, {:?}",
+                "A and B must be 1D or 2D, got {:?}, {:?} and {:?}, {:?}, {:?}",
                 a_data.shape().len(),
                 a_data.shape(),
                 b_data.shape().len(),
-                b_data.shape()
+                b_data.shape(),
+                b_data
             );
         }
     }
