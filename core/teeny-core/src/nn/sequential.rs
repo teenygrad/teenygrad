@@ -45,3 +45,34 @@ impl Module for Sequential {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        nn::{ReLU, linear::*, loss::Loss},
+        sequential,
+    };
+    use ndarray::array;
+
+    #[test]
+    fn test_sequential_backprop() {
+        let linear1 = Linear::new(2, 3, true);
+        let _linear2 = Linear::new(3, 1, true);
+
+        let model = sequential![linear1, ReLU::new()];
+
+        let input: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        let output = model.forward(&input);
+        let mut loss = Loss::new(output.clone());
+
+        output.eval();
+        println!("Output: {:?}", output);
+        loss.backward();
+        // Check that output has the expected shape (2, 1)
+        assert_eq!(
+            output.value.borrow().data.as_ref().unwrap().shape(),
+            vec![2, 1]
+        );
+    }
+}

@@ -16,6 +16,7 @@
  */
 
 pub mod add_op;
+pub mod bias_op;
 pub mod input_op;
 pub mod log_op;
 pub mod mean_op;

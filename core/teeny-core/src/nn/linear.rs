@@ -15,7 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{nn::module::Module, tensor::Tensor};
+use crate::{
+    nn::module::Module,
+    tensor::{Tensor, tensor_ops::bias_op::bias},
+};
 
 pub struct Linear {
     weight: Tensor,
@@ -45,8 +48,8 @@ impl Module for Linear {
         let output = input * &self.weight.t();
 
         // Add bias if present
-        if let Some(bias) = &self.bias {
-            output + bias
+        if let Some(b) = &self.bias {
+            bias(output, b.clone())
         } else {
             output
         }
