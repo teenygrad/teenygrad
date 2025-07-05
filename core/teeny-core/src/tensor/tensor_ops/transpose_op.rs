@@ -25,6 +25,8 @@ pub struct TransposeOp;
 impl TensorOp for TransposeOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
         assert_eq!(dependencies.len(), 1);
+        dependencies[0].borrow_mut().eval();
+
         dependencies[0]
             .borrow()
             .data
@@ -47,7 +49,7 @@ impl TensorOp for TransposeOp {
 }
 
 impl Tensor {
-    pub fn transpose(&self) -> Tensor {
+    pub fn t(&self) -> Tensor {
         let requires_grad = self.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
@@ -74,7 +76,7 @@ mod tests {
     fn test_transpose_backprop() {
         let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
 
-        let b = a.transpose();
+        let b = a.t();
         let mut loss = Loss::new(b.clone());
         loss.backward();
 

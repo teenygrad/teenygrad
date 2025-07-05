@@ -31,7 +31,7 @@ impl BCELoss {
 
 impl LossFn for BCELoss {
     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
-        let bce_loss = -(y * log(p.clone()) + (1.0 - y) * log(1.0 - p.clone()));
+        let bce_loss = -(y * log(p.clone().t()) + (1.0 - y) * log(1.0 - p.clone().t()));
 
         Loss::new(bce_loss)
     }
@@ -46,12 +46,20 @@ mod tests {
     #[test]
     fn test_bce_loss() {
         // Create prediction and target tensors using the correct constructor
-        let a: Tensor = array![0.5, 0.5].into();
-        let b: Tensor = array![1.0, 0.0].into();
+        let a: Tensor = array![[0.5, 0.5], [0.5, 0.5]].into();
+        let b: Tensor = array![[1.0, 2.0], [2.0, 3.0]].into();
 
         let c = &a * &b;
         let d = &c * &a + &b;
-        let t: Tensor = array![0.5, 0.5].into();
+        let t: Tensor = array![[0.5, 0.5], [0.5, 0.5]].into();
+
+        d.eval();
+
+        println!("A: {:?}", a.value.borrow().data.as_ref().unwrap());
+        println!("B: {:?}", b.value.borrow().data.as_ref().unwrap());
+        println!("C: {:?}", c.value.borrow().data.as_ref().unwrap());
+        println!("D: {:?}", d.value.borrow().data.as_ref().unwrap());
+        println!("T: {:?}", t.value.borrow().data.as_ref().unwrap());
 
         let bce = BCELoss::new();
         let mut loss = bce.compute(&d, &t);

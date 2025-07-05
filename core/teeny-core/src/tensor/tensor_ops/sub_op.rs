@@ -29,6 +29,9 @@ pub struct SubOp;
 impl TensorOp for SubOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
         assert_eq!(dependencies.len(), 2);
+        dependencies[0].borrow_mut().eval();
+        dependencies[1].borrow_mut().eval();
+
         dependencies[0].borrow().data.as_ref().unwrap()
             - dependencies[1].borrow().data.as_ref().unwrap()
     }

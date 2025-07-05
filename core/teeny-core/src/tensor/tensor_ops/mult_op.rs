@@ -17,10 +17,22 @@
 
 use std::{cell::RefCell, ops::Mul, rc::Rc};
 
+use ndarray::{Array2, ArrayBase, CowRepr, Dim};
+
 use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct MultOp;
+
+impl MultOp {
+    fn is_2d(data: &TensorData) -> bool {
+        data.shape().len() == 2
+    }
+
+    fn to_2d(data: &TensorData) -> ArrayBase<CowRepr<f32>, Dim<[usize; 2]>> {
+        data.to_shape((data.shape()[0], data.shape()[1])).unwrap()
+    }
+}
 
 impl TensorOp for MultOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
@@ -34,21 +46,20 @@ impl TensorOp for MultOp {
         let a_data = a.data.as_ref().unwrap();
         let b_data = b.data.as_ref().unwrap();
 
-        // we can multiply only if the two values are 2D
-        assert_eq!(a_data.shape().len(), 2);
-        assert_eq!(b_data.shape().len(), 2);
-
-        let a_2d = a_data
-            .to_shape((a_data.shape()[0], a_data.shape()[1]))
-            .unwrap();
-
-        let b_2d = b_data
-            .to_shape((b_data.shape()[0], b_data.shape()[1]))
-            .unwrap();
-
-        let result = a_2d.dot(&b_2d);
-
-        result.into_dyn()
+        if Self::is_2d(a_data) && Self::is_2d(b_data) {
+            let a_2d = Self::to_2d(a_data);
+            let b_2d = Self::to_2d(b_data);
+            let result = a_2d.dot(&b_2d);
+            result.into_dyn()
+        } else {
+            panic!(
+                "A and B must be 1D or 2D, got {:?}, {:?} and {:?}, {:?}",
+                a_data.shape().len(),
+                a_data.shape(),
+                b_data.shape().len(),
+                b_data.shape()
+            );
+        }
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
