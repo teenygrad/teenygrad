@@ -58,10 +58,7 @@ impl Add<Tensor> for Tensor {
             requires_grad,
         )));
 
-        Tensor {
-            value,
-            shape: self.shape.clone(),
-        }
+        Tensor { value }
     }
 }
 
@@ -106,7 +103,7 @@ mod tests {
         let mut loss = Loss::new(c.clone());
         loss.backward();
 
-        assert_eq!(c.shape, vec![2, 2]);
+        assert_eq!(c.value.borrow().data.as_ref().unwrap().shape(), vec![2, 2]);
 
         assert_eq!(
             c.value.borrow().data,

@@ -32,7 +32,6 @@ use crate::tensor::value::{TensorData, Value, ValueRef};
 #[derive(Debug, Clone)]
 pub struct Tensor {
     pub value: ValueRef,
-    pub shape: Vec<usize>,
 }
 
 impl Tensor {
@@ -77,15 +76,11 @@ pub fn log(x: Tensor) -> Tensor {
         requires_grad,
     )));
 
-    Tensor {
-        value,
-        shape: x.shape.clone(),
-    }
+    Tensor { value }
 }
 
 impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>> for Tensor {
     fn from(array: ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>) -> Self {
-        let shape = array.shape().to_vec();
         let data = array.to_owned().into_dyn();
         let value = Rc::new(RefCell::new(Value::new(
             Some(data),
@@ -94,13 +89,12 @@ impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>>
             true,
         )));
 
-        Tensor { value, shape }
+        Tensor { value }
     }
 }
 
 impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>> for Tensor {
     fn from(array: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>) -> Self {
-        let shape = array.shape().to_vec();
         let value = Rc::new(RefCell::new(Value::new(
             Some(array.to_owned().into_dyn()),
             Box::new(InputOp),
@@ -108,13 +102,12 @@ impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>>
             true,
         )));
 
-        Tensor { value, shape }
+        Tensor { value }
     }
 }
 
 impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>> for Tensor {
     fn from(array: ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>) -> Self {
-        let shape = array.shape().to_vec();
         let value = Rc::new(RefCell::new(Value::new(
             Some(array.to_owned().into_dyn()),
             Box::new(InputOp),
@@ -122,7 +115,7 @@ impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D
             true,
         )));
 
-        Tensor { value, shape }
+        Tensor { value }
     }
 }
 

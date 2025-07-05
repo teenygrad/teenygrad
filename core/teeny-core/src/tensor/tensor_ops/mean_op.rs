@@ -60,10 +60,7 @@ impl Tensor {
             requires_grad,
         )));
 
-        Tensor {
-            value,
-            shape: vec![1],
-        }
+        Tensor { value }
     }
 }
 

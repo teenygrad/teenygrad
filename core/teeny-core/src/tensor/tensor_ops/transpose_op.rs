@@ -59,10 +59,7 @@ impl Tensor {
             requires_grad,
         )));
 
-        Tensor {
-            value,
-            shape: self.shape.clone(),
-        }
+        Tensor { value }
     }
 }
 
@@ -81,7 +78,7 @@ mod tests {
         loss.backward();
 
         // Check that the transposed tensor has the correct shape and values
-        assert_eq!(b.shape, vec![2, 2]);
+        assert_eq!(b.value.borrow().data.as_ref().unwrap().shape(), vec![2, 2]);
         assert_eq!(
             b.value.borrow().data,
             Some(array![[1.0, 3.0], [2.0, 4.0]].into_dyn())

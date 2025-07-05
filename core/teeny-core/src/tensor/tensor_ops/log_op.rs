@@ -55,7 +55,7 @@ mod tests {
         let mut loss = Loss::new(c.clone());
         loss.backward();
 
-        assert_eq!(c.shape, vec![2, 2]);
+        assert_eq!(c.value.borrow().data.as_ref().unwrap().shape(), vec![2, 2]);
         assert_eq!(
             format!("{:?}", c.value.borrow().data),
             "Some([[1.609438, 2.4849067],\n [3.0445225, 3.465736]], shape=[2, 2], strides=[2, 1], layout=Cc (0x5), dynamic ndim=2)"

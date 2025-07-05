@@ -62,10 +62,7 @@ impl Tensor {
             requires_grad,
         )));
 
-        Tensor {
-            value,
-            shape: self.shape.clone(),
-        }
+        Tensor { value }
     }
 }
 

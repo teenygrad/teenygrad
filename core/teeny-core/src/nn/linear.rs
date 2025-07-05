@@ -60,3 +60,58 @@ impl Module for Linear {
         params
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ndarray::array;
+
+    use super::*;
+    use crate::{nn::loss::Loss, tensor::Tensor};
+
+    #[test]
+    fn test_linear_backprop() {
+        let input: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        let linear = Linear::new(2, 3, true);
+
+        let output = linear.forward(&input);
+        let mut loss = Loss::new(output.clone());
+        loss.backward();
+
+        assert_eq!(
+            output.value.borrow().data.as_ref().unwrap().shape(),
+            vec![2, 3]
+        );
+
+        // Check that gradients are computed for weight and bias
+        assert_eq!(
+            format!("{:?}", linear.weight.grad()),
+            "Some([[0.0, 0.0],\n [0.0, 0.0],\n [0.0, 0.0]], shape=[3, 2], strides=[2, 1], layout=Cc (0x5), dynamic ndim=2)"
+        );
+        assert_eq!(
+            format!("{:?}", linear.bias.as_ref().unwrap().grad()),
+            "Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), dynamic ndim=1)"
+        );
+    }
+
+    #[test]
+    fn test_linear_no_bias() {
+        let input: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        let linear = Linear::new(2, 3, false);
+
+        let output = linear.forward(&input);
+        let mut loss = Loss::new(output.clone());
+        loss.backward();
+
+        println!("Output: {:?}", output);
+        assert_eq!(
+            output.value.borrow().data.as_ref().unwrap().shape(),
+            vec![2, 3]
+        );
+
+        // Check that only weight has gradients (no bias)
+        assert_eq!(
+            format!("{:?}", linear.weight.grad()),
+            "Some([[0.0, 0.0],\n [0.0, 0.0],\n [0.0, 0.0]], shape=[3, 2], strides=[2, 1], layout=Cc (0x5), dynamic ndim=2)"
+        );
+    }
+}

@@ -36,10 +36,6 @@ impl MultOp {
     fn to_2d(data: &TensorData) -> ArrayBase<CowRepr<f32>, Dim<[usize; 2]>> {
         data.to_shape((data.shape()[0], data.shape()[1])).unwrap()
     }
-
-    fn to_1d(data: &TensorData) -> ArrayBase<CowRepr<f32>, Dim<[usize; 1]>> {
-        data.to_shape(data.shape()[0]).unwrap()
-    }
 }
 
 impl TensorOp for MultOp {
@@ -107,10 +103,7 @@ impl Mul<Tensor> for Tensor {
             requires_grad,
         )));
 
-        Tensor {
-            value,
-            shape: self.shape.clone(),
-        }
+        Tensor { value }
     }
 }
 
@@ -179,7 +172,7 @@ mod tests {
         c.eval();
         c.backward();
 
-        assert_eq!(c.shape, vec![2, 2]);
+        assert_eq!(c.value.borrow().data.as_ref().unwrap().shape(), vec![2, 2]);
         assert_eq!(
             c.value.borrow().data,
             Some(array![[5.0, 12.0], [21.0, 32.0]].into_dyn())

@@ -42,8 +42,6 @@ impl TensorOp for InputOp {
 
 impl Tensor {
     pub fn new(data: TensorData, requires_grad: bool) -> Self {
-        let shape = data.shape().to_vec();
-
         let value = Rc::new(RefCell::new(Value::new(
             Some(data),
             Box::new(InputOp),
@@ -51,6 +49,6 @@ impl Tensor {
             requires_grad,
         )));
 
-        Tensor { value, shape }
+        Tensor { value }
     }
 }
