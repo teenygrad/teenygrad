@@ -77,17 +77,36 @@ impl TensorOp for MultOp {
         let mut a = dependencies[0].borrow_mut();
         let mut b = dependencies[1].borrow_mut();
 
+        let a_data = a.data.as_ref().unwrap();
+        let b_data = b.data.as_ref().unwrap();
+
         println!(
             "Incoming: {:?} \nGrad A data: {:?}\n Grad B data: {:?}",
-            grad,
-            a.data.clone().unwrap(),
-            b.data.clone().unwrap()
+            grad, a_data, b_data
         );
-        let grad_a = grad * b.data.clone().unwrap();
-        let grad_b = grad * a.data.clone().unwrap();
 
-        a.accumulate_grad(&grad_a);
-        b.accumulate_grad(&grad_b);
+        // Check if this is matrix multiplication (2D tensors)
+        if Self::is_2d(a_data) && Self::is_2d(b_data) {
+            // For matrix multiplication A @ B, gradients are:
+            // grad_a = grad @ B.T
+            // grad_b = A.T @ grad
+            let a_2d = Self::to_2d(a_data);
+            let b_2d = Self::to_2d(b_data);
+            let grad_2d = Self::to_2d(grad);
+
+            let grad_a = grad_2d.dot(&b_2d.t());
+            let grad_b = a_2d.t().dot(&grad_2d);
+
+            a.accumulate_grad(&grad_a.into_dyn());
+            b.accumulate_grad(&grad_b.into_dyn());
+        } else {
+            // Element-wise multiplication
+            let grad_a = grad * b_data;
+            let grad_b = grad * a_data;
+
+            a.accumulate_grad(&grad_a);
+            b.accumulate_grad(&grad_b);
+        }
     }
 }
 

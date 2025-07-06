@@ -15,8 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ndarray::array;
-
 use crate::tensor::{
     Tensor,
     value::{ValueRef, toposort_graph},
@@ -36,7 +34,15 @@ pub struct Loss {
 
 impl Loss {
     pub fn new(loss: Tensor) -> Self {
-        loss.value.borrow_mut().grad = Some(array![1.0].into_dyn());
+        loss.eval();
+
+        // Get the shape of the loss tensor and create a gradient of ones with the same shape
+        let loss_shape: Vec<usize> = {
+            let loss_ref = loss.value.borrow();
+            loss_ref.data.as_ref().unwrap().shape().to_vec()
+        };
+        let grad_data = ndarray::Array::ones(loss_shape).into_dyn();
+        loss.value.borrow_mut().grad = Some(grad_data);
 
         let params = toposort_graph(&loss.value);
 
@@ -46,8 +52,6 @@ impl Loss {
 
 impl Loss {
     pub fn backward(&mut self) {
-        self.loss.eval();
-
         for param in self.params.iter().rev() {
             param.borrow_mut().backward();
         }
