@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::fs::create_dir_all;
+use tracing::info;
 
 use crate::error::{Result, TeenyHFError};
 
@@ -171,7 +172,7 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
     }
 
     // Fetch file list from Hugging Face API
-    println!("Fetching file list for model: {}", config.model_id);
+    info!("Fetching file list for model: {}", config.model_id);
     let response = client
         .get(&api_url)
         .headers(headers.clone())
@@ -179,7 +180,7 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
         .await
         .map_err(TeenyHFError::HttpError)?;
 
-    println!("Response: {:?}", response);
+    info!("Response: {:?}", response);
 
     if response.status() == 404 {
         return Err(TeenyHFError::ModelNotFound {
@@ -200,7 +201,7 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
     }
 
     let entries: Vec<HfFile> = response.json().await?;
-    println!("API Response: {:?}", entries.len());
+    info!("API Response: {:?}", entries.len());
 
     // Filter files based on configuration
     let files_to_download: Vec<HfFile> = entries
@@ -228,11 +229,11 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
         .collect();
 
     if files_to_download.is_empty() {
-        println!("No files found to download for the specified configuration");
+        info!("No files found to download for the specified configuration");
         return Ok(());
     }
 
-    println!("Found {} files to download", files_to_download.len());
+    info!("Found {} files to download", files_to_download.len());
 
     // Calculate total size for progress tracking
     let total_size: u64 = files_to_download
@@ -294,16 +295,16 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
             }
             Ok(Err(e)) => {
                 error_count += 1;
-                eprintln!("Download error: {:?}", e);
+                info!("Download error: {:?}", e);
             }
             Err(e) => {
                 error_count += 1;
-                eprintln!("Task error: {:?}", e);
+                info!("Task error: {:?}", e);
             }
         }
     }
 
-    println!(
+    info!(
         "Download completed: {} successful, {} failed",
         success_count, error_count
     );
@@ -373,14 +374,14 @@ async fn download_file_with_progress(
         if let Some(expected_size) = file.size {
             if let Ok(metadata) = std::fs::metadata(&local_path) {
                 if metadata.len() == expected_size {
-                    println!("File already exists and size matches: {}", file_path);
+                    info!("File already exists and size matches: {}", file_path);
                     return Ok(());
                 }
             }
         }
     }
 
-    println!("Downloading: {}", file_path);
+    info!("Downloading: {}", file_path);
 
     // Download the file
     let response = client
@@ -434,7 +435,7 @@ async fn download_file_with_progress(
         callback(&current_progress);
     }
 
-    println!("Downloaded: {} ({} bytes)", file_path, bytes.len());
+    info!("Downloaded: {} ({} bytes)", file_path, bytes.len());
     Ok(())
 }
 
@@ -571,7 +572,7 @@ pub async fn download_specific_file(
     let mut file = File::create(output_path).map_err(TeenyHFError::IoError)?;
     file.write_all(&bytes).map_err(TeenyHFError::IoError)?;
 
-    println!("Downloaded: {} to {}", file_path, output_path.display());
+    info!("Downloaded: {} to {}", file_path, output_path.display());
     Ok(())
 }
 
@@ -583,7 +584,7 @@ pub fn default_progress_callback() -> ProgressCallbackFn {
 
         if let Some(current_file) = &progress.current_file {
             let file_pct = (progress.current_file_progress * 100.0) as u32;
-            println!(
+            info!(
                 "Progress: {}% (files: {}/{}, bytes: {}%), Current: {} ({}%)",
                 overall_pct,
                 progress.completed_files,
@@ -593,7 +594,7 @@ pub fn default_progress_callback() -> ProgressCallbackFn {
                 file_pct
             );
         } else {
-            println!(
+            info!(
                 "Progress: {}% (files: {}/{}, bytes: {}%)",
                 overall_pct, progress.completed_files, progress.total_files, bytes_pct
             );
@@ -642,14 +643,14 @@ async fn _download_file(
         if let Some(expected_size) = file.size {
             if let Ok(metadata) = std::fs::metadata(&local_path) {
                 if metadata.len() == expected_size {
-                    println!("File already exists and size matches: {}", file_path);
+                    info!("File already exists and size matches: {}", file_path);
                     return Ok(());
                 }
             }
         }
     }
 
-    println!("Downloading: {}", file_path);
+    info!("Downloading: {}", file_path);
 
     // Download the file
     let response = client
@@ -689,7 +690,7 @@ async fn _download_file(
         }
     }
 
-    println!("Downloaded: {} ({} bytes)", file_path, bytes.len());
+    info!("Downloaded: {} ({} bytes)", file_path, bytes.len());
     Ok(())
 }
 
@@ -708,9 +709,9 @@ pub async fn example_usage_with_progress() -> Result<()> {
         progress_callback: Some(default_progress_callback()),
     };
 
-    println!("Starting download with progress tracking...");
+    info!("Starting download with progress tracking...");
     download_model(config).await?;
-    println!("Download completed successfully!");
+    info!("Download completed successfully!");
 
     Ok(())
 }

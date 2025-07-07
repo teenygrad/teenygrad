@@ -42,8 +42,6 @@ impl TensorOp for ReLuOp {
 
         let input_data = a.data.as_ref().unwrap();
 
-        println!("Grad: {:?}", grad);
-        println!("Input data: {:?}", input_data);
         let grad_a = grad * input_data.map(|v| if *v > 0.0 { 1.0 } else { 0.0 });
         a.accumulate_grad(&grad_a);
     }

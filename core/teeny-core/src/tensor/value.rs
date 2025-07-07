@@ -63,7 +63,6 @@ impl Value {
     /// Accumulate gradient (for handling multiple paths in computation graph)
     pub fn accumulate_grad(&mut self, grad: &TensorData) {
         // AXM FIXME - cleanup this mess
-        println!("Accumulating grad: {:?}", self.id);
         if self.operation.is_input() {
             return;
         }

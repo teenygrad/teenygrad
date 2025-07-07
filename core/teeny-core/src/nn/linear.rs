@@ -105,7 +105,6 @@ mod tests {
         let mut loss = Loss::new(output.clone());
         loss.backward();
 
-        println!("Output: {:?}", output);
         assert_eq!(
             output.value.borrow().data.as_ref().unwrap().shape(),
             vec![2, 3]

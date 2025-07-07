@@ -34,6 +34,8 @@ use teeny_hf::{
 use teeny_nlp::tokenizer::Message;
 
 use teeny_hf::error::Result;
+use tracing::info;
+use tracing_subscriber::{self, EnvFilter};
 
 #[derive(Parser)]
 #[command(
@@ -65,6 +67,10 @@ struct Cli {
     /// Disable progress display
     #[arg(long, default_value = "true")]
     show_progress: bool,
+
+    /// The log level
+    #[arg(value_enum, short = 'l', long = "log-level", default_value = "info")]
+    log_level: LogLevel,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
@@ -74,9 +80,32 @@ enum Component {
     Weights,
 }
 
+#[derive(Debug, Clone, ValueEnum)]
+enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    let log_level = match cli.log_level {
+        LogLevel::Error => "error",
+        LogLevel::Warn => "warn",
+        LogLevel::Info => "info",
+        LogLevel::Debug => "debug",
+        LogLevel::Trace => "trace",
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level)),
+        )
+        .init();
 
     // Determine which components to include based on CLI arguments
     let include_tokenizer = cli.components.contains(&Component::Tokenizer);
@@ -102,7 +131,7 @@ async fn main() -> Result<()> {
         },
     };
 
-    println!("Downloading model: {}", cli.model);
+    info!("Downloading model: {}", cli.model);
 
     download_model(config).await?;
 

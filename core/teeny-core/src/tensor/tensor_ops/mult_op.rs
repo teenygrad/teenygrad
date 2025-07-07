@@ -80,11 +80,6 @@ impl TensorOp for MultOp {
         let a_data = a.data.as_ref().unwrap();
         let b_data = b.data.as_ref().unwrap();
 
-        println!(
-            "Incoming: {:?} \nGrad A data: {:?}\n Grad B data: {:?}",
-            grad, a_data, b_data
-        );
-
         // Check if this is matrix multiplication (2D tensors)
         if Self::is_2d(a_data) && Self::is_2d(b_data) {
             // For matrix multiplication A @ B, gradients are:

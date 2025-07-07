@@ -15,5 +15,7 @@ path = "src/lib.rs"
 clap.workspace = true
 tokio.workspace = true
 ndarray.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 teeny-core = { path = "../../core/teeny-core" }
 teeny-data = { path = "../../utilities/teeny-data" }

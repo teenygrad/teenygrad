@@ -152,7 +152,7 @@ mod tests {
 
         let learning_rate = 0.1;
 
-        for step in 0..10 {
+        for _ in 0..10 {
             // Zero gradients
             x.zero_grad();
 
@@ -170,14 +170,6 @@ mod tests {
 
             // Update parameters
             x.update(learning_rate);
-
-            let current_x = x.value.borrow().data.as_ref().unwrap().clone();
-            println!(
-                "Step {}: x = {:.4}, loss = {:.4}",
-                step,
-                current_x,
-                loss.value.borrow().data.as_ref().unwrap()
-            );
         }
 
         // After optimization, x should be close to -1 (the minimum of f(x) = x^2 + 2x + 1)

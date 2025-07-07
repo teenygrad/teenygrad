@@ -12,5 +12,6 @@
         "*.h": "cpp",
         "*.hpp": "cpp",
         "*.cpp": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/arshadm/Workspace/projects/spinorml/teenygrad/compiler/teeny-llvm/modules/llvm-project/libc"
 } 

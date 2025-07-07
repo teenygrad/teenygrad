@@ -21,6 +21,7 @@ use teeny_core::nn::{self, Module};
 use teeny_core::sequential;
 use teeny_core::tensor::Tensor;
 use teeny_data::dataset::loader::load_csv;
+use tracing::info;
 
 pub struct SimpleClassifier {
     pub model: nn::Sequential,
@@ -77,19 +78,21 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     for epoch in 0..100 {
         for i in (0..y.shape()[0]).step_by(BATCH_SIZE) {
-            let x_batch = x.slice(s![i..i + BATCH_SIZE, ..]).into();
+            let range_start = i;
+            let range_end = std::cmp::min(i + BATCH_SIZE, y.shape()[0]);
+            let x_batch = x.slice(s![range_start..range_end, ..]).into();
             let y_pred = model.forward(&x_batch);
 
-            let y_batch = y.slice(s![i..i + BATCH_SIZE, ..]).into();
+            let y_batch = y.slice(s![range_start..range_end, ..]).into();
             let mut loss = loss_fn.compute(&y_pred, &y_batch);
 
             // optimizer.zero_grad();
-            println!("Loss: {:?}", loss.loss.value.borrow());
+            info!("Loss: {:?}", loss.loss.value.borrow().data);
             loss.backward();
             // optimizer.update();
         }
 
-        println!("Epoch {:?}, loss {:?}", epoch, epoch);
+        info!("Epoch {:?}, loss {:?}", epoch, epoch);
     }
 
     Ok(())

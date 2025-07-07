@@ -66,7 +66,6 @@ mod tests {
         let output = model.forward(&input);
         let mut loss = Loss::new(output.clone());
 
-        println!("Output: {:?}", output);
         loss.backward();
         // Check that output has the expected shape (2, 1)
         assert_eq!(

@@ -298,6 +298,5 @@ mod tests {
 
         let config = Qwen3Config::from_str(config_str).unwrap();
         assert_eq!(config.model_type, ModelType::Qwen3);
-        println!("{:?}", config);
     }
 }
