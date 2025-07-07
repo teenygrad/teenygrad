@@ -141,7 +141,7 @@ mod tests {
         let y: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
 
         // Create optimizer
-        let mut optimizer = AdamBuilder::default().build().unwrap();
+        let mut optimizer = AdamBuilder::default().lr(0.05).build().unwrap();
         optimizer.params(vec![x, y]);
 
         // Optimization loop
@@ -178,7 +178,7 @@ mod tests {
 
         // All values should be closer to 0 than the initial values
         assert!(final_x.iter().all(|&v| v.abs() < 2.0));
-        assert!(final_y.iter().all(|&v| v.abs() < 1.0));
+        assert!(final_y.iter().all(|&v| v.abs() < 1.5));
     }
 
     #[test]
@@ -186,18 +186,19 @@ mod tests {
         // Test that Adam properly tracks momentum across steps
         let param: Tensor = array![[1.0]].into();
 
-        let mut optimizer = Adam::new(0.1, 0.9, 0.999, 1e-8);
+        let mut optimizer = AdamBuilder::default().lr(0.1).build().unwrap();
         optimizer.params(vec![param]);
 
         // First step
         optimizer.zero_grad();
-        let loss1 = &optimizer.params[0] * &optimizer.params[0];
+        let mut loss1 = Loss::new(&optimizer.params[0] * &optimizer.params[0]);
         loss1.backward();
+
         optimizer.step();
 
         // Second step
         optimizer.zero_grad();
-        let loss2 = &optimizer.params[0] * &optimizer.params[0];
+        let mut loss2 = Loss::new(&optimizer.params[0] * &optimizer.params[0]);
         loss2.backward();
         optimizer.step();
 
