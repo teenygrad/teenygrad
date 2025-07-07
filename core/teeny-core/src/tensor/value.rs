@@ -33,6 +33,7 @@ pub struct Value {
     // Autodifferentiation fields
     pub grad: Option<TensorData>, // Gradient with respect to this value``
     pub requires_grad: bool,      // Whether this value needs gradients
+    pub retain_grad: bool,
 }
 
 /// Reference-counted pointer to a Value
@@ -57,16 +58,12 @@ impl Value {
             dependencies,
             grad,
             requires_grad,
+            retain_grad: false,
         }
     }
 
     /// Accumulate gradient (for handling multiple paths in computation graph)
     pub fn accumulate_grad(&mut self, grad: &TensorData) {
-        // AXM FIXME - cleanup this mess
-        if self.operation.is_input() {
-            return;
-        }
-
         if let Some(g) = self.grad.as_mut() {
             if Self::is_1d(grad.shape()) {
                 let g1 = grad[0];
@@ -99,7 +96,7 @@ impl Value {
     }
 
     pub fn eval(&mut self) {
-        if self.operation.is_input() {
+        if self.operation.is_param() {
             return;
         }
 

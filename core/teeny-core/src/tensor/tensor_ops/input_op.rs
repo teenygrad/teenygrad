@@ -23,7 +23,7 @@ use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 pub struct InputOp;
 
 impl TensorOp for InputOp {
-    fn is_input(&self) -> bool {
+    fn is_param(&self) -> bool {
         true
     }
 

@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 use teeny_samples::simple_classifier;
-use tracing::{error, info};
+use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
 #[derive(Debug, Clone, ValueEnum)]
