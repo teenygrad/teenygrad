@@ -2426,6 +2426,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-cpu"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-cuda"
 version = "0.1.0"
 
