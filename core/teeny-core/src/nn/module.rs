@@ -17,10 +17,12 @@ use crate::tensor::Tensor;
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 /// Trait for all neural network components
-pub trait Module {
+pub trait Module<T, U> {
     /// Forward pass that returns a computation graph node
-    fn forward(&self, input: &Tensor) -> Tensor;
+    fn forward(&self, input: T) -> U;
 
     /// Returns all trainable parameters
-    fn parameters(&self) -> Vec<Tensor>;
+    fn parameters(&self) -> Vec<Tensor> {
+        vec![]
+    }
 }

@@ -19,6 +19,7 @@ pub mod device;
 pub mod error;
 pub mod nn;
 pub mod tensor;
+pub mod tensor1;
 pub mod types;
 
 pub trait TeenyModule {

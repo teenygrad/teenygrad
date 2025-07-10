@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use teeny_samples::simple_classifier;
+use teeny_samples::ex02_simple_classifier;
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.model {
         Model::SimpleClassifier => {
             info!("Running simple-classifier model");
-            simple_classifier::run().await?;
+            ex02_simple_classifier::run().await?;
         }
     }
 

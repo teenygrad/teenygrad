@@ -15,23 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{nn::module::Module, tensor::Tensor};
+use std::ops::Add;
 
-#[derive(Debug, Clone, Default)]
-pub struct ReLU;
-
-impl ReLU {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Module<&Tensor, Tensor> for ReLU {
-    fn forward(&self, input: &Tensor) -> Tensor {
-        input.relu()
-    }
-
-    fn parameters(&self) -> Vec<Tensor> {
-        Vec::new() // No parameters
-    }
+pub struct TensorBase<S, D>
+where
+    S: ndarray::Shape,
+    D: ndarray::Dimension,
+{
+    pub data: ndarray::Array<f32, S, D>,
 }

@@ -17,25 +17,26 @@
 
 use crate::{nn::module::Module, tensor::Tensor};
 
-pub struct Sequential {
-    layers: Vec<Box<dyn Module>>,
+pub struct Sequential<'a> {
+    layers: Vec<Box<dyn Module<&'a Tensor, Tensor>>>,
 }
 
-impl Sequential {
-    pub fn new(layers: Vec<Box<dyn Module>>) -> Self {
+impl<'a> Sequential<'a> {
+    pub fn new(layers: Vec<Box<dyn Module<&'a Tensor, Tensor>>>) -> Self {
         Sequential { layers }
     }
 }
 
-impl Module for Sequential {
+impl<'a> Module<&'a Tensor, Tensor> for Sequential<'a> {
     fn forward(&self, input: &Tensor) -> Tensor {
-        let mut output = input.clone();
+        let mut _output = input.clone();
 
-        for layer in &self.layers {
-            output = layer.forward(&output);
-        }
+        todo!("Sequential::forward");
+        // for layer in &self.layers {
+        //     output = layer.forward(&output);
+        // }
 
-        output
+        //output
     }
 
     fn parameters(&self) -> Vec<Tensor> {
@@ -60,17 +61,18 @@ mod tests {
         let linear1 = Linear::new(2, 3, true);
         let linear2 = Linear::new(3, 1, true);
 
-        let model = sequential![linear1, ReLU::new(), linear2];
+        let _model = sequential![linear1, ReLU::new(), linear2];
 
-        let input: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
-        let output = model.forward(&input);
-        let mut loss = Loss::new(output.clone());
+        let _input: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+        todo!("test_sequential_backprop");
+        // let output = model.forward(&input);
+        // let mut loss = Loss::new(output.clone());
 
-        loss.backward();
-        // Check that output has the expected shape (2, 1)
-        assert_eq!(
-            output.value.borrow().data.as_ref().unwrap().shape(),
-            vec![2, 1]
-        );
+        // loss.backward();
+        // // Check that output has the expected shape (2, 1)
+        // assert_eq!(
+        //     output.value.borrow().data.as_ref().unwrap().shape(),
+        //     vec![2, 1]
+        // );
     }
 }

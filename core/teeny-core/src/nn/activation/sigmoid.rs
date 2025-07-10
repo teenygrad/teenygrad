@@ -26,7 +26,7 @@ impl Sigmoid {
     }
 }
 
-impl Module for Sigmoid {
+impl Module<&Tensor, Tensor> for Sigmoid {
     fn forward(&self, input: &Tensor) -> Tensor {
         input.sigmoid()
     }

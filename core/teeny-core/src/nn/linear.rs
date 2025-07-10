@@ -45,7 +45,7 @@ impl Linear {
     }
 }
 
-impl Module for Linear {
+impl Module<&Tensor, Tensor> for Linear {
     fn forward(&self, input: &Tensor) -> Tensor {
         // Matrix multiplication
         let output = input * &self.weight.t();

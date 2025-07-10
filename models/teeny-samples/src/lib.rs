@@ -15,4 +15,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod simple_classifier;
+pub mod ex01_vector_add;
+pub mod ex02_simple_classifier;
