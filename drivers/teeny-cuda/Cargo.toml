@@ -3,4 +3,9 @@ name = "teeny-cuda"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+
 [dependencies]
+teeny-driver = { path = "../teeny-driver" }
+thiserror.workspace = true
+ctor.workspace = true

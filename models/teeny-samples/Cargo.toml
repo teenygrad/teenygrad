@@ -11,6 +11,10 @@ path = "src/main.rs"
 name = "teeny_samples"
 path = "src/lib.rs"
 
+[features]
+default = ["cuda"]
+cuda = ["teeny-cuda"]
+
 [dependencies]
 clap.workspace = true
 tokio.workspace = true
@@ -19,3 +23,5 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 teeny-core = { path = "../../core/teeny-core" }
 teeny-data = { path = "../../utilities/teeny-data" }
+teeny-driver = { path = "../../drivers/teeny-driver" }
+teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }

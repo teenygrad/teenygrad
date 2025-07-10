@@ -3,6 +3,9 @@ use teeny_samples::simple_classifier;
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
+#[cfg(feature = "cuda")]
+extern crate teeny_cuda;
+
 #[derive(Debug, Clone, ValueEnum)]
 enum Model {
     SimpleClassifier,

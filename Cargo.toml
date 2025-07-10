@@ -33,4 +33,4 @@ derive_builder = "0.20.2"
 uuid = { version = "1.17.0", features = ["v4"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-inventory = "0.3.20"
+ctor = "0.4.2"

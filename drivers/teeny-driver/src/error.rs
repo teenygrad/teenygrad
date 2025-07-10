@@ -15,23 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{nn::module::Module, tensor::Tensor};
+pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Clone, Default)]
-pub struct Sigmoid;
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Failed to initialize driver: {0}")]
+    InitError(String),
 
-impl Sigmoid {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+    #[error("Driver not found: {0}")]
+    NotFound(String),
 
-impl Module for Sigmoid {
-    fn forward(&self, input: &Tensor) -> Tensor {
-        input.sigmoid()
-    }
-
-    fn parameters(&self) -> Vec<crate::tensor::Tensor> {
-        vec![]
-    }
+    #[error("Failed to lock drivers: {0}")]
+    LockError(String),
 }

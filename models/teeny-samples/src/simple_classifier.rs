@@ -21,6 +21,7 @@ use teeny_core::nn::{self, Module};
 use teeny_core::sequential;
 use teeny_core::tensor::Tensor;
 use teeny_data::dataset::loader::load_csv;
+use teeny_driver::driver_manager::DriverManager;
 use tracing::info;
 
 pub struct SimpleClassifier {
@@ -65,6 +66,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await
     .unwrap();
+
+    let drivers = DriverManager::drivers().unwrap();
+    for driver in drivers {
+        info!("Driver: {:?}", driver.name());
+    }
 
     let x = dataset.slice(s![.., ..8]);
 

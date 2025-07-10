@@ -15,17 +15,42 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use std::sync::Arc;
+
+use ctor::ctor;
+use teeny_driver::driver::Driver;
+use teeny_driver::driver_manager::DriverManager;
+use teeny_driver::error::Result;
+
+#[derive(Default)]
+pub struct CudaDriver {}
+
+impl CudaDriver {
+    pub const fn new() -> Self {
+        Self {}
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+impl Driver for CudaDriver {
+    fn init(&mut self) -> Result<()> {
+        Ok(())
     }
+
+    fn deinit(&mut self) -> Result<()> {
+        // no-op
+        Ok(())
+    }
+
+    fn id(&self) -> &str {
+        "org.teenygrad.driver.cuda"
+    }
+
+    fn name(&self) -> &str {
+        "Teenygrad CUDA Driver v0.1.0"
+    }
+}
+
+#[ctor]
+fn register_cuda() {
+    DriverManager::register(Arc::new(CudaDriver::new()));
 }

@@ -15,23 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{nn::module::Module, tensor::Tensor};
+use crate::error::Result;
 
-#[derive(Debug, Clone, Default)]
-pub struct Sigmoid;
+pub trait Driver {
+    fn init(&mut self) -> Result<()>;
 
-impl Sigmoid {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+    fn deinit(&mut self) -> Result<()>;
 
-impl Module for Sigmoid {
-    fn forward(&self, input: &Tensor) -> Tensor {
-        input.sigmoid()
-    }
+    fn id(&self) -> &str;
 
-    fn parameters(&self) -> Vec<crate::tensor::Tensor> {
-        vec![]
-    }
+    fn name(&self) -> &str;
 }
