@@ -27,18 +27,20 @@ pub trait Device: Send + Sync + std::fmt::Debug + Any {}
 
 static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<dyn Device>>>> = OnceCell::new();
 
-pub fn get_current_device() -> Result<std::sync::MutexGuard<'static, Arc<dyn Device>>> {
-    CURRENT_DEVICE
+pub fn current_device() -> Result<Option<Arc<dyn Device>>> {
+    let guard = CURRENT_DEVICE
         .get_or_init(|| Mutex::new(None))
         .try_lock()
-        .map_err(|_| TeenyError::TryLockError("Failed to lock device".to_string()))
+        .map_err(|_| TeenyError::TryLockError("Failed to lock device".to_string()))?;
+
+    Ok((*guard).clone())
 }
 
 pub fn set_current_device(device: Arc<dyn Device>) -> Result<()> {
     let mut guard = CURRENT_DEVICE
         .get_or_init(|| Mutex::new(Some(device.clone())))
         .try_lock()
-        .map_err(|_| TeenyError::TryLockError("Failed to lock device".to_string()))?;
+        .map_err(|_| TeenyError::TryLockError("Failed to set device".to_string()))?;
     *guard = Some(device.clone());
     Ok(())
 }
