@@ -15,4 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod kernel_macro;
+mod derive_jit;
+mod proc_jit;
+mod proc_kernel;
+
+pub use derive_jit::derive_jit;
+pub use proc_jit::proc_jit;
+pub use proc_kernel::proc_kernel;

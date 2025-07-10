@@ -11,6 +11,7 @@ proc-macro = true
 
 [dependencies]
 teeny-triton = { path = "../teeny-triton" }
+teeny-jit = { path = "../teeny-jit" }
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true

@@ -17,19 +17,6 @@
 
 use proc_macro::TokenStream;
 
-mod macros;
-
-#[proc_macro_attribute]
-pub fn kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
-    macros::proc_kernel(attr, item)
-}
-
-#[proc_macro_attribute]
-pub fn jit(attr: TokenStream, item: TokenStream) -> TokenStream {
-    macros::proc_jit(attr, item)
-}
-
-#[proc_macro_derive(Jit)]
 pub fn derive_jit(input: TokenStream) -> TokenStream {
-    macros::derive_jit(input)
+    input
 }
