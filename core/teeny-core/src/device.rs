@@ -16,29 +16,29 @@
  */
 
 use once_cell::sync::OnceCell;
-use std::sync::Mutex;
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 use crate::error::{Result, TeenyError};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Device {
-    Cpu,
-}
+pub trait Device: Send + Sync + std::fmt::Debug + Any {}
 
-static CURRENT_DEVICE: OnceCell<Mutex<Device>> = OnceCell::new();
+static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<dyn Device>>>> = OnceCell::new();
 
-pub fn get_current_device() -> Result<std::sync::MutexGuard<'static, Device>> {
+pub fn get_current_device() -> Result<std::sync::MutexGuard<'static, Arc<dyn Device>>> {
     CURRENT_DEVICE
-        .get_or_init(|| Mutex::new(Device::Cpu))
+        .get_or_init(|| Mutex::new(None))
         .try_lock()
         .map_err(|_| TeenyError::TryLockError("Failed to lock device".to_string()))
 }
 
-pub fn set_current_device(device: Device) -> Result<()> {
+pub fn set_current_device(device: Arc<dyn Device>) -> Result<()> {
     let mut guard = CURRENT_DEVICE
-        .get_or_init(|| Mutex::new(device.clone()))
+        .get_or_init(|| Mutex::new(Some(device.clone())))
         .try_lock()
         .map_err(|_| TeenyError::TryLockError("Failed to lock device".to_string()))?;
-    *guard = device.clone();
+    *guard = Some(device.clone());
     Ok(())
 }

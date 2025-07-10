@@ -15,12 +15,30 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Add;
+use std::{any::Any, sync::Arc};
 
-pub struct TensorBase<S, D>
-where
-    S: ndarray::Shape,
-    D: ndarray::Dimension,
-{
-    pub data: ndarray::Array<f32, S, D>,
+pub trait Num {}
+
+pub trait Dimension {}
+
+pub type DynTensor<E, S> = Arc<dyn Tensor<Elem = E, Shape = S>>;
+
+pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
+    type Elem: Num;
+    type Shape: Dimension;
+
+    // Accessors
+    fn shape(&self) -> Self::Shape;
+    fn device(&self) -> Arc<dyn Device>;
+
+    // Downcast
+    fn as_any(&self) -> &dyn Any;
+
+    fn to_device(&self, device: Arc<dyn Device>) -> DynTensor<Self::Elem, Self::Shape>;
+
+    fn add(&self, other: &DynTensor<Self::Elem, Self::Shape>)
+    -> DynTensor<Self::Elem, Self::Shape>;
+
+    fn dot(&self, other: &DynTensor<Self::Elem, Self::Shape>)
+    -> DynTensor<Self::Elem, Self::Shape>;
 }
