@@ -34,3 +34,8 @@ uuid = { version = "1.17.0", features = ["v4"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 ctor = "0.4.2"
+cargo_metadata = "0.20.0"
+bindgen = "0.72.0"
+cfgrammar = "0.13.10"
+lrlex = "0.13.10"
+lrpar = "0.13.10"

@@ -9,3 +9,6 @@ edition = "2024"
 teeny-driver = { path = "../teeny-driver" }
 thiserror.workspace = true
 ctor.workspace = true
+
+[build-dependencies]
+bindgen.workspace = true

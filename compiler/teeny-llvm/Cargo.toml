@@ -16,13 +16,13 @@ cuda = []
 [dependencies]
 
 [build-dependencies]
-cargo_metadata = "0.20.0"
-bindgen = "0.71.1"
-cfgrammar = "0.13.10"
-lrlex = "0.13.10"
-lrpar = "0.13.10"
+cargo_metadata.workspace = true
+bindgen.workspace = true
+cfgrammar.workspace = true
+lrlex.workspace = true
+lrpar.workspace = true
 
 [dev-dependencies]
-cfgrammar = "0.13.10"
-lrlex = "0.13.10"
-lrpar = "0.13.10"
+cfgrammar.workspace = true
+lrlex.workspace = true
+lrpar.workspace = true
