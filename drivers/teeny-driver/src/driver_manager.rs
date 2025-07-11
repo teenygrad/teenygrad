@@ -16,30 +16,29 @@
  */
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use crate::driver::Driver;
 use crate::error::DriverError;
 use crate::error::Result;
 
-static DRIVERS: OnceLock<Mutex<HashMap<String, Arc<dyn Driver + Send + Sync>>>> = OnceLock::new();
+#[allow(clippy::type_complexity)]
+static DRIVERS: OnceLock<RwLock<HashMap<String, Arc<Mutex<dyn Driver + Send + Sync>>>>> =
+    OnceLock::new();
 
-#[allow(clippy::borrowed_box)]
 pub struct DriverManager;
 
 impl DriverManager {
-    pub fn register(driver: Arc<dyn Driver + Send + Sync>) {
-        let drivers = DRIVERS.get_or_init(|| Mutex::new(HashMap::new()));
-        drivers
-            .lock()
-            .unwrap()
-            .insert(driver.id().to_string(), driver);
+    pub fn register(driver: Arc<Mutex<dyn Driver + Send + Sync>>) {
+        let drivers = DRIVERS.get_or_init(|| RwLock::new(HashMap::new()));
+        let id = driver.lock().unwrap().id().to_string();
+        drivers.write().unwrap().insert(id, driver);
     }
 
-    pub fn driver(id: &str) -> Result<Option<Arc<dyn Driver + Send + Sync>>> {
+    pub fn driver(id: &str) -> Result<Option<Arc<Mutex<dyn Driver + Send + Sync>>>> {
         if let Some(drivers) = DRIVERS.get() {
             let drivers = drivers
-                .lock()
+                .read()
                 .map_err(|e| DriverError::LockError(e.to_string()))?;
 
             Ok(drivers.get(id).cloned())
@@ -48,8 +47,8 @@ impl DriverManager {
         }
     }
 
-    pub fn drivers() -> Result<Vec<Arc<dyn Driver + Send + Sync>>> {
-        let drivers = DRIVERS.get().map(|d| d.lock().unwrap());
+    pub fn drivers() -> Result<Vec<Arc<Mutex<dyn Driver + Send + Sync>>>> {
+        let drivers = DRIVERS.get().map(|d| d.read().unwrap());
         if let Some(drivers) = drivers {
             Ok(drivers.values().cloned().collect())
         } else {

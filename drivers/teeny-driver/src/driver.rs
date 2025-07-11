@@ -15,7 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::Result;
+use std::sync::{Arc, Mutex};
+
+use crate::{device::Device, error::Result};
+
+pub const CUDA_DRIVER_ID: &str = "org.teenygrad.driver.cuda";
+
+pub const CPU_DRIVER_ID: &str = "org.teenygrad.driver.cpu";
+
+pub const VULKAN_DRIVER_ID: &str = "org.teenygrad.driver.vulkan";
 
 pub trait Driver {
     fn init(&mut self) -> Result<()>;
@@ -25,4 +33,6 @@ pub trait Driver {
     fn id(&self) -> &str;
 
     fn name(&self) -> &str;
+
+    fn devices(&self) -> Result<Vec<Arc<Mutex<dyn Device>>>>;
 }

@@ -15,10 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ctor::ctor;
-use teeny_driver::driver::Driver;
+use teeny_driver::device::Device;
+use teeny_driver::driver::{CPU_DRIVER_ID, Driver};
 use teeny_driver::driver_manager::DriverManager;
 use teeny_driver::error::Result;
 
@@ -42,15 +43,19 @@ impl Driver for CpuDriver {
     }
 
     fn id(&self) -> &str {
-        "org.teenygrad.driver.cpu"
+        CPU_DRIVER_ID
     }
 
     fn name(&self) -> &str {
         "Teenygrad CPU Driver v0.1.0"
     }
+
+    fn devices(&self) -> Result<Vec<Arc<Mutex<dyn Device>>>> {
+        Ok(vec![])
+    }
 }
 
 #[ctor]
 fn register_cuda() {
-    DriverManager::register(Arc::new(CpuDriver::new()));
+    DriverManager::register(Arc::new(Mutex::new(CpuDriver::new())));
 }

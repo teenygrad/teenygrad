@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_driver::error::DriverError;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, RuntimeError>;
@@ -23,4 +24,23 @@ pub type Result<T> = std::result::Result<T, RuntimeError>;
 pub enum RuntimeError {
     #[error("Lock error: {0}")]
     TryLockError(String),
+
+    #[error("Failed to get drivers: {0}")]
+    FailedToGetDrivers(String),
+
+    #[error("Driver not found: {0}")]
+    DriverNotFound(String),
+
+    #[error("Failed to initialize driver: {0}")]
+    DriverInitError(String),
+}
+
+impl From<DriverError> for RuntimeError {
+    fn from(err: DriverError) -> Self {
+        match err {
+            DriverError::InitError(msg) => RuntimeError::DriverInitError(msg),
+            DriverError::NotFound(msg) => RuntimeError::DriverNotFound(msg),
+            DriverError::LockError(msg) => RuntimeError::TryLockError(msg),
+        }
+    }
 }

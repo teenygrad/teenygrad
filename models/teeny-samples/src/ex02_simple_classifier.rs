@@ -70,7 +70,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let drivers = DriverManager::drivers().unwrap();
     for driver in drivers {
-        info!("Driver: {:?}", driver.name());
+        info!("Driver: {:?}", driver.lock().unwrap().name());
     }
 
     let x = dataset.slice(s![.., ..8]);

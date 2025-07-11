@@ -15,6 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::sync::Arc;
+use std::sync::Mutex;
+
+use teeny_driver::{device::Device, driver::CUDA_DRIVER_ID, driver_manager::DriverManager};
+
+use crate::error::Result;
+use crate::error::RuntimeError;
+
 pub mod device;
 pub mod error;
 
@@ -23,3 +31,31 @@ extern crate teeny_cpu;
 
 #[cfg(feature = "cuda")]
 extern crate teeny_cuda;
+
+pub fn init_runtime() -> Result<()> {
+    init_drivers()?;
+    Ok(())
+}
+
+pub fn get_cuda_devices() -> Result<Vec<Arc<Mutex<dyn Device>>>> {
+    let driver = DriverManager::driver(CUDA_DRIVER_ID)?
+        .ok_or(RuntimeError::DriverNotFound(CUDA_DRIVER_ID.to_string()))?;
+
+    let devices = driver.lock().unwrap().devices()?;
+    Ok(devices)
+}
+
+fn init_drivers() -> Result<()> {
+    let drivers =
+        DriverManager::drivers().map_err(|e| RuntimeError::FailedToGetDrivers(e.to_string()))?;
+
+    for driver in drivers {
+        driver
+            .lock()
+            .unwrap()
+            .init()
+            .map_err(|e| RuntimeError::DriverInitError(e.to_string()))?;
+    }
+
+    Ok(())
+}
