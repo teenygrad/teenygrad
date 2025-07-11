@@ -24,19 +24,20 @@ use teeny_data::dataset::loader::load_csv;
 use teeny_driver::driver_manager::DriverManager;
 use tracing::info;
 
-pub struct SimpleClassifier {
-    pub model: nn::Sequential,
+pub struct SimpleClassifier<'a> {
+    pub model: nn::Sequential<'a>,
 }
 
-impl Default for SimpleClassifier {
+impl<'a> Default for SimpleClassifier<'a> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl nn::Module for SimpleClassifier {
-    fn forward(&self, x: &Tensor) -> Tensor {
-        self.model.forward(x)
+impl<'a> nn::Module<&Tensor, Tensor> for SimpleClassifier<'a> {
+    fn forward(&self, _x: &Tensor) -> Tensor {
+        // self.model.forward(x)
+        todo!()
     }
 
     fn parameters(&self) -> Vec<Tensor> {
@@ -44,7 +45,7 @@ impl nn::Module for SimpleClassifier {
     }
 }
 
-impl SimpleClassifier {
+impl<'a> SimpleClassifier<'a> {
     pub fn new() -> Self {
         Self {
             model: sequential![

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::driver::Driver;
-use crate::error::Error;
+use crate::error::DriverError;
 use crate::error::Result;
 
 static DRIVERS: OnceLock<Mutex<HashMap<String, Arc<dyn Driver + Send + Sync>>>> = OnceLock::new();
@@ -40,11 +40,11 @@ impl DriverManager {
         if let Some(drivers) = DRIVERS.get() {
             let drivers = drivers
                 .lock()
-                .map_err(|e| Error::LockError(e.to_string()))?;
+                .map_err(|e| DriverError::LockError(e.to_string()))?;
 
             Ok(drivers.get(id).cloned())
         } else {
-            Err(Error::NotFound(id.to_string()))
+            Err(DriverError::NotFound(id.to_string()))
         }
     }
 
@@ -53,7 +53,7 @@ impl DriverManager {
         if let Some(drivers) = drivers {
             Ok(drivers.values().cloned().collect())
         } else {
-            Err(Error::NotFound("No drivers registered".to_string()))
+            Err(DriverError::NotFound("No drivers registered".to_string()))
         }
     }
 }

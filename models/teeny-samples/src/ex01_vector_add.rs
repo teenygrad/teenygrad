@@ -16,38 +16,35 @@
  */
 
 use ndarray::s;
-use teeny_core::nn::loss::LossFn;
-use teeny_core::nn::{self, Module};
-use teeny_core::tensor1::Tensor;
 use teeny_data::dataset::loader::load_csv;
 use teeny_driver::driver_manager::DriverManager;
 use tracing::info;
 
 pub struct VectorAdd {
-    pub v1: Box<dyn Tensor>,
-    pub v2: Box<dyn Tensor>,
+    // pub v1: Box<dyn Tensor>,
+    // pub v2: Box<dyn Tensor>,
 }
 
-impl Default for VectorAdd {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// impl Default for VectorAdd {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }
 
-impl nn::Module<(), Box<dyn Tensor>> for VectorAdd {
-    fn forward(&self) -> Box<dyn Tensor> {
-        self.v1 + self.v2
-    }
-}
+// impl nn::Module<(), Box<dyn Tensor>> for VectorAdd {
+//     fn forward(&self) -> Box<dyn Tensor> {
+//         self.v1 + self.v2
+//     }
+// }
 
-impl VectorAdd {
-    pub fn new() -> Self {
-        Self {
-            v1: tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
-            v2: tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
-        }
-    }
-}
+// impl VectorAdd {
+//     pub fn new() -> Self {
+//         Self {
+//             v1: tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+//             v2: tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
+//         }
+//     }
+// }
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let dataset = load_csv::<f32>(
@@ -62,38 +59,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         info!("Driver: {:?}", driver.name());
     }
 
-    let x = dataset.slice(s![.., ..8]);
+    let _x = dataset.slice(s![.., ..8]);
 
     let y = dataset.slice(s![.., 8]);
-    let y = y.to_shape((dataset.shape()[0], 1)).unwrap();
-
-    let model = VectorAdd::new();
-    let mut optimizer = nn::AdamBuilder::default()
-        .params(model.parameters())
-        .build()
-        .unwrap();
-    let loss_fn = nn::BCELoss::new();
-    const BATCH_SIZE: usize = 10;
-
-    for epoch in 0..100 {
-        for i in (0..y.shape()[0]).step_by(BATCH_SIZE) {
-            let range_start = i;
-            let range_end = std::cmp::min(i + BATCH_SIZE, y.shape()[0]);
-            let x_batch = x.slice(s![range_start..range_end, ..]).into();
-            let y_pred = model.forward(&x_batch);
-
-            let y_batch = y.slice(s![range_start..range_end, ..]).into();
-            let mut loss = loss_fn.compute(&y_pred, &y_batch);
-
-            optimizer.zero_grad();
-            loss.backward();
-            info!("Loss: {:?}", loss.loss.value.borrow().data);
-
-            optimizer.step();
-        }
-
-        info!("Epoch {:?}, loss {:?}", epoch, epoch);
-    }
+    let _y = y.to_shape((dataset.shape()[0], 1)).unwrap();
 
     Ok(())
 }

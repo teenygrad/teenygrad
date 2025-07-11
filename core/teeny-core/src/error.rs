@@ -17,15 +17,10 @@
 
 use thiserror::Error;
 
-use crate::device::Device;
-
 pub type Result<T> = std::result::Result<T, TeenyError>;
 
 #[derive(Error, Debug)]
 pub enum TeenyError {
     #[error("Lock error: {0}")]
     TryLockError(String),
-
-    #[error("Unsupported device: {0:?}")]
-    UnsupportedDevice(Device),
 }

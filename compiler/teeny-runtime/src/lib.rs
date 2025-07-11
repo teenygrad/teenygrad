@@ -15,26 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{any::Any, sync::Arc};
-pub trait Num {}
+pub mod device;
+pub mod error;
 
-pub trait Dimension {}
+#[cfg(feature = "cpu")]
+extern crate teeny_cpu;
 
-pub type DynTensor<E, S> = Arc<dyn Tensor<Elem = E, Shape = S>>;
-
-pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
-    type Elem: Num;
-    type Shape: Dimension;
-
-    // Accessors
-    fn shape(&self) -> Self::Shape;
-
-    // Downcast
-    fn as_any(&self) -> &dyn Any;
-
-    fn add(&self, other: &DynTensor<Self::Elem, Self::Shape>)
-    -> DynTensor<Self::Elem, Self::Shape>;
-
-    fn dot(&self, other: &DynTensor<Self::Elem, Self::Shape>)
-    -> DynTensor<Self::Elem, Self::Shape>;
-}
+#[cfg(feature = "cuda")]
+extern crate teeny_cuda;

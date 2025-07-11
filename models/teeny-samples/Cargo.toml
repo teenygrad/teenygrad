@@ -11,10 +11,6 @@ path = "src/main.rs"
 name = "teeny_samples"
 path = "src/lib.rs"
 
-[features]
-default = ["cuda"]
-cuda = ["teeny-cuda"]
-
 [dependencies]
 clap.workspace = true
 tokio.workspace = true

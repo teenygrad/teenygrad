@@ -51,7 +51,7 @@ impl<'a> Module<&'a Tensor, Tensor> for Sequential<'a> {
 mod tests {
     use super::*;
     use crate::{
-        nn::{ReLU, linear::*, loss::Loss},
+        nn::{ReLU, linear::*},
         sequential,
     };
     use ndarray::array;

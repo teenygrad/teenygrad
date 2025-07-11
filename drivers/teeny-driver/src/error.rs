@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, DriverError>;
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum DriverError {
     #[error("Failed to initialize driver: {0}")]
     InitError(String),
 

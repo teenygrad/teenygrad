@@ -15,15 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::sync::{Arc, Mutex};
+
 use once_cell::sync::OnceCell;
-use std::{
-    any::Any,
-    sync::{Arc, Mutex},
-};
+use teeny_driver::device::Device;
 
-use crate::error::{Result, TeenyError};
-
-pub trait Device: Send + Sync + std::fmt::Debug + Any {}
+use crate::error::{Result, RuntimeError};
 
 static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<dyn Device>>>> = OnceCell::new();
 
@@ -31,7 +28,7 @@ pub fn current_device() -> Result<Option<Arc<dyn Device>>> {
     let guard = CURRENT_DEVICE
         .get_or_init(|| Mutex::new(None))
         .try_lock()
-        .map_err(|_| TeenyError::TryLockError("Failed to lock device".to_string()))?;
+        .map_err(|_| RuntimeError::TryLockError("Failed to lock device".to_string()))?;
 
     Ok((*guard).clone())
 }
@@ -40,7 +37,7 @@ pub fn set_current_device(device: Arc<dyn Device>) -> Result<()> {
     let mut guard = CURRENT_DEVICE
         .get_or_init(|| Mutex::new(Some(device.clone())))
         .try_lock()
-        .map_err(|_| TeenyError::TryLockError("Failed to set device".to_string()))?;
+        .map_err(|_| RuntimeError::TryLockError("Failed to set device".to_string()))?;
     *guard = Some(device.clone());
     Ok(())
 }
