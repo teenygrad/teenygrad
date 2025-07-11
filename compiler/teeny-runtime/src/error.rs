@@ -29,18 +29,5 @@ pub enum RuntimeError {
     FailedToGetDrivers(String),
 
     #[error("Driver not found: {0}")]
-    DriverNotFound(String),
-
-    #[error("Failed to initialize driver: {0}")]
-    DriverInitError(String),
-}
-
-impl From<DriverError> for RuntimeError {
-    fn from(err: DriverError) -> Self {
-        match err {
-            DriverError::InitError(msg) => RuntimeError::DriverInitError(msg),
-            DriverError::NotFound(msg) => RuntimeError::DriverNotFound(msg),
-            DriverError::LockError(msg) => RuntimeError::TryLockError(msg),
-        }
-    }
+    DriverError(DriverError),
 }

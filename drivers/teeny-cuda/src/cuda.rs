@@ -15,6 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod cuda;
-mod device;
-mod driver;
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

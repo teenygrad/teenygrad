@@ -17,4 +17,38 @@
 
 use std::any::Any;
 
-pub trait Device: Send + Sync + std::fmt::Debug + Any {}
+#[derive(Debug)]
+pub struct NvidiaGpu {
+    pub major: i32,
+    pub minor: i32,
+    pub multi_processor_count: i32,
+    pub total_global_mem: usize,
+    pub shared_mem_per_block: usize,
+    pub regs_per_block: i32,
+    pub warp_size: i32,
+    pub max_threads_per_block: i32,
+    pub max_threads_per_multi_processor: i32,
+    pub max_blocks_per_multi_processor: i32,
+    pub max_threads_dim: [i32; 3],
+    pub max_grid_size: [i32; 3],
+    pub clock_rate: i32,
+    pub memory_clock_rate: i32,
+    pub memory_bus_width: i32,
+    pub l2_cache_size: i32,
+    pub concurrent_kernels: i32,
+    pub compute_mode: i32,
+}
+
+#[derive(Debug)]
+pub enum DeviceType {
+    Cpu,
+    NvidiaGpu(NvidiaGpu),
+}
+
+pub trait Device: Send + Sync + std::fmt::Debug + Any {
+    fn id(&self) -> &str;
+
+    fn name(&self) -> &str;
+
+    fn device_type(&self) -> &DeviceType;
+}

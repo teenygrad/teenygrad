@@ -27,4 +27,7 @@ pub enum DriverError {
 
     #[error("Failed to lock drivers: {0}")]
     LockError(String),
+
+    #[error("CUDA error: {0}")]
+    CudaError(u32),
 }

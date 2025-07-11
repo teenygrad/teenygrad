@@ -18,6 +18,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use teeny_driver::error::DriverError;
 use teeny_driver::{device::Device, driver::CUDA_DRIVER_ID, driver_manager::DriverManager};
 
 use crate::error::Result;
@@ -32,16 +33,23 @@ extern crate teeny_cpu;
 #[cfg(feature = "cuda")]
 extern crate teeny_cuda;
 
-pub fn init_runtime() -> Result<()> {
+pub fn init() -> Result<()> {
     init_drivers()?;
     Ok(())
 }
 
 pub fn get_cuda_devices() -> Result<Vec<Arc<Mutex<dyn Device>>>> {
-    let driver = DriverManager::driver(CUDA_DRIVER_ID)?
-        .ok_or(RuntimeError::DriverNotFound(CUDA_DRIVER_ID.to_string()))?;
+    let driver = DriverManager::driver(CUDA_DRIVER_ID)
+        .map_err(RuntimeError::DriverError)?
+        .ok_or(RuntimeError::DriverError(DriverError::NotFound(
+            CUDA_DRIVER_ID.to_string(),
+        )))?;
 
-    let devices = driver.lock().unwrap().devices()?;
+    let devices = driver
+        .lock()
+        .unwrap()
+        .devices()
+        .map_err(RuntimeError::DriverError)?;
     Ok(devices)
 }
 
@@ -54,7 +62,7 @@ fn init_drivers() -> Result<()> {
             .lock()
             .unwrap()
             .init()
-            .map_err(|e| RuntimeError::DriverInitError(e.to_string()))?;
+            .map_err(RuntimeError::DriverError)?;
     }
 
     Ok(())

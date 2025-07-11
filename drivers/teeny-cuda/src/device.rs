@@ -15,6 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod cuda;
-mod device;
-mod driver;
+use teeny_driver::device::{Device, DeviceType};
+
+#[derive(Debug)]
+pub struct CudaDevice {
+    pub id: String,
+    pub name: String,
+    pub device_type: DeviceType,
+}
+
+impl Device for CudaDevice {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn device_type(&self) -> &DeviceType {
+        &self.device_type
+    }
+}

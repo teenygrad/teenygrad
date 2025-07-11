@@ -17,8 +17,6 @@
 
 use ndarray::s;
 use teeny_data::dataset::loader::load_csv;
-use teeny_driver::driver_manager::DriverManager;
-use tracing::info;
 
 pub struct VectorAdd {
     // pub v1: Box<dyn Tensor>,
@@ -53,11 +51,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await
     .unwrap();
-
-    let drivers = DriverManager::drivers().unwrap();
-    for driver in drivers {
-        info!("Driver: {:?}", driver.lock().unwrap().name());
-    }
 
     let _x = dataset.slice(s![.., ..8]);
 

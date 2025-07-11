@@ -12,12 +12,11 @@ name = "teeny_samples"
 path = "src/lib.rs"
 
 [dependencies]
+teeny-core = { path = "../../core/teeny-core" }
+teeny-data = { path = "../../utilities/teeny-data" }
+teeny-runtime = { path = "../../compiler/teeny-runtime" }
 clap.workspace = true
 tokio.workspace = true
 ndarray.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-teeny-core = { path = "../../core/teeny-core" }
-teeny-data = { path = "../../utilities/teeny-data" }
-teeny-driver = { path = "../../drivers/teeny-driver" }
-teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
