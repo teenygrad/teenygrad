@@ -77,6 +77,7 @@ pub struct FunctionBody {
 
 /// Statement in the function body
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Statement {
     /// Local variable declaration (let binding)
     Local(LocalStatement),
@@ -247,17 +248,16 @@ impl FromSyn for Function {
         // Convert function signature
         let sig = FunctionSignature {
             name: sig.ident,
-            generics: sig.generics,
+            generics: sig.generics.clone(),
             params: sig
                 .inputs
                 .into_iter()
                 .map(|input| {
                     match input {
                         FnArg::Typed(pat_type) => {
-                            let (pat, ty) = *pat_type;
                             Parameter {
-                                pat,
-                                ty,
+                                pat: *pat_type.pat,
+                                ty: *pat_type.ty,
                                 semantic_type: None,
                                 is_mut: false, // TODO: extract from pattern
                                 is_ref: false, // TODO: extract from type
@@ -300,15 +300,15 @@ impl FromSyn for Function {
                 .map(|stmt| match stmt {
                     Stmt::Local(local) => Statement::Local(LocalStatement {
                         pat: local.pat,
-                        ty: local.ty,
+                        ty: None, // AXM - Fixme
                         init: local.init.map(|expr| Expression {
-                            expr: *expr,
+                            expr: *expr.expr,
                             semantic_type: None,
                             is_mut: false,
                             is_ref: false,
                         }),
                         semantic_type: None,
-                        is_mut: local.mutability.is_some(),
+                        is_mut: false, // AXM - Fixme
                     }),
                     Stmt::Expr(expr, semicolon) => Statement::Expr(ExpressionStatement {
                         expr: Expression {
@@ -317,7 +317,7 @@ impl FromSyn for Function {
                             is_mut: false,
                             is_ref: false,
                         },
-                        has_semicolon: semicolon,
+                        has_semicolon: semicolon.is_some(),
                     }),
                     Stmt::Item(item) => Statement::Item(ItemStatement { item }),
                     Stmt::Macro(macro_stmt) => Statement::Expr(ExpressionStatement {
@@ -381,7 +381,7 @@ impl ToSyn for Function {
                 variadic: None,
                 output: self.sig.return_type.clone(),
             },
-            block: Block {
+            block: Box::new(Block {
                 brace_token: syn::token::Brace(proc_macro2::Span::call_site()),
                 stmts: self
                     .body
@@ -392,18 +392,7 @@ impl ToSyn for Function {
                             attrs: vec![],
                             let_token: syn::token::Let(proc_macro2::Span::call_site()),
                             pat: local.pat.clone(),
-                            ty: local.ty.clone().map(|ty| {
-                                (
-                                    syn::token::Colon(proc_macro2::Span::call_site()),
-                                    Box::new(ty),
-                                )
-                            }),
-                            init: local.init.as_ref().map(|expr| {
-                                (
-                                    syn::token::Eq(proc_macro2::Span::call_site()),
-                                    Box::new(expr.expr.clone()),
-                                )
-                            }),
+                            init: None, // AXM - Fixme
                             semi_token: syn::token::Semi(proc_macro2::Span::call_site()),
                         }),
                         Statement::Expr(expr_stmt) => Stmt::Expr(
@@ -421,7 +410,7 @@ impl ToSyn for Function {
                         ),
                     })
                     .collect(),
-            },
+            }),
         }
     }
 }
