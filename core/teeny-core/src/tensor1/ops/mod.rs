@@ -15,12 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ndarray::IxDyn;
-
-use crate::tensor1::{DTensor, num};
-
-pub fn from_ndarray<T: num::Num>(
-    _array: ndarray::ArrayBase<ndarray::OwnedRepr<T>, IxDyn>,
-) -> DTensor<T> {
-    unimplemented!()
-}
+pub mod add;

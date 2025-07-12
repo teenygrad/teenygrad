@@ -75,7 +75,7 @@ pub struct Qwen3Config {
 
 impl Qwen3Config {
     pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Self> {
-        let config_path = format!("{}/{}/config.json", cache_dir, model_id);
+        let config_path = format!("{cache_dir}/{model_id}/config.json");
         let config_str = std::fs::read_to_string(config_path).map_err(TeenyHFError::IoError)?;
         let config = Self::from_str(&config_str)?;
 

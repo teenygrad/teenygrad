@@ -15,26 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, ItemFn};
+use thiserror::Error;
 
-pub fn proc_jit(_attrs: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as ItemFn);
-    let vis = input.vis;
-    let sig = input.sig.clone();
-    let block = input.block;
-    let attrs = input.attrs;
+pub type JitResult<T> = Result<T, JitError>;
 
-    let result: TokenStream = quote! {
-        #[allow(non_snake_case)]
-        #[allow(clippy::too_many_arguments)]
-        #(#attrs)*
-        #vis #sig {
-            #block
-        }
-    }
-    .into();
-
-    result
+#[derive(Error, Debug)]
+pub enum JitError {
+    #[error("Failed to compile JIT module")]
+    CompileError(String),
 }

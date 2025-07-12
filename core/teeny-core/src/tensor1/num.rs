@@ -16,7 +16,7 @@
  */
 
 /// Trait for numeric types that can be used in tensors
-pub trait Num {
+pub trait Num: 'static {
     type RustType: Send + Sync + Clone + Copy + 'static;
 }
 
@@ -26,4 +26,8 @@ impl Num for f32 {
 
 impl Num for usize {
     type RustType = usize;
+}
+
+impl Num for half::f16 {
+    type RustType = half::f16;
 }

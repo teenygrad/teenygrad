@@ -15,93 +15,93 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ndarray::s;
-use teeny_core::nn::loss::LossFn;
-use teeny_core::nn::{self, Module};
-use teeny_core::sequential;
-use teeny_core::tensor::Tensor;
-use teeny_data::dataset::loader::load_csv;
-use tracing::info;
+// use ndarray::s;
+// use teeny_core::nn::loss::LossFn;
+// use teeny_core::nn::{self, Module1};
+// use teeny_core::sequential;
+// use teeny_core::tensor::Tensor;
+// use teeny_data::dataset::loader::load_csv;
+// use tracing::info;
 
-pub struct SimpleClassifier<'a> {
-    pub model: nn::Sequential<'a>,
-}
+// pub struct SimpleClassifier<'a> {
+//     pub model: nn::Sequential<'a>,
+// }
 
-impl<'a> Default for SimpleClassifier<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// impl<'a> Default for SimpleClassifier<'a> {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }
 
-impl<'a> nn::Module<&Tensor, Tensor> for SimpleClassifier<'a> {
-    fn forward(&self, _x: &Tensor) -> Tensor {
-        // self.model.forward(x)
-        todo!()
-    }
+// impl<'a> nn::Module1<&Tensor, Tensor> for SimpleClassifier<'a> {
+//     fn forward(&self, _x: &Tensor) -> Tensor {
+//         // self.model.forward(x)
+//         todo!()
+//     }
 
-    fn parameters(&self) -> Vec<Tensor> {
-        self.model.parameters()
-    }
-}
+//     fn parameters(&self) -> Vec<Tensor> {
+//         self.model.parameters()
+//     }
+// }
 
-impl<'a> SimpleClassifier<'a> {
-    pub fn new() -> Self {
-        Self {
-            model: sequential![
-                nn::Linear::new(8, 12, false),
-                nn::ReLU::new(),
-                nn::Linear::new(12, 8, false),
-                nn::ReLU::new(),
-                nn::Linear::new(8, 1, false),
-                nn::Sigmoid::new()
-            ],
-        }
-    }
-}
+// impl<'a> SimpleClassifier<'a> {
+//     pub fn new() -> Self {
+//         Self {
+//             model: sequential![
+//                 nn::Linear::new(8, 12, false),
+//                 nn::ReLU::new(),
+//                 nn::Linear::new(12, 8, false),
+//                 nn::ReLU::new(),
+//                 nn::Linear::new(8, 1, false),
+//                 nn::Sigmoid::new()
+//             ],
+//         }
+//     }
+// }
 
-pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let dataset = load_csv::<f32>(
-        "https://raw.githubusercontent.com/teenygrad/data/main/pima-indians-diabetes/diabetes.csv",
-        b',',
-    )
-    .await
-    .unwrap();
+// pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//     let dataset = load_csv::<f32>(
+//         "https://raw.githubusercontent.com/teenygrad/data/main/pima-indians-diabetes/diabetes.csv",
+//         b',',
+//     )
+//     .await
+//     .unwrap();
 
-    let x = dataset.slice(s![.., ..8]);
+//     let x = dataset.slice(s![.., ..8]);
 
-    let y = dataset.slice(s![.., 8]);
-    let y = y.to_shape((dataset.shape()[0], 1)).unwrap();
+//     let y = dataset.slice(s![.., 8]);
+//     let y = y.to_shape((dataset.shape()[0], 1)).unwrap();
 
-    let model = SimpleClassifier::new();
-    let mut optimizer = nn::AdamBuilder::default()
-        .params(model.parameters())
-        .build()
-        .unwrap();
-    let loss_fn = nn::BCELoss::new();
-    const BATCH_SIZE: usize = 10;
+//     let model = SimpleClassifier::new();
+//     let mut optimizer = nn::AdamBuilder::default()
+//         .params(model.parameters())
+//         .build()
+//         .unwrap();
+//     let loss_fn = nn::BCELoss::new();
+//     const BATCH_SIZE: usize = 10;
 
-    for epoch in 0..100 {
-        for i in (0..y.shape()[0]).step_by(BATCH_SIZE) {
-            let range_start = i;
-            let range_end = std::cmp::min(i + BATCH_SIZE, y.shape()[0]);
-            let x_batch = x.slice(s![range_start..range_end, ..]).into();
-            let y_pred = model.forward(&x_batch);
+//     for epoch in 0..100 {
+//         for i in (0..y.shape()[0]).step_by(BATCH_SIZE) {
+//             let range_start = i;
+//             let range_end = std::cmp::min(i + BATCH_SIZE, y.shape()[0]);
+//             let x_batch = x.slice(s![range_start..range_end, ..]).into();
+//             let y_pred = model.forward(&x_batch);
 
-            let y_batch = y.slice(s![range_start..range_end, ..]).into();
-            let mut loss = loss_fn.compute(&y_pred, &y_batch);
+//             let y_batch = y.slice(s![range_start..range_end, ..]).into();
+//             let mut loss = loss_fn.compute(&y_pred, &y_batch);
 
-            optimizer.zero_grad();
-            loss.backward();
-            info!("Loss: {:?}", loss.loss.value.borrow().data);
+//             optimizer.zero_grad();
+//             loss.backward();
+//             info!("Loss: {:?}", loss.loss.value.borrow().data);
 
-            optimizer.step();
-        }
+//             optimizer.step();
+//         }
 
-        info!("Epoch {:?}, loss {:?}", epoch, epoch);
-    }
+//         info!("Epoch {:?}, loss {:?}", epoch, epoch);
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 // # load the dataset, split into input (X) and output (y) variables
 // dataset = np.loadtxt('pima-indians-diabetes.csv', delimiter=',')

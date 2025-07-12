@@ -27,8 +27,8 @@ pub mod sequential;
 // modules
 pub use embedding::Embedding;
 pub use linear::Linear;
-pub use module::Module;
-pub use sequential::Sequential;
+pub use module::Module1;
+// pub use sequential::Sequential;
 
 // activations
 pub use activation::relu::ReLU;

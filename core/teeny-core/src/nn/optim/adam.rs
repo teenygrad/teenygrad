@@ -165,10 +165,7 @@ mod tests {
                 let x_val = optimizer.params[0].eval();
                 let y_val = optimizer.params[1].eval();
                 let loss_val = loss.loss.eval();
-                println!(
-                    "Step {}: x={:?}, y={:?}, loss={:?}",
-                    step, x_val, y_val, loss_val
-                );
+                println!("Step {step}: x={x_val:?}, y={y_val:?}, loss={loss_val:?}");
             }
         }
 

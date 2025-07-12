@@ -15,9 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[macro_export]
-macro_rules! sequential {
-    ($($layer:expr),*) => {
-        $crate::nn::Sequential::new(vec![$(Box::new($layer)),*])
-    };
-}
+// #[macro_export]
+// macro_rules! sequential {
+//     ($($layer:expr),*) => {
+//         $crate::nn::Sequential::new(vec![$(Box::new($layer)),*])
+//     };
+// }

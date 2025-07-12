@@ -15,13 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::nn::module::ModuleNoInput;
-use teeny_core::tensor1::{self, DTensor};
+use teeny_core::nn::module::Module;
+use teeny_core::tensor1::{self, TensorRef};
+use teeny_macros::{JitModule, jit};
 
-#[derive(Debug)]
+#[derive(Debug, JitModule)]
 pub struct VectorAdd {
-    pub v1: DTensor<f32>,
-    pub v2: DTensor<f32>,
+    pub v1: TensorRef<f32>,
+    pub v2: TensorRef<f32>,
 }
 
 impl VectorAdd {
@@ -43,21 +44,19 @@ impl Default for VectorAdd {
     }
 }
 
-impl ModuleNoInput<DTensor<f32>> for VectorAdd {
-    fn forward(&self) -> DTensor<f32> {
-        // self.v1 + self.v2
-        unimplemented!()
+impl Module<f32, TensorRef<f32>> for VectorAdd {
+    #[jit]
+    fn forward(&self) -> TensorRef<f32> {
+        &self.v1 + &self.v2
+    }
+
+    fn parameters(&self) -> Vec<TensorRef<f32>> {
+        vec![self.v1.clone(), self.v2.clone()]
     }
 }
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let model = VectorAdd::default();
-
-    // compile the model for the device
-    // send the model to the device
-    // run the model
-    // retrieve the results
-    // check the results
+    let _model = VectorAdd::default();
 
     Ok(())
 }

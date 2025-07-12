@@ -168,7 +168,7 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
     headers.insert("User-Agent", "rust-huggingface-downloader/1.0".parse()?);
 
     if let Some(token) = &config.auth_token {
-        headers.insert("Authorization", format!("Bearer {}", token).parse()?);
+        headers.insert("Authorization", format!("Bearer {token}").parse()?);
     }
 
     // Fetch file list from Hugging Face API
@@ -312,7 +312,7 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
     if error_count > 0 {
         return Err(TeenyHFError::DownloadFailed {
             file_path: "multiple files".to_string(),
-            reason: format!("{} files failed to download", error_count),
+            reason: format!("{error_count} files failed to download"),
         });
     }
 
@@ -535,16 +535,13 @@ pub async fn download_specific_file(
     if let Some(token) = auth_token {
         headers.insert(
             "Authorization",
-            format!("Bearer {}", token)
+            format!("Bearer {token}")
                 .parse()
                 .map_err(TeenyHFError::InvalidHeaderValue)?,
         );
     }
 
-    let download_url = format!(
-        "https://huggingface.co/{}/resolve/main/{}",
-        model_id, file_path
-    );
+    let download_url = format!("https://huggingface.co/{model_id}/resolve/main/{file_path}");
 
     let response = client
         .get(&download_url)

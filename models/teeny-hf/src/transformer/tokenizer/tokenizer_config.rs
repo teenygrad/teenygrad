@@ -56,7 +56,7 @@ pub struct TokenizerConfig {
 
 impl TokenizerConfig {
     pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Self> {
-        let config_path = format!("{}/{}/tokenizer_config.json", cache_dir, model_id);
+        let config_path = format!("{cache_dir}/{model_id}/tokenizer_config.json");
         let config_str = std::fs::read_to_string(config_path).map_err(TeenyHFError::IoError)?;
         let config: TokenizerConfig =
             serde_json::from_str(&config_str).map_err(TeenyHFError::SerdeError)?;

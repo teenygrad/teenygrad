@@ -15,23 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{nn::module::Module, tensor::Tensor};
+use std::marker::PhantomData;
+
+use crate::tensor1::num;
 
 #[derive(Debug, Clone, Default)]
-pub struct ReLU;
+pub struct ReLU<T: num::Num>(PhantomData<T>);
 
-impl ReLU {
+impl<T: num::Num> ReLU<T> {
     pub fn new() -> Self {
-        Self {}
+        Self(PhantomData)
     }
 }
 
-impl Module<&Tensor, Tensor> for ReLU {
-    fn forward(&self, input: &Tensor) -> Tensor {
-        input.relu()
-    }
-
-    fn parameters(&self) -> Vec<Tensor> {
-        Vec::new() // No parameters
-    }
-}
+// impl<T: num::Num> Module1<T, &Tensor, Tensor> for ReLU<T> {
+//     fn forward(&self, input: &Tensor) -> Tensor {
+//         input.relu()
+//     }
+// }

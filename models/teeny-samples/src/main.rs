@@ -1,5 +1,4 @@
 use clap::{Parser, ValueEnum};
-use teeny_samples::ex02_simple_classifier;
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
@@ -57,14 +56,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     teeny_runtime::init().unwrap();
     let devices = teeny_runtime::get_cuda_devices().unwrap();
-    println!("Devices: {:?}", devices);
+    println!("Devices: {devices:?}");
 
-    match args.model {
-        Model::SimpleClassifier => {
-            info!("Running simple-classifier model");
-            ex02_simple_classifier::run().await?;
-        }
-    }
+    // match args.model {
+    //     Model::SimpleClassifier => {
+    //         info!("Running simple-classifier model");
+    //         ex02_simple_classifier::run().await?;
+    //     }
+    // }
 
     Ok(())
 }

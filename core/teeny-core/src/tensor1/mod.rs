@@ -23,9 +23,9 @@ pub mod num;
 pub mod ops;
 pub mod shape;
 
-pub use ops::*;
+use ndarray::IxDyn;
 
-pub type DTensor<E> = Arc<dyn Tensor<DType = E, Shape = DynamicShape>>;
+pub type DTensor<E> = dyn Tensor<DType = E, Shape = DynamicShape> + Send + Sync;
 
 pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
     type DType: num::Num;
@@ -38,5 +38,53 @@ pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
     // Downcast
     fn as_any(&self) -> &dyn Any;
 
-    fn add(&self, other: &DTensor<Self::DType>) -> DTensor<Self::DType>;
+    fn add(&self, other: &DTensor<Self::DType>) -> Arc<DTensor<Self::DType>>;
+}
+
+// Wrapper type for ergonomic operations
+#[derive(Debug, Clone)]
+pub struct TensorRef<T: num::Num>(Arc<DTensor<T>>);
+
+impl<T: num::Num> AsRef<DTensor<T>> for TensorRef<T> {
+    fn as_ref(&self) -> &DTensor<T> {
+        &*self.0
+    }
+}
+
+impl<T: num::Num> TensorRef<T> {
+    pub fn new(tensor: Arc<DTensor<T>>) -> Self {
+        Self(tensor)
+    }
+
+    pub fn into_inner(self) -> Arc<DTensor<T>> {
+        self.0
+    }
+
+    // Convenience method for addition
+    pub fn add_tensor(&self, other: &TensorRef<T>) -> TensorRef<T> {
+        TensorRef(Tensor::add(&*self.0, &*other.0))
+    }
+
+    // Convenience method for addition with Arc
+    pub fn add_arc(&self, other: &Arc<DTensor<T>>) -> TensorRef<T> {
+        TensorRef(Tensor::add(&*self.0, &**other))
+    }
+}
+
+impl<T: num::Num> From<Arc<DTensor<T>>> for TensorRef<T> {
+    fn from(tensor: Arc<DTensor<T>>) -> Self {
+        Self(tensor)
+    }
+}
+
+impl<T: num::Num> From<TensorRef<T>> for Arc<DTensor<T>> {
+    fn from(tensor_ref: TensorRef<T>) -> Self {
+        tensor_ref.into_inner()
+    }
+}
+
+pub fn from_ndarray<T: num::Num>(
+    _array: ndarray::ArrayBase<ndarray::OwnedRepr<T>, IxDyn>,
+) -> TensorRef<f32> {
+    unimplemented!()
 }

@@ -37,7 +37,7 @@ pub async fn load_csv<T: FromStr>(
             .iter()
             .map(|s| s.parse::<T>())
             .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|_| TeenyDataError::ParseValueError(format!("{:?}", record)))?;
+            .map_err(|_| TeenyDataError::ParseValueError(format!("{record:?}")))?;
         data.push(record);
     }
 

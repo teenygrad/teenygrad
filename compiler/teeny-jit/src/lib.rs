@@ -15,4 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::sync::Arc;
+
+use teeny_driver::Device;
+
 pub mod ast;
+pub mod error;
+pub mod module;
+
+pub trait ToDevice {
+    fn to_device(&mut self, device: Arc<dyn Device>) -> Result<(), Box<dyn std::error::Error>>;
+}

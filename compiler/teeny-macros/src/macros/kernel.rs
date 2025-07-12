@@ -19,7 +19,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Ident, ItemFn};
 
-pub fn proc_kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
+pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let name = input.sig.ident.to_string();
     let vis = input.vis;
@@ -37,7 +37,7 @@ pub fn proc_kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     }
     .into();
 
-    let kernel_name = &format!("{}_kernel", name);
+    let kernel_name = &format!("{name}_kernel");
     let static_ident = Ident::new(kernel_name, input.sig.ident.span());
     let sig_str = quote!(#sig).to_string();
     let block_str = quote!({

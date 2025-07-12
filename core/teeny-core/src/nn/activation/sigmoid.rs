@@ -15,8 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{nn::module::Module, tensor::Tensor};
-
 #[derive(Debug, Clone, Default)]
 pub struct Sigmoid;
 
@@ -26,12 +24,8 @@ impl Sigmoid {
     }
 }
 
-impl Module<&Tensor, Tensor> for Sigmoid {
-    fn forward(&self, input: &Tensor) -> Tensor {
-        input.sigmoid()
-    }
-
-    fn parameters(&self) -> Vec<crate::tensor::Tensor> {
-        vec![]
-    }
-}
+// impl<T: num::Num> Module1<T, &Tensor, Tensor> for Sigmoid {
+//     fn forward(&self, input: &Tensor) -> Tensor {
+//         input.sigmoid()
+//     }
+// }

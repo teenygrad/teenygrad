@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod derive_jit;
-mod proc_jit;
-mod proc_kernel;
+mod jit;
+mod jit_module;
+mod kernel;
 
-pub use derive_jit::derive_jit;
-pub use proc_jit::proc_jit;
-pub use proc_kernel::proc_kernel;
+pub use jit::jit;
+pub use jit_module::jit_module_derive;
+pub use kernel::kernel;

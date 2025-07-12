@@ -73,7 +73,7 @@ fn check_command(command: &str) {
     let output = Command::new(command)
         .arg("--version")
         .output()
-        .unwrap_or_else(|e| panic!("Failed to execute {} --version command: {}", command, e));
+        .unwrap_or_else(|e| panic!("Failed to execute {command} --version command: {e}"));
 
     if !output.status.success() {
         panic!(
@@ -95,7 +95,7 @@ fn build_llvm(project_dir: &Path, build_dir: &Path) {
         .spawn()
         .expect("Failed to execute cmake command")
         .wait()
-        .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {e}"));
 
     if !status.success() {
         panic!(
@@ -116,7 +116,7 @@ fn build_triton(project_dir: &Path, build_dir: &Path) {
         .spawn()
         .expect("Triton build: Failed to execute cmake command")
         .wait()
-        .unwrap_or_else(|e| panic!("Triton build: Failed to wait for cmake command: {}", e));
+        .unwrap_or_else(|e| panic!("Triton build: Failed to wait for cmake command: {e}"));
 
     if !status.success() {
         panic!(
@@ -137,7 +137,7 @@ fn build_teeny(project_dir: &Path, build_dir: &Path, _out_dir: &Path) {
         .spawn()
         .expect("Teeny build: Failed to execute cmake command")
         .wait()
-        .unwrap_or_else(|e| panic!("Teeny build: Failed to wait for cmake command: {}", e));
+        .unwrap_or_else(|e| panic!("Teeny build: Failed to wait for cmake command: {e}"));
 
     if !status.success() {
         panic!(
@@ -160,7 +160,7 @@ fn build_tutorials(project_dir: &Path, build_dir: &Path) {
         .spawn()
         .expect("Failed to execute cmake command")
         .wait()
-        .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {e}"));
 
     if !status.success() {
         panic!(
@@ -210,7 +210,7 @@ fn generate_bindings(build_dir: &Path, out_dir: &Path) {
 }
 
 fn check_build_done(build_dir: &Path, project: &str) -> bool {
-    build_dir.join(format!("{}/build.done", project)).exists()
+    build_dir.join(format!("{project}/build.done")).exists()
 }
 
 fn copy_shared_libraries(build_dir: &Path, out_dir: &Path) {

@@ -72,7 +72,7 @@ impl Driver for CudaDriver {
             let name = name.to_string_lossy().to_string();
 
             let device = CudaDevice {
-                id: format!("cuda:{}", i),
+                id: format!("cuda:{i}"),
                 name,
                 device_type: DeviceType::NvidiaGpu(NvidiaGpu {
                     major: props.major,
