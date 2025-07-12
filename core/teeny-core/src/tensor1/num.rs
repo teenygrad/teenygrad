@@ -1,5 +1,3 @@
-use crate::tensor::Tensor;
-
 /*
  * Copyright (c) 2025 Teenygrad. All rights reserved.
  *
@@ -16,23 +14,16 @@ use crate::tensor::Tensor;
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-/// Trait for all neural network components
-pub trait Module<T, U> {
-    /// Forward pass that returns a computation graph node
-    fn forward(&self, input: T) -> U;
 
-    /// Returns all trainable parameters
-    fn parameters(&self) -> Vec<Tensor> {
-        vec![]
-    }
+/// Trait for numeric types that can be used in tensors
+pub trait Num {
+    type RustType: Send + Sync + Clone + Copy + 'static;
 }
 
-pub trait ModuleNoInput<U> {
-    /// Forward pass that returns a computation graph node
-    fn forward(&self) -> U;
+impl Num for f32 {
+    type RustType = f32;
+}
 
-    /// Returns all trainable parameters
-    fn parameters(&self) -> Vec<Tensor> {
-        vec![]
-    }
+impl Num for usize {
+    type RustType = usize;
 }

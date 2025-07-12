@@ -19,10 +19,3 @@ pub mod error;
 pub mod nn;
 pub mod tensor;
 pub mod tensor1;
-pub mod types;
-
-pub trait TeenyModule {
-    type Err;
-
-    fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>, Self::Err>;
-}

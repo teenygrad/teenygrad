@@ -15,90 +15,49 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ndarray::s;
-use teeny_data::dataset::loader::load_csv;
+use teeny_core::nn::module::ModuleNoInput;
+use teeny_core::tensor1::{self, DTensor};
 
+#[derive(Debug)]
 pub struct VectorAdd {
-    // pub v1: Box<dyn Tensor>,
-    // pub v2: Box<dyn Tensor>,
+    pub v1: DTensor<f32>,
+    pub v2: DTensor<f32>,
 }
 
-// impl Default for VectorAdd {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
+impl VectorAdd {
+    pub fn new() -> Self {
+        Self {
+            v1: tensor1::from_ndarray(
+                ndarray::array![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].into_dyn(),
+            ),
+            v2: tensor1::from_ndarray(
+                ndarray::array![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].into_dyn(),
+            ),
+        }
+    }
+}
 
-// impl nn::Module<(), Box<dyn Tensor>> for VectorAdd {
-//     fn forward(&self) -> Box<dyn Tensor> {
-//         self.v1 + self.v2
-//     }
-// }
+impl Default for VectorAdd {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-// impl VectorAdd {
-//     pub fn new() -> Self {
-//         Self {
-//             v1: tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
-//             v2: tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
-//         }
-//     }
-// }
+impl ModuleNoInput<DTensor<f32>> for VectorAdd {
+    fn forward(&self) -> DTensor<f32> {
+        // self.v1 + self.v2
+        unimplemented!()
+    }
+}
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let dataset = load_csv::<f32>(
-        "https://raw.githubusercontent.com/teenygrad/data/main/pima-indians-diabetes/diabetes.csv",
-        b',',
-    )
-    .await
-    .unwrap();
+    let model = VectorAdd::default();
 
-    let _x = dataset.slice(s![.., ..8]);
-
-    let y = dataset.slice(s![.., 8]);
-    let _y = y.to_shape((dataset.shape()[0], 1)).unwrap();
+    // compile the model for the device
+    // send the model to the device
+    // run the model
+    // retrieve the results
+    // check the results
 
     Ok(())
 }
-
-// # load the dataset, split into input (X) and output (y) variables
-// dataset = np.loadtxt('pima-indians-diabetes.csv', delimiter=',')
-// X = dataset[:,0:8]
-// y = dataset[:,8]
-
-// X = torch.tensor(X, dtype=torch.float32)
-// y = torch.tensor(y, dtype=torch.float32).reshape(-1, 1)
-
-// # define the model
-// model = nn.Sequential(
-//     nn.Linear(8, 12),
-//     nn.ReLU(),
-//     nn.Linear(12, 8),
-//     nn.ReLU(),
-//     nn.Linear(8, 1),
-//     nn.Sigmoid()
-// )
-// print(model)
-
-// # train the model
-// loss_fn   = nn.BCELoss()  # binary cross entropy
-// optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-// n_epochs = 100
-// batch_size = 10
-
-// for epoch in range(n_epochs):
-//     for i in range(0, len(X), batch_size):
-//         Xbatch = X[i:i+batch_size]
-//         y_pred = model(Xbatch)
-//         ybatch = y[i:i+batch_size]
-//         loss = loss_fn(y_pred, ybatch)
-//         optimizer.zero_grad()
-//         loss.backward()
-//         optimizer.step()
-//     print(f'Finished epoch {epoch}, latest loss {loss}')
-
-// # compute accuracy (no_grad is optional)
-// with torch.no_grad():
-//     y_pred = model(X)
-// accuracy = (y_pred.round() == y).float().mean()
-// print(f"Accuracy {accuracy}")

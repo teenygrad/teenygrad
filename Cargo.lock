@@ -2594,6 +2594,7 @@ dependencies = [
  "ndarray",
  "teeny-core",
  "teeny-data",
+ "teeny-macros",
  "teeny-runtime",
  "tokio",
  "tracing",

@@ -20,6 +20,7 @@ use std::rc::Rc;
 
 pub mod shape;
 pub mod tensor_ops;
+pub mod types;
 pub mod value;
 
 pub use shape::*;

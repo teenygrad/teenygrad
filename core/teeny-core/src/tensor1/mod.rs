@@ -16,25 +16,27 @@
  */
 
 use std::{any::Any, sync::Arc};
-pub trait Num {}
 
-pub trait Dimension {}
+use crate::tensor1::shape::DynamicShape;
 
-pub type DynTensor<E, S> = Arc<dyn Tensor<Elem = E, Shape = S>>;
+pub mod num;
+pub mod ops;
+pub mod shape;
+
+pub use ops::*;
+
+pub type DTensor<E> = Arc<dyn Tensor<DType = E, Shape = DynamicShape>>;
 
 pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
-    type Elem: Num;
-    type Shape: Dimension;
+    type DType: num::Num;
+    type Shape: shape::Shape;
 
-    // Accessors
+    fn dtype(&self) -> Self::DType;
+
     fn shape(&self) -> Self::Shape;
 
     // Downcast
     fn as_any(&self) -> &dyn Any;
 
-    fn add(&self, other: &DynTensor<Self::Elem, Self::Shape>)
-    -> DynTensor<Self::Elem, Self::Shape>;
-
-    fn dot(&self, other: &DynTensor<Self::Elem, Self::Shape>)
-    -> DynTensor<Self::Elem, Self::Shape>;
+    fn add(&self, other: &DTensor<Self::DType>) -> DTensor<Self::DType>;
 }

@@ -1,5 +1,3 @@
-use crate::tensor::Tensor;
-
 /*
  * Copyright (c) 2025 Teenygrad. All rights reserved.
  *
@@ -16,23 +14,13 @@ use crate::tensor::Tensor;
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-/// Trait for all neural network components
-pub trait Module<T, U> {
-    /// Forward pass that returns a computation graph node
-    fn forward(&self, input: T) -> U;
 
-    /// Returns all trainable parameters
-    fn parameters(&self) -> Vec<Tensor> {
-        vec![]
-    }
-}
+use ndarray::IxDyn;
 
-pub trait ModuleNoInput<U> {
-    /// Forward pass that returns a computation graph node
-    fn forward(&self) -> U;
+use crate::tensor1::{DTensor, num};
 
-    /// Returns all trainable parameters
-    fn parameters(&self) -> Vec<Tensor> {
-        vec![]
-    }
+pub fn from_ndarray<T: num::Num>(
+    _array: ndarray::ArrayBase<ndarray::OwnedRepr<T>, IxDyn>,
+) -> DTensor<T> {
+    unimplemented!()
 }

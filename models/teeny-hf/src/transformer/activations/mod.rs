@@ -15,23 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::TeenyModule;
-
-use crate::{error::TeenyHFError, transformer::config::model_config::HiddenAct};
-
 #[derive(Default)]
 pub struct Silu;
 
-impl TeenyModule for Silu {
-    type Err = TeenyHFError;
+// impl TeenyModule for Silu {
+//     type Err = TeenyHFError;
 
-    fn forward(&self, _x: &[u32]) -> std::result::Result<Vec<u32>, Self::Err> {
-        todo!()
-    }
-}
+//     fn forward(&self, _x: &[u32]) -> std::result::Result<Vec<u32>, Self::Err> {
+//         todo!()
+//     }
+// }
 
-pub fn get_activation(activation: HiddenAct) -> Box<dyn TeenyModule<Err = TeenyHFError>> {
-    match activation {
-        HiddenAct::Silu => Box::new(Silu),
-    }
-}
+// pub fn get_activation(activation: HiddenAct) -> Box<dyn TeenyModule<Err = TeenyHFError>> {
+//     match activation {
+//         HiddenAct::Silu => Box::new(Silu),
+//     }
+// }
