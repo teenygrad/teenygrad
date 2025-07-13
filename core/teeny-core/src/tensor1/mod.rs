@@ -17,7 +17,7 @@
 
 use std::{any::Any, sync::Arc};
 
-use crate::tensor1::shape::DynamicShape;
+use crate::{device::Device, tensor1::shape::DynamicShape};
 
 pub mod num;
 pub mod ops;
@@ -31,6 +31,11 @@ pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
     type DType: num::Num;
     type Shape: shape::Shape;
 
+    fn to_device(
+        &self,
+        device: &Arc<dyn Device>,
+    ) -> Result<Arc<DTensor<Self::DType>>, Box<dyn std::error::Error>>;
+
     fn dtype(&self) -> Self::DType;
 
     fn shape(&self) -> Self::Shape;
@@ -43,7 +48,7 @@ pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
 
 // Wrapper type for ergonomic operations
 #[derive(Debug, Clone)]
-pub struct TensorRef<T: num::Num>(Arc<DTensor<T>>);
+pub struct TensorRef<T: num::Num>(pub Arc<DTensor<T>>);
 
 impl<T: num::Num> AsRef<DTensor<T>> for TensorRef<T> {
     fn as_ref(&self) -> &DTensor<T> {
@@ -54,6 +59,10 @@ impl<T: num::Num> AsRef<DTensor<T>> for TensorRef<T> {
 impl<T: num::Num> TensorRef<T> {
     pub fn new(tensor: Arc<DTensor<T>>) -> Self {
         Self(tensor)
+    }
+
+    pub fn to_device(&self, device: &Arc<dyn Device>) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self(self.0.to_device(device)?))
     }
 
     pub fn into_inner(self) -> Arc<DTensor<T>> {

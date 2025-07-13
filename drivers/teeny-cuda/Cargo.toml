@@ -6,6 +6,7 @@ edition = "2024"
 [lib]
 
 [dependencies]
+teeny-core = { path = "../../core/teeny-core" }
 teeny-driver = { path = "../teeny-driver" }
 thiserror.workspace = true
 ctor.workspace = true

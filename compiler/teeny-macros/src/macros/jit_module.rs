@@ -17,7 +17,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields};
 
 pub fn jit_module_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -25,20 +25,74 @@ pub fn jit_module_derive(input: TokenStream) -> TokenStream {
     let generics = input.generics;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
+    // Parse struct fields and collect module and tensor fields
+    let mut module_fields = Vec::new();
+    let mut tensor_fields = Vec::new();
+
+    if let Data::Struct(data) = &input.data {
+        if let Fields::Named(fields) = &data.fields {
+            for field in &fields.named {
+                if let Some(field_ident) = &field.ident {
+                    if has_attribute(&field.attrs, "module") {
+                        module_fields.push(field_ident);
+                    } else if has_attribute(&field.attrs, "tensor") {
+                        tensor_fields.push(field_ident);
+                    }
+                }
+            }
+        }
+    }
+
+    // Generate field transfer code
+    let module_transfers: Vec<_> = module_fields
+        .iter()
+        .map(|field| {
+            quote! {
+                self.#field = self.#field.to_device(&device)?;
+            }
+        })
+        .collect();
+
+    let tensor_transfers: Vec<_> = tensor_fields
+        .iter()
+        .map(|field| {
+            quote! {
+                self.#field = self.#field.to_device(&device)?;
+            }
+        })
+        .collect();
+
     // Generate JIT-related implementations
     let result = quote! {
         use std::sync::Arc;
-        use teeny_driver::device::Device;
-        use teeny_jit::ToDevice;
+        use teeny_core::device::Device;
 
-        impl #impl_generics ToDevice for #name #ty_generics #where_clause {
-            // JIT compilation methods can be added here
+        impl #impl_generics #name #ty_generics #where_clause {
             fn to_device(&mut self, device: Arc<dyn Device>) -> Result<(), Box<dyn std::error::Error>> {
-                // transfer each of the tensors and modules in the struct to the device
-                unimplemented!()
+                // Transfer modules to device
+                #(#module_transfers)*
+
+                // Transfer tensors to device
+                #(#tensor_transfers)*
+
+                Ok(())
             }
         }
     };
 
     result.into()
+}
+
+fn has_attribute(attrs: &[Attribute], attr_name: &str) -> bool {
+    attrs.iter().any(|attr| {
+        if attr.path().is_ident(attr_name) {
+            return true;
+        }
+
+        // Also check for attributes with the same name in different forms
+        attr.path()
+            .segments
+            .iter()
+            .any(|segment| segment.ident == attr_name)
+    })
 }

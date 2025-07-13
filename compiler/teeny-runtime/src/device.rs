@@ -18,7 +18,7 @@
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::OnceCell;
-use teeny_driver::device::Device;
+use teeny_core::device::Device;
 
 use crate::error::{Result, RuntimeError};
 

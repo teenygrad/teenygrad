@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_driver::device::{Device, DeviceType};
+use teeny_core::device::{Device, DeviceType};
 
 #[derive(Debug)]
 pub struct CudaDevice {

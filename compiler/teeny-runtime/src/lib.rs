@@ -18,8 +18,9 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use teeny_core::device::Device;
 use teeny_driver::error::DriverError;
-use teeny_driver::{device::Device, driver::CUDA_DRIVER_ID, driver_manager::DriverManager};
+use teeny_driver::{driver::CUDA_DRIVER_ID, driver_manager::DriverManager};
 
 use crate::error::Result;
 use crate::error::RuntimeError;

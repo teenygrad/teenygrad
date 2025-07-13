@@ -21,7 +21,10 @@ use teeny_macros::{JitModule, jit};
 
 #[derive(Debug, JitModule)]
 pub struct VectorAdd {
+    #[tensor]
     pub v1: TensorRef<f32>,
+
+    #[tensor]
     pub v2: TensorRef<f32>,
 }
 

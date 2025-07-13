@@ -9,6 +9,7 @@ cuda = ["teeny-cuda"]
 cpu = ["teeny-cpu"]
 
 [dependencies]
+teeny-core = { path = "../../core/teeny-core" }
 teeny-driver = { path = "../../drivers/teeny-driver" }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }

@@ -18,7 +18,7 @@
 use std::sync::{Arc, Mutex};
 
 use ctor::ctor;
-use teeny_driver::device::Device;
+use teeny_core::device::Device;
 use teeny_driver::driver::{CPU_DRIVER_ID, Driver};
 use teeny_driver::driver_manager::DriverManager;
 use teeny_driver::error::Result;

@@ -17,7 +17,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::{device::Device, error::Result};
+use crate::error::Result;
+use teeny_core::device::Device;
 
 pub const CUDA_DRIVER_ID: &str = "org.teenygrad.driver.cuda";
 
