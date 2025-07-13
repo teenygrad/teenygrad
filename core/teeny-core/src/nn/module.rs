@@ -17,9 +17,9 @@
 
 use crate::tensor1::{Device, Tensor, num};
 
-pub trait Module<T: num::Num, D: Device, U> {
+pub trait Module<T: num::Num, D: Device<T>, U> {
     type ParamCollection: Iterator<Item = Self::ParamTensor>;
-    type ParamTensor: Tensor<D, T>;
+    type ParamTensor: Tensor<T, D>;
 
     /// Forward pass that returns a computation graph node
     fn forward(&self) -> U;
@@ -28,9 +28,9 @@ pub trait Module<T: num::Num, D: Device, U> {
 }
 
 /// Trait for all neural network components
-pub trait Module1<T: num::Num, D: Device, U, V> {
+pub trait Module1<T: num::Num, D: Device<T>, U, V> {
     type ParamCollection: Iterator<Item = Self::ParamTensor>;
-    type ParamTensor: Tensor<D, T>;
+    type ParamTensor: Tensor<T, D>;
 
     /// Forward pass that returns a computation graph node
     fn forward(&self, input: U) -> V;

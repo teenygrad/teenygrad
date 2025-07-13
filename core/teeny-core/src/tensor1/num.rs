@@ -24,10 +24,10 @@ impl Num for f32 {
     type RustType = f32;
 }
 
-impl Num for usize {
-    type RustType = usize;
-}
+// impl Num for usize {
+//     type RustType = usize;
+// }
 
-impl Num for half::f16 {
-    type RustType = half::f16;
-}
+// impl Num for half::f16 {
+//     type RustType = half::f16;
+// }

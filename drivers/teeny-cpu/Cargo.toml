@@ -7,3 +7,4 @@ edition = "2024"
 teeny-core = { path = "../../core/teeny-core" }
 teeny-driver = { path = "../teeny-driver" }
 ctor.workspace = true
+ndarray.workspace = true

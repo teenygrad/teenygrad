@@ -18,13 +18,13 @@
 use teeny_core::tensor1::{Device, num};
 
 #[derive(Debug)]
-pub struct VectorAdd<D: Device, T: num::Num> {
-    pub v1: <D as Device>::Tensor<T>,
-    pub v2: <D as Device>::Tensor<T>,
+pub struct VectorAdd<T: num::Num, D: Device<T>> {
+    pub v1: <D as Device<T>>::Tensor,
+    pub v2: <D as Device<T>>::Tensor,
 }
 
 #[allow(clippy::new_without_default)]
-impl<D: Device, T: num::Num> VectorAdd<D, T> {
+impl<T: num::Num, D: Device<T>> VectorAdd<T, D> {
     pub fn new() -> Self
     where
         T: num::Num + Copy + 'static,
@@ -38,8 +38,8 @@ impl<D: Device, T: num::Num> VectorAdd<D, T> {
         let array = ndarray::Array1::from_vec(data).into_dyn();
 
         Self {
-            v1: <D as Device>::from_ndarray(array.clone()),
-            v2: <D as Device>::from_ndarray(array),
+            v1: <D>::from_ndarray(array.clone()),
+            v2: <D>::from_ndarray(array),
         }
     }
 }

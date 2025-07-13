@@ -2478,6 +2478,7 @@ name = "teeny-cpu"
 version = "0.1.0"
 dependencies = [
  "ctor",
+ "ndarray",
  "teeny-core",
  "teeny-driver",
 ]

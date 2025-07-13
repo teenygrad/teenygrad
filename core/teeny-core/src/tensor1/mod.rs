@@ -21,27 +21,21 @@ pub mod num;
 pub mod ops;
 pub mod shape;
 
-pub trait Device: Sized + std::fmt::Debug {
-    type Tensor<T: num::Num>: Tensor<Self, T>;
+pub trait Device<T: num::Num>: Sized + std::fmt::Debug {
+    type Tensor: Tensor<T, Self>;
 
-    fn from_ndarray<T: num::Num>(ndarray: ndarray::Array<T, IxDyn>) -> Self::Tensor<T>;
+    fn from_ndarray(ndarray: ndarray::Array<T, IxDyn>) -> Self::Tensor;
 }
 
-pub trait Tensor<D: Device, T: num::Num>: Sized + std::fmt::Debug {
+pub trait Tensor<T: num::Num, D: Device<T>>: Sized + std::fmt::Debug {
     type DType: num::Num;
-    type Shape: shape::Shape;
 
-    fn to<ToD: Device>(self, device: &ToD) -> impl Tensor<ToD, T>;
-
-    fn dtype(&self) -> Self::DType;
-
-    fn shape(&self) -> Self::Shape;
-
-    fn add(&self, other: &impl Tensor<D, T>) -> impl Tensor<D, T>;
+    // fn to<ToD: Device>(self, device: &ToD) -> impl Tensor<ToD, T>;
+    fn add(&self, other: &Self) -> Self;
 }
 
-pub fn from_ndarray<D: Device, T: num::Num>(
+pub fn from_ndarray<T: num::Num, D: Device<T>>(
     ndarray: ndarray::Array<T, IxDyn>,
-) -> impl Tensor<D, T> {
+) -> impl Tensor<T, D> {
     D::from_ndarray(ndarray)
 }
