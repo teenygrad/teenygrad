@@ -16,7 +16,7 @@
  */
 
 /// Trait for numeric types that can be used in tensors
-pub trait Num: 'static {
+pub trait Num: 'static + std::fmt::Debug {
     type RustType: Send + Sync + Clone + Copy + 'static;
 }
 

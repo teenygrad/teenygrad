@@ -15,51 +15,39 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::nn::module::Module;
-use teeny_core::tensor1::{self, TensorRef};
-use teeny_macros::{JitModule, jit};
+use teeny_core::tensor1::{Device, num};
 
-#[derive(Debug, JitModule)]
-pub struct VectorAdd {
-    #[tensor]
-    pub v1: TensorRef<f32>,
-
-    #[tensor]
-    pub v2: TensorRef<f32>,
+#[derive(Debug)]
+pub struct VectorAdd<D: Device, T: num::Num> {
+    pub v1: <D as Device>::Tensor<T>,
+    pub v2: <D as Device>::Tensor<T>,
 }
 
-impl VectorAdd {
-    pub fn new() -> Self {
+#[allow(clippy::new_without_default)]
+impl<D: Device, T: num::Num> VectorAdd<D, T> {
+    pub fn new() -> Self
+    where
+        T: num::Num + Copy + 'static,
+        f32: Into<T>,
+    {
+        // Create arrays with the correct type by converting f32 to T
+        let data: Vec<T> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
+        let array = ndarray::Array1::from_vec(data).into_dyn();
+
         Self {
-            v1: tensor1::from_ndarray(
-                ndarray::array![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].into_dyn(),
-            ),
-            v2: tensor1::from_ndarray(
-                ndarray::array![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].into_dyn(),
-            ),
+            v1: <D as Device>::from_ndarray(array.clone()),
+            v2: <D as Device>::from_ndarray(array),
         }
     }
 }
 
-impl Default for VectorAdd {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Module<f32, TensorRef<f32>> for VectorAdd {
-    #[jit]
-    fn forward(&self) -> TensorRef<f32> {
-        &self.v1 + &self.v2
-    }
-
-    fn parameters(&self) -> Vec<TensorRef<f32>> {
-        vec![self.v1.clone(), self.v2.clone()]
-    }
-}
-
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let _model = VectorAdd::default();
+    // We need to specify concrete types since the compiler can't infer them
+    // For now, let's use a placeholder - you'll need to implement a concrete Device
+    // let _model: VectorAdd<SomeConcreteDevice, f32> = VectorAdd::default();
 
     Ok(())
 }

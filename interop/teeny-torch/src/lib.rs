@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::nn::{Embedding, Linear};
+use teeny_core::nn::Embedding;
 use teeny_core::tensor::Tensor;
 
-pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> Linear {
+pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> () {
     todo!()
 }
 

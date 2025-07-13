@@ -15,59 +15,59 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{
-    nn::module::Module1,
-    tensor::{Tensor, tensor_ops::bias_op::bias},
-    tensor1::{TensorRef, num},
-};
+// use crate::{
+//     nn::module::Module1,
+//     tensor::{Tensor, tensor_ops::bias_op::bias},
+//     tensor1::{TensorRef, num},
+// };
 
-pub struct Linear {
-    weight: Tensor,
-    bias: Option<Tensor>,
-}
+// pub struct Linear {
+//     weight: Tensor,
+//     bias: Option<Tensor>,
+// }
 
-impl Linear {
-    pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
-        // Initialize weight tensor with proper shape
-        let weight: Tensor =
-            Tensor::new_param(ndarray::Array::zeros((output_dim, input_dim)).into_dyn());
+// impl Linear {
+//     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
+//         // Initialize weight tensor with proper shape
+//         let weight: Tensor =
+//             Tensor::new_param(ndarray::Array::zeros((output_dim, input_dim)).into_dyn());
 
-        // Initialize bias if needed
-        let bias = if use_bias {
-            let bias_shape = vec![output_dim];
-            Some(Tensor::new_param(
-                ndarray::Array::zeros(bias_shape).into_dyn(),
-            ))
-        } else {
-            None
-        };
+//         // Initialize bias if needed
+//         let bias = if use_bias {
+//             let bias_shape = vec![output_dim];
+//             Some(Tensor::new_param(
+//                 ndarray::Array::zeros(bias_shape).into_dyn(),
+//             ))
+//         } else {
+//             None
+//         };
 
-        Linear { weight, bias }
-    }
-}
+//         Linear { weight, bias }
+//     }
+// }
 
-impl<T: num::Num> Module1<T, &Tensor, Tensor> for Linear {
-    fn forward(&self, input: &Tensor) -> Tensor {
-        // Matrix multiplication
-        let output = input * &self.weight.t();
+// impl<T: num::Num> Module1<T, &Tensor, Tensor> for Linear {
+//     fn forward(&self, input: &Tensor) -> Tensor {
+//         // Matrix multiplication
+//         let output = input * &self.weight.t();
 
-        // Add bias if present
-        if let Some(b) = &self.bias {
-            bias(output, b.clone())
-        } else {
-            output
-        }
-    }
+//         // Add bias if present
+//         if let Some(b) = &self.bias {
+//             bias(output, b.clone())
+//         } else {
+//             output
+//         }
+//     }
 
-    fn parameters(&self) -> Vec<TensorRef<T>> {
-        let mut params = vec![self.weight.clone()];
-        if let Some(bias) = &self.bias {
-            params.push(bias.clone());
-        }
-        todo!()
-        // params
-    }
-}
+//     fn parameters(&self) -> Vec<TensorRef<T>> {
+//         let mut params = vec![self.weight.clone()];
+//         if let Some(bias) = &self.bias {
+//             params.push(bias.clone());
+//         }
+//         todo!()
+//         // params
+//     }
+// }
 
 // #[cfg(test)]
 // mod tests {

@@ -15,85 +15,33 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{any::Any, sync::Arc};
-
-use crate::{device::Device, tensor1::shape::DynamicShape};
+use ndarray::IxDyn;
 
 pub mod num;
 pub mod ops;
 pub mod shape;
 
-use ndarray::IxDyn;
+pub trait Device: Sized + std::fmt::Debug {
+    type Tensor<T: num::Num>: Tensor<Self, T>;
 
-pub type DTensor<E> = dyn Tensor<DType = E, Shape = DynamicShape> + Send + Sync;
+    fn from_ndarray<T: num::Num>(ndarray: ndarray::Array<T, IxDyn>) -> Self::Tensor<T>;
+}
 
-pub trait Tensor: Send + Sync + std::fmt::Debug + Any {
+pub trait Tensor<D: Device, T: num::Num>: Sized + std::fmt::Debug {
     type DType: num::Num;
     type Shape: shape::Shape;
 
-    fn to_device(
-        &self,
-        device: &Arc<dyn Device>,
-    ) -> Result<Arc<DTensor<Self::DType>>, Box<dyn std::error::Error>>;
+    fn to<ToD: Device>(self, device: &ToD) -> impl Tensor<ToD, T>;
 
     fn dtype(&self) -> Self::DType;
 
     fn shape(&self) -> Self::Shape;
 
-    // Downcast
-    fn as_any(&self) -> &dyn Any;
-
-    fn add(&self, other: &DTensor<Self::DType>) -> Arc<DTensor<Self::DType>>;
+    fn add(&self, other: &impl Tensor<D, T>) -> impl Tensor<D, T>;
 }
 
-// Wrapper type for ergonomic operations
-#[derive(Debug, Clone)]
-pub struct TensorRef<T: num::Num>(pub Arc<DTensor<T>>);
-
-impl<T: num::Num> AsRef<DTensor<T>> for TensorRef<T> {
-    fn as_ref(&self) -> &DTensor<T> {
-        &*self.0
-    }
-}
-
-impl<T: num::Num> TensorRef<T> {
-    pub fn new(tensor: Arc<DTensor<T>>) -> Self {
-        Self(tensor)
-    }
-
-    pub fn to_device(&self, device: &Arc<dyn Device>) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self(self.0.to_device(device)?))
-    }
-
-    pub fn into_inner(self) -> Arc<DTensor<T>> {
-        self.0
-    }
-
-    // Convenience method for addition
-    pub fn add_tensor(&self, other: &TensorRef<T>) -> TensorRef<T> {
-        TensorRef(Tensor::add(&*self.0, &*other.0))
-    }
-
-    // Convenience method for addition with Arc
-    pub fn add_arc(&self, other: &Arc<DTensor<T>>) -> TensorRef<T> {
-        TensorRef(Tensor::add(&*self.0, &**other))
-    }
-}
-
-impl<T: num::Num> From<Arc<DTensor<T>>> for TensorRef<T> {
-    fn from(tensor: Arc<DTensor<T>>) -> Self {
-        Self(tensor)
-    }
-}
-
-impl<T: num::Num> From<TensorRef<T>> for Arc<DTensor<T>> {
-    fn from(tensor_ref: TensorRef<T>) -> Self {
-        tensor_ref.into_inner()
-    }
-}
-
-pub fn from_ndarray<T: num::Num>(
-    _array: ndarray::ArrayBase<ndarray::OwnedRepr<T>, IxDyn>,
-) -> TensorRef<f32> {
-    unimplemented!()
+pub fn from_ndarray<D: Device, T: num::Num>(
+    ndarray: ndarray::Array<T, IxDyn>,
+) -> impl Tensor<D, T> {
+    D::from_ndarray(ndarray)
 }
