@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::Tensor;
+use crate::tensorx::Tensor;
 
 pub struct Embedding {
     pub weight: Tensor,

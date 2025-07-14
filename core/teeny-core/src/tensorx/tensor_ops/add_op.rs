@@ -17,7 +17,7 @@
 
 use std::{cell::RefCell, ops::Add, rc::Rc};
 
-use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensorx::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct AddOp;

@@ -3,9 +3,12 @@ name = "teeny-cpu"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["ndarray"]
+
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
+ndarray = {workspace = true, optional = true}
 thiserror.workspace = true
-ndarray.workspace = true
 target-triple.workspace = true
 cpuid.workspace = true

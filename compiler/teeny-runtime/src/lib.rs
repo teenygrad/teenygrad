@@ -24,14 +24,15 @@ use crate::error::RuntimeError;
 
 use once_cell::sync::OnceCell;
 
-pub mod device;
-pub mod error;
-
 #[cfg(feature = "cpu")]
 extern crate teeny_cpu;
 
 #[cfg(feature = "cuda")]
 extern crate teeny_cuda;
+
+pub mod device;
+pub mod error;
+pub mod tensor;
 
 static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<Device>>>> = OnceCell::new();
 

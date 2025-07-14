@@ -18,8 +18,8 @@
 use std::{fmt::Display, ops::Div};
 
 use teeny_core::{
-    tensor::types::NumericType,
-    tensor::{Shape, Tensor, shape::DynamicShape},
+    tensorx::types::NumericType,
+    tensorx::{Shape, Tensor, shape::DynamicShape},
 };
 
 pub struct ConstExpr<T: Display>(pub T);

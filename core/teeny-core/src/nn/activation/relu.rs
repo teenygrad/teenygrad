@@ -17,7 +17,7 @@
 
 use std::marker::PhantomData;
 
-use crate::tensor1::num;
+use crate::tensor::num;
 
 #[derive(Debug, Clone, Default)]
 pub struct ReLU<T: num::Num>(PhantomData<T>);

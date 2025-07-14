@@ -15,31 +15,36 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod add_op;
-pub mod bias_op;
-pub mod input_op;
-pub mod log_op;
-pub mod mean_op;
-pub mod mult_op;
-pub mod param_op;
-pub mod relu_op;
-pub mod sigmoid_op;
-pub mod sub_op;
-pub mod transpose_op;
+use std::{cell::RefCell, rc::Rc};
 
-use std::fmt::Debug;
+use crate::tensorx::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
-use crate::tensor::{TensorData, ValueRef};
-pub trait TensorOp: Debug {
+#[derive(Debug, Clone)]
+pub struct ParamOp;
+
+impl TensorOp for ParamOp {
     fn is_param(&self) -> bool {
-        false
+        true
     }
 
-    fn eval(&self, dependencies: &[ValueRef]) -> TensorData;
+    fn eval(&self, _dependencies: &[ValueRef]) -> TensorData {
+        unreachable!("ParamOp should never be evaluated")
+    }
 
-    fn backward(
-        &self,
-        dependencies: &[ValueRef],
-        grad: &ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>,
-    );
+    fn backward(&self, _dependencies: &[ValueRef], _grad: &TensorData) {
+        // do nothing
+    }
+}
+
+impl Tensor {
+    pub fn new_param(data: TensorData) -> Self {
+        let value = Rc::new(RefCell::new(Value::new(
+            Some(data),
+            Box::new(ParamOp),
+            Vec::new(),
+            true,
+        )));
+
+        Tensor { value }
+    }
 }

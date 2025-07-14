@@ -19,7 +19,7 @@ use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use uuid::Uuid;
 
-use crate::tensor::tensor_ops::TensorOp;
+use crate::tensorx::tensor_ops::TensorOp;
 
 pub type TensorData = ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>;
 

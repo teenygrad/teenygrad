@@ -18,7 +18,7 @@
 use derive_builder::Builder;
 use ndarray::ArrayD;
 
-use crate::tensor::Tensor;
+use crate::tensorx::Tensor;
 
 #[derive(Builder, Debug, Clone)]
 pub struct Adam {

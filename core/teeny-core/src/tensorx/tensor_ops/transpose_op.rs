@@ -17,15 +17,14 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensorx::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
-pub struct ReLuOp;
+pub struct TransposeOp;
 
-impl TensorOp for ReLuOp {
+impl TensorOp for TransposeOp {
     fn eval(&self, dependencies: &[ValueRef]) -> TensorData {
         assert_eq!(dependencies.len(), 1);
-
         dependencies[0].borrow_mut().eval();
 
         dependencies[0]
@@ -33,27 +32,29 @@ impl TensorOp for ReLuOp {
             .data
             .as_ref()
             .unwrap()
-            .map(|v| if *v > 0.0 { *v } else { 0.0 })
+            .clone()
+            .t()
+            .to_owned()
     }
 
     fn backward(&self, dependencies: &[ValueRef], grad: &TensorData) {
-        assert_eq!(dependencies.len(), 1);
-        let mut a = dependencies[0].borrow_mut();
-
-        let input_data = a.data.as_ref().unwrap();
-
-        let grad_a = grad * input_data.map(|v| if *v > 0.0 { 1.0 } else { 0.0 });
-        a.accumulate_grad(&grad_a);
+        if !dependencies.is_empty() && dependencies[0].borrow().requires_grad {
+            // Transpose the gradient back to match the original tensor shape
+            let transposed_grad = grad.t().to_owned();
+            dependencies[0]
+                .borrow_mut()
+                .accumulate_grad(&transposed_grad);
+        }
     }
 }
 
 impl Tensor {
-    pub fn relu(&self) -> Tensor {
+    pub fn t(&self) -> Tensor {
         let requires_grad = self.value.borrow().requires_grad;
 
         let value = Rc::new(RefCell::new(Value::new(
             None,
-            Box::new(ReLuOp),
+            Box::new(TransposeOp),
             vec![self.value.clone()],
             requires_grad,
         )));
@@ -62,39 +63,29 @@ impl Tensor {
     }
 }
 
-pub fn relu(x: &Tensor) -> Tensor {
-    x.relu()
-}
-
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::nn::loss::Loss;
     use ndarray::array;
 
-    use super::*;
-    use crate::{nn::loss::Loss, tensor::Tensor};
-
     #[test]
-    fn test_relu_backprop() {
-        let a: Tensor = array![[1.0, 2.0], [-3.0, 4.0]].into();
-        let b: Tensor = array![[5.0, -6.0], [7.0, 8.0]].into();
+    fn test_transpose_backprop() {
+        let a: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
 
-        let c = &a * &b;
-        let d = relu(&c);
-
-        let mut loss = Loss::new(d.clone());
+        let b = a.t();
+        let mut loss = Loss::new(b.clone());
         loss.backward();
 
+        // Check that the transposed tensor has the correct shape and values
+        assert_eq!(b.value.borrow().data.as_ref().unwrap().shape(), vec![2, 2]);
         assert_eq!(
-            c.value.borrow().data,
-            Some(array![[5.0, -12.0], [-21.0, 32.0]].into_dyn())
-        );
-        assert_eq!(
-            d.value.borrow().data,
-            Some(array![[5.0, 0.0], [0.0, 32.0]].into_dyn())
+            b.value.borrow().data,
+            Some(array![[1.0, 3.0], [2.0, 4.0]].into_dyn())
         );
 
-        assert_eq!(a.grad(), Some(array![[5.0, 0.0], [0.0, 8.0]].into_dyn()));
-        assert_eq!(b.grad(), Some(array![[1.0, 0.0], [0.0, 4.0]].into_dyn()));
-        assert_eq!(c.grad(), Some(array![[1.0, 0.0], [0.0, 1.0]].into_dyn()));
+        // Check that the gradient is correctly transposed back
+        // The gradient should be [[1.0, 1.0], [1.0, 1.0]] transposed back to [[1.0, 1.0], [1.0, 1.0]]
+        assert_eq!(a.grad(), Some(array![[1.0, 1.0], [1.0, 1.0]].into_dyn()));
     }
 }

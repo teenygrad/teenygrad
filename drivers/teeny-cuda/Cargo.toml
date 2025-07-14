@@ -3,10 +3,14 @@ name = "teeny-cuda"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["ndarray"]
+
 [lib]
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
+ndarray = {workspace = true, optional = true}
 thiserror.workspace = true
 
 [build-dependencies]

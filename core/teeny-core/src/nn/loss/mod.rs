@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::{
+use crate::tensorx::{
     Tensor,
     value::{ValueRef, toposort_graph},
 };

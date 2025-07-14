@@ -16,7 +16,7 @@
  */
 
 use teeny_core::nn::Embedding;
-use teeny_core::tensor::Tensor;
+use teeny_core::tensorx::Tensor;
 
 pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> () {
     todo!()

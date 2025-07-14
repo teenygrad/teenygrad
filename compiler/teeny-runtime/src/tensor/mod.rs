@@ -15,7 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod nn;
-pub mod tensor;
-pub mod tensorx;
+use std::sync::Arc;
+
+use teeny_core::tensor::num;
+
+pub mod ops;
+
+#[derive(Debug)]
+pub enum Tensor<T: num::Num> {
+    #[cfg(feature = "cpu")]
+    Cpu(teeny_cpu::tensor::CpuTensor<T>),
+
+    #[cfg(feature = "cuda")]
+    Cuda(teeny_cuda::tensor::CudaTensor<T>),
+}
+
+pub type TensorRef<T> = Arc<Tensor<T>>;

@@ -23,7 +23,7 @@ use std::{
 
 use ndarray::array;
 
-use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensorx::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct SubOp;
@@ -122,7 +122,7 @@ impl Neg for Tensor {
 mod tests {
     use ndarray::array;
 
-    use crate::{nn::loss::Loss, tensor::Tensor};
+    use crate::{nn::loss::Loss, tensorx::Tensor};
 
     #[test]
     fn test_sub_backprop() {

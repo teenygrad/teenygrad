@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor1::{Device, Tensor, num};
+use crate::tensor::{Device, Tensor, num};
 
 pub trait Module<T: num::Num, D: Device<T>, U> {
     type ParamCollection: Iterator<Item = Self::ParamTensor>;

@@ -18,5 +18,6 @@
 pub mod device;
 pub mod driver;
 pub mod error;
+pub mod tensor;
 
 mod cuda;

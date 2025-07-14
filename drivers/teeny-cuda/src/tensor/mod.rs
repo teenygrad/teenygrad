@@ -15,7 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod nn;
-pub mod tensor;
-pub mod tensorx;
+#[cfg(feature = "ndarray")]
+use ndarray::IxDyn;
+use teeny_core::tensor::num;
+
+pub struct CudaTensor<T: num::Num> {
+    _marker: std::marker::PhantomData<T>,
+}
+
+#[cfg(feature = "ndarray")]
+impl<T: num::Num> From<ndarray::Array<T, IxDyn>> for CudaTensor<T> {
+    fn from(_data: ndarray::Array<T, IxDyn>) -> Self {
+        unimplemented!()
+    }
+}

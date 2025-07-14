@@ -19,7 +19,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use ndarray::array;
 
-use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensorx::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct MeanOp;
@@ -73,7 +73,7 @@ mod tests {
     use ndarray::array;
 
     use super::*;
-    use crate::{nn::loss::Loss, tensor::Tensor};
+    use crate::{nn::loss::Loss, tensorx::Tensor};
 
     #[test]
     fn test_mean_backprop() {

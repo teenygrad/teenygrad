@@ -19,7 +19,7 @@ use std::{cell::RefCell, ops::Mul, rc::Rc};
 
 use ndarray::{ArrayBase, CowRepr, Dim};
 
-use crate::tensor::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
+use crate::tensorx::{Tensor, TensorData, Value, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct MultOp;

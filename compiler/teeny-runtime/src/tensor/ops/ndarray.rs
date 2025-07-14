@@ -15,39 +15,30 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use ndarray::{Array, IxDyn};
+use teeny_core::tensor::num;
+
 #[cfg(feature = "cpu")]
-use teeny_cpu::device::CpuDevice;
+use teeny_cpu::tensor::CpuTensor;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::device::CudaDevice;
+use teeny_cuda::tensor::CudaTensor;
 
-#[derive(Debug, Clone)]
-pub enum Device {
-    #[cfg(feature = "cpu")]
-    Cpu(CpuDevice),
+use crate::{current_device, device::Device, error::RuntimeError, tensor::Tensor};
 
-    #[cfg(feature = "cuda")]
-    Cuda(CudaDevice),
-}
+impl<T: num::Num> TryFrom<Array<T, IxDyn>> for Tensor<T> {
+    type Error = RuntimeError;
 
-impl Device {
-    pub fn id(&self) -> String {
-        match self {
+    fn try_from(array: Array<T, IxDyn>) -> Result<Self, Self::Error> {
+        let device = current_device()?;
+        let device = device.ok_or(RuntimeError::NoDevicesAvailable)?;
+
+        match *device {
             #[cfg(feature = "cpu")]
-            Device::Cpu(device) => device.id.clone(),
+            Device::Cpu(_) => Ok(Tensor::Cpu(CpuTensor::from(array))),
 
             #[cfg(feature = "cuda")]
-            Device::Cuda(device) => device.id.clone(),
-        }
-    }
-
-    pub fn name(&self) -> String {
-        match self {
-            #[cfg(feature = "cpu")]
-            Device::Cpu(device) => device.name.clone(),
-
-            #[cfg(feature = "cuda")]
-            Device::Cuda(device) => device.name.clone(),
+            Device::Cuda(_) => Ok(Tensor::Cuda(CudaTensor::from(array))),
         }
     }
 }

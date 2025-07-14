@@ -17,7 +17,7 @@
 
 use crate::{
     nn::loss::{Loss, LossFn},
-    tensor::{Tensor, log},
+    tensorx::{Tensor, log},
 };
 
 #[derive(Debug, Clone, Default)]

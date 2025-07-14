@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::tensor1::{Device, num};
+use teeny_core::tensor::{Device, num};
 
 #[derive(Debug)]
 pub struct VectorAdd<T: num::Num, D: Device<T>> {

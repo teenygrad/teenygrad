@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::{TensorData, ValueRef, tensor_ops::TensorOp};
+use crate::tensorx::{TensorData, ValueRef, tensor_ops::TensorOp};
 
 #[derive(Debug, Clone)]
 pub struct LogOp;
@@ -43,7 +43,7 @@ mod tests {
 
     use crate::{
         nn::loss::Loss,
-        tensor::{Tensor, log},
+        tensorx::{Tensor, log},
     };
 
     #[test]

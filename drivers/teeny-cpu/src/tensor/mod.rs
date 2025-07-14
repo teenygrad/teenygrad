@@ -15,7 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod nn;
-pub mod tensor;
-pub mod tensorx;
+#[cfg(feature = "ndarray")]
+use ndarray::IxDyn;
+
+use teeny_core::tensor::num;
+
+#[derive(Debug)]
+pub struct CpuTensor<T: num::Num> {
+    pub data: ndarray::Array<T, IxDyn>,
+}
+
+#[cfg(feature = "ndarray")]
+impl<T: num::Num> From<ndarray::Array<T, IxDyn>> for CpuTensor<T> {
+    fn from(data: ndarray::Array<T, IxDyn>) -> Self {
+        Self { data }
+    }
+}

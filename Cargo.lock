@@ -2473,6 +2473,7 @@ name = "teeny-cuda"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "ndarray",
  "teeny-core",
  "thiserror 2.0.12",
 ]
@@ -2577,6 +2578,7 @@ dependencies = [
 name = "teeny-runtime"
 version = "0.1.0"
 dependencies = [
+ "ndarray",
  "once_cell",
  "teeny-core",
  "teeny-cpu",

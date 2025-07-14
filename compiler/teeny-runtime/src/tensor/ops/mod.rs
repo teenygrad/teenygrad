@@ -15,27 +15,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ndarray::IxDyn;
-
-pub mod num;
-pub mod ops;
-pub mod shape;
-
-pub trait Device<T: num::Num>: Sized + std::fmt::Debug {
-    type Tensor: Tensor<T, Self>;
-
-    fn from_ndarray(ndarray: ndarray::Array<T, IxDyn>) -> Self::Tensor;
-}
-
-pub trait Tensor<T: num::Num, D: Device<T>>: Sized + std::fmt::Debug {
-    type DType: num::Num;
-
-    // fn to<ToD: Device>(self, device: &ToD) -> impl Tensor<ToD, T>;
-    fn add(&self, other: &Self) -> Self;
-}
-
-pub fn from_ndarray<T: num::Num, D: Device<T>>(
-    ndarray: ndarray::Array<T, IxDyn>,
-) -> impl Tensor<T, D> {
-    D::from_ndarray(ndarray)
-}
+#[cfg(feature = "ndarray")]
+mod ndarray;
