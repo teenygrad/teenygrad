@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::device::Device;
+
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {
     pub host: &'static str,
@@ -27,3 +29,5 @@ pub struct CpuDevice {
     pub name: String,
     pub properties: DeviceProperties,
 }
+
+impl Device for CpuDevice {}

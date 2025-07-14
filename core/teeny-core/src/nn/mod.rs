@@ -25,17 +25,17 @@ pub mod optim;
 pub mod sequential;
 
 // modules
-pub use embedding::Embedding;
-pub use module::Module1;
+// pub use embedding::Embedding;
+pub use module::Module;
 // pub use sequential::Sequential;
 
 // activations
 pub use activation::relu::ReLU;
 pub use activation::sigmoid::Sigmoid;
 
-// losses
-pub use loss::bce_loss::BCELoss;
+// // losses
+// pub use loss::bce_loss::BCELoss;
 
-// optimizers
-pub use optim::adam::Adam;
-pub use optim::adam::AdamBuilder;
+// // optimizers
+// pub use optim::adam::Adam;
+// pub use optim::adam::AdamBuilder;

@@ -15,55 +15,55 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{
-    nn::loss::{Loss, LossFn},
-    tensorx::{Tensor, log},
-};
+// use crate::{
+//     nn::loss::{Loss, LossFn},
+//     tensorx::{Tensor, log},
+// };
 
-#[derive(Debug, Clone, Default)]
-pub struct BCELoss {}
+// #[derive(Debug, Clone, Default)]
+// pub struct BCELoss {}
 
-impl BCELoss {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+// impl BCELoss {
+//     pub fn new() -> Self {
+//         Self {}
+//     }
+// }
 
-impl LossFn for BCELoss {
-    fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
-        let bce_loss = -(y * log(p.clone().t()) + (1.0 - y) * log(1.0 - p.clone().t()));
-        // let bce_loss = -(y * log(p.clone().t()) + y * log(p.clone().t()));
+// impl LossFn for BCELoss {
+//     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
+//         let bce_loss = -(y * log(p.clone().t()) + (1.0 - y) * log(1.0 - p.clone().t()));
+//         // let bce_loss = -(y * log(p.clone().t()) + y * log(p.clone().t()));
 
-        Loss::new(bce_loss)
-    }
-}
+//         Loss::new(bce_loss)
+//     }
+// }
 
-#[cfg(test)]
-mod tests {
-    use ndarray::array;
+// #[cfg(test)]
+// mod tests {
+//     use ndarray::array;
 
-    use super::*;
+//     use super::*;
 
-    #[test]
-    fn test_bce_loss() {
-        // Create prediction and target tensors using the correct constructor
-        let a: Tensor = array![[0.5, 0.5], [0.5, 0.5]].into();
-        let b: Tensor = array![[1.0, 2.0], [2.0, 3.0]].into();
+//     #[test]
+//     fn test_bce_loss() {
+//         // Create prediction and target tensors using the correct constructor
+//         let a: Tensor = array![[0.5, 0.5], [0.5, 0.5]].into();
+//         let b: Tensor = array![[1.0, 2.0], [2.0, 3.0]].into();
 
-        let c = &a * &b;
-        let d = &c * &a + &b;
-        let t: Tensor = array![[0.5, 0.5], [0.5, 0.5]].into();
+//         let c = &a * &b;
+//         let d = &c * &a + &b;
+//         let t: Tensor = array![[0.5, 0.5], [0.5, 0.5]].into();
 
-        d.eval();
+//         d.eval();
 
-        let bce = BCELoss::new();
-        let mut loss = bce.compute(&d, &t);
+//         let bce = BCELoss::new();
+//         let mut loss = bce.compute(&d, &t);
 
-        loss.backward();
+//         loss.backward();
 
-        assert_eq!(
-            format!("{:?}", loss.loss.value.borrow().data.as_ref().unwrap()),
-            "[[-0.3465736, -0.25541282],\n [-0.3465736, -0.25541282]], shape=[2, 2], strides=[2, 1], layout=Cc (0x5), dynamic ndim=2"
-        );
-    }
-}
+//         assert_eq!(
+//             format!("{:?}", loss.loss.value.borrow().data.as_ref().unwrap()),
+//             "[[-0.3465736, -0.25541282],\n [-0.3465736, -0.25541282]], shape=[2, 2], strides=[2, 1], layout=Cc (0x5), dynamic ndim=2"
+//         );
+//     }
+// }

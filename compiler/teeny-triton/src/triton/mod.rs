@@ -19,4 +19,4 @@ pub mod kernel;
 pub mod triton_ops;
 
 pub use kernel::TritonKernel;
-pub use triton_ops::*;
+// pub use triton_ops::*;

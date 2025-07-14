@@ -14,3 +14,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+
+use num_traits::Zero;
+
+pub trait Dtype: 'static + Clone + Zero + std::fmt::Debug {
+    type RustType: Send + Sync + Clone + Copy + 'static;
+}
+
+impl Dtype for f32 {
+    type RustType = f32;
+}

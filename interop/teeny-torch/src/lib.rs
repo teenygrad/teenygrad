@@ -15,25 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::nn::Embedding;
-use teeny_core::tensorx::Tensor;
+// use teeny_core::nn::Embedding;
+// use teeny_core::tensorx::Tensor;
 
-pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> () {
-    todo!()
-}
+// pub fn torch_nn_linear(_in_features: usize, _out_features: usize, _bias: bool) -> () {
+//     todo!()
+// }
 
-pub fn torch_nn_embedding(
-    _vocab_size: usize,
-    _hidden_size: usize,
-    _padding_idx: Option<usize>,
-) -> Embedding {
-    todo!()
-}
+// pub fn torch_nn_embedding(
+//     _vocab_size: usize,
+//     _hidden_size: usize,
+//     _padding_idx: Option<usize>,
+// ) -> Embedding {
+//     todo!()
+// }
 
-pub fn torch_ones(_shape: &[usize]) -> Tensor {
-    todo!()
-}
+// pub fn torch_ones(_shape: &[usize]) -> Tensor {
+//     todo!()
+// }
 
-pub fn torch_arange(_start: f32, _end: f32, _step: f32) -> Tensor {
-    todo!()
-}
+// pub fn torch_arange(_start: f32, _end: f32, _step: f32) -> Tensor {
+//     todo!()
+// }

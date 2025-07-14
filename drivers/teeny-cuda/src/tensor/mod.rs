@@ -17,14 +17,14 @@
 
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
-use teeny_core::tensor::num;
+use teeny_core::dtype;
 
-pub struct CudaTensor<T: num::Num> {
+pub struct CudaTensor<T: dtype::Dtype> {
     _marker: std::marker::PhantomData<T>,
 }
 
 #[cfg(feature = "ndarray")]
-impl<T: num::Num> From<ndarray::Array<T, IxDyn>> for CudaTensor<T> {
+impl<T: dtype::Dtype> From<ndarray::Array<T, IxDyn>> for CudaTensor<T> {
     fn from(_data: ndarray::Array<T, IxDyn>) -> Self {
         unimplemented!()
     }

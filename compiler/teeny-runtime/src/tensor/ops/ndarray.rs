@@ -16,7 +16,7 @@
  */
 
 use ndarray::{Array, IxDyn};
-use teeny_core::tensor::num;
+use teeny_core::dtype;
 
 #[cfg(feature = "cpu")]
 use teeny_cpu::tensor::CpuTensor;
@@ -26,7 +26,7 @@ use teeny_cuda::tensor::CudaTensor;
 
 use crate::{current_device, device::Device, error::RuntimeError, tensor::Tensor};
 
-impl<T: num::Num> TryFrom<Array<T, IxDyn>> for Tensor<T> {
+impl<T: dtype::Dtype> TryFrom<Array<T, IxDyn>> for Tensor<T> {
     type Error = RuntimeError;
 
     fn try_from(array: Array<T, IxDyn>) -> Result<Self, Self::Error> {

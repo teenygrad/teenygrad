@@ -17,12 +17,12 @@
 
 use std::marker::PhantomData;
 
-use crate::tensor::num;
+use crate::dtype;
 
 #[derive(Debug, Clone, Default)]
-pub struct ReLU<T: num::Num>(PhantomData<T>);
+pub struct ReLU<T: dtype::Dtype>(PhantomData<T>);
 
-impl<T: num::Num> ReLU<T> {
+impl<T: dtype::Dtype> ReLU<T> {
     pub fn new() -> Self {
         Self(PhantomData)
     }

@@ -15,19 +15,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::tensor::{Device, num};
+use std::marker::PhantomData;
+
+use teeny_core::{device::Device, dtype, tensor::Tensor};
 
 #[derive(Debug)]
-pub struct VectorAdd<T: num::Num, D: Device<T>> {
-    pub v1: <D as Device<T>>::Tensor,
-    pub v2: <D as Device<T>>::Tensor,
+pub struct VectorAdd<D: Device, N: dtype::Dtype, T: Tensor<D, N>> {
+    pub v1: T,
+    pub v2: T,
+    _device: PhantomData<D>,
+    _num: PhantomData<N>,
 }
 
 #[allow(clippy::new_without_default)]
-impl<T: num::Num, D: Device<T>> VectorAdd<T, D> {
+impl<D: Device, N: dtype::Dtype, T: Tensor<D, N>> VectorAdd<D, N, T> {
     pub fn new() -> Self
     where
-        T: num::Num + Copy + 'static,
+        T: dtype::Dtype + Copy + 'static,
         f32: Into<T>,
     {
         // Create arrays with the correct type by converting f32 to T
@@ -35,12 +39,13 @@ impl<T: num::Num, D: Device<T>> VectorAdd<T, D> {
             .into_iter()
             .map(|x| x.into())
             .collect();
-        let array = ndarray::Array1::from_vec(data).into_dyn();
+        let _array = ndarray::Array1::from_vec(data).into_dyn();
 
-        Self {
-            v1: <D>::from_ndarray(array.clone()),
-            v2: <D>::from_ndarray(array),
-        }
+        todo!()
+        // Self {
+        //     v1: <D>::from_ndarray(array.clone()),
+        //     v2: <D>::from_ndarray(array),
+        // }
     }
 }
 

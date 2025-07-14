@@ -15,36 +15,45 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// use crate::{
-//     nn::module::Module1,
-//     tensor::{Tensor, tensor_ops::bias_op::bias},
-//     tensor1::{TensorRef, num},
-// };
+use std::marker::PhantomData;
 
-// pub struct Linear {
-//     weight: Tensor,
-//     bias: Option<Tensor>,
-// }
+use crate::{
+    device::Device,
+    dtype,
+    tensor::{Tensor, shape::DynamicShape},
+};
 
-// impl Linear {
-//     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
-//         // Initialize weight tensor with proper shape
-//         let weight: Tensor =
-//             Tensor::new_param(ndarray::Array::zeros((output_dim, input_dim)).into_dyn());
+pub struct Linear<D: Device, N: dtype::Dtype, T: Tensor<D, N>>
+where
+    T: Tensor<D, N>,
+{
+    pub weight: T,
+    pub bias: Option<T>,
+    _device: PhantomData<D>,
+    _num: PhantomData<N>,
+}
 
-//         // Initialize bias if needed
-//         let bias = if use_bias {
-//             let bias_shape = vec![output_dim];
-//             Some(Tensor::new_param(
-//                 ndarray::Array::zeros(bias_shape).into_dyn(),
-//             ))
-//         } else {
-//             None
-//         };
+impl<D: Device, N: dtype::Dtype, T: Tensor<D, N>> Linear<D, N, T> {
+    pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
+        // Initialize weight tensor with proper shape
+        let weight = Tensor::zeros(DynamicShape::new(vec![output_dim, input_dim]));
 
-//         Linear { weight, bias }
-//     }
-// }
+        // Initialize bias if needed
+        let bias = if use_bias {
+            let bias_shape = vec![output_dim];
+            Some(Tensor::zeros(DynamicShape::new(bias_shape)))
+        } else {
+            None
+        };
+
+        Linear {
+            weight,
+            bias,
+            _device: PhantomData,
+            _num: PhantomData,
+        }
+    }
+}
 
 // impl<T: num::Num> Module1<T, &Tensor, Tensor> for Linear {
 //     fn forward(&self, input: &Tensor) -> Tensor {

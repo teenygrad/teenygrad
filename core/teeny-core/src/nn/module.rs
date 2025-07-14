@@ -15,24 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensor::{Device, Tensor, num};
-
-pub trait Module<T: num::Num, D: Device<T>, U> {
+use crate::{device::Device, dtype, tensor::Tensor};
+pub trait Module<D: Device, N: dtype::Dtype, U, V> {
     type ParamCollection: Iterator<Item = Self::ParamTensor>;
-    type ParamTensor: Tensor<T, D>;
+    type ParamTensor: Tensor<D, N>;
 
-    /// Forward pass that returns a computation graph node
-    fn forward(&self) -> U;
-
-    fn parameters(&self) -> Self::ParamCollection;
-}
-
-/// Trait for all neural network components
-pub trait Module1<T: num::Num, D: Device<T>, U, V> {
-    type ParamCollection: Iterator<Item = Self::ParamTensor>;
-    type ParamTensor: Tensor<T, D>;
-
-    /// Forward pass that returns a computation graph node
     fn forward(&self, input: U) -> V;
 
     fn parameters(&self) -> Self::ParamCollection;

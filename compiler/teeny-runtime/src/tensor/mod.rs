@@ -17,12 +17,12 @@
 
 use std::sync::Arc;
 
-use teeny_core::tensor::num;
+use teeny_core::dtype;
 
 pub mod ops;
 
 #[derive(Debug)]
-pub enum Tensor<T: num::Num> {
+pub enum Tensor<T: dtype::Dtype> {
     #[cfg(feature = "cpu")]
     Cpu(teeny_cpu::tensor::CpuTensor<T>),
 

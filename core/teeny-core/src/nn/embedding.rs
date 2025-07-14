@@ -15,18 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::tensorx::Tensor;
+// use crate::tensorx::Tensor;
 
-pub struct Embedding {
-    pub weight: Tensor,
-}
+// pub struct Embedding {
+//     pub weight: Tensor,
+// }
 
-impl Embedding {
-    pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
-        let embedding_shape = vec![hidden_size, vocab_size];
+// impl Embedding {
+//     pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
+//         let embedding_shape = vec![hidden_size, vocab_size];
 
-        Self {
-            weight: Tensor::new(ndarray::Array::zeros(embedding_shape), true),
-        }
-    }
-}
+//         Self {
+//             weight: Tensor::new(ndarray::Array::zeros(embedding_shape), true),
+//         }
+//     }
+// }

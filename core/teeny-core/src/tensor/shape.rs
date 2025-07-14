@@ -44,26 +44,6 @@ impl<const N: usize> Shape for Dim1<N> {
     }
 }
 
-/// A 2-dimensional tensor
-pub struct Dim2<const M: usize, const N: usize>;
-impl<const M: usize, const N: usize> Shape for Dim2<M, N> {
-    const RANK: usize = 2;
-    type Dims = [usize; 2];
-    fn dims() -> Self::Dims {
-        [M, N]
-    }
-}
-
-/// A 3-dimensional tensor
-pub struct Dim3<const M: usize, const N: usize, const P: usize>;
-impl<const M: usize, const N: usize, const P: usize> Shape for Dim3<M, N, P> {
-    const RANK: usize = 3;
-    type Dims = [usize; 3];
-    fn dims() -> Self::Dims {
-        [M, N, P]
-    }
-}
-
 /// A dynamically sized tensor shape
 pub struct DynamicShape {
     pub dims: Vec<usize>,
@@ -91,3 +71,26 @@ impl Shape for DynamicShape {
         Vec::new() // This will be overridden at runtime
     }
 }
+
+#[cfg(feature = "ndarray")]
+impl From<DynamicShape> for ndarray::Shape<ndarray::IxDyn> {
+    fn from(shape: DynamicShape) -> Self {
+        use ndarray::IntoDimension;
+
+        ndarray::Shape::from(&shape.dims.into_dimension())
+    }
+}
+
+// #[cfg(feature = "ndarray")]
+// impl From<ScalarShape> for ndarray::Shape<ndarray::Ix0> {
+//     fn from(_: ScalarShape) -> Self {
+//         ndarray::Shape::from(&ScalarShape::dims())
+//     }
+// }
+
+// #[cfg(feature = "ndarray")]
+// impl<const N: usize> From<Dim1<N>> for ndarray::IxDyn {
+//     fn from(_: Dim1<N>) -> Self {
+//         ndarray::IxDyn(&[N])
+//     }
+// }
