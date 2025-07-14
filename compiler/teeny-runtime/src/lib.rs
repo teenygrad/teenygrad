@@ -18,12 +18,11 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use teeny_core::device::Device;
-use teeny_driver::error::DriverError;
-use teeny_driver::{driver::CUDA_DRIVER_ID, driver_manager::DriverManager};
-
+use crate::device::Device;
 use crate::error::Result;
 use crate::error::RuntimeError;
+
+use once_cell::sync::OnceCell;
 
 pub mod device;
 pub mod error;
@@ -34,37 +33,87 @@ extern crate teeny_cpu;
 #[cfg(feature = "cuda")]
 extern crate teeny_cuda;
 
-pub fn init() -> Result<()> {
-    init_drivers()?;
+static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<Device>>>> = OnceCell::new();
+
+pub fn current_device() -> Result<Option<Arc<Device>>> {
+    let guard = CURRENT_DEVICE
+        .get_or_init(|| Mutex::new(None))
+        .try_lock()
+        .map_err(|_| RuntimeError::TryLockError("Failed to lock device".to_string()))?;
+
+    Ok((*guard).clone())
+}
+
+pub fn set_current_device(device: Arc<Device>) -> Result<()> {
+    let mut guard = CURRENT_DEVICE
+        .get_or_init(|| Mutex::new(Some(device.clone())))
+        .try_lock()
+        .map_err(|_| RuntimeError::TryLockError("Failed to set device".to_string()))?;
+    *guard = Some(device.clone());
     Ok(())
 }
 
-pub fn get_cuda_devices() -> Result<Vec<Arc<Mutex<dyn Device>>>> {
-    let driver = DriverManager::driver(CUDA_DRIVER_ID)
-        .map_err(RuntimeError::DriverError)?
-        .ok_or(RuntimeError::DriverError(DriverError::NotFound(
-            CUDA_DRIVER_ID.to_string(),
-        )))?;
+pub fn init() -> Result<()> {
+    use_accelerator_with_fallback()?;
 
-    let devices = driver
-        .lock()
-        .unwrap()
-        .devices()
-        .map_err(RuntimeError::DriverError)?;
-    Ok(devices)
-}
-
-fn init_drivers() -> Result<()> {
-    let drivers =
-        DriverManager::drivers().map_err(|e| RuntimeError::FailedToGetDrivers(e.to_string()))?;
-
-    for driver in drivers {
-        driver
-            .lock()
-            .unwrap()
-            .init()
-            .map_err(RuntimeError::DriverError)?;
+    let device = current_device()?;
+    if let Some(device) = device {
+        let id = device.id();
+        let name = device.name();
+        println!("Using device: {id} {name}");
+    } else {
+        return Err(RuntimeError::NoDevicesAvailable);
     }
 
     Ok(())
+}
+
+pub fn use_accelerator_with_fallback() -> Result<()> {
+    let devices = find_cuda_devices()?;
+    if !devices.is_empty() {
+        set_current_device(Arc::new(devices[0].clone()))?;
+    } else {
+        let devices = find_cpu_devices()?;
+        if !devices.is_empty() {
+            set_current_device(Arc::new(devices[0].clone()))?;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "cpu")]
+pub fn find_cpu_devices() -> Result<Vec<Device>> {
+    use teeny_cpu::driver::CpuDriver;
+
+    let devices = CpuDriver::devices()
+        .map_err(RuntimeError::CpuDriverError)?
+        .into_iter()
+        .map(Device::Cpu)
+        .collect();
+
+    Ok(devices)
+}
+
+#[cfg(not(feature = "cpu"))]
+pub fn find_cpu_devices() -> Result<Vec<Device>> {
+    Ok(vec![])
+}
+
+#[cfg(feature = "cuda")]
+pub fn find_cuda_devices() -> Result<Vec<Device>> {
+    use teeny_cuda::driver::CudaDriver;
+
+    let devices = CudaDriver::devices()
+        .map_err(RuntimeError::CudaDriverError)?
+        .into_iter()
+        .map(Device::Cuda)
+        .collect();
+
+    Ok(devices)
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn find_cuda_devices() -> Result<Vec<Device>> {
+    Ok(vec![])
 }

@@ -15,29 +15,33 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::{Arc, Mutex};
+#[cfg(feature = "cpu")]
+use teeny_cpu::device::CpuDevice;
 
-use once_cell::sync::OnceCell;
-use teeny_core::device::Device;
+#[cfg(feature = "cuda")]
+use teeny_cuda::device::CudaDevice;
 
-use crate::error::{Result, RuntimeError};
+#[derive(Debug, Clone)]
+pub enum Device {
+    #[cfg(feature = "cpu")]
+    Cpu(CpuDevice),
 
-static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<dyn Device>>>> = OnceCell::new();
-
-pub fn current_device() -> Result<Option<Arc<dyn Device>>> {
-    let guard = CURRENT_DEVICE
-        .get_or_init(|| Mutex::new(None))
-        .try_lock()
-        .map_err(|_| RuntimeError::TryLockError("Failed to lock device".to_string()))?;
-
-    Ok((*guard).clone())
+    #[cfg(feature = "cuda")]
+    Cuda(CudaDevice),
 }
 
-pub fn set_current_device(device: Arc<dyn Device>) -> Result<()> {
-    let mut guard = CURRENT_DEVICE
-        .get_or_init(|| Mutex::new(Some(device.clone())))
-        .try_lock()
-        .map_err(|_| RuntimeError::TryLockError("Failed to set device".to_string()))?;
-    *guard = Some(device.clone());
-    Ok(())
+impl Device {
+    pub fn id(&self) -> String {
+        match self {
+            Device::Cpu(device) => device.id.clone(),
+            Device::Cuda(device) => device.id.clone(),
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            Device::Cpu(device) => device.name.clone(),
+            Device::Cuda(device) => device.name.clone(),
+        }
+    }
 }

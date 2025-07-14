@@ -16,7 +16,12 @@
  */
 
 use ndarray::IxDyn;
-use teeny_core::tensor1::{Device, Tensor, num};
+use teeny_core::tensor1::num;
+
+pub mod device;
+pub mod driver;
+pub mod error;
+
 // use teeny_core::device::Device;
 // use teeny_driver::driver::{CPU_DRIVER_ID, Driver};
 // use teeny_driver::driver_manager::DriverManager;
@@ -70,23 +75,20 @@ impl<T: num::Num> CpuTensor<T> {
     }
 }
 
-impl Tensor<f32, CpuDevice> for CpuTensor<f32> {
-    type DType = f32;
+// impl Tensor<f32, CpuDevice> for CpuTensor<f32> {
+//     type DType = f32;
 
-    fn add(&self, other: &CpuTensor<f32>) -> CpuTensor<f32> {
-        CpuTensor {
-            data: &self.data + &other.data,
-        }
-    }
-}
+//     fn add(&self, other: &CpuTensor<f32>) -> CpuTensor<f32> {
+//         CpuTensor {
+//             data: &self.data + &other.data,
+//         }
+//     }
+// }
 
-#[derive(Debug)]
-pub struct CpuDevice {}
+// impl Device<f32> for CpuDevice {
+//     type Tensor = CpuTensor<f32>;
 
-impl Device<f32> for CpuDevice {
-    type Tensor = CpuTensor<f32>;
-
-    fn from_ndarray(ndarray: ndarray::Array<f32, IxDyn>) -> Self::Tensor {
-        CpuTensor::new(ndarray)
-    }
-}
+//     fn from_ndarray(ndarray: ndarray::Array<f32, IxDyn>) -> Self::Tensor {
+//         CpuTensor::new(ndarray)
+//     }
+// }

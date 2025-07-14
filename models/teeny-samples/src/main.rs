@@ -55,8 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting teeny-samples");
 
     teeny_runtime::init().unwrap();
-    let devices = teeny_runtime::get_cuda_devices().unwrap();
-    println!("Devices: {devices:?}");
 
     // match args.model {
     //     Model::SimpleClassifier => {

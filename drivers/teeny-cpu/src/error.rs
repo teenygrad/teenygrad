@@ -15,6 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod driver;
-pub mod driver_manager;
-pub mod error;
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, DriverError>;
+
+#[derive(Error, Debug)]
+pub enum DriverError {
+    #[error("CPU driver error: {0}")]
+    CpuError(String),
+}

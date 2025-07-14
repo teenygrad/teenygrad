@@ -17,21 +17,12 @@
 
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, RuntimeError>;
+use crate::cuda;
+
+pub type Result<T> = std::result::Result<T, DriverError>;
 
 #[derive(Error, Debug)]
-pub enum RuntimeError {
-    #[error("Lock error: {0}")]
-    TryLockError(String),
-
-    #[error("No devices available")]
-    NoDevicesAvailable,
-
-    #[cfg(feature = "cuda")]
-    #[error("CUDA driver error: {0}")]
-    CudaDriverError(teeny_cuda::error::DriverError),
-
-    #[cfg(feature = "cpu")]
-    #[error("CPU driver error: {0}")]
-    CpuDriverError(teeny_cpu::error::DriverError),
+pub enum DriverError {
+    #[error("CUDA error: {0}")]
+    CudaError(cuda::cudaError_enum),
 }

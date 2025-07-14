@@ -15,45 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::{Arc, Mutex};
-
-use ctor::ctor;
-use teeny_core::device::{Device, DeviceType, NvidiaGpu};
-use teeny_driver::driver::{CUDA_DRIVER_ID, Driver};
-use teeny_driver::driver_manager::DriverManager;
-use teeny_driver::error::{DriverError, Result};
-
 use crate::cuda;
 use crate::device::CudaDevice;
 
-#[derive(Default)]
-pub struct CudaDriver {}
+use crate::device::DeviceProperties;
+use crate::error::DriverError;
+use crate::error::Result;
+
+#[derive(Debug)]
+pub struct CudaDriver;
 
 impl CudaDriver {
-    pub const fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Driver for CudaDriver {
-    fn init(&mut self) -> Result<()> {
-        Ok(())
-    }
-
-    fn deinit(&mut self) -> Result<()> {
-        // no-op
-        Ok(())
-    }
-
-    fn id(&self) -> &str {
-        CUDA_DRIVER_ID
-    }
-
-    fn name(&self) -> &str {
-        "Teenygrad CUDA Driver v0.1.0"
-    }
-
-    fn devices(&self) -> Result<Vec<Arc<Mutex<dyn Device>>>> {
+    pub fn devices() -> Result<Vec<CudaDevice>> {
         let mut devices = Vec::new();
         let mut device_count = 0;
         let err = unsafe { cuda::cudaGetDeviceCount(&mut device_count) };
@@ -74,7 +47,7 @@ impl Driver for CudaDriver {
             let device = CudaDevice {
                 id: format!("cuda:{i}"),
                 name,
-                device_type: DeviceType::NvidiaGpu(NvidiaGpu {
+                properties: DeviceProperties {
                     major: props.major,
                     minor: props.minor,
                     multi_processor_count: props.multiProcessorCount,
@@ -93,21 +66,11 @@ impl Driver for CudaDriver {
                     l2_cache_size: props.l2CacheSize,
                     concurrent_kernels: props.concurrentKernels,
                     compute_mode: props.computeMode,
-                }),
+                },
             };
-            devices.push(Arc::new(Mutex::new(device)) as Arc<Mutex<dyn Device>>);
-        }
-
-        println!("Found {} CUDA devices", devices.len());
-        for device in devices.iter() {
-            println!("Device: {:?}", device.lock().unwrap().id());
+            devices.push(device);
         }
 
         Ok(devices)
     }
-}
-
-#[ctor]
-fn register_cuda() {
-    DriverManager::register(Arc::new(Mutex::new(CudaDriver::new())));
 }

@@ -15,25 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::{Arc, Mutex};
+use target_triple::{HOST, TARGET};
+
+use crate::device::{CpuDevice, DeviceProperties};
 
 use crate::error::Result;
-use teeny_core::device::Device;
 
-pub const CUDA_DRIVER_ID: &str = "org.teenygrad.driver.cuda";
+pub struct CpuDriver;
 
-pub const CPU_DRIVER_ID: &str = "org.teenygrad.driver.cpu";
+impl CpuDriver {
+    pub fn devices() -> Result<Vec<CpuDevice>> {
+        let device = CpuDevice {
+            id: "cpu:0".to_string(),
+            name: "CPU".to_string(),
+            properties: DeviceProperties {
+                host: HOST,
+                target: TARGET,
+            },
+        };
 
-pub const VULKAN_DRIVER_ID: &str = "org.teenygrad.driver.vulkan";
-
-pub trait Driver {
-    fn init(&mut self) -> Result<()>;
-
-    fn deinit(&mut self) -> Result<()>;
-
-    fn id(&self) -> &str;
-
-    fn name(&self) -> &str;
-
-    fn devices(&self) -> Result<Vec<Arc<Mutex<dyn Device>>>>;
+        Ok(vec![device])
+    }
 }

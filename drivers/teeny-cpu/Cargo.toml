@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
-teeny-driver = { path = "../teeny-driver" }
-ctor.workspace = true
+thiserror.workspace = true
 ndarray.workspace = true
+target-triple.workspace = true
+cpuid.workspace = true

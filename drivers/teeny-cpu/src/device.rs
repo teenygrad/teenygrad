@@ -15,19 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub type Result<T> = std::result::Result<T, DriverError>;
+#[derive(Debug, Clone)]
+pub struct DeviceProperties {
+    pub host: &'static str,
+    pub target: &'static str,
+}
 
-#[derive(thiserror::Error, Debug)]
-pub enum DriverError {
-    #[error("Failed to initialize driver: {0}")]
-    InitError(String),
-
-    #[error("Driver not found: {0}")]
-    NotFound(String),
-
-    #[error("Failed to lock drivers: {0}")]
-    LockError(String),
-
-    #[error("CUDA error: {0}")]
-    CudaError(u32),
+#[derive(Debug, Clone)]
+pub struct CpuDevice {
+    pub id: String,
+    pub name: String,
+    pub properties: DeviceProperties,
 }
