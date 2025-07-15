@@ -1,9 +1,11 @@
 use clap::{Parser, ValueEnum};
+use teeny_samples::ex01_vector_add;
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum Model {
+    VectorAdd,
     SimpleClassifier,
 }
 
@@ -54,14 +56,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting teeny-samples");
 
-    teeny_runtime::init().unwrap();
+    teeny_runtime::init()?;
 
-    // match args.model {
-    //     Model::SimpleClassifier => {
-    //         info!("Running simple-classifier model");
-    //         ex02_simple_classifier::run().await?;
-    //     }
-    // }
+    match args.model {
+        Model::VectorAdd => {
+            info!("Running vector-add model");
+            ex01_vector_add::run().await?;
+        }
+        Model::SimpleClassifier => {
+            info!("Running simple-classifier model");
+            todo!()
+            // ex02_simple_classifier::run().await?;
+        }
+    }
 
     Ok(())
 }

@@ -15,20 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
-use teeny_core::{device::Device, dtype, tensor::Tensor};
+use teeny_core::dtype;
+use teeny_runtime::tensor::Tensor;
 
 #[derive(Debug)]
-pub struct VectorAdd<D: Device, N: dtype::Dtype, T: Tensor<D, N>> {
-    pub v1: T,
-    pub v2: T,
-    _device: PhantomData<D>,
-    _num: PhantomData<N>,
+pub struct VectorAdd<T: dtype::Dtype> {
+    pub v1: Tensor<T>,
+    pub v2: Tensor<T>,
 }
 
 #[allow(clippy::new_without_default)]
-impl<D: Device, N: dtype::Dtype, T: Tensor<D, N>> VectorAdd<D, N, T> {
+impl<T: dtype::Dtype> VectorAdd<T> {
     pub fn new() -> Self
     where
         T: dtype::Dtype + Copy + 'static,
@@ -50,9 +47,7 @@ impl<D: Device, N: dtype::Dtype, T: Tensor<D, N>> VectorAdd<D, N, T> {
 }
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // We need to specify concrete types since the compiler can't infer them
-    // For now, let's use a placeholder - you'll need to implement a concrete Device
-    // let _model: VectorAdd<SomeConcreteDevice, f32> = VectorAdd::default();
+    let _model: VectorAdd<f32> = VectorAdd::new();
 
     Ok(())
 }

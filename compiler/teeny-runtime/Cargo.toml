@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["cpu", "ndarray"]
+default = ["cpu", "cuda"]
 cuda = ["teeny-cuda"]
 cpu = ["teeny-cpu"]
 
@@ -12,6 +12,5 @@ cpu = ["teeny-cpu"]
 teeny-core = { path = "../../core/teeny-core" }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
-ndarray = {workspace = true, optional = true}
 once_cell.workspace = true
 thiserror.workspace = true

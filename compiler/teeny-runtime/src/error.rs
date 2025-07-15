@@ -15,23 +15,32 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use thiserror::Error;
+pub type Result<T> = std::result::Result<T, Error>;
 
-pub type Result<T> = std::result::Result<T, RuntimeError>;
-
-#[derive(Error, Debug)]
-pub enum RuntimeError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("Lock error: {0}")]
     TryLockError(String),
 
     #[error("No devices available")]
     NoDevicesAvailable,
 
+    #[error("Core error: {0}")]
+    CoreError(teeny_core::error::Error),
+
     #[cfg(feature = "cuda")]
     #[error("CUDA driver error: {0}")]
-    CudaDriverError(teeny_cuda::error::DriverError),
+    CudaError(teeny_cuda::error::Error),
 
     #[cfg(feature = "cpu")]
     #[error("CPU driver error: {0}")]
-    CpuDriverError(teeny_cpu::error::DriverError),
+    CpuError(teeny_cpu::error::Error),
+
+    #[cfg(feature = "cpu")]
+    #[error("CPU device error: {0}")]
+    CpuDeviceError(teeny_cpu::error::Error),
+
+    #[cfg(feature = "cuda")]
+    #[error("CUDA device error: {0}")]
+    CudaDeviceError(teeny_cuda::error::Error),
 }

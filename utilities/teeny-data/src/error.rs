@@ -15,12 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use thiserror::Error;
+pub type Result<T> = std::result::Result<T, Error>;
 
-pub type Result<T> = std::result::Result<T, TeenyDataError>;
-
-#[derive(Error, Debug)]
-pub enum TeenyDataError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("Failed to download CSV: {0}")]
     DownloadError(#[from] reqwest::Error),
 

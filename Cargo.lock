@@ -2578,7 +2578,6 @@ dependencies = [
 name = "teeny-runtime"
 version = "0.1.0"
 dependencies = [
- "ndarray",
  "once_cell",
  "teeny-core",
  "teeny-cpu",

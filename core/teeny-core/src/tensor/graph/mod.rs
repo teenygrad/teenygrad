@@ -15,159 +15,163 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cell::RefCell;
-use std::rc::Rc;
+// use std::ops::Add;
+// use std::sync::Arc;
 
-use crate::tensor::graph::value::ValueRef;
+// #[cfg(feature = "training")]
+// use ndarray::IxDyn;
 
-pub mod value;
+// use crate::device::Device;
+// use crate::dtype;
+// use crate::error::Result;
+// use crate::tensor::graph::tensor_ops::TensorOp;
+// use crate::tensor::{Tensor, shape};
 
-/// A tensor in our computation graph
-#[derive(Debug, Clone)]
-pub struct VlaueTensor {
-    pub value: ValueRef,
-}
+// pub mod tensor_ops;
 
-impl VlaueTensor {
-    /// Zero all gradients in the tensor
-    pub fn zero_grad(&self) {
-        self.value.borrow_mut().zero_grad();
-    }
+// #[cfg(feature = "training")]
+// #[derive(Debug)]
+// pub struct AutogradContext<D: Device, N: dtype::Dtype> {
+//     pub activation: ndarray::Array<N, IxDyn>,
+//     pub grad: Option<ndarray::Array<N, IxDyn>>,
+//     pub requires_grad: bool,
+//     pub retain_grad: bool,
+//     _marker: std::marker::PhantomData<D>,
+// }
 
-    pub fn eval(&self) -> TensorData {
-        self.value.borrow_mut().eval();
-        self.value.borrow().data.clone().unwrap()
-    }
+// /// A tensor in our computation graph
+// #[derive(Debug, Clone)]
+// pub struct GraphTensor<D: Device, N: dtype::Dtype> {
+//     pub id: String,
+//     pub operation: Box<dyn TensorOp>,
+//     pub dependencies: Vec<Arc<GraphTensor<D, N>>>,
+//     #[cfg(feature = "training")]
+//     pub autograd_context: Option<AutogradContext<D, N>>,
+//     _marker: std::marker::PhantomData<D>,
+// }
 
-    /// Backward pass through the entire tensor
-    pub fn backward(&self) {
-        let value = self.value.borrow_mut();
-        value.backward();
-    }
+// impl<D: Device, N: dtype::Dtype> Tensor<D, N> for GraphTensor<D, N> {
+//     fn zeros<S: shape::Shape>(shape: S) -> Result<Self> {
+//         todo!()
+//     }
 
-    /// Get gradients for all values in the tensor
-    pub fn grad(&self) -> Option<TensorData> {
-        self.value.borrow().grad.clone()
-    }
+//     fn randn<S: shape::Shape>(shape: S) -> Result<Self> {
+//         todo!()
+//     }
 
-    /// Update values using gradients (for optimization)
-    pub fn update(&mut self, learning_rate: f32) {
-        let grad = self.value.borrow().grad.as_ref().unwrap().clone();
+//     fn arange(start: N, end: N, step: N) -> Result<Self> {
+//         todo!()
+//     }
+// }
 
-        if let Some(ref mut data) = self.value.borrow_mut().data {
-            *data = learning_rate * grad;
-        }
-    }
-}
+// impl<D: Device, N: dtype::Dtype> Add<GraphTensor<D, N>> for GraphTensor<D, N> {
+//     type Output = GraphTensor<D, N>;
 
-pub fn log(x: VlaueTensor) -> VlaueTensor {
-    let requires_grad = x.value.borrow().requires_grad;
+//     fn add(self, other: GraphTensor<D, N>) -> Self::Output {
+//         todo!()
+//     }
+// }
 
-    let value = Rc::new(RefCell::new(Value::new(
-        None,
-        Box::new(LogOp),
-        vec![x.value.clone()],
-        requires_grad,
-    )));
+// impl GraphTensor {
+//     /// Zero all gradients in the tensor
+//     pub fn zero_grad(&self) {
+//         self.value.borrow_mut().zero_grad();
+//     }
 
-    VlaueTensor { value }
-}
+//     pub fn eval(&self) -> TensorData {
+//         self.value.borrow_mut().eval();
+//         self.value.borrow().data.clone().unwrap()
+//     }
 
-impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>> for VlaueTensor {
-    fn from(array: ndarray::ArrayBase<ndarray::ViewRepr<&f32>, D>) -> Self {
-        let data = array.to_owned().into_dyn();
-        let value = Rc::new(RefCell::new(Value::new(
-            Some(data),
-            Box::new(InputOp),
-            Vec::new(),
-            true,
-        )));
+//     /// Backward pass through the entire tensor
+//     pub fn backward(&self) {
+//         let value = self.value.borrow_mut();
+//         value.backward();
+//     }
 
-        VlaueTensor { value }
-    }
-}
+//     /// Get gradients for all values in the tensor
+//     pub fn grad(&self) -> Option<TensorData> {
+//         self.value.borrow().grad.clone()
+//     }
 
-impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>> for VlaueTensor {
-    fn from(array: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, D>) -> Self {
-        let value = Rc::new(RefCell::new(Value::new(
-            Some(array.to_owned().into_dyn()),
-            Box::new(InputOp),
-            Vec::new(),
-            true,
-        )));
+//     /// Update values using gradients (for optimization)
+//     pub fn update(&mut self, learning_rate: f32) {
+//         let grad = self.value.borrow().grad.as_ref().unwrap().clone();
 
-        VlaueTensor { value }
-    }
-}
+//         if let Some(ref mut data) = self.value.borrow_mut().data {
+//             *data = learning_rate * grad;
+//         }
+//     }
+// }
 
-impl<D: ndarray::Dimension> From<ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>> for VlaueTensor {
-    fn from(array: ndarray::ArrayBase<ndarray::CowRepr<'_, f32>, D>) -> Self {
-        let value = Rc::new(RefCell::new(Value::new(
-            Some(array.to_owned().into_dyn()),
-            Box::new(InputOp),
-            Vec::new(),
-            true,
-        )));
+// pub fn log(x: GraphTensor) -> GraphTensor {
+//     let requires_grad = x.value.borrow().requires_grad;
 
-        VlaueTensor { value }
-    }
-}
+//     let value = Rc::new(RefCell::new(Value::new(
+//         None,
+//         Box::new(LogOp),
+//         vec![x.value.clone()],
+//         requires_grad,
+//     )));
 
-#[cfg(test)]
-mod tests {
-    use ndarray::array;
+//     GraphTensor { value }
+// }
 
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use ndarray::array;
 
-    #[test]
-    fn test_autodiff_basic() {
-        // Create input tensors
-        let x: VlaueTensor = array![[2.0, 3.0], [4.0, 5.0]].into();
-        let y: VlaueTensor = array![[1.0, 2.0], [3.0, 4.0]].into();
+//     use super::*;
 
-        // Create computation graph: z = (x + y) * 2 + relu(x)
-        let z1 = x + y; // x + y
-        let z2 = z1.relu(); // relu(x + y)
-        let z3 = z2.mean(); // mean(relu(x + y))
+//     #[test]
+//     fn test_autodiff_basic() {
+//         // Create input tensors
+//         let x: GraphTensor = array![[2.0, 3.0], [4.0, 5.0]].into();
+//         let y: GraphTensor = array![[1.0, 2.0], [3.0, 4.0]].into();
 
-        // zero gradients
-        z3.zero_grad();
+//         // Create computation graph: z = (x + y) * 2 + relu(x)
+//         let z1 = x + y; // x + y
+//         let z2 = z1.relu(); // relu(x + y)
+//         let z3 = z2.mean(); // mean(relu(x + y))
 
-        // Backward pass
-        z3.backward();
-    }
+//         // zero gradients
+//         z3.zero_grad();
 
-    #[test]
-    fn test_autodiff_optimization() {
-        // Simple optimization example: minimize f(x) = x^2 + 2x + 1
-        let x_shape = vec![1];
-        let mut x = VlaueTensor::new(ndarray::Array::zeros(x_shape), true);
-        x.value.borrow_mut().data = Some(ndarray::Array::from_elem(vec![1], 3.0)); // Start at x = 3
+//         // Backward pass
+//         z3.backward();
+//     }
 
-        let learning_rate = 0.1;
+//     #[test]
+//     fn test_autodiff_optimization() {
+//         // Simple optimization example: minimize f(x) = x^2 + 2x + 1
+//         let x_shape = vec![1];
+//         let mut x = GraphTensor::new(ndarray::Array::zeros(x_shape), true);
+//         x.value.borrow_mut().data = Some(ndarray::Array::from_elem(vec![1], 3.0)); // Start at x = 3
 
-        for _ in 0..10 {
-            // Zero gradients
-            x.zero_grad();
+//         let learning_rate = 0.1;
 
-            // Forward pass: f(x) = x^2 + 2x + 1
-            let x_squared = &x * &x; // x^2
-            let two_x = 2.0 * &x; // 2x
-            let x_sq_plus_2x = x_squared + two_x; // x^2 + 2x
-            let one_shape = vec![1];
-            let one = VlaueTensor::new(ndarray::Array::zeros(one_shape), true);
-            one.value.borrow_mut().data = Some(ndarray::Array::from_elem(vec![1], 1.0));
-            let loss = x_sq_plus_2x + one; // x^2 + 2x + 1
+//         for _ in 0..10 {
+//             // Zero gradients
+//             x.zero_grad();
 
-            // Backward pass
-            loss.backward();
+//             // Forward pass: f(x) = x^2 + 2x + 1
+//             let x_squared = &x * &x; // x^2
+//             let two_x = 2.0 * &x; // 2x
+//             let x_sq_plus_2x = x_squared + two_x; // x^2 + 2x
+//             let one_shape = vec![1];
+//             let one = GraphTensor::new(ndarray::Array::zeros(one_shape), true);
+//             one.value.borrow_mut().data = Some(ndarray::Array::from_elem(vec![1], 1.0));
+//             let loss = x_sq_plus_2x + one; // x^2 + 2x + 1
 
-            // Update parameters
-            x.update(learning_rate);
-        }
+//             // Backward pass
+//             loss.backward();
 
-        // After optimization, x should be close to -1 (the minimum of f(x) = x^2 + 2x + 1)
-        let final_x = x.value.borrow().data.as_ref().unwrap().clone();
-        assert!(final_x.iter().any(|&v| (v - (-1.0)).abs() < 0.1));
-    }
-}
+//             // Update parameters
+//             x.update(learning_rate);
+//         }
+
+//         // After optimization, x should be close to -1 (the minimum of f(x) = x^2 + 2x + 1)
+//         let final_x = x.value.borrow().data.as_ref().unwrap().clone();
+//         assert!(final_x.iter().any(|&v| (v - (-1.0)).abs() < 0.1));
+//     }
+// }

@@ -15,12 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use thiserror::Error;
+pub type JitResult<T> = Result<T, Error>;
 
-pub type JitResult<T> = Result<T, JitError>;
-
-#[derive(Error, Debug)]
-pub enum JitError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("Failed to compile JIT module")]
     CompileError(String),
 }

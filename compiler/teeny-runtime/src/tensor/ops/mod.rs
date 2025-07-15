@@ -15,5 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[cfg(feature = "ndarray")]
-mod ndarray;
+use teeny_core::{dtype, tensor::shape};
+
+use crate::current_device;
+use crate::device::Device;
+use crate::error::{Error, Result};
+use crate::tensor::Tensor;
+
+#[cfg(feature = "cpu")]
+mod cpu;
+
+#[cfg(feature = "cuda")]
+mod cuda;
+
+pub fn zeros<N: dtype::Dtype, S: shape::Shape>(shape: S) -> Result<Tensor<N>> {
+    let device = current_device()?.ok_or(Error::NoDevicesAvailable)?;
+
+    match device.as_ref() {
+        Device::Cpu(_) => cpu::zeros(shape).map(|t| Tensor::Cpu(t)),
+        Device::Cuda(_) => cuda::zeros(shape).map(|t| Tensor::Cuda(t)),
+    }
+}

@@ -19,8 +19,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::device::Device;
+use crate::error::Error;
 use crate::error::Result;
-use crate::error::RuntimeError;
 
 use once_cell::sync::OnceCell;
 
@@ -40,7 +40,7 @@ pub fn current_device() -> Result<Option<Arc<Device>>> {
     let guard = CURRENT_DEVICE
         .get_or_init(|| Mutex::new(None))
         .try_lock()
-        .map_err(|_| RuntimeError::TryLockError("Failed to lock device".to_string()))?;
+        .map_err(|_| Error::TryLockError("Failed to lock device".to_string()))?;
 
     Ok((*guard).clone())
 }
@@ -49,13 +49,13 @@ pub fn set_current_device(device: Arc<Device>) -> Result<()> {
     let mut guard = CURRENT_DEVICE
         .get_or_init(|| Mutex::new(Some(device.clone())))
         .try_lock()
-        .map_err(|_| RuntimeError::TryLockError("Failed to set device".to_string()))?;
+        .map_err(|_| Error::TryLockError("Failed to set device".to_string()))?;
     *guard = Some(device.clone());
     Ok(())
 }
 
 pub fn init() -> Result<()> {
-    use_accelerator_with_fallback()?;
+    use_fallback_device()?;
 
     let device = current_device()?;
     if let Some(device) = device {
@@ -63,9 +63,17 @@ pub fn init() -> Result<()> {
         let name = device.name();
         println!("Using device: {id} {name}");
     } else {
-        return Err(RuntimeError::NoDevicesAvailable);
+        return Err(Error::NoDevicesAvailable);
     }
 
+    Ok(())
+}
+
+pub fn use_fallback_device() -> Result<()> {
+    let devices = find_cpu_devices()?;
+    if !devices.is_empty() {
+        set_current_device(Arc::new(devices[0].clone()))?;
+    }
     Ok(())
 }
 
@@ -74,10 +82,7 @@ pub fn use_accelerator_with_fallback() -> Result<()> {
     if !devices.is_empty() {
         set_current_device(Arc::new(devices[0].clone()))?;
     } else {
-        let devices = find_cpu_devices()?;
-        if !devices.is_empty() {
-            set_current_device(Arc::new(devices[0].clone()))?;
-        }
+        use_fallback_device()?;
     }
 
     Ok(())
@@ -88,7 +93,7 @@ pub fn find_cpu_devices() -> Result<Vec<Device>> {
     use teeny_cpu::driver::CpuDriver;
 
     let devices = CpuDriver::devices()
-        .map_err(RuntimeError::CpuDriverError)?
+        .map_err(Error::CpuError)?
         .into_iter()
         .map(Device::Cpu)
         .collect();
@@ -106,7 +111,7 @@ pub fn find_cuda_devices() -> Result<Vec<Device>> {
     use teeny_cuda::driver::CudaDriver;
 
     let devices = CudaDriver::devices()
-        .map_err(RuntimeError::CudaDriverError)?
+        .map_err(Error::CudaError)?
         .into_iter()
         .map(Device::Cuda)
         .collect();

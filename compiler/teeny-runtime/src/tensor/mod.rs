@@ -21,13 +21,14 @@ use teeny_core::dtype;
 
 pub mod ops;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum Tensor<T: dtype::Dtype> {
+pub enum Tensor<N: dtype::Dtype> {
     #[cfg(feature = "cpu")]
-    Cpu(teeny_cpu::tensor::CpuTensor<T>),
+    Cpu(teeny_cpu::tensor::CpuTensor<N>),
 
     #[cfg(feature = "cuda")]
-    Cuda(teeny_cuda::tensor::CudaTensor<T>),
+    Cuda(teeny_cuda::tensor::CudaTensor<N>),
 }
 
 pub type TensorRef<T> = Arc<Tensor<T>>;

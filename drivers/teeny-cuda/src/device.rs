@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::device::Device;
+
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {
     pub major: i32,
@@ -43,3 +45,5 @@ pub struct CudaDevice {
     pub name: String,
     pub properties: DeviceProperties,
 }
+
+impl Device for CudaDevice {}

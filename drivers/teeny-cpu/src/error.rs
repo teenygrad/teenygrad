@@ -15,12 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use thiserror::Error;
+pub type Result<T> = std::result::Result<T, Error>;
 
-pub type Result<T> = std::result::Result<T, DriverError>;
-
-#[derive(Error, Debug)]
-pub enum DriverError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("CPU driver error: {0}")]
     CpuError(String),
 }

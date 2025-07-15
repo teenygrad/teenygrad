@@ -5,11 +5,11 @@ set -e
 RELOGIN_REQUIRED=false
 
 # install build tools
-sudo apt-get install build-essential python3-dev
+sudo apt-get install build-essential cmake ninja-build python3-dev
 
 # checkif rustc is installed, if not install it
 if ! command -v rustc &> /dev/null
-then
+thenz
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     . "$HOME/.cargo/env"
 

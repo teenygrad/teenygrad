@@ -15,12 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::cuda;
+use crate::error::Error;
+use crate::error::Result;
+use teeny_core::{
+    dtype,
+    tensor::{Tensor as CoreTensor, shape},
+};
+use teeny_cuda::tensor::CudaTensor;
 
-pub type Result<T> = std::result::Result<T, Error>;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("CUDA error: {0}")]
-    CudaError(cuda::cudaError_enum),
+pub fn zeros<N: dtype::Dtype, S: shape::Shape>(shape: S) -> Result<CudaTensor<N>> {
+    CudaTensor::zeros(shape).map_err(Error::CoreError)
 }

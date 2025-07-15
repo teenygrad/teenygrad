@@ -19,7 +19,7 @@ use std::str::FromStr;
 
 use ndarray::{Array2, ArrayBase, Ix2, OwnedRepr};
 
-use crate::error::{Result, TeenyDataError};
+use crate::error::{Error, Result};
 
 pub async fn load_csv<T: FromStr>(
     url: &str,
@@ -37,12 +37,12 @@ pub async fn load_csv<T: FromStr>(
             .iter()
             .map(|s| s.parse::<T>())
             .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|_| TeenyDataError::ParseValueError(format!("{record:?}")))?;
+            .map_err(|_| Error::ParseValueError(format!("{record:?}")))?;
         data.push(record);
     }
 
     if data.is_empty() {
-        return Err(TeenyDataError::ParseValueError("No data found".to_string()));
+        return Err(Error::ParseValueError("No data found".to_string()));
     }
 
     let shape = (data.len(), data[0].len());
