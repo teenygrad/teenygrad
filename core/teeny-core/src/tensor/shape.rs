@@ -21,27 +21,8 @@ use std::ops::Index;
 pub trait Shape {
     const RANK: usize;
     type Dims: AsRef<[usize]> + Clone + Index<usize, Output = usize>;
-    fn dims() -> Self::Dims;
-}
 
-/// A 0-dimensional tensor (scalar)
-pub struct ScalarShape;
-impl Shape for ScalarShape {
-    const RANK: usize = 0;
-    type Dims = [usize; 0];
-    fn dims() -> Self::Dims {
-        []
-    }
-}
-
-/// A 1-dimensional tensor
-pub struct Dim1<const N: usize>;
-impl<const N: usize> Shape for Dim1<N> {
-    const RANK: usize = 1;
-    type Dims = [usize; 1];
-    fn dims() -> Self::Dims {
-        [N]
-    }
+    fn dims(&self) -> Self::Dims;
 }
 
 /// A dynamically sized tensor shape
@@ -50,8 +31,10 @@ pub struct DynamicShape {
 }
 
 impl DynamicShape {
-    pub fn new(dims: Vec<usize>) -> Self {
-        Self { dims }
+    pub fn new(dims: &[usize]) -> Self {
+        Self {
+            dims: dims.to_vec(),
+        }
     }
 }
 
@@ -67,30 +50,16 @@ impl Shape for DynamicShape {
     const RANK: usize = 0; // This will be determined at runtime
     type Dims = Vec<usize>;
 
-    fn dims() -> Self::Dims {
-        Vec::new() // This will be overridden at runtime
+    fn dims(&self) -> Self::Dims {
+        self.dims.clone()
     }
 }
 
-#[cfg(feature = "ndarray")]
-impl From<DynamicShape> for ndarray::Shape<ndarray::IxDyn> {
-    fn from(shape: DynamicShape) -> Self {
-        use ndarray::IntoDimension;
-
-        ndarray::Shape::from(&shape.dims.into_dimension())
-    }
+#[macro_export]
+macro_rules! shape {
+    ($($dim:expr),*) => {
+        DynamicShape {
+            dims: vec![$($dim),*],
+        }
+    };
 }
-
-// #[cfg(feature = "ndarray")]
-// impl From<ScalarShape> for ndarray::Shape<ndarray::Ix0> {
-//     fn from(_: ScalarShape) -> Self {
-//         ndarray::Shape::from(&ScalarShape::dims())
-//     }
-// }
-
-// #[cfg(feature = "ndarray")]
-// impl<const N: usize> From<Dim1<N>> for ndarray::IxDyn {
-//     fn from(_: Dim1<N>) -> Self {
-//         ndarray::IxDyn(&[N])
-//     }
-// }

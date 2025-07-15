@@ -18,11 +18,15 @@
 pub mod activation;
 pub mod embedding;
 pub mod linear;
-pub mod loss;
+
 pub mod macros;
 pub mod module;
-pub mod optim;
 pub mod sequential;
+
+#[cfg(feature = "training")]
+pub mod loss;
+#[cfg(feature = "training")]
+pub mod optim;
 
 // modules
 // pub use embedding::Embedding;

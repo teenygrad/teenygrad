@@ -21,6 +21,9 @@ use crate::{device::Device, dtype};
 
 pub mod shape;
 
+#[cfg(feature = "ndarray")]
+pub mod ndarray;
+
 pub trait Tensor<D: Device, N: dtype::Dtype>: Sized + Add<Output = Self> + std::fmt::Debug {
     fn zeros<S: shape::Shape>(shape: S) -> Self;
     fn randn<S: shape::Shape>(shape: S) -> Self;

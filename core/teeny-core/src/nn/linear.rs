@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 
 use crate::{
     device::Device,
-    dtype,
+    dtype, shape,
     tensor::{Tensor, shape::DynamicShape},
 };
 
@@ -36,12 +36,11 @@ where
 impl<D: Device, N: dtype::Dtype, T: Tensor<D, N>> Linear<D, N, T> {
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Self {
         // Initialize weight tensor with proper shape
-        let weight = Tensor::zeros(DynamicShape::new(vec![output_dim, input_dim]));
+        let weight = Tensor::zeros(shape![output_dim, input_dim]);
 
         // Initialize bias if needed
         let bias = if use_bias {
-            let bias_shape = vec![output_dim];
-            Some(Tensor::zeros(DynamicShape::new(bias_shape)))
+            Some(Tensor::zeros(shape![output_dim]))
         } else {
             None
         };

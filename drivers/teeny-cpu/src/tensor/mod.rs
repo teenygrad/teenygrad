@@ -18,20 +18,20 @@
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
 
-use teeny_core::{dtype, tensor::shape};
+use teeny_core::dtype;
 
 #[derive(Debug)]
 pub struct CpuTensor<T: dtype::Dtype> {
     pub data: ndarray::Array<T, IxDyn>,
 }
 
-impl<T: dtype::Dtype> CpuTensor<T> {
-    pub fn zeros<S: shape::Shape>(shape: S) -> Self {
-        Self {
-            data: ndarray::Array::zeros::<IxDyn>(shape.into()),
-        }
-    }
-}
+// impl<T: dtype::Dtype> CpuTensor<T> {
+//     pub fn zeros<S: shape::Shape>(shape: S) -> Self {
+//         Self {
+//             data: ndarray::Array::zeros::<IxDyn>(shape.into()),
+//         }
+//     }
+// }
 
 impl<T: dtype::Dtype> From<ndarray::Array<T, IxDyn>> for CpuTensor<T> {
     fn from(data: ndarray::Array<T, IxDyn>) -> Self {
