@@ -15,19 +15,31 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Add;
+pub mod add_op;
+pub mod bias_op;
+pub mod input_op;
+pub mod log_op;
+pub mod mean_op;
+pub mod mult_op;
+pub mod param_op;
+pub mod relu_op;
+pub mod sigmoid_op;
+pub mod sub_op;
+pub mod transpose_op;
 
-use crate::error::Result;
-use crate::{device::Device, dtype};
+use std::fmt::Debug;
 
-pub mod graph;
-pub mod shape;
+use crate::tensorx::{TensorData, ValueRef};
+pub trait TensorOp: Debug {
+    fn is_param(&self) -> bool {
+        false
+    }
 
-#[cfg(feature = "ndarray")]
-pub mod ndarray;
+    fn eval(&self, dependencies: &[ValueRef]) -> TensorData;
 
-pub trait Tensor<D: Device, N: dtype::Dtype>: Sized + Add<Output = Self> + std::fmt::Debug {
-    fn zeros<S: shape::Shape>(shape: S) -> Result<Self>;
-    fn randn<S: shape::Shape>(shape: S) -> Result<Self>;
-    fn arange(start: N, end: N, step: N) -> Result<Self>;
+    fn backward(
+        &self,
+        dependencies: &[ValueRef],
+        grad: &ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>,
+    );
 }

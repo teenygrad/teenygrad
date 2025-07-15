@@ -35,7 +35,7 @@ impl<T: dtype::Dtype> TryFrom<Array<T, IxDyn>> for Tensor<T> {
 
         match *device {
             #[cfg(feature = "cpu")]
-            Device::Cpu(_) => Ok(Tensor::Cpu(CpuTensor::from(array))),
+            Device::Cpu(_) => Ok(Tensor::Cpu(CpuTensor::new(array))),
 
             #[cfg(feature = "cuda")]
             Device::Cuda(_) => Ok(Tensor::Cuda(CudaTensor::from(array))),

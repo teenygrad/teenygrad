@@ -17,17 +17,17 @@
 
 use std::ops::Add;
 
-use crate::error::Result;
-use crate::{device::Device, dtype};
+use crate::{device::Device, dtype, tensor::ndarray::NdarrayTensor};
 
-pub mod graph;
-pub mod shape;
+impl<D: Device, N: dtype::Dtype> Add<NdarrayTensor<D, N>> for NdarrayTensor<D, N> {
+    type Output = Self;
 
-#[cfg(feature = "ndarray")]
-pub mod ndarray;
-
-pub trait Tensor<D: Device, N: dtype::Dtype>: Sized + Add<Output = Self> + std::fmt::Debug {
-    fn zeros<S: shape::Shape>(shape: S) -> Result<Self>;
-    fn randn<S: shape::Shape>(shape: S) -> Result<Self>;
-    fn arange(start: N, end: N, step: N) -> Result<Self>;
+    fn add(self, _other: Self) -> Self::Output {
+        NdarrayTensor {
+            data: self.data + _other.data,
+            #[cfg(feature = "training")]
+            autograd_context: None,
+            _marker: std::marker::PhantomData,
+        }
+    }
 }

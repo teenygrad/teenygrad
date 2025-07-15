@@ -15,26 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[cfg(feature = "ndarray")]
-use ndarray::IxDyn;
+use teeny_core::tensor::ndarray::NdarrayTensor;
 
-use teeny_core::dtype;
+use crate::device::CpuDevice;
 
-#[derive(Debug)]
-pub struct CpuTensor<T: dtype::Dtype> {
-    pub data: ndarray::Array<T, IxDyn>,
-}
-
-// impl<T: dtype::Dtype> CpuTensor<T> {
-//     pub fn zeros<S: shape::Shape>(shape: S) -> Self {
-//         Self {
-//             data: ndarray::Array::zeros::<IxDyn>(shape.into()),
-//         }
-//     }
-// }
-
-impl<T: dtype::Dtype> From<ndarray::Array<T, IxDyn>> for CpuTensor<T> {
-    fn from(data: ndarray::Array<T, IxDyn>) -> Self {
-        Self { data }
-    }
-}
+pub type CpuTensor<N> = NdarrayTensor<CpuDevice, N>;

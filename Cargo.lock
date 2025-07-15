@@ -2463,7 +2463,6 @@ name = "teeny-cpu"
 version = "0.1.0"
 dependencies = [
  "cpuid",
- "ndarray",
  "target-triple",
  "teeny-core",
  "thiserror 2.0.12",
