@@ -2,10 +2,10 @@
 
 set -e
 
+RELOGIN_REQUIRED=false
+
 # install build tools
 sudo apt-get install build-essential python3-dev
-
-RELOGIN_REQUIRED=false
 
 # checkif rustc is installed, if not install it
 if ! command -v rustc &> /dev/null
