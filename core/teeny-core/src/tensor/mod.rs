@@ -17,6 +17,7 @@
 
 use std::ops::Add;
 
+use crate::error::Result;
 use crate::{device::Device, dtype};
 
 pub mod shape;
@@ -25,7 +26,7 @@ pub mod shape;
 pub mod ndarray;
 
 pub trait Tensor<D: Device, N: dtype::Dtype>: Sized + Add<Output = Self> + std::fmt::Debug {
-    fn zeros<S: shape::Shape>(shape: S) -> Self;
-    fn randn<S: shape::Shape>(shape: S) -> Self;
-    fn arange(start: N, end: N, step: N) -> Self;
+    fn zeros<S: shape::Shape>(shape: S) -> Result<Self>;
+    fn randn<S: shape::Shape>(shape: S) -> Result<Self>;
+    fn arange(start: N, end: N, step: N) -> Result<Self>;
 }

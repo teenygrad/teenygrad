@@ -15,12 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use num_traits::Zero;
+use num_traits::{Float, Zero};
 
-pub trait Dtype: 'static + Clone + Zero + std::fmt::Debug {
+pub trait Dtype: 'static + Default + Clone + Float + Zero + std::fmt::Debug {
     type RustType: Send + Sync + Clone + Copy + 'static;
 }
 
 impl Dtype for f32 {
     type RustType = f32;
+}
+
+impl Dtype for f64 {
+    type RustType = f64;
+}
+
+/// Converts any type that implements `Into<f32>` (such as f64, f32, etc.) to f32.
+pub fn to_f32<T: Into<f32>>(value: T) -> f32 {
+    value.into()
 }

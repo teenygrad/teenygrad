@@ -18,10 +18,14 @@
 use std::ops::Add;
 
 use ndarray::IxDyn;
+use ndarray_rand::RandomExt;
+use ndarray_rand::rand_distr;
 
+use crate::error::Error;
 use crate::{
     device::Device,
     dtype,
+    error::Result,
     tensor::{
         Tensor,
         shape::{self, Shape},
@@ -35,19 +39,29 @@ pub struct NdarrayTensor<D: Device, N: dtype::Dtype> {
 }
 
 impl<D: Device, N: dtype::Dtype> Tensor<D, N> for NdarrayTensor<D, N> {
-    fn zeros<S: shape::Shape>(shape: S) -> Self {
-        Self {
+    fn zeros<S: shape::Shape>(shape: S) -> Result<Self> {
+        Ok(Self {
             data: ndarray::Array::zeros::<IxDyn>(shape.to_ndarray_shape()),
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 
-    fn randn<S: shape::Shape>(_shape: S) -> Self {
-        todo!()
+    fn randn<S: shape::Shape>(shape: S) -> Result<Self> {
+        let distribution =
+            rand_distr::Normal::new(0.0f32, 1.0).map_err(|e| Error::NdarrayError(e.to_string()))?;
+        let data = ndarray::Array::random(shape.to_ndarray_shape(), distribution).into_dyn();
+
+        Ok(Self {
+            data: data.mapv(|x| N::from(x).unwrap_or_default()),
+            _marker: std::marker::PhantomData,
+        })
     }
 
-    fn arange(_start: N, _end: N, _step: N) -> Self {
-        todo!()
+    fn arange(start: N, end: N, step: N) -> Result<Self> {
+        Ok(Self {
+            data: ndarray::Array::range(start, end, step).into_dyn(),
+            _marker: std::marker::PhantomData,
+        })
     }
 }
 

@@ -17,10 +17,13 @@
 
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, TeenyError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
-pub enum TeenyError {
+pub enum Error {
     #[error("Lock error: {0}")]
     TryLockError(String),
+
+    #[error("Ndarray error: {0}")]
+    NdarrayError(String),
 }
