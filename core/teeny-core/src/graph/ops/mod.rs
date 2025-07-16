@@ -28,6 +28,7 @@ pub mod relu;
 pub mod scalar;
 pub mod sigmoid;
 pub mod sub;
+pub mod tensor;
 pub mod zeros;
 
 // pub mod add_op;

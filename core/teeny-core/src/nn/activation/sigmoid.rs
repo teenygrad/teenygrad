@@ -15,13 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[derive(Debug, Clone, Default)]
-pub struct Sigmoid;
+use std::sync::Arc;
 
-impl Sigmoid {
-    pub fn new() -> Self {
-        Self {}
-    }
+use crate::{
+    dtype,
+    graph::{Node, NodeOp, ops::sigmoid::SigmoidOp},
+    tensor::shape::Shape,
+};
+
+pub fn sigmoid<S: Shape, N: dtype::Dtype>(input: &Arc<Node<S, N>>) -> Arc<Node<S, N>> {
+    Arc::new(NodeOp::Sigmoid(SigmoidOp::new(input.clone())).into())
 }
 
 // impl<T: num::Num> Module1<T, &Tensor, Tensor> for Sigmoid {

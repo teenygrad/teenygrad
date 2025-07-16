@@ -15,31 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
+use crate::dtype::Dtype;
 
-pub mod macros;
-pub mod module;
-pub mod sequential;
+#[derive(Debug, Clone)]
+pub struct TensorOp<N: Dtype> {
+    pub input: Vec<N>,
+}
 
-#[cfg(feature = "training")]
-pub mod loss;
-#[cfg(feature = "training")]
-pub mod optim;
-
-// modules
-// pub use embedding::Embedding;
-pub use module::Module;
-// pub use sequential::Sequential;
-
-// activations
-pub use activation::relu;
-pub use activation::sigmoid;
-
-// // losses
-// pub use loss::bce_loss::BCELoss;
-
-// // optimizers
-// pub use optim::adam::Adam;
-// pub use optim::adam::AdamBuilder;
+impl<N: Dtype> TensorOp<N> {
+    pub fn new(input: &[N]) -> Self {
+        Self {
+            input: input.to_vec(),
+        }
+    }
+}

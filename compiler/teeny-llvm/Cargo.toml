@@ -14,6 +14,7 @@ default = ["cuda"]
 cuda = []
 
 [dependencies]
+thiserror.workspace = true
 
 [build-dependencies]
 cargo_metadata.workspace = true

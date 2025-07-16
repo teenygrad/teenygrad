@@ -15,17 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
+use std::sync::Arc;
 
-use crate::dtype;
+use crate::{
+    dtype,
+    graph::{Node, NodeOp, ops::relu::ReluOp},
+    tensor::shape::Shape,
+};
 
-#[derive(Debug, Clone, Default)]
-pub struct ReLU<T: dtype::Dtype>(PhantomData<T>);
-
-impl<T: dtype::Dtype> ReLU<T> {
-    pub fn new() -> Self {
-        Self(PhantomData)
-    }
+pub fn relu<S: Shape, N: dtype::Dtype>(input: &Arc<Node<S, N>>) -> Arc<Node<S, N>> {
+    Arc::new(NodeOp::Relu(ReluOp::new(input.clone())).into())
 }
 
 // impl<T: num::Num> Module1<T, &Tensor, Tensor> for ReLU<T> {

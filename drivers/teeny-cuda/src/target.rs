@@ -15,31 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
+// List of NVIDIA CUDA GPU architectures (compute capabilities), the lowest card we
+// support is the 1080 series with sm_60.
 
-pub mod macros;
-pub mod module;
-pub mod sequential;
-
-#[cfg(feature = "training")]
-pub mod loss;
-#[cfg(feature = "training")]
-pub mod optim;
-
-// modules
-// pub use embedding::Embedding;
-pub use module::Module;
-// pub use sequential::Sequential;
-
-// activations
-pub use activation::relu;
-pub use activation::sigmoid;
-
-// // losses
-// pub use loss::bce_loss::BCELoss;
-
-// // optimizers
-// pub use optim::adam::Adam;
-// pub use optim::adam::AdamBuilder;
+// - Pascal (sm_60, sm_61, sm_62)
+// - Volta (sm_70, sm_72)
+// - Turing (sm_75)
+// - Ampere (sm_80, sm_86)
+// - Hopper (sm_89)
+// - Ada Lovelace (sm_90)
+// - Blackwell (sm_100)

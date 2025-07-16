@@ -15,13 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::dtype;
-use teeny_runtime::tensor::Tensor;
+use std::sync::Arc;
+
+use teeny_core::{
+    dtype,
+    graph::{self},
+    tensor::shape::DynamicShape,
+};
 
 #[derive(Debug)]
 pub struct VectorAdd<T: dtype::Dtype> {
-    pub v1: Tensor<T>,
-    pub v2: Tensor<T>,
+    pub v1: Arc<graph::Node<DynamicShape, T>>,
+    pub v2: Arc<graph::Node<DynamicShape, T>>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -31,23 +36,22 @@ impl<T: dtype::Dtype> VectorAdd<T> {
         T: dtype::Dtype + Copy + 'static,
         f32: Into<T>,
     {
-        // Create arrays with the correct type by converting f32 to T
-        let data: Vec<T> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-            .into_iter()
-            .map(|x| x.into())
-            .collect();
-        let _array = ndarray::Array1::from_vec(data).into_dyn();
+        let v1 = [1.0, 2.0, 3.0].map(|x| x.into());
+        let v2 = [4.0, 5.0, 6.0].map(|x| x.into());
 
-        todo!()
-        // Self {
-        //     v1: <D>::from_ndarray(array.clone()),
-        //     v2: <D>::from_ndarray(array),
-        // }
+        Self {
+            v1: Arc::new(graph::tensor(&v1)),
+            v2: Arc::new(graph::tensor(&v2)),
+        }
     }
 }
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _model: VectorAdd<f32> = VectorAdd::new();
+
+    // compile the model
+    // run the model
+    // evaluate the model
 
     Ok(())
 }

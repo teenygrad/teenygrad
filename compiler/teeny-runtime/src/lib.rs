@@ -30,6 +30,7 @@ extern crate teeny_cpu;
 #[cfg(feature = "cuda")]
 extern crate teeny_cuda;
 
+pub mod compiler;
 pub mod device;
 pub mod error;
 pub mod tensor;

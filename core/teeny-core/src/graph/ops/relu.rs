@@ -24,3 +24,9 @@ use crate::{dtype::Dtype, tensor::shape::Shape};
 pub struct ReluOp<S: Shape, N: Dtype> {
     pub input: Arc<Node<S, N>>,
 }
+
+impl<S: Shape, N: Dtype> ReluOp<S, N> {
+    pub fn new(input: Arc<Node<S, N>>) -> Self {
+        Self { input }
+    }
+}

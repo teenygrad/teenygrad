@@ -15,4 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+mod llvm;
+
+pub mod compiler;
+pub mod error;
+pub mod module;

@@ -15,31 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod activation;
-pub mod embedding;
-pub mod linear;
+use thiserror::Error;
 
-pub mod macros;
-pub mod module;
-pub mod sequential;
+pub type Result<T> = std::result::Result<T, Error>;
 
-#[cfg(feature = "training")]
-pub mod loss;
-#[cfg(feature = "training")]
-pub mod optim;
-
-// modules
-// pub use embedding::Embedding;
-pub use module::Module;
-// pub use sequential::Sequential;
-
-// activations
-pub use activation::relu;
-pub use activation::sigmoid;
-
-// // losses
-// pub use loss::bce_loss::BCELoss;
-
-// // optimizers
-// pub use optim::adam::Adam;
-// pub use optim::adam::AdamBuilder;
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("failed to compile module: {0}")]
+    CompileError(String),
+}

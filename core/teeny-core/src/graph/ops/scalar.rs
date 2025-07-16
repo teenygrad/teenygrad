@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::dtype::Dtype;
 
 #[derive(Debug, Clone)]
 pub struct ScalarOp<N: Dtype> {

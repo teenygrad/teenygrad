@@ -25,7 +25,7 @@ pub trait Shape {
     fn dims(&self) -> Self::Dims;
 }
 
-/// A dynamically sized tensor shape
+#[derive(Debug, Clone)]
 pub struct DynamicShape {
     pub dims: Vec<usize>,
 }

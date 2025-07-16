@@ -18,7 +18,8 @@
 pub mod ops;
 
 use crate::dtype::Dtype;
-use crate::tensor::shape::Shape;
+use crate::graph::ops::tensor::TensorOp;
+use crate::tensor::shape::{DynamicShape, Shape};
 
 use ops::add::AddOp;
 use ops::arange::ArangeOp;
@@ -36,7 +37,7 @@ use ops::sub::SubOp;
 use ops::zeros::ZerosOp;
 
 #[derive(Debug, Clone)]
-pub enum Node<S: Shape, N: Dtype> {
+pub enum NodeOp<S: Shape, N: Dtype> {
     Scalar(ScalarOp<N>),
     Add(AddOp<S, N>),
     Sub(SubOp<S, N>),
@@ -51,18 +52,56 @@ pub enum Node<S: Shape, N: Dtype> {
     Randn(RandnOp<S, N>),
     Relu(ReluOp<S, N>),
     Sigmoid(SigmoidOp<S, N>),
+    Tensor(TensorOp<N>),
+}
+
+#[cfg(feature = "training")]
+#[derive(Debug, Clone)]
+pub struct AutogradContext {
+    pub requires_grad: bool,
+    pub retain_grad: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Node<S: Shape, N: Dtype> {
+    pub op: NodeOp<S, N>,
+    #[cfg(feature = "training")]
+    pub autograd_context: Option<AutogradContext>,
+}
+
+impl<S: Shape, N: Dtype> Node<S, N> {
+    pub fn new(op: NodeOp<S, N>, required_grad: bool, retain_grad: bool) -> Self {
+        Self {
+            op,
+            #[cfg(feature = "training")]
+            autograd_context: Some(AutogradContext {
+                requires_grad: required_grad,
+                retain_grad,
+            }),
+        }
+    }
+}
+
+impl<S: Shape, N: Dtype> From<NodeOp<S, N>> for Node<S, N> {
+    fn from(op: NodeOp<S, N>) -> Self {
+        Self::new(op, true, false)
+    }
 }
 
 pub fn zeros<S: Shape, N: Dtype>(shape: S) -> Node<S, N> {
-    Node::Zeros(ZerosOp::new(shape))
+    NodeOp::Zeros(ZerosOp::new(shape)).into()
 }
 
 pub fn randn<S: Shape, N: Dtype>(shape: S) -> Node<S, N> {
-    Node::Randn(RandnOp::new(shape))
+    NodeOp::Randn(RandnOp::new(shape)).into()
 }
 
 pub fn arange<S: Shape, N: Dtype>(start: N, end: N, step: N) -> Node<S, N> {
-    Node::Arange(ArangeOp::new(start, end, step))
+    NodeOp::Arange(ArangeOp::new(start, end, step)).into()
+}
+
+pub fn tensor<N: Dtype>(input: &[N]) -> Node<DynamicShape, N> {
+    NodeOp::Tensor(TensorOp::new(input)).into()
 }
 
 // use std::ops::Add;

@@ -2540,6 +2540,7 @@ dependencies = [
  "cfgrammar",
  "lrlex",
  "lrpar",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -2582,6 +2583,7 @@ dependencies = [
  "teeny-core",
  "teeny-cpu",
  "teeny-cuda",
+ "teeny-llvm",
  "thiserror 2.0.12",
 ]
 
