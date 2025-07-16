@@ -15,9 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
+use std::marker::PhantomData;
 
-use crate::{dtype, graph, tensor::shape::Shape};
-pub trait Module<S: Shape, N: dtype::Dtype> {
-    fn parameters(&self) -> Vec<Arc<graph::Node<S, N>>>;
+use crate::{dtype::Dtype, tensor::shape::Shape};
+
+#[derive(Debug, Clone)]
+pub struct ArangeOp<S: Shape, N: Dtype> {
+    pub start: N,
+    pub end: N,
+    pub step: N,
+    _marker: PhantomData<S>,
+}
+
+impl<S: Shape, N: Dtype> ArangeOp<S, N> {
+    pub fn new(start: N, end: N, step: N) -> Self {
+        Self {
+            start,
+            end,
+            step,
+            _marker: PhantomData,
+        }
+    }
 }

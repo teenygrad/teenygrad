@@ -20,7 +20,6 @@ use std::ops::Add;
 use crate::error::Result;
 use crate::{device::Device, dtype};
 
-pub mod graph;
 pub mod shape;
 
 #[cfg(feature = "ndarray")]

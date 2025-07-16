@@ -15,31 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod add_op;
-pub mod bias_op;
-pub mod input_op;
-pub mod log_op;
-pub mod mean_op;
-pub mod mult_op;
-pub mod param_op;
-pub mod relu_op;
-pub mod sigmoid_op;
-pub mod sub_op;
-pub mod transpose_op;
+use std::sync::Arc;
 
-use std::fmt::Debug;
+use crate::graph::Node;
+use crate::{dtype::Dtype, tensor::shape::Shape};
 
-use crate::tensorx::{TensorData, ValueRef};
-pub trait TensorOp: Debug {
-    fn is_param(&self) -> bool {
-        false
-    }
-
-    fn eval(&self, dependencies: &[ValueRef]) -> TensorData;
-
-    fn backward(
-        &self,
-        dependencies: &[ValueRef],
-        grad: &ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::IxDyn>,
-    );
+#[derive(Debug, Clone)]
+pub struct LogOp<S: Shape, N: Dtype> {
+    pub input: Arc<Node<S, N>>,
 }

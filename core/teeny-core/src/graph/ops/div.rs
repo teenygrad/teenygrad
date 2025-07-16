@@ -17,7 +17,11 @@
 
 use std::sync::Arc;
 
-use crate::{dtype, graph, tensor::shape::Shape};
-pub trait Module<S: Shape, N: dtype::Dtype> {
-    fn parameters(&self) -> Vec<Arc<graph::Node<S, N>>>;
+use crate::graph::Node;
+use crate::{dtype::Dtype, tensor::shape::Shape};
+
+#[derive(Debug, Clone)]
+pub struct DivOp<S: Shape, N: Dtype> {
+    pub lhs: Arc<Node<S, N>>,
+    pub rhs: Arc<Node<S, N>>,
 }

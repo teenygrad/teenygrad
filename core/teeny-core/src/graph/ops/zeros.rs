@@ -15,9 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
+use std::marker::PhantomData;
 
-use crate::{dtype, graph, tensor::shape::Shape};
-pub trait Module<S: Shape, N: dtype::Dtype> {
-    fn parameters(&self) -> Vec<Arc<graph::Node<S, N>>>;
+use crate::{dtype::Dtype, tensor::shape::Shape};
+
+#[derive(Debug, Clone)]
+pub struct ZerosOp<S: Shape, N: Dtype> {
+    pub shape: S,
+    _marker: PhantomData<N>,
+}
+
+impl<S: Shape, N: Dtype> ZerosOp<S, N> {
+    pub fn new(shape: S) -> Self {
+        Self {
+            shape,
+            _marker: PhantomData,
+        }
+    }
 }

@@ -58,7 +58,7 @@ impl Shape for DynamicShape {
 #[macro_export]
 macro_rules! shape {
     ($($dim:expr),*) => {
-        DynamicShape {
+        $crate::tensor::shape::DynamicShape {
             dims: vec![$($dim),*],
         }
     };

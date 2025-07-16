@@ -15,6 +15,56 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod ops;
+
+use crate::dtype::Dtype;
+use crate::tensor::shape::Shape;
+
+use ops::add::AddOp;
+use ops::arange::ArangeOp;
+use ops::div::DivOp;
+use ops::exp::ExpOp;
+use ops::log::LogOp;
+use ops::mean::MeanOp;
+use ops::mult::MultOp;
+use ops::neg::NegOp;
+use ops::randn::RandnOp;
+use ops::relu::ReluOp;
+use ops::scalar::ScalarOp;
+use ops::sigmoid::SigmoidOp;
+use ops::sub::SubOp;
+use ops::zeros::ZerosOp;
+
+#[derive(Debug, Clone)]
+pub enum Node<S: Shape, N: Dtype> {
+    Scalar(ScalarOp<N>),
+    Add(AddOp<S, N>),
+    Sub(SubOp<S, N>),
+    Mult(MultOp<S, N>),
+    Div(DivOp<S, N>),
+    Neg(NegOp<S, N>),
+    Log(LogOp<S, N>),
+    Exp(ExpOp<S, N>),
+    Mean(MeanOp<S, N>),
+    Zeros(ZerosOp<S, N>),
+    Arange(ArangeOp<S, N>),
+    Randn(RandnOp<S, N>),
+    Relu(ReluOp<S, N>),
+    Sigmoid(SigmoidOp<S, N>),
+}
+
+pub fn zeros<S: Shape, N: Dtype>(shape: S) -> Node<S, N> {
+    Node::Zeros(ZerosOp::new(shape))
+}
+
+pub fn randn<S: Shape, N: Dtype>(shape: S) -> Node<S, N> {
+    Node::Randn(RandnOp::new(shape))
+}
+
+pub fn arange<S: Shape, N: Dtype>(start: N, end: N, step: N) -> Node<S, N> {
+    Node::Arange(ArangeOp::new(start, end, step))
+}
+
 // use std::ops::Add;
 // use std::sync::Arc;
 

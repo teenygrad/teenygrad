@@ -15,44 +15,37 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
+use std::sync::Arc;
 
-use crate::{
-    device::Device,
-    dtype,
-    error::Result,
-    shape,
-    tensor::{Tensor, shape::DynamicShape},
-};
+use crate::{dtype, error::Result, graph, nn::Module, shape, tensor::shape::DynamicShape};
 
-pub struct Linear<D: Device, N: dtype::Dtype, T: Tensor<D, N>>
-where
-    T: Tensor<D, N>,
-{
-    pub weight: T,
-    pub bias: Option<T>,
-    _device: PhantomData<D>,
-    _num: PhantomData<N>,
+pub struct Linear<N: dtype::Dtype> {
+    pub weight: Arc<graph::Node<DynamicShape, N>>,
+    pub bias: Option<Arc<graph::Node<DynamicShape, N>>>,
 }
 
-impl<D: Device, N: dtype::Dtype, T: Tensor<D, N>> Linear<D, N, T> {
+impl<N: dtype::Dtype> Linear<N> {
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
-        // Initialize weight tensor with proper shape
-        let weight = Tensor::zeros(shape![output_dim, input_dim])?;
+        let weight = Arc::new(graph::randn(shape![output_dim, input_dim]));
 
-        // Initialize bias if needed
         let bias = if use_bias {
-            Some(Tensor::zeros(shape![output_dim])?)
+            Some(Arc::new(graph::zeros(shape![output_dim])))
         } else {
             None
         };
 
-        Ok(Linear {
-            weight,
-            bias,
-            _device: PhantomData,
-            _num: PhantomData,
-        })
+        Ok(Linear { weight, bias })
+    }
+}
+
+impl<N: dtype::Dtype> Module<DynamicShape, N> for Linear<N> {
+    fn parameters(&self) -> Vec<Arc<graph::Node<DynamicShape, N>>> {
+        let mut params = vec![self.weight.clone()];
+        if let Some(bias) = &self.bias {
+            params.push(bias.clone());
+        }
+
+        params
     }
 }
 

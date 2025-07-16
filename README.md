@@ -48,9 +48,12 @@ Our goals:
 
 ## Roadmap
 
-- v0.1.0/Jun 30 - Compile Rust based kernel to PTX (nVidia 3090)
+- ✅ 0.0.0/Jun 30 - Compile Rust based kernel to PTX (nVidia 3090)
+  - Integrated Rust/LLVM/Triton to generate PTX for arbitrary MLIR modules
+  
+- v0.1.0/Jul 31 - Run Qwen3 1.7B model on CPU
 
-- v0.2.0/Jul 31 - Run Qwen3 1.7B model on nVidia 3090
+- v0.2.0/Aug 31 - Run Qwen3 1.7B model on nVidia 3090
 
 - v0.3.0/Sep 30 - Compile Triton kernels to SPIR-V
 
