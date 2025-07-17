@@ -15,13 +15,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// List of NVIDIA CUDA GPU architectures (compute capabilities), the lowest card we
-// support is the 1080 series with sm_60.
-
-// - Pascal (sm_60, sm_61, sm_62)
-// - Volta (sm_70, sm_72)
-// - Turing (sm_75)
-// - Ampere (sm_80, sm_86)
-// - Hopper (sm_89)
-// - Ada Lovelace (sm_90)
-// - Blackwell (sm_100)
+pub mod cpu;
+pub mod cuda;

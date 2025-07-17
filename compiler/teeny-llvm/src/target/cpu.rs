@@ -15,14 +15,42 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::Error;
-use crate::error::Result;
-use teeny_core::{
-    dtype,
-    tensor::{Tensor as CoreTensor, shape},
-};
-use teeny_cpu::tensor::CpuTensor;
+use derive_more::Display;
 
-pub fn zeros<N: dtype::Dtype, S: shape::Shape>(shape: S) -> Result<CpuTensor<N>> {
-    CpuTensor::zeros(shape).map_err(Error::CoreError)
+#[derive(Debug, Clone, Display)]
+pub enum Arch {
+    #[display(fmt = "x86_64")]
+    X86_64,
+}
+
+#[derive(Debug, Clone, Display)]
+pub enum Vendor {
+    #[display(fmt = "pc")]
+    Pc,
+}
+
+#[derive(Debug, Clone, Display)]
+pub enum Os {
+    #[display(fmt = "linux")]
+    Linux,
+}
+
+#[derive(Debug, Clone, Display)]
+pub enum Abi {
+    #[display(fmt = "gnu")]
+    Gnu,
+}
+
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub arch: Arch,
+    pub vendor: Vendor,
+    pub os: Os,
+    pub abi: Abi,
+}
+
+impl std::fmt::Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}-{}-{}", self.arch, self.vendor, self.os, self.abi)
+    }
 }

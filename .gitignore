@@ -1,4 +1,4 @@
-target/
+/target/
 scratch.py
 teenygrad.code-workspace
 axm.out

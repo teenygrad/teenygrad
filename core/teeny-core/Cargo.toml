@@ -18,3 +18,4 @@ derive_builder.workspace = true
 uuid.workspace = true
 half.workspace = true
 num-traits.workspace = true
+ksuid.workspace = true

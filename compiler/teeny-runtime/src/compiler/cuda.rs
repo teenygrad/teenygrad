@@ -15,20 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
+use teeny_cuda::device::CudaDevice;
 
-use teeny_core::dtype;
-
-pub mod ops;
-
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-pub enum Tensor<N: dtype::Dtype> {
-    #[cfg(feature = "cpu")]
-    Cpu(teeny_cpu::tensor::CpuTensor<N>),
-
-    #[cfg(feature = "cuda")]
-    Cuda(teeny_cuda::tensor::CudaTensor<N>),
+pub fn get_target(_device: &CudaDevice) -> super::target::cuda::Target {
+    todo!()
 }
-
-pub type TensorRef<T> = Arc<Tensor<T>>;

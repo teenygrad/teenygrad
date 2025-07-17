@@ -22,3 +22,4 @@ pub mod graph;
 pub mod nn;
 pub mod storage;
 pub mod tensor;
+pub mod util;

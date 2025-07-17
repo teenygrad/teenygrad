@@ -30,10 +30,11 @@ extern crate teeny_cpu;
 #[cfg(feature = "cuda")]
 extern crate teeny_cuda;
 
+#[cfg(feature = "compiler")]
 pub mod compiler;
+
 pub mod device;
 pub mod error;
-pub mod tensor;
 
 static CURRENT_DEVICE: OnceCell<Mutex<Option<Arc<Device>>>> = OnceCell::new();
 
@@ -96,7 +97,10 @@ pub fn find_cpu_devices() -> Result<Vec<Device>> {
     let devices = CpuDriver::devices()
         .map_err(Error::CpuError)?
         .into_iter()
-        .map(Device::Cpu)
+        .map(|d| {
+            let target = crate::compiler::cpu::get_target(&d);
+            Device::Cpu(d, target)
+        })
         .collect();
 
     Ok(devices)
@@ -114,7 +118,10 @@ pub fn find_cuda_devices() -> Result<Vec<Device>> {
     let devices = CudaDriver::devices()
         .map_err(Error::CudaError)?
         .into_iter()
-        .map(Device::Cuda)
+        .map(|d| {
+            let target = crate::compiler::cuda::get_target(&d);
+            Device::Cuda(d, target)
+        })
         .collect();
 
     Ok(devices)

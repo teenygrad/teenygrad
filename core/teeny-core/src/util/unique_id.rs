@@ -15,14 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::Error;
-use crate::error::Result;
-use teeny_core::{
-    dtype,
-    tensor::{Tensor as CoreTensor, shape},
-};
-use teeny_cuda::tensor::CudaTensor;
+use ksuid::Ksuid;
 
-pub fn zeros<N: dtype::Dtype, S: shape::Shape>(shape: S) -> Result<CudaTensor<N>> {
-    CudaTensor::zeros(shape).map_err(Error::CoreError)
+pub fn unique_id() -> Ksuid {
+    Ksuid::generate()
 }

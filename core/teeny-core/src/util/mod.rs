@@ -15,6 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// define supported targets for cpu
-// - ndarray builtin
-// - x86_64
+mod unique_id;
+
+pub use unique_id::unique_id;
