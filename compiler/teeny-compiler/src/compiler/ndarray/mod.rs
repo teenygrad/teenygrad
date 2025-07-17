@@ -14,17 +14,3 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-use std::sync::Arc;
-
-use crate::{dtype, graph, tensor::shape::Shape};
-
-pub trait Module<S: Shape, N: dtype::Dtype, T, U> {
-    fn forward(&self, input: T) -> U;
-
-    #[cfg(feature = "training")]
-    fn parameters(&self) -> Vec<Arc<graph::Node<S, N>>>;
-
-    #[cfg(feature = "training")]
-    fn backward(&self, grad: N);
-}

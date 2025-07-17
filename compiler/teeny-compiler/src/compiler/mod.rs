@@ -15,16 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
+use crate::error::Result;
+use teeny_core::nn::module::Module;
 
-use crate::{dtype, graph, tensor::shape::Shape};
+pub mod mlir;
+pub mod module;
 
-pub trait Module<S: Shape, N: dtype::Dtype, T, U> {
-    fn forward(&self, input: T) -> U;
+#[cfg(feature = "ndarray")]
+pub mod ndarray;
 
-    #[cfg(feature = "training")]
-    fn parameters(&self) -> Vec<Arc<graph::Node<S, N>>>;
-
-    #[cfg(feature = "training")]
-    fn backward(&self, grad: N);
+pub trait Compiler {
+    fn compile<M1: Module<T, U>, M2: module::Module>(
+        &self,
+        target: Target,
+        module: M1,
+        samples: &[T],
+    ) -> Result<M2>;
 }

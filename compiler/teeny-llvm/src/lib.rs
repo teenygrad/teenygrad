@@ -17,6 +17,4 @@
 
 mod llvm;
 
-pub mod compiler;
 pub mod error;
-pub mod module;

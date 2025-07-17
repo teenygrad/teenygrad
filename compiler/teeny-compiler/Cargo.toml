@@ -1,0 +1,18 @@
+[package]
+name = "teeny-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["cpu", "ndarray", "cuda"]
+cpu = ["teeny-cpu"]
+cuda = ["teeny-cuda"]
+
+[dependencies]
+teeny-llvm = { path = "../teeny-llvm" }
+teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
+teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
+thiserror.workspace = true
+derive_more.workspace = true
+ndarray = { workspace = true, optional = true }
+

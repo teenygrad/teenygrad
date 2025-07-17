@@ -2552,6 +2552,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ac9aa371f599d22256307c24a9d748c041e548cbf599f35d890f9d365361790"
 
 [[package]]
+name = "teeny-compiler"
+version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "ndarray",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "teeny-core"
 version = "0.1.0"
 dependencies = [
@@ -2652,6 +2661,7 @@ dependencies = [
  "derive_more",
  "lrlex",
  "lrpar",
+ "ndarray",
  "thiserror 2.0.12",
 ]
 

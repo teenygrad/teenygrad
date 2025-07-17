@@ -2,7 +2,7 @@
 name = "teeny-llvm"
 version = "0.1.0"
 edition = "2024"
-description = "Rust bindings for LLVM/Triton"
+description = "Rust based compiler for Teenygrad using LLVM/MLIR/Triton"
 repository = "https://github.com/teenygrad/teeny-llvm"
 license = "GPL v3"
 
@@ -10,12 +10,14 @@ license = "GPL v3"
 name = "teeny_llvm"
 
 [features]
-default = ["cuda"]
+default = ["ndarray", "cuda"]
+cpu = []
 cuda = []
 
 [dependencies]
 thiserror.workspace = true
 derive_more.workspace = true
+ndarray = { workspace = true, optional = true }
 
 [build-dependencies]
 cargo_metadata.workspace = true
