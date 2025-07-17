@@ -24,12 +24,6 @@ use crate::error::Result;
 
 use once_cell::sync::OnceCell;
 
-#[cfg(feature = "cpu")]
-extern crate teeny_cpu;
-
-#[cfg(feature = "cuda")]
-extern crate teeny_cuda;
-
 #[cfg(feature = "compiler")]
 pub mod compiler;
 
@@ -72,7 +66,7 @@ pub fn init() -> Result<()> {
 }
 
 pub fn use_fallback_device() -> Result<()> {
-    let devices = find_cpu_devices()?;
+    let devices = device::find_cpu_devices()?;
     if !devices.is_empty() {
         set_current_device(Arc::new(devices[0].clone()))?;
     }
@@ -80,7 +74,7 @@ pub fn use_fallback_device() -> Result<()> {
 }
 
 pub fn use_accelerator_with_fallback() -> Result<()> {
-    let devices = find_cuda_devices()?;
+    let devices = device::find_cuda_devices()?;
     if !devices.is_empty() {
         set_current_device(Arc::new(devices[0].clone()))?;
     } else {
@@ -88,40 +82,4 @@ pub fn use_accelerator_with_fallback() -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(feature = "cpu")]
-pub fn find_cpu_devices() -> Result<Vec<Device>> {
-    use teeny_cpu::driver::CpuDriver;
-
-    let devices = CpuDriver::devices()
-        .map_err(Error::CpuError)?
-        .into_iter()
-        .map(Device::Cpu)
-        .collect();
-
-    Ok(devices)
-}
-
-#[cfg(not(feature = "cpu"))]
-pub fn find_cpu_devices() -> Result<Vec<Device>> {
-    Ok(vec![])
-}
-
-#[cfg(feature = "cuda")]
-pub fn find_cuda_devices() -> Result<Vec<Device>> {
-    use teeny_cuda::driver::CudaDriver;
-
-    let devices = CudaDriver::devices()
-        .map_err(Error::CudaError)?
-        .into_iter()
-        .map(Device::Cuda)
-        .collect();
-
-    Ok(devices)
-}
-
-#[cfg(not(feature = "cuda"))]
-pub fn find_cuda_devices() -> Result<Vec<Device>> {
-    Ok(vec![])
 }

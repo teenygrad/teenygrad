@@ -51,3 +51,29 @@ impl Device {
         }
     }
 }
+
+/*-------------------------------- CPU --------------------------------*/
+
+#[cfg(feature = "cpu")]
+mod cpu;
+
+#[cfg(feature = "cpu")]
+pub use cpu::find_cpu_devices;
+
+#[cfg(not(feature = "cpu"))]
+pub fn find_cpu_devices() -> Result<Vec<Device>> {
+    Ok(vec![])
+}
+
+/*-------------------------------- CUDA --------------------------------*/
+
+#[cfg(feature = "cuda")]
+mod cuda;
+
+#[cfg(feature = "cuda")]
+pub use cuda::find_cuda_devices;
+
+#[cfg(not(feature = "cuda"))]
+pub fn find_cuda_devices() -> Result<Vec<Device>> {
+    Ok(vec![])
+}
