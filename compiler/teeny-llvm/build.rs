@@ -49,19 +49,19 @@ fn main() {
     check_command("ninja");
 
     if !check_build_done(&build_dir, "llvm") {
-        build_llvm(&project_dir, &build_dir);
+        execute_cmake(&project_dir, &build_dir, "./scripts/build_llvm.sh");
     }
 
     if !check_build_done(&build_dir, "triton") {
-        build_triton(&project_dir, &build_dir);
+        execute_cmake(&project_dir, &build_dir, "./scripts/build_triton.sh");
     }
 
     if !check_build_done(&build_dir, "teeny") {
-        build_teeny(&project_dir, &build_dir, &out_dir);
+        execute_cmake(&project_dir, &build_dir, "./scripts/build_teeny.sh");
     }
 
     if !check_build_done(&build_dir, "tutorials") {
-        build_tutorials(&project_dir, &build_dir);
+        execute_cmake(&project_dir, &build_dir, "./scripts/build_tutorials.sh");
     }
 
     copy_shared_libraries(&build_dir, &deps_path);
@@ -84,74 +84,11 @@ fn check_command(command: &str) {
     }
 }
 
-fn build_llvm(project_dir: &Path, build_dir: &Path) {
-    let modules_dir = project_dir.join("modules");
-
-    let status = Command::new("./scripts/build_llvm.sh")
-        .env("BUILD_DIR", build_dir)
-        .env("MODULES_DIR", modules_dir)
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .expect("Failed to execute cmake command")
-        .wait()
-        .unwrap_or_else(|e| panic!("Failed to wait for cmake command: {e}"));
-
-    if !status.success() {
-        panic!(
-            "LLVM build failed with exit code: {}",
-            status.code().unwrap_or(-1)
-        );
-    }
-}
-
-fn build_triton(project_dir: &Path, build_dir: &Path) {
-    let modules_dir = project_dir.join("modules");
-
-    let status = Command::new("./scripts/build_triton.sh")
-        .env("BUILD_DIR", build_dir)
-        .env("MODULES_DIR", modules_dir)
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .expect("Triton build: Failed to execute cmake command")
-        .wait()
-        .unwrap_or_else(|e| panic!("Triton build: Failed to wait for cmake command: {e}"));
-
-    if !status.success() {
-        panic!(
-            "Triton build failed with exit code: {}",
-            status.code().unwrap_or(-1)
-        );
-    }
-}
-
-fn build_teeny(project_dir: &Path, build_dir: &Path, _out_dir: &Path) {
-    let modules_dir = project_dir.join("modules");
-
-    let status = Command::new("./scripts/build_teeny.sh")
-        .env("BUILD_DIR", build_dir)
-        .env("MODULES_DIR", modules_dir)
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .expect("Teeny build: Failed to execute cmake command")
-        .wait()
-        .unwrap_or_else(|e| panic!("Teeny build: Failed to wait for cmake command: {e}"));
-
-    if !status.success() {
-        panic!(
-            "Triton build failed with exit code: {}",
-            status.code().unwrap_or(-1)
-        );
-    }
-}
-
-fn build_tutorials(project_dir: &Path, build_dir: &Path) {
+fn execute_cmake(project_dir: &Path, build_dir: &Path, script: &str) {
     let modules_dir = project_dir.join("modules");
     let tutorials_dir = project_dir.join("tutorials");
 
-    let status = Command::new("./scripts/build_tutorials.sh")
+    let status = Command::new(script)
         .env("BUILD_DIR", build_dir)
         .env("MODULES_DIR", modules_dir)
         .env("TUTORIALS_DIR", tutorials_dir)
@@ -164,7 +101,7 @@ fn build_tutorials(project_dir: &Path, build_dir: &Path) {
 
     if !status.success() {
         panic!(
-            "Tutorials build failed with exit code: {}",
+            "{script} build failed with exit code: {}",
             status.code().unwrap_or(-1)
         );
     }
