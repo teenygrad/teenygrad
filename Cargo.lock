@@ -2572,6 +2572,7 @@ name = "teeny-cpu"
 version = "0.1.0"
 dependencies = [
  "cpuid",
+ "derive_more",
  "target-triple",
  "teeny-core",
  "thiserror 2.0.12",
@@ -2582,6 +2583,7 @@ name = "teeny-cuda"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "derive_more",
  "ndarray",
  "teeny-core",
  "thiserror 2.0.12",

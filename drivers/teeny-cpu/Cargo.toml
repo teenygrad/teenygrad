@@ -8,3 +8,4 @@ teeny-core = { path = "../../core/teeny-core" }
 thiserror.workspace = true
 target-triple.workspace = true
 cpuid.workspace = true
+derive_more.workspace = true

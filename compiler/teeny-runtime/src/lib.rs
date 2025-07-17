@@ -97,10 +97,7 @@ pub fn find_cpu_devices() -> Result<Vec<Device>> {
     let devices = CpuDriver::devices()
         .map_err(Error::CpuError)?
         .into_iter()
-        .map(|d| {
-            let target = crate::compiler::cpu::get_target(&d);
-            Device::Cpu(d, target)
-        })
+        .map(Device::Cpu)
         .collect();
 
     Ok(devices)
@@ -118,10 +115,7 @@ pub fn find_cuda_devices() -> Result<Vec<Device>> {
     let devices = CudaDriver::devices()
         .map_err(Error::CudaError)?
         .into_iter()
-        .map(|d| {
-            let target = crate::compiler::cuda::get_target(&d);
-            Device::Cuda(d, target)
-        })
+        .map(Device::Cuda)
         .collect();
 
     Ok(devices)

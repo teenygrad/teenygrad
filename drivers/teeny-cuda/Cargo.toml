@@ -12,6 +12,7 @@ default = ["ndarray"]
 teeny-core = { path = "../../core/teeny-core" }
 ndarray = {workspace = true, optional = true}
 thiserror.workspace = true
+derive_more.workspace = true
 
 [build-dependencies]
 bindgen.workspace = true

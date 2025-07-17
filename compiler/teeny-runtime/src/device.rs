@@ -24,30 +24,30 @@ use teeny_cuda::device::CudaDevice;
 #[derive(Debug, Clone)]
 pub enum Device {
     #[cfg(feature = "cpu")]
-    Cpu(CpuDevice, crate::compiler::target::cpu::Target),
+    Cpu(CpuDevice),
 
     #[cfg(feature = "cuda")]
-    Cuda(CudaDevice, crate::compiler::target::cuda::Target),
+    Cuda(CudaDevice),
 }
 
 impl Device {
     pub fn id(&self) -> String {
         match self {
             #[cfg(feature = "cpu")]
-            Device::Cpu(device, _) => device.id.clone(),
+            Device::Cpu(device) => device.id.clone(),
 
             #[cfg(feature = "cuda")]
-            Device::Cuda(device, _) => device.id.clone(),
+            Device::Cuda(device) => device.id.clone(),
         }
     }
 
     pub fn name(&self) -> String {
         match self {
             #[cfg(feature = "cpu")]
-            Device::Cpu(device, _) => device.name.clone(),
+            Device::Cpu(device) => device.name.clone(),
 
             #[cfg(feature = "cuda")]
-            Device::Cuda(device, _) => device.name.clone(),
+            Device::Cuda(device) => device.name.clone(),
         }
     }
 }
