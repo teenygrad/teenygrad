@@ -15,22 +15,28 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// use crate::tensorx::{
-//     Tensor,
-//     value::{ValueRef, toposort_graph},
-// };
+use crate::{dtype::Dtype, graph::NodeRef};
 
 pub mod bce_loss;
 
-// pub trait LossFn {
-//     fn compute(&self, _y_pred: &Tensor, _y_target: &Tensor) -> Loss;
-// }
+#[derive(Debug, Clone)]
+pub struct Loss<N: Dtype> {
+    pub params: Vec<NodeRef<N>>,
+    pub loss: NodeRef<N>,
+}
 
-// #[derive(Debug, Clone)]
-// pub struct Loss {
-//     pub params: Vec<ValueRef>,
-//     pub loss: Tensor,
-// }
+impl<N: Dtype> Loss<N> {
+    pub fn new(loss: NodeRef<N>) -> Self {
+        Self {
+            params: vec![],
+            loss,
+        }
+    }
+}
+
+pub trait LossFn<N: Dtype>: Sized {
+    fn compute(&self, p: NodeRef<N>, y: NodeRef<N>) -> Loss<N>;
+}
 
 // impl Loss {
 //     pub fn new(loss: Tensor) -> Self {

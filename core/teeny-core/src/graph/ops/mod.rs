@@ -29,6 +29,7 @@ pub mod scalar;
 pub mod sigmoid;
 pub mod sub;
 pub mod tensor;
+pub mod transpose;
 pub mod zeros;
 
 // use std::fmt::Debug;

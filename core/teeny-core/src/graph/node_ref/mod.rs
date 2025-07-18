@@ -15,51 +15,32 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Add;
-use std::ops::Mul;
+pub mod add;
+pub mod mul;
+pub mod sub;
+
 use std::sync::Arc;
 
 use crate::dtype::Dtype;
 use crate::graph::Node;
 use crate::graph::NodeOp;
-use crate::graph::ops::add::AddOp;
-use crate::graph::ops::mult::MultOp;
+use crate::graph::ops::transpose::TransposeOp;
 
 #[derive(Debug, Clone)]
-pub struct NodeRef<N: Dtype>(Arc<Node<N>>);
+pub struct NodeRef<N: Dtype>(pub Arc<Node<N>>);
+
+impl<N: Dtype> NodeRef<N> {
+    pub fn t(&self) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Transpose(TransposeOp::new(self.clone())),
+            true,
+            false,
+        )))
+    }
+}
 
 impl<N: Dtype> From<NodeOp<N>> for NodeRef<N> {
     fn from(op: NodeOp<N>) -> Self {
         NodeRef(Arc::new(Node::new(op, true, false)))
-    }
-}
-
-impl<N: Dtype> Add<&NodeRef<N>> for &NodeRef<N> {
-    type Output = NodeRef<N>;
-
-    fn add(self, rhs: &NodeRef<N>) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-        let rhs = NodeRef(rhs.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Add(AddOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
-    }
-}
-
-impl<N: Dtype> Mul<&NodeRef<N>> for &NodeRef<N> {
-    type Output = NodeRef<N>;
-
-    fn mul(self, rhs: &NodeRef<N>) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-        let rhs = NodeRef(rhs.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Mult(MultOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
     }
 }

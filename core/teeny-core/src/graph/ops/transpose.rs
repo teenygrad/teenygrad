@@ -21,25 +21,18 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ScalarOp<N: Dtype> {
-    pub scalar: N,
+pub struct TransposeOp<N: Dtype> {
+    pub input: NodeRef<N>,
 }
 
-impl<N: Dtype> ScalarOp<N> {
-    pub fn new(scalar: N) -> Self {
-        Self { scalar }
+impl<N: Dtype> TransposeOp<N> {
+    pub fn new(input: NodeRef<N>) -> Self {
+        Self { input }
     }
 }
 
-impl<N: Dtype> From<ScalarOp<N>> for NodeRef<N> {
-    fn from(op: ScalarOp<N>) -> Self {
-        NodeOp::Scalar(op).into()
-    }
-}
-
-impl<N: Dtype> From<f32> for NodeRef<N> {
-    fn from(value: f32) -> Self {
-        let value = N::from_f32(value);
-        NodeOp::Scalar(ScalarOp::new(value)).into()
+impl<N: Dtype> From<TransposeOp<N>> for NodeRef<N> {
+    fn from(op: TransposeOp<N>) -> Self {
+        NodeOp::Transpose(op).into()
     }
 }

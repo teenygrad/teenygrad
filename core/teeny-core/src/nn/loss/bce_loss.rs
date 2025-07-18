@@ -15,28 +15,29 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// use crate::{
-//     nn::loss::{Loss, LossFn},
-//     tensorx::{Tensor, log},
-// };
+use crate::{
+    dtype::Dtype,
+    graph::{NodeRef, log},
+    nn::loss::{Loss, LossFn},
+};
 
-// #[derive(Debug, Clone, Default)]
-// pub struct BCELoss {}
+#[derive(Debug, Clone, Default)]
+pub struct BCELoss {}
 
-// impl BCELoss {
-//     pub fn new() -> Self {
-//         Self {}
-//     }
-// }
+impl BCELoss {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
-// impl LossFn for BCELoss {
-//     fn compute(&self, p: &Tensor, y: &Tensor) -> Loss {
-//         let bce_loss = -(y * log(p.clone().t()) + (1.0 - y) * log(1.0 - p.clone().t()));
-//         // let bce_loss = -(y * log(p.clone().t()) + y * log(p.clone().t()));
+impl<N: Dtype> LossFn<N> for BCELoss {
+    fn compute(&self, p: NodeRef<N>, y: NodeRef<N>) -> Loss<N> {
+        let one: NodeRef<N> = 1.0.into();
+        let bce_loss = -(&y * log(p.clone()) + (&one - y) * log(&one - p));
 
-//         Loss::new(bce_loss)
-//     }
-// }
+        Loss::new(bce_loss)
+    }
+}
 
 // #[cfg(test)]
 // mod tests {

@@ -20,6 +20,7 @@ pub mod ops;
 
 use crate::dtype::Dtype;
 use crate::graph::ops::tensor::TensorOp;
+use crate::graph::ops::transpose::TransposeOp;
 use crate::tensor::shape::DynamicShape;
 
 pub use node_ref::NodeRef;
@@ -56,6 +57,7 @@ pub enum NodeOp<N: Dtype> {
     Relu(ReluOp<N>),
     Sigmoid(SigmoidOp<N>),
     Tensor(TensorOp<N>),
+    Transpose(TransposeOp<N>),
 }
 
 #[cfg(feature = "training")]
@@ -100,6 +102,18 @@ pub fn arange<N: Dtype>(start: N, end: N, step: N) -> NodeRef<N> {
 
 pub fn tensor<N: Dtype>(input: &[N]) -> NodeRef<N> {
     TensorOp::new(input).into()
+}
+
+pub fn log<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+    LogOp::new(x.clone()).into()
+}
+
+pub fn transpose<N: Dtype>(x: &NodeRef<N>) -> NodeRef<N> {
+    TransposeOp::new(x.clone()).into()
+}
+
+pub fn scalar<N: Dtype>(x: N) -> NodeRef<N> {
+    ScalarOp::new(x).into()
 }
 
 // use std::ops::Add;

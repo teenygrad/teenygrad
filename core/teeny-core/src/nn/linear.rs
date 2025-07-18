@@ -44,9 +44,9 @@ impl<N: dtype::Dtype> Linear<N> {
 
 impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Linear<N> {
     fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>> {
-        let a = &self.weight * &x;
+        let a = self.weight.clone() * x;
         let result = if let Some(bias) = &self.bias {
-            &a + bias
+            a + bias.clone()
         } else {
             a
         };
