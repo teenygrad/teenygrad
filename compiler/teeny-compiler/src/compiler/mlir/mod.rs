@@ -14,9 +14,3 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-use crate::{error::Result, module::Module};
-
-pub trait Compiler {
-    fn compile<M: Module>(&self, module: M) -> Result<M>;
-}

@@ -15,6 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod llvm;
+use crate::error::Result;
+use teeny_core::nn::module::Module;
 
-pub mod error;
+pub mod mlir;
+pub mod module;
+
+#[cfg(feature = "ndarray")]
+pub mod ndarray;
+
+pub trait Compiler {
+    fn compile<M1: Module<T, U>, M2: module::Module>(
+        &self,
+        target: Target,
+        module: M1,
+        samples: &[T],
+    ) -> Result<M2>;
+}
