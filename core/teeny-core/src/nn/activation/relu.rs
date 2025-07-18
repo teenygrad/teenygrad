@@ -15,16 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
 use crate::{
     dtype,
-    graph::{Node, NodeOp, ops::relu::ReluOp},
-    tensor::shape::Shape,
+    graph::{NodeRef, ops::relu::ReluOp},
 };
 
-pub fn relu<S: Shape, N: dtype::Dtype>(input: &Arc<Node<S, N>>) -> Arc<Node<S, N>> {
-    Arc::new(NodeOp::Relu(ReluOp::new(input.clone())).into())
+pub fn relu<N: dtype::Dtype>(input: NodeRef<N>) -> NodeRef<N> {
+    ReluOp::new(input).into()
 }
 
 // impl<T: num::Num> Module1<T, &Tensor, Tensor> for ReLU<T> {

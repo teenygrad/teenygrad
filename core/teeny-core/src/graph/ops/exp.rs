@@ -15,12 +15,22 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
-use crate::graph::Node;
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::dtype::Dtype;
+use crate::graph::{NodeOp, NodeRef};
 
 #[derive(Debug, Clone)]
-pub struct ExpOp<S: Shape, N: Dtype> {
-    pub input: Arc<Node<S, N>>,
+pub struct ExpOp<N: Dtype> {
+    pub input: NodeRef<N>,
+}
+
+impl<N: Dtype> ExpOp<N> {
+    pub fn new(input: NodeRef<N>) -> Self {
+        Self { input }
+    }
+}
+
+impl<N: Dtype> From<ExpOp<N>> for NodeRef<N> {
+    fn from(op: ExpOp<N>) -> Self {
+        NodeOp::Exp(op).into()
+    }
 }

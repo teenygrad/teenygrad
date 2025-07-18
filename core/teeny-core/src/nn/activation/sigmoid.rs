@@ -15,16 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
 use crate::{
     dtype,
-    graph::{Node, NodeOp, ops::sigmoid::SigmoidOp},
-    tensor::shape::Shape,
+    graph::{NodeRef, ops::sigmoid::SigmoidOp},
 };
 
-pub fn sigmoid<S: Shape, N: dtype::Dtype>(input: &Arc<Node<S, N>>) -> Arc<Node<S, N>> {
-    Arc::new(NodeOp::Sigmoid(SigmoidOp::new(input.clone())).into())
+pub fn sigmoid<N: dtype::Dtype>(input: NodeRef<N>) -> NodeRef<N> {
+    SigmoidOp::new(input).into()
 }
 
 // impl<T: num::Num> Module1<T, &Tensor, Tensor> for Sigmoid {

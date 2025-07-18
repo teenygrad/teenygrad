@@ -31,18 +31,6 @@ pub mod sub;
 pub mod tensor;
 pub mod zeros;
 
-// pub mod add_op;
-// pub mod bias_op;
-// pub mod input_op;
-// pub mod log_op;
-// pub mod mean_op;
-// pub mod mult_op;
-// pub mod param_op;
-// pub mod relu_op;
-// pub mod sigmoid_op;
-// pub mod sub_op;
-// pub mod transpose_op;
-
 // use std::fmt::Debug;
 
 // use crate::tensorx::{TensorData, ValueRef};

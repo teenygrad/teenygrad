@@ -17,19 +17,29 @@
 
 use std::marker::PhantomData;
 
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::{
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef},
+    tensor::shape::DynamicShape,
+};
 
 #[derive(Debug, Clone)]
-pub struct ZerosOp<S: Shape, N: Dtype> {
-    pub shape: S,
+pub struct ZerosOp<N: Dtype> {
+    pub shape: DynamicShape,
     _marker: PhantomData<N>,
 }
 
-impl<S: Shape, N: Dtype> ZerosOp<S, N> {
-    pub fn new(shape: S) -> Self {
+impl<N: Dtype> ZerosOp<N> {
+    pub fn new(shape: DynamicShape) -> Self {
         Self {
             shape,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<N: Dtype> From<ZerosOp<N>> for NodeRef<N> {
+    fn from(op: ZerosOp<N>) -> Self {
+        NodeOp::Zeros(op).into()
     }
 }

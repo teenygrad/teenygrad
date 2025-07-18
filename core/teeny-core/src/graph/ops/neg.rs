@@ -15,12 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
-use crate::graph::Node;
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::{
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef},
+};
 
 #[derive(Debug, Clone)]
-pub struct NegOp<S: Shape, N: Dtype> {
-    pub input: Arc<Node<S, N>>,
+pub struct NegOp<N: Dtype> {
+    pub input: NodeRef<N>,
+}
+
+impl<N: Dtype> NegOp<N> {
+    pub fn new(input: NodeRef<N>) -> Self {
+        Self { input }
+    }
+}
+
+impl<N: Dtype> From<NegOp<N>> for NodeRef<N> {
+    fn from(op: NegOp<N>) -> Self {
+        NodeOp::Neg(op).into()
+    }
 }

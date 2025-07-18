@@ -15,9 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
+use crate::error::Result;
 
-use crate::{dtype, graph, tensor::shape::Shape};
-pub trait Module<S: Shape, N: dtype::Dtype> {
-    fn parameters(&self) -> Vec<Arc<graph::Node<S, N>>>;
+use crate::dtype;
+use crate::graph::NodeRef;
+pub trait Module<N: dtype::Dtype, T, U> {
+    fn forward(&self, x: T) -> Result<U>;
+
+    fn parameters(&self) -> Vec<NodeRef<N>>;
 }

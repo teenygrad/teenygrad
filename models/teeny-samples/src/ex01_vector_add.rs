@@ -15,18 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
 use teeny_core::{
     dtype,
-    graph::{self},
-    tensor::shape::DynamicShape,
+    graph::{self, NodeRef},
+    nn::Module,
 };
 
 #[derive(Debug)]
-pub struct VectorAdd<T: dtype::Dtype> {
-    pub v1: Arc<graph::Node<DynamicShape, T>>,
-    pub v2: Arc<graph::Node<DynamicShape, T>>,
+pub struct VectorAdd<N: dtype::Dtype> {
+    pub v1: NodeRef<N>,
+    pub v2: NodeRef<N>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -40,9 +38,19 @@ impl<T: dtype::Dtype> VectorAdd<T> {
         let v2 = [4.0, 5.0, 6.0].map(|x| x.into());
 
         Self {
-            v1: Arc::new(graph::tensor(&v1)),
-            v2: Arc::new(graph::tensor(&v2)),
+            v1: graph::tensor(&v1),
+            v2: graph::tensor(&v2),
         }
+    }
+}
+
+impl Module<f32, (), NodeRef<f32>> for VectorAdd<f32> {
+    fn forward(&self, _x: ()) -> teeny_core::error::Result<NodeRef<f32>> {
+        Ok(&self.v1 + &self.v2)
+    }
+
+    fn parameters(&self) -> Vec<NodeRef<f32>> {
+        vec![]
     }
 }
 

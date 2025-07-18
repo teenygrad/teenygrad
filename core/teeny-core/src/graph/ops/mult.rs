@@ -15,13 +15,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
-use crate::graph::Node;
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::dtype::Dtype;
+use crate::graph::{NodeOp, NodeRef};
 
 #[derive(Debug, Clone)]
-pub struct MultOp<S: Shape, N: Dtype> {
-    pub lhs: Arc<Node<S, N>>,
-    pub rhs: Arc<Node<S, N>>,
+pub struct MultOp<N: Dtype> {
+    pub lhs: NodeRef<N>,
+    pub rhs: NodeRef<N>,
+}
+
+impl<N: Dtype> MultOp<N> {
+    pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
+impl<N: Dtype> From<MultOp<N>> for NodeRef<N> {
+    fn from(op: MultOp<N>) -> Self {
+        NodeOp::Mult(op).into()
+    }
 }

@@ -15,7 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::Dtype;
+use crate::{
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef},
+};
 
 #[derive(Debug, Clone)]
 pub struct TensorOp<N: Dtype> {
@@ -27,5 +30,11 @@ impl<N: Dtype> TensorOp<N> {
         Self {
             input: input.to_vec(),
         }
+    }
+}
+
+impl<N: Dtype> From<TensorOp<N>> for NodeRef<N> {
+    fn from(op: TensorOp<N>) -> Self {
+        NodeOp::Tensor(op).into()
     }
 }

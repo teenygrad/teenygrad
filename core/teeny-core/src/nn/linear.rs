@@ -15,21 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
-use crate::{dtype, error::Result, graph, nn::Module, shape, tensor::shape::DynamicShape};
+use crate::{
+    dtype,
+    error::Result,
+    graph::{self, NodeRef},
+    nn::Module,
+    shape,
+};
 
 pub struct Linear<N: dtype::Dtype> {
-    pub weight: Arc<graph::Node<DynamicShape, N>>,
-    pub bias: Option<Arc<graph::Node<DynamicShape, N>>>,
+    pub weight: NodeRef<N>,
+    pub bias: Option<NodeRef<N>>,
 }
 
 impl<N: dtype::Dtype> Linear<N> {
     pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
-        let weight = Arc::new(graph::randn(shape![output_dim, input_dim]));
+        let weight = graph::randn(shape![output_dim, input_dim]);
 
         let bias = if use_bias {
-            Some(Arc::new(graph::zeros(shape![output_dim])))
+            Some(graph::zeros(shape![output_dim]))
         } else {
             None
         };
@@ -38,8 +42,19 @@ impl<N: dtype::Dtype> Linear<N> {
     }
 }
 
-impl<N: dtype::Dtype> Module<DynamicShape, N> for Linear<N> {
-    fn parameters(&self) -> Vec<Arc<graph::Node<DynamicShape, N>>> {
+impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Linear<N> {
+    fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>> {
+        let a = &self.weight * &x;
+        let result = if let Some(bias) = &self.bias {
+            &a + bias
+        } else {
+            a
+        };
+
+        Ok(result)
+    }
+
+    fn parameters(&self) -> Vec<NodeRef<N>> {
         let mut params = vec![self.weight.clone()];
         if let Some(bias) = &self.bias {
             params.push(bias.clone());

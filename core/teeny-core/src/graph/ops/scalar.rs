@@ -15,9 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::Dtype;
+use crate::{
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef},
+};
 
 #[derive(Debug, Clone)]
 pub struct ScalarOp<N: Dtype> {
     pub scalar: N,
+}
+
+impl<N: Dtype> ScalarOp<N> {
+    pub fn new(scalar: N) -> Self {
+        Self { scalar }
+    }
+}
+
+impl<N: Dtype> From<ScalarOp<N>> for NodeRef<N> {
+    fn from(op: ScalarOp<N>) -> Self {
+        NodeOp::Scalar(op).into()
+    }
 }

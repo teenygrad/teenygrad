@@ -15,18 +15,22 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
-use crate::graph::Node;
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::dtype::Dtype;
+use crate::graph::{NodeOp, NodeRef};
 
 #[derive(Debug, Clone)]
-pub struct ReluOp<S: Shape, N: Dtype> {
-    pub input: Arc<Node<S, N>>,
+pub struct ReluOp<N: Dtype> {
+    pub input: NodeRef<N>,
 }
 
-impl<S: Shape, N: Dtype> ReluOp<S, N> {
-    pub fn new(input: Arc<Node<S, N>>) -> Self {
+impl<N: Dtype> ReluOp<N> {
+    pub fn new(input: NodeRef<N>) -> Self {
         Self { input }
+    }
+}
+
+impl<N: Dtype> From<ReluOp<N>> for NodeRef<N> {
+    fn from(op: ReluOp<N>) -> Self {
+        NodeOp::Relu(op).into()
     }
 }

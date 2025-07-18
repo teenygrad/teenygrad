@@ -15,13 +15,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Arc;
-
-use crate::graph::Node;
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::dtype::Dtype;
+use crate::graph::{NodeOp, NodeRef};
 
 #[derive(Debug, Clone)]
-pub struct SubOp<S: Shape, N: Dtype> {
-    pub lhs: Arc<Node<S, N>>,
-    pub rhs: Arc<Node<S, N>>,
+pub struct SubOp<N: Dtype> {
+    pub lhs: NodeRef<N>,
+    pub rhs: NodeRef<N>,
+}
+
+impl<N: Dtype> SubOp<N> {
+    pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
+impl<N: Dtype> From<SubOp<N>> for NodeRef<N> {
+    fn from(op: SubOp<N>) -> Self {
+        NodeOp::Sub(op).into()
+    }
 }

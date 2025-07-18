@@ -15,25 +15,26 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
-use crate::{dtype::Dtype, tensor::shape::Shape};
+use crate::{
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef},
+};
 
 #[derive(Debug, Clone)]
-pub struct ArangeOp<S: Shape, N: Dtype> {
+pub struct ArangeOp<N: Dtype> {
     pub start: N,
     pub end: N,
     pub step: N,
-    _marker: PhantomData<S>,
 }
 
-impl<S: Shape, N: Dtype> ArangeOp<S, N> {
+impl<N: Dtype> ArangeOp<N> {
     pub fn new(start: N, end: N, step: N) -> Self {
-        Self {
-            start,
-            end,
-            step,
-            _marker: PhantomData,
-        }
+        Self { start, end, step }
+    }
+}
+
+impl<N: Dtype> From<ArangeOp<N>> for NodeRef<N> {
+    fn from(op: ArangeOp<N>) -> Self {
+        NodeOp::Arange(op).into()
     }
 }
