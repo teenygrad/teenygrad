@@ -15,38 +15,37 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// use derive_builder::Builder;
-// use ndarray::ArrayD;
+use derive_builder::Builder;
 
-// use crate::tensorx::Tensor;
+use crate::graph::NodeRef;
 
-// #[derive(Builder, Debug, Clone)]
-// pub struct Adam {
-//     #[builder(default = "0.001")]
-//     pub lr: f32,
+#[derive(Builder, Debug, Clone)]
+pub struct Adam<N: Dtype> {
+    #[builder(default = "0.001")]
+    pub lr: f32,
 
-//     #[builder(default = "0.9")]
-//     pub beta1: f32,
+    #[builder(default = "0.9")]
+    pub beta1: f32,
 
-//     #[builder(default = "0.999")]
-//     pub beta2: f32,
+    #[builder(default = "0.999")]
+    pub beta2: f32,
 
-//     #[builder(default = "1e-8")]
-//     pub eps: f32,
+    #[builder(default = "1e-8")]
+    pub eps: f32,
 
-//     #[builder(default = "vec![]")]
-//     pub params: Vec<Tensor>,
+    #[builder(default = "vec![]")]
+    pub params: Vec<NodeRef<N>>,
 
-//     // Internal state for Adam algorithm
-//     #[builder(default = "vec![]")]
-//     m: Vec<ArrayD<f32>>, // First moment (momentum)
+    // Internal state for Adam algorithm
+    #[builder(default = "vec![]")]
+    m: Vec<NodeRef<f32>>, // First moment (momentum)
 
-//     #[builder(default = "vec![]")]
-//     v: Vec<ArrayD<f32>>, // Second moment (velocity)
+    #[builder(default = "vec![]")]
+    v: Vec<NodeRef<f32>>, // Second moment (velocity)
 
-//     #[builder(default = "0")]
-//     t: usize, // Time step
-// }
+    #[builder(default = "0")]
+    t: usize, // Time step
+}
 
 // impl Adam {
 //     pub fn new(lr: f32, beta1: f32, beta2: f32, eps: f32) -> Self {
