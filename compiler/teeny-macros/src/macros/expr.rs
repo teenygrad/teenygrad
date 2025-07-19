@@ -16,7 +16,6 @@
  */
 
 use proc_macro::TokenStream;
-use proc_macro2::Literal;
 use quote::quote;
 use syn::parse_macro_input;
 
@@ -61,19 +60,19 @@ fn walk_expr(expr: &syn::Expr) -> proc_macro2::TokenStream {
     }
 }
 
-fn process_lit(lit: &syn::ExprLit) -> proc_macro2::TokenStream {
-    match &lit.lit {
-        syn::Lit::Int(int) => {
-            quote! { teeny_core::graph::scalar(#int as f32) }
-        }
-        syn::Lit::Float(float) => {
-            quote! { teeny_core::graph::scalar(#float as f32) }
-        }
-        syn::Lit::Str(str) => {
-            quote! { &#str }
-        }
-        _ => {
-            quote! { #lit }
-        }
-    }
-}
+// fn process_lit(lit: &syn::ExprLit) -> proc_macro2::TokenStream {
+//     match &lit.lit {
+//         syn::Lit::Int(int) => {
+//             quote! { teeny_core::graph::scalar(#int as f32) }
+//         }
+//         syn::Lit::Float(float) => {
+//             quote! { teeny_core::graph::scalar(#float as f32) }
+//         }
+//         syn::Lit::Str(str) => {
+//             quote! { &#str }
+//         }
+//         _ => {
+//             quote! { #lit }
+//         }
+//     }
+// }

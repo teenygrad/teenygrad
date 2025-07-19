@@ -15,10 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod add;
-pub mod mul;
-pub mod sub;
-
 use std::sync::Arc;
 
 use crate::dtype::Dtype;
@@ -26,6 +22,10 @@ use crate::graph::Node;
 use crate::graph::NodeOp;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::tensor::shape::DynamicShape;
+
+pub mod add;
+pub mod mul;
+pub mod sub;
 
 #[derive(Debug, Clone)]
 pub struct NodeRef<N: Dtype>(pub Arc<Node<N>>);
