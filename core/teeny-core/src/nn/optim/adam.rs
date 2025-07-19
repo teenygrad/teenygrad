@@ -118,7 +118,7 @@ impl<N: Dtype, P: Param<N>> Adam<N, P> {
                 // Update parameter: θ = θ - α * m̂ / (√v̂ + ε)
                 let v_hat_sqrt = v_hat.sqrt();
                 let denominator = v_hat_sqrt + &eps;
-                let update = &lr * (&m_hat / &denominator);
+                let update = &lr * (m_hat / denominator);
 
                 param.update(update);
             }
