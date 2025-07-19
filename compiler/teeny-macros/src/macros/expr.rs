@@ -16,6 +16,7 @@
  */
 
 use proc_macro::TokenStream;
+use proc_macro2::Literal;
 use quote::quote;
 use syn::parse_macro_input;
 
@@ -23,45 +24,44 @@ pub fn expr(item: TokenStream) -> TokenStream {
     // Parse the input TokenStream into a syntax tree
     let input = parse_macro_input!(item as syn::Expr);
 
-    // Helper function to recursively walk the expression tree and print node types
-    fn walk_expr(expr: &syn::Expr) -> proc_macro2::TokenStream {
-        println!("Walking Expr: {expr:?}");
-        match expr {
-            syn::Expr::Binary(bin) => {
-                let left = walk_expr(&bin.left);
-                let right = walk_expr(&bin.right);
-                quote! { #left #bin.op #right }
-            }
-            syn::Expr::Unary(un) => {
-                let expr = walk_expr(&un.expr);
-                quote! { #un.op #expr }
-            }
-            syn::Expr::Lit(lit) => process_lit(lit),
-            syn::Expr::Path(path) => {
-                quote! { & #path }
-            }
-            syn::Expr::Call(call) => {
-                let func = walk_expr(&call.func);
-                let args = call.args.iter().map(walk_expr).collect::<Vec<_>>();
-                quote! { #func(#(#args),*) }
-            }
-            syn::Expr::Paren(paren) => {
-                let expr = walk_expr(&paren.expr);
-                quote! { (#expr) }
-            }
-            _ => {
-                quote! { #expr }
-            }
-        }
-    }
+    // Helper function to recursively walk the expression tree and print node type
 
-    println!("Input: {input:?}");
     let result = walk_expr(&input);
     result.into()
 }
 
+fn walk_expr(expr: &syn::Expr) -> proc_macro2::TokenStream {
+    match expr {
+        syn::Expr::Binary(bin) => {
+            let left = walk_expr(&bin.left);
+            let right = walk_expr(&bin.right);
+
+            quote! { #left #bin.op #right }
+        }
+        // syn::Expr::Unary(un) => {
+        //     let expr = walk_expr(&un.expr);
+        //     quote! { #un.op #expr }
+        // }
+        // syn::Expr::Lit(lit) => process_lit(lit),
+        // // syn::Expr::Path(_) => {
+        // //     quote! { #expr }
+        // // }
+        // syn::Expr::Call(call) => {
+        //     let func = walk_expr(&call.func);
+        //     let args = call.args.iter().map(walk_expr).collect::<Vec<_>>();
+        //     quote! { #func(#(#args),*) }
+        // }
+        // syn::Expr::Paren(paren) => {
+        //     let expr = walk_expr(&paren.expr);
+        //     quote! { (#expr) }
+        // }
+        _ => {
+            quote! { #expr }
+        }
+    }
+}
+
 fn process_lit(lit: &syn::ExprLit) -> proc_macro2::TokenStream {
-    println!("Processing Lit: {lit:?}");
     match &lit.lit {
         syn::Lit::Int(int) => {
             quote! { teeny_core::graph::scalar(#int as f32) }
