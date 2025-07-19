@@ -41,10 +41,3 @@ impl<N: Dtype> From<ScalarOp<N>> for NodeRef<N> {
         NodeOp::Scalar(op).into()
     }
 }
-
-impl<N: Dtype> From<f32> for NodeRef<N> {
-    fn from(value: f32) -> Self {
-        let value = N::from_f32(value);
-        NodeOp::Scalar(ScalarOp::new(value)).into()
-    }
-}

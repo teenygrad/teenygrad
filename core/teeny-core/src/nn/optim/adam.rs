@@ -21,7 +21,7 @@ use derive_builder::Builder;
 
 use crate::{
     dtype::Dtype,
-    graph::{NodeRef, scalar, zeros},
+    graph::{NodeRef, zeros},
     nn::param::Param,
 };
 
@@ -44,10 +44,10 @@ pub struct Adam<N: Dtype, P: Param<N>> {
 
     // Internal state for Adam algorithm
     #[builder(default = "vec![]")]
-    m: Vec<NodeRef<f32>>, // First moment (momentum)
+    m: Vec<NodeRef<N>>, // First moment (momentum)
 
     #[builder(default = "vec![]")]
-    v: Vec<NodeRef<f32>>, // Second moment (velocity)
+    v: Vec<NodeRef<N>>, // Second moment (velocity)
 
     #[builder(default = "0")]
     t: usize, // Time step
@@ -91,42 +91,36 @@ impl<N: Dtype, P: Param<N>> Adam<N, P> {
     pub fn step(&mut self) {
         self.t += 1;
 
+        let one: NodeRef<N> = 1.0.into();
+        let beta1: NodeRef<N> = self.beta1.into();
+        let beta1_t = beta1.powi(N::from_f32(self.t as f32));
+        let beta2: NodeRef<N> = self.beta2.into();
+        let beta2_t = beta2.powi(N::from_f32(self.t as f32));
+        let eps: NodeRef<N> = self.eps.into();
+        let lr: NodeRef<N> = self.lr.into();
+
         for (i, param) in self.params.iter_mut().enumerate() {
             // Get gradient for this parameter
             if let Some(ref grad) = param.grad() {
-                let data = param.weights();
-
-                let one = scalar(N::from(1.0).unwrap());
-                let beta1 = scalar(N::from(self.beta1).unwrap());
-                let beta2 = scalar(N::from(self.beta2).unwrap());
-                let eps = scalar(N::from(self.eps).unwrap());
-
                 // Update biased first moment estimate: m = β₁ * m + (1 - β₁) * grad
-                self.m[i] = beta1 * self.m[i] + (one - beta1) * grad;
+                self.m[i] = &beta1 * &self.m[i] + (&one - &beta1) * grad;
 
                 // Update biased second moment estimate: v = β₂ * v + (1 - β₂) * grad²
                 let grad_squared = grad * grad;
-                self.v[i] = scalar(self.beta2) * &self.v[i]
-                    + scalar(N::from(1.0 - self.beta2).unwrap()) * grad_squared;
+                self.v[i] = &beta2 * &self.v[i] + (&one - &beta2) * grad_squared;
 
                 // Compute bias-corrected first moment: m̂ = m / (1 - β₁^t)
-                let m_hat =
-                    &self.m[i] / scalar(N::from(1.0 - self.beta1.powi(self.t as i32)).unwrap());
+                let m_hat = &self.m[i] / (&one - &beta1_t);
 
                 // Compute bias-corrected second moment: v̂ = v / (1 - β₂^t)
-                let v_hat =
-                    &self.v[i] / scalar(N::from(1.0 - self.beta2.powi(self.t as i32)).unwrap());
+                let v_hat = &self.v[i] / (&one - &beta2_t);
 
                 // Update parameter: θ = θ - α * m̂ / (√v̂ + ε)
-                let v_hat_sqrt = v_hat.mapv(|x| x.sqrt());
-                let denominator = &v_hat_sqrt + scalar(N::from(self.eps).unwrap());
-                let update = &m_hat / &denominator;
+                let v_hat_sqrt = v_hat.sqrt();
+                let denominator = v_hat_sqrt + &eps;
+                let update = &lr * (&m_hat / &denominator);
 
-                // Apply update
-                param_data = param_data - self.lr * &update;
-
-                // Update the parameter tensor
-                param.value.borrow_mut().data = Some(param_data);
+                param.update(update);
             }
         }
     }

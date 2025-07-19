@@ -15,24 +15,31 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{dtype::Dtype, graph::NodeRef, tensor::shape::DynamicShape};
+use crate::{
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef, ops::OpShape},
+    tensor::shape::DynamicShape,
+};
 
-pub trait Param<N: Dtype>: Sized + Clone {
-    fn shape(&self) -> DynamicShape;
+#[derive(Debug, Clone)]
+pub struct SqrtOp<N: Dtype> {
+    pub input: NodeRef<N>,
+}
 
-    fn grad(&self) -> Option<NodeRef<N>> {
-        todo!()
+impl<N: Dtype> SqrtOp<N> {
+    pub fn new(input: NodeRef<N>) -> Self {
+        Self { input }
     }
+}
 
-    fn zero_grad(&self) {
-        todo!()
+impl<N: Dtype> OpShape for SqrtOp<N> {
+    fn shape(&self) -> DynamicShape {
+        self.input.shape()
     }
+}
 
-    fn weights(&self) -> NodeRef<N> {
-        todo!()
-    }
-
-    fn update(&mut self, _update: NodeRef<N>) {
-        todo!()
+impl<N: Dtype> From<SqrtOp<N>> for NodeRef<N> {
+    fn from(op: SqrtOp<N>) -> Self {
+        NodeOp::Sqrt(op).into()
     }
 }

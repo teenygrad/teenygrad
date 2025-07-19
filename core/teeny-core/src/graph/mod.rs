@@ -20,6 +20,8 @@ pub mod ops;
 
 use crate::dtype::Dtype;
 use crate::graph::ops::OpShape;
+use crate::graph::ops::powi::Powi;
+use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::VectorOp;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::tensor::shape::DynamicShape;
@@ -59,6 +61,8 @@ pub enum NodeOp<N: Dtype> {
     Sigmoid(SigmoidOp<N>),
     Vector(VectorOp<N>),
     Transpose(TransposeOp<N>),
+    Powi(Powi<N>),
+    Sqrt(SqrtOp<N>),
 }
 
 impl<N: Dtype> NodeOp<N> {
@@ -80,6 +84,8 @@ impl<N: Dtype> NodeOp<N> {
             NodeOp::Sigmoid(op) => op.shape(),
             NodeOp::Vector(op) => op.shape(),
             NodeOp::Transpose(op) => op.shape(),
+            NodeOp::Powi(op) => op.shape(),
+            NodeOp::Sqrt(op) => op.shape(),
         }
     }
 }
