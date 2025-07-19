@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 
 use crate::{
     dtype::Dtype,
-    graph::{NodeOp, NodeRef},
+    graph::{NodeOp, NodeRef, ops::OpShape},
     tensor::shape::DynamicShape,
 };
 
@@ -35,6 +35,12 @@ impl<N: Dtype> ZerosOp<N> {
             shape,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<N: Dtype> OpShape for ZerosOp<N> {
+    fn shape(&self) -> DynamicShape {
+        self.shape.clone()
     }
 }
 

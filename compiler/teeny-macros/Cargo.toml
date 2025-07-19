@@ -10,11 +10,13 @@ license = "GPL v3"
 proc-macro = true
 
 [dependencies]
-teeny-triton = { path = "../teeny-triton" }
-teeny-jit = { path = "../teeny-jit" }
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
 
 [dev-dependencies]
-insta = "1.43.1"
+insta.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+trybuild = "1.0"
+

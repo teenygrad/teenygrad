@@ -18,8 +18,8 @@
 pub mod activation;
 pub mod embedding;
 pub mod linear;
+pub mod param;
 
-pub mod macros;
 pub mod module;
 pub mod sequential;
 

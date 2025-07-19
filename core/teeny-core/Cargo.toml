@@ -9,6 +9,7 @@ ndarray = ["dep:ndarray", "ndarray-rand"]
 training = []
 
 [dependencies]
+teeny-macros = { path = "../../compiler/teeny-macros" }
 ndarray = {workspace = true, optional = true}
 ndarray-rand = {workspace = true, optional = true}
 thiserror.workspace = true

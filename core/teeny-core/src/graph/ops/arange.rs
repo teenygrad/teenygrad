@@ -17,7 +17,8 @@
 
 use crate::{
     dtype::Dtype,
-    graph::{NodeOp, NodeRef},
+    graph::{NodeOp, NodeRef, ops::OpShape},
+    tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,16 @@ pub struct ArangeOp<N: Dtype> {
 impl<N: Dtype> ArangeOp<N> {
     pub fn new(start: N, end: N, step: N) -> Self {
         Self { start, end, step }
+    }
+}
+
+impl<N: Dtype> OpShape for ArangeOp<N> {
+    fn shape(&self) -> DynamicShape {
+        // Calculate the length of the arange sequence
+        // Formula: ceil((end - start) / step)
+        let length = ((self.end - self.start) / self.step).ceil();
+        let length = length.to_f32().unwrap_or(0.0) as usize;
+        DynamicShape::new(&[length])
     }
 }
 

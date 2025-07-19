@@ -21,15 +21,20 @@ mod macros;
 
 #[proc_macro_attribute]
 pub fn kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
-    macros::kernel(attr, item)
+    macros::kernel::kernel(attr, item)
 }
 
 #[proc_macro_attribute]
 pub fn jit(attr: TokenStream, item: TokenStream) -> TokenStream {
-    macros::jit(attr, item)
+    macros::jit::jit(attr, item)
 }
 
 #[proc_macro_derive(JitModule, attributes(tensor, module))]
 pub fn jit_module_derive(input: TokenStream) -> TokenStream {
-    macros::jit_module_derive(input)
+    macros::jit_module::jit_module_derive(input)
+}
+
+#[proc_macro]
+pub fn expr(input: TokenStream) -> TokenStream {
+    macros::expr::expr(input)
 }

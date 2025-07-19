@@ -15,36 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{
-    dtype::Dtype,
-    graph::{NodeOp, NodeRef},
-    tensor::shape::DynamicShape,
-};
+use crate::{dtype::Dtype, graph::NodeRef, tensor::shape::DynamicShape};
 
-#[derive(Debug, Clone)]
-pub struct ScalarOp<N: Dtype> {
-    pub scalar: N,
-}
+pub trait Param<N: Dtype>: Sized + Clone {
+    fn shape(&self) -> DynamicShape;
 
-impl<N: Dtype> ScalarOp<N> {
-    pub fn new(scalar: N) -> Self {
-        Self { scalar }
+    fn grad(&self) -> Option<NodeRef<N>> {
+        todo!()
     }
 
-    pub fn shape(&self) -> DynamicShape {
-        DynamicShape::new(&[])
+    fn zero_grad(&self) {
+        todo!()
     }
-}
 
-impl<N: Dtype> From<ScalarOp<N>> for NodeRef<N> {
-    fn from(op: ScalarOp<N>) -> Self {
-        NodeOp::Scalar(op).into()
-    }
-}
-
-impl<N: Dtype> From<f32> for NodeRef<N> {
-    fn from(value: f32) -> Self {
-        let value = N::from_f32(value);
-        NodeOp::Scalar(ScalarOp::new(value)).into()
+    fn weights(&self) -> NodeRef<N> {
+        todo!()
     }
 }

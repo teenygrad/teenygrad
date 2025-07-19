@@ -15,10 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod jit;
-mod jit_module;
-mod kernel;
-
-pub use jit::jit;
-pub use jit_module::jit_module_derive;
-pub use kernel::kernel;
+pub mod expr;
+pub mod jit;
+pub mod jit_module;
+pub mod kernel;

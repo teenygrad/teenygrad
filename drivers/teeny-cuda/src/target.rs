@@ -19,23 +19,23 @@ use derive_more::Display;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Capability {
-    #[display(fmt = "sm_60")]
+    #[display("sm_60")]
     PascalSm60,
-    #[display(fmt = "sm_61")]
+    #[display("sm_61")]
     PascalSm61,
-    #[display(fmt = "sm_70")]
+    #[display("sm_70")]
     VoltaSm70,
-    #[display(fmt = "sm_72")]
+    #[display("sm_72")]
     VoltaSm72,
-    #[display(fmt = "sm_75")]
+    #[display("sm_75")]
     TuringSm75,
-    #[display(fmt = "sm_80")]
+    #[display("sm_80")]
     AmpereSm80,
-    #[display(fmt = "sm_86")]
+    #[display("sm_86")]
     AmpereSm86,
-    #[display(fmt = "sm_89")]
+    #[display("sm_89")]
     HopperSm89,
-    #[display(fmt = "sm_90")]
+    #[display("sm_90")]
     AdaLovelaceSm90,
 }
 

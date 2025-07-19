@@ -17,7 +17,8 @@
 
 use crate::{
     dtype::Dtype,
-    graph::{NodeOp, NodeRef},
+    graph::{NodeOp, NodeRef, ops::OpShape},
+    tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,16 @@ pub struct TransposeOp<N: Dtype> {
 impl<N: Dtype> TransposeOp<N> {
     pub fn new(input: NodeRef<N>) -> Self {
         Self { input }
+    }
+}
+
+impl<N: Dtype> OpShape for TransposeOp<N> {
+    fn shape(&self) -> DynamicShape {
+        let input_shape = self.input.shape();
+        let mut new_shape = input_shape.dims.clone();
+        new_shape.reverse();
+
+        DynamicShape::new(&new_shape)
     }
 }
 

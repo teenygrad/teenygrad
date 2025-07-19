@@ -16,7 +16,9 @@
  */
 
 use crate::dtype::Dtype;
+use crate::graph::ops::OpShape;
 use crate::graph::{NodeOp, NodeRef};
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct SigmoidOp<N: Dtype> {
@@ -26,6 +28,12 @@ pub struct SigmoidOp<N: Dtype> {
 impl<N: Dtype> SigmoidOp<N> {
     pub fn new(input: NodeRef<N>) -> Self {
         Self { input }
+    }
+}
+
+impl<N: Dtype> OpShape for SigmoidOp<N> {
+    fn shape(&self) -> DynamicShape {
+        self.input.shape()
     }
 }
 

@@ -17,7 +17,8 @@
 
 use crate::{
     dtype::Dtype,
-    graph::{NodeOp, NodeRef},
+    graph::{NodeOp, NodeRef, ops::OpShape},
+    tensor::shape::{DynamicShape, Shape},
 };
 
 #[derive(Debug, Clone)]
@@ -29,6 +30,15 @@ pub struct AddOp<N: Dtype> {
 impl<N: Dtype> AddOp<N> {
     pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
         Self { lhs, rhs }
+    }
+}
+
+impl<N: Dtype> OpShape for AddOp<N> {
+    fn shape(&self) -> DynamicShape {
+        let lhs_shape = self.lhs.shape();
+        let rhs_shape = self.rhs.shape();
+
+        lhs_shape.broadcast(&rhs_shape)
     }
 }
 

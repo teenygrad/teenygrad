@@ -16,7 +16,9 @@
  */
 
 use crate::dtype::Dtype;
+use crate::graph::ops::OpShape;
 use crate::graph::{NodeOp, NodeRef};
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct ExpOp<N: Dtype> {
@@ -26,6 +28,12 @@ pub struct ExpOp<N: Dtype> {
 impl<N: Dtype> ExpOp<N> {
     pub fn new(input: NodeRef<N>) -> Self {
         Self { input }
+    }
+}
+
+impl<N: Dtype> OpShape for ExpOp<N> {
+    fn shape(&self) -> DynamicShape {
+        self.input.shape()
     }
 }
 

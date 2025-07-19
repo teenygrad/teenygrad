@@ -25,6 +25,7 @@ use crate::dtype::Dtype;
 use crate::graph::Node;
 use crate::graph::NodeOp;
 use crate::graph::ops::transpose::TransposeOp;
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct NodeRef<N: Dtype>(pub Arc<Node<N>>);
@@ -36,6 +37,10 @@ impl<N: Dtype> NodeRef<N> {
             true,
             false,
         )))
+    }
+
+    pub fn shape(&self) -> DynamicShape {
+        self.0.shape()
     }
 }
 

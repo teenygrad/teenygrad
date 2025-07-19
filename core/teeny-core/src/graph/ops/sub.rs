@@ -16,7 +16,9 @@
  */
 
 use crate::dtype::Dtype;
+use crate::graph::ops::OpShape;
 use crate::graph::{NodeOp, NodeRef};
+use crate::tensor::shape::{DynamicShape, Shape};
 
 #[derive(Debug, Clone)]
 pub struct SubOp<N: Dtype> {
@@ -27,6 +29,14 @@ pub struct SubOp<N: Dtype> {
 impl<N: Dtype> SubOp<N> {
     pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
         Self { lhs, rhs }
+    }
+}
+
+impl<N: Dtype> OpShape for SubOp<N> {
+    fn shape(&self) -> DynamicShape {
+        let lhs_shape = self.lhs.shape();
+        let rhs_shape = self.rhs.shape();
+        lhs_shape.broadcast(&rhs_shape)
     }
 }
 

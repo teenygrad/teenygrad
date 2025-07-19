@@ -17,15 +17,16 @@
 
 use crate::{
     dtype::Dtype,
-    graph::{NodeOp, NodeRef},
+    graph::{NodeOp, NodeRef, ops::OpShape},
+    tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
-pub struct TensorOp<N: Dtype> {
+pub struct VectorOp<N: Dtype> {
     pub input: Vec<N>,
 }
 
-impl<N: Dtype> TensorOp<N> {
+impl<N: Dtype> VectorOp<N> {
     pub fn new(input: &[N]) -> Self {
         Self {
             input: input.to_vec(),
@@ -33,8 +34,14 @@ impl<N: Dtype> TensorOp<N> {
     }
 }
 
-impl<N: Dtype> From<TensorOp<N>> for NodeRef<N> {
-    fn from(op: TensorOp<N>) -> Self {
-        NodeOp::Tensor(op).into()
+impl<N: Dtype> OpShape for VectorOp<N> {
+    fn shape(&self) -> DynamicShape {
+        DynamicShape::new(&[self.input.len()])
+    }
+}
+
+impl<N: Dtype> From<VectorOp<N>> for NodeRef<N> {
+    fn from(op: VectorOp<N>) -> Self {
+        NodeOp::Vector(op).into()
     }
 }

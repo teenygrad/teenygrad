@@ -19,7 +19,8 @@ pub mod node_ref;
 pub mod ops;
 
 use crate::dtype::Dtype;
-use crate::graph::ops::tensor::TensorOp;
+use crate::graph::ops::OpShape;
+use crate::graph::ops::tensor::VectorOp;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::tensor::shape::DynamicShape;
 
@@ -56,8 +57,31 @@ pub enum NodeOp<N: Dtype> {
     Randn(RandnOp<N>),
     Relu(ReluOp<N>),
     Sigmoid(SigmoidOp<N>),
-    Tensor(TensorOp<N>),
+    Vector(VectorOp<N>),
     Transpose(TransposeOp<N>),
+}
+
+impl<N: Dtype> NodeOp<N> {
+    pub fn shape(&self) -> DynamicShape {
+        match self {
+            NodeOp::Scalar(op) => op.shape(),
+            NodeOp::Add(op) => op.shape(),
+            NodeOp::Sub(op) => op.shape(),
+            NodeOp::Mult(op) => op.shape(),
+            NodeOp::Div(op) => op.shape(),
+            NodeOp::Neg(op) => op.shape(),
+            NodeOp::Log(op) => op.shape(),
+            NodeOp::Exp(op) => op.shape(),
+            NodeOp::Mean(op) => op.shape(),
+            NodeOp::Zeros(op) => op.shape(),
+            NodeOp::Arange(op) => op.shape(),
+            NodeOp::Randn(op) => op.shape(),
+            NodeOp::Relu(op) => op.shape(),
+            NodeOp::Sigmoid(op) => op.shape(),
+            NodeOp::Vector(op) => op.shape(),
+            NodeOp::Transpose(op) => op.shape(),
+        }
+    }
 }
 
 #[cfg(feature = "training")]
@@ -86,6 +110,10 @@ impl<N: Dtype> Node<N> {
             }),
         }
     }
+
+    pub fn shape(&self) -> DynamicShape {
+        self.op.shape()
+    }
 }
 
 pub fn zeros<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
@@ -101,7 +129,7 @@ pub fn arange<N: Dtype>(start: N, end: N, step: N) -> NodeRef<N> {
 }
 
 pub fn tensor<N: Dtype>(input: &[N]) -> NodeRef<N> {
-    TensorOp::new(input).into()
+    VectorOp::new(input).into()
 }
 
 pub fn log<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {

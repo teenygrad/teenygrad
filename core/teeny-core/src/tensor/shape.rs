@@ -23,6 +23,8 @@ pub trait Shape {
     type Dims: AsRef<[usize]> + Clone + Index<usize, Output = usize>;
 
     fn dims(&self) -> Self::Dims;
+
+    fn broadcast(&self, other: &Self) -> Self;
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +55,33 @@ impl Shape for DynamicShape {
     fn dims(&self) -> Self::Dims {
         self.dims.clone()
     }
+
+    fn broadcast(&self, other: &Self) -> Self {
+        let max_rank = self.dims.len().max(other.dims.len());
+        let mut result = Vec::new();
+
+        for i in 0..max_rank {
+            let lhs_dim = self
+                .dims
+                .get(self.dims.len().wrapping_sub(1).wrapping_sub(i))
+                .copied()
+                .unwrap_or(1);
+            let rhs_dim = other
+                .dims
+                .get(other.dims.len().wrapping_sub(1).wrapping_sub(i))
+                .copied()
+                .unwrap_or(1);
+
+            if lhs_dim == rhs_dim || lhs_dim == 1 || rhs_dim == 1 {
+                result.push(lhs_dim.max(rhs_dim));
+            } else {
+                panic!("Shapes {self:?} and {other:?} are not broadcastable",);
+            }
+        }
+
+        result.reverse();
+        Self { dims: result }
+    }
 }
 
 #[macro_export]
@@ -62,4 +91,18 @@ macro_rules! shape {
             dims: vec![$($dim),*],
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_broadcast() {
+        let shape1 = DynamicShape::new(&[1, 2, 3]);
+        let shape2 = DynamicShape::new(&[4, 5]);
+
+        let result = shape1.broadcast(&shape2);
+        assert_eq!(result.dims, vec![4, 5, 3]);
+    }
 }

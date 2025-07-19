@@ -15,12 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::marker::PhantomData;
+
 use derive_builder::Builder;
 
-use crate::graph::NodeRef;
+use crate::{
+    dtype::Dtype,
+    graph::{NodeRef, zeros},
+    nn::param::Param,
+};
 
 #[derive(Builder, Debug, Clone)]
-pub struct Adam<N: Dtype> {
+pub struct Adam<N: Dtype, P: Param<N>> {
     #[builder(default = "0.001")]
     pub lr: f32,
 
@@ -34,7 +40,7 @@ pub struct Adam<N: Dtype> {
     pub eps: f32,
 
     #[builder(default = "vec![]")]
-    pub params: Vec<NodeRef<N>>,
+    pub params: Vec<P>,
 
     // Internal state for Adam algorithm
     #[builder(default = "vec![]")]
@@ -45,83 +51,78 @@ pub struct Adam<N: Dtype> {
 
     #[builder(default = "0")]
     t: usize, // Time step
+
+    _marker: PhantomData<N>,
 }
 
-// impl Adam {
-//     pub fn new(lr: f32, beta1: f32, beta2: f32, eps: f32) -> Self {
-//         Self {
-//             lr,
-//             beta1,
-//             beta2,
-//             eps,
-//             params: vec![],
-//             m: vec![],
-//             v: vec![],
-//             t: 0,
-//         }
-//     }
+impl<N: Dtype, P: Param<N>> Adam<N, P> {
+    pub fn new(lr: f32, beta1: f32, beta2: f32, eps: f32) -> Self {
+        Self {
+            lr,
+            beta1,
+            beta2,
+            eps,
+            params: vec![],
+            m: vec![],
+            v: vec![],
+            t: 0,
+            _marker: PhantomData,
+        }
+    }
 
-//     pub fn params(&mut self, params: Vec<Tensor>) {
-//         self.params = params;
-//         // Initialize momentum and velocity tensors for each parameter
-//         self.m.clear();
-//         self.v.clear();
+    pub fn params(&mut self, params: Vec<P>) {
+        self.params = params;
+        // Initialize momentum and velocity tensors for each parameter
+        self.m.clear();
+        self.v.clear();
 
-//         for param in &self.params {
-//             if let Some(data) = &param.value.borrow().data {
-//                 // Initialize with zeros, same shape as parameter
-//                 self.m.push(ArrayD::zeros(data.shape()));
-//                 self.v.push(ArrayD::zeros(data.shape()));
-//             }
-//         }
-//     }
+        for param in &self.params {
+            // Initialize with zeros, same shape as parameter
+            self.m.push(zeros(param.shape()));
+            self.v.push(zeros(param.shape()));
+        }
+    }
 
-//     pub fn zero_grad(&mut self) {
-//         for param in &self.params {
-//             param.zero_grad();
-//         }
-//     }
+    pub fn zero_grad(&mut self) {
+        todo!()
+    }
 
-//     pub fn step(&mut self) {
-//         self.t += 1;
+    pub fn step(&mut self) {
+        self.t += 1;
 
-//         for (i, param) in self.params.iter_mut().enumerate() {
-//             // Get gradient for this parameter
-//             if let Some(grad) = param.grad() {
-//                 if param.value.borrow().data.is_none() {
-//                     continue;
-//                 }
+        for param in self.params.iter_mut() {
+            // Get gradient for this parameter
+            if let Some(_grad) = param.grad() {
+                // let data = param.weights();
+                // Get current parameter data
 
-//                 // Get current parameter data
-//                 let mut param_data = param.value.borrow_mut().data.as_mut().unwrap().clone();
+                // // Update biased first moment estimate: m = β₁ * m + (1 - β₁) * grad
+                // self.m[i] = self.beta1 * &self.m[i] + (1.0 - self.beta1) * &grad;
 
-//                 // Update biased first moment estimate: m = β₁ * m + (1 - β₁) * grad
-//                 self.m[i] = self.beta1 * &self.m[i] + (1.0 - self.beta1) * &grad;
+                // // Update biased second moment estimate: v = β₂ * v + (1 - β₂) * grad²
+                // let grad_squared = &grad * &grad;
+                // self.v[i] = self.beta2 * &self.v[i] + (1.0 - self.beta2) * &grad_squared;
 
-//                 // Update biased second moment estimate: v = β₂ * v + (1 - β₂) * grad²
-//                 let grad_squared = &grad * &grad;
-//                 self.v[i] = self.beta2 * &self.v[i] + (1.0 - self.beta2) * &grad_squared;
+                // // Compute bias-corrected first moment: m̂ = m / (1 - β₁^t)
+                // let m_hat = &self.m[i] / (1.0 - self.beta1.powi(self.t as i32));
 
-//                 // Compute bias-corrected first moment: m̂ = m / (1 - β₁^t)
-//                 let m_hat = &self.m[i] / (1.0 - self.beta1.powi(self.t as i32));
+                // // Compute bias-corrected second moment: v̂ = v / (1 - β₂^t)
+                // let v_hat = &self.v[i] / (1.0 - self.beta2.powi(self.t as i32));
 
-//                 // Compute bias-corrected second moment: v̂ = v / (1 - β₂^t)
-//                 let v_hat = &self.v[i] / (1.0 - self.beta2.powi(self.t as i32));
+                // // Update parameter: θ = θ - α * m̂ / (√v̂ + ε)
+                // let v_hat_sqrt = v_hat.mapv(|x| x.sqrt());
+                // let denominator = &v_hat_sqrt + self.eps;
+                // let update = &m_hat / &denominator;
 
-//                 // Update parameter: θ = θ - α * m̂ / (√v̂ + ε)
-//                 let v_hat_sqrt = v_hat.mapv(|x| x.sqrt());
-//                 let denominator = &v_hat_sqrt + self.eps;
-//                 let update = &m_hat / &denominator;
+                // // Apply update
+                // param_data = param_data - self.lr * &update;
 
-//                 // Apply update
-//                 param_data = param_data - self.lr * &update;
-
-//                 // Update the parameter tensor
-//                 param.value.borrow_mut().data = Some(param_data);
-//             }
-//         }
-//     }
-// }
+                // // Update the parameter tensor
+                // param.value.borrow_mut().data = Some(param_data);
+            }
+        }
+    }
+}
 
 // #[cfg(test)]
 // mod tests {

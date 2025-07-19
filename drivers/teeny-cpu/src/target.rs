@@ -19,25 +19,25 @@ use derive_more::Display;
 
 #[derive(Debug, Clone, Display)]
 pub enum Arch {
-    #[display(fmt = "x86_64")]
+    #[display("x86_64")]
     X86_64,
 }
 
 #[derive(Debug, Clone, Display)]
 pub enum Vendor {
-    #[display(fmt = "pc")]
+    #[display("pc")]
     Pc,
 }
 
 #[derive(Debug, Clone, Display)]
 pub enum Os {
-    #[display(fmt = "linux")]
+    #[display("linux")]
     Linux,
 }
 
 #[derive(Debug, Clone, Display)]
 pub enum Abi {
-    #[display(fmt = "gnu")]
+    #[display("gnu")]
     Gnu,
 }
 

@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::tensor::shape::DynamicShape;
+
 pub mod add;
 pub mod arange;
 pub mod div;
@@ -31,6 +33,10 @@ pub mod sub;
 pub mod tensor;
 pub mod transpose;
 pub mod zeros;
+
+pub trait OpShape {
+    fn shape(&self) -> DynamicShape;
+}
 
 // use std::fmt::Debug;
 
