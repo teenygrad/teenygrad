@@ -20,6 +20,7 @@ pub mod ops;
 
 use crate::dtype::Dtype;
 use crate::graph::ops::OpShape;
+use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::VectorOp;
@@ -50,6 +51,7 @@ pub enum NodeOp<N: Dtype> {
     Sub(SubOp<N>),
     Mult(MultOp<N>),
     Div(DivOp<N>),
+    Dot(DotOp<N>),
     Neg(NegOp<N>),
     Log(LogOp<N>),
     Exp(ExpOp<N>),
@@ -86,6 +88,7 @@ impl<N: Dtype> NodeOp<N> {
             NodeOp::Transpose(op) => op.shape(),
             NodeOp::Powi(op) => op.shape(),
             NodeOp::Sqrt(op) => op.shape(),
+            NodeOp::Dot(op) => op.shape(),
         }
     }
 }

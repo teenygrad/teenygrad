@@ -20,6 +20,7 @@ use crate::tensor::shape::DynamicShape;
 pub mod add;
 pub mod arange;
 pub mod div;
+pub mod dot;
 pub mod exp;
 pub mod log;
 pub mod mean;

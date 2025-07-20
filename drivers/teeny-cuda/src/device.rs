@@ -17,6 +17,8 @@
 
 use teeny_core::device::Device;
 
+use crate::target::Target;
+
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {
     pub major: i32,
@@ -37,6 +39,7 @@ pub struct DeviceProperties {
     pub l2_cache_size: i32,
     pub concurrent_kernels: i32,
     pub compute_mode: i32,
+    pub target: Target,
 }
 
 #[derive(Debug, Clone)]

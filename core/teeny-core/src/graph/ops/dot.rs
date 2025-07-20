@@ -15,15 +15,33 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::cuda;
+use crate::dtype::Dtype;
+use crate::graph::ops::OpShape;
+use crate::graph::{NodeOp, NodeRef};
+use crate::tensor::shape::{DynamicShape, Shape};
 
-pub type Result<T> = std::result::Result<T, Error>;
+#[derive(Debug, Clone)]
+pub struct DotOp<N: Dtype> {
+    pub lhs: NodeRef<N>,
+    pub rhs: NodeRef<N>,
+}
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("CUDA error: {0}")]
-    CudaError(cuda::cudaError_enum),
+impl<N: Dtype> DotOp<N> {
+    pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
+        Self { lhs, rhs }
+    }
+}
 
-    #[error("Not found: {0}")]
-    NotFound(String),
+impl<N: Dtype> OpShape for DotOp<N> {
+    fn shape(&self) -> DynamicShape {
+        let lhs_shape = self.lhs.shape();
+        let rhs_shape = self.rhs.shape();
+        lhs_shape.broadcast(&rhs_shape)
+    }
+}
+
+impl<N: Dtype> From<DotOp<N>> for NodeRef<N> {
+    fn from(op: DotOp<N>) -> Self {
+        NodeOp::Dot(op).into()
+    }
 }

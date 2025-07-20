@@ -20,6 +20,7 @@ use std::sync::Arc;
 use crate::dtype::Dtype;
 use crate::graph::Node;
 use crate::graph::NodeOp;
+use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::transpose::TransposeOp;
@@ -58,6 +59,14 @@ impl<N: Dtype> NodeRef<N> {
     pub fn sqrt(&self) -> Self {
         NodeRef(Arc::new(Node::new(
             NodeOp::Sqrt(SqrtOp::new(self.clone())),
+            true,
+            false,
+        )))
+    }
+
+    pub fn dot(&self, other: &NodeRef<N>) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Dot(DotOp::new(self.clone(), other.clone())),
             true,
             false,
         )))

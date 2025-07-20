@@ -15,12 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::fmt::format;
+
 use crate::cuda;
 use crate::device::CudaDevice;
 
 use crate::device::DeviceProperties;
 use crate::error::Error;
 use crate::error::Result;
+use crate::target::Capability;
+use crate::target::Target;
 
 #[derive(Debug)]
 pub struct CudaDriver;
@@ -43,6 +47,7 @@ impl CudaDriver {
 
             let name = unsafe { std::ffi::CStr::from_ptr(props.name.as_ptr()) };
             let name = name.to_string_lossy().to_string();
+            let capability = format!("sm_{}{}", props.major, props.minor);
 
             let device = CudaDevice {
                 id: format!("cuda:{i}"),
@@ -66,6 +71,7 @@ impl CudaDriver {
                     l2_cache_size: props.l2CacheSize,
                     concurrent_kernels: props.concurrentKernels,
                     compute_mode: props.computeMode,
+                    target: Target::from(capability)?,
                 },
             };
             devices.push(device);

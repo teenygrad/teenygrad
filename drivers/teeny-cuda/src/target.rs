@@ -15,7 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::fmt::format;
+
 use derive_more::Display;
+
+use crate::error::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Capability {
@@ -53,5 +57,15 @@ impl std::fmt::Display for Target {
 impl Target {
     pub fn new(capability: Capability) -> Self {
         Self { capability }
+    }
+}
+
+impl TryFromStr for Target {
+    fn from(s: &str) -> Result<Self> {
+        let capabilities: Map<&str, Capability> = [("sm_60", Capability::PascalSm60)];
+
+        capabilities
+            .get(s)
+            .ok_or(Error::NotFound(format("Capability not found: {s}")))
     }
 }
