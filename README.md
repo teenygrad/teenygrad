@@ -32,7 +32,7 @@ Our goals:
 
 - Low memory footprint – Optimized to run even on the smallest devices.
 
-- static type checking, and unit testing of kernels.
+- Statically typed - GPU Kernels and ML algorithms are statically typed.
 
 - No performance compromises – Hardware-accelerated wherever possible.
 
@@ -50,7 +50,6 @@ Our goals:
 
 - ✅ 0.0.0/Jun 30 - Compile Rust based kernel to PTX (nVidia 3090)
   - Integrated Rust/LLVM/Triton to generate PTX for arbitrary MLIR modules
-  
 - v0.1.0/Jul 31 - Run Qwen3 1.7B model on CPU
 
 - v0.2.0/Aug 31 - Run Qwen3 1.7B model on nVidia 3090
@@ -92,3 +91,4 @@ We embrace open source because it fosters collaboration and learning—not to mo
 - Startups and companies with under $3M annual revenue qualify for a free commercial license. Once the project is stable and ready for usage, we will provide a simple web interface for you to get a license.
 
 - Free commercial license holders get a basic level of support, companies on higher tiers get additional support options as well as an SLA.
+
