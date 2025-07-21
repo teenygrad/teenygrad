@@ -15,11 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::{
+    dtype,
+    nn::{Module, module::CompiledModule},
+    tensor::Tensor,
+};
 #[cfg(feature = "cpu")]
 use teeny_cpu::device::CpuDevice;
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::device::CudaDevice;
+
+use crate::error::Result;
 
 #[derive(Debug, Clone)]
 pub enum Device {
@@ -49,6 +56,13 @@ impl Device {
             #[cfg(feature = "cuda")]
             Device::Cuda(device) => device.name.clone(),
         }
+    }
+
+    pub fn compile<N: dtype::Dtype, T: Tensor<N>, U: Tensor<N>>(
+        &self,
+        _module: Box<dyn Module<N>>,
+    ) -> Result<Box<dyn CompiledModule<N, T, U>>> {
+        todo!()
     }
 }
 

@@ -15,9 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub struct NdarrayAdd<N: Dtype> {
-    lhs: NdarrayRef<N>,
-    rhs: NdarrayRef<N>,
+use teeny_core::dtype;
+
+#[derive(Debug, Clone, Default)]
+pub struct MlirCompiler<N: dtype::Dtype> {
+    _marker: std::marker::PhantomData<N>,
 }
 
-impl<N: Dtype> from<AddOp<N>> for NdarrayAdd<N> {}
+impl<N: dtype::Dtype> MlirCompiler<N> {
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
+}

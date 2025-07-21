@@ -15,4 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub trait Module: Sized {}
+use teeny_core::dtype;
+
+#[derive(Debug, Clone, Default)]
+pub struct MlirModule<N: dtype::Dtype> {
+    _marker: std::marker::PhantomData<N>,
+}
+
+impl<N: dtype::Dtype> MlirModule<N> {
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
+}

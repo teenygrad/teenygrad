@@ -15,8 +15,27 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::{hash::Hash, hash::Hasher};
+
 use ksuid::Ksuid;
 
-pub fn unique_id() -> Ksuid {
-    Ksuid::generate()
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct UniqueId(pub Ksuid);
+
+impl UniqueId {
+    pub fn generate() -> Self {
+        Self(Ksuid::generate())
+    }
+}
+
+impl std::fmt::Debug for UniqueId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.to_base62())
+    }
+}
+
+impl Hash for UniqueId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_base62().hash(state);
+    }
 }

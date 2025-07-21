@@ -15,10 +15,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod ops;
-
-pub enum NdarrayOp<N: Dtype> {
-    Add(NdarrayAdd<N>),
-}
-
-pub struct NdarrayRef<N: Dtype>(Arc<NdarrayOp>);
+pub mod compiler;
+pub mod module;

@@ -15,4 +15,28 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod add;
+#[cfg(feature = "cpu")]
+use teeny_cpu::target::Target as CpuTarget;
+
+#[cfg(feature = "cuda")]
+use teeny_cuda::target::Target as CudaTarget;
+
+pub enum Target {
+    #[cfg(feature = "cpu")]
+    Cpu(CpuTarget),
+
+    #[cfg(feature = "cuda")]
+    Cuda(CudaTarget),
+}
+
+impl From<CpuTarget> for Target {
+    fn from(target: CpuTarget) -> Self {
+        Target::Cpu(target)
+    }
+}
+
+impl From<CudaTarget> for Target {
+    fn from(target: CudaTarget) -> Self {
+        Target::Cuda(target)
+    }
+}

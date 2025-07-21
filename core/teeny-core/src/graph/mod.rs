@@ -28,6 +28,8 @@ use crate::graph::ops::tensor::VectorOp;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::tensor::shape::DynamicShape;
 
+use crate::util::unique_id::UniqueId;
+
 pub use node_ref::NodeRef;
 
 use ops::add::AddOp;
@@ -103,6 +105,7 @@ pub struct AutogradContext {
 
 #[derive(Debug, Clone)]
 pub struct Node<N: Dtype> {
+    pub id: UniqueId,
     pub op: NodeOp<N>,
 
     #[cfg(feature = "training")]
@@ -112,6 +115,7 @@ pub struct Node<N: Dtype> {
 impl<N: Dtype> Node<N> {
     pub fn new(op: NodeOp<N>, requires_grad: bool, retain_grad: bool) -> Self {
         Self {
+            id: UniqueId::generate(),
             op,
             #[cfg(feature = "training")]
             autograd_context: Some(AutogradContext {

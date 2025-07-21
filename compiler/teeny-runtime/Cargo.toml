@@ -7,11 +7,11 @@ edition = "2024"
 default = ["cpu", "cuda", "compiler"]
 cuda = ["teeny-cuda"]
 cpu = ["teeny-cpu"]
-compiler = ["teeny-llvm"]
+compiler = ["teeny-compiler"]
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
-teeny-llvm = { path = "../teeny-llvm", optional = true }
+teeny-compiler = { path = "../teeny-compiler", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 once_cell.workspace = true

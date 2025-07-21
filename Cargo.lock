@@ -2511,6 +2511,7 @@ version = "0.1.0"
 dependencies = [
  "derive_more",
  "ndarray",
+ "teeny-core",
  "teeny-cpu",
  "teeny-cuda",
  "teeny-llvm",
@@ -2657,10 +2658,10 @@ name = "teeny-runtime"
 version = "0.1.0"
 dependencies = [
  "once_cell",
+ "teeny-compiler",
  "teeny-core",
  "teeny-cpu",
  "teeny-cuda",
- "teeny-llvm",
  "thiserror 2.0.12",
 ]
 

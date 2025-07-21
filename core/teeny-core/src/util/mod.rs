@@ -15,6 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod unique_id;
-
-pub use unique_id::unique_id;
+pub mod unique_id;

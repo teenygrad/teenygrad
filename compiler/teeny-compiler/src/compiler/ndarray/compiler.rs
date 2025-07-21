@@ -17,27 +17,15 @@
 
 use teeny_core::dtype;
 
-use crate::compiler::mlir::{compiler::MlirCompiler, module::MlirModule};
-
-#[cfg(feature = "ndarray")]
-use crate::compiler::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
-
-#[cfg(feature = "ndarray")]
-pub mod ndarray;
-
-pub mod mlir;
-
-#[derive(Debug, Clone)]
-pub enum Module<N: dtype::Dtype> {
-    Mlir(MlirModule<N>),
-
-    #[cfg(feature = "ndarray")]
-    Ndarray(NdarrayModule<N>),
+#[derive(Debug, Clone, Default)]
+pub struct NdarrayCompiler<N: dtype::Dtype> {
+    _marker: std::marker::PhantomData<N>,
 }
 
-pub enum Compiler<N: dtype::Dtype> {
-    Mlir(MlirCompiler<N>),
-
-    #[cfg(feature = "ndarray")]
-    Ndarray(NdarrayCompiler<N>),
+impl<N: dtype::Dtype> NdarrayCompiler<N> {
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
 }

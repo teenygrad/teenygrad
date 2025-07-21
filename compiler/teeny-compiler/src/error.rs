@@ -15,29 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::dtype;
+use thiserror::Error;
 
-use crate::compiler::mlir::{compiler::MlirCompiler, module::MlirModule};
+pub type Result<T> = std::result::Result<T, Error>;
 
-#[cfg(feature = "ndarray")]
-use crate::compiler::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
-
-#[cfg(feature = "ndarray")]
-pub mod ndarray;
-
-pub mod mlir;
-
-#[derive(Debug, Clone)]
-pub enum Module<N: dtype::Dtype> {
-    Mlir(MlirModule<N>),
-
-    #[cfg(feature = "ndarray")]
-    Ndarray(NdarrayModule<N>),
-}
-
-pub enum Compiler<N: dtype::Dtype> {
-    Mlir(MlirCompiler<N>),
-
-    #[cfg(feature = "ndarray")]
-    Ndarray(NdarrayCompiler<N>),
-}
+#[derive(Error, Debug)]
+pub enum Error {}
