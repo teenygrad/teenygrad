@@ -4,14 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["ndarray", "training"]
-ndarray = ["dep:ndarray", "ndarray-rand"]
+default = ["training"]
 training = []
 
 [dependencies]
 teeny-macros = { path = "../../compiler/teeny-macros" }
-ndarray = {workspace = true, optional = true}
-ndarray-rand = {workspace = true, optional = true}
 thiserror.workspace = true
 once_cell.workspace = true
 rand.workspace = true

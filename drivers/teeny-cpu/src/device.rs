@@ -15,12 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::device::Device;
+use crate::target::Target;
 
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {
     pub host: &'static str,
-    pub target: &'static str,
+    pub target: Target,
 }
 
 #[derive(Debug, Clone)]
@@ -29,5 +29,3 @@ pub struct CpuDevice {
     pub name: String,
     pub properties: DeviceProperties,
 }
-
-impl Device for CpuDevice {}

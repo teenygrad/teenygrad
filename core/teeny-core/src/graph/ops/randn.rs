@@ -17,6 +17,7 @@
 
 use std::marker::PhantomData;
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -39,8 +40,8 @@ impl<N: Dtype> RandnOp<N> {
 }
 
 impl<N: Dtype> OpShape for RandnOp<N> {
-    fn shape(&self) -> DynamicShape {
-        self.shape.clone()
+    fn shape(&self) -> Result<DynamicShape> {
+        Ok(self.shape.clone())
     }
 }
 

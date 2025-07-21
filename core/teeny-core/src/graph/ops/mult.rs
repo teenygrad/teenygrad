@@ -16,6 +16,8 @@
  */
 
 use crate::dtype::Dtype;
+use crate::error::Error;
+use crate::error::Result;
 use crate::graph::ops::OpShape;
 use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::{DynamicShape, Shape};
@@ -33,10 +35,22 @@ impl<N: Dtype> MultOp<N> {
 }
 
 impl<N: Dtype> OpShape for MultOp<N> {
-    fn shape(&self) -> DynamicShape {
-        let lhs_shape = self.lhs.shape();
-        let rhs_shape = self.rhs.shape();
-        lhs_shape.broadcast(&rhs_shape)
+    fn shape(&self) -> Result<DynamicShape> {
+        let lhs_shape = self.lhs.shape()?;
+        let rhs_shape = self.rhs.shape()?;
+
+        match (lhs_shape.dims.len(), rhs_shape.dims.len()) {
+            (2, 2) => {
+                if lhs_shape.dims[1] == rhs_shape.dims[0] {
+                    Ok(DynamicShape::new(&[lhs_shape.dims[0], rhs_shape.dims[1]]))
+                } else {
+                    Ok(lhs_shape.broadcast(&rhs_shape))
+                }
+            }
+            _ => Err(Error::InvalidShape(format!(
+                "Invalid shape for mult: {lhs_shape:?}, {rhs_shape:?}"
+            ))),
+        }
     }
 }
 

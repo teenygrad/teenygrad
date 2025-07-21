@@ -15,11 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fmt::format;
-
 use derive_more::Display;
 
-use crate::error::Error;
+use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Capability {
@@ -60,12 +58,27 @@ impl Target {
     }
 }
 
-impl TryFromStr for Target {
-    fn from(s: &str) -> Result<Self> {
-        let capabilities: Map<&str, Capability> = [("sm_60", Capability::PascalSm60)];
+impl TryFrom<(i32, i32)> for Target {
+    type Error = Error;
 
-        capabilities
-            .get(s)
-            .ok_or(Error::NotFound(format("Capability not found: {s}")))
+    fn try_from((major, minor): (i32, i32)) -> Result<Self> {
+        let capability = match (major, minor) {
+            (6, 0) => Capability::PascalSm60,
+            (6, 1) => Capability::PascalSm61,
+            (7, 0) => Capability::VoltaSm70,
+            (7, 2) => Capability::VoltaSm72,
+            (7, 5) => Capability::TuringSm75,
+            (8, 0) => Capability::AmpereSm80,
+            (8, 6) => Capability::AmpereSm86,
+            (8, 9) => Capability::HopperSm89,
+            (9, 0) => Capability::AdaLovelaceSm90,
+            _ => {
+                return Err(Error::UnknownCapability(format!(
+                    "Capability not found: {major}.{minor}"
+                )));
+            }
+        };
+
+        Ok(Self { capability })
     }
 }

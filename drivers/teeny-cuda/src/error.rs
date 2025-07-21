@@ -24,6 +24,6 @@ pub enum Error {
     #[error("CUDA error: {0}")]
     CudaError(cuda::cudaError_enum),
 
-    #[error("Not found: {0}")]
-    NotFound(String),
+    #[error("Unknown capability: {0}")]
+    UnknownCapability(String),
 }

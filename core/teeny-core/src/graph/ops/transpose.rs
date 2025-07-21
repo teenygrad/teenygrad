@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -33,12 +34,12 @@ impl<N: Dtype> TransposeOp<N> {
 }
 
 impl<N: Dtype> OpShape for TransposeOp<N> {
-    fn shape(&self) -> DynamicShape {
-        let input_shape = self.input.shape();
+    fn shape(&self) -> Result<DynamicShape> {
+        let input_shape = self.input.shape()?;
         let mut new_shape = input_shape.dims.clone();
         new_shape.reverse();
 
-        DynamicShape::new(&new_shape)
+        Ok(DynamicShape::new(&new_shape))
     }
 }
 

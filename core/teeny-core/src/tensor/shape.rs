@@ -27,7 +27,7 @@ pub trait Shape {
     fn broadcast(&self, other: &Self) -> Self;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynamicShape {
     pub dims: Vec<usize>,
 }

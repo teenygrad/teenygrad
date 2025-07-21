@@ -16,6 +16,7 @@
  */
 
 use crate::dtype::Dtype;
+use crate::error::Result;
 use crate::graph::ops::OpShape;
 use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::DynamicShape;
@@ -32,7 +33,7 @@ impl<N: Dtype> SigmoidOp<N> {
 }
 
 impl<N: Dtype> OpShape for SigmoidOp<N> {
-    fn shape(&self) -> DynamicShape {
+    fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }

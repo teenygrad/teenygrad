@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use crate::dtype::Dtype;
+use crate::error::Result;
 use crate::graph::Node;
 use crate::graph::NodeOp;
 use crate::graph::ops::dot::DotOp;
@@ -44,7 +45,7 @@ impl<N: Dtype> NodeRef<N> {
         )))
     }
 
-    pub fn shape(&self) -> DynamicShape {
+    pub fn shape(&self) -> Result<DynamicShape> {
         self.0.shape()
     }
 

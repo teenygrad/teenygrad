@@ -17,6 +17,8 @@
 
 use derive_more::Display;
 
+use crate::error::{Error, Result};
+
 #[derive(Debug, Clone, Display)]
 pub enum Arch {
     #[display("x86_64")]
@@ -25,8 +27,8 @@ pub enum Arch {
 
 #[derive(Debug, Clone, Display)]
 pub enum Vendor {
-    #[display("pc")]
-    Pc,
+    #[display("unknown")]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Display)]
@@ -52,5 +54,44 @@ pub struct Target {
 impl std::fmt::Display for Target {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-{}-{}-{}", self.arch, self.vendor, self.os, self.abi)
+    }
+}
+
+impl TryFrom<&str> for Target {
+    type Error = Error;
+
+    fn try_from(target: &str) -> Result<Self> {
+        let target = target.split('-').collect::<Vec<&str>>();
+
+        if target.len() != 4 {
+            return Err(Error::InvalidTarget(format!("Invalid target: {target:?}")));
+        }
+
+        let arch = match target[0] {
+            "x86_64" => Arch::X86_64,
+            _ => return Err(Error::InvalidTarget(format!("Invalid target: {target:?}"))),
+        };
+
+        let vendor = match target[1] {
+            "unknown" => Vendor::Unknown,
+            _ => return Err(Error::InvalidTarget(format!("Invalid target: {target:?}"))),
+        };
+
+        let os = match target[2] {
+            "linux" => Os::Linux,
+            _ => return Err(Error::InvalidTarget(format!("Invalid target: {target:?}"))),
+        };
+
+        let abi = match target[3] {
+            "gnu" => Abi::Gnu,
+            _ => return Err(Error::InvalidTarget(format!("Invalid target: {target:?}"))),
+        };
+
+        Ok(Self {
+            arch,
+            vendor,
+            os,
+            abi,
+        })
     }
 }

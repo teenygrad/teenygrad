@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -34,11 +35,11 @@ impl<N: Dtype> AddOp<N> {
 }
 
 impl<N: Dtype> OpShape for AddOp<N> {
-    fn shape(&self) -> DynamicShape {
-        let lhs_shape = self.lhs.shape();
-        let rhs_shape = self.rhs.shape();
+    fn shape(&self) -> Result<DynamicShape> {
+        let lhs_shape = self.lhs.shape()?;
+        let rhs_shape = self.rhs.shape()?;
 
-        lhs_shape.broadcast(&rhs_shape)
+        Ok(lhs_shape.broadcast(&rhs_shape))
     }
 }
 

@@ -19,31 +19,14 @@ use std::ops::Add;
 
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
-use teeny_core::{
-    dtype,
-    tensor::{Tensor, shape},
-};
-
-use crate::device::CudaDevice;
+use teeny_core::{dtype, tensor::Tensor};
 
 #[derive(Debug)]
 pub struct CudaTensor<T: dtype::Dtype> {
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<N: dtype::Dtype> Tensor<CudaDevice, N> for CudaTensor<N> {
-    fn zeros<S: shape::Shape>(_shape: S) -> teeny_core::error::Result<Self> {
-        todo!()
-    }
-
-    fn randn<S: shape::Shape>(_shape: S) -> teeny_core::error::Result<Self> {
-        todo!()
-    }
-
-    fn arange(_start: N, _end: N, _step: N) -> teeny_core::error::Result<Self> {
-        todo!()
-    }
-}
+impl<N: dtype::Dtype> Tensor<N> for CudaTensor<N> {}
 
 impl<N: dtype::Dtype> Add<CudaTensor<N>> for CudaTensor<N> {
     type Output = CudaTensor<N>;

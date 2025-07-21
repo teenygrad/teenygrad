@@ -19,8 +19,8 @@ use crate::error::Result;
 
 use crate::dtype;
 use crate::graph::NodeRef;
-pub trait Module<N: dtype::Dtype, T, U> {
-    fn forward(&self, x: T) -> Result<U>;
+pub trait Module<N: dtype::Dtype> {
+    fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>>;
 
     fn parameters(&self) -> Vec<NodeRef<N>>;
 }

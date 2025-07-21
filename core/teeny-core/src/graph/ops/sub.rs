@@ -16,6 +16,7 @@
  */
 
 use crate::dtype::Dtype;
+use crate::error::Result;
 use crate::graph::ops::OpShape;
 use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::{DynamicShape, Shape};
@@ -33,10 +34,10 @@ impl<N: Dtype> SubOp<N> {
 }
 
 impl<N: Dtype> OpShape for SubOp<N> {
-    fn shape(&self) -> DynamicShape {
-        let lhs_shape = self.lhs.shape();
-        let rhs_shape = self.rhs.shape();
-        lhs_shape.broadcast(&rhs_shape)
+    fn shape(&self) -> Result<DynamicShape> {
+        let lhs_shape = self.lhs.shape()?;
+        let rhs_shape = self.rhs.shape()?;
+        Ok(lhs_shape.broadcast(&rhs_shape))
     }
 }
 

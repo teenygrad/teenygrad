@@ -22,6 +22,6 @@ pub enum Error {
     #[error("Lock error: {0}")]
     TryLockError(String),
 
-    #[error("Ndarray error: {0}")]
-    NdarrayError(String),
+    #[error("Invalid shape: {0}")]
+    InvalidShape(String),
 }

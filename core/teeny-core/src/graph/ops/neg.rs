@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -33,7 +34,7 @@ impl<N: Dtype> NegOp<N> {
 }
 
 impl<N: Dtype> OpShape for NegOp<N> {
-    fn shape(&self) -> DynamicShape {
+    fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }

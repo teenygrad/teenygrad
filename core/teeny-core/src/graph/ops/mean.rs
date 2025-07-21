@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -34,8 +35,8 @@ impl<N: Dtype> MeanOp<N> {
 }
 
 impl<N: Dtype> OpShape for MeanOp<N> {
-    fn shape(&self) -> DynamicShape {
-        let input_shape = self.input.shape();
+    fn shape(&self) -> Result<DynamicShape> {
+        let input_shape = self.input.shape()?;
 
         match self.dim {
             Some(dim) => {
@@ -51,11 +52,11 @@ impl<N: Dtype> OpShape for MeanOp<N> {
                 // Remove the specified dimension
                 let mut new_shape = input_shape.dims.clone();
                 new_shape.remove(dim);
-                DynamicShape { dims: new_shape }
+                Ok(DynamicShape { dims: new_shape })
             }
             None => {
                 // No dimension specified - compute mean across all dimensions (scalar)
-                DynamicShape::new(&[])
+                Ok(DynamicShape::new(&[]))
             }
         }
     }

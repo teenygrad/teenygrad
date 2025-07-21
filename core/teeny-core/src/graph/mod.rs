@@ -19,6 +19,7 @@ pub mod node_ref;
 pub mod ops;
 
 use crate::dtype::Dtype;
+use crate::error::Result;
 use crate::graph::ops::OpShape;
 use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::powi::Powi;
@@ -68,7 +69,7 @@ pub enum NodeOp<N: Dtype> {
 }
 
 impl<N: Dtype> NodeOp<N> {
-    pub fn shape(&self) -> DynamicShape {
+    pub fn shape(&self) -> Result<DynamicShape> {
         match self {
             NodeOp::Scalar(op) => op.shape(),
             NodeOp::Add(op) => op.shape(),
@@ -120,7 +121,7 @@ impl<N: Dtype> Node<N> {
         }
     }
 
-    pub fn shape(&self) -> DynamicShape {
+    pub fn shape(&self) -> Result<DynamicShape> {
         self.op.shape()
     }
 }
@@ -153,6 +154,13 @@ pub fn scalar<N: Dtype>(x: N) -> NodeRef<N> {
     ScalarOp::new(x).into()
 }
 
+pub fn relu<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+    ReluOp::new(x.clone()).into()
+}
+
+pub fn sigmoid<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+    SigmoidOp::new(x.clone()).into()
+}
 // use std::ops::Add;
 // use std::sync::Arc;
 

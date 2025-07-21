@@ -21,4 +21,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("CPU driver error: {0}")]
     CpuError(String),
+
+    #[error("Invalid target: {0}")]
+    InvalidTarget(String),
 }

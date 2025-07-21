@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -34,7 +35,7 @@ impl<N: Dtype> Powi<N> {
 }
 
 impl<N: Dtype> OpShape for Powi<N> {
-    fn shape(&self) -> DynamicShape {
+    fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }

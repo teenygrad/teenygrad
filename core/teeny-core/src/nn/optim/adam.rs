@@ -121,6 +121,13 @@ impl<N: Dtype, P: Param<N>> Adam<N, P> {
                 let update = &lr * (m_hat / denominator);
 
                 param.update(update);
+
+                // TODO:
+                // the v[i] and m[i] are now ready for the next step
+                // so we realise them and replace the graphs with new values
+                // in theory we could batch all of these up and do a single
+                // realisation and update, but this is a bit more complex to
+                // implement and not really necessary for the current use case
             }
         }
     }

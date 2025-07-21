@@ -15,8 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::device::Device;
-
 use crate::target::Target;
 
 #[derive(Debug, Clone)]
@@ -48,5 +46,3 @@ pub struct CudaDevice {
     pub name: String,
     pub properties: DeviceProperties,
 }
-
-impl Device for CudaDevice {}

@@ -44,8 +44,8 @@ impl<T: dtype::Dtype> VectorAdd<T> {
     }
 }
 
-impl Module<f32, (), NodeRef<f32>> for VectorAdd<f32> {
-    fn forward(&self, _x: ()) -> teeny_core::error::Result<NodeRef<f32>> {
+impl Module<f32> for VectorAdd<f32> {
+    fn forward(&self, _x: NodeRef<f32>) -> teeny_core::error::Result<NodeRef<f32>> {
         Ok(&self.v1 + &self.v2)
     }
 

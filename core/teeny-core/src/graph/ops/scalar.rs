@@ -15,9 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
-    graph::{NodeOp, NodeRef},
+    graph::{NodeOp, NodeRef, ops::OpShape},
     tensor::shape::DynamicShape,
 };
 
@@ -30,9 +31,11 @@ impl<N: Dtype> ScalarOp<N> {
     pub fn new(scalar: N) -> Self {
         Self { scalar }
     }
+}
 
-    pub fn shape(&self) -> DynamicShape {
-        DynamicShape::new(&[])
+impl<N: Dtype> OpShape for ScalarOp<N> {
+    fn shape(&self) -> Result<DynamicShape> {
+        Ok(DynamicShape::new(&[]))
     }
 }
 

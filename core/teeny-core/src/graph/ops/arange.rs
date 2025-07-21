@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::error::Result;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -35,12 +36,12 @@ impl<N: Dtype> ArangeOp<N> {
 }
 
 impl<N: Dtype> OpShape for ArangeOp<N> {
-    fn shape(&self) -> DynamicShape {
+    fn shape(&self) -> Result<DynamicShape> {
         // Calculate the length of the arange sequence
         // Formula: ceil((end - start) / step)
         let length = ((self.end - self.start) / self.step).ceil();
         let length = length.to_f32().unwrap_or(0.0) as usize;
-        DynamicShape::new(&[length])
+        Ok(DynamicShape::new(&[length]))
     }
 }
 

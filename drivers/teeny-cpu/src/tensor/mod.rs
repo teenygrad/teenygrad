@@ -14,9 +14,3 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-use teeny_core::tensor::ndarray::NdarrayTensor;
-
-use crate::device::CpuDevice;
-
-pub type CpuTensor<N> = NdarrayTensor<CpuDevice, N>;

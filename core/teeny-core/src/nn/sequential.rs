@@ -17,62 +17,58 @@
 
 // use crate::{nn::module::Module1, tensor::Tensor};
 
-// pub struct Sequential<'a> {
-//     layers: Vec<Box<dyn Module1<&'a Tensor, Tensor>>>,
-// }
+use crate::error::Result;
+use crate::{dtype, graph::NodeRef, nn::Module};
 
-// impl<'a> Sequential<'a> {
-//     pub fn new(layers: Vec<Box<dyn Module1<&'a Tensor, Tensor>>>) -> Self {
-//         Sequential { layers }
-//     }
-// }
+pub struct Sequential<N: dtype::Dtype> {
+    layers: Vec<Box<dyn Module<N>>>,
+}
 
-// impl<'a> Module1<&'a Tensor, Tensor> for Sequential<'a> {
-//     fn forward(&self, input: &Tensor) -> Tensor {
-//         let mut _output = input.clone();
+impl<N: dtype::Dtype> Sequential<N> {
+    pub fn new(layers: Vec<Box<dyn Module<N>>>) -> Self {
+        Sequential { layers }
+    }
+}
 
-//         todo!("Sequential::forward");
-//         // for layer in &self.layers {
-//         //     output = layer.forward(&output);
-//         // }
+impl<N: dtype::Dtype> Module<N> for Sequential<N> {
+    fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {
+        let mut output = input.clone();
 
-//         //output
-//     }
+        for layer in &self.layers {
+            output = layer.forward(output)?;
+        }
 
-//     fn parameters(&self) -> Vec<Tensor> {
-//         self.layers
-//             .iter()
-//             .flat_map(|layer| layer.parameters())
-//             .collect()
-//     }
-// }
+        Ok(output)
+    }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::{
-//         nn::{ReLU, linear::*},
-//         sequential,
-//     };
-//     use ndarray::array;
+    fn parameters(&self) -> Vec<NodeRef<N>> {
+        self.layers
+            .iter()
+            .flat_map(|layer| layer.parameters())
+            .collect()
+    }
+}
 
-//     #[test]
-//     fn test_sequential_backprop() {
-//         let linear1 = Linear::new(2, 3, true);
-//         let linear2 = Linear::new(3, 1, true);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        graph::tensor,
+        nn::{linear::*, relu::ReLU},
+        sequential,
+        tensor::shape::DynamicShape,
+    };
 
-//         let _model = sequential![linear1, ReLU::new(), linear2];
+    #[test]
+    fn test_sequential_backprop() {
+        let linear1 = Linear::new(1, 3, true).unwrap();
+        let linear2 = Linear::new(3, 1, true).unwrap();
 
-//         let _input: Tensor = array![[1.0, 2.0], [3.0, 4.0]].into();
-//         todo!("test_sequential_backprop");
-//         // let output = model.forward(&input);
-//         // let mut loss = Loss::new(output.clone());
+        let model = sequential![linear1, ReLU::new(), linear2];
 
-//         // loss.backward();
-//         // // Check that output has the expected shape (2, 1)
-//         // assert_eq!(
-//         //     output.value.borrow().data.as_ref().unwrap().shape(),
-//         //     vec![2, 1]
-//         // );
-//     }
-// }
+        let input = tensor(&[1.0]);
+        let output = model.forward(input).unwrap();
+
+        assert_eq!(output.shape().unwrap(), DynamicShape::new(&[1, 1]));
+    }
+}
