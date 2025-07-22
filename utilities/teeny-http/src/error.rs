@@ -15,5 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod download;
-pub mod error;
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Request failed: {0}")]
+    RequestFailed(reqwest::Error),
+
+    #[error("File create failed: {0}")]
+    FileCreateFailed(std::io::Error),
+
+    #[error("File write failed: {0}")]
+    FileWriteFailed(std::io::Error),
+}
