@@ -19,7 +19,8 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use teeny_core::graph::tensor;
+use ndarray::Array1;
+
 #[allow(unused_imports)]
 use teeny_hf::{
     error::Error,
@@ -34,7 +35,9 @@ use teeny_hf::{
 #[allow(unused_imports)]
 use teeny_nlp::tokenizer::Message;
 
-use teeny_hf::error::Result;
+use teeny_hf::{
+    error::Result, transformer::model::qwen::qwen2::qwen2_model::QwenModelInputsBuilder,
+};
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
@@ -138,9 +141,9 @@ async fn main() -> Result<()> {
     };
 
     info!("Downloading model: {}", cli.model);
-
     download_model(config).await?;
 
+    info!("Running model: {}", cli.model);
     run_model(&cli.model, cache_dir.to_str().unwrap()).await?;
 
     Ok(())
@@ -159,13 +162,20 @@ async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
     let encoded_inputs = tokenizer
         .encode(text, false)
         .map_err(Error::TokenizerError)?;
-    let encoded_ids = encoded_inputs
-        .get_ids()
-        .iter()
-        .map(|x| *x as f32)
-        .collect::<Vec<_>>();
-    let model_inputs = tensor(&encoded_ids);
-    println!("model_inputs: {model_inputs:?}");
+    let encoded_ids = Array1::from(
+        encoded_inputs
+            .get_ids()
+            .iter()
+            .map(|x| *x as usize)
+            .collect::<Vec<_>>(),
+    )
+    .into_dyn();
+
+    let model_inputs = QwenModelInputsBuilder::default()
+        .input_ids(Some(encoded_ids))
+        .build()
+        .map_err(|e| Error::BuilderError(e.to_string()))?;
+
     let generated_ids = model
         .forward(model_inputs)?
         .realize()?

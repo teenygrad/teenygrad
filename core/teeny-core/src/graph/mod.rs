@@ -27,8 +27,8 @@ use crate::graph::ops::ones::OnesOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::sqrt::SqrtOp;
-use crate::graph::ops::tensor::VectorOp;
 use crate::graph::ops::transpose::TransposeOp;
+use crate::graph::ops::vector::VectorOp;
 use crate::tensor::shape::DynamicShape;
 
 use crate::util::unique_id::UniqueId;

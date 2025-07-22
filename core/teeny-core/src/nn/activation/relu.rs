@@ -35,7 +35,7 @@ impl<N: dtype::Dtype> ReLU<N> {
     }
 }
 
-impl<N: dtype::Dtype> Module<N> for ReLU<N> {
+impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for ReLU<N> {
     type Err = Error;
 
     fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {

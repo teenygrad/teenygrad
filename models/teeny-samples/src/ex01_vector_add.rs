@@ -46,7 +46,7 @@ impl<T: dtype::Dtype> VectorAdd<T> {
     }
 }
 
-impl Module<f32> for VectorAdd<f32> {
+impl Module<f32, NodeRef<f32>, NodeRef<f32>> for VectorAdd<f32> {
     type Err = Error;
 
     fn forward(&self, _x: NodeRef<f32>) -> Result<NodeRef<f32>> {

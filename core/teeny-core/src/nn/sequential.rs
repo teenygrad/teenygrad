@@ -18,19 +18,20 @@
 // use crate::{nn::module::Module1, tensor::Tensor};
 
 use crate::error::{Error, Result};
+use crate::nn::module::NodeRefModule;
 use crate::{dtype, graph::NodeRef, nn::Module};
 
 pub struct Sequential<N: dtype::Dtype> {
-    layers: Vec<Box<dyn Module<N, Err = Error>>>,
+    layers: Vec<NodeRefModule<N, Error>>,
 }
 
 impl<N: dtype::Dtype> Sequential<N> {
-    pub fn new(layers: Vec<Box<dyn Module<N, Err = Error>>>) -> Self {
+    pub fn new(layers: Vec<NodeRefModule<N, Error>>) -> Self {
         Sequential { layers }
     }
 }
 
-impl<N: dtype::Dtype> Module<N> for Sequential<N> {
+impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Sequential<N> {
     type Err = Error;
 
     fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {

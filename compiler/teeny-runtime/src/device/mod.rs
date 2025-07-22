@@ -60,7 +60,7 @@ impl Device {
 
     pub fn compile<N: dtype::Dtype, T: Tensor<N>, U: Tensor<N>>(
         &self,
-        _module: Box<dyn Module<N, Err = Error>>,
+        _module: Box<dyn Module<N, T, U, Err = Error>>,
     ) -> Result<Box<dyn CompiledModule<N, T, U, Err = Error>>> {
         todo!()
     }

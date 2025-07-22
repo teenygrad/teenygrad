@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["training"]
+default = ["training", "ndarray"]
 training = []
+ndarray = ["dep:ndarray"]
 
 [dependencies]
 teeny-macros = { path = "../../compiler/teeny-macros" }
@@ -17,3 +18,4 @@ uuid.workspace = true
 half.workspace = true
 num-traits.workspace = true
 ksuid.workspace = true
+ndarray= { workspace = true, optional = true }

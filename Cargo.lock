@@ -2570,6 +2570,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ac9aa371f599d22256307c24a9d748c041e548cbf599f35d890f9d365361790"
 
 [[package]]
+name = "teeny-cache"
+version = "0.1.0"
+
+[[package]]
 name = "teeny-compiler"
 version = "0.1.0"
 dependencies = [
@@ -2589,6 +2593,7 @@ dependencies = [
  "derive_builder",
  "half",
  "ksuid",
+ "ndarray",
  "num-traits",
  "once_cell",
  "rand 0.9.2",
@@ -2635,11 +2640,14 @@ name = "teeny-hf"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "derive_builder",
  "minijinja",
  "minijinja-contrib",
+ "ndarray",
  "reqwest",
  "serde",
  "serde_json",
+ "teeny-cache",
  "teeny-core",
  "teeny-data",
  "teeny-nlp",

@@ -15,10 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use derive_builder::Builder;
+use teeny_cache::Cache;
 use teeny_core::graph::{NodeRef, ones};
 use teeny_core::nn::Module;
+use teeny_core::nn::module::NodeRefModule;
 use teeny_core::nn::{embedding::Embedding, linear::Linear};
 use teeny_core::tensor::shape::DynamicShape;
+use teeny_core::tensor::{FloatTensor, LongTensor};
 
 use crate::transformer::activations::get_activation;
 use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
@@ -30,11 +34,22 @@ pub struct Qwen2Model {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
     pub embed_tokens: Embedding<f32>,
-    pub layers: Vec<Box<dyn Module<f32, Err = Error>>>,
+    pub layers: Vec<NodeRefModule<f32, Error>>,
     pub norm: Qwen2RMSNorm,
     pub rotary_emb: Qwen2RotaryEmbedding,
     pub gradient_checkpointing: bool,
     pub has_sliding_layers: bool,
+}
+
+#[derive(Debug, Builder, Clone)]
+pub struct QwenModelInputs {
+    pub input_ids: Option<LongTensor>,
+    pub attention_mask: Option<FloatTensor>,
+    pub position_ids: Option<LongTensor>,
+    pub past_key_values: Option<Cache>,
+    pub inputs_embeds: Option<FloatTensor>,
+    pub use_cache: Option<bool>,
+    pub cache_position: Option<LongTensor>,
 }
 
 impl Qwen2Model {
@@ -49,7 +64,12 @@ impl Qwen2Model {
             ),
             layers: (0..config.num_hidden_layers())
                 .map(|layer_idx| Qwen2DecoderLayer::new(config, layer_idx))
-                .map(|layer| Ok(Box::new(layer?) as Box<dyn Module<f32, Err = Error>>))
+                .map(|layer| {
+                    Ok(Box::new(layer?)
+                        as Box<
+                            dyn Module<f32, NodeRef<f32>, NodeRef<f32>, Err = Error>,
+                        >)
+                })
                 .collect::<Result<Vec<_>>>()?,
             norm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
             rotary_emb: Qwen2RotaryEmbedding::new(config),
@@ -61,10 +81,11 @@ impl Qwen2Model {
     }
 }
 
-impl Module<f32> for Qwen2Model {
+impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
     type Err = Error;
 
-    fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+    fn forward(&self, model_inputs: QwenModelInputs) -> Result<NodeRef<f32>> {
+        println!("Qwen2Model::forward: {model_inputs:?}");
         todo!()
     }
 
@@ -98,7 +119,7 @@ impl Qwen2DecoderLayer {
     }
 }
 
-impl Module<f32> for Qwen2DecoderLayer {
+impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2DecoderLayer {
     type Err = Error;
 
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
@@ -126,7 +147,7 @@ impl Qwen2RMSNorm {
     }
 }
 
-impl Module<f32> for Qwen2RMSNorm {
+impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2RMSNorm {
     type Err = Error;
 
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
@@ -158,7 +179,7 @@ impl Qwen2RotaryEmbedding {
     }
 }
 
-impl Module<f32> for Qwen2RotaryEmbedding {
+impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2RotaryEmbedding {
     type Err = Error;
 
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
@@ -226,7 +247,7 @@ pub struct Qwen2MLP {
     pub intermediate_size: usize,
     pub gate_proj: Linear<f32>,
     pub down_proj: Linear<f32>,
-    pub act_fn: Box<dyn Module<f32, Err = Error>>,
+    pub act_fn: Box<dyn Module<f32, NodeRef<f32>, NodeRef<f32>, Err = Error>>,
 }
 
 impl Qwen2MLP {
@@ -243,7 +264,7 @@ impl Qwen2MLP {
     }
 }
 
-impl Module<f32> for Qwen2MLP {
+impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2MLP {
     type Err = Error;
 
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {

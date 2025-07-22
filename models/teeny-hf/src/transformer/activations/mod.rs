@@ -15,14 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::{dtype::Dtype, graph::NodeRef, nn::Module};
+use teeny_core::{
+    dtype::Dtype,
+    graph::NodeRef,
+    nn::{Module, module::NodeRefModule},
+};
 
 use crate::{error::Error, error::Result, transformer::config::model_config::HiddenAct};
 
 #[derive(Default)]
 pub struct Silu;
 
-impl<N: Dtype> Module<N> for Silu {
+impl<N: Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Silu {
     type Err = Error;
 
     fn forward(&self, _x: NodeRef<N>) -> Result<NodeRef<N>> {
@@ -34,7 +38,7 @@ impl<N: Dtype> Module<N> for Silu {
     }
 }
 
-pub fn get_activation(activation: HiddenAct) -> Result<Box<dyn Module<f32, Err = Error>>> {
+pub fn get_activation(activation: HiddenAct) -> Result<NodeRefModule<f32, Error>> {
     match activation {
         HiddenAct::Silu => Ok(Box::new(Silu)),
     }

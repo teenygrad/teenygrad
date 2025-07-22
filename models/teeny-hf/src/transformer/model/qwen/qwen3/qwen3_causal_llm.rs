@@ -23,7 +23,8 @@ use teeny_core::{
 use super::qwen3_config::Qwen3Config;
 
 use crate::{
-    error::Error, error::Result, transformer::model::qwen::qwen2::qwen2_model::Qwen2Model,
+    error::{Error, Result},
+    transformer::model::qwen::qwen2::qwen2_model::{Qwen2Model, QwenModelInputs},
 };
 
 pub struct Qwen3ForCausalLM {
@@ -43,17 +44,17 @@ impl Qwen3ForCausalLM {
 
     pub fn generate(
         &self,
-        model_inputs: NodeRef<f32>,
+        model_inputs: QwenModelInputs,
         _max_new_tokens: usize,
     ) -> Result<NodeRef<f32>> {
         self.forward(model_inputs)
     }
 }
 
-impl Module<f32> for Qwen3ForCausalLM {
+impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen3ForCausalLM {
     type Err = Error;
 
-    fn forward(&self, model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+    fn forward(&self, model_inputs: QwenModelInputs) -> Result<NodeRef<f32>> {
         let hidden_states = self.model.forward(model_inputs)?;
         self.lm_head
             .forward(hidden_states)

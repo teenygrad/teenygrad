@@ -68,4 +68,7 @@ pub enum Error {
 
     #[error("Teeny error: {0}")]
     CoreError(#[from] teeny_core::error::Error),
+
+    #[error("Builder error: {0}")]
+    BuilderError(String),
 }

@@ -42,7 +42,7 @@ impl<N: dtype::Dtype> Linear<N> {
     }
 }
 
-impl<N: dtype::Dtype> Module<N> for Linear<N> {
+impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Linear<N> {
     type Err = Error;
 
     fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>> {

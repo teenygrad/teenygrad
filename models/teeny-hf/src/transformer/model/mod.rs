@@ -15,10 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::graph::NodeRef;
 use teeny_core::nn::Module;
 
 use crate::error::{Error, Result};
 use crate::transformer::config::model_config::Architecture;
+use crate::transformer::model::qwen::qwen2::qwen2_model::QwenModelInputs;
 use crate::transformer::model::qwen::qwen3::qwen3_causal_llm::Qwen3ForCausalLM;
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 
@@ -27,7 +29,7 @@ pub mod qwen;
 pub fn from_pretrained(
     model_id: &str,
     cache_dir: &str,
-) -> Result<Box<dyn Module<f32, Err = Error>>> {
+) -> Result<Box<dyn Module<f32, QwenModelInputs, NodeRef<f32>, Err = Error>>> {
     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
     match config.architectures[0] {
