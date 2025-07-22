@@ -42,6 +42,9 @@ pub enum Error {
     #[error("Model not found: {model_id}")]
     ModelNotFound { model_id: String },
 
+    #[error("Model error: {0}")]
+    ModelError(String),
+
     #[error("File not found: {file_path}")]
     FileNotFound { file_path: String },
 

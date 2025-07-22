@@ -17,8 +17,9 @@
 
 use crate::{
     dtype::Dtype,
+    error::Result,
     graph::{NodeRef, zeros},
-    tensor::shape::DynamicShape,
+    tensor::{FloatTensor, LongTensor, shape::DynamicShape},
 };
 
 pub struct Embedding<N: Dtype> {
@@ -32,5 +33,9 @@ impl<N: Dtype> Embedding<N> {
         Self {
             weight: zeros(embedding_shape),
         }
+    }
+
+    pub fn embed_tokens(&self, _input_ids: LongTensor) -> Result<FloatTensor> {
+        todo!()
     }
 }

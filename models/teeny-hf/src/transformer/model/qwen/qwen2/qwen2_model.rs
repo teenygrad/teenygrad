@@ -84,8 +84,26 @@ impl Qwen2Model {
 impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
     type Err = Error;
 
-    fn forward(&self, model_inputs: QwenModelInputs) -> Result<NodeRef<f32>> {
-        println!("Qwen2Model::forward: {model_inputs:?}");
+    fn forward(
+        &self,
+        QwenModelInputs {
+            input_ids,
+            inputs_embeds,
+            ..
+        }: QwenModelInputs,
+    ) -> Result<NodeRef<f32>> {
+        if input_ids.is_none() ^ inputs_embeds.is_some() {
+            return Err(Error::ModelError(
+                "Only one of input_ids and inputs_embeds must be provided.".to_string(),
+            ));
+        }
+
+        let inputs_embeds = inputs_embeds.ok_or(|| {
+            self.embed_tokens
+                .embed_tokens(input_ids.unwrap())
+                .map_err(Error::CoreError)
+        });
+
         todo!()
     }
 
