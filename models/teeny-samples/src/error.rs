@@ -15,34 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::{Error, Result};
-use crate::{
-    dtype,
-    graph::{NodeRef, relu},
-    nn::Module,
-};
+use thiserror::Error;
 
-#[derive(Debug, Clone, Default)]
-pub struct ReLU<N: dtype::Dtype> {
-    _marker: std::marker::PhantomData<N>,
-}
+pub type Result<T> = std::result::Result<T, Error>;
 
-impl<N: dtype::Dtype> ReLU<N> {
-    pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<N: dtype::Dtype> Module<N> for ReLU<N> {
-    type Err = Error;
-
-    fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {
-        Ok(relu(input))
-    }
-
-    fn parameters(&self) -> Vec<NodeRef<N>> {
-        vec![]
-    }
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }

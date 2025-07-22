@@ -17,10 +17,10 @@
 
 use reqwest::StatusCode;
 
-pub type Result<T> = std::result::Result<T, TeenyHFError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(thiserror::Error, Debug)]
-pub enum TeenyHFError {
+pub enum Error {
     #[error("StdError error: {0}")]
     StdError(#[from] std::io::Error),
 
@@ -65,4 +65,7 @@ pub enum TeenyHFError {
 
     #[error("Invalid response")]
     InvalidResponse,
+
+    #[error("Teeny error: {0}")]
+    CoreError(#[from] teeny_core::error::Error),
 }

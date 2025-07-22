@@ -22,8 +22,7 @@ pub mod qwen2_tokenizer;
 pub mod tokenizer_config;
 
 use crate::{
-    error::{Result, TeenyHFError},
-    transformer::tokenizer::tokenizer_config::TokenizerConfig,
+    error::Error, error::Result, transformer::tokenizer::tokenizer_config::TokenizerConfig,
 };
 
 pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
@@ -32,7 +31,7 @@ pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
     let merges_file = format!("{cache_dir}/{model_id}/merges.txt");
     let bpe_builder = BPE::from_file(&vocab_file, &merges_file);
 
-    let bpe = bpe_builder.build().map_err(TeenyHFError::TokenizerError)?;
+    let bpe = bpe_builder.build().map_err(Error::TokenizerError)?;
 
     Ok(Tokenizer::new(bpe))
 }

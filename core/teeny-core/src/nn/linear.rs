@@ -17,7 +17,7 @@
 
 use crate::{
     dtype,
-    error::Result,
+    error::{Error, Result},
     graph::{self, NodeRef},
     nn::Module,
     shape,
@@ -43,6 +43,8 @@ impl<N: dtype::Dtype> Linear<N> {
 }
 
 impl<N: dtype::Dtype> Module<N> for Linear<N> {
+    type Err = Error;
+
     fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>> {
         let a = x * &self.weight.t();
         let result = if let Some(bias) = &self.bias {

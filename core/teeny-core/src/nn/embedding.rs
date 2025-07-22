@@ -15,18 +15,22 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// use crate::tensorx::Tensor;
+use crate::{
+    dtype::Dtype,
+    graph::{NodeRef, zeros},
+    tensor::shape::DynamicShape,
+};
 
-// pub struct Embedding {
-//     pub weight: Tensor,
-// }
+pub struct Embedding<N: Dtype> {
+    pub weight: NodeRef<N>,
+}
 
-// impl Embedding {
-//     pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
-//         let embedding_shape = vec![hidden_size, vocab_size];
+impl<N: Dtype> Embedding<N> {
+    pub fn new(vocab_size: usize, hidden_size: usize, _padding_token_id: Option<usize>) -> Self {
+        let embedding_shape = DynamicShape::new(&[hidden_size, vocab_size]);
 
-//         Self {
-//             weight: Tensor::new(ndarray::Array::zeros(embedding_shape), true),
-//         }
-//     }
-// }
+        Self {
+            weight: zeros(embedding_shape),
+        }
+    }
+}

@@ -21,6 +21,8 @@ use teeny_core::{
     nn::Module,
 };
 
+use crate::error::{Error, Result};
+
 #[derive(Debug)]
 pub struct VectorAdd<N: dtype::Dtype> {
     pub v1: NodeRef<N>,
@@ -45,7 +47,9 @@ impl<T: dtype::Dtype> VectorAdd<T> {
 }
 
 impl Module<f32> for VectorAdd<f32> {
-    fn forward(&self, _x: NodeRef<f32>) -> teeny_core::error::Result<NodeRef<f32>> {
+    type Err = Error;
+
+    fn forward(&self, _x: NodeRef<f32>) -> Result<NodeRef<f32>> {
         Ok(&self.v1 + &self.v2)
     }
 
@@ -54,7 +58,7 @@ impl Module<f32> for VectorAdd<f32> {
     }
 }
 
-pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run() -> Result<()> {
     let _model: VectorAdd<f32> = VectorAdd::new();
 
     // compile the model

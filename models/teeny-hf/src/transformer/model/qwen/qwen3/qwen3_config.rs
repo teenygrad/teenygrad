@@ -24,7 +24,7 @@ use crate::transformer::config::model_config::{
     Architecture, HiddenAct, IPretrainedConfig, ModelType, TorchDtype,
 };
 
-use crate::error::{Result, TeenyHFError};
+use crate::error::{Error, Result};
 use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
 
 pub trait IQwen3Config: IQwen2Config {}
@@ -76,7 +76,7 @@ pub struct Qwen3Config {
 impl Qwen3Config {
     pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Self> {
         let config_path = format!("{cache_dir}/{model_id}/config.json");
-        let config_str = std::fs::read_to_string(config_path).map_err(TeenyHFError::IoError)?;
+        let config_str = std::fs::read_to_string(config_path).map_err(Error::IoError)?;
         let config = Self::from_str(&config_str)?;
 
         Ok(config)
@@ -84,11 +84,10 @@ impl Qwen3Config {
 }
 
 impl FromStr for Qwen3Config {
-    type Err = TeenyHFError;
+    type Err = Error;
 
     fn from_str(config_str: &str) -> Result<Self> {
-        let mut config: Self =
-            serde_json::from_str(config_str).map_err(TeenyHFError::ConfigParseError)?;
+        let mut config: Self = serde_json::from_str(config_str).map_err(Error::ConfigParseError)?;
 
         config.keys_to_ignore_at_inference = vec!["past_key_values".to_string()];
 

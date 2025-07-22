@@ -15,40 +15,52 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-// use teeny_core::{TeenyModule, nn::Linear};
-// use teeny_torch::torch_nn_linear;
+use teeny_core::{
+    graph::NodeRef,
+    nn::{Module, linear::Linear},
+};
 
-// use super::qwen3_config::Qwen3Config;
+use super::qwen3_config::Qwen3Config;
 
-// use crate::{
-//     error::{Result, TeenyHFError},
-//     transformer::model::qwen::qwen2::qwen2_model::Qwen2Model,
-// };
+use crate::{
+    error::Error, error::Result, transformer::model::qwen::qwen2::qwen2_model::Qwen2Model,
+};
 
-// pub struct Qwen3ForCausalLM {
-//     pub model: Qwen2Model,
-//     pub vocab_size: usize,
-//     pub lm_head: Box<dyn Linear>,
-// }
+pub struct Qwen3ForCausalLM {
+    pub model: Qwen2Model,
+    pub vocab_size: usize,
+    pub lm_head: Linear<f32>,
+}
 
-// impl Qwen3ForCausalLM {
-//     pub fn new(config: &Qwen3Config) -> Result<Self> {
-//         Ok(Self {
-//             model: Qwen2Model::new(config)?,
-//             vocab_size: config.vocab_size,
-//             lm_head: torch_nn_linear(config.hidden_size, config.vocab_size, false),
-//         })
-//     }
+impl Qwen3ForCausalLM {
+    pub fn new(config: &Qwen3Config) -> Result<Self> {
+        Ok(Self {
+            model: Qwen2Model::new(config)?,
+            vocab_size: config.vocab_size,
+            lm_head: Linear::new(config.hidden_size, config.vocab_size, false)?,
+        })
+    }
 
-//     pub fn generate(&self, model_inputs: &[u32], _max_new_tokens: usize) -> Result<Vec<u32>> {
-//         self.forward(model_inputs)
-//     }
-// }
+    pub fn generate(
+        &self,
+        model_inputs: NodeRef<f32>,
+        _max_new_tokens: usize,
+    ) -> Result<NodeRef<f32>> {
+        self.forward(model_inputs)
+    }
+}
 
-// impl TeenyModule for Qwen3ForCausalLM {
-//     type Err = TeenyHFError;
+impl Module<f32> for Qwen3ForCausalLM {
+    type Err = Error;
 
-//     fn forward(&self, model_inputs: &[u32]) -> Result<Vec<u32>> {
-//         self.model.forward(model_inputs)
-//     }
-// }
+    fn forward(&self, model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+        let hidden_states = self.model.forward(model_inputs)?;
+        self.lm_head
+            .forward(hidden_states)
+            .map_err(Error::CoreError)
+    }
+
+    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<f32>> {
+        todo!()
+    }
+}

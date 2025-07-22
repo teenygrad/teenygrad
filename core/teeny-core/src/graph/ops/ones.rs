@@ -15,34 +15,38 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::{Error, Result};
+use std::marker::PhantomData;
+
+use crate::error::Result;
 use crate::{
-    dtype,
-    graph::{NodeRef, relu},
-    nn::Module,
+    dtype::Dtype,
+    graph::{NodeOp, NodeRef, ops::OpShape},
+    tensor::shape::DynamicShape,
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct ReLU<N: dtype::Dtype> {
-    _marker: std::marker::PhantomData<N>,
+#[derive(Debug, Clone)]
+pub struct OnesOp<N: Dtype> {
+    pub shape: DynamicShape,
+    _marker: PhantomData<N>,
 }
 
-impl<N: dtype::Dtype> ReLU<N> {
-    pub fn new() -> Self {
+impl<N: Dtype> OnesOp<N> {
+    pub fn new(shape: DynamicShape) -> Self {
         Self {
-            _marker: std::marker::PhantomData,
+            shape,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<N: dtype::Dtype> Module<N> for ReLU<N> {
-    type Err = Error;
-
-    fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {
-        Ok(relu(input))
+impl<N: Dtype> OpShape for OnesOp<N> {
+    fn shape(&self) -> Result<DynamicShape> {
+        Ok(self.shape.clone())
     }
+}
 
-    fn parameters(&self) -> Vec<NodeRef<N>> {
-        vec![]
+impl<N: Dtype> From<OnesOp<N>> for NodeRef<N> {
+    fn from(op: OnesOp<N>) -> Self {
+        NodeOp::Ones(op).into()
     }
 }

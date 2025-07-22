@@ -22,6 +22,9 @@ use crate::dtype::Dtype;
 use crate::error::Result;
 use crate::graph::ops::OpShape;
 use crate::graph::ops::dot::DotOp;
+use crate::graph::ops::inverse::InverseOp;
+use crate::graph::ops::ones::OnesOp;
+use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::VectorOp;
@@ -68,6 +71,9 @@ pub enum NodeOp<N: Dtype> {
     Transpose(TransposeOp<N>),
     Powi(Powi<N>),
     Sqrt(SqrtOp<N>),
+    Ones(OnesOp<N>),
+    Inverse(InverseOp<N>),
+    Pow(PowOp<N>),
 }
 
 impl<N: Dtype> NodeOp<N> {
@@ -92,6 +98,9 @@ impl<N: Dtype> NodeOp<N> {
             NodeOp::Powi(op) => op.shape(),
             NodeOp::Sqrt(op) => op.shape(),
             NodeOp::Dot(op) => op.shape(),
+            NodeOp::Ones(op) => op.shape(),
+            NodeOp::Inverse(op) => op.shape(),
+            NodeOp::Pow(op) => op.shape(),
         }
     }
 }
@@ -134,12 +143,28 @@ pub fn zeros<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
     ZerosOp::new(shape).into()
 }
 
+pub fn ones<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
+    ZerosOp::new(shape).into()
+}
+
 pub fn randn<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
     RandnOp::new(shape).into()
 }
 
+pub fn inverse<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+    InverseOp::new(x).into()
+}
+
+pub fn exp<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+    ExpOp::new(x).into()
+}
+
 pub fn arange<N: Dtype>(start: N, end: N, step: N) -> NodeRef<N> {
     ArangeOp::new(start, end, step).into()
+}
+
+pub fn pow<N: Dtype>(x: NodeRef<N>, y: NodeRef<N>) -> NodeRef<N> {
+    PowOp::new(x, y).into()
 }
 
 pub fn tensor<N: Dtype>(input: &[N]) -> NodeRef<N> {

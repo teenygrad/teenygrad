@@ -15,17 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::Result;
-
 use crate::dtype;
 use crate::graph::NodeRef;
 use crate::tensor::Tensor;
 pub trait Module<N: dtype::Dtype> {
-    fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>>;
+    type Err;
+
+    fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>, Self::Err>;
 
     fn parameters(&self) -> Vec<NodeRef<N>>;
 }
 
 pub trait CompiledModule<N: dtype::Dtype, T: Tensor<N>, U: Tensor<N>> {
-    fn forward(&self, x: T) -> Result<U>;
+    type Err;
+
+    fn forward(&self, x: T) -> Result<U, Self::Err>;
 }

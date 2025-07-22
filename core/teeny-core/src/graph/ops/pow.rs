@@ -15,34 +15,32 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::{Error, Result};
-use crate::{
-    dtype,
-    graph::{NodeRef, relu},
-    nn::Module,
-};
+use crate::dtype::Dtype;
+use crate::error::Result;
+use crate::graph::ops::OpShape;
+use crate::graph::{NodeOp, NodeRef};
+use crate::tensor::shape::DynamicShape;
 
-#[derive(Debug, Clone, Default)]
-pub struct ReLU<N: dtype::Dtype> {
-    _marker: std::marker::PhantomData<N>,
+#[derive(Debug, Clone)]
+pub struct PowOp<N: Dtype> {
+    pub lhs: NodeRef<N>,
+    pub rhs: NodeRef<N>,
 }
 
-impl<N: dtype::Dtype> ReLU<N> {
-    pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
+impl<N: Dtype> PowOp<N> {
+    pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
+        Self { lhs, rhs }
     }
 }
 
-impl<N: dtype::Dtype> Module<N> for ReLU<N> {
-    type Err = Error;
-
-    fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {
-        Ok(relu(input))
+impl<N: Dtype> OpShape for PowOp<N> {
+    fn shape(&self) -> Result<DynamicShape> {
+        todo!()
     }
+}
 
-    fn parameters(&self) -> Vec<NodeRef<N>> {
-        vec![]
+impl<N: Dtype> From<PowOp<N>> for NodeRef<N> {
+    fn from(op: PowOp<N>) -> Self {
+        NodeOp::Pow(op).into()
     }
 }

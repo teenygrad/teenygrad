@@ -15,19 +15,27 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use teeny_core::{dtype::Dtype, graph::NodeRef, nn::Module};
+
+use crate::{error::Error, error::Result, transformer::config::model_config::HiddenAct};
+
 #[derive(Default)]
 pub struct Silu;
 
-// impl TeenyModule for Silu {
-//     type Err = TeenyHFError;
+impl<N: Dtype> Module<N> for Silu {
+    type Err = Error;
 
-//     fn forward(&self, _x: &[u32]) -> std::result::Result<Vec<u32>, Self::Err> {
-//         todo!()
-//     }
-// }
+    fn forward(&self, _x: NodeRef<N>) -> Result<NodeRef<N>> {
+        todo!()
+    }
 
-// pub fn get_activation(activation: HiddenAct) -> Box<dyn TeenyModule<Err = TeenyHFError>> {
-//     match activation {
-//         HiddenAct::Silu => Box::new(Silu),
-//     }
-// }
+    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<N>> {
+        todo!()
+    }
+}
+
+pub fn get_activation(activation: HiddenAct) -> Result<Box<dyn Module<f32, Err = Error>>> {
+    match activation {
+        HiddenAct::Silu => Ok(Box::new(Silu)),
+    }
+}

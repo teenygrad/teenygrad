@@ -37,6 +37,10 @@ pub mod sub;
 pub struct NodeRef<N: Dtype>(pub Arc<Node<N>>);
 
 impl<N: Dtype> NodeRef<N> {
+    pub fn realize(&self) -> Result<Vec<N>> {
+        todo!()
+    }
+
     pub fn t(&self) -> Self {
         NodeRef(Arc::new(Node::new(
             NodeOp::Transpose(TransposeOp::new(self.clone())),

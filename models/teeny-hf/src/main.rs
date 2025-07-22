@@ -19,9 +19,10 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use teeny_core::graph::tensor;
 #[allow(unused_imports)]
 use teeny_hf::{
-    error::TeenyHFError,
+    error::Error,
     transformer::{
         self,
         model::qwen::qwen3::qwen3_config::Qwen3Config,
@@ -140,33 +141,43 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_model(_model_id: &str, _cache_dir: &str) -> Result<()> {
-    // let tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
-    // let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
-    // let model = transformer::model::from_pretrained(model_id, cache_dir)?;
-    // let _config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
+async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
+    let tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
+    let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
+    let model = transformer::model::from_pretrained(model_id, cache_dir)?;
+    let _config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 
-    // let prompt = "Give me a short introduction to large language model.";
-    // let messages = [Message::new("user", prompt)];
+    let prompt = "Give me a short introduction to large language model.";
+    let messages = [Message::new("user", prompt)];
 
-    // let text = template::apply_chat_template(&tokenizer_config.chat_template, &messages, &[]);
-    // let encoded_inputs = tokenizer
-    //     .encode(text, false)
-    //     .map_err(TeenyHFError::TokenizerError)?;
-    // let model_inputs = encoded_inputs.get_ids();
-    // println!("model_inputs: {:?}", model_inputs);
-    // let generated_ids = model.forward(model_inputs)?;
+    let text = template::apply_chat_template(&tokenizer_config.chat_template, &messages, &[]);
+    let encoded_inputs = tokenizer
+        .encode(text, false)
+        .map_err(Error::TokenizerError)?;
+    let encoded_ids = encoded_inputs
+        .get_ids()
+        .iter()
+        .map(|x| *x as f32)
+        .collect::<Vec<_>>();
+    let model_inputs = tensor(&encoded_ids);
+    println!("model_inputs: {model_inputs:?}");
+    let generated_ids = model
+        .forward(model_inputs)?
+        .realize()?
+        .iter()
+        .map(|x| *x as u32)
+        .collect::<Vec<_>>();
 
-    // let thinking_content = tokenizer
-    //     .decode(&generated_ids[..], false)
-    //     .map_err(TeenyHFError::TokenizerError)?;
+    let thinking_content = tokenizer
+        .decode(&generated_ids[..], false)
+        .map_err(Error::TokenizerError)?;
 
-    // let content = tokenizer
-    //     .decode(&generated_ids[thinking_content.len()..], false)
-    //     .map_err(TeenyHFError::TokenizerError)?;
+    let content = tokenizer
+        .decode(&generated_ids[thinking_content.len()..], false)
+        .map_err(Error::TokenizerError)?;
 
-    // println!("thinking content: {}", thinking_content);
-    // println!("content: {}", content);
+    println!("thinking content: {thinking_content}");
+    println!("content: {content}");
 
     todo!("run model");
 }
