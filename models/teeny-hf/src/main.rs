@@ -47,12 +47,13 @@ use tracing_subscriber::{self, EnvFilter};
 )]
 struct Cli {
     /// The model identifier (e.g., "Qwen/Qwen3-1.7B", "bert-base-uncased")
-    #[arg(value_name = "MODEL", required = true)]
+    #[arg(value_name = "MODEL", default_value = "Qwen/Qwen3-1.7B")]
     model: String,
 
     /// Directory to cache/download the model files
-    #[arg(value_name = "CACHE_DIR", default_value = "/tmp/models")]
-    cache_dir: PathBuf,
+    #[arg(value_name = "CACHE_DIR")]
+    cache_dir: Option<PathBuf>,
+
     /// Maximum concurrent downloads
     #[arg(short, long, default_value = "1")]
     max_concurrent: usize,
@@ -115,10 +116,14 @@ async fn main() -> Result<()> {
 
     // Use auth token from CLI or environment variable
     let auth_token = std::env::var("HF_TOKEN").ok();
+    let cache_dir = cli.cache_dir.clone().unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(format!("{home}/.cache/models"))
+    });
 
     let config = DownloadConfig {
         model_id: cli.model.clone(),
-        output_dir: cli.cache_dir.clone(),
+        output_dir: cache_dir.clone(),
         include_tokenizer,
         include_config,
         include_weights,
@@ -136,7 +141,7 @@ async fn main() -> Result<()> {
 
     download_model(config).await?;
 
-    run_model(&cli.model, cli.cache_dir.to_str().unwrap()).await?;
+    run_model(&cli.model, cache_dir.to_str().unwrap()).await?;
 
     Ok(())
 }

@@ -47,3 +47,4 @@ num-traits = "0.2.19"
 derive_more = { version = "2.0.1", features = ["full"] }
 ksuid = "0.2.0"
 insta = "1.43.1"
+tqdm = "0.8.0"
