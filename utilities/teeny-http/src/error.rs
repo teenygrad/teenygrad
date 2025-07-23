@@ -29,4 +29,7 @@ pub enum Error {
 
     #[error("File write failed: {0}")]
     FileWriteFailed(std::io::Error),
+
+    #[error("HTTP error: {0}")]
+    HttpError(reqwest::StatusCode),
 }

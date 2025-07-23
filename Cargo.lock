@@ -2612,6 +2612,7 @@ dependencies = [
  "teeny-cache",
  "teeny-core",
  "teeny-data",
+ "teeny-http",
  "teeny-nlp",
  "teeny-torch",
  "teeny-triton",

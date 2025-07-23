@@ -37,7 +37,7 @@ pub enum Error {
     TokenizerError(tokenizers::tokenizer::Error),
 
     #[error("HTTP request failed: {0}")]
-    HttpError(#[from] reqwest::Error),
+    TeenyHttpError(#[from] teeny_http::error::Error),
 
     #[error("Model not found: {model_id}")]
     ModelNotFound { model_id: String },

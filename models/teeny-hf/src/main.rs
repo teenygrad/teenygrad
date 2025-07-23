@@ -31,7 +31,7 @@ use teeny_hf::{
         tokenizer::{self, tokenizer_config::TokenizerConfig},
         util::template,
     },
-    util::download::{DownloadConfig, default_progress_callback, download_model},
+    util::download::{DownloadConfig, download_model},
 };
 #[allow(unused_imports)]
 use teeny_nlp::tokenizer::Message;
@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
     let auth_token = std::env::var("HF_TOKEN").ok();
     let cache_dir = cli.cache_dir.clone().unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(format!("{home}/.cache/models"))
+        PathBuf::from(format!("{home}/.teeny/cache/models"))
     });
 
     let config = DownloadConfig {
@@ -134,11 +134,7 @@ async fn main() -> Result<()> {
         revision: cli.revision,
         auth_token,
         max_concurrent: cli.max_concurrent,
-        progress_callback: if cli.show_progress {
-            Some(default_progress_callback())
-        } else {
-            None
-        },
+        show_progress: cli.show_progress,
     };
 
     info!("Downloading model: {}", cli.model);
