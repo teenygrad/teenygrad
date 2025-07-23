@@ -39,8 +39,8 @@ impl<N: Dtype> OpShape for ArangeOp<N> {
     fn shape(&self) -> Result<DynamicShape> {
         // Calculate the length of the arange sequence
         // Formula: ceil((end - start) / step)
-        let length = ((self.end - self.start) / self.step).ceil();
-        let length = length.to_f32().unwrap_or(0.0) as usize;
+        let length = ((self.end.to_f32() - self.start.to_f32()) / self.step.to_f32()).ceil();
+        let length = length as usize;
         Ok(DynamicShape::new(&[length]))
     }
 }

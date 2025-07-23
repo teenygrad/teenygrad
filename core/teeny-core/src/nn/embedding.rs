@@ -15,27 +15,48 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use derive_builder::Builder;
+
 use crate::{
     dtype::Dtype,
-    error::Result,
-    graph::{NodeRef, zeros},
-    tensor::{FloatTensor, LongTensor, shape::DynamicShape},
+    error::{Error, Result},
+    graph::NodeRef,
+    nn::Module,
+    tensor::{FloatTensor, LongTensor},
 };
 
+#[derive(Debug, Clone, Builder)]
 pub struct Embedding<N: Dtype> {
-    pub weight: NodeRef<N>,
+    pub num_embeddings: usize,
+    pub embedding_dim: usize,
+    pub padding_idx: Option<usize>,
+    pub max_norm: Option<f32>,
+    pub norm_type: N,
+    pub scale_grad_by_freq: bool,
+    pub weight: FloatTensor<N>,
+    pub freeze: bool,
+    pub sparse: bool,
 }
 
 impl<N: Dtype> Embedding<N> {
-    pub fn new(vocab_size: usize, hidden_size: usize, _padding_token_id: Option<usize>) -> Self {
-        let embedding_shape = DynamicShape::new(&[hidden_size, vocab_size]);
+    pub fn from_pretrained(
+        _vocab_size: usize,
+        _hidden_size: usize,
+        _padding_token_id: Option<usize>,
+        _weights: FloatTensor<N>,
+    ) -> Self {
+        todo!()
+    }
+}
 
-        Self {
-            weight: zeros(embedding_shape),
-        }
+impl<N: Dtype> Module<N, LongTensor, FloatTensor<N>> for Embedding<N> {
+    type Err = Error;
+
+    fn forward(&self, _input_ids: LongTensor) -> Result<FloatTensor<N>> {
+        todo!()
     }
 
-    pub fn embed_tokens(&self, _input_ids: LongTensor) -> Result<FloatTensor> {
+    fn parameters(&self) -> Vec<NodeRef<N>> {
         todo!()
     }
 }

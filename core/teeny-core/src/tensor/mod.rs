@@ -15,17 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[cfg(feature = "ndarray")]
-use ndarray::IxDyn;
-
-use crate::dtype;
+use crate::graph::NodeRef;
 
 pub mod shape;
 
-pub trait Tensor<N: dtype::Dtype>: Sized + std::fmt::Debug {}
+pub type LongTensor = NodeRef<usize>;
 
-#[cfg(feature = "ndarray")]
-pub type LongTensor = ndarray::Array<usize, IxDyn>;
-
-#[cfg(feature = "ndarray")]
-pub type FloatTensor = ndarray::Array<f32, IxDyn>;
+pub type FloatTensor<F> = NodeRef<F>;

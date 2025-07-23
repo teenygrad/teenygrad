@@ -15,28 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Add;
+use crate::transformer::model::qwen::qwen2::qwen2_model::Qwen2Model;
 
-#[cfg(feature = "ndarray")]
-use ndarray::IxDyn;
-use teeny_core::dtype;
-
-#[derive(Debug)]
-pub struct CudaTensor<T: dtype::Dtype> {
-    _marker: std::marker::PhantomData<T>,
-}
-
-impl<N: dtype::Dtype> Add<CudaTensor<N>> for CudaTensor<N> {
-    type Output = CudaTensor<N>;
-
-    fn add(self, _other: CudaTensor<N>) -> Self::Output {
-        todo!()
-    }
-}
-
-#[cfg(feature = "ndarray")]
-impl<T: dtype::Dtype> From<ndarray::Array<T, IxDyn>> for CudaTensor<T> {
-    fn from(_data: ndarray::Array<T, IxDyn>) -> Self {
-        unimplemented!()
-    }
-}
+pub type Qwen3Model = Qwen2Model;

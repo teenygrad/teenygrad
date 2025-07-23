@@ -18,7 +18,6 @@
 use teeny_core::{
     dtype,
     nn::{Module, module::CompiledModule},
-    tensor::Tensor,
 };
 #[cfg(feature = "cpu")]
 use teeny_cpu::device::CpuDevice;
@@ -58,7 +57,7 @@ impl Device {
         }
     }
 
-    pub fn compile<N: dtype::Dtype, T: Tensor<N>, U: Tensor<N>>(
+    pub fn compile<N: dtype::Dtype, T, U>(
         &self,
         _module: Box<dyn Module<N, T, U, Err = Error>>,
     ) -> Result<Box<dyn CompiledModule<N, T, U, Err = Error>>> {

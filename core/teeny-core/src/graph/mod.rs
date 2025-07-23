@@ -28,11 +28,13 @@ use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::transpose::TransposeOp;
-use crate::graph::ops::vector::VectorOp;
+use crate::graph::ops::vector::TensorOp;
 use crate::tensor::shape::DynamicShape;
 
 use crate::util::unique_id::UniqueId;
 
+#[cfg(feature = "ndarray")]
+use ndarray::IxDyn;
 pub use node_ref::NodeRef;
 
 use ops::add::AddOp;
@@ -67,13 +69,13 @@ pub enum NodeOp<N: Dtype> {
     Randn(RandnOp<N>),
     Relu(ReluOp<N>),
     Sigmoid(SigmoidOp<N>),
-    Vector(VectorOp<N>),
     Transpose(TransposeOp<N>),
     Powi(Powi<N>),
     Sqrt(SqrtOp<N>),
     Ones(OnesOp<N>),
     Inverse(InverseOp<N>),
     Pow(PowOp<N>),
+    Tensor(TensorOp<N>),
 }
 
 impl<N: Dtype> NodeOp<N> {
@@ -93,7 +95,7 @@ impl<N: Dtype> NodeOp<N> {
             NodeOp::Randn(op) => op.shape(),
             NodeOp::Relu(op) => op.shape(),
             NodeOp::Sigmoid(op) => op.shape(),
-            NodeOp::Vector(op) => op.shape(),
+            NodeOp::Tensor(op) => op.shape(),
             NodeOp::Transpose(op) => op.shape(),
             NodeOp::Powi(op) => op.shape(),
             NodeOp::Sqrt(op) => op.shape(),
@@ -167,8 +169,9 @@ pub fn pow<N: Dtype>(x: NodeRef<N>, y: NodeRef<N>) -> NodeRef<N> {
     PowOp::new(x, y).into()
 }
 
-pub fn tensor<N: Dtype>(input: &[N]) -> NodeRef<N> {
-    VectorOp::new(input).into()
+#[cfg(feature = "ndarray")]
+pub fn tensor<N: Dtype>(input: ndarray::Array<N, IxDyn>) -> NodeRef<N> {
+    TensorOp::new(input).into()
 }
 
 pub fn log<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {

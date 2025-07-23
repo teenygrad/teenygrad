@@ -24,7 +24,10 @@ use super::qwen3_config::Qwen3Config;
 
 use crate::{
     error::{Error, Result},
-    transformer::model::qwen::qwen2::qwen2_model::{Qwen2Model, QwenModelInputs},
+    transformer::model::qwen::{
+        qwen2::qwen2_model::{Qwen2Model, QwenModelInputs},
+        qwen3::qwen3_model::Qwen3Model,
+    },
 };
 
 pub struct Qwen3ForCausalLM {
@@ -36,7 +39,7 @@ pub struct Qwen3ForCausalLM {
 impl Qwen3ForCausalLM {
     pub fn new(config: &Qwen3Config) -> Result<Self> {
         Ok(Self {
-            model: Qwen2Model::new(config)?,
+            model: Qwen3Model::new(config)?,
             vocab_size: config.vocab_size,
             lm_head: Linear::new(config.hidden_size, config.vocab_size, false)?,
         })

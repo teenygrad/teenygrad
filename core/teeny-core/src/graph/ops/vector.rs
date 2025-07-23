@@ -15,6 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#[cfg(feature = "ndarray")]
+use ndarray::IxDyn;
+
 use crate::error::Result;
 use crate::{
     dtype::Dtype,
@@ -23,26 +26,26 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct VectorOp<N: Dtype> {
-    pub input: Vec<N>,
+pub struct TensorOp<N: Dtype> {
+    #[cfg(feature = "ndarray")]
+    pub input: ndarray::Array<N, IxDyn>,
 }
 
-impl<N: Dtype> VectorOp<N> {
-    pub fn new(input: &[N]) -> Self {
-        Self {
-            input: input.to_vec(),
-        }
+impl<N: Dtype> TensorOp<N> {
+    #[cfg(feature = "ndarray")]
+    pub fn new(input: ndarray::Array<N, IxDyn>) -> Self {
+        Self { input }
     }
 }
 
-impl<N: Dtype> OpShape for VectorOp<N> {
+impl<N: Dtype> OpShape for TensorOp<N> {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(DynamicShape::new(&[1, self.input.len()]))
     }
 }
 
-impl<N: Dtype> From<VectorOp<N>> for NodeRef<N> {
-    fn from(op: VectorOp<N>) -> Self {
-        NodeOp::Vector(op).into()
+impl<N: Dtype> From<TensorOp<N>> for NodeRef<N> {
+    fn from(op: TensorOp<N>) -> Self {
+        NodeOp::Tensor(op).into()
     }
 }

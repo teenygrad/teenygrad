@@ -17,7 +17,6 @@
 
 use crate::dtype;
 use crate::graph::NodeRef;
-use crate::tensor::Tensor;
 pub trait Module<N: dtype::Dtype, T, U> {
     type Err;
 
@@ -28,7 +27,7 @@ pub trait Module<N: dtype::Dtype, T, U> {
 
 pub type NodeRefModule<N, Error> = Box<dyn Module<N, NodeRef<N>, NodeRef<N>, Err = Error>>;
 
-pub trait CompiledModule<N: dtype::Dtype, T: Tensor<N>, U: Tensor<N>> {
+pub trait CompiledModule<N: dtype::Dtype, T, U> {
     type Err;
 
     fn forward(&self, x: T) -> Result<U, Self::Err>;

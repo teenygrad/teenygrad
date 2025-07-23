@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use ndarray::Array1;
 
+use teeny_core::graph::tensor;
 #[allow(unused_imports)]
 use teeny_hf::{
     error::Error,
@@ -162,14 +163,16 @@ async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
     let encoded_inputs = tokenizer
         .encode(text, false)
         .map_err(Error::TokenizerError)?;
-    let encoded_ids = Array1::from(
-        encoded_inputs
-            .get_ids()
-            .iter()
-            .map(|x| *x as usize)
-            .collect::<Vec<_>>(),
-    )
-    .into_dyn();
+    let encoded_ids = tensor(
+        Array1::from(
+            encoded_inputs
+                .get_ids()
+                .iter()
+                .map(|x| *x as usize)
+                .collect::<Vec<_>>(),
+        )
+        .into_dyn(),
+    );
 
     let model_inputs = QwenModelInputsBuilder::default()
         .input_ids(Some(encoded_ids))

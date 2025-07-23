@@ -17,3 +17,4 @@
 
 pub mod qwen3_causal_llm;
 pub mod qwen3_config;
+pub mod qwen3_model;

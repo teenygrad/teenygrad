@@ -19,6 +19,7 @@ use derive_builder::Builder;
 use teeny_cache::Cache;
 use teeny_core::graph::{NodeRef, ones};
 use teeny_core::nn::Module;
+use teeny_core::nn::embedding::EmbeddingBuilder;
 use teeny_core::nn::module::NodeRefModule;
 use teeny_core::nn::{embedding::Embedding, linear::Linear};
 use teeny_core::tensor::shape::DynamicShape;
@@ -44,10 +45,10 @@ pub struct Qwen2Model {
 #[derive(Debug, Builder, Clone)]
 pub struct QwenModelInputs {
     pub input_ids: Option<LongTensor>,
-    pub attention_mask: Option<FloatTensor>,
+    pub attention_mask: Option<FloatTensor<f32>>,
     pub position_ids: Option<LongTensor>,
     pub past_key_values: Option<Cache>,
-    pub inputs_embeds: Option<FloatTensor>,
+    pub inputs_embeds: Option<FloatTensor<f32>>,
     pub use_cache: Option<bool>,
     pub cache_position: Option<LongTensor>,
 }
@@ -57,11 +58,12 @@ impl Qwen2Model {
         Ok(Qwen2Model {
             vocab_size: config.vocab_size(),
             padding_idx: config.pad_token_id(),
-            embed_tokens: Embedding::new(
-                config.vocab_size(),
-                config.hidden_size(),
-                config.pad_token_id(),
-            ),
+            embed_tokens: EmbeddingBuilder::default()
+                .num_embeddings(config.vocab_size())
+                .embedding_dim(config.hidden_size())
+                .padding_idx(config.pad_token_id())
+                .build()
+                .map_err(|e| Error::BuilderError(e.to_string()))?,
             layers: (0..config.num_hidden_layers())
                 .map(|layer_idx| Qwen2DecoderLayer::new(config, layer_idx))
                 .map(|layer| {
@@ -98,9 +100,9 @@ impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
             ));
         }
 
-        let inputs_embeds = inputs_embeds.ok_or(|| {
+        let _inputs_embeds = inputs_embeds.ok_or(|| {
             self.embed_tokens
-                .embed_tokens(input_ids.unwrap())
+                .forward(input_ids.unwrap())
                 .map_err(Error::CoreError)
         });
 

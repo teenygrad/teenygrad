@@ -54,6 +54,7 @@ impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Sequential<N> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::{
         graph::tensor,
@@ -63,13 +64,16 @@ mod tests {
     };
 
     #[test]
+    #[cfg(feature = "ndarray")]
     fn test_sequential_backprop() {
+        use ndarray::Array1;
+
         let linear1 = Linear::new(1, 3, true).unwrap();
         let linear2 = Linear::new(3, 1, true).unwrap();
 
         let model = sequential![linear1, ReLU::new(), linear2];
 
-        let input = tensor(&[1.0]);
+        let input = tensor(Array1::from(vec![1.0f32]).into_dyn());
         let output = model.forward(input).unwrap();
 
         assert_eq!(output.shape().unwrap(), DynamicShape::new(&[1, 1]));

@@ -15,9 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use ndarray::Array1;
 use teeny_core::{
     dtype,
-    graph::{self, NodeRef},
+    graph::{NodeRef, tensor},
     nn::Module,
 };
 
@@ -30,19 +31,24 @@ pub struct VectorAdd<N: dtype::Dtype> {
 }
 
 #[allow(clippy::new_without_default)]
-impl<T: dtype::Dtype> VectorAdd<T> {
+impl<N: dtype::Dtype> VectorAdd<N> {
     pub fn new() -> Self
     where
-        T: dtype::Dtype + Copy + 'static,
-        f32: Into<T>,
+        N: dtype::Dtype + Copy + 'static,
+        f32: Into<N>,
     {
-        let v1 = [1.0, 2.0, 3.0].map(|x| x.into());
-        let v2 = [4.0, 5.0, 6.0].map(|x| x.into());
+        let v1 = tensor(
+            Array1::from(vec![1.0f32, 2.0, 3.0])
+                .mapv(|x| N::from_f32(x))
+                .into_dyn(),
+        );
+        let v2 = tensor(
+            Array1::from(vec![4.0f32, 5.0, 6.0])
+                .mapv(|x| N::from_f32(x))
+                .into_dyn(),
+        );
 
-        Self {
-            v1: graph::tensor(&v1),
-            v2: graph::tensor(&v2),
-        }
+        Self { v1, v2 }
     }
 }
 
