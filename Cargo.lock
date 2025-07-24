@@ -2570,12 +2570,14 @@ name = "teeny-core"
 version = "0.1.0"
 dependencies = [
  "derive_builder",
+ "derive_more",
  "half",
  "ksuid",
  "ndarray",
  "num-traits",
  "once_cell",
  "rand 0.9.2",
+ "serde",
  "teeny-macros",
  "thiserror 2.0.12",
  "uuid",

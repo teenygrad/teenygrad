@@ -18,7 +18,7 @@
 use derive_builder::Builder;
 
 use crate::{
-    dtype::Dtype,
+    dtype::{Dtype, DtypeEnum},
     error::{Error, Result},
     graph::NodeRef,
     nn::Module,
@@ -30,14 +30,21 @@ pub struct Embedding<N: Dtype> {
     pub num_embeddings: usize,
     pub embedding_dim: usize,
     pub padding_idx: Option<usize>,
+    pub weight: FloatTensor<N>,
 
     #[builder(default)]
-    pub max_norm: Option<f32>,
+    pub max_norm: Option<N>,
 
-    pub norm_type: N,
+    #[builder(default = N::DTYPE)]
+    pub norm_type: DtypeEnum,
+
+    #[builder(default)]
     pub scale_grad_by_freq: bool,
-    pub weight: FloatTensor<N>,
+
+    #[builder(default)]
     pub freeze: bool,
+
+    #[builder(default)]
     pub sparse: bool,
 }
 

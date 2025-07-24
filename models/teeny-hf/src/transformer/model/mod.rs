@@ -36,7 +36,7 @@ pub fn from_pretrained(
 
     match config.architectures[0] {
         Architecture::Qwen3ForCausalLM => {
-            let model = Qwen3ForCausalLM::new(&config)?;
+            let model = Qwen3ForCausalLM::from_pretrained(&config)?;
             Ok(Box::new(model))
         }
     }

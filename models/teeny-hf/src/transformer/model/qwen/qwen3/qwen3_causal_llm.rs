@@ -37,7 +37,7 @@ pub struct Qwen3ForCausalLM {
 }
 
 impl Qwen3ForCausalLM {
-    pub fn new(config: &Qwen3Config) -> Result<Self> {
+    pub fn from_pretrained(config: &Qwen3Config) -> Result<Self> {
         Ok(Self {
             model: Qwen3Model::new(config)?,
             vocab_size: config.vocab_size,

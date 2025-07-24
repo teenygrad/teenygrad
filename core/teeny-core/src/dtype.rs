@@ -15,39 +15,63 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use derive_more::Display;
 use num_traits::Zero;
+use serde::{Deserialize, Serialize};
 
 use crate::num::bf16::Bf16;
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Display)]
+pub enum DtypeEnum {
+    #[display("i8")]
+    I8,
+    #[display("u8")]
+    U8,
+    #[display("i16")]
+    I16,
+    #[display("u16")]
+    U16,
+    #[display("i32")]
+    I32,
+    #[display("u32")]
+    U32,
+    #[display("i64")]
+    I64,
+    #[display("u64")]
+    U64,
+    #[display("f32")]
+    F32,
+    #[display("f64")]
+    F64,
+    #[display("bf16")]
+    Bf16,
+}
 pub trait Dtype: 'static + Default + Clone + Copy + Zero + std::fmt::Debug {
-    type RustType: Send + Sync + Zero + Clone + Copy + 'static;
-    const DTYPE: &'static str;
+    const DTYPE: DtypeEnum;
 
     fn from_f32(value: f32) -> Self;
+
     fn to_f32(self) -> f32;
 }
 
-impl Dtype for f32 {
-    type RustType = f32;
-    const DTYPE: &'static str = "f32";
+impl Dtype for i8 {
+    const DTYPE: DtypeEnum = DtypeEnum::I8;
 
     fn from_f32(value: f32) -> Self {
-        value
+        value as i8
     }
 
     fn to_f32(self) -> f32 {
-        self
+        self as f32
     }
 }
 
 impl Dtype for usize {
-    type RustType = usize;
-
     #[cfg(target_pointer_width = "32")]
-    const DTYPE: &'static str = "u32";
+    const DTYPE: DtypeEnum = DtypeEnum::U32;
 
     #[cfg(target_pointer_width = "64")]
-    const DTYPE: &'static str = "u64";
+    const DTYPE: DtypeEnum = DtypeEnum::U64;
 
     fn from_f32(value: f32) -> Self {
         value as usize
@@ -59,13 +83,11 @@ impl Dtype for usize {
 }
 
 impl Dtype for isize {
-    type RustType = isize;
-
     #[cfg(target_pointer_width = "32")]
-    const DTYPE: &'static str = "i32";
+    const DTYPE: DtypeEnum = DtypeEnum::I32;
 
     #[cfg(target_pointer_width = "64")]
-    const DTYPE: &'static str = "i64";
+    const DTYPE: DtypeEnum = DtypeEnum::I64;
 
     fn from_f32(value: f32) -> Self {
         value as isize
@@ -77,9 +99,7 @@ impl Dtype for isize {
 }
 
 impl Dtype for i32 {
-    type RustType = i32;
-
-    const DTYPE: &'static str = "i32";
+    const DTYPE: DtypeEnum = DtypeEnum::I32;
 
     fn from_f32(value: f32) -> Self {
         value as i32
@@ -91,9 +111,7 @@ impl Dtype for i32 {
 }
 
 impl Dtype for u32 {
-    type RustType = u32;
-
-    const DTYPE: &'static str = "u32";
+    const DTYPE: DtypeEnum = DtypeEnum::U32;
 
     fn from_f32(value: f32) -> Self {
         value as u32
@@ -105,9 +123,7 @@ impl Dtype for u32 {
 }
 
 impl Dtype for i64 {
-    type RustType = i64;
-
-    const DTYPE: &'static str = "i64";
+    const DTYPE: DtypeEnum = DtypeEnum::I64;
 
     fn from_f32(value: f32) -> Self {
         value as i64
@@ -119,9 +135,7 @@ impl Dtype for i64 {
 }
 
 impl Dtype for u64 {
-    type RustType = u64;
-
-    const DTYPE: &'static str = "u64";
+    const DTYPE: DtypeEnum = DtypeEnum::U64;
 
     fn from_f32(value: f32) -> Self {
         value as u64
@@ -132,9 +146,20 @@ impl Dtype for u64 {
     }
 }
 
+impl Dtype for f32 {
+    const DTYPE: DtypeEnum = DtypeEnum::F32;
+
+    fn from_f32(value: f32) -> Self {
+        value
+    }
+
+    fn to_f32(self) -> f32 {
+        self
+    }
+}
+
 impl Dtype for f64 {
-    type RustType = f64;
-    const DTYPE: &'static str = "f64";
+    const DTYPE: DtypeEnum = DtypeEnum::F64;
 
     fn from_f32(value: f32) -> Self {
         value as f64
@@ -146,8 +171,7 @@ impl Dtype for f64 {
 }
 
 impl Dtype for Bf16 {
-    type RustType = Bf16;
-    const DTYPE: &'static str = "bf16";
+    const DTYPE: DtypeEnum = DtypeEnum::Bf16;
 
     fn from_f32(value: f32) -> Self {
         Bf16(half::bf16::from_f32(value))

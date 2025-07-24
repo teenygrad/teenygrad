@@ -10,6 +10,7 @@ ndarray = ["dep:ndarray"]
 
 [dependencies]
 teeny-macros = { path = "../../compiler/teeny-macros" }
+ndarray= { workspace = true, optional = true }
 thiserror.workspace = true
 once_cell.workspace = true
 rand.workspace = true
@@ -18,4 +19,5 @@ uuid.workspace = true
 half.workspace = true
 num-traits.workspace = true
 ksuid.workspace = true
-ndarray= { workspace = true, optional = true }
+serde.workspace = true
+derive_more.workspace = true
