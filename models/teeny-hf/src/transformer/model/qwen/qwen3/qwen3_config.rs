@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::path::Path;
 use std::str::FromStr;
 use std::{collections::HashMap, vec};
 
@@ -74,8 +75,8 @@ pub struct Qwen3Config {
 }
 
 impl Qwen3Config {
-    pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Self> {
-        let config_path = format!("{cache_dir}/{model_id}/config.json");
+    pub fn from_pretrained(model_id: &str, cache_dir: &Path) -> Result<Self> {
+        let config_path = cache_dir.join(model_id).join("config.json");
         let config_str = std::fs::read_to_string(config_path).map_err(Error::IoError)?;
         let config = Self::from_str(&config_str)?;
 

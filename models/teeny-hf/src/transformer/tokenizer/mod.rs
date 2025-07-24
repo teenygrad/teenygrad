@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::path::Path;
+
 use tokenizers::models::bpe::BPE;
 use tokenizers::tokenizer::Tokenizer;
 
@@ -25,11 +27,15 @@ use crate::{
     error::Error, error::Result, transformer::tokenizer::tokenizer_config::TokenizerConfig,
 };
 
-pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Tokenizer> {
-    let _tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
-    let vocab_file = format!("{cache_dir}/{model_id}/vocab.json");
-    let merges_file = format!("{cache_dir}/{model_id}/merges.txt");
-    let bpe_builder = BPE::from_file(&vocab_file, &merges_file);
+pub fn from_pretrained(model_id: &str, cache_dir: &Path) -> Result<Tokenizer> {
+    let _ = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
+
+    let vocab_file = cache_dir.join(model_id).join("vocab.json");
+    let merges_file = cache_dir.join(model_id).join("merges.txt");
+    let bpe_builder = BPE::from_file(
+        &vocab_file.to_string_lossy(),
+        &merges_file.to_string_lossy(),
+    );
 
     let bpe = bpe_builder.build().map_err(Error::TokenizerError)?;
 

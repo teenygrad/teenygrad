@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::path::Path;
+
 use teeny_core::graph::NodeRef;
 use teeny_core::nn::Module;
 
@@ -28,7 +30,7 @@ pub mod qwen;
 
 pub fn from_pretrained(
     model_id: &str,
-    cache_dir: &str,
+    cache_dir: &Path,
 ) -> Result<Box<dyn Module<f32, QwenModelInputs, NodeRef<f32>, Err = Error>>> {
     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
 

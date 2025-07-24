@@ -22,6 +22,7 @@ teeny-http = { path = "../../utilities/teeny-http" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+anyhow.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
 clap.workspace = true
@@ -32,3 +33,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 derive_builder.workspace = true
 ndarray.workspace = true
+safetensors.workspace = true

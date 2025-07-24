@@ -16,13 +16,12 @@
  */
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 use teeny_http::download::download_file;
 use teeny_http::fetch::fetch_content;
 use tokio::fs::create_dir_all;
-use tracing::info;
 
 use crate::error::{Error, Result};
 
@@ -63,7 +62,7 @@ struct HfApiResponse {
 
 /// Configuration for downloading a Hugging Face model
 #[derive(Debug, Clone)]
-pub struct DownloadConfig {
+pub struct DownloadConfig<'a> {
     /// The model identifier (e.g., "bert-base-uncased")
     pub model_id: String,
 
@@ -71,7 +70,7 @@ pub struct DownloadConfig {
     pub revision: String,
 
     /// Directory to save the model files
-    pub output_dir: PathBuf,
+    pub cache_dir: &'a Path,
 
     /// Whether to include tokenizer files
     pub include_tokenizer: bool,
@@ -93,7 +92,7 @@ pub struct DownloadConfig {
 }
 
 /// Downloads a Hugging Face model to the specified directory
-pub async fn download_model(config: DownloadConfig) -> Result<()> {
+pub async fn download_model<'a>(config: DownloadConfig<'a>) -> Result<()> {
     // Validate model ID
     if config.model_id.is_empty() {
         return Err(Error::InvalidModelId {
@@ -101,7 +100,7 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
         });
     }
 
-    let output_dir = config.output_dir.join(&config.model_id);
+    let output_dir = config.cache_dir.join(&config.model_id);
 
     // Create output directory
     create_dir_all(&output_dir)
@@ -172,11 +171,6 @@ pub async fn download_model(config: DownloadConfig) -> Result<()> {
             false
         })
         .collect();
-
-    if files_to_download.is_empty() {
-        info!("No files found to download for the specified configuration");
-        return Ok(());
-    }
 
     for (i, file) in files_to_download.iter().enumerate() {
         let headers = headers.clone();

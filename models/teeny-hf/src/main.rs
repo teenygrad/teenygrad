@@ -17,6 +17,7 @@
 
 #[allow(dead_code)]
 use std::path::PathBuf;
+use std::{path::Path, sync::Arc};
 
 use clap::{Parser, ValueEnum};
 use ndarray::Array1;
@@ -96,7 +97,7 @@ enum LogLevel {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let log_level = match cli.log_level {
@@ -127,7 +128,7 @@ async fn main() -> Result<()> {
 
     let config = DownloadConfig {
         model_id: cli.model.clone(),
-        output_dir: cache_dir.clone(),
+        cache_dir: cache_dir.as_path(),
         include_tokenizer,
         include_config,
         include_weights,
@@ -141,12 +142,12 @@ async fn main() -> Result<()> {
     download_model(config).await?;
 
     info!("Running model: {}", cli.model);
-    run_model(&cli.model, cache_dir.to_str().unwrap()).await?;
+    run_model(&cli.model, cache_dir.as_path()).await?;
 
     Ok(())
 }
 
-async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
+async fn run_model(model_id: &str, cache_dir: &Path) -> Result<()> {
     let tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
     let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
     let model = transformer::model::from_pretrained(model_id, cache_dir)?;
@@ -173,7 +174,7 @@ async fn run_model(model_id: &str, cache_dir: &str) -> Result<()> {
     let model_inputs = QwenModelInputsBuilder::default()
         .input_ids(Some(encoded_ids))
         .build()
-        .map_err(|e| Error::BuilderError(e.to_string()))?;
+        .map_err(|e| Error::BuilderError(Arc::new(e)))?;
 
     let generated_ids = model
         .forward(model_inputs)?

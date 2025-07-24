@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -55,8 +55,11 @@ pub struct TokenizerConfig {
 }
 
 impl TokenizerConfig {
-    pub fn from_pretrained(model_id: &str, cache_dir: &str) -> Result<Self> {
-        let config_path = format!("{cache_dir}/{model_id}/tokenizer_config.json");
+    pub fn from_pretrained(model_id: &str, cache_dir: &Path) -> Result<Self> {
+        let config_path = format!(
+            "{}/{model_id}/tokenizer_config.json",
+            cache_dir.to_string_lossy()
+        );
         let config_str = std::fs::read_to_string(config_path).map_err(Error::IoError)?;
         let config: TokenizerConfig =
             serde_json::from_str(&config_str).map_err(Error::SerdeError)?;

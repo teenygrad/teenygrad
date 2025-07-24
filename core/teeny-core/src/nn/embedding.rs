@@ -30,7 +30,10 @@ pub struct Embedding<N: Dtype> {
     pub num_embeddings: usize,
     pub embedding_dim: usize,
     pub padding_idx: Option<usize>,
+
+    #[builder(default)]
     pub max_norm: Option<f32>,
+
     pub norm_type: N,
     pub scale_grad_by_freq: bool,
     pub weight: FloatTensor<N>,

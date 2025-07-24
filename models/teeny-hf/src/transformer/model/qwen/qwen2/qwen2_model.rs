@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::sync::Arc;
+
 use derive_builder::Builder;
 use teeny_cache::Cache;
 use teeny_core::graph::{NodeRef, ones};
@@ -63,7 +65,7 @@ impl Qwen2Model {
                 .embedding_dim(config.hidden_size())
                 .padding_idx(config.pad_token_id())
                 .build()
-                .map_err(|e| Error::BuilderError(e.to_string()))?,
+                .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers())
                 .map(|layer_idx| Qwen2DecoderLayer::new(config, layer_idx))
                 .map(|layer| {

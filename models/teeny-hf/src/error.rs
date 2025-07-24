@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::sync::Arc;
+
 use reqwest::StatusCode;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -73,5 +75,5 @@ pub enum Error {
     CoreError(#[from] teeny_core::error::Error),
 
     #[error("Builder error: {0}")]
-    BuilderError(String),
+    BuilderError(#[from] Arc<dyn std::error::Error + Send + Sync>),
 }

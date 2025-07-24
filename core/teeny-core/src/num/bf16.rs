@@ -15,12 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod dtype;
-pub mod error;
-pub mod graph;
-pub mod macros;
-pub mod nn;
-pub mod num;
-pub mod storage;
-pub mod tensor;
-pub mod util;
+use std::ops::Add;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Bf16(pub half::bf16);
+impl num_traits::Zero for Bf16 {
+    fn zero() -> Self {
+        Bf16(half::bf16::ZERO)
+    }
+
+    fn is_zero(&self) -> bool {
+        half::bf16::ZERO.eq(&self.0)
+    }
+}
+
+impl Add for Bf16 {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Bf16(self.0 + other.0)
+    }
+}
