@@ -15,6 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod dataset;
-pub mod error;
-pub mod safetensors;
+pub use crate::error::Result;
+
+pub type SafeTensorsError = safetensors::SafeTensorError;
+pub type TensorView<'data> = safetensors::tensor::TensorView<'data>;
+pub type Dtype = safetensors::tensor::Dtype;
+
+pub trait SafeTensors<'data>: Sized + Send + Sync {
+    fn tensors(&'data self) -> Vec<(String, TensorView<'data>)>;
+    fn iter(&self) -> impl Iterator<Item = (&str, TensorView<'data>)>;
+    fn tensor(&'data self, tensor_name: &'data str) -> Result<TensorView<'data>>;
+    fn names(&'data self) -> Vec<&'data str>;
+    fn len(&'data self) -> usize;
+    fn is_empty(&'data self) -> bool;
+}

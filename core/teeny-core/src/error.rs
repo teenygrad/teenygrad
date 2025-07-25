@@ -15,13 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::safetensors::SafeTensorsError;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("IO error: {0}")]
+    Io(std::io::Error),
+
     #[error("Lock error: {0}")]
     TryLockError(String),
 
     #[error("Invalid shape: {0}")]
     InvalidShape(String),
+
+    #[error("SafeTensors error: {0}")]
+    SafeTensorsError(SafeTensorsError),
 }

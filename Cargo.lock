@@ -1403,6 +1403,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
+name = "memmap2"
+version = "0.9.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "483758ad303d734cec05e5c12b41d7e93e6a6390c5e9dae6bdeb7c1259012d28"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2577,6 +2586,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "rand 0.9.2",
+ "safetensors",
  "serde",
  "teeny-macros",
  "thiserror 2.0.12",
@@ -2610,8 +2620,11 @@ name = "teeny-data"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "memmap2",
  "ndarray",
  "reqwest",
+ "safetensors",
+ "teeny-core",
  "thiserror 2.0.12",
  "tokio",
 ]
