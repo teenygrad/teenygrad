@@ -15,34 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::{Error, Result};
 use crate::{
     dtype,
-    graph::{NodeRef, relu},
-    nn::Module,
+    graph::{NodeRef, ops::relu::ReluOp},
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct ReLU<N: dtype::Dtype> {
-    _marker: std::marker::PhantomData<N>,
-}
-
-impl<N: dtype::Dtype> ReLU<N> {
-    pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for ReLU<N> {
-    type Err = Error;
-
-    fn forward(&self, input: NodeRef<N>) -> Result<NodeRef<N>> {
-        Ok(relu(input))
-    }
-
-    fn parameters(&self) -> Vec<NodeRef<N>> {
-        vec![]
-    }
+pub fn relu<'data, N: dtype::Dtype>(input: NodeRef<'data, N>) -> NodeRef<'data, N> {
+    ReluOp::new(input).into()
 }

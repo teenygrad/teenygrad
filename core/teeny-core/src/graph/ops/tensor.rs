@@ -15,6 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#[cfg(feature = "ndarray")]
+use ndarray::IxDyn;
+
 use crate::error::Result;
 use crate::{
     dtype::Dtype,
@@ -23,24 +26,26 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct SqrtOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct TensorOp<N: Dtype> {
+    #[cfg(feature = "ndarray")]
+    pub input: ndarray::Array<N, IxDyn>,
 }
 
-impl<'data, N: Dtype> SqrtOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>) -> Self {
+impl<N: Dtype> TensorOp<N> {
+    #[cfg(feature = "ndarray")]
+    pub fn new(input: ndarray::Array<N, IxDyn>) -> Self {
         Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for SqrtOp<'data, N> {
+impl<N: Dtype> OpShape for TensorOp<N> {
     fn shape(&self) -> Result<DynamicShape> {
-        self.input.shape()
+        Ok(DynamicShape::new(&[1, self.input.len()]))
     }
 }
 
-impl<'data, N: Dtype> From<SqrtOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: SqrtOp<'data, N>) -> Self {
-        NodeOp::Sqrt(op).into()
+impl<N: Dtype> From<TensorOp<N>> for NodeRef<'static, N> {
+    fn from(op: TensorOp<N>) -> Self {
+        NodeOp::Tensor(op).into()
     }
 }

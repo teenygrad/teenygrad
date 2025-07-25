@@ -26,9 +26,10 @@ use crate::graph::ops::inverse::InverseOp;
 use crate::graph::ops::ones::OnesOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
+use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sqrt::SqrtOp;
+use crate::graph::ops::tensor::TensorOp;
 use crate::graph::ops::transpose::TransposeOp;
-use crate::graph::ops::vector::TensorOp;
 use crate::tensor::shape::DynamicShape;
 
 use crate::util::unique_id::UniqueId;
@@ -53,17 +54,17 @@ use ops::sub::SubOp;
 use ops::zeros::ZerosOp;
 
 #[derive(Debug, Clone)]
-pub enum NodeOp<N: Dtype> {
+pub enum NodeOp<'data, N: Dtype> {
     Scalar(ScalarOp<N>),
-    Add(AddOp<N>),
-    Sub(SubOp<N>),
-    Mult(MultOp<N>),
-    Div(DivOp<N>),
-    Dot(DotOp<N>),
-    Neg(NegOp<N>),
-    Log(LogOp<N>),
-    Exp(ExpOp<N>),
-    Mean(MeanOp<N>),
+    Add(AddOp<'data, N>),
+    Sub(SubOp<'data, N>),
+    Mult(MultOp<'data, N>),
+    Div(DivOp<'data, N>),
+    Dot(DotOp<'data, N>),
+    Neg(NegOp<'data, N>),
+    Log(LogOp<'data, N>),
+    Exp(ExpOp<'data, N>),
+    Mean(MeanOp<'data, N>),
     Zeros(ZerosOp<N>),
     Arange(ArangeOp<N>),
     Randn(RandnOp<N>),
@@ -76,9 +77,10 @@ pub enum NodeOp<N: Dtype> {
     Inverse(InverseOp<N>),
     Pow(PowOp<N>),
     Tensor(TensorOp<N>),
+    SafeTensor(SafeTensorOp<'data, N>),
 }
 
-impl<N: Dtype> NodeOp<N> {
+impl<'data, N: Dtype> NodeOp<'data, N> {
     pub fn shape(&self) -> Result<DynamicShape> {
         match self {
             NodeOp::Scalar(op) => op.shape(),
@@ -103,6 +105,7 @@ impl<N: Dtype> NodeOp<N> {
             NodeOp::Ones(op) => op.shape(),
             NodeOp::Inverse(op) => op.shape(),
             NodeOp::Pow(op) => op.shape(),
+            NodeOp::SafeTensor(op) => op.shape(),
         }
     }
 }
@@ -115,16 +118,16 @@ pub struct AutogradContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct Node<N: Dtype> {
+pub struct Node<'data, N: Dtype> {
     pub id: UniqueId,
-    pub op: NodeOp<N>,
+    pub op: NodeOp<'data, N>,
 
     #[cfg(feature = "training")]
     pub autograd_context: Option<AutogradContext>,
 }
 
-impl<N: Dtype> Node<N> {
-    pub fn new(op: NodeOp<N>, requires_grad: bool, retain_grad: bool) -> Self {
+impl<'data, N: Dtype> Node<'data, N> {
+    pub fn new(op: NodeOp<'data, N>, requires_grad: bool, retain_grad: bool) -> Self {
         Self {
             id: UniqueId::generate(),
             op,
@@ -141,56 +144,56 @@ impl<N: Dtype> Node<N> {
     }
 }
 
-pub fn zeros<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
+pub fn zeros<N: Dtype>(shape: DynamicShape) -> NodeRef<'static, N> {
     ZerosOp::new(shape).into()
 }
 
-pub fn ones<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
+pub fn ones<N: Dtype>(shape: DynamicShape) -> NodeRef<'static, N> {
     ZerosOp::new(shape).into()
 }
 
-pub fn randn<N: Dtype>(shape: DynamicShape) -> NodeRef<N> {
+pub fn randn<N: Dtype>(shape: DynamicShape) -> NodeRef<'static, N> {
     RandnOp::new(shape).into()
 }
 
-pub fn inverse<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+pub fn inverse<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
     InverseOp::new(x).into()
 }
 
-pub fn exp<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+pub fn exp<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
     ExpOp::new(x).into()
 }
 
-pub fn arange<N: Dtype>(start: N, end: N, step: N) -> NodeRef<N> {
+pub fn arange<N: Dtype>(start: N, end: N, step: N) -> NodeRef<'static, N> {
     ArangeOp::new(start, end, step).into()
 }
 
-pub fn pow<N: Dtype>(x: NodeRef<N>, y: NodeRef<N>) -> NodeRef<N> {
+pub fn pow<'data, N: Dtype>(x: NodeRef<'data, N>, y: NodeRef<'data, N>) -> NodeRef<'data, N> {
     PowOp::new(x, y).into()
 }
 
 #[cfg(feature = "ndarray")]
-pub fn tensor<N: Dtype>(input: ndarray::Array<N, IxDyn>) -> NodeRef<N> {
+pub fn tensor<N: Dtype>(input: ndarray::Array<N, IxDyn>) -> NodeRef<'static, N> {
     TensorOp::new(input).into()
 }
 
-pub fn log<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+pub fn log<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
     LogOp::new(x.clone()).into()
 }
 
-pub fn transpose<N: Dtype>(x: &NodeRef<N>) -> NodeRef<N> {
+pub fn transpose<'data, N: Dtype>(x: &NodeRef<'data, N>) -> NodeRef<'data, N> {
     TransposeOp::new(x.clone()).into()
 }
 
-pub fn scalar<N: Dtype>(x: N) -> NodeRef<N> {
+pub fn scalar<N: Dtype>(x: N) -> NodeRef<'static, N> {
     ScalarOp::new(x).into()
 }
 
-pub fn relu<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+pub fn relu<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
     ReluOp::new(x.clone()).into()
 }
 
-pub fn sigmoid<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+pub fn sigmoid<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
     SigmoidOp::new(x.clone()).into()
 }
 // use std::ops::Add;

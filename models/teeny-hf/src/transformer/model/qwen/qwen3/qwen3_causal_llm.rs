@@ -15,10 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::path::Path;
+
 use teeny_core::{
     graph::NodeRef,
     nn::{Module, linear::Linear},
 };
+use teeny_data::safetensors::FileSafeTensors;
 
 use super::qwen3_config::Qwen3Config;
 
@@ -37,9 +40,13 @@ pub struct Qwen3ForCausalLM {
 }
 
 impl Qwen3ForCausalLM {
-    pub fn from_pretrained(config: &Qwen3Config) -> Result<Self> {
+    pub fn from_pretrained(
+        config: &Qwen3Config,
+        cache_dir: &Path,
+        safetensors: &FileSafeTensors<'_>,
+    ) -> Result<Self> {
         Ok(Self {
-            model: Qwen3Model::new(config)?,
+            model: Qwen3Model::from_pretrained(config, cache_dir)?,
             vocab_size: config.vocab_size,
             lm_head: Linear::new(config.hidden_size, config.vocab_size, false)?,
         })

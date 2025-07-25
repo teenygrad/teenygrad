@@ -23,12 +23,12 @@ pub use teeny_core::safetensors::{Dtype, SafeTensors, SafeTensorsError, TensorVi
 pub type Error = teeny_core::error::Error;
 pub type Result<T> = teeny_core::error::Result<T>;
 
-pub struct FileMmaps {
+pub struct SafeTensorsMmaps {
     pub mmaps: Vec<Mmap>,
 }
 
-impl FileMmaps {
-    pub fn new(folder: &Path) -> Result<Self> {
+impl SafeTensorsMmaps {
+    pub fn from_pretrained(folder: &Path) -> Result<Self> {
         use std::fs;
 
         let mut mmaps = Vec::new();
@@ -44,7 +44,7 @@ impl FileMmaps {
             }
         }
 
-        Ok(FileMmaps { mmaps })
+        Ok(Self { mmaps })
     }
 
     fn mmap_file(path: &Path) -> Result<Mmap> {
@@ -59,7 +59,7 @@ pub struct FileSafeTensors<'data> {
 }
 
 impl<'data> FileSafeTensors<'data> {
-    pub fn new(mmaps: &'data FileMmaps) -> Result<Self> {
+    pub fn from_pretrained(mmaps: &'data SafeTensorsMmaps) -> Result<Self> {
         let tensors = mmaps
             .mmaps
             .iter()

@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[cfg(feature = "ndarray")]
-use ndarray::IxDyn;
+use std::marker::PhantomData;
 
 use crate::error::Result;
+use crate::safetensors::TensorView;
 use crate::{
     dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
@@ -26,26 +26,28 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct TensorOp<N: Dtype> {
-    #[cfg(feature = "ndarray")]
-    pub input: ndarray::Array<N, IxDyn>,
+pub struct SafeTensorOp<'data, N: Dtype> {
+    pub input: TensorView<'data>,
+    marker: PhantomData<N>,
 }
 
-impl<N: Dtype> TensorOp<N> {
-    #[cfg(feature = "ndarray")]
-    pub fn new(input: ndarray::Array<N, IxDyn>) -> Self {
-        Self { input }
+impl<'data, N: Dtype> SafeTensorOp<'data, N> {
+    pub fn new(input: TensorView<'data>) -> Self {
+        Self {
+            input,
+            marker: PhantomData,
+        }
     }
 }
 
-impl<N: Dtype> OpShape for TensorOp<N> {
+impl<'data, N: Dtype> OpShape for SafeTensorOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
-        Ok(DynamicShape::new(&[1, self.input.len()]))
+        todo!()
     }
 }
 
-impl<N: Dtype> From<TensorOp<N>> for NodeRef<N> {
-    fn from(op: TensorOp<N>) -> Self {
+impl<'data, N: Dtype> From<SafeTensorOp<'data, N>> for NodeRef<N> {
+    fn from(op: SafeTensorOp<'data, N>) -> Self {
         NodeOp::Tensor(op).into()
     }
 }

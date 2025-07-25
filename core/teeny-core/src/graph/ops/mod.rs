@@ -33,12 +33,13 @@ pub mod pow;
 pub mod powi;
 pub mod randn;
 pub mod relu;
+pub mod safetensor;
 pub mod scalar;
 pub mod sigmoid;
 pub mod sqrt;
 pub mod sub;
+pub mod tensor;
 pub mod transpose;
-pub mod vector;
 pub mod zeros;
 
 pub trait OpShape {

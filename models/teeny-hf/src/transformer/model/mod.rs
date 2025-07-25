@@ -19,6 +19,7 @@ use std::path::Path;
 
 use teeny_core::graph::NodeRef;
 use teeny_core::nn::Module;
+use teeny_data::safetensors::{FileSafeTensors, SafeTensorsMmaps};
 
 use crate::error::{Error, Result};
 use crate::transformer::config::model_config::Architecture;
@@ -36,7 +37,12 @@ pub fn from_pretrained(
 
     match config.architectures[0] {
         Architecture::Qwen3ForCausalLM => {
-            let model = Qwen3ForCausalLM::from_pretrained(&config)?;
+            let model_dir = cache_dir.join(model_id);
+
+            let mmaps = SafeTensorsMmaps::from_pretrained(&model_dir)?;
+            let safetensors = FileSafeTensors::from_pretrained(&mmaps)?;
+
+            let model = Qwen3ForCausalLM::from_pretrained(&config, &mmaps)?;
             Ok(Box::new(model))
         }
     }

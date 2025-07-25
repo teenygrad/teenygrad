@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::path::Path;
 use std::sync::Arc;
 
 use derive_builder::Builder;
@@ -56,7 +57,7 @@ pub struct QwenModelInputs {
 }
 
 impl Qwen2Model {
-    pub fn new(config: &impl IQwen2Config) -> Result<Self> {
+    pub fn from_pretrained(config: &impl IQwen2Config, cache_dir: &Path) -> Result<Self> {
         Ok(Qwen2Model {
             vocab_size: config.vocab_size(),
             padding_idx: config.pad_token_id(),

@@ -20,6 +20,7 @@ use crate::{
     error::{Error, Result},
     graph::{self, NodeRef},
     nn::Module,
+    safetensors::SafeTensors,
     shape,
 };
 
@@ -39,6 +40,15 @@ impl<N: dtype::Dtype> Linear<N> {
         };
 
         Ok(Linear { weight, bias })
+    }
+
+    pub fn from_pretrained<'data, T: SafeTensors<'data>>(
+        input_dim: usize,
+        output_dim: usize,
+        use_bias: bool,
+        safetensors: &T,
+    ) -> Result<Self> {
+        todo!()
     }
 }
 

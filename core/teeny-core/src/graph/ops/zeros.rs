@@ -45,7 +45,7 @@ impl<N: Dtype> OpShape for ZerosOp<N> {
     }
 }
 
-impl<N: Dtype> From<ZerosOp<N>> for NodeRef<N> {
+impl<N: Dtype> From<ZerosOp<N>> for NodeRef<'static, N> {
     fn from(op: ZerosOp<N>) -> Self {
         NodeOp::Zeros(op).into()
     }
