@@ -23,10 +23,10 @@ use crate::graph::ops::neg::NegOp;
 use crate::graph::ops::sub::SubOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 
-impl<'data, N: Dtype> Sub<&NodeRef<'data, N>> for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Sub<&NodeRef<N>> for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn sub(self, rhs: &NodeRef<'data, N>) -> Self::Output {
+    fn sub(self, rhs: &NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0.clone());
         let rhs = NodeRef(rhs.0.clone());
 
@@ -38,10 +38,10 @@ impl<'data, N: Dtype> Sub<&NodeRef<'data, N>> for &NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Sub<NodeRef<'data, N>> for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Sub<NodeRef<N>> for NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn sub(self, rhs: NodeRef<'data, N>) -> Self::Output {
+    fn sub(self, rhs: NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0);
         let rhs = NodeRef(rhs.0);
 
@@ -53,10 +53,10 @@ impl<'data, N: Dtype> Sub<NodeRef<'data, N>> for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Sub<&NodeRef<'data, N>> for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Sub<&NodeRef<N>> for NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn sub(self, rhs: &NodeRef<'data, N>) -> Self::Output {
+    fn sub(self, rhs: &NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0);
         let rhs = NodeRef(rhs.0.clone());
 
@@ -68,10 +68,10 @@ impl<'data, N: Dtype> Sub<&NodeRef<'data, N>> for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Sub<NodeRef<'data, N>> for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Sub<NodeRef<N>> for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn sub(self, rhs: NodeRef<'data, N>) -> Self::Output {
+    fn sub(self, rhs: NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0.clone());
         let rhs = NodeRef(rhs.0);
 
@@ -83,8 +83,8 @@ impl<'data, N: Dtype> Sub<NodeRef<'data, N>> for &NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Neg for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Neg for NodeRef<N> {
+    type Output = NodeRef<N>;
 
     fn neg(self) -> Self::Output {
         let lhs = NodeRef(self.0);
@@ -97,8 +97,8 @@ impl<'data, N: Dtype> Neg for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Neg for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Neg for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
     fn neg(self) -> Self::Output {
         let lhs = NodeRef(self.0.clone());

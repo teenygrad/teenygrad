@@ -44,7 +44,7 @@ impl<N: Dtype> OpShape for TensorOp<N> {
     }
 }
 
-impl<N: Dtype> From<TensorOp<N>> for NodeRef<'static, N> {
+impl<N: Dtype> From<TensorOp<N>> for NodeRef<N> {
     fn from(op: TensorOp<N>) -> Self {
         NodeOp::Tensor(op).into()
     }

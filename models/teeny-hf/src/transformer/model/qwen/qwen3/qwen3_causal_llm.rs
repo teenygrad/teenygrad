@@ -43,7 +43,7 @@ impl Qwen3ForCausalLM {
     pub fn from_pretrained(
         config: &Qwen3Config,
         cache_dir: &Path,
-        safetensors: &FileSafeTensors<'_>,
+        _safetensors: &FileSafeTensors<'_>,
     ) -> Result<Self> {
         Ok(Self {
             model: Qwen3Model::from_pretrained(config, cache_dir)?,
@@ -71,7 +71,7 @@ impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen3ForCausalLM {
             .map_err(Error::CoreError)
     }
 
-    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<f32>> {
         todo!()
     }
 }

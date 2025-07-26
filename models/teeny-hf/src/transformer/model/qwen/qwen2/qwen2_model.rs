@@ -57,7 +57,7 @@ pub struct QwenModelInputs {
 }
 
 impl Qwen2Model {
-    pub fn from_pretrained(config: &impl IQwen2Config, cache_dir: &Path) -> Result<Self> {
+    pub fn from_pretrained<T: IQwen2Config>(config: &T, _cache_dir: &Path) -> Result<Self> {
         Ok(Qwen2Model {
             vocab_size: config.vocab_size(),
             padding_idx: config.pad_token_id(),
@@ -69,12 +69,7 @@ impl Qwen2Model {
                 .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers())
                 .map(|layer_idx| Qwen2DecoderLayer::new(config, layer_idx))
-                .map(|layer| {
-                    Ok(Box::new(layer?)
-                        as Box<
-                            dyn Module<f32, NodeRef<f32>, NodeRef<f32>, Err = Error>,
-                        >)
-                })
+                .map(|layer| Ok(Box::new(layer?) as NodeRefModule<f32, Error>))
                 .collect::<Result<Vec<_>>>()?,
             norm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
             rotary_emb: Qwen2RotaryEmbedding::new(config),
@@ -127,7 +122,7 @@ pub struct Qwen2DecoderLayer {
 }
 
 impl Qwen2DecoderLayer {
-    pub fn new(config: &impl IQwen2Config, layer_idx: usize) -> Result<Self> {
+    pub fn new<C: IQwen2Config>(config: &C, layer_idx: usize) -> Result<Self> {
         Ok(Self {
             hidden_size: config.hidden_size(),
             self_attn: Qwen2Attention::new(config, layer_idx)?,
@@ -190,7 +185,7 @@ pub struct Qwen2RotaryEmbedding {
 }
 
 impl Qwen2RotaryEmbedding {
-    pub fn new(config: &impl IQwen2Config) -> Self {
+    pub fn new<C: IQwen2Config>(config: &C) -> Self {
         let (inv_freq, attention_scaling) = compute_default_rope_parameters(config);
 
         Self {
@@ -229,7 +224,7 @@ pub struct Qwen2Attention {
 }
 
 impl Qwen2Attention {
-    pub fn new(config: &impl IQwen2Config, layer_idx: usize) -> Result<Self> {
+    pub fn new<C: IQwen2Config>(config: &C, layer_idx: usize) -> Result<Self> {
         assert!(config.num_key_value_heads().is_some());
 
         let num_key_value_heads = config.num_key_value_heads().unwrap();
@@ -274,7 +269,7 @@ pub struct Qwen2MLP {
 }
 
 impl Qwen2MLP {
-    pub fn new(config: &impl IQwen2Config) -> Result<Self> {
+    pub fn new<T: IQwen2Config>(config: &T) -> Result<Self> {
         let activation = get_activation(config.hidden_act())?;
 
         Ok(Self {

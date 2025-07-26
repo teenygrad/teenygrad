@@ -21,10 +21,10 @@ use crate::dtype::Dtype;
 use crate::graph::ops::add::AddOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 
-impl<'data, N: Dtype> Add<&NodeRef<'data, N>> for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Add<&NodeRef<N>> for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn add(self, rhs: &NodeRef<'data, N>) -> Self::Output {
+    fn add(self, rhs: &NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0.clone());
         let rhs = NodeRef(rhs.0.clone());
 
@@ -36,10 +36,10 @@ impl<'data, N: Dtype> Add<&NodeRef<'data, N>> for &NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Add<NodeRef<'data, N>> for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Add<NodeRef<N>> for NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn add(self, rhs: NodeRef<'data, N>) -> Self::Output {
+    fn add(self, rhs: NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0);
         let rhs = NodeRef(rhs.0);
 
@@ -51,10 +51,10 @@ impl<'data, N: Dtype> Add<NodeRef<'data, N>> for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Add<&NodeRef<'data, N>> for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Add<&NodeRef<N>> for NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn add(self, rhs: &NodeRef<'data, N>) -> Self::Output {
+    fn add(self, rhs: &NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0);
         let rhs = NodeRef(rhs.0.clone());
 
@@ -66,10 +66,10 @@ impl<'data, N: Dtype> Add<&NodeRef<'data, N>> for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Add<NodeRef<'data, N>> for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Add<NodeRef<N>> for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn add(self, rhs: NodeRef<'data, N>) -> Self::Output {
+    fn add(self, rhs: NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0.clone());
         let rhs = NodeRef(rhs.0);
 

@@ -42,11 +42,11 @@ impl<N: dtype::Dtype> Linear<N> {
         Ok(Linear { weight, bias })
     }
 
-    pub fn from_pretrained<'data, T: SafeTensors<'data>>(
-        input_dim: usize,
-        output_dim: usize,
-        use_bias: bool,
-        safetensors: &T,
+    pub fn from_pretrained<T: SafeTensors<'static>>(
+        _input_dim: usize,
+        _output_dim: usize,
+        _use_bias: bool,
+        _safetensors: &T,
     ) -> Result<Self> {
         todo!()
     }

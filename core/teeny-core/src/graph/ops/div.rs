@@ -23,18 +23,18 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct DivOp<'data, N: Dtype> {
-    pub lhs: NodeRef<'data, N>,
-    pub rhs: NodeRef<'data, N>,
+pub struct DivOp<N: Dtype> {
+    pub lhs: NodeRef<N>,
+    pub rhs: NodeRef<N>,
 }
 
-impl<'data, N: Dtype> DivOp<'data, N> {
-    pub fn new(lhs: NodeRef<'data, N>, rhs: NodeRef<'data, N>) -> Self {
+impl<N: Dtype> DivOp<N> {
+    pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<'data, N: Dtype> OpShape for DivOp<'data, N> {
+impl<N: Dtype> OpShape for DivOp<N> {
     fn shape(&self) -> Result<DynamicShape> {
         let lhs_shape = self.lhs.shape()?;
         let rhs_shape = self.rhs.shape()?;
@@ -42,8 +42,8 @@ impl<'data, N: Dtype> OpShape for DivOp<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> From<DivOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: DivOp<'data, N>) -> Self {
+impl<N: Dtype> From<DivOp<N>> for NodeRef<N> {
+    fn from(op: DivOp<N>) -> Self {
         NodeOp::Div(op).into()
     }
 }

@@ -20,6 +20,6 @@ use crate::{
     graph::{NodeRef, ops::relu::ReluOp},
 };
 
-pub fn relu<'data, N: dtype::Dtype>(input: NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn relu<N: dtype::Dtype>(input: NodeRef<N>) -> NodeRef<N> {
     ReluOp::new(input).into()
 }

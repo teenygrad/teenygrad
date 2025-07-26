@@ -38,7 +38,7 @@ impl<N: Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Silu {
     }
 }
 
-pub fn get_activation(activation: HiddenAct) -> Result<NodeRefModule<f32, Error>> {
+pub fn get_activation<N: Dtype>(activation: HiddenAct) -> Result<NodeRefModule<N, Error>> {
     match activation {
         HiddenAct::Silu => Ok(Box::new(Silu)),
     }

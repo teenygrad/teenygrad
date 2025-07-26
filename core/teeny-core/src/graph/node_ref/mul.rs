@@ -22,10 +22,10 @@ use crate::dtype::Dtype;
 use crate::graph::ops::mult::MultOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 
-impl<'data, N: Dtype> Mul<&NodeRef<'data, N>> for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Mul<&NodeRef<N>> for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn mul(self, rhs: &NodeRef<'data, N>) -> Self::Output {
+    fn mul(self, rhs: &NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0.clone());
         let rhs = NodeRef(rhs.0.clone());
 
@@ -37,10 +37,10 @@ impl<'data, N: Dtype> Mul<&NodeRef<'data, N>> for &NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Mul<NodeRef<'data, N>> for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Mul<NodeRef<N>> for NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn mul(self, rhs: NodeRef<'data, N>) -> Self::Output {
+    fn mul(self, rhs: NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0);
         let rhs = NodeRef(rhs.0);
 
@@ -52,10 +52,10 @@ impl<'data, N: Dtype> Mul<NodeRef<'data, N>> for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Mul<&NodeRef<'data, N>> for NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Mul<&NodeRef<N>> for NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn mul(self, rhs: &NodeRef<'data, N>) -> Self::Output {
+    fn mul(self, rhs: &NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0);
         let rhs = NodeRef(rhs.0.clone());
 
@@ -67,10 +67,10 @@ impl<'data, N: Dtype> Mul<&NodeRef<'data, N>> for NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Mul<NodeRef<'data, N>> for &NodeRef<'data, N> {
-    type Output = NodeRef<'data, N>;
+impl<N: Dtype> Mul<NodeRef<N>> for &NodeRef<N> {
+    type Output = NodeRef<N>;
 
-    fn mul(self, rhs: NodeRef<'data, N>) -> Self::Output {
+    fn mul(self, rhs: NodeRef<N>) -> Self::Output {
         let lhs = NodeRef(self.0.clone());
         let rhs = NodeRef(rhs.0);
 

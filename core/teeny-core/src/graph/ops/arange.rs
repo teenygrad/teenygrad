@@ -45,7 +45,7 @@ impl<N: Dtype> OpShape for ArangeOp<N> {
     }
 }
 
-impl<N: Dtype> From<ArangeOp<N>> for NodeRef<'static, N> {
+impl<N: Dtype> From<ArangeOp<N>> for NodeRef<N> {
     fn from(op: ArangeOp<N>) -> Self {
         NodeOp::Arange(op).into()
     }

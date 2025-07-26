@@ -22,24 +22,24 @@ use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
-pub struct ExpOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct ExpOp<N: Dtype> {
+    pub input: NodeRef<N>,
 }
 
-impl<'data, N: Dtype> ExpOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>) -> Self {
+impl<N: Dtype> ExpOp<N> {
+    pub fn new(input: NodeRef<N>) -> Self {
         Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for ExpOp<'data, N> {
+impl<N: Dtype> OpShape for ExpOp<N> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }
 
-impl<'data, N: Dtype> From<ExpOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: ExpOp<'data, N>) -> Self {
+impl<N: Dtype> From<ExpOp<N>> for NodeRef<N> {
+    fn from(op: ExpOp<N>) -> Self {
         NodeOp::Exp(op).into()
     }
 }

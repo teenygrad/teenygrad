@@ -42,8 +42,9 @@ pub fn from_pretrained(
             let mmaps = SafeTensorsMmaps::from_pretrained(&model_dir)?;
             let safetensors = FileSafeTensors::from_pretrained(&mmaps)?;
 
-            let model = Qwen3ForCausalLM::from_pretrained(&config, &mmaps)?;
-            Ok(Box::new(model))
+            let _model = Qwen3ForCausalLM::from_pretrained(&config, cache_dir, &safetensors)?;
+            todo!()
+            // Ok(Box::new(model))
         }
     }
 }

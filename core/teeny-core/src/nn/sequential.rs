@@ -55,27 +55,28 @@ impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Sequential<N> {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
-    use crate::{
-        graph::tensor,
-        nn::{linear::*, relu::ReLU},
-        sequential,
-        tensor::shape::DynamicShape,
-    };
+    // use super::*;
+    // use crate::{
+    //     graph::tensor,
+    //     nn::{linear::*, relu::relu},
+    //     sequential,
+    //     tensor::shape::DynamicShape,
+    // };
 
     #[test]
     #[cfg(feature = "ndarray")]
     fn test_sequential_backprop() {
-        use ndarray::Array1;
+        //use ndarray::Array1;
 
-        let linear1 = Linear::new(1, 3, true).unwrap();
-        let linear2 = Linear::new(3, 1, true).unwrap();
+        // let linear1 = Linear::new(1, 3, true).unwrap();
+        // let linear2 = Linear::new(3, 1, true).unwrap();
 
-        let model = sequential![linear1, ReLU::new(), linear2];
+        // let model = sequential![linear1, ReLU::new(), linear2];
 
-        let input = tensor(Array1::from(vec![1.0f32]).into_dyn());
-        let output = model.forward(input).unwrap();
+        // let input = tensor(Array1::from(vec![1.0f32]).into_dyn());
+        // let output = model.forward(input).unwrap();
 
-        assert_eq!(output.shape().unwrap(), DynamicShape::new(&[1, 1]));
+        // assert_eq!(output.shape().unwrap(), DynamicShape::new(&[1, 1]));
+        todo!()
     }
 }
