@@ -18,10 +18,10 @@
 use std::{fs::File, path::Path};
 
 use memmap2::{Mmap, MmapOptions};
+
 pub use teeny_core::safetensors::{Dtype, SafeTensors, SafeTensorsError, TensorView};
 
-pub type Error = teeny_core::error::Error;
-pub type Result<T> = teeny_core::error::Result<T>;
+use crate::error::{Error, Result};
 
 pub struct SafeTensorsMmaps {
     pub mmaps: Vec<Mmap>,
@@ -33,8 +33,8 @@ impl SafeTensorsMmaps {
 
         let mut mmaps = Vec::new();
 
-        for entry in fs::read_dir(folder).map_err(Error::Io)? {
-            let entry = entry.map_err(Error::Io)?;
+        for entry in fs::read_dir(folder)? {
+            let entry = entry?;
             let path = entry.path();
             if let Some(ext) = path.extension() {
                 if ext == "safetensors" {
@@ -86,9 +86,10 @@ impl<'data> SafeTensors<'data> for FileSafeTensors<'data> {
         self.tensors
             .iter()
             .find_map(|t| t.tensor(tensor_name).ok())
-            .ok_or(Error::SafeTensorsError(SafeTensorsError::TensorNotFound(
-                tensor_name.to_string(),
-            )))
+            .ok_or(
+                Error::SafeTensorsError(SafeTensorsError::TensorNotFound(tensor_name.to_string()))
+                    .into(),
+            )
     }
 
     fn names(&self) -> Vec<&'_ str> {

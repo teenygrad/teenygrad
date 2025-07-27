@@ -25,7 +25,7 @@ use teeny_cpu::device::CpuDevice;
 #[cfg(feature = "cuda")]
 use teeny_cuda::device::CudaDevice;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 #[derive(Debug, Clone)]
 pub enum Device {
@@ -59,8 +59,8 @@ impl Device {
 
     pub fn compile<N: dtype::Dtype, T, U>(
         &self,
-        _module: Box<dyn Module<N, T, U, Err = Error>>,
-    ) -> Result<Box<dyn CompiledModule<N, T, U, Err = Error>>> {
+        _module: Box<dyn Module<N, T, U>>,
+    ) -> Result<Box<dyn CompiledModule<N, T, U>>> {
         todo!()
     }
 }

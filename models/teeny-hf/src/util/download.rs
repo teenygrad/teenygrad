@@ -97,7 +97,8 @@ pub async fn download_model<'a>(config: DownloadConfig<'a>) -> Result<()> {
     if config.model_id.is_empty() {
         return Err(Error::InvalidModelId {
             model_id: config.model_id.clone(),
-        });
+        }
+        .into());
     }
 
     let output_dir = config.cache_dir.join(&config.model_id);
@@ -132,9 +133,7 @@ pub async fn download_model<'a>(config: DownloadConfig<'a>) -> Result<()> {
 
     // info!("Response: {:?}", response);
 
-    let content = fetch_content(&config.model_id, &api_url, Some(headers.clone()), true)
-        .await
-        .map_err(Error::TeenyHttpError)?;
+    let content = fetch_content(&config.model_id, &api_url, Some(headers.clone()), true).await?;
     let entries: Vec<HfFile> = serde_json::from_slice(&content)?;
 
     // Filter files based on configuration

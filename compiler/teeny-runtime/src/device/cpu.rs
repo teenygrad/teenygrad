@@ -16,16 +16,12 @@
  */
 
 use crate::device::Device;
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 pub fn find_cpu_devices() -> Result<Vec<Device>> {
     use teeny_cpu::driver::CpuDriver;
 
-    let devices = CpuDriver::devices()
-        .map_err(Error::CpuError)?
-        .into_iter()
-        .map(Device::Cpu)
-        .collect();
+    let devices = CpuDriver::devices()?.into_iter().map(Device::Cpu).collect();
 
     Ok(devices)
 }

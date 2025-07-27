@@ -16,13 +16,12 @@
  */
 
 use crate::device::Device;
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 pub fn find_cuda_devices() -> Result<Vec<Device>> {
     use teeny_cuda::driver::CudaDriver;
 
-    let devices = CudaDriver::devices()
-        .map_err(Error::CudaError)?
+    let devices = CudaDriver::devices()?
         .into_iter()
         .map(Device::Cuda)
         .collect();

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
 thiserror.workspace = true
+anyhow.workspace = true
 target-triple.workspace = true
 cpuid.workspace = true
 derive_more.workspace = true

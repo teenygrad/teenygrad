@@ -42,7 +42,7 @@ pub async fn load_csv<T: FromStr>(
     }
 
     if data.is_empty() {
-        return Err(Error::ParseValueError("No data found".to_string()));
+        return Err(Error::ParseValueError("No data found".to_string()).into());
     }
 
     let shape = (data.len(), data[0].len());

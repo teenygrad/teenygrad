@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = anyhow::Result<T>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -30,4 +30,7 @@ pub enum Error {
 
     #[error("Failed to parse value: {0}")]
     ParseValueError(String),
+
+    #[error("SafeTensors error: {0}")]
+    SafeTensorsError(teeny_core::safetensors::SafeTensorsError),
 }

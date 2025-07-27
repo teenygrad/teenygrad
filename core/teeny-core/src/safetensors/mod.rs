@@ -24,7 +24,7 @@ pub type Dtype = safetensors::tensor::Dtype;
 pub trait SafeTensors<'data>: Sized + Send + Sync {
     fn tensors(&'data self) -> Vec<(String, TensorView<'data>)>;
     fn iter(&self) -> impl Iterator<Item = (&str, TensorView<'data>)>;
-    fn tensor(&'data self, tensor_name: &'data str) -> Result<TensorView<'data>>;
+    fn tensor(&'data self, name: &str) -> Result<TensorView<'data>>;
     fn names(&'data self) -> Vec<&'data str>;
     fn len(&'data self) -> usize;
     fn is_empty(&'data self) -> bool;

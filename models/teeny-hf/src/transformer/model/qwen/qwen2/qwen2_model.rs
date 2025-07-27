@@ -38,7 +38,7 @@ pub struct Qwen2Model {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
     pub embed_tokens: Embedding<f32>,
-    pub layers: Vec<NodeRefModule<f32, Error>>,
+    pub layers: Vec<NodeRefModule<f32>>,
     pub norm: Qwen2RMSNorm,
     pub rotary_emb: Qwen2RotaryEmbedding,
     pub gradient_checkpointing: bool,
@@ -69,7 +69,7 @@ impl Qwen2Model {
                 .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers())
                 .map(|layer_idx| Qwen2DecoderLayer::new(config, layer_idx))
-                .map(|layer| Ok(Box::new(layer?) as NodeRefModule<f32, Error>))
+                .map(|layer| Ok(Box::new(layer?) as NodeRefModule<f32>))
                 .collect::<Result<Vec<_>>>()?,
             norm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
             rotary_emb: Qwen2RotaryEmbedding::new(config),
@@ -82,8 +82,6 @@ impl Qwen2Model {
 }
 
 impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
-    type Err = Error;
-
     fn forward(
         &self,
         QwenModelInputs {
@@ -95,14 +93,11 @@ impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
         if input_ids.is_none() ^ inputs_embeds.is_some() {
             return Err(Error::ModelError(
                 "Only one of input_ids and inputs_embeds must be provided.".to_string(),
-            ));
+            )
+            .into());
         }
 
-        let _inputs_embeds = inputs_embeds.ok_or(|| {
-            self.embed_tokens
-                .forward(input_ids.unwrap())
-                .map_err(Error::CoreError)
-        });
+        let _inputs_embeds = inputs_embeds.ok_or(|| self.embed_tokens.forward(input_ids.unwrap()));
 
         todo!()
     }
@@ -138,8 +133,6 @@ impl Qwen2DecoderLayer {
 }
 
 impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2DecoderLayer {
-    type Err = Error;
-
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
         todo!()
     }
@@ -166,8 +159,6 @@ impl Qwen2RMSNorm {
 }
 
 impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2RMSNorm {
-    type Err = Error;
-
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
         todo!()
     }
@@ -198,8 +189,6 @@ impl Qwen2RotaryEmbedding {
 }
 
 impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2RotaryEmbedding {
-    type Err = Error;
-
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
         todo!()
     }
@@ -240,16 +229,28 @@ impl Qwen2Attention {
             attention_dropout: config.attention_dropout(),
             is_causal: true,
             q_proj: Linear::new(
+                "q_proj",
                 config.hidden_size(),
                 config.num_attention_heads() * head_dim,
                 true,
             )?,
-            k_proj: Linear::new(config.hidden_size(), num_key_value_heads * head_dim, true)?,
-            v_proj: Linear::new(config.hidden_size(), num_key_value_heads * head_dim, true)?,
+            k_proj: Linear::new(
+                "k_proj",
+                config.hidden_size(),
+                num_key_value_heads * head_dim,
+                true,
+            )?,
+            v_proj: Linear::new(
+                "v_proj",
+                config.hidden_size(),
+                num_key_value_heads * head_dim,
+                true,
+            )?,
             o_proj: Linear::new(
+                "o_proj",
                 config.num_attention_heads() * head_dim,
                 config.hidden_size(),
-                false,
+                true,
             )?,
             sliding_window: if config.layer_types()[layer_idx] == "sliding_attention" {
                 config.sliding_window()
@@ -265,7 +266,7 @@ pub struct Qwen2MLP {
     pub intermediate_size: usize,
     pub gate_proj: Linear<f32>,
     pub down_proj: Linear<f32>,
-    pub act_fn: Box<dyn Module<f32, NodeRef<f32>, NodeRef<f32>, Err = Error>>,
+    pub act_fn: Box<dyn Module<f32, NodeRef<f32>, NodeRef<f32>>>,
 }
 
 impl Qwen2MLP {
@@ -275,16 +276,24 @@ impl Qwen2MLP {
         Ok(Self {
             hidden_size: config.hidden_size(),
             intermediate_size: config.intermediate_size(),
-            gate_proj: Linear::new(config.hidden_size(), config.intermediate_size(), false)?,
-            down_proj: Linear::new(config.intermediate_size(), config.hidden_size(), false)?,
+            gate_proj: Linear::new(
+                "gate_proj",
+                config.hidden_size(),
+                config.intermediate_size(),
+                false,
+            )?,
+            down_proj: Linear::new(
+                "down_proj",
+                config.intermediate_size(),
+                config.hidden_size(),
+                false,
+            )?,
             act_fn: activation,
         })
     }
 }
 
 impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2MLP {
-    type Err = Error;
-
     fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
         todo!()
     }

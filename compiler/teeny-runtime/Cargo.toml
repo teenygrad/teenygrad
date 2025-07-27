@@ -16,3 +16,4 @@ teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 once_cell.workspace = true
 thiserror.workspace = true
+anyhow.workspace = true

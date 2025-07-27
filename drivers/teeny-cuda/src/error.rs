@@ -17,7 +17,7 @@
 
 use crate::cuda;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = anyhow::Result<T>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

@@ -36,7 +36,7 @@ pub async fn fetch_content(
     let mut content = Vec::new();
 
     if !response.status().is_success() {
-        return Err(Error::HttpError(response.status()));
+        return Err(Error::HttpError(response.status()).into());
     }
 
     if show_progress {

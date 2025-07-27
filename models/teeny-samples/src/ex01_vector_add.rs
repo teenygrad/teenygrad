@@ -22,7 +22,7 @@ use teeny_core::{
     nn::Module,
 };
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 #[derive(Debug)]
 pub struct VectorAdd<N: dtype::Dtype> {
@@ -53,8 +53,6 @@ impl<N: dtype::Dtype> VectorAdd<N> {
 }
 
 impl Module<f32, NodeRef<f32>, NodeRef<f32>> for VectorAdd<f32> {
-    type Err = Error;
-
     fn forward(&self, _x: NodeRef<f32>) -> Result<NodeRef<f32>> {
         Ok(&self.v1 + &self.v2)
     }

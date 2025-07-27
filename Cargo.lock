@@ -2565,6 +2565,7 @@ version = "0.1.0"
 name = "teeny-compiler"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "derive_more",
  "ndarray",
  "teeny-core",
@@ -2578,6 +2579,7 @@ dependencies = [
 name = "teeny-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "derive_builder",
  "derive_more",
  "half",
@@ -2597,6 +2599,7 @@ dependencies = [
 name = "teeny-cpu"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cpuid",
  "derive_more",
  "target-triple",
@@ -2608,6 +2611,7 @@ dependencies = [
 name = "teeny-cuda"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bindgen",
  "derive_more",
  "ndarray",
@@ -2619,6 +2623,7 @@ dependencies = [
 name = "teeny-data"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "csv",
  "memmap2",
  "ndarray",
@@ -2661,6 +2666,7 @@ dependencies = [
 name = "teeny-http"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "indicatif 0.18.0",
  "reqwest",
  "thiserror 2.0.12",
@@ -2690,6 +2696,7 @@ dependencies = [
 name = "teeny-llvm"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bindgen",
  "cargo_metadata",
  "cfgrammar",
@@ -2735,6 +2742,7 @@ dependencies = [
 name = "teeny-runtime"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "once_cell",
  "teeny-compiler",
  "teeny-core",
@@ -2747,6 +2755,7 @@ dependencies = [
 name = "teeny-samples"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "ndarray",
  "teeny-core",

@@ -8,7 +8,7 @@ name = "teeny_hf"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hf"
+name = "thf"
 path = "src/main.rs"
 
 [dependencies]

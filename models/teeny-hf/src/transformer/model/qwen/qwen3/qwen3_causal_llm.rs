@@ -20,13 +20,13 @@ use std::path::Path;
 use teeny_core::{
     graph::NodeRef,
     nn::{Module, linear::Linear},
+    safetensors::SafeTensors,
 };
-use teeny_data::safetensors::FileSafeTensors;
 
 use super::qwen3_config::Qwen3Config;
 
 use crate::{
-    error::{Error, Result},
+    error::Result,
     transformer::model::qwen::{
         qwen2::qwen2_model::{Qwen2Model, QwenModelInputs},
         qwen3::qwen3_model::Qwen3Model,
@@ -40,15 +40,15 @@ pub struct Qwen3ForCausalLM {
 }
 
 impl Qwen3ForCausalLM {
-    pub fn from_pretrained(
+    pub fn from_pretrained<'data, T: SafeTensors<'data>>(
         config: &Qwen3Config,
         cache_dir: &Path,
-        _safetensors: &FileSafeTensors<'_>,
+        _safetensors: &T,
     ) -> Result<Self> {
         Ok(Self {
             model: Qwen3Model::from_pretrained(config, cache_dir)?,
             vocab_size: config.vocab_size,
-            lm_head: Linear::new(config.hidden_size, config.vocab_size, false)?,
+            lm_head: Linear::new("lm_head", config.hidden_size, config.vocab_size, false)?,
         })
     }
 
@@ -62,13 +62,9 @@ impl Qwen3ForCausalLM {
 }
 
 impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen3ForCausalLM {
-    type Err = Error;
-
     fn forward(&self, model_inputs: QwenModelInputs) -> Result<NodeRef<f32>> {
         let hidden_states = self.model.forward(model_inputs)?;
-        self.lm_head
-            .forward(hidden_states)
-            .map_err(Error::CoreError)
+        self.lm_head.forward(hidden_states)
     }
 
     fn parameters(&self) -> Vec<NodeRef<f32>> {

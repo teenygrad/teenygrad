@@ -17,7 +17,7 @@
 
 use crate::{
     dtype,
-    error::{Error, Result},
+    error::Result,
     graph::{self, NodeRef},
     nn::Module,
     safetensors::SafeTensors,
@@ -25,12 +25,13 @@ use crate::{
 };
 
 pub struct Linear<N: dtype::Dtype> {
+    pub name: String,
     pub weight: NodeRef<N>,
     pub bias: Option<NodeRef<N>>,
 }
 
 impl<N: dtype::Dtype> Linear<N> {
-    pub fn new(input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
+    pub fn new(name: &str, input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
         let weight = graph::randn(shape![output_dim, input_dim]);
 
         let bias = if use_bias {
@@ -39,22 +40,36 @@ impl<N: dtype::Dtype> Linear<N> {
             None
         };
 
-        Ok(Linear { weight, bias })
+        Ok(Linear {
+            name: name.to_owned(),
+            weight,
+            bias,
+        })
     }
 
     pub fn from_pretrained<T: SafeTensors<'static>>(
-        _input_dim: usize,
-        _output_dim: usize,
-        _use_bias: bool,
-        _safetensors: &T,
+        name: &str,
+        use_bias: bool,
+        safetensors: &'static T,
     ) -> Result<Self> {
-        todo!()
+        let weight_name = format!("{name}.weight");
+        let weight = graph::safetensor(safetensors.tensor(&weight_name)?);
+        let bias = if use_bias {
+            let bias_name = format!("{name}.bias");
+            Some(graph::safetensor(safetensors.tensor(&bias_name)?))
+        } else {
+            None
+        };
+
+        Ok(Linear {
+            name: name.to_owned(),
+            weight,
+            bias,
+        })
     }
 }
 
 impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Linear<N> {
-    type Err = Error;
-
     fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>> {
         let a = x * &self.weight.t();
         let result = if let Some(bias) = &self.bias {

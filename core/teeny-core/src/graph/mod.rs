@@ -30,6 +30,7 @@ use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::TensorOp;
 use crate::graph::ops::transpose::TransposeOp;
+use crate::safetensors::TensorView;
 use crate::tensor::shape::DynamicShape;
 
 use crate::util::unique_id::UniqueId;
@@ -175,6 +176,10 @@ pub fn pow<N: Dtype>(x: NodeRef<N>, y: NodeRef<N>) -> NodeRef<N> {
 #[cfg(feature = "ndarray")]
 pub fn tensor<N: Dtype>(input: ndarray::Array<N, IxDyn>) -> NodeRef<N> {
     TensorOp::new(input).into()
+}
+
+pub fn safetensor<N: Dtype>(input: TensorView<'static>) -> NodeRef<N> {
+    SafeTensorOp::new(input).into()
 }
 
 pub fn log<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {

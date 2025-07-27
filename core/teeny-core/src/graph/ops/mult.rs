@@ -49,7 +49,8 @@ impl<N: Dtype> OpShape for MultOp<N> {
             }
             _ => Err(Error::InvalidShape(format!(
                 "Invalid shape for mult: {lhs_shape:?}, {rhs_shape:?}"
-            ))),
+            ))
+            .into()),
         }
     }
 }

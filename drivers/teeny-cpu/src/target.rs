@@ -17,7 +17,7 @@
 
 use derive_more::Display;
 
-use crate::error::{Error, Result};
+use crate::error::Error;
 
 #[derive(Debug, Clone, Display)]
 pub enum Arch {
@@ -60,7 +60,7 @@ impl std::fmt::Display for Target {
 impl TryFrom<&str> for Target {
     type Error = Error;
 
-    fn try_from(target: &str) -> Result<Self> {
+    fn try_from(target: &str) -> std::result::Result<Self, Self::Error> {
         let target = target.split('-').collect::<Vec<&str>>();
 
         if target.len() != 4 {

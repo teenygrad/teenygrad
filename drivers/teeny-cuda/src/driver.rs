@@ -32,14 +32,14 @@ impl CudaDriver {
         let mut device_count = 0;
         let err = unsafe { cuda::cudaGetDeviceCount(&mut device_count) };
         if err != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::CudaError(err));
+            return Err(Error::CudaError(err).into());
         }
 
         for i in 0..device_count {
             let mut props = cuda::cudaDeviceProp::default();
             let err = unsafe { cuda::cudaGetDeviceProperties_v2(&mut props, i) };
             if err != cuda::cudaError_enum_CUDA_SUCCESS {
-                return Err(Error::CudaError(err));
+                return Err(Error::CudaError(err).into());
             }
 
             let name = unsafe { std::ffi::CStr::from_ptr(props.name.as_ptr()) };

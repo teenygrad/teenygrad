@@ -12,6 +12,7 @@ ndarray = ["dep:ndarray"]
 teeny-macros = { path = "../../compiler/teeny-macros" }
 ndarray= { workspace = true, optional = true }
 thiserror.workspace = true
+anyhow.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 derive_builder.workspace = true

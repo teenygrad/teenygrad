@@ -17,7 +17,7 @@
 
 use derive_more::Display;
 
-use crate::error::{Error, Result};
+use crate::error::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Capability {
@@ -61,7 +61,7 @@ impl Target {
 impl TryFrom<(i32, i32)> for Target {
     type Error = Error;
 
-    fn try_from((major, minor): (i32, i32)) -> Result<Self> {
+    fn try_from((major, minor): (i32, i32)) -> std::result::Result<Self, Self::Error> {
         let capability = match (major, minor) {
             (6, 0) => Capability::PascalSm60,
             (6, 1) => Capability::PascalSm61,

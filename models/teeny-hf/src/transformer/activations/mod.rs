@@ -21,14 +21,12 @@ use teeny_core::{
     nn::{Module, module::NodeRefModule},
 };
 
-use crate::{error::Error, error::Result, transformer::config::model_config::HiddenAct};
+use crate::{error::Result, transformer::config::model_config::HiddenAct};
 
 #[derive(Default)]
 pub struct Silu;
 
 impl<N: Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Silu {
-    type Err = Error;
-
     fn forward(&self, _x: NodeRef<N>) -> Result<NodeRef<N>> {
         todo!()
     }
@@ -38,7 +36,7 @@ impl<N: Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Silu {
     }
 }
 
-pub fn get_activation<N: Dtype>(activation: HiddenAct) -> Result<NodeRefModule<N, Error>> {
+pub fn get_activation<N: Dtype>(activation: HiddenAct) -> Result<NodeRefModule<N>> {
     match activation {
         HiddenAct::Silu => Ok(Box::new(Silu)),
     }

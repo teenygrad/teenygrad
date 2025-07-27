@@ -87,7 +87,7 @@ impl Qwen3Config {
 impl FromStr for Qwen3Config {
     type Err = Error;
 
-    fn from_str(config_str: &str) -> Result<Self> {
+    fn from_str(config_str: &str) -> std::result::Result<Self, Self::Err> {
         let mut config: Self = serde_json::from_str(config_str).map_err(Error::ConfigParseError)?;
 
         config.keys_to_ignore_at_inference = vec!["past_key_values".to_string()];

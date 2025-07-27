@@ -16,6 +16,7 @@ cuda = []
 
 [dependencies]
 thiserror.workspace = true
+anyhow.workspace = true
 derive_more.workspace = true
 ndarray = { workspace = true, optional = true }
 

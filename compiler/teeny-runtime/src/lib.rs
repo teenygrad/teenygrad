@@ -59,7 +59,7 @@ pub fn init() -> Result<()> {
         let name = device.name();
         println!("Using device: {id} {name}");
     } else {
-        return Err(Error::NoDevicesAvailable);
+        return Err(Error::NoDevicesAvailable.into());
     }
 
     Ok(())

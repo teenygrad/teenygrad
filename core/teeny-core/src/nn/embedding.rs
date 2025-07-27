@@ -19,7 +19,7 @@ use derive_builder::Builder;
 
 use crate::{
     dtype::{Dtype, DtypeEnum},
-    error::{Error, Result},
+    error::Result,
     graph::NodeRef,
     nn::Module,
     tensor::{FloatTensor, LongTensor},
@@ -60,8 +60,6 @@ impl<N: Dtype> Embedding<N> {
 }
 
 impl<N: Dtype> Module<N, LongTensor, FloatTensor<N>> for Embedding<N> {
-    type Err = Error;
-
     fn forward(&self, _input_ids: LongTensor) -> Result<FloatTensor<N>> {
         todo!()
     }
