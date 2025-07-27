@@ -76,7 +76,9 @@ impl<'data> Qwen2Model<'data> {
                 .build()
                 .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers())
-                .map(|layer_idx| Qwen2DecoderLayer::new(config.clone(), layer_idx))
+                .map(|layer_idx| {
+                    Qwen2DecoderLayer::from_pretrained(config.clone(), layer_idx, safetensors)
+                })
                 .collect::<Result<Vec<_>>>()?,
             norm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
             rotary_emb: Qwen2RotaryEmbedding::new(config.clone()),
@@ -124,11 +126,15 @@ pub struct Qwen2DecoderLayer<'data> {
 }
 
 impl<'data> Qwen2DecoderLayer<'data> {
-    pub fn new(config: impl IQwen2Config, layer_idx: usize) -> Result<Self> {
+    pub fn from_pretrained<T: SafeTensors<'data>>(
+        config: impl IQwen2Config,
+        layer_idx: usize,
+        safetensors: &'data T,
+    ) -> Result<Self> {
         Ok(Self {
             hidden_size: config.hidden_size(),
-            self_attn: Qwen2Attention::new(config.clone(), layer_idx)?,
-            mlp: Qwen2MLP::new(config.clone())?,
+            self_attn: Qwen2Attention::from_pretrained(config.clone(), layer_idx, safetensors)?,
+            mlp: Qwen2MLP::from_pretrained(config.clone(), layer_idx, safetensors)?,
             input_layernorm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
             post_attention_layernorm: Qwen2RMSNorm::new(
                 config.hidden_size(),
@@ -224,7 +230,11 @@ pub struct Qwen2Attention<'data> {
 }
 
 impl<'data> Qwen2Attention<'data> {
-    pub fn new(config: impl IQwen2Config, layer_idx: usize) -> Result<Self> {
+    pub fn from_pretrained<T: SafeTensors<'data>>(
+        config: impl IQwen2Config,
+        layer_idx: usize,
+        safetensors: &'data T,
+    ) -> Result<Self> {
         assert!(config.num_key_value_heads().is_some());
 
         let num_key_value_heads = config.num_key_value_heads().unwrap();
@@ -239,29 +249,25 @@ impl<'data> Qwen2Attention<'data> {
             scaling: (head_dim as f32).powf(-0.5),
             attention_dropout: config.attention_dropout(),
             is_causal: true,
-            q_proj: Linear::new(
-                "q_proj",
-                config.hidden_size(),
-                config.num_attention_heads() * head_dim,
-                true,
+            q_proj: Linear::from_pretrained(
+                &format!("model.layers.{layer_idx}.self_attn.q_proj"),
+                false,
+                safetensors,
             )?,
-            k_proj: Linear::new(
-                "k_proj",
-                config.hidden_size(),
-                num_key_value_heads * head_dim,
-                true,
+            k_proj: Linear::from_pretrained(
+                &format!("model.layers.{layer_idx}.self_attn.k_proj"),
+                false,
+                safetensors,
             )?,
-            v_proj: Linear::new(
-                "v_proj",
-                config.hidden_size(),
-                num_key_value_heads * head_dim,
-                true,
+            v_proj: Linear::from_pretrained(
+                &format!("model.layers.{layer_idx}.self_attn.v_proj"),
+                false,
+                safetensors,
             )?,
-            o_proj: Linear::new(
-                "o_proj",
-                config.num_attention_heads() * head_dim,
-                config.hidden_size(),
+            o_proj: Linear::from_pretrained(
+                &format!("model.layers.{layer_idx}.self_attn.o_proj"),
                 true,
+                safetensors,
             )?,
             sliding_window: if config.layer_types()[layer_idx] == "sliding_attention" {
                 config.sliding_window()
@@ -281,23 +287,25 @@ pub struct Qwen2MLP<'data> {
 }
 
 impl<'data> Qwen2MLP<'data> {
-    pub fn new(config: impl IQwen2Config) -> Result<Self> {
+    pub fn from_pretrained<T: SafeTensors<'data>>(
+        config: impl IQwen2Config,
+        layer_idx: usize,
+        safetensors: &'data T,
+    ) -> Result<Self> {
         let activation = get_activation(config.hidden_act())?;
 
         Ok(Self {
             hidden_size: config.hidden_size(),
             intermediate_size: config.intermediate_size(),
-            gate_proj: Linear::new(
-                "gate_proj",
-                config.hidden_size(),
-                config.intermediate_size(),
+            gate_proj: Linear::from_pretrained(
+                &format!("model.layers.{layer_idx}.mlp.gate_proj"),
                 false,
+                safetensors,
             )?,
-            down_proj: Linear::new(
-                "down_proj",
-                config.intermediate_size(),
-                config.hidden_size(),
+            down_proj: Linear::from_pretrained(
+                &format!("model.layers.{layer_idx}.mlp.down_proj"),
                 false,
+                safetensors,
             )?,
             act_fn: activation,
         })
