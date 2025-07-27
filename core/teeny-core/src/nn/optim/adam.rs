@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[derive(Builder, Debug, Clone)]
-pub struct Adam<N: Dtype, P: Param<N>> {
+pub struct Adam<'data, N: Dtype, P: Param<N>> {
     #[builder(default = "0.001")]
     pub lr: f32,
 
@@ -44,10 +44,10 @@ pub struct Adam<N: Dtype, P: Param<N>> {
 
     // Internal state for Adam algorithm
     #[builder(default = "vec![]")]
-    m: Vec<NodeRef<N>>, // First moment (momentum)
+    m: Vec<NodeRef<'data, N>>, // First moment (momentum)
 
     #[builder(default = "vec![]")]
-    v: Vec<NodeRef<N>>, // Second moment (velocity)
+    v: Vec<NodeRef<'data, N>>, // Second moment (velocity)
 
     #[builder(default = "0")]
     t: usize, // Time step
@@ -55,7 +55,7 @@ pub struct Adam<N: Dtype, P: Param<N>> {
     _marker: PhantomData<N>,
 }
 
-impl<N: Dtype, P: Param<N>> Adam<N, P> {
+impl<'data, N: Dtype, P: Param<N>> Adam<'data, N, P> {
     pub fn new(lr: f32, beta1: f32, beta2: f32, eps: f32) -> Self {
         Self {
             lr,
@@ -91,43 +91,38 @@ impl<N: Dtype, P: Param<N>> Adam<N, P> {
     pub fn step(&mut self) {
         self.t += 1;
 
-        let one: NodeRef<N> = 1.0.into();
+        let _one: NodeRef<N> = 1.0.into();
         let beta1: NodeRef<N> = self.beta1.into();
-        let beta1_t = beta1.powi(N::from_f32(self.t as f32));
+        let _beta1_t = beta1.powi(N::from_f32(self.t as f32));
         let beta2: NodeRef<N> = self.beta2.into();
-        let beta2_t = beta2.powi(N::from_f32(self.t as f32));
-        let eps: NodeRef<N> = self.eps.into();
-        let lr: NodeRef<N> = self.lr.into();
+        let _beta2_t = beta2.powi(N::from_f32(self.t as f32));
+        let _eps: NodeRef<N> = self.eps.into();
+        let _lr: NodeRef<N> = self.lr.into();
 
         for (i, param) in self.params.iter_mut().enumerate() {
+            println!("param: {i:?}");
             // Get gradient for this parameter
-            if let Some(ref grad) = param.grad() {
-                // Update biased first moment estimate: m = β₁ * m + (1 - β₁) * grad
-                self.m[i] = &beta1 * &self.m[i] + (&one - &beta1) * grad;
+            if let Some(ref _grad) = param.grad() {
+                todo!()
+                // // Update biased first moment estimate: m = β₁ * m + (1 - β₁) * grad
+                // self.m[i] = &beta1 * &self.m[i] + (&one - &beta1) * grad;
 
-                // Update biased second moment estimate: v = β₂ * v + (1 - β₂) * grad²
-                let grad_squared = grad * grad;
-                self.v[i] = &beta2 * &self.v[i] + (&one - &beta2) * grad_squared;
+                // // Update biased second moment estimate: v = β₂ * v + (1 - β₂) * grad²
+                // let grad_squared = grad * grad;
+                // self.v[i] = &beta2 * &self.v[i] + (&one - &beta2) * grad_squared;
 
-                // Compute bias-corrected first moment: m̂ = m / (1 - β₁^t)
-                let m_hat = &self.m[i] / (&one - &beta1_t);
+                // // Compute bias-corrected first moment: m̂ = m / (1 - β₁^t)
+                // let m_hat = &self.m[i] / (&one - &beta1_t);
 
-                // Compute bias-corrected second moment: v̂ = v / (1 - β₂^t)
-                let v_hat = &self.v[i] / (&one - &beta2_t);
+                // // Compute bias-corrected second moment: v̂ = v / (1 - β₂^t)
+                // let v_hat = &self.v[i] / (&one - &beta2_t);
 
-                // Update parameter: θ = θ - α * m̂ / (√v̂ + ε)
-                let v_hat_sqrt = v_hat.sqrt();
-                let denominator = v_hat_sqrt + &eps;
-                let update = &lr * (m_hat / denominator);
+                // // Update parameter: θ = θ - α * m̂ / (√v̂ + ε)
+                // let v_hat_sqrt = v_hat.sqrt();
+                // let denominator = v_hat_sqrt + &eps;
+                // let update = &lr * (m_hat / denominator);
 
-                param.update(update);
-
-                // TODO:
-                // the v[i] and m[i] are now ready for the next step
-                // so we realise them and replace the graphs with new values
-                // in theory we could batch all of these up and do a single
-                // realisation and update, but this is a bit more complex to
-                // implement and not really necessary for the current use case
+                // param.update(update);
             }
         }
     }

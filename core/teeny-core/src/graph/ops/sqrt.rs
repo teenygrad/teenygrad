@@ -23,24 +23,24 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct SqrtOp<N: Dtype> {
-    pub input: NodeRef<N>,
+pub struct SqrtOp<'data, N: Dtype> {
+    pub input: NodeRef<'data, N>,
 }
 
-impl<N: Dtype> SqrtOp<N> {
-    pub fn new(input: NodeRef<N>) -> Self {
+impl<'data, N: Dtype> SqrtOp<'data, N> {
+    pub fn new(input: NodeRef<'data, N>) -> Self {
         Self { input }
     }
 }
 
-impl<N: Dtype> OpShape for SqrtOp<N> {
+impl<'data, N: Dtype> OpShape for SqrtOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }
 
-impl<N: Dtype> From<SqrtOp<N>> for NodeRef<N> {
-    fn from(op: SqrtOp<N>) -> Self {
+impl<'data, N: Dtype> From<SqrtOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: SqrtOp<'data, N>) -> Self {
         NodeOp::Sqrt(op).into()
     }
 }

@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::marker::PhantomData;
+
 use crate::error::Result;
 use crate::{
     dtype::Dtype,
@@ -23,24 +25,28 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ScalarOp<N: Dtype> {
+pub struct ScalarOp<'data, N: Dtype> {
     pub scalar: N,
+    pub _marker: PhantomData<&'data ()>,
 }
 
-impl<N: Dtype> ScalarOp<N> {
+impl<'data, N: Dtype> ScalarOp<'data, N> {
     pub fn new(scalar: N) -> Self {
-        Self { scalar }
+        Self {
+            scalar,
+            _marker: PhantomData,
+        }
     }
 }
 
-impl<N: Dtype> OpShape for ScalarOp<N> {
+impl<'data, N: Dtype> OpShape for ScalarOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(DynamicShape::new(&[]))
     }
 }
 
-impl<N: Dtype> From<ScalarOp<N>> for NodeRef<N> {
-    fn from(op: ScalarOp<N>) -> Self {
+impl<'data, N: Dtype> From<ScalarOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: ScalarOp<'data, N>) -> Self {
         NodeOp::Scalar(op).into()
     }
 }

@@ -20,9 +20,9 @@ use teeny_core::graph::{NodeRef, arange, inverse, pow, tensor};
 
 use crate::transformer::config::model_config::IPretrainedConfig;
 
-pub fn compute_default_rope_parameters(
-    config: &impl IPretrainedConfig,
-) -> (NodeRef<f32>, NodeRef<f32>) {
+pub fn compute_default_rope_parameters<'data>(
+    config: impl IPretrainedConfig,
+) -> (NodeRef<'data, f32>, NodeRef<'data, f32>) {
     let base = tensor(Array1::from(vec![config.rope_theta() as f32]).into_dyn());
     let partial_rotary_factor = config.partial_rotary_factor().unwrap_or(1.0);
     let head_dim = config

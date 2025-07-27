@@ -19,13 +19,13 @@ use crate::dtype;
 use crate::error::Result;
 use crate::graph::NodeRef;
 
-pub trait Module<N: dtype::Dtype, T, U> {
+pub trait Module<'data, N: dtype::Dtype, T, U> {
     fn forward(&self, x: T) -> Result<U>;
 
-    fn parameters(&self) -> Vec<NodeRef<N>>;
+    fn parameters(&self) -> Vec<NodeRef<'data, N>>;
 }
 
-pub type NodeRefModule<N> = Box<dyn Module<N, NodeRef<N>, NodeRef<N>>>;
+pub type NodeRefModule<'data, N> = Box<dyn Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>>;
 
 pub trait CompiledModule<N: dtype::Dtype, T, U> {
     fn forward(&self, x: T) -> Result<U>;

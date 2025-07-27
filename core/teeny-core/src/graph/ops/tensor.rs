@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::marker::PhantomData;
+
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
 
@@ -26,26 +28,30 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct TensorOp<N: Dtype> {
+pub struct TensorOp<'data, N: Dtype> {
     #[cfg(feature = "ndarray")]
     pub input: ndarray::Array<N, IxDyn>,
+    _marker: PhantomData<&'data ()>,
 }
 
-impl<N: Dtype> TensorOp<N> {
+impl<'data, N: Dtype> TensorOp<'data, N> {
     #[cfg(feature = "ndarray")]
     pub fn new(input: ndarray::Array<N, IxDyn>) -> Self {
-        Self { input }
+        Self {
+            input,
+            _marker: PhantomData,
+        }
     }
 }
 
-impl<N: Dtype> OpShape for TensorOp<N> {
+impl<'data, N: Dtype> OpShape for TensorOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(DynamicShape::new(&[1, self.input.len()]))
     }
 }
 
-impl<N: Dtype> From<TensorOp<N>> for NodeRef<N> {
-    fn from(op: TensorOp<N>) -> Self {
+impl<'data, N: Dtype> From<TensorOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: TensorOp<'data, N>) -> Self {
         NodeOp::Tensor(op).into()
     }
 }

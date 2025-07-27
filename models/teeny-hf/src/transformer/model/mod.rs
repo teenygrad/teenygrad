@@ -19,7 +19,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ndarray::Array1;
-use teeny_core::graph::{NodeRef, tensor};
+use teeny_core::graph::tensor;
 use teeny_core::nn::Module;
 use teeny_core::safetensors::SafeTensors;
 use teeny_data::safetensors::{FileSafeTensors, SafeTensorsMmaps};
@@ -27,9 +27,7 @@ use teeny_nlp::tokenizer::Message;
 
 use crate::error::{Error, Result};
 use crate::transformer::config::model_config::Architecture;
-use crate::transformer::model::qwen::qwen2::qwen2_model::{
-    QwenModelInputs, QwenModelInputsBuilder,
-};
+use crate::transformer::model::qwen::qwen2::qwen2_model::QwenModelInputsBuilder;
 use crate::transformer::model::qwen::qwen3::qwen3_causal_llm::Qwen3ForCausalLM;
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 use crate::transformer::tokenizer::tokenizer_config::TokenizerConfig;
@@ -95,16 +93,15 @@ fn from_pretrained<'data, T: SafeTensors<'data>>(
     model_id: &str,
     cache_dir: &Path,
     safetensors: &'data T,
-) -> Result<Box<dyn Module<f32, QwenModelInputs, NodeRef<f32>>>> {
+) -> Result<Qwen3ForCausalLM<'data>> {
     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
-
     let names = safetensors.names();
     println!("names: {names:?}");
 
     match config.architectures[0] {
         Architecture::Qwen3ForCausalLM => {
-            let model = Qwen3ForCausalLM::from_pretrained(&config, cache_dir, safetensors)?;
-            Ok(Box::new(model))
+            let model = Qwen3ForCausalLM::from_pretrained(config.clone(), cache_dir, safetensors)?;
+            Ok(model)
         }
     }
 }

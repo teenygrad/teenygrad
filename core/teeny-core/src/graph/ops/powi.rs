@@ -23,25 +23,25 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Powi<N: Dtype> {
-    pub input: NodeRef<N>,
+pub struct Powi<'data, N: Dtype> {
+    pub input: NodeRef<'data, N>,
     pub exp: N,
 }
 
-impl<N: Dtype> Powi<N> {
-    pub fn new(input: NodeRef<N>, exp: N) -> Self {
+impl<'data, N: Dtype> Powi<'data, N> {
+    pub fn new(input: NodeRef<'data, N>, exp: N) -> Self {
         Self { input, exp }
     }
 }
 
-impl<N: Dtype> OpShape for Powi<N> {
+impl<'data, N: Dtype> OpShape for Powi<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }
 
-impl<N: Dtype> From<Powi<N>> for NodeRef<N> {
-    fn from(op: Powi<N>) -> Self {
+impl<'data, N: Dtype> From<Powi<'data, N>> for NodeRef<'data, N> {
+    fn from(op: Powi<'data, N>) -> Self {
         NodeOp::Powi(op).into()
     }
 }

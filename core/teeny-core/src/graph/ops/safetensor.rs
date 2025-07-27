@@ -26,13 +26,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct SafeTensorOp<N: Dtype> {
-    pub input: TensorView<'static>,
+pub struct SafeTensorOp<'data, N: Dtype> {
+    pub input: TensorView<'data>,
     marker: PhantomData<N>,
 }
 
-impl<N: Dtype> SafeTensorOp<N> {
-    pub fn new(input: TensorView<'static>) -> Self {
+impl<'data, N: Dtype> SafeTensorOp<'data, N> {
+    pub fn new(input: TensorView<'data>) -> Self {
         Self {
             input,
             marker: PhantomData,
@@ -40,14 +40,14 @@ impl<N: Dtype> SafeTensorOp<N> {
     }
 }
 
-impl<N: Dtype> OpShape for SafeTensorOp<N> {
+impl<'data, N: Dtype> OpShape for SafeTensorOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
 }
 
-impl<N: Dtype> From<SafeTensorOp<N>> for NodeRef<N> {
-    fn from(op: SafeTensorOp<N>) -> Self {
+impl<'data, N: Dtype> From<SafeTensorOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: SafeTensorOp<'data, N>) -> Self {
         NodeOp::SafeTensor(op).into()
     }
 }

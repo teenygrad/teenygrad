@@ -33,41 +33,43 @@ use crate::{
     },
 };
 
-pub struct Qwen3ForCausalLM {
-    pub model: Qwen2Model,
+pub struct Qwen3ForCausalLM<'data> {
+    pub model: Qwen2Model<'data>,
     pub vocab_size: usize,
-    pub lm_head: Linear<f32>,
+    pub lm_head: Linear<'data, f32>,
 }
 
-impl Qwen3ForCausalLM {
-    pub fn from_pretrained<'data, T: SafeTensors<'data>>(
-        config: &Qwen3Config,
+impl<'data> Qwen3ForCausalLM<'data> {
+    pub fn from_pretrained<T: SafeTensors<'data>>(
+        config: Qwen3Config,
         cache_dir: &Path,
-        _safetensors: &T,
+        safetensors: &'data T,
     ) -> Result<Self> {
         Ok(Self {
-            model: Qwen3Model::from_pretrained(config, cache_dir)?,
+            model: Qwen3Model::from_pretrained(config.clone(), cache_dir, safetensors)?,
             vocab_size: config.vocab_size,
-            lm_head: Linear::new("lm_head", config.hidden_size, config.vocab_size, false)?,
+            lm_head: Linear::from_pretrained("lm_head", false, safetensors)?,
         })
     }
 
     pub fn generate(
         &self,
-        model_inputs: QwenModelInputs,
+        model_inputs: QwenModelInputs<'data>,
         _max_new_tokens: usize,
-    ) -> Result<NodeRef<f32>> {
+    ) -> Result<NodeRef<'data, f32>> {
         self.forward(model_inputs)
     }
 }
 
-impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen3ForCausalLM {
-    fn forward(&self, model_inputs: QwenModelInputs) -> Result<NodeRef<f32>> {
+impl<'data> Module<'data, f32, QwenModelInputs<'data>, NodeRef<'data, f32>>
+    for Qwen3ForCausalLM<'data>
+{
+    fn forward(&self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data, f32>> {
         let hidden_states = self.model.forward(model_inputs)?;
         self.lm_head.forward(hidden_states)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
         todo!()
     }
 }

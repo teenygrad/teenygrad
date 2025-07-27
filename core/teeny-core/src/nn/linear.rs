@@ -24,13 +24,13 @@ use crate::{
     shape,
 };
 
-pub struct Linear<N: dtype::Dtype> {
+pub struct Linear<'data, N: dtype::Dtype> {
     pub name: String,
-    pub weight: NodeRef<N>,
-    pub bias: Option<NodeRef<N>>,
+    pub weight: NodeRef<'data, N>,
+    pub bias: Option<NodeRef<'data, N>>,
 }
 
-impl<N: dtype::Dtype> Linear<N> {
+impl<'data, N: dtype::Dtype> Linear<'data, N> {
     pub fn new(name: &str, input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
         let weight = graph::randn(shape![output_dim, input_dim]);
 
@@ -47,10 +47,10 @@ impl<N: dtype::Dtype> Linear<N> {
         })
     }
 
-    pub fn from_pretrained<T: SafeTensors<'static>>(
+    pub fn from_pretrained<T: SafeTensors<'data>>(
         name: &str,
         use_bias: bool,
-        safetensors: &'static T,
+        safetensors: &'data T,
     ) -> Result<Self> {
         let weight_name = format!("{name}.weight");
         let weight = graph::safetensor(safetensors.tensor(&weight_name)?);
@@ -69,8 +69,10 @@ impl<N: dtype::Dtype> Linear<N> {
     }
 }
 
-impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Linear<N> {
-    fn forward(&self, x: NodeRef<N>) -> Result<NodeRef<N>> {
+impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>
+    for Linear<'data, N>
+{
+    fn forward(&self, x: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
         let a = x * &self.weight.t();
         let result = if let Some(bias) = &self.bias {
             a + bias
@@ -81,7 +83,7 @@ impl<N: dtype::Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Linear<N> {
         Ok(result)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
         let mut params = vec![self.weight.clone()];
         if let Some(bias) = &self.bias {
             params.push(bias.clone());

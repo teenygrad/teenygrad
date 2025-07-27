@@ -23,18 +23,18 @@ use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::{DynamicShape, Shape};
 
 #[derive(Debug, Clone)]
-pub struct MultOp<N: Dtype> {
-    pub lhs: NodeRef<N>,
-    pub rhs: NodeRef<N>,
+pub struct MultOp<'data, N: Dtype> {
+    pub lhs: NodeRef<'data, N>,
+    pub rhs: NodeRef<'data, N>,
 }
 
-impl<N: Dtype> MultOp<N> {
-    pub fn new(lhs: NodeRef<N>, rhs: NodeRef<N>) -> Self {
+impl<'data, N: Dtype> MultOp<'data, N> {
+    pub fn new(lhs: NodeRef<'data, N>, rhs: NodeRef<'data, N>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<N: Dtype> OpShape for MultOp<N> {
+impl<'data, N: Dtype> OpShape for MultOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         let lhs_shape = self.lhs.shape()?;
         let rhs_shape = self.rhs.shape()?;
@@ -55,8 +55,8 @@ impl<N: Dtype> OpShape for MultOp<N> {
     }
 }
 
-impl<N: Dtype> From<MultOp<N>> for NodeRef<N> {
-    fn from(op: MultOp<N>) -> Self {
+impl<'data, N: Dtype> From<MultOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: MultOp<'data, N>) -> Self {
         NodeOp::Mult(op).into()
     }
 }

@@ -25,13 +25,13 @@ use teeny_core::{
 use crate::error::Result;
 
 #[derive(Debug)]
-pub struct VectorAdd<N: dtype::Dtype> {
-    pub v1: NodeRef<N>,
-    pub v2: NodeRef<N>,
+pub struct VectorAdd<'data, N: dtype::Dtype> {
+    pub v1: NodeRef<'data, N>,
+    pub v2: NodeRef<'data, N>,
 }
 
 #[allow(clippy::new_without_default)]
-impl<N: dtype::Dtype> VectorAdd<N> {
+impl<'data, N: dtype::Dtype> VectorAdd<'data, N> {
     pub fn new() -> Self
     where
         N: dtype::Dtype + Copy + 'static,
@@ -52,12 +52,12 @@ impl<N: dtype::Dtype> VectorAdd<N> {
     }
 }
 
-impl Module<f32, NodeRef<f32>, NodeRef<f32>> for VectorAdd<f32> {
-    fn forward(&self, _x: NodeRef<f32>) -> Result<NodeRef<f32>> {
+impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for VectorAdd<'data, f32> {
+    fn forward(&self, _x: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
         Ok(&self.v1 + &self.v2)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
         vec![]
     }
 }

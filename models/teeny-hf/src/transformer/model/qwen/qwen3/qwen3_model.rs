@@ -17,4 +17,4 @@
 
 use crate::transformer::model::qwen::qwen2::qwen2_model::Qwen2Model;
 
-pub type Qwen3Model = Qwen2Model;
+pub type Qwen3Model<'data> = Qwen2Model<'data>;

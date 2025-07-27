@@ -25,28 +25,30 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ZerosOp<N: Dtype> {
+pub struct ZerosOp<'data, N: Dtype> {
     pub shape: DynamicShape,
     _marker: PhantomData<N>,
+    _marker2: PhantomData<&'data ()>,
 }
 
-impl<N: Dtype> ZerosOp<N> {
+impl<'data, N: Dtype> ZerosOp<'data, N> {
     pub fn new(shape: DynamicShape) -> Self {
         Self {
             shape,
             _marker: PhantomData,
+            _marker2: PhantomData,
         }
     }
 }
 
-impl<N: Dtype> OpShape for ZerosOp<N> {
+impl<'data, N: Dtype> OpShape for ZerosOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(self.shape.clone())
     }
 }
 
-impl<N: Dtype> From<ZerosOp<N>> for NodeRef<N> {
-    fn from(op: ZerosOp<N>) -> Self {
+impl<'data, N: Dtype> From<ZerosOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: ZerosOp<'data, N>) -> Self {
         NodeOp::Zeros(op).into()
     }
 }

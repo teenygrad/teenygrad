@@ -17,6 +17,7 @@
 
 use teeny_core::{
     dtype::Dtype,
+    graph,
     graph::NodeRef,
     nn::{Module, module::NodeRefModule},
 };
@@ -26,17 +27,17 @@ use crate::{error::Result, transformer::config::model_config::HiddenAct};
 #[derive(Default)]
 pub struct Silu;
 
-impl<N: Dtype> Module<N, NodeRef<N>, NodeRef<N>> for Silu {
-    fn forward(&self, _x: NodeRef<N>) -> Result<NodeRef<N>> {
+impl<'data, N: Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>> for Silu {
+    fn forward(&self, _x: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<N>> {
+    fn parameters(&self) -> Vec<graph::NodeRef<'data, N>> {
         todo!()
     }
 }
 
-pub fn get_activation<N: Dtype>(activation: HiddenAct) -> Result<NodeRefModule<N>> {
+pub fn get_activation<'data, N: Dtype>(activation: HiddenAct) -> Result<NodeRefModule<'data, N>> {
     match activation {
         HiddenAct::Silu => Ok(Box::new(Silu)),
     }

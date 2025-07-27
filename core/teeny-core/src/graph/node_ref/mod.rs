@@ -34,9 +34,9 @@ pub mod mul;
 pub mod sub;
 
 #[derive(Debug, Clone)]
-pub struct NodeRef<N: Dtype>(pub Arc<Node<N>>);
+pub struct NodeRef<'data, N: Dtype>(pub Arc<Node<'data, N>>);
 
-impl<N: Dtype> NodeRef<N> {
+impl<'data, N: Dtype> NodeRef<'data, N> {
     pub fn realize(&self) -> Result<Vec<N>> {
         todo!()
     }
@@ -69,7 +69,7 @@ impl<N: Dtype> NodeRef<N> {
         )))
     }
 
-    pub fn dot(&self, other: &NodeRef<N>) -> Self {
+    pub fn dot(&self, other: &NodeRef<'data, N>) -> Self {
         NodeRef(Arc::new(Node::new(
             NodeOp::Dot(DotOp::new(self.clone(), other.clone())),
             true,
@@ -78,13 +78,13 @@ impl<N: Dtype> NodeRef<N> {
     }
 }
 
-impl<N: Dtype> From<NodeOp<N>> for NodeRef<N> {
-    fn from(op: NodeOp<N>) -> Self {
+impl<'data, N: Dtype> From<NodeOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: NodeOp<'data, N>) -> Self {
         NodeRef(Arc::new(Node::new(op, true, false)))
     }
 }
 
-impl<N: Dtype> From<f32> for NodeRef<N> {
+impl<'data, N: Dtype> From<f32> for NodeRef<'data, N> {
     fn from(value: f32) -> Self {
         scalar(N::from_f32(value))
     }

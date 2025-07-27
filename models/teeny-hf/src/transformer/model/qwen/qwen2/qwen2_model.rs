@@ -20,11 +20,11 @@ use std::sync::Arc;
 
 use derive_builder::Builder;
 use teeny_cache::Cache;
-use teeny_core::graph::{NodeRef, ones};
+use teeny_core::graph::{self, NodeRef, ones};
 use teeny_core::nn::Module;
 use teeny_core::nn::embedding::EmbeddingBuilder;
-use teeny_core::nn::module::NodeRefModule;
 use teeny_core::nn::{embedding::Embedding, linear::Linear};
+use teeny_core::safetensors::SafeTensors;
 use teeny_core::tensor::shape::DynamicShape;
 use teeny_core::tensor::{FloatTensor, LongTensor};
 
@@ -34,30 +34,34 @@ use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
 use crate::error::{Error, Result};
 use crate::transformer::util::rope_util::compute_default_rope_parameters;
 
-pub struct Qwen2Model {
+pub struct Qwen2Model<'data> {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
-    pub embed_tokens: Embedding<f32>,
-    pub layers: Vec<NodeRefModule<f32>>,
-    pub norm: Qwen2RMSNorm,
-    pub rotary_emb: Qwen2RotaryEmbedding,
+    pub embed_tokens: Embedding<'data, f32>,
+    pub layers: Vec<Qwen2DecoderLayer<'data>>,
+    pub norm: Qwen2RMSNorm<'data>,
+    pub rotary_emb: Qwen2RotaryEmbedding<'data>,
     pub gradient_checkpointing: bool,
     pub has_sliding_layers: bool,
 }
 
 #[derive(Debug, Builder, Clone)]
-pub struct QwenModelInputs {
-    pub input_ids: Option<LongTensor>,
-    pub attention_mask: Option<FloatTensor<f32>>,
-    pub position_ids: Option<LongTensor>,
+pub struct QwenModelInputs<'data> {
+    pub input_ids: Option<LongTensor<'data>>,
+    pub attention_mask: Option<FloatTensor<'data, f32>>,
+    pub position_ids: Option<LongTensor<'data>>,
     pub past_key_values: Option<Cache>,
-    pub inputs_embeds: Option<FloatTensor<f32>>,
+    pub inputs_embeds: Option<FloatTensor<'data, f32>>,
     pub use_cache: Option<bool>,
-    pub cache_position: Option<LongTensor>,
+    pub cache_position: Option<LongTensor<'data>>,
 }
 
-impl Qwen2Model {
-    pub fn from_pretrained<T: IQwen2Config>(config: &T, _cache_dir: &Path) -> Result<Self> {
+impl<'data> Qwen2Model<'data> {
+    pub fn from_pretrained<T: SafeTensors<'data>>(
+        config: impl IQwen2Config,
+        _cache_dir: &Path,
+        safetensors: &'data T,
+    ) -> Result<Self> {
         Ok(Qwen2Model {
             vocab_size: config.vocab_size(),
             padding_idx: config.pad_token_id(),
@@ -65,14 +69,17 @@ impl Qwen2Model {
                 .num_embeddings(config.vocab_size())
                 .embedding_dim(config.hidden_size())
                 .padding_idx(config.pad_token_id())
+                .weight(graph::safetensor_with_name(
+                    "model.embed_tokens.weight",
+                    safetensors,
+                )?)
                 .build()
                 .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers())
-                .map(|layer_idx| Qwen2DecoderLayer::new(config, layer_idx))
-                .map(|layer| Ok(Box::new(layer?) as NodeRefModule<f32>))
+                .map(|layer_idx| Qwen2DecoderLayer::new(config.clone(), layer_idx))
                 .collect::<Result<Vec<_>>>()?,
             norm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
-            rotary_emb: Qwen2RotaryEmbedding::new(config),
+            rotary_emb: Qwen2RotaryEmbedding::new(config.clone()),
             gradient_checkpointing: false,
             has_sliding_layers: config
                 .layer_types()
@@ -81,15 +88,15 @@ impl Qwen2Model {
     }
 }
 
-impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
+impl<'data> Module<'data, f32, QwenModelInputs<'data>, NodeRef<'data, f32>> for Qwen2Model<'data> {
     fn forward(
         &self,
         QwenModelInputs {
             input_ids,
             inputs_embeds,
             ..
-        }: QwenModelInputs,
-    ) -> Result<NodeRef<f32>> {
+        }: QwenModelInputs<'data>,
+    ) -> Result<NodeRef<'data, f32>> {
         if input_ids.is_none() ^ inputs_embeds.is_some() {
             return Err(Error::ModelError(
                 "Only one of input_ids and inputs_embeds must be provided.".to_string(),
@@ -102,26 +109,26 @@ impl Module<f32, QwenModelInputs, NodeRef<f32>> for Qwen2Model {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
         todo!()
     }
 }
 
-pub struct Qwen2DecoderLayer {
+pub struct Qwen2DecoderLayer<'data> {
     pub hidden_size: usize,
-    pub self_attn: Qwen2Attention,
-    pub mlp: Qwen2MLP,
-    pub input_layernorm: Qwen2RMSNorm,
-    pub post_attention_layernorm: Qwen2RMSNorm,
+    pub self_attn: Qwen2Attention<'data>,
+    pub mlp: Qwen2MLP<'data>,
+    pub input_layernorm: Qwen2RMSNorm<'data>,
+    pub post_attention_layernorm: Qwen2RMSNorm<'data>,
     pub attention_type: String,
 }
 
-impl Qwen2DecoderLayer {
-    pub fn new<C: IQwen2Config>(config: &C, layer_idx: usize) -> Result<Self> {
+impl<'data> Qwen2DecoderLayer<'data> {
+    pub fn new(config: impl IQwen2Config, layer_idx: usize) -> Result<Self> {
         Ok(Self {
             hidden_size: config.hidden_size(),
-            self_attn: Qwen2Attention::new(config, layer_idx)?,
-            mlp: Qwen2MLP::new(config)?,
+            self_attn: Qwen2Attention::new(config.clone(), layer_idx)?,
+            mlp: Qwen2MLP::new(config.clone())?,
             input_layernorm: Qwen2RMSNorm::new(config.hidden_size(), config.rms_norm_eps()),
             post_attention_layernorm: Qwen2RMSNorm::new(
                 config.hidden_size(),
@@ -132,22 +139,24 @@ impl Qwen2DecoderLayer {
     }
 }
 
-impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2DecoderLayer {
-    fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>
+    for Qwen2DecoderLayer<'data>
+{
+    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<f32>> {
+    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<'data, f32>> {
         todo!()
     }
 }
 
-pub struct Qwen2RMSNorm {
-    pub weight: NodeRef<f32>,
+pub struct Qwen2RMSNorm<'data> {
+    pub weight: NodeRef<'data, f32>,
     pub variance_epsilon: f32,
 }
 
-impl Qwen2RMSNorm {
+impl<'data> Qwen2RMSNorm<'data> {
     pub fn new(hidden_size: usize, eps: f32) -> Self {
         let shape = DynamicShape::new(&[hidden_size]);
 
@@ -158,26 +167,26 @@ impl Qwen2RMSNorm {
     }
 }
 
-impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2RMSNorm {
-    fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwen2RMSNorm<'data> {
+    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
         todo!()
     }
 }
 
-pub struct Qwen2RotaryEmbedding {
+pub struct Qwen2RotaryEmbedding<'data> {
     pub max_seq_len_cached: usize,
     pub original_max_seq_len: usize,
-    pub attention_scaling: NodeRef<f32>,
-    pub original_inv_freq: NodeRef<f32>,
+    pub attention_scaling: NodeRef<'data, f32>,
+    pub original_inv_freq: NodeRef<'data, f32>,
 }
 
-impl Qwen2RotaryEmbedding {
-    pub fn new<C: IQwen2Config>(config: &C) -> Self {
-        let (inv_freq, attention_scaling) = compute_default_rope_parameters(config);
+impl<'data> Qwen2RotaryEmbedding<'data> {
+    pub fn new(config: impl IQwen2Config) -> Self {
+        let (inv_freq, attention_scaling) = compute_default_rope_parameters(config.clone());
 
         Self {
             max_seq_len_cached: config.max_position_embeddings(),
@@ -188,32 +197,34 @@ impl Qwen2RotaryEmbedding {
     }
 }
 
-impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2RotaryEmbedding {
-    fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>
+    for Qwen2RotaryEmbedding<'data>
+{
+    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
         todo!()
     }
 }
 
-pub struct Qwen2Attention {
+pub struct Qwen2Attention<'data> {
     pub layer_idx: usize,
     pub head_dim: usize,
     pub num_key_value_groups: usize,
     pub scaling: f32,
     pub attention_dropout: f32,
     pub is_causal: bool,
-    pub q_proj: Linear<f32>,
-    pub k_proj: Linear<f32>,
-    pub v_proj: Linear<f32>,
-    pub o_proj: Linear<f32>,
+    pub q_proj: Linear<'data, f32>,
+    pub k_proj: Linear<'data, f32>,
+    pub v_proj: Linear<'data, f32>,
+    pub o_proj: Linear<'data, f32>,
     pub sliding_window: Option<f32>,
 }
 
-impl Qwen2Attention {
-    pub fn new<C: IQwen2Config>(config: &C, layer_idx: usize) -> Result<Self> {
+impl<'data> Qwen2Attention<'data> {
+    pub fn new(config: impl IQwen2Config, layer_idx: usize) -> Result<Self> {
         assert!(config.num_key_value_heads().is_some());
 
         let num_key_value_heads = config.num_key_value_heads().unwrap();
@@ -261,16 +272,16 @@ impl Qwen2Attention {
     }
 }
 
-pub struct Qwen2MLP {
+pub struct Qwen2MLP<'data> {
     pub hidden_size: usize,
     pub intermediate_size: usize,
-    pub gate_proj: Linear<f32>,
-    pub down_proj: Linear<f32>,
-    pub act_fn: Box<dyn Module<f32, NodeRef<f32>, NodeRef<f32>>>,
+    pub gate_proj: Linear<'data, f32>,
+    pub down_proj: Linear<'data, f32>,
+    pub act_fn: Box<dyn Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>>,
 }
 
-impl Qwen2MLP {
-    pub fn new<T: IQwen2Config>(config: &T) -> Result<Self> {
+impl<'data> Qwen2MLP<'data> {
+    pub fn new(config: impl IQwen2Config) -> Result<Self> {
         let activation = get_activation(config.hidden_act())?;
 
         Ok(Self {
@@ -293,12 +304,12 @@ impl Qwen2MLP {
     }
 }
 
-impl Module<f32, NodeRef<f32>, NodeRef<f32>> for Qwen2MLP {
-    fn forward(&self, _model_inputs: NodeRef<f32>) -> Result<NodeRef<f32>> {
+impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwen2MLP<'data> {
+    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
         todo!()
     }
 }

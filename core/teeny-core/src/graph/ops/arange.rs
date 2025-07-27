@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::marker::PhantomData;
+
 use crate::error::Result;
 use crate::{
     dtype::Dtype,
@@ -23,19 +25,25 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ArangeOp<N: Dtype> {
+pub struct ArangeOp<'data, N: Dtype> {
     pub start: N,
     pub end: N,
     pub step: N,
+    _marker: PhantomData<&'data ()>,
 }
 
-impl<N: Dtype> ArangeOp<N> {
+impl<'data, N: Dtype> ArangeOp<'data, N> {
     pub fn new(start: N, end: N, step: N) -> Self {
-        Self { start, end, step }
+        Self {
+            start,
+            end,
+            step,
+            _marker: PhantomData,
+        }
     }
 }
 
-impl<N: Dtype> OpShape for ArangeOp<N> {
+impl<'data, N: Dtype> OpShape for ArangeOp<'data, N> {
     fn shape(&self) -> Result<DynamicShape> {
         // Calculate the length of the arange sequence
         // Formula: ceil((end - start) / step)
@@ -45,8 +53,8 @@ impl<N: Dtype> OpShape for ArangeOp<N> {
     }
 }
 
-impl<N: Dtype> From<ArangeOp<N>> for NodeRef<N> {
-    fn from(op: ArangeOp<N>) -> Self {
+impl<'data, N: Dtype> From<ArangeOp<'data, N>> for NodeRef<'data, N> {
+    fn from(op: ArangeOp<'data, N>) -> Self {
         NodeOp::Arange(op).into()
     }
 }

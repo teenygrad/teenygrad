@@ -25,8 +25,8 @@
 
 use teeny_core::{dtype, nn};
 
-pub struct SimpleClassifier<N: dtype::Dtype> {
-    pub model: nn::sequential::Sequential<N>,
+pub struct SimpleClassifier<'data, N: dtype::Dtype> {
+    pub model: nn::sequential::Sequential<'data, N>,
 }
 
 // impl<'a> Default for SimpleClassifier<'a> {

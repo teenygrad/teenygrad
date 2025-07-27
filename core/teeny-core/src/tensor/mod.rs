@@ -19,6 +19,6 @@ use crate::graph::NodeRef;
 
 pub mod shape;
 
-pub type LongTensor = NodeRef<usize>;
+pub type LongTensor<'data> = NodeRef<'data, usize>;
 
-pub type FloatTensor<F> = NodeRef<F>;
+pub type FloatTensor<'data, F> = NodeRef<'data, F>;

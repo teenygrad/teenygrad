@@ -17,7 +17,7 @@
 
 use crate::transformer::config::model_config::IPretrainedConfig;
 
-pub trait IQwen2Config: IPretrainedConfig {
+pub trait IQwen2Config: IPretrainedConfig + Clone {
     fn pad_token_id(&self) -> Option<usize>;
     fn layer_types(&self) -> &[String];
 }

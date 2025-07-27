@@ -30,7 +30,7 @@ use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
 
 pub trait IQwen3Config: IQwen2Config {}
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Qwen3Config {
     pub architectures: Vec<Architecture>,
     pub attention_bias: bool,
