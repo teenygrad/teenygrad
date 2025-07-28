@@ -15,5 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod qwen2;
 pub mod qwen3;

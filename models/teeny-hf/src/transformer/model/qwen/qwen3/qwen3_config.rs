@@ -21,14 +21,9 @@ use std::{collections::HashMap, vec};
 
 use serde::{Deserialize, Serialize};
 
-use crate::transformer::config::model_config::{
-    Architecture, HiddenAct, IPretrainedConfig, ModelType, TorchDtype,
-};
+use crate::transformer::config::model_config::{Architecture, HiddenAct, ModelType, TorchDtype};
 
 use crate::error::{Error, Result};
-use crate::transformer::model::qwen::qwen2::qwen2_config::IQwen2Config;
-
-pub trait IQwen3Config: IQwen2Config {}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Qwen3Config {
@@ -132,128 +127,6 @@ impl FromStr for Qwen3Config {
         }
 
         Ok(config)
-    }
-}
-
-impl IQwen3Config for Qwen3Config {}
-
-impl IQwen2Config for Qwen3Config {
-    fn pad_token_id(&self) -> Option<usize> {
-        self.pad_token_id
-    }
-
-    fn layer_types(&self) -> &[String] {
-        &self.layer_types
-    }
-}
-
-impl IPretrainedConfig for Qwen3Config {
-    fn architectures(&self) -> &[Architecture] {
-        &self.architectures
-    }
-
-    fn attention_bias(&self) -> bool {
-        self.attention_bias
-    }
-
-    fn attention_dropout(&self) -> f32 {
-        self.attention_dropout
-    }
-
-    fn bos_token_id(&self) -> usize {
-        self.bos_token_id
-    }
-
-    fn eos_token_id(&self) -> usize {
-        self.eos_token_id
-    }
-
-    fn head_dim(&self) -> Option<usize> {
-        self.head_dim
-    }
-
-    fn hidden_act(&self) -> HiddenAct {
-        self.hidden_act.clone()
-    }
-
-    fn hidden_size(&self) -> usize {
-        self.hidden_size
-    }
-
-    fn initializer_range(&self) -> f32 {
-        self.initializer_range
-    }
-
-    fn intermediate_size(&self) -> usize {
-        self.intermediate_size
-    }
-
-    fn max_position_embeddings(&self) -> usize {
-        self.max_position_embeddings
-    }
-
-    fn max_window_layers(&self) -> usize {
-        self.max_window_layers
-    }
-
-    fn model_type(&self) -> ModelType {
-        self.model_type.clone()
-    }
-
-    fn num_attention_heads(&self) -> usize {
-        self.num_attention_heads
-    }
-
-    fn num_hidden_layers(&self) -> usize {
-        self.num_hidden_layers
-    }
-
-    fn num_key_value_heads(&self) -> Option<usize> {
-        self.num_key_value_heads
-    }
-
-    fn rms_norm_eps(&self) -> f32 {
-        self.rms_norm_eps
-    }
-
-    fn rope_scaling(&self) -> Option<f32> {
-        self.rope_scaling
-    }
-
-    fn rope_theta(&self) -> usize {
-        self.rope_theta
-    }
-
-    fn sliding_window(&self) -> Option<f32> {
-        self.sliding_window
-    }
-
-    fn tie_word_embeddings(&self) -> bool {
-        self.tie_word_embeddings
-    }
-
-    fn torch_dtype(&self) -> TorchDtype {
-        self.torch_dtype.clone()
-    }
-
-    fn transformers_version(&self) -> String {
-        self.transformers_version.clone()
-    }
-
-    fn use_cache(&self) -> bool {
-        self.use_cache
-    }
-
-    fn use_sliding_window(&self) -> bool {
-        self.use_sliding_window
-    }
-
-    fn vocab_size(&self) -> usize {
-        self.vocab_size
-    }
-
-    fn partial_rotary_factor(&self) -> Option<f32> {
-        self.partial_rotary_factor
     }
 }
 

@@ -27,14 +27,11 @@ use super::qwen3_config::Qwen3Config;
 
 use crate::{
     error::Result,
-    transformer::model::qwen::{
-        qwen2::qwen2_model::{Qwen2Model, QwenModelInputs},
-        qwen3::qwen3_model::Qwen3Model,
-    },
+    transformer::model::qwen::qwen3::qwen3_model::{Qwen3Model, QwenModelInputs},
 };
 
 pub struct Qwen3ForCausalLM<'data> {
-    pub model: Qwen2Model<'data>,
+    pub model: Qwen3Model<'data>,
     pub vocab_size: usize,
     pub lm_head: Linear<'data, f32>,
 }
@@ -46,7 +43,7 @@ impl<'data> Qwen3ForCausalLM<'data> {
         safetensors: &'data T,
     ) -> Result<Self> {
         Ok(Self {
-            model: Qwen3Model::from_pretrained(config.clone(), cache_dir, safetensors)?,
+            model: Qwen3Model::from_pretrained(&config, cache_dir, safetensors)?,
             vocab_size: config.vocab_size,
             lm_head: Linear::from_pretrained("lm_head", false, safetensors)?,
         })

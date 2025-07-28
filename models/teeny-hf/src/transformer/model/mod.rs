@@ -27,9 +27,9 @@ use teeny_nlp::tokenizer::Message;
 
 use crate::error::{Error, Result};
 use crate::transformer::config::model_config::Architecture;
-use crate::transformer::model::qwen::qwen2::qwen2_model::QwenModelInputsBuilder;
 use crate::transformer::model::qwen::qwen3::qwen3_causal_llm::Qwen3ForCausalLM;
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
+use crate::transformer::model::qwen::qwen3::qwen3_model::QwenModelInputsBuilder;
 use crate::transformer::tokenizer::tokenizer_config::TokenizerConfig;
 use crate::transformer::util::template;
 use crate::transformer::{self, tokenizer};

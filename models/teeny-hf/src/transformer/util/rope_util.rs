@@ -18,16 +18,16 @@
 use ndarray::Array1;
 use teeny_core::graph::{NodeRef, arange, inverse, pow, tensor};
 
-use crate::transformer::config::model_config::IPretrainedConfig;
+use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 
 pub fn compute_default_rope_parameters<'data>(
-    config: impl IPretrainedConfig,
+    config: &Qwen3Config,
 ) -> (NodeRef<'data, f32>, NodeRef<'data, f32>) {
-    let base = tensor(Array1::from(vec![config.rope_theta() as f32]).into_dyn());
-    let partial_rotary_factor = config.partial_rotary_factor().unwrap_or(1.0);
+    let base = tensor(Array1::from(vec![config.rope_theta as f32]).into_dyn());
+    let partial_rotary_factor = config.partial_rotary_factor.unwrap_or(1.0);
     let head_dim = config
-        .head_dim()
-        .unwrap_or(config.hidden_size() / config.num_attention_heads());
+        .head_dim
+        .unwrap_or(config.hidden_size / config.num_attention_heads);
     let dim = head_dim as f32 * partial_rotary_factor;
 
     let attention_factor = tensor(Array1::from(vec![1.0]).into_dyn()); // Unused in this type of RoPE

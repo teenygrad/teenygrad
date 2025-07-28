@@ -37,7 +37,7 @@ impl<'data, N: Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>> for
     }
 }
 
-pub fn get_activation<'data, N: Dtype>(activation: HiddenAct) -> Result<NodeRefModule<'data, N>> {
+pub fn get_activation<'data, N: Dtype>(activation: &HiddenAct) -> Result<NodeRefModule<'data, N>> {
     match activation {
         HiddenAct::Silu => Ok(Box::new(Silu)),
     }
