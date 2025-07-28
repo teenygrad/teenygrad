@@ -30,6 +30,7 @@ use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::TensorOp;
 use crate::graph::ops::transpose::TransposeOp;
+use crate::graph::ops::unsqueeze::UnsqueezeOp;
 use crate::safetensors::{SafeTensors, TensorView};
 use crate::tensor::shape::DynamicShape;
 
@@ -79,6 +80,7 @@ pub enum NodeOp<'data, N: Dtype> {
     Pow(PowOp<'data, N>),
     Tensor(TensorOp<'data, N>),
     SafeTensor(SafeTensorOp<'data, N>),
+    Unsqueeze(UnsqueezeOp<'data, N>),
 }
 
 impl<'data, N: Dtype> NodeOp<'data, N> {
@@ -107,6 +109,7 @@ impl<'data, N: Dtype> NodeOp<'data, N> {
             NodeOp::Inverse(op) => op.shape(),
             NodeOp::Pow(op) => op.shape(),
             NodeOp::SafeTensor(op) => op.shape(),
+            NodeOp::Unsqueeze(op) => op.shape(),
         }
     }
 }
@@ -167,6 +170,10 @@ pub fn exp<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
 
 pub fn arange<'data, N: Dtype>(start: N, end: N, step: N) -> NodeRef<'data, N> {
     ArangeOp::new(start, end, step).into()
+}
+
+pub fn unsqueeze<'data, N: Dtype>(x: NodeRef<'data, N>, dim: usize) -> NodeRef<'data, N> {
+    UnsqueezeOp::new(x, dim).into()
 }
 
 pub fn pow<'data, N: Dtype>(x: NodeRef<'data, N>, y: NodeRef<'data, N>) -> NodeRef<'data, N> {

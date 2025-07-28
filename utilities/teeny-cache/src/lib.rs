@@ -15,5 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[derive(Debug, Clone)]
-pub struct Cache {}
+#[derive(Debug, Clone, Default)]
+pub struct DynamicCache {}
+
+impl DynamicCache {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn get_sequence_length(&self) -> usize {
+        todo!()
+    }
+}

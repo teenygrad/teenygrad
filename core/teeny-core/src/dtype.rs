@@ -257,8 +257,14 @@ impl Dtype for bf16 {
         self.0.to_f32()
     }
 
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
+    fn from_bytes(bytes: &[u8]) -> Vec<Self> {
+        let mut data = Vec::new();
+        assert_eq!(bytes.len() % 2, 0);
+        for i in 0..bytes.len() / 2 {
+            let value = half::bf16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
+            data.push(bf16(value));
+        }
+        data
     }
 
     fn to_u32(self) -> u32 {

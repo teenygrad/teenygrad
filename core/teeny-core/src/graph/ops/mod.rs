@@ -40,6 +40,7 @@ pub mod sqrt;
 pub mod sub;
 pub mod tensor;
 pub mod transpose;
+pub mod unsqueeze;
 pub mod zeros;
 
 pub trait OpShape {

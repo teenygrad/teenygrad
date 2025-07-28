@@ -52,17 +52,17 @@ impl<'data, N: Dtype> Qwen3ForCausalLM<'data, N> {
 
     pub fn generate(
         &self,
-        model_inputs: QwenModelInputs<'data>,
+        model_inputs: QwenModelInputs<'data, N>,
         _max_new_tokens: usize,
     ) -> Result<NodeRef<'data, N>> {
         self.forward(model_inputs)
     }
 }
 
-impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data>, NodeRef<'data, N>>
+impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, NodeRef<'data, N>>
     for Qwen3ForCausalLM<'data, N>
 {
-    fn forward(&self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data, N>> {
+    fn forward(&self, model_inputs: QwenModelInputs<'data, N>) -> Result<NodeRef<'data, N>> {
         let hidden_states = self.model.forward(model_inputs)?;
         self.lm_head.forward(hidden_states)
     }
