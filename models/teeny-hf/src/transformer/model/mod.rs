@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ndarray::Array1;
+use teeny_core::dtype::Dtype;
 use teeny_core::graph::tensor;
 use teeny_core::nn::Module;
 use teeny_core::safetensors::SafeTensors;
@@ -36,7 +37,7 @@ use crate::transformer::{self, tokenizer};
 
 pub mod qwen;
 
-pub fn run_qwen3(model_id: &str, cache_dir: &Path) -> Result<()> {
+pub fn run_qwen3<N: Dtype>(model_id: &str, cache_dir: &Path) -> Result<()> {
     let model_dir = cache_dir.join(model_id);
     let mmaps = SafeTensorsMmaps::from_pretrained(&model_dir)?;
     let safetensors = FileSafeTensors::from_pretrained(&mmaps)?;
@@ -72,7 +73,7 @@ pub fn run_qwen3(model_id: &str, cache_dir: &Path) -> Result<()> {
         .forward(model_inputs)?
         .realize()?
         .iter()
-        .map(|x| *x as u32)
+        .map(|x| N::to_u32(*x))
         .collect::<Vec<_>>();
 
     let thinking_content = tokenizer
@@ -89,11 +90,11 @@ pub fn run_qwen3(model_id: &str, cache_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn from_pretrained<'data, T: SafeTensors<'data>>(
+fn from_pretrained<'data, N: Dtype, T: SafeTensors<'data>>(
     model_id: &str,
     cache_dir: &Path,
     safetensors: &'data T,
-) -> Result<Qwen3ForCausalLM<'data>> {
+) -> Result<Qwen3ForCausalLM<'data, N>> {
     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
     let names = safetensors.names();
     println!("names: {names:?}");

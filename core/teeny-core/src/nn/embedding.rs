@@ -26,11 +26,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Builder)]
-pub struct Embedding<'data, N: Dtype> {
+pub struct Embedding<N: Dtype> {
     pub num_embeddings: usize,
     pub embedding_dim: usize,
     pub padding_idx: Option<usize>,
-    pub weight: FloatTensor<'data, N>,
+    pub weight: ndarray::Array<N, ndarray::IxDyn>,
 
     #[builder(default)]
     pub max_norm: Option<N>,
@@ -48,7 +48,7 @@ pub struct Embedding<'data, N: Dtype> {
     pub sparse: bool,
 }
 
-impl<'data, N: Dtype> Embedding<'data, N> {
+impl<N: Dtype> Embedding<N> {
     pub fn from_pretrained(
         _vocab_size: usize,
         _hidden_size: usize,
@@ -59,9 +59,7 @@ impl<'data, N: Dtype> Embedding<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> Module<'data, N, LongTensor<'data>, FloatTensor<'data, N>>
-    for Embedding<'data, N>
-{
+impl<'data, N: Dtype> Module<'data, N, LongTensor<'data>, FloatTensor<'data, N>> for Embedding<N> {
     fn forward(&self, _input_ids: LongTensor<'data>) -> Result<FloatTensor<'data, N>> {
         todo!()
     }

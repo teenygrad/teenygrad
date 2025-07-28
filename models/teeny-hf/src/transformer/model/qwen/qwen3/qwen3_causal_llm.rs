@@ -18,6 +18,7 @@
 use std::path::Path;
 
 use teeny_core::{
+    dtype::Dtype,
     graph::NodeRef,
     nn::{Module, linear::Linear},
     safetensors::SafeTensors,
@@ -30,13 +31,13 @@ use crate::{
     transformer::model::qwen::qwen3::qwen3_model::{Qwen3Model, QwenModelInputs},
 };
 
-pub struct Qwen3ForCausalLM<'data> {
-    pub model: Qwen3Model<'data>,
+pub struct Qwen3ForCausalLM<'data, N: Dtype> {
+    pub model: Qwen3Model<'data, N>,
     pub vocab_size: usize,
-    pub lm_head: Linear<'data, f32>,
+    pub lm_head: Linear<'data, N>,
 }
 
-impl<'data> Qwen3ForCausalLM<'data> {
+impl<'data, N: Dtype> Qwen3ForCausalLM<'data, N> {
     pub fn from_pretrained<T: SafeTensors<'data>>(
         config: Qwen3Config,
         cache_dir: &Path,
@@ -53,20 +54,20 @@ impl<'data> Qwen3ForCausalLM<'data> {
         &self,
         model_inputs: QwenModelInputs<'data>,
         _max_new_tokens: usize,
-    ) -> Result<NodeRef<'data, f32>> {
+    ) -> Result<NodeRef<'data, N>> {
         self.forward(model_inputs)
     }
 }
 
-impl<'data> Module<'data, f32, QwenModelInputs<'data>, NodeRef<'data, f32>>
-    for Qwen3ForCausalLM<'data>
+impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data>, NodeRef<'data, N>>
+    for Qwen3ForCausalLM<'data, N>
 {
-    fn forward(&self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data, f32>> {
+    fn forward(&self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data, N>> {
         let hidden_states = self.model.forward(model_inputs)?;
         self.lm_head.forward(hidden_states)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
         todo!()
     }
 }

@@ -19,7 +19,7 @@ use derive_more::Display;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
-use crate::num::bf16::Bf16;
+use crate::num::bf16::bf16;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Display)]
 pub enum DtypeEnum {
@@ -49,9 +49,13 @@ pub enum DtypeEnum {
 pub trait Dtype: 'static + Default + Clone + Copy + Zero + std::fmt::Debug {
     const DTYPE: DtypeEnum;
 
+    fn from_bytes(bytes: &[u8]) -> Vec<Self>;
+
     fn from_f32(value: f32) -> Self;
 
     fn to_f32(self) -> f32;
+
+    fn to_u32(self) -> u32;
 }
 
 impl Dtype for i8 {
@@ -63,6 +67,14 @@ impl Dtype for i8 {
 
     fn to_f32(self) -> f32 {
         self as f32
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
     }
 }
 
@@ -80,6 +92,14 @@ impl Dtype for usize {
     fn to_f32(self) -> f32 {
         self as f32
     }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
 
 impl Dtype for isize {
@@ -96,6 +116,14 @@ impl Dtype for isize {
     fn to_f32(self) -> f32 {
         self as f32
     }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
 }
 
 impl Dtype for i32 {
@@ -107,6 +135,14 @@ impl Dtype for i32 {
 
     fn to_f32(self) -> f32 {
         self as f32
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
     }
 }
 
@@ -120,6 +156,14 @@ impl Dtype for u32 {
     fn to_f32(self) -> f32 {
         self as f32
     }
+
+    fn to_u32(self) -> u32 {
+        self
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
 }
 
 impl Dtype for i64 {
@@ -131,6 +175,14 @@ impl Dtype for i64 {
 
     fn to_f32(self) -> f32 {
         self as f32
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
     }
 }
 
@@ -144,6 +196,14 @@ impl Dtype for u64 {
     fn to_f32(self) -> f32 {
         self as f32
     }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
 
 impl Dtype for f32 {
@@ -155,6 +215,14 @@ impl Dtype for f32 {
 
     fn to_f32(self) -> f32 {
         self
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
     }
 }
 
@@ -168,16 +236,32 @@ impl Dtype for f64 {
     fn to_f32(self) -> f32 {
         self as f32
     }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
 
-impl Dtype for Bf16 {
+impl Dtype for bf16 {
     const DTYPE: DtypeEnum = DtypeEnum::Bf16;
 
     fn from_f32(value: f32) -> Self {
-        Bf16(half::bf16::from_f32(value))
+        bf16(half::bf16::from_f32(value))
     }
 
     fn to_f32(self) -> f32 {
         self.0.to_f32()
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self.0.to_f32() as u32
     }
 }

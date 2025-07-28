@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use serde::Deserialize;
+use teeny_core::num::bf16::bf16;
 use teeny_hf::transformer;
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
@@ -91,6 +92,7 @@ enum ModelType {
 #[derive(Debug, Deserialize)]
 struct ModelConfig {
     pub model_type: ModelType,
+    pub torch_dtype: String,
 }
 
 #[tokio::main]
@@ -148,7 +150,8 @@ async fn run_model(model_id: &str, cache_dir: &Path) -> Result<()> {
     let config = read_model_config(model_id, cache_dir).await?;
     match config.model_type {
         ModelType::Qwen3 => {
-            transformer::model::run_qwen3(model_id, cache_dir)?;
+            assert_eq!(config.torch_dtype, "bfloat16");
+            transformer::model::run_qwen3::<bf16>(model_id, cache_dir)?;
         }
     }
 

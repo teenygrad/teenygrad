@@ -18,10 +18,11 @@
 use std::ops::Add;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Bf16(pub half::bf16);
-impl num_traits::Zero for Bf16 {
+#[allow(non_camel_case_types)]
+pub struct bf16(pub half::bf16);
+impl num_traits::Zero for bf16 {
     fn zero() -> Self {
-        Bf16(half::bf16::ZERO)
+        bf16(half::bf16::ZERO)
     }
 
     fn is_zero(&self) -> bool {
@@ -29,10 +30,10 @@ impl num_traits::Zero for Bf16 {
     }
 }
 
-impl Add for Bf16 {
+impl Add for bf16 {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        Bf16(self.0 + other.0)
+        bf16(self.0 + other.0)
     }
 }

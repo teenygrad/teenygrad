@@ -19,7 +19,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use derive_builder::Builder;
+use ndarray::Array;
 use teeny_cache::Cache;
+use teeny_core::dtype::Dtype;
 use teeny_core::graph::{self, NodeRef};
 use teeny_core::nn::Module;
 use teeny_core::nn::embedding::EmbeddingBuilder;
@@ -33,10 +35,10 @@ use crate::error::{Error, Result};
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 use crate::transformer::util::rope_util::compute_default_rope_parameters;
 
-pub struct Qwen3Model<'data> {
+pub struct Qwen3Model<'data, N: Dtype> {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
-    pub embed_tokens: Embedding<'data, f32>,
+    pub embed_tokens: Embedding<N>,
     pub layers: Vec<Qwen3DecoderLayer<'data>>,
     pub norm: Qwen3RMSNorm<'data>,
     pub rotary_emb: Qwen3RotaryEmbedding<'data>,
@@ -55,12 +57,17 @@ pub struct QwenModelInputs<'data> {
     pub cache_position: Option<LongTensor<'data>>,
 }
 
-impl<'data> Qwen3Model<'data> {
+impl<'data, N: Dtype> Qwen3Model<'data, N> {
     pub fn from_pretrained<T: SafeTensors<'data>>(
         config: &Qwen3Config,
         _cache_dir: &Path,
         safetensors: &'data T,
     ) -> Result<Self> {
+        let weights = safetensors.tensor("model.embed_tokens.weight")?;
+        let shape = weights.shape();
+        let data = N::from_bytes(weights.data());
+        let weights = Array::from_shape_vec((shape[0], shape[1]), data)?;
+
         Ok(Qwen3Model {
             vocab_size: config.vocab_size,
             padding_idx: config.pad_token_id,
@@ -68,10 +75,7 @@ impl<'data> Qwen3Model<'data> {
                 .num_embeddings(config.vocab_size)
                 .embedding_dim(config.hidden_size)
                 .padding_idx(config.pad_token_id)
-                .weight(graph::safetensor_with_name(
-                    "model.embed_tokens.weight",
-                    safetensors,
-                )?)
+                .weight(weights.into_dyn())
                 .build()
                 .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers)
@@ -91,7 +95,9 @@ impl<'data> Qwen3Model<'data> {
     }
 }
 
-impl<'data> Module<'data, f32, QwenModelInputs<'data>, NodeRef<'data, f32>> for Qwen3Model<'data> {
+impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data>, NodeRef<'data, N>>
+    for Qwen3Model<'data, N>
+{
     fn forward(
         &self,
         QwenModelInputs {
@@ -99,7 +105,7 @@ impl<'data> Module<'data, f32, QwenModelInputs<'data>, NodeRef<'data, f32>> for 
             inputs_embeds,
             ..
         }: QwenModelInputs<'data>,
-    ) -> Result<NodeRef<'data, f32>> {
+    ) -> Result<NodeRef<'data, N>> {
         if input_ids.is_none() ^ inputs_embeds.is_some() {
             return Err(Error::ModelError(
                 "Only one of input_ids and inputs_embeds must be provided.".to_string(),
@@ -112,7 +118,7 @@ impl<'data> Module<'data, f32, QwenModelInputs<'data>, NodeRef<'data, f32>> for 
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
         todo!()
     }
 }

@@ -82,7 +82,7 @@ impl<'data> SafeTensors<'data> for FileSafeTensors<'data> {
         self.tensors.iter().flat_map(|t| t.iter())
     }
 
-    fn tensor(&self, tensor_name: &str) -> Result<TensorView<'data>> {
+    fn tensor(&'data self, tensor_name: &str) -> Result<TensorView<'data>> {
         self.tensors
             .iter()
             .find_map(|t| t.tensor(tensor_name).ok())
