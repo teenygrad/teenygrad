@@ -21,20 +21,20 @@ use crate::error::Result;
 use crate::nn::module::NodeRefModule;
 use crate::{dtype, graph::NodeRef, nn::Module};
 
-pub struct Sequential<'data, N: dtype::Dtype> {
-    layers: Vec<NodeRefModule<'data, N>>,
+pub struct Sequential<'data::Dtype> {
+    layers: Vec<NodeRefModule<'data>>,
 }
 
-impl<'data, N: dtype::Dtype> Sequential<'data, N> {
-    pub fn new(layers: Vec<NodeRefModule<'data, N>>) -> Self {
+impl<'data::Dtype> Sequential<'data> {
+    pub fn new(layers: Vec<NodeRefModule<'data>>) -> Self {
         Sequential { layers }
     }
 }
 
-impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>
-    for Sequential<'data, N>
+impl<'data::Dtype> Module<'data, N, NodeRef<'data>, NodeRef<'data>>
+    for Sequential<'data>
 {
-    fn forward(&self, input: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
+    fn forward(&self, input: NodeRef<'data>) -> Result<NodeRef<'data>> {
         let mut output = input.clone();
 
         for layer in &self.layers {
@@ -44,7 +44,7 @@ impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, 
         Ok(output)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         self.layers
             .iter()
             .flat_map(|layer| layer.parameters())

@@ -18,7 +18,9 @@
 pub mod node_ref;
 pub mod ops;
 
-use crate::dtype::Dtype;
+use std::sync::Arc;
+
+use crate::dtype::{Dtype, DtypeEnum, Value};
 use crate::error::Result;
 use crate::graph::ops::OpShape;
 use crate::graph::ops::dot::DotOp;
@@ -28,7 +30,8 @@ use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sqrt::SqrtOp;
-use crate::graph::ops::tensor::TensorOp;
+use crate::graph::ops::tensor::TensorOpF32;
+use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
 use crate::safetensors::{SafeTensors, TensorView};
@@ -56,34 +59,35 @@ use ops::sub::SubOp;
 use ops::zeros::ZerosOp;
 
 #[derive(Debug, Clone)]
-pub enum NodeOp<'data, N: Dtype> {
-    Scalar(ScalarOp<'data, N>),
-    Add(AddOp<'data, N>),
-    Sub(SubOp<'data, N>),
-    Mult(MultOp<'data, N>),
-    Div(DivOp<'data, N>),
-    Dot(DotOp<'data, N>),
-    Neg(NegOp<'data, N>),
-    Log(LogOp<'data, N>),
-    Exp(ExpOp<'data, N>),
-    Mean(MeanOp<'data, N>),
-    Zeros(ZerosOp<'data, N>),
-    Arange(ArangeOp<'data, N>),
-    Randn(RandnOp<'data, N>),
-    Relu(ReluOp<'data, N>),
-    Sigmoid(SigmoidOp<'data, N>),
-    Transpose(TransposeOp<'data, N>),
-    Powi(Powi<'data, N>),
-    Sqrt(SqrtOp<'data, N>),
-    Ones(OnesOp<'data, N>),
-    Inverse(InverseOp<'data, N>),
-    Pow(PowOp<'data, N>),
-    Tensor(TensorOp<'data, N>),
-    SafeTensor(SafeTensorOp<'data, N>),
-    Unsqueeze(UnsqueezeOp<'data, N>),
+pub enum NodeOp<'data> {
+    Scalar(ScalarOp),
+    Add(AddOp<'data>),
+    Sub(SubOp<'data>),
+    Mult(MultOp<'data>),
+    Div(DivOp<'data>),
+    Dot(DotOp<'data>),
+    Neg(NegOp<'data>),
+    Log(LogOp<'data>),
+    Exp(ExpOp<'data>),
+    Mean(MeanOp<'data>),
+    Zeros(ZerosOp),
+    Arange(ArangeOp),
+    Randn(RandnOp),
+    Relu(ReluOp<'data>),
+    Sigmoid(SigmoidOp<'data>),
+    Transpose(TransposeOp<'data>),
+    Powi(Powi<'data>),
+    Sqrt(SqrtOp<'data>),
+    Ones(OnesOp),
+    Inverse(InverseOp<'data>),
+    Pow(PowOp<'data>),
+    Tensor(TensorOpF32),
+    SafeTensor(SafeTensorOp<'data>),
+    Unsqueeze(UnsqueezeOp<'data>),
+    ToDtype(ToDtype<'data>),
 }
 
-impl<'data, N: Dtype> NodeOp<'data, N> {
+impl<'data> NodeOp<'data> {
     pub fn shape(&self) -> Result<DynamicShape> {
         match self {
             NodeOp::Scalar(op) => op.shape(),
@@ -110,6 +114,7 @@ impl<'data, N: Dtype> NodeOp<'data, N> {
             NodeOp::Pow(op) => op.shape(),
             NodeOp::SafeTensor(op) => op.shape(),
             NodeOp::Unsqueeze(op) => op.shape(),
+            NodeOp::ToDtype(op) => op.shape(),
         }
     }
 }
@@ -122,16 +127,16 @@ pub struct AutogradContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct Node<'data, N: Dtype> {
+pub struct Node<'data> {
     pub id: UniqueId,
-    pub op: NodeOp<'data, N>,
+    pub op: NodeOp<'data>,
 
     #[cfg(feature = "training")]
     pub autograd_context: Option<AutogradContext>,
 }
 
-impl<'data, N: Dtype> Node<'data, N> {
-    pub fn new(op: NodeOp<'data, N>, requires_grad: bool, retain_grad: bool) -> Self {
+impl<'data> Node<'data> {
+    pub fn new(op: NodeOp<'data>, requires_grad: bool, retain_grad: bool) -> Self {
         Self {
             id: UniqueId::generate(),
             op,
@@ -148,74 +153,75 @@ impl<'data, N: Dtype> Node<'data, N> {
     }
 }
 
-pub fn zeros<N: Dtype>(shape: DynamicShape) -> NodeRef<'static, N> {
-    ZerosOp::new(shape).into()
+pub fn zeros(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'static> {
+    ZerosOp::new(shape, dtype).into()
 }
 
-pub fn ones<N: Dtype>(shape: DynamicShape) -> NodeRef<'static, N> {
-    ZerosOp::new(shape).into()
+pub fn ones(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'static> {
+    OnesOp::new(shape, dtype).into()
 }
 
-pub fn randn<N: Dtype>(shape: DynamicShape) -> NodeRef<'static, N> {
-    RandnOp::new(shape).into()
+pub fn randn(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'static> {
+    RandnOp::new(shape, dtype).into()
 }
 
-pub fn inverse<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn inverse<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     InverseOp::new(x).into()
 }
 
-pub fn exp<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn exp<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     ExpOp::new(x).into()
 }
 
-pub fn arange<'data, N: Dtype>(start: N, end: N, step: N) -> NodeRef<'data, N> {
+pub fn arange<'data>(start: Value, end: Value, step: Value) -> NodeRef<'data> {
     ArangeOp::new(start, end, step).into()
 }
 
-pub fn unsqueeze<'data, N: Dtype>(x: NodeRef<'data, N>, dim: usize) -> NodeRef<'data, N> {
+pub fn unsqueeze<'data>(x: NodeRef<'data>, dim: usize) -> NodeRef<'data> {
     UnsqueezeOp::new(x, dim).into()
 }
 
-pub fn pow<'data, N: Dtype>(x: NodeRef<'data, N>, y: NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn pow<'data>(x: NodeRef<'data>, y: NodeRef<'data>) -> NodeRef<'data> {
     PowOp::new(x, y).into()
 }
 
 #[cfg(feature = "ndarray")]
-pub fn tensor<'data, N: Dtype>(input: ndarray::Array<N, IxDyn>) -> NodeRef<'data, N> {
-    TensorOp::new(input).into()
+pub fn tensor_f32<'data>(input: ndarray::Array<f32, IxDyn>) -> NodeRef<'data> {
+    TensorOpF32::new(input).into()
 }
 
-pub fn safetensor<'data, N: Dtype>(input: TensorView<'data>) -> NodeRef<'data, N> {
+pub fn safetensor<'data>(input: TensorView<'data>) -> NodeRef<'data> {
     SafeTensorOp::new(input).into()
 }
 
-pub fn safetensor_with_name<'data, N: Dtype, T: SafeTensors<'data>>(
+pub fn safetensor_with_name<'data, T: SafeTensors<'data>>(
     name: &str,
     safetensors: &'data T,
-) -> Result<NodeRef<'data, N>> {
+) -> Result<NodeRef<'data>> {
     let tensor = safetensors.tensor(name)?;
     Ok(SafeTensorOp::new(tensor).into())
 }
 
-pub fn log<N: Dtype>(x: NodeRef<N>) -> NodeRef<N> {
+pub fn log<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     LogOp::new(x.clone()).into()
 }
 
-pub fn transpose<'data, N: Dtype>(x: &NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn transpose<'data>(x: &NodeRef<'data>) -> NodeRef<'data> {
     TransposeOp::new(x.clone()).into()
 }
 
-pub fn scalar<N: Dtype>(x: N) -> NodeRef<'static, N> {
+pub fn scalar(x: Value) -> NodeRef<'static> {
     ScalarOp::new(x).into()
 }
 
-pub fn relu<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn relu<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     ReluOp::new(x).into()
 }
 
-pub fn sigmoid<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
+pub fn sigmoid<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     SigmoidOp::new(x).into()
 }
+
 // use std::ops::Add;
 // use std::sync::Arc;
 
@@ -232,7 +238,7 @@ pub fn sigmoid<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
 
 // #[cfg(feature = "training")]
 // #[derive(Debug)]
-// pub struct AutogradContext<D: Device, N: dtype::Dtype> {
+// pub struct AutogradContext<D: Device: dtype::Dtype> {
 //     pub activation: ndarray::Array<N, IxDyn>,
 //     pub grad: Option<ndarray::Array<N, IxDyn>>,
 //     pub requires_grad: bool,
@@ -242,16 +248,16 @@ pub fn sigmoid<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
 
 // /// A tensor in our computation graph
 // #[derive(Debug, Clone)]
-// pub struct GraphTensor<D: Device, N: dtype::Dtype> {
+// pub struct GraphTensor<D: Device: dtype::Dtype> {
 //     pub id: String,
 //     pub operation: Box<dyn TensorOp>,
-//     pub dependencies: Vec<Arc<GraphTensor<D, N>>>,
+//     pub dependencies: Vec<Arc<GraphTensor<D>>>,
 //     #[cfg(feature = "training")]
-//     pub autograd_context: Option<AutogradContext<D, N>>,
+//     pub autograd_context: Option<AutogradContext<D>>,
 //     _marker: std::marker::PhantomData<D>,
 // }
 
-// impl<D: Device, N: dtype::Dtype> Tensor<D, N> for GraphTensor<D, N> {
+// impl<D: Device: dtype::Dtype> Tensor<D> for GraphTensor<D> {
 //     fn zeros<S: shape::Shape>(shape: S) -> Result<Self> {
 //         todo!()
 //     }
@@ -265,10 +271,10 @@ pub fn sigmoid<'data, N: Dtype>(x: NodeRef<'data, N>) -> NodeRef<'data, N> {
 //     }
 // }
 
-// impl<D: Device, N: dtype::Dtype> Add<GraphTensor<D, N>> for GraphTensor<D, N> {
-//     type Output = GraphTensor<D, N>;
+// impl<D: Device: dtype::Dtype> Add<GraphTensor<D>> for GraphTensor<D> {
+//     type Output = GraphTensor<D>;
 
-//     fn add(self, other: GraphTensor<D, N>) -> Self::Output {
+//     fn add(self, other: GraphTensor<D>) -> Self::Output {
 //         todo!()
 //     }
 // }

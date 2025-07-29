@@ -23,17 +23,17 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct TransposeOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct TransposeOp<'data> {
+    pub input: NodeRef<'data>,
 }
 
-impl<'data, N: Dtype> TransposeOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>) -> Self {
+impl<'data> TransposeOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
         Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for TransposeOp<'data, N> {
+impl<'data> OpShape for TransposeOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         let input_shape = self.input.shape()?;
         let mut new_shape = input_shape.dims.clone();
@@ -43,8 +43,8 @@ impl<'data, N: Dtype> OpShape for TransposeOp<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> From<TransposeOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: TransposeOp<'data, N>) -> Self {
+impl<'data> From<TransposeOp<'data>> for NodeRef<'data> {
+    fn from(op: TransposeOp<'data>) -> Self {
         NodeOp::Transpose(op).into()
     }
 }

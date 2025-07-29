@@ -15,12 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{
-    dtype,
-    graph::{NodeRef, ops::sigmoid::SigmoidOp},
-};
+use crate::graph::{NodeRef, ops::sigmoid::SigmoidOp};
 
-pub fn sigmoid<N: dtype::Dtype>(input: NodeRef<N>) -> NodeRef<N> {
+pub fn sigmoid<'data>(input: NodeRef<'data>) -> NodeRef<'data> {
     SigmoidOp::new(input).into()
 }
 

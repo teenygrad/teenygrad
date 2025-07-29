@@ -22,24 +22,24 @@ use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
-pub struct SigmoidOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct SigmoidOp<'data> {
+    pub input: NodeRef<'data>,
 }
 
-impl<'data, N: Dtype> SigmoidOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>) -> Self {
+impl<'data> SigmoidOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
         Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for SigmoidOp<'data, N> {
+impl<'data> OpShape for SigmoidOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }
 
-impl<'data, N: Dtype> From<SigmoidOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: SigmoidOp<'data, N>) -> Self {
+impl<'data> From<SigmoidOp<'data>> for NodeRef<'data> {
+    fn from(op: SigmoidOp<'data>) -> Self {
         NodeOp::Sigmoid(op).into()
     }
 }

@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use ndarray::Array1;
 use teeny_core::dtype::Dtype;
-use teeny_core::graph::tensor;
+use teeny_core::graph::tensor_f32;
 use teeny_core::nn::Module;
 use teeny_core::safetensors::SafeTensors;
 use teeny_data::safetensors::{FileSafeTensors, SafeTensorsMmaps};
@@ -53,7 +53,7 @@ pub fn run_qwen3<N: Dtype>(model_id: &str, cache_dir: &Path) -> Result<()> {
     let encoded_inputs = tokenizer
         .encode(text, false)
         .map_err(Error::TokenizerError)?;
-    let encoded_ids = tensor(
+    let encoded_ids = tensor_f32(
         Array1::from(
             encoded_inputs
                 .get_ids()
@@ -90,11 +90,11 @@ pub fn run_qwen3<N: Dtype>(model_id: &str, cache_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn from_pretrained<'data, N: Dtype, T: SafeTensors<'data>>(
+fn from_pretrained<'data, T: SafeTensors<'data>>(
     model_id: &str,
     cache_dir: &Path,
     safetensors: &'data T,
-) -> Result<Qwen3ForCausalLM<'data, N>> {
+) -> Result<Qwen3ForCausalLM<'data>> {
     let config = Qwen3Config::from_pretrained(model_id, cache_dir)?;
     let names = safetensors.names();
     println!("names: {names:?}");

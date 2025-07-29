@@ -46,6 +46,7 @@ pub enum DtypeEnum {
     #[display("bf16")]
     Bf16,
 }
+
 pub trait Dtype: 'static + Default + Clone + Copy + Zero + std::fmt::Debug {
     const DTYPE: DtypeEnum;
 
@@ -56,6 +57,13 @@ pub trait Dtype: 'static + Default + Clone + Copy + Zero + std::fmt::Debug {
     fn to_f32(self) -> f32;
 
     fn to_u32(self) -> u32;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Usize(usize),
+    F32(f32),
+    Bf16(bf16),
 }
 
 impl Dtype for i8 {

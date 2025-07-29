@@ -23,24 +23,24 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct NegOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct NegOp<'data> {
+    pub input: NodeRef<'data>,
 }
 
-impl<'data, N: Dtype> NegOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>) -> Self {
+impl<'data> NegOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
         Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for NegOp<'data, N> {
+impl<'data> OpShape for NegOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }
 
-impl<'data, N: Dtype> From<NegOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: NegOp<'data, N>) -> Self {
+impl<'data> From<NegOp<'data>> for NodeRef<'data> {
+    fn from(op: NegOp<'data>) -> Self {
         NodeOp::Neg(op).into()
     }
 }

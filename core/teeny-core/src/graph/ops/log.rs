@@ -23,24 +23,24 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct LogOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct LogOp<'data> {
+    pub input: NodeRef<'data>,
 }
 
-impl<'data, N: Dtype> LogOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>) -> Self {
+impl<'data> LogOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
         Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for LogOp<'data, N> {
+impl<'data> OpShape for LogOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 }
 
-impl<'data, N: Dtype> From<LogOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: LogOp<'data, N>) -> Self {
+impl<'data> From<LogOp<'data>> for NodeRef<'data> {
+    fn from(op: LogOp<'data>) -> Self {
         NodeOp::Log(op).into()
     }
 }

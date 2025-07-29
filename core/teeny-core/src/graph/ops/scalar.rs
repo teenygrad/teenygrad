@@ -17,6 +17,7 @@
 
 use std::marker::PhantomData;
 
+use crate::dtype::{DtypeEnum, Value};
 use crate::error::Result;
 use crate::{
     dtype::Dtype,
@@ -25,28 +26,24 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ScalarOp<'data, N: Dtype> {
-    pub scalar: N,
-    pub _marker: PhantomData<&'data ()>,
+pub struct ScalarOp {
+    pub scalar: Value,
 }
 
-impl<'data, N: Dtype> ScalarOp<'data, N> {
-    pub fn new(scalar: N) -> Self {
-        Self {
-            scalar,
-            _marker: PhantomData,
-        }
+impl<'data> ScalarOp {
+    pub fn new(scalar: Value) -> Self {
+        Self { scalar }
     }
 }
 
-impl<'data, N: Dtype> OpShape for ScalarOp<'data, N> {
+impl OpShape for ScalarOp {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(DynamicShape::new(&[]))
     }
 }
 
-impl<'data, N: Dtype> From<ScalarOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: ScalarOp<'data, N>) -> Self {
+impl<'data> From<ScalarOp> for NodeRef<'data> {
+    fn from(op: ScalarOp) -> Self {
         NodeOp::Scalar(op).into()
     }
 }

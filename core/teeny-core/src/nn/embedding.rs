@@ -20,7 +20,7 @@ use derive_builder::Builder;
 use crate::{
     dtype::{Dtype, DtypeEnum},
     error::Result,
-    graph::{self, NodeOp, NodeRef, ops::tensor::TensorOp},
+    graph::{self, NodeOp, NodeRef, ops::tensor::TensorOpF32},
     nn::Module,
     tensor::{FloatTensor, LongTensor},
 };
@@ -48,20 +48,20 @@ pub struct Embedding<N: Dtype> {
     pub sparse: bool,
 }
 
-impl<'data, N: Dtype> Module<'data, N, LongTensor<'data>, FloatTensor<'data, N>> for Embedding<N> {
-    fn forward(&self, input_ids: LongTensor<'data>) -> Result<FloatTensor<'data, N>> {
+impl<'data, N: Dtype> Module<'data, N, LongTensor<'data>, FloatTensor<'data>> for Embedding<N> {
+    fn forward(&self, input_ids: LongTensor<'data>) -> Result<FloatTensor<'data>> {
         let input_ids = input_ids.0;
 
         let tokens = match &input_ids.op {
-            NodeOp::Tensor(TensorOp { input, .. }) => input.map(|x| self.weight[*x]),
+            NodeOp::Tensor(TensorOpF32 { input, .. }) => input.map(|x| self.weight[*x]),
             _ => unreachable!(),
         };
 
         println!("tokens: {tokens:?}");
-        Ok(graph::tensor(tokens))
+        Ok(graph::tensor_f32(tokens))
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }

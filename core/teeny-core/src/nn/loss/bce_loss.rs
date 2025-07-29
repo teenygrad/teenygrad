@@ -30,9 +30,9 @@ impl BCELoss {
     }
 }
 
-impl<'data, N: Dtype> LossFn<'data, N> for BCELoss {
-    fn compute(&self, p: NodeRef<'data, N>, y: NodeRef<'data, N>) -> Loss<'data, N> {
-        let one: NodeRef<N> = 1.0.into();
+impl<'data> LossFn<'data> for BCELoss {
+    fn compute(&self, p: NodeRef<'data>, y: NodeRef<'data>) -> Loss<'data> {
+        let one: NodeRef<'data> = 1.0.into();
         let bce_loss = -(&y * log(p.clone()) + (&one - y) * log(&one - p));
 
         Loss::new(bce_loss)

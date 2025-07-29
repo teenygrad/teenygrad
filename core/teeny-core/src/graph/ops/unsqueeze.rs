@@ -23,18 +23,18 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct UnsqueezeOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct UnsqueezeOp<'data> {
+    pub input: NodeRef<'data>,
     pub dim: usize,
 }
 
-impl<'data, N: Dtype> UnsqueezeOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>, dim: usize) -> Self {
+impl<'data> UnsqueezeOp<'data> {
+    pub fn new(input: NodeRef<'data>, dim: usize) -> Self {
         Self { input, dim }
     }
 }
 
-impl<'data, N: Dtype> OpShape for UnsqueezeOp<'data, N> {
+impl<'data> OpShape for UnsqueezeOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         let input_shape = self.input.shape()?;
         let mut new_shape = input_shape.dims.clone();
@@ -43,8 +43,8 @@ impl<'data, N: Dtype> OpShape for UnsqueezeOp<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> From<UnsqueezeOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: UnsqueezeOp<'data, N>) -> Self {
+impl<'data> From<UnsqueezeOp<'data>> for NodeRef<'data> {
+    fn from(op: UnsqueezeOp<'data>) -> Self {
         NodeOp::Unsqueeze(op).into()
     }
 }

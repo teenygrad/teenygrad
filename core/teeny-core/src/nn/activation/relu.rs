@@ -15,11 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{
-    dtype,
-    graph::{NodeRef, ops::relu::ReluOp},
-};
+use crate::graph::{NodeRef, ops::relu::ReluOp};
 
-pub fn relu<N: dtype::Dtype>(input: NodeRef<N>) -> NodeRef<N> {
+pub fn relu<'data>(input: NodeRef<'data>) -> NodeRef<'data> {
     ReluOp::new(input).into()
 }

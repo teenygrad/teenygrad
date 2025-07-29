@@ -20,34 +20,29 @@ use std::marker::PhantomData;
 use crate::error::Result;
 use crate::safetensors::TensorView;
 use crate::{
-    dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
     tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
-pub struct SafeTensorOp<'data, N: Dtype> {
+pub struct SafeTensorOp<'data> {
     pub input: TensorView<'data>,
-    marker: PhantomData<N>,
 }
 
-impl<'data, N: Dtype> SafeTensorOp<'data, N> {
+impl<'data> SafeTensorOp<'data> {
     pub fn new(input: TensorView<'data>) -> Self {
-        Self {
-            input,
-            marker: PhantomData,
-        }
+        Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for SafeTensorOp<'data, N> {
+impl<'data> OpShape for SafeTensorOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
 }
 
-impl<'data, N: Dtype> From<SafeTensorOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: SafeTensorOp<'data, N>) -> Self {
+impl<'data> From<SafeTensorOp<'data>> for NodeRef<'data> {
+    fn from(op: SafeTensorOp<'data>) -> Self {
         NodeOp::SafeTensor(op).into()
     }
 }

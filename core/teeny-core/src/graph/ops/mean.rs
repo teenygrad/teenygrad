@@ -23,18 +23,18 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct MeanOp<'data, N: Dtype> {
-    pub input: NodeRef<'data, N>,
+pub struct MeanOp<'data> {
+    pub input: NodeRef<'data>,
     pub dim: Option<usize>,
 }
 
-impl<'data, N: Dtype> MeanOp<'data, N> {
-    pub fn new(input: NodeRef<'data, N>, dim: Option<usize>) -> Self {
+impl<'data> MeanOp<'data> {
+    pub fn new(input: NodeRef<'data>, dim: Option<usize>) -> Self {
         Self { input, dim }
     }
 }
 
-impl<'data, N: Dtype> OpShape for MeanOp<'data, N> {
+impl<'data> OpShape for MeanOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         let input_shape = self.input.shape()?;
 
@@ -62,8 +62,8 @@ impl<'data, N: Dtype> OpShape for MeanOp<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> From<MeanOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: MeanOp<'data, N>) -> Self {
+impl<'data> From<MeanOp<'data>> for NodeRef<'data> {
+    fn from(op: MeanOp<'data>) -> Self {
         NodeOp::Mean(op).into()
     }
 }

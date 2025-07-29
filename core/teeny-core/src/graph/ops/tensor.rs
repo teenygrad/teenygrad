@@ -22,36 +22,31 @@ use ndarray::IxDyn;
 
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
     tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
-pub struct TensorOp<'data, N: Dtype> {
+pub struct TensorOpF32 {
     #[cfg(feature = "ndarray")]
-    pub input: ndarray::Array<N, IxDyn>,
-    _marker: PhantomData<&'data ()>,
+    pub input: ndarray::Array<f32, IxDyn>,
 }
 
-impl<'data, N: Dtype> TensorOp<'data, N> {
+impl TensorOpF32 {
     #[cfg(feature = "ndarray")]
-    pub fn new(input: ndarray::Array<N, IxDyn>) -> Self {
-        Self {
-            input,
-            _marker: PhantomData,
-        }
+    pub fn new(input: ndarray::Array<f32, IxDyn>) -> Self {
+        Self { input }
     }
 }
 
-impl<'data, N: Dtype> OpShape for TensorOp<'data, N> {
+impl OpShape for TensorOpF32 {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(DynamicShape::new(&[1, self.input.len()]))
     }
 }
 
-impl<'data, N: Dtype> From<TensorOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: TensorOp<'data, N>) -> Self {
+impl<'data> From<TensorOpF32> for NodeRef<'data> {
+    fn from(op: TensorOpF32) -> Self {
         NodeOp::Tensor(op).into()
     }
 }

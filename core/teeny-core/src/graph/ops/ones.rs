@@ -17,38 +17,33 @@
 
 use std::marker::PhantomData;
 
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
     tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
-pub struct OnesOp<'data, N: Dtype> {
+pub struct OnesOp {
     pub shape: DynamicShape,
-    _marker: PhantomData<N>,
-    _marker2: PhantomData<&'data ()>,
+    pub dtype: DtypeEnum,
 }
 
-impl<'data, N: Dtype> OnesOp<'data, N> {
-    pub fn new(shape: DynamicShape) -> Self {
-        Self {
-            shape,
-            _marker: PhantomData,
-            _marker2: PhantomData,
-        }
+impl OnesOp {
+    pub fn new(shape: DynamicShape, dtype: DtypeEnum) -> Self {
+        Self { shape, dtype }
     }
 }
 
-impl<'data, N: Dtype> OpShape for OnesOp<'data, N> {
+impl OpShape for OnesOp {
     fn shape(&self) -> Result<DynamicShape> {
         Ok(self.shape.clone())
     }
 }
 
-impl<'data, N: Dtype> From<OnesOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: OnesOp<'data, N>) -> Self {
+impl<'data> From<OnesOp> for NodeRef<'data> {
+    fn from(op: OnesOp) -> Self {
         NodeOp::Ones(op).into()
     }
 }

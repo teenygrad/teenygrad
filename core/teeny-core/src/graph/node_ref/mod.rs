@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use crate::dtype::Dtype;
+use crate::dtype::Value;
 use crate::error::Result;
 use crate::graph::Node;
 use crate::graph::NodeOp;
@@ -34,10 +35,10 @@ pub mod mul;
 pub mod sub;
 
 #[derive(Debug, Clone)]
-pub struct NodeRef<'data, N: Dtype>(pub Arc<Node<'data, N>>);
+pub struct NodeRef<'data>(pub Arc<Node<'data>>);
 
-impl<'data, N: Dtype> NodeRef<'data, N> {
-    pub fn realize(&self) -> Result<Vec<N>> {
+impl<'data> NodeRef<'data> {
+    pub fn realize(&self) -> Result<Vec<Value>> {
         todo!()
     }
 
@@ -53,7 +54,7 @@ impl<'data, N: Dtype> NodeRef<'data, N> {
         self.0.shape()
     }
 
-    pub fn powi(&self, exp: N) -> Self {
+    pub fn powi(&self, exp: Value) -> Self {
         NodeRef(Arc::new(Node::new(
             NodeOp::Powi(Powi::new(self.clone(), exp)),
             true,
@@ -69,7 +70,7 @@ impl<'data, N: Dtype> NodeRef<'data, N> {
         )))
     }
 
-    pub fn dot(&self, other: &NodeRef<'data, N>) -> Self {
+    pub fn dot(&self, other: &NodeRef<'data>) -> Self {
         NodeRef(Arc::new(Node::new(
             NodeOp::Dot(DotOp::new(self.clone(), other.clone())),
             true,
@@ -78,14 +79,14 @@ impl<'data, N: Dtype> NodeRef<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> From<NodeOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: NodeOp<'data, N>) -> Self {
+impl<'data> From<NodeOp<'data>> for NodeRef<'data> {
+    fn from(op: NodeOp<'data>) -> Self {
         NodeRef(Arc::new(Node::new(op, true, false)))
     }
 }
 
-impl<'data, N: Dtype> From<f32> for NodeRef<'data, N> {
+impl<'data> From<f32> for NodeRef<'data> {
     fn from(value: f32) -> Self {
-        scalar(N::from_f32(value))
+        scalar(Value::F32(value))
     }
 }

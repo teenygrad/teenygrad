@@ -15,33 +15,27 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::Value;
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeRef, ops::OpShape},
     tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
-pub struct Powi<'data> {
+pub struct ToDtype<'data> {
     pub input: NodeRef<'data>,
-    pub exp: Value,
+    pub dest_dtype: DtypeEnum,
 }
 
-impl<'data> Powi<'data> {
-    pub fn new(input: NodeRef<'data>, exp: Value) -> Self {
-        Self { input, exp }
+impl<'data> ToDtype<'data> {
+    pub fn new(input: NodeRef<'data>, dest_dtype: DtypeEnum) -> Self {
+        Self { input, dest_dtype }
     }
 }
 
-impl<'data> OpShape for Powi<'data> {
+impl<'data> OpShape for ToDtype<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
-    }
-}
-
-impl<'data> From<Powi<'data>> for NodeRef<'data> {
-    fn from(op: Powi<'data>) -> Self {
-        NodeOp::Powi(op).into()
     }
 }

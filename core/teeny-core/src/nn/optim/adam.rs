@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 use derive_builder::Builder;
 
 use crate::{
-    dtype::Dtype,
+    dtype::{Dtype, Value},
     graph::{NodeRef, zeros},
     nn::param::Param,
 };
@@ -44,10 +44,10 @@ pub struct Adam<'data, N: Dtype, P: Param<N>> {
 
     // Internal state for Adam algorithm
     #[builder(default = "vec![]")]
-    m: Vec<NodeRef<'data, N>>, // First moment (momentum)
+    m: Vec<NodeRef<'data>>, // First moment (momentum)
 
     #[builder(default = "vec![]")]
-    v: Vec<NodeRef<'data, N>>, // Second moment (velocity)
+    v: Vec<NodeRef<'data>>, // Second moment (velocity)
 
     #[builder(default = "0")]
     t: usize, // Time step
@@ -79,8 +79,8 @@ impl<'data, N: Dtype, P: Param<N>> Adam<'data, N, P> {
 
         for param in &self.params {
             // Initialize with zeros, same shape as parameter
-            self.m.push(zeros(param.shape()));
-            self.v.push(zeros(param.shape()));
+            self.m.push(zeros(param.shape(), N::DTYPE));
+            self.v.push(zeros(param.shape(), N::DTYPE));
         }
     }
 
@@ -91,13 +91,13 @@ impl<'data, N: Dtype, P: Param<N>> Adam<'data, N, P> {
     pub fn step(&mut self) {
         self.t += 1;
 
-        let _one: NodeRef<N> = 1.0.into();
-        let beta1: NodeRef<N> = self.beta1.into();
-        let _beta1_t = beta1.powi(N::from_f32(self.t as f32));
-        let beta2: NodeRef<N> = self.beta2.into();
-        let _beta2_t = beta2.powi(N::from_f32(self.t as f32));
-        let _eps: NodeRef<N> = self.eps.into();
-        let _lr: NodeRef<N> = self.lr.into();
+        let _one: NodeRef = 1.0.into();
+        let beta1: NodeRef = self.beta1.into();
+        let _beta1_t = beta1.powi(Value::F32(self.t as f32));
+        let beta2: NodeRef = self.beta2.into();
+        let _beta2_t = beta2.powi(Value::F32(self.t as f32));
+        let _eps: NodeRef = self.eps.into();
+        let _lr: NodeRef = self.lr.into();
 
         for (i, param) in self.params.iter_mut().enumerate() {
             println!("param: {i:?}");

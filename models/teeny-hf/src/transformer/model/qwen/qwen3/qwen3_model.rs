@@ -46,7 +46,7 @@ pub enum Qwen3AttentionType {
     SlidingAttention,
 }
 
-pub struct Qwen3Model<'data, N: Dtype> {
+pub struct Qwen3Model<'data> {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
     pub embed_tokens: Embedding<N>,
@@ -59,17 +59,17 @@ pub struct Qwen3Model<'data, N: Dtype> {
 }
 
 #[derive(Debug, Builder, Clone)]
-pub struct QwenModelInputs<'data, N: Dtype> {
+pub struct QwenModelInputs<'data> {
     pub input_ids: Option<LongTensor<'data>>,
-    pub attention_mask: Option<FloatTensor<'data, N>>,
+    pub attention_mask: Option<FloatTensor<'data>>,
     pub position_ids: Option<LongTensor<'data>>,
     pub past_key_values: Option<DynamicCache>,
-    pub inputs_embeds: Option<FloatTensor<'data, N>>,
+    pub inputs_embeds: Option<FloatTensor<'data>>,
     pub use_cache: bool,
     pub cache_position: Option<LongTensor<'data>>,
 }
 
-impl<'data, N: Dtype> Qwen3Model<'data, N> {
+impl<'data> Qwen3Model<'data> {
     pub fn from_pretrained<T: SafeTensors<'data>>(
         config: &Qwen3Config,
         _cache_dir: &Path,
@@ -109,22 +109,22 @@ impl<'data, N: Dtype> Qwen3Model<'data, N> {
         })
     }
 
-    fn create_causal_mask(&self) -> NodeRef<'data, N> {
+    fn create_causal_mask(&self) -> NodeRef<'data> {
         todo!()
     }
 
-    fn create_sliding_window_causal_mask(&self) -> NodeRef<'data, N> {
+    fn create_sliding_window_causal_mask(&self) -> NodeRef<'data> {
         todo!()
     }
 }
 
-pub struct Qwen3ModelOutput<'data, N: Dtype> {
-    pub hidden_states: NodeRef<'data, N>,
+pub struct Qwen3ModelOutput<'data> {
+    pub hidden_states: NodeRef<'data>,
     pub past_key_values: Option<DynamicCache>,
 }
 
-impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, Qwen3ModelOutput<'data, N>>
-    for Qwen3Model<'data, N>
+impl<'data> Module<'data, N, QwenModelInputs<'data>, Qwen3ModelOutput<'data>>
+    for Qwen3Model<'data>
 {
     fn forward(
         &self,
@@ -137,8 +137,8 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, Qwen3ModelOutp
             position_ids,
             attention_mask,
             ..
-        }: QwenModelInputs<'data, N>,
-    ) -> Result<Qwen3ModelOutput<'data, N>> {
+        }: QwenModelInputs<'data>,
+    ) -> Result<Qwen3ModelOutput<'data>> {
         if input_ids.is_none() ^ inputs_embeds.is_some() {
             return Err(Error::ModelError(
                 "Only one of input_ids and inputs_embeds must be provided.".to_string(),
@@ -175,7 +175,7 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, Qwen3ModelOutp
             None => graph::unsqueeze(cache_position.clone(), 0),
         };
 
-        let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, NodeRef<'data, N>>::new();
+        let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, NodeRef<'data>>::new();
         if let Some(_mask) = attention_mask {
             causal_mask_mapping
                 .insert(Qwen3AttentionType::FullAttention, self.create_causal_mask());
@@ -216,7 +216,7 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, Qwen3ModelOutp
         })
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }
@@ -255,62 +255,52 @@ impl<'data> Qwen3DecoderLayer<'data> {
     }
 }
 
-struct LayerInputs<'data, N: Dtype> {
-    hidden_states: NodeRef<'data, N>,
-    attention_mask: NodeRef<'data, N>,
+struct LayerInputs<'data> {
+    hidden_states: NodeRef<'data>,
+    attention_mask: NodeRef<'data>,
     position_ids: NodeRef<'data, usize>,
     past_key_values: Option<DynamicCache>,
     use_cache: bool,
     cache_position: NodeRef<'data, usize>,
-    position_embeddings: (NodeRef<'data, N>, NodeRef<'data, N>),
+    position_embeddings: (NodeRef<'data>, NodeRef<'data>),
 }
 
-impl<'data, N: Dtype> Module<'data, N, &LayerInputs<'data, N>, NodeRef<'data, N>>
+impl<'data> Module<'data, N, &LayerInputs<'data>, NodeRef<'data>>
     for Qwen3DecoderLayer<'data>
 {
-    fn forward(&self, _model_inputs: &LayerInputs<'data, N>) -> Result<NodeRef<'data, N>> {
-        //    def forward(
-        //     self,
-        //     hidden_states: torch.Tensor,
-        //     attention_mask: Optional[torch.Tensor] = None,
-        //     position_ids: Optional[torch.LongTensor] = None,
-        //     past_key_value: Optional[Cache] = None,
-        //     use_cache: Optional[bool] = False,
-        //     cache_position: Optional[torch.LongTensor] = None,
-        //     position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
-        //     **kwargs: Unpack[TransformersKwargs],
-        // ) -> tuple[torch.Tensor]:
-        //     residual = hidden_states
-        //     hidden_states = self.input_layernorm(hidden_states)
-        //     # Self Attention
-        //     hidden_states, _ = self.self_attn(
-        //         hidden_states=hidden_states,
-        //         attention_mask=attention_mask,
-        //         position_ids=position_ids,
-        //         past_key_value=past_key_value,
-        //         use_cache=use_cache,
-        //         cache_position=cache_position,
-        //         position_embeddings=position_embeddings,
-        //         **kwargs,
-        //     )
-        //     hidden_states = residual + hidden_states
+    fn forward(&self, model_inputs: &LayerInputs<'data>) -> Result<NodeRef<'data>> {
+        let residual = model_inputs.hidden_states.clone();
+        let hidden_states = self
+            .input_layernorm
+            .forward(model_inputs.hidden_states.clone())?;
 
-        //     # Fully Connected
-        //     residual = hidden_states
-        //     hidden_states = self.post_attention_layernorm(hidden_states)
-        //     hidden_states = self.mlp(hidden_states)
-        //     hidden_states = residual + hidden_states
-        //     return hidden_states
-        todo!()
+        let attention_inputs = Qwen3AttentionInputs {
+            hidden_states,
+            attention_mask: model_inputs.attention_mask.clone(),
+            position_ids: model_inputs.position_ids.clone(),
+            past_key_values: model_inputs.past_key_values.clone(),
+            use_cache: model_inputs.use_cache,
+            cache_position: model_inputs.cache_position.clone(),
+            position_embeddings: model_inputs.position_embeddings.clone(),
+        };
+
+        let (hidden_states, _) = self.self_attn.forward(&attention_inputs)?;
+        let hidden_states = residual + hidden_states;
+
+        let residual = hidden_states.clone();
+        let hidden_states = self.post_attention_layernorm.forward(hidden_states)?;
+        let hidden_states = self.mlp.forward(hidden_states)?;
+
+        Ok(residual + hidden_states)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }
 
 pub struct Qwen3RMSNorm<'data> {
-    pub weight: NodeRef<'data, f32>,
+    pub weight: NodeRef<'data>,
     pub variance_epsilon: f32,
 }
 
@@ -327,21 +317,18 @@ impl<'data> Qwen3RMSNorm<'data> {
     }
 }
 
-impl<'data, N: Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>
-    for Qwen3RMSNorm<'data>
-{
-    fn forward(&self, _model_inputs: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
-        //   def forward(self, hidden_states):
-        // input_dtype = hidden_states.dtype
-        // hidden_states = hidden_states.to(torch.float32)
-        // variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        // hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+impl<'data> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Qwen3RMSNorm<'data> {
+    fn forward(&self, hidden_states: NodeRef<'data>) -> Result<NodeRef<'data>> {
+        // let input_dtype = hidden_states.dtype();
+        // let hidden_states = hidden_states.to(torch.float32);
+        // let variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        // let hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
         // return self.weight * hidden_states.to(input_dtype)
 
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }
@@ -349,8 +336,8 @@ impl<'data, N: Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>
 pub struct Qwen3RotaryEmbedding<'data> {
     pub max_seq_len_cached: usize,
     pub original_max_seq_len: usize,
-    pub attention_scaling: NodeRef<'data, f32>,
-    pub original_inv_freq: NodeRef<'data, f32>,
+    pub attention_scaling: NodeRef<'data>,
+    pub original_inv_freq: NodeRef<'data>,
 }
 
 impl<'data> Qwen3RotaryEmbedding<'data> {
@@ -366,18 +353,18 @@ impl<'data> Qwen3RotaryEmbedding<'data> {
     }
 }
 
-impl<'data, N: Dtype>
+impl<'data>
     Module<
         'data,
-        f32,
-        (NodeRef<'data, N>, NodeRef<'data, usize>),
-        (NodeRef<'data, N>, NodeRef<'data, N>),
+        N,
+        (NodeRef<'data>, NodeRef<'data, usize>),
+        (NodeRef<'data>, NodeRef<'data>),
     > for Qwen3RotaryEmbedding<'data>
 {
     fn forward(
         &self,
-        (_hidden_states, _position_ids): (NodeRef<'data, N>, NodeRef<'data, usize>),
-    ) -> Result<(NodeRef<'data, N>, NodeRef<'data, N>)> {
+        (_hidden_states, _position_ids): (NodeRef<'data>, NodeRef<'data, usize>),
+    ) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
         //    @torch.no_grad()
         // @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
         // def forward(self, x, position_ids):
@@ -395,7 +382,7 @@ impl<'data, N: Dtype>
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }
@@ -407,10 +394,10 @@ pub struct Qwen3Attention<'data> {
     pub scaling: f32,
     pub attention_dropout: f32,
     pub is_causal: bool,
-    pub q_proj: Linear<'data, f32>,
-    pub k_proj: Linear<'data, f32>,
-    pub v_proj: Linear<'data, f32>,
-    pub o_proj: Linear<'data, f32>,
+    pub q_proj: Linear<'data>,
+    pub k_proj: Linear<'data>,
+    pub v_proj: Linear<'data>,
+    pub o_proj: Linear<'data>,
     pub q_norm: Qwen3RMSNorm<'data>,
     pub k_norm: Qwen3RMSNorm<'data>,
     pub sliding_window: Option<f32>,
@@ -476,8 +463,16 @@ impl<'data> Qwen3Attention<'data> {
     }
 }
 
-impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwen3Attention<'data> {
-    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
+type Qwen3AttentionInputs<'data> = LayerInputs<'data>;
+
+impl<'data>
+    Module<'data, N, &Qwen3AttentionInputs<'data>, (NodeRef<'data>, NodeRef<'data>)>
+    for Qwen3Attention<'data>
+{
+    fn forward(
+        &self,
+        _model_inputs: &Qwen3AttentionInputs<'data>,
+    ) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
         //     def forward(
         //     self,
         //     hidden_states: torch.Tensor,
@@ -524,17 +519,17 @@ impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwe
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }
 pub struct Qwen3MLP<'data> {
     pub hidden_size: usize,
     pub intermediate_size: usize,
-    pub gate_proj: Linear<'data, f32>,
-    pub down_proj: Linear<'data, f32>,
-    pub up_proj: Linear<'data, f32>,
-    pub act_fn: Box<dyn Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>>,
+    pub gate_proj: Linear<'data>,
+    pub down_proj: Linear<'data>,
+    pub up_proj: Linear<'data>,
+    pub act_fn: Box<dyn Module<'data, N, NodeRef<'data>, NodeRef<'data>>>,
 }
 
 impl<'data> Qwen3MLP<'data> {
@@ -568,15 +563,15 @@ impl<'data> Qwen3MLP<'data> {
     }
 }
 
-impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwen3MLP<'data> {
-    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
+impl<'data> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Qwen3MLP<'data> {
+    fn forward(&self, _model_inputs: NodeRef<'data>) -> Result<NodeRef<'data>> {
         //  def forward(self, x):
         //   down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
         //   return down_proj
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         todo!()
     }
 }

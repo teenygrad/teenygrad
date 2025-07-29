@@ -24,13 +24,13 @@ use crate::{
     shape,
 };
 
-pub struct Linear<'data, N: dtype::Dtype> {
+pub struct Linear<'data> {
     pub name: String,
-    pub weight: NodeRef<'data, N>,
-    pub bias: Option<NodeRef<'data, N>>,
+    pub weight: NodeRef<'data>,
+    pub bias: Option<NodeRef<'data>>,
 }
 
-impl<'data, N: dtype::Dtype> Linear<'data, N> {
+impl<'data> Linear<'data> {
     pub fn new(name: &str, input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
         let weight = graph::randn(shape![output_dim, input_dim]);
 
@@ -69,10 +69,8 @@ impl<'data, N: dtype::Dtype> Linear<'data, N> {
     }
 }
 
-impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>
-    for Linear<'data, N>
-{
-    fn forward(&self, x: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
+impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Linear<'data> {
+    fn forward(&self, x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         let a = x * &self.weight.t();
         let result = if let Some(bias) = &self.bias {
             a + bias
@@ -83,7 +81,7 @@ impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, 
         Ok(result)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         let mut params = vec![self.weight.clone()];
         if let Some(bias) = &self.bias {
             params.push(bias.clone());

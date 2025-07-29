@@ -27,17 +27,17 @@ use crate::{error::Result, transformer::config::model_config::HiddenAct};
 #[derive(Default)]
 pub struct Silu;
 
-impl<'data, N: Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>> for Silu {
-    fn forward(&self, _x: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
+impl<'data> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Silu {
+    fn forward(&self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         todo!()
     }
 
-    fn parameters(&self) -> Vec<graph::NodeRef<'data, N>> {
+    fn parameters(&self) -> Vec<graph::NodeRef<'data>> {
         todo!()
     }
 }
 
-pub fn get_activation<'data, N: Dtype>(activation: &HiddenAct) -> Result<NodeRefModule<'data, N>> {
+pub fn get_activation<'data>(activation: &HiddenAct) -> Result<NodeRefModule<'data>> {
     match activation {
         HiddenAct::Silu => Ok(Box::new(Silu)),
     }

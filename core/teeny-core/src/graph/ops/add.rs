@@ -17,24 +17,23 @@
 
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
     graph::{NodeOp, NodeRef, ops::OpShape},
     tensor::shape::{DynamicShape, Shape},
 };
 
 #[derive(Debug, Clone)]
-pub struct AddOp<'data, N: Dtype> {
-    lhs: NodeRef<'data, N>,
-    rhs: NodeRef<'data, N>,
+pub struct AddOp<'data> {
+    lhs: NodeRef<'data>,
+    rhs: NodeRef<'data>,
 }
 
-impl<'data, N: Dtype> AddOp<'data, N> {
-    pub fn new(lhs: NodeRef<'data, N>, rhs: NodeRef<'data, N>) -> Self {
+impl<'data> AddOp<'data> {
+    pub fn new(lhs: NodeRef<'data>, rhs: NodeRef<'data>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<'data, N: Dtype> OpShape for AddOp<'data, N> {
+impl<'data> OpShape for AddOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         let lhs_shape = self.lhs.shape()?;
         let rhs_shape = self.rhs.shape()?;
@@ -43,8 +42,8 @@ impl<'data, N: Dtype> OpShape for AddOp<'data, N> {
     }
 }
 
-impl<'data, N: Dtype> From<AddOp<'data, N>> for NodeRef<'data, N> {
-    fn from(op: AddOp<'data, N>) -> Self {
+impl<'data> From<AddOp<'data>> for NodeRef<'data> {
+    fn from(op: AddOp<'data>) -> Self {
         NodeOp::Add(op).into()
     }
 }

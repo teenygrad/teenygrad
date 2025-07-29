@@ -20,13 +20,13 @@ use crate::{dtype::Dtype, graph::NodeRef};
 pub mod bce_loss;
 
 #[derive(Debug, Clone)]
-pub struct Loss<'data, N: Dtype> {
-    pub params: Vec<NodeRef<'data, N>>,
-    pub loss: NodeRef<'data, N>,
+pub struct Loss<'data> {
+    pub params: Vec<NodeRef<'data>>,
+    pub loss: NodeRef<'data>,
 }
 
-impl<'data, N: Dtype> Loss<'data, N> {
-    pub fn new(loss: NodeRef<'data, N>) -> Self {
+impl<'data> Loss<'data> {
+    pub fn new(loss: NodeRef<'data>) -> Self {
         Self {
             params: vec![],
             loss,
@@ -34,8 +34,8 @@ impl<'data, N: Dtype> Loss<'data, N> {
     }
 }
 
-pub trait LossFn<'data, N: Dtype>: Sized {
-    fn compute(&self, p: NodeRef<'data, N>, y: NodeRef<'data, N>) -> Loss<'data, N>;
+pub trait LossFn<'data>: Sized {
+    fn compute(&self, p: NodeRef<'data>, y: NodeRef<'data>) -> Loss<'data>;
 }
 
 // impl Loss {

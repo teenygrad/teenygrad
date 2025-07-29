@@ -47,7 +47,7 @@ pub struct Qwen3Config {
     pub num_key_value_heads: Option<usize>,
     pub rms_norm_eps: f32,
     pub rope_scaling: Option<f32>,
-    pub rope_theta: usize,
+    pub rope_theta: f32,
     pub sliding_window: Option<f32>,
     pub tie_word_embeddings: bool,
     pub torch_dtype: TorchDtype,

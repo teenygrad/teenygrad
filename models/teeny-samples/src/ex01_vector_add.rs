@@ -18,31 +18,31 @@
 use ndarray::Array1;
 use teeny_core::{
     dtype,
-    graph::{NodeRef, tensor},
+    graph::{NodeRef, tensor_f32},
     nn::Module,
 };
 
 use crate::error::Result;
 
 #[derive(Debug)]
-pub struct VectorAdd<'data, N: dtype::Dtype> {
-    pub v1: NodeRef<'data, N>,
-    pub v2: NodeRef<'data, N>,
+pub struct VectorAdd<'data::Dtype> {
+    pub v1: NodeRef<'data>,
+    pub v2: NodeRef<'data>,
 }
 
 #[allow(clippy::new_without_default)]
-impl<'data, N: dtype::Dtype> VectorAdd<'data, N> {
+impl<'data::Dtype> VectorAdd<'data> {
     pub fn new() -> Self
     where
         N: dtype::Dtype + Copy + 'static,
         f32: Into<N>,
     {
-        let v1 = tensor(
+        let v1 = tensor_f32(
             Array1::from(vec![1.0f32, 2.0, 3.0])
                 .mapv(|x| N::from_f32(x))
                 .into_dyn(),
         );
-        let v2 = tensor(
+        let v2 = tensor_f32(
             Array1::from(vec![4.0f32, 5.0, 6.0])
                 .mapv(|x| N::from_f32(x))
                 .into_dyn(),
