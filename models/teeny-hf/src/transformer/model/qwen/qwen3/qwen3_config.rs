@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::transformer::config::model_config::{Architecture, HiddenAct, ModelType, TorchDtype};
 
 use crate::error::{Error, Result};
+use crate::transformer::model::qwen::qwen3::qwen3_model::Qwen3AttentionType;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Qwen3Config {
@@ -62,7 +63,7 @@ pub struct Qwen3Config {
     #[serde(default)]
     pub base_model_pp_plan: HashMap<String, [Vec<String>; 2]>,
     #[serde(default)]
-    pub layer_types: Vec<String>,
+    pub layer_types: Vec<Qwen3AttentionType>,
     #[serde(default)]
     pub pad_token_id: Option<usize>,
     #[serde(default)]
@@ -118,9 +119,9 @@ impl FromStr for Qwen3Config {
             config.layer_types = (0..config.num_hidden_layers)
                 .map(|i| {
                     if config.sliding_window.is_some() && i >= config.max_window_layers {
-                        "sliding_window_attention".to_string()
+                        Qwen3AttentionType::SlidingAttention
                     } else {
-                        "full_attention".to_string()
+                        Qwen3AttentionType::FullAttention
                     }
                 })
                 .collect();

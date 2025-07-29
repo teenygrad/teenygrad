@@ -15,11 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use derive_builder::Builder;
 use ndarray::Array;
+use serde::{Deserialize, Serialize};
 use teeny_cache::DynamicCache;
 use teeny_core::dtype::Dtype;
 use teeny_core::graph::{self, NodeRef};
@@ -35,6 +37,15 @@ use crate::error::{Error, Result};
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 use crate::transformer::util::rope_util::compute_default_rope_parameters;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Qwen3AttentionType {
+    #[serde(rename = "full_attention")]
+    FullAttention,
+
+    #[serde(rename = "sliding_attention")]
+    SlidingAttention,
+}
+
 pub struct Qwen3Model<'data, N: Dtype> {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
@@ -44,6 +55,7 @@ pub struct Qwen3Model<'data, N: Dtype> {
     pub rotary_emb: Qwen3RotaryEmbedding<'data>,
     pub gradient_checkpointing: bool,
     pub has_sliding_layers: bool,
+    pub num_hidden_layers: usize,
 }
 
 #[derive(Debug, Builder, Clone)]
@@ -73,6 +85,7 @@ impl<'data, N: Dtype> Qwen3Model<'data, N> {
         Ok(Qwen3Model {
             vocab_size: config.vocab_size,
             padding_idx: config.pad_token_id,
+            num_hidden_layers: config.num_hidden_layers,
             embed_tokens: EmbeddingBuilder::default()
                 .num_embeddings(config.vocab_size)
                 .embedding_dim(config.hidden_size)
@@ -92,12 +105,25 @@ impl<'data, N: Dtype> Qwen3Model<'data, N> {
             gradient_checkpointing: false,
             has_sliding_layers: config
                 .layer_types
-                .contains(&"sliding_attention".to_string()),
+                .contains(&Qwen3AttentionType::SlidingAttention),
         })
+    }
+
+    fn create_causal_mask(&self) -> NodeRef<'data, N> {
+        todo!()
+    }
+
+    fn create_sliding_window_causal_mask(&self) -> NodeRef<'data, N> {
+        todo!()
     }
 }
 
-impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, NodeRef<'data, N>>
+pub struct Qwen3ModelOutput<'data, N: Dtype> {
+    pub hidden_states: NodeRef<'data, N>,
+    pub past_key_values: Option<DynamicCache>,
+}
+
+impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, Qwen3ModelOutput<'data, N>>
     for Qwen3Model<'data, N>
 {
     fn forward(
@@ -106,12 +132,13 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, NodeRef<'data,
             input_ids,
             inputs_embeds,
             use_cache,
-            mut past_key_values,
+            past_key_values,
             cache_position,
             position_ids,
+            attention_mask,
             ..
         }: QwenModelInputs<'data, N>,
-    ) -> Result<NodeRef<'data, N>> {
+    ) -> Result<Qwen3ModelOutput<'data, N>> {
         if input_ids.is_none() ^ inputs_embeds.is_some() {
             return Err(Error::ModelError(
                 "Only one of input_ids and inputs_embeds must be provided.".to_string(),
@@ -124,14 +151,16 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, NodeRef<'data,
             None => self.embed_tokens.forward(input_ids.unwrap())?,
         };
 
-        if use_cache && past_key_values.is_none() {
-            past_key_values = Some(DynamicCache::new());
-        }
+        let past_key_values = if use_cache && past_key_values.is_none() {
+            Some(DynamicCache::new())
+        } else {
+            past_key_values
+        };
 
         let cache_position = match cache_position {
             Some(position) => position,
             None => {
-                let past_seen_tokens = match past_key_values {
+                let past_seen_tokens = match &past_key_values {
                     Some(cache) => cache.get_sequence_length(),
                     None => 0,
                 };
@@ -143,31 +172,48 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, NodeRef<'data,
 
         let position_ids = match position_ids {
             Some(ids) => ids,
-            None => graph::unsqueeze(cache_position, 0),
+            None => graph::unsqueeze(cache_position.clone(), 0),
         };
 
-        // causal masking
-        let hidden_states = inputs_embeds;
-        let position_embeddings = self.rotary_emb(hidden_states, position_ids);
+        let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, NodeRef<'data, N>>::new();
+        if let Some(_mask) = attention_mask {
+            causal_mask_mapping
+                .insert(Qwen3AttentionType::FullAttention, self.create_causal_mask());
+            // todo create attention mask
+        }
 
-        //  for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-        //     hidden_states = decoder_layer(
-        //         hidden_states,
-        //         attention_mask=causal_mask_mapping[decoder_layer.attention_type],
-        //         position_ids=position_ids,
-        //         past_key_value=past_key_values,
-        //         use_cache=use_cache,
-        //         cache_position=cache_position,
-        //         position_embeddings=position_embeddings,
-        //         **kwargs,
-        //     )
+        if self.has_sliding_layers {
+            causal_mask_mapping.insert(
+                Qwen3AttentionType::SlidingAttention,
+                self.create_sliding_window_causal_mask(),
+            );
+        }
 
-        hidden_states = self.norm(hidden_states);
+        let mut hidden_states = inputs_embeds;
+        let position_embeddings = self
+            .rotary_emb
+            .forward((hidden_states.clone(), position_ids.clone()))?;
 
-        // return BaseModelOutputWithPast(
-        //     last_hidden_state=hidden_states,
-        //     past_key_values=past_key_values if use_cache else None,
-        // )
+        for layer in self.layers[..self.num_hidden_layers].iter() {
+            let layer_inputs = LayerInputs {
+                hidden_states,
+                attention_mask: causal_mask_mapping[&layer.attention_type].clone(),
+                position_ids: position_ids.clone(),
+                past_key_values: past_key_values.clone(),
+                use_cache,
+                cache_position: cache_position.clone(),
+                position_embeddings: position_embeddings.clone(),
+            };
+
+            hidden_states = layer.forward(&layer_inputs)?;
+        }
+
+        hidden_states = self.norm.forward(hidden_states)?;
+
+        Ok(Qwen3ModelOutput {
+            hidden_states,
+            past_key_values: if use_cache { past_key_values } else { None },
+        })
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data, N>> {
@@ -181,7 +227,7 @@ pub struct Qwen3DecoderLayer<'data> {
     pub mlp: Qwen3MLP<'data>,
     pub input_layernorm: Qwen3RMSNorm<'data>,
     pub post_attention_layernorm: Qwen3RMSNorm<'data>,
-    pub attention_type: String,
+    pub attention_type: Qwen3AttentionType,
 }
 
 impl<'data> Qwen3DecoderLayer<'data> {
@@ -209,10 +255,20 @@ impl<'data> Qwen3DecoderLayer<'data> {
     }
 }
 
-impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>
+struct LayerInputs<'data, N: Dtype> {
+    hidden_states: NodeRef<'data, N>,
+    attention_mask: NodeRef<'data, N>,
+    position_ids: NodeRef<'data, usize>,
+    past_key_values: Option<DynamicCache>,
+    use_cache: bool,
+    cache_position: NodeRef<'data, usize>,
+    position_embeddings: (NodeRef<'data, N>, NodeRef<'data, N>),
+}
+
+impl<'data, N: Dtype> Module<'data, N, &LayerInputs<'data, N>, NodeRef<'data, N>>
     for Qwen3DecoderLayer<'data>
 {
-    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
+    fn forward(&self, _model_inputs: &LayerInputs<'data, N>) -> Result<NodeRef<'data, N>> {
         //    def forward(
         //     self,
         //     hidden_states: torch.Tensor,
@@ -248,7 +304,7 @@ impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>
         todo!()
     }
 
-    fn parameters(&self) -> Vec<teeny_core::graph::NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
         todo!()
     }
 }
@@ -271,8 +327,10 @@ impl<'data> Qwen3RMSNorm<'data> {
     }
 }
 
-impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwen3RMSNorm<'data> {
-    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
+impl<'data, N: Dtype> Module<'data, N, NodeRef<'data, N>, NodeRef<'data, N>>
+    for Qwen3RMSNorm<'data>
+{
+    fn forward(&self, _model_inputs: NodeRef<'data, N>) -> Result<NodeRef<'data, N>> {
         //   def forward(self, hidden_states):
         // input_dtype = hidden_states.dtype
         // hidden_states = hidden_states.to(torch.float32)
@@ -283,7 +341,7 @@ impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for Qwe
         todo!()
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data, N>> {
         todo!()
     }
 }
@@ -308,10 +366,18 @@ impl<'data> Qwen3RotaryEmbedding<'data> {
     }
 }
 
-impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>>
-    for Qwen3RotaryEmbedding<'data>
+impl<'data, N: Dtype>
+    Module<
+        'data,
+        f32,
+        (NodeRef<'data, N>, NodeRef<'data, usize>),
+        (NodeRef<'data, N>, NodeRef<'data, N>),
+    > for Qwen3RotaryEmbedding<'data>
 {
-    fn forward(&self, _model_inputs: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
+    fn forward(
+        &self,
+        (_hidden_states, _position_ids): (NodeRef<'data, N>, NodeRef<'data, usize>),
+    ) -> Result<(NodeRef<'data, N>, NodeRef<'data, N>)> {
         //    @torch.no_grad()
         // @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
         // def forward(self, x, position_ids):
@@ -400,7 +466,8 @@ impl<'data> Qwen3Attention<'data> {
                 safetensors,
                 config.rms_norm_eps,
             )?,
-            sliding_window: if config.layer_types[layer_idx] == "sliding_attention" {
+            sliding_window: if config.layer_types[layer_idx] == Qwen3AttentionType::SlidingAttention
+            {
                 config.sliding_window
             } else {
                 None

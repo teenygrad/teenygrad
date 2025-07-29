@@ -64,7 +64,7 @@ impl<'data, N: Dtype> Module<'data, N, QwenModelInputs<'data, N>, NodeRef<'data,
 {
     fn forward(&self, model_inputs: QwenModelInputs<'data, N>) -> Result<NodeRef<'data, N>> {
         let hidden_states = self.model.forward(model_inputs)?;
-        self.lm_head.forward(hidden_states)
+        self.lm_head.forward(hidden_states.hidden_states)
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data, N>> {
