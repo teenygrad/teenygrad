@@ -34,6 +34,7 @@ pub mod pow;
 pub mod powi;
 pub mod randn;
 pub mod relu;
+pub mod rsqrt;
 pub mod safetensor;
 pub mod scalar;
 pub mod sigmoid;

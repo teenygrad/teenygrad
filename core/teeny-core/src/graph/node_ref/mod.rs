@@ -25,7 +25,7 @@ use crate::graph::NodeOp;
 use crate::graph::ops::Op;
 use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::powi::Powi;
-use crate::graph::ops::sqrt::SqrtOp;
+use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::scalar;
 use crate::tensor::shape::DynamicShape;
@@ -51,21 +51,17 @@ impl<'data> NodeRef<'data> {
         )))
     }
 
-    pub fn shape(&self) -> Result<DynamicShape> {
-        self.0.shape()
-    }
-
-    pub fn powi(&self, exp: Value) -> Self {
+    pub fn to_dtype(self, dtype: DtypeEnum) -> Self {
         NodeRef(Arc::new(Node::new(
-            NodeOp::Powi(Powi::new(self.clone(), exp)),
+            NodeOp::ToDtype(ToDtype::new(self, dtype)),
             true,
             false,
         )))
     }
 
-    pub fn sqrt(&self) -> Self {
+    pub fn powi(&self, exp: Value) -> Self {
         NodeRef(Arc::new(Node::new(
-            NodeOp::Sqrt(SqrtOp::new(self.clone())),
+            NodeOp::Powi(Powi::new(self.clone(), exp)),
             true,
             false,
         )))

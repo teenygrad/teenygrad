@@ -17,25 +17,23 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::graph::NodeOp;
 use crate::{
-    graph::{NodeRef, ops::Op},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]
-pub struct ToDtype<'data> {
+pub struct RSqrtOp<'data> {
     pub input: NodeRef<'data>,
-    pub dest_dtype: DtypeEnum,
 }
 
-impl<'data> ToDtype<'data> {
-    pub fn new(input: NodeRef<'data>, dest_dtype: DtypeEnum) -> Self {
-        Self { input, dest_dtype }
+impl<'data> RSqrtOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
+        Self { input }
     }
 }
 
-impl<'data> Op for ToDtype<'data> {
+impl<'data> Op for RSqrtOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
@@ -45,8 +43,8 @@ impl<'data> Op for ToDtype<'data> {
     }
 }
 
-impl<'data> From<ToDtype<'data>> for NodeRef<'data> {
-    fn from(op: ToDtype<'data>) -> Self {
-        NodeOp::ToDtype(op).into()
+impl<'data> From<RSqrtOp<'data>> for NodeRef<'data> {
+    fn from(op: RSqrtOp<'data>) -> Self {
+        NodeOp::RSqrt(op).into()
     }
 }

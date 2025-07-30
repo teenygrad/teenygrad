@@ -25,11 +25,11 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct MeanOp<'data> {
     pub input: NodeRef<'data>,
-    pub dim: Option<usize>,
+    pub dim: Option<isize>,
 }
 
 impl<'data> MeanOp<'data> {
-    pub fn new(input: NodeRef<'data>, dim: Option<usize>) -> Self {
+    pub fn new(input: NodeRef<'data>, dim: Option<isize>) -> Self {
         Self { input, dim }
     }
 }

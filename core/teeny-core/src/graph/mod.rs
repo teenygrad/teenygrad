@@ -26,6 +26,7 @@ use crate::graph::ops::inverse::InverseOp;
 use crate::graph::ops::ones::OnesOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
+use crate::graph::ops::rsqrt::RSqrtOp;
 use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op};
@@ -78,6 +79,7 @@ pub enum NodeOp<'data> {
     Transpose(TransposeOp<'data>),
     Powi(Powi<'data>),
     Sqrt(SqrtOp<'data>),
+    RSqrt(RSqrtOp<'data>),
     Ones(OnesOp),
     Inverse(InverseOp<'data>),
     Pow(PowOp<'data>),
@@ -117,6 +119,7 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::TensorF32(op) => op.shape(),
             NodeOp::TensorBF16(op) => op.shape(),
             NodeOp::Dot(op) => op.shape(),
+            NodeOp::RSqrt(op) => op.shape(),
         }
     }
 
@@ -148,6 +151,7 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::TensorF32(op) => op.dtype(),
             NodeOp::TensorBF16(op) => op.dtype(),
             NodeOp::Dot(op) => op.dtype(),
+            NodeOp::RSqrt(op) => op.dtype(),
         }
     }
 }
@@ -260,6 +264,13 @@ pub fn sigmoid<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     SigmoidOp::new(x).into()
 }
 
+pub fn mean<'data>(x: NodeRef<'data>, dim: Option<isize>) -> NodeRef<'data> {
+    MeanOp::new(x, dim).into()
+}
+
+pub fn rsqrt<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
+    RSqrtOp::new(x).into()
+}
 // use std::ops::Add;
 // use std::sync::Arc;
 

@@ -23,6 +23,7 @@ use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use teeny_cache::DynamicCache;
 use teeny_core::dtype::{DtypeEnum, Value};
+use teeny_core::graph::ops::Op;
 use teeny_core::graph::{self, NodeRef};
 use teeny_core::nn::Module;
 use teeny_core::nn::embedding::EmbeddingBuilder;
@@ -34,7 +35,7 @@ use teeny_core::tensor::{FloatTensor, LongTensor};
 use crate::transformer::activations::get_activation;
 
 use crate::error::{Error, Result};
-use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
+use crate::transformer::model::qwen::qwen3::qwen3_config::{Qwen3Config, RopeType};
 use crate::transformer::util::rope_util::compute_default_rope_parameters;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -192,9 +193,7 @@ impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Q
         }
 
         let mut hidden_states = inputs_embeds;
-        let position_embeddings = self
-            .rotary_emb
-            .forward((hidden_states.clone(), position_ids.clone()))?;
+        let position_embeddings = self.rotary_emb.forward(position_ids.clone())?;
 
         for layer in self.layers[..self.num_hidden_layers].iter() {
             let layer_inputs = LayerInputs {
@@ -318,14 +317,15 @@ impl<'data> Qwen3RMSNorm<'data> {
 }
 
 impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Qwen3RMSNorm<'data> {
-    fn forward(&self, _hidden_states: NodeRef<'data>) -> Result<NodeRef<'data>> {
-        // let input_dtype = hidden_states.dtype();
-        // let hidden_states = hidden_states.to(torch.float32);
-        // let variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        // let hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        // return self.weight * hidden_states.to(input_dtype)
-
-        todo!()
+    fn forward(&self, hidden_states: NodeRef<'data>) -> Result<NodeRef<'data>> {
+        let input_dtype = hidden_states.dtype();
+        let hidden_states = hidden_states.to_dtype(DtypeEnum::F32);
+        let variance = graph::pow(hidden_states.clone(), graph::scalar(Value::F32(2.0)));
+        let variance = graph::mean(variance, Some(-1));
+        let hidden_states = hidden_states
+            * graph::rsqrt(variance + graph::scalar(Value::F32(self.variance_epsilon)));
+        let hidden_states = hidden_states.to_dtype(input_dtype);
+        Ok(self.weight.clone() * hidden_states)
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data>> {
@@ -333,33 +333,50 @@ impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Qwen3RMSNorm<'data
     }
 }
 
+type RopeInitFn<'data> =
+    Box<dyn Fn(&Qwen3Config, Option<usize>) -> (NodeRef<'data>, NodeRef<'data>)>;
+
 pub struct Qwen3RotaryEmbedding<'data> {
+    pub rope_type: RopeType,
     pub max_seq_len_cached: usize,
     pub original_max_seq_len: usize,
     pub attention_scaling: NodeRef<'data>,
+    pub inv_freq: NodeRef<'data>,
     pub original_inv_freq: NodeRef<'data>,
+    pub rope_init_fn: RopeInitFn<'data>,
 }
 
 impl<'data> Qwen3RotaryEmbedding<'data> {
     pub fn new(config: &Qwen3Config) -> Self {
-        let (inv_freq, attention_scaling) = compute_default_rope_parameters(config);
+        let rope_type = config
+            .rope_scaling
+            .as_ref()
+            .map(|rope_scaling| rope_scaling.rope_type)
+            .unwrap_or(RopeType::Default);
+
+        let rope_init_fn = match rope_type {
+            RopeType::Default => compute_default_rope_parameters,
+            _ => unimplemented!(),
+        };
+
+        let (inv_freq, attention_scaling) = rope_init_fn(config, None);
 
         Self {
             max_seq_len_cached: config.max_position_embeddings,
             original_max_seq_len: config.max_position_embeddings,
+            inv_freq: inv_freq.clone(),
             original_inv_freq: inv_freq,
             attention_scaling,
+            rope_type,
+            rope_init_fn: Box::new(rope_init_fn),
         }
     }
 }
 
-impl<'data> Module<'data, (NodeRef<'data>, NodeRef<'data>), (NodeRef<'data>, NodeRef<'data>)>
+impl<'data> Module<'data, NodeRef<'data>, (NodeRef<'data>, NodeRef<'data>)>
     for Qwen3RotaryEmbedding<'data>
 {
-    fn forward(
-        &self,
-        (_hidden_states, _position_ids): (NodeRef<'data>, NodeRef<'data>),
-    ) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
+    fn forward(&self, _position_ids: NodeRef<'data>) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
         //    @torch.no_grad()
         // @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
         // def forward(self, x, position_ids):

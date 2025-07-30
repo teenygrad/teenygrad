@@ -26,6 +26,32 @@ use crate::transformer::config::model_config::{Architecture, HiddenAct, ModelTyp
 use crate::error::{Error, Result};
 use crate::transformer::model::qwen::qwen3::qwen3_model::Qwen3AttentionType;
 
+#[derive(Debug, Copy, Serialize, Deserialize, PartialEq, Clone)]
+pub enum RopeType {
+    #[serde(rename = "default")]
+    Default,
+
+    #[serde(rename = "linear")]
+    Linear,
+
+    #[serde(rename = "dynamic")]
+    Dynamic,
+
+    #[serde(rename = "yarn")]
+    Yarn,
+
+    #[serde(rename = "longrope")]
+    LongRope,
+
+    #[serde(rename = "llama")]
+    Llama,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct RopeScaling {
+    pub rope_type: RopeType,
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Qwen3Config {
     pub architectures: Vec<Architecture>,
@@ -46,7 +72,7 @@ pub struct Qwen3Config {
     pub num_hidden_layers: usize,
     pub num_key_value_heads: Option<usize>,
     pub rms_norm_eps: f32,
-    pub rope_scaling: Option<f32>,
+    pub rope_scaling: Option<RopeScaling>,
     pub rope_theta: f32,
     pub sliding_window: Option<f32>,
     pub tie_word_embeddings: bool,

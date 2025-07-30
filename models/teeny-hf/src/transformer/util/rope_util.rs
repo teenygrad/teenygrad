@@ -25,6 +25,7 @@ use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 
 pub fn compute_default_rope_parameters<'data>(
     config: &Qwen3Config,
+    _seq_len: Option<usize>,
 ) -> (NodeRef<'data>, NodeRef<'data>) {
     let base = tensor_f32(Array1::from(vec![config.rope_theta]).into_dyn());
     let partial_rotary_factor = config.partial_rotary_factor.unwrap_or(1.0);
