@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::tensor::shape::DynamicShape;
 
@@ -43,9 +44,9 @@ pub mod to_dtype;
 pub mod transpose;
 pub mod unsqueeze;
 pub mod zeros;
-
-pub trait OpShape {
+pub trait Op {
     fn shape(&self) -> Result<DynamicShape>;
+    fn dtype(&self) -> DtypeEnum;
 }
 
 // use std::fmt::Debug;

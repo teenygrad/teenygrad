@@ -15,12 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -36,9 +34,13 @@ impl OnesOp {
     }
 }
 
-impl OpShape for OnesOp {
+impl Op for OnesOp {
     fn shape(&self) -> Result<DynamicShape> {
-        Ok(self.shape.clone())
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

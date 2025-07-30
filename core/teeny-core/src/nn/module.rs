@@ -15,18 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::{self, Dtype};
 use crate::error::Result;
 use crate::graph::NodeRef;
 
-pub trait Module<'data, N: Dtype, T, U> {
+pub trait Module<'data, T, U> {
     fn forward(&self, x: T) -> Result<U>;
 
     fn parameters(&self) -> Vec<NodeRef<'data>>;
 }
 
-pub type NodeRefModule<'data> = Box<dyn Module<'data, N, NodeRef<'data>, NodeRef<'data>>>;
+pub type NodeRefModule<'data> = Box<dyn Module<'data, NodeRef<'data>, NodeRef<'data>>>;
 
-pub trait CompiledModule<N: dtype::Dtype, T, U> {
+pub trait CompiledModule<T, U> {
     fn forward(&self, x: T) -> Result<U>;
 }

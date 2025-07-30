@@ -19,21 +19,19 @@
 
 use crate::error::Result;
 use crate::nn::module::NodeRefModule;
-use crate::{dtype, graph::NodeRef, nn::Module};
+use crate::{graph::NodeRef, nn::Module};
 
-pub struct Sequential<'data::Dtype> {
+pub struct Sequential<'data> {
     layers: Vec<NodeRefModule<'data>>,
 }
 
-impl<'data::Dtype> Sequential<'data> {
+impl<'data> Sequential<'data> {
     pub fn new(layers: Vec<NodeRefModule<'data>>) -> Self {
         Sequential { layers }
     }
 }
 
-impl<'data::Dtype> Module<'data, N, NodeRef<'data>, NodeRef<'data>>
-    for Sequential<'data>
-{
+impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Sequential<'data> {
     fn forward(&self, input: NodeRef<'data>) -> Result<NodeRef<'data>> {
         let mut output = input.clone();
 

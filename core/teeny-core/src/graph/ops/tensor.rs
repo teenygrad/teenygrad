@@ -15,38 +15,75 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
 
-use crate::error::Result;
+#[cfg(feature = "ndarray")]
+use crate::num::bf16::bf16;
+use crate::{dtype::DtypeEnum, error::Result};
 use crate::{
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
+/*--------------------------------- TensorF32 ---------------------------------*/
+
 #[derive(Debug, Clone)]
-pub struct TensorOpF32 {
+pub struct TensorF32Op {
     #[cfg(feature = "ndarray")]
     pub input: ndarray::Array<f32, IxDyn>,
 }
 
-impl TensorOpF32 {
+impl TensorF32Op {
     #[cfg(feature = "ndarray")]
     pub fn new(input: ndarray::Array<f32, IxDyn>) -> Self {
         Self { input }
     }
 }
 
-impl OpShape for TensorOpF32 {
+impl Op for TensorF32Op {
     fn shape(&self) -> Result<DynamicShape> {
-        Ok(DynamicShape::new(&[1, self.input.len()]))
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 
-impl<'data> From<TensorOpF32> for NodeRef<'data> {
-    fn from(op: TensorOpF32) -> Self {
-        NodeOp::Tensor(op).into()
+impl<'data> From<TensorF32Op> for NodeRef<'data> {
+    fn from(op: TensorF32Op) -> Self {
+        NodeOp::TensorF32(op).into()
+    }
+}
+
+/*--------------------------------- TensorBF16 ---------------------------------*/
+
+#[derive(Debug, Clone)]
+pub struct TensorBF16Op {
+    #[cfg(feature = "ndarray")]
+    pub input: ndarray::Array<bf16, IxDyn>,
+}
+
+impl TensorBF16Op {
+    #[cfg(feature = "ndarray")]
+    pub fn new(input: ndarray::Array<bf16, IxDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl Op for TensorBF16Op {
+    fn shape(&self) -> Result<DynamicShape> {
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
+    }
+}
+
+impl<'data> From<TensorBF16Op> for NodeRef<'data> {
+    fn from(op: TensorBF16Op) -> Self {
+        NodeOp::TensorBF16(op).into()
     }
 }

@@ -18,11 +18,9 @@
 pub mod node_ref;
 pub mod ops;
 
-use std::sync::Arc;
-
-use crate::dtype::{Dtype, DtypeEnum, Value};
+use crate::dtype::{DtypeEnum, Value};
 use crate::error::Result;
-use crate::graph::ops::OpShape;
+use crate::graph::ops::Op;
 use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::inverse::InverseOp;
 use crate::graph::ops::ones::OnesOp;
@@ -30,10 +28,12 @@ use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sqrt::SqrtOp;
-use crate::graph::ops::tensor::TensorOpF32;
+use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op};
 use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
+#[cfg(feature = "ndarray")]
+use crate::num::bf16::bf16;
 use crate::safetensors::{SafeTensors, TensorView};
 use crate::tensor::shape::DynamicShape;
 
@@ -81,14 +81,15 @@ pub enum NodeOp<'data> {
     Ones(OnesOp),
     Inverse(InverseOp<'data>),
     Pow(PowOp<'data>),
-    Tensor(TensorOpF32),
     SafeTensor(SafeTensorOp<'data>),
     Unsqueeze(UnsqueezeOp<'data>),
     ToDtype(ToDtype<'data>),
+    TensorF32(TensorF32Op),
+    TensorBF16(TensorBF16Op),
 }
 
-impl<'data> NodeOp<'data> {
-    pub fn shape(&self) -> Result<DynamicShape> {
+impl<'data> Op for NodeOp<'data> {
+    fn shape(&self) -> Result<DynamicShape> {
         match self {
             NodeOp::Scalar(op) => op.shape(),
             NodeOp::Add(op) => op.shape(),
@@ -104,17 +105,49 @@ impl<'data> NodeOp<'data> {
             NodeOp::Randn(op) => op.shape(),
             NodeOp::Relu(op) => op.shape(),
             NodeOp::Sigmoid(op) => op.shape(),
-            NodeOp::Tensor(op) => op.shape(),
             NodeOp::Transpose(op) => op.shape(),
             NodeOp::Powi(op) => op.shape(),
             NodeOp::Sqrt(op) => op.shape(),
-            NodeOp::Dot(op) => op.shape(),
             NodeOp::Ones(op) => op.shape(),
             NodeOp::Inverse(op) => op.shape(),
             NodeOp::Pow(op) => op.shape(),
             NodeOp::SafeTensor(op) => op.shape(),
             NodeOp::Unsqueeze(op) => op.shape(),
             NodeOp::ToDtype(op) => op.shape(),
+            NodeOp::TensorF32(op) => op.shape(),
+            NodeOp::TensorBF16(op) => op.shape(),
+            NodeOp::Dot(op) => op.shape(),
+        }
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        match self {
+            NodeOp::Scalar(op) => op.dtype(),
+            NodeOp::Add(op) => op.dtype(),
+            NodeOp::Sub(op) => op.dtype(),
+            NodeOp::Mult(op) => op.dtype(),
+            NodeOp::Div(op) => op.dtype(),
+            NodeOp::Neg(op) => op.dtype(),
+            NodeOp::Log(op) => op.dtype(),
+            NodeOp::Exp(op) => op.dtype(),
+            NodeOp::Mean(op) => op.dtype(),
+            NodeOp::Zeros(op) => op.dtype(),
+            NodeOp::Arange(op) => op.dtype(),
+            NodeOp::Randn(op) => op.dtype(),
+            NodeOp::Relu(op) => op.dtype(),
+            NodeOp::Sigmoid(op) => op.dtype(),
+            NodeOp::Transpose(op) => op.dtype(),
+            NodeOp::Powi(op) => op.dtype(),
+            NodeOp::Sqrt(op) => op.dtype(),
+            NodeOp::Ones(op) => op.dtype(),
+            NodeOp::Inverse(op) => op.dtype(),
+            NodeOp::Pow(op) => op.dtype(),
+            NodeOp::SafeTensor(op) => op.dtype(),
+            NodeOp::Unsqueeze(op) => op.dtype(),
+            NodeOp::ToDtype(op) => op.dtype(),
+            NodeOp::TensorF32(op) => op.dtype(),
+            NodeOp::TensorBF16(op) => op.dtype(),
+            NodeOp::Dot(op) => op.dtype(),
         }
     }
 }
@@ -187,7 +220,12 @@ pub fn pow<'data>(x: NodeRef<'data>, y: NodeRef<'data>) -> NodeRef<'data> {
 
 #[cfg(feature = "ndarray")]
 pub fn tensor_f32<'data>(input: ndarray::Array<f32, IxDyn>) -> NodeRef<'data> {
-    TensorOpF32::new(input).into()
+    TensorF32Op::new(input).into()
+}
+
+#[cfg(feature = "ndarray")]
+pub fn tensor_bf16<'data>(input: ndarray::Array<bf16, IxDyn>) -> NodeRef<'data> {
+    TensorBF16Op::new(input).into()
 }
 
 pub fn safetensor<'data>(input: TensorView<'data>) -> NodeRef<'data> {

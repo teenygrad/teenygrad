@@ -15,12 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::Dtype;
-use crate::error::Error;
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::graph::ops::OpShape;
+use crate::graph::ops::Op;
 use crate::graph::{NodeOp, NodeRef};
-use crate::tensor::shape::{DynamicShape, Shape};
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct MultOp<'data> {
@@ -34,24 +33,13 @@ impl<'data> MultOp<'data> {
     }
 }
 
-impl<'data> OpShape for MultOp<'data> {
+impl<'data> Op for MultOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        let lhs_shape = self.lhs.shape()?;
-        let rhs_shape = self.rhs.shape()?;
+        todo!()
+    }
 
-        match (lhs_shape.dims.len(), rhs_shape.dims.len()) {
-            (2, 2) => {
-                if lhs_shape.dims[1] == rhs_shape.dims[0] {
-                    Ok(DynamicShape::new(&[lhs_shape.dims[0], rhs_shape.dims[1]]))
-                } else {
-                    Ok(lhs_shape.broadcast(&rhs_shape))
-                }
-            }
-            _ => Err(Error::InvalidShape(format!(
-                "Invalid shape for mult: {lhs_shape:?}, {rhs_shape:?}"
-            ))
-            .into()),
-        }
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

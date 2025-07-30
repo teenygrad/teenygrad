@@ -15,11 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::Dtype;
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::graph::ops::OpShape;
+use crate::graph::ops::Op;
 use crate::graph::{NodeOp, NodeRef};
-use crate::tensor::shape::{DynamicShape, Shape};
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct DotOp<'data> {
@@ -33,11 +33,13 @@ impl<'data> DotOp<'data> {
     }
 }
 
-impl<'data> OpShape for DotOp<'data> {
+impl<'data> Op for DotOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        let lhs_shape = self.lhs.shape()?;
-        let rhs_shape = self.rhs.shape()?;
-        Ok(lhs_shape.broadcast(&rhs_shape))
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

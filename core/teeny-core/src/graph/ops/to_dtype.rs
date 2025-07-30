@@ -18,7 +18,7 @@
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    graph::{NodeRef, ops::OpShape},
+    graph::{NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -34,8 +34,12 @@ impl<'data> ToDtype<'data> {
     }
 }
 
-impl<'data> OpShape for ToDtype<'data> {
+impl<'data> Op for ToDtype<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        self.input.shape()
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }

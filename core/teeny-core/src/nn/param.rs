@@ -17,10 +17,10 @@
 
 use crate::{dtype::Dtype, graph::NodeRef, tensor::shape::DynamicShape};
 
-pub trait Param<N: Dtype>: Sized + Clone {
+pub trait Param<'data, N: Dtype>: Sized + Clone {
     fn shape(&self) -> DynamicShape;
 
-    fn grad(&self) -> Option<NodeRef<N>> {
+    fn grad(&self) -> Option<NodeRef> {
         todo!()
     }
 
@@ -28,11 +28,11 @@ pub trait Param<N: Dtype>: Sized + Clone {
         todo!()
     }
 
-    fn weights(&self) -> NodeRef<N> {
+    fn weights(&self) -> NodeRef<'data> {
         todo!()
     }
 
-    fn update(&mut self, _update: NodeRef<N>) {
+    fn update(&mut self, _update: NodeRef<'data>) {
         todo!()
     }
 }

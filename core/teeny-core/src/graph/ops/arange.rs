@@ -15,13 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
-use crate::dtype::Value;
+use crate::dtype::{DtypeEnum, Value};
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -38,13 +35,12 @@ impl ArangeOp {
     }
 }
 
-impl OpShape for ArangeOp {
+impl Op for ArangeOp {
     fn shape(&self) -> Result<DynamicShape> {
-        // Calculate the length of the arange sequence
-        // Formula: ceil((end - start) / step)
-        // let length = ((self.end.to_f32() - self.start.to_f32()) / self.step.to_f32()).ceil();
-        // let length = length as usize;
-        // Ok(DynamicShape::new(&[length]))
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
         todo!()
     }
 }

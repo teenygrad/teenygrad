@@ -17,11 +17,12 @@
 
 use std::sync::Arc;
 
-use crate::dtype::Dtype;
+use crate::dtype::DtypeEnum;
 use crate::dtype::Value;
 use crate::error::Result;
 use crate::graph::Node;
 use crate::graph::NodeOp;
+use crate::graph::ops::Op;
 use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::sqrt::SqrtOp;
@@ -88,5 +89,15 @@ impl<'data> From<NodeOp<'data>> for NodeRef<'data> {
 impl<'data> From<f32> for NodeRef<'data> {
     fn from(value: f32) -> Self {
         scalar(Value::F32(value))
+    }
+}
+
+impl<'data> Op for NodeRef<'data> {
+    fn shape(&self) -> Result<DynamicShape> {
+        self.0.op.shape()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        self.0.op.dtype()
     }
 }

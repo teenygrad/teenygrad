@@ -16,7 +16,6 @@
  */
 
 use teeny_core::{
-    dtype::Dtype,
     graph,
     graph::NodeRef,
     nn::{Module, module::NodeRefModule},
@@ -27,7 +26,7 @@ use crate::{error::Result, transformer::config::model_config::HiddenAct};
 #[derive(Default)]
 pub struct Silu;
 
-impl<'data> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Silu {
+impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Silu {
     fn forward(&self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         todo!()
     }

@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -34,12 +34,13 @@ impl<'data> UnsqueezeOp<'data> {
     }
 }
 
-impl<'data> OpShape for UnsqueezeOp<'data> {
+impl<'data> Op for UnsqueezeOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        let input_shape = self.input.shape()?;
-        let mut new_shape = input_shape.dims.clone();
-        new_shape.insert(self.dim, 1);
-        Ok(DynamicShape::new(&new_shape))
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

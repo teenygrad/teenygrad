@@ -16,7 +16,6 @@
  */
 
 use crate::{
-    dtype::Dtype,
     graph::{NodeRef, log},
     nn::loss::{Loss, LossFn},
 };

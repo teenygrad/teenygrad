@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[derive(Builder, Debug, Clone)]
-pub struct Adam<'data, N: Dtype, P: Param<N>> {
+pub struct Adam<'data, N: Dtype, P: Param<'data, N>> {
     #[builder(default = "0.001")]
     pub lr: f32,
 
@@ -55,7 +55,7 @@ pub struct Adam<'data, N: Dtype, P: Param<N>> {
     _marker: PhantomData<N>,
 }
 
-impl<'data, N: Dtype, P: Param<N>> Adam<'data, N, P> {
+impl<'data, N: Dtype, P: Param<'data, N>> Adam<'data, N, P> {
     pub fn new(lr: f32, beta1: f32, beta2: f32, eps: f32) -> Self {
         Self {
             lr,

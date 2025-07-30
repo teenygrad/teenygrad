@@ -17,7 +17,6 @@
 use std::ops::Add;
 use std::sync::Arc;
 
-use crate::dtype::Dtype;
 use crate::graph::ops::add::AddOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 

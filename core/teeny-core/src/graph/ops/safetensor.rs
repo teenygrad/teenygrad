@@ -15,12 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::safetensors::TensorView;
 use crate::{
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -35,8 +34,12 @@ impl<'data> SafeTensorOp<'data> {
     }
 }
 
-impl<'data> OpShape for SafeTensorOp<'data> {
+impl<'data> Op for SafeTensorOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
         todo!()
     }
 }

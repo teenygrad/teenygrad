@@ -18,7 +18,6 @@
 use std::ops::{Neg, Sub};
 use std::sync::Arc;
 
-use crate::dtype::Dtype;
 use crate::graph::ops::neg::NegOp;
 use crate::graph::ops::sub::SubOp;
 use crate::graph::{Node, NodeOp, NodeRef};

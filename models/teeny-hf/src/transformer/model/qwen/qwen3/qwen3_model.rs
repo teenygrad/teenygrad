@@ -20,14 +20,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use derive_builder::Builder;
-use ndarray::Array;
 use serde::{Deserialize, Serialize};
 use teeny_cache::DynamicCache;
-use teeny_core::dtype::Dtype;
+use teeny_core::dtype::{DtypeEnum, Value};
 use teeny_core::graph::{self, NodeRef};
 use teeny_core::nn::Module;
 use teeny_core::nn::embedding::EmbeddingBuilder;
 use teeny_core::nn::{embedding::Embedding, linear::Linear};
+use teeny_core::num::bf16::bf16;
 use teeny_core::safetensors::SafeTensors;
 use teeny_core::tensor::{FloatTensor, LongTensor};
 
@@ -49,7 +49,7 @@ pub enum Qwen3AttentionType {
 pub struct Qwen3Model<'data> {
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
-    pub embed_tokens: Embedding<N>,
+    pub embed_tokens: Embedding<'data>,
     pub layers: Vec<Qwen3DecoderLayer<'data>>,
     pub norm: Qwen3RMSNorm<'data>,
     pub rotary_emb: Qwen3RotaryEmbedding<'data>,
@@ -75,12 +75,12 @@ impl<'data> Qwen3Model<'data> {
         _cache_dir: &Path,
         safetensors: &'data T,
     ) -> Result<Self> {
-        let weights = safetensors.tensor("model.embed_tokens.weight")?;
-        let shape = weights.shape();
-        assert_eq!(shape[0], config.vocab_size);
-        assert_eq!(shape[1], config.hidden_size);
-        let data = N::from_bytes(weights.data());
-        let weights = Array::from_shape_vec((shape[0], shape[1]), data)?;
+        let weights_safetensor = safetensors.tensor("model.embed_tokens.weight")?;
+        let weights = match weights_safetensor.dtype() {
+            DtypeEnum::F32 => graph::tensor_f32(weights_safetensor.into_array::<f32>()?),
+            DtypeEnum::Bf16 => graph::tensor_bf16(weights_safetensor.into_array::<bf16>()?),
+            _ => todo!(),
+        };
 
         Ok(Qwen3Model {
             vocab_size: config.vocab_size,
@@ -90,7 +90,7 @@ impl<'data> Qwen3Model<'data> {
                 .num_embeddings(config.vocab_size)
                 .embedding_dim(config.hidden_size)
                 .padding_idx(config.pad_token_id)
-                .weight(weights.into_dyn())
+                .weight(weights)
                 .build()
                 .map_err(|e| Error::BuilderError(Arc::new(e)))?,
             layers: (0..config.num_hidden_layers)
@@ -123,9 +123,7 @@ pub struct Qwen3ModelOutput<'data> {
     pub past_key_values: Option<DynamicCache>,
 }
 
-impl<'data> Module<'data, N, QwenModelInputs<'data>, Qwen3ModelOutput<'data>>
-    for Qwen3Model<'data>
-{
+impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Qwen3Model<'data> {
     fn forward(
         &self,
         QwenModelInputs {
@@ -166,7 +164,11 @@ impl<'data> Module<'data, N, QwenModelInputs<'data>, Qwen3ModelOutput<'data>>
                 };
 
                 let embeds_shape = inputs_embeds.shape()?;
-                graph::arange(past_seen_tokens, past_seen_tokens + embeds_shape.dims[1], 1)
+                graph::arange(
+                    Value::Usize(past_seen_tokens),
+                    Value::Usize(past_seen_tokens + embeds_shape.dims[1]),
+                    Value::Usize(1),
+                )
             }
         };
 
@@ -258,16 +260,14 @@ impl<'data> Qwen3DecoderLayer<'data> {
 struct LayerInputs<'data> {
     hidden_states: NodeRef<'data>,
     attention_mask: NodeRef<'data>,
-    position_ids: NodeRef<'data, usize>,
+    position_ids: NodeRef<'data>,
     past_key_values: Option<DynamicCache>,
     use_cache: bool,
-    cache_position: NodeRef<'data, usize>,
+    cache_position: NodeRef<'data>,
     position_embeddings: (NodeRef<'data>, NodeRef<'data>),
 }
 
-impl<'data> Module<'data, N, &LayerInputs<'data>, NodeRef<'data>>
-    for Qwen3DecoderLayer<'data>
-{
+impl<'data> Module<'data, &LayerInputs<'data>, NodeRef<'data>> for Qwen3DecoderLayer<'data> {
     fn forward(&self, model_inputs: &LayerInputs<'data>) -> Result<NodeRef<'data>> {
         let residual = model_inputs.hidden_states.clone();
         let hidden_states = self
@@ -317,8 +317,8 @@ impl<'data> Qwen3RMSNorm<'data> {
     }
 }
 
-impl<'data> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Qwen3RMSNorm<'data> {
-    fn forward(&self, hidden_states: NodeRef<'data>) -> Result<NodeRef<'data>> {
+impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Qwen3RMSNorm<'data> {
+    fn forward(&self, _hidden_states: NodeRef<'data>) -> Result<NodeRef<'data>> {
         // let input_dtype = hidden_states.dtype();
         // let hidden_states = hidden_states.to(torch.float32);
         // let variance = hidden_states.pow(2).mean(-1, keepdim=True)
@@ -353,17 +353,12 @@ impl<'data> Qwen3RotaryEmbedding<'data> {
     }
 }
 
-impl<'data>
-    Module<
-        'data,
-        N,
-        (NodeRef<'data>, NodeRef<'data, usize>),
-        (NodeRef<'data>, NodeRef<'data>),
-    > for Qwen3RotaryEmbedding<'data>
+impl<'data> Module<'data, (NodeRef<'data>, NodeRef<'data>), (NodeRef<'data>, NodeRef<'data>)>
+    for Qwen3RotaryEmbedding<'data>
 {
     fn forward(
         &self,
-        (_hidden_states, _position_ids): (NodeRef<'data>, NodeRef<'data, usize>),
+        (_hidden_states, _position_ids): (NodeRef<'data>, NodeRef<'data>),
     ) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
         //    @torch.no_grad()
         // @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
@@ -465,8 +460,7 @@ impl<'data> Qwen3Attention<'data> {
 
 type Qwen3AttentionInputs<'data> = LayerInputs<'data>;
 
-impl<'data>
-    Module<'data, N, &Qwen3AttentionInputs<'data>, (NodeRef<'data>, NodeRef<'data>)>
+impl<'data> Module<'data, &Qwen3AttentionInputs<'data>, (NodeRef<'data>, NodeRef<'data>)>
     for Qwen3Attention<'data>
 {
     fn forward(
@@ -529,7 +523,7 @@ pub struct Qwen3MLP<'data> {
     pub gate_proj: Linear<'data>,
     pub down_proj: Linear<'data>,
     pub up_proj: Linear<'data>,
-    pub act_fn: Box<dyn Module<'data, N, NodeRef<'data>, NodeRef<'data>>>,
+    pub act_fn: Box<dyn Module<'data, NodeRef<'data>, NodeRef<'data>>>,
 }
 
 impl<'data> Qwen3MLP<'data> {
@@ -563,7 +557,7 @@ impl<'data> Qwen3MLP<'data> {
     }
 }
 
-impl<'data> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Qwen3MLP<'data> {
+impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Qwen3MLP<'data> {
     fn forward(&self, _model_inputs: NodeRef<'data>) -> Result<NodeRef<'data>> {
         //  def forward(self, x):
         //   down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))

@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -33,9 +33,13 @@ impl<'data> NegOp<'data> {
     }
 }
 
-impl<'data> OpShape for NegOp<'data> {
+impl<'data> Op for NegOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        self.input.shape()
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

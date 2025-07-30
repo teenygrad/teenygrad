@@ -21,32 +21,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::num::bf16::bf16;
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Display)]
 pub enum DtypeEnum {
-    #[display("i8")]
-    I8,
-    #[display("u8")]
-    U8,
-    #[display("i16")]
-    I16,
-    #[display("u16")]
-    U16,
-    #[display("i32")]
-    I32,
-    #[display("u32")]
-    U32,
-    #[display("i64")]
-    I64,
-    #[display("u64")]
-    U64,
+    #[display("usize")]
+    Usize,
     #[display("f32")]
     F32,
-    #[display("f64")]
-    F64,
     #[display("bf16")]
     Bf16,
 }
 
+impl From<(DtypeEnum, DtypeEnum)> for DtypeEnum {
+    fn from(value: (DtypeEnum, DtypeEnum)) -> Self {
+        match value {
+            (DtypeEnum::F32, _) | (_, DtypeEnum::F32) => DtypeEnum::F32,
+            (DtypeEnum::Bf16, _) | (_, DtypeEnum::Bf16) => DtypeEnum::Bf16,
+            (DtypeEnum::Usize, _) => DtypeEnum::Usize,
+        }
+    }
+}
 pub trait Dtype: 'static + Default + Clone + Copy + Zero + std::fmt::Debug {
     const DTYPE: DtypeEnum;
 
@@ -66,139 +59,11 @@ pub enum Value {
     Bf16(bf16),
 }
 
-impl Dtype for i8 {
-    const DTYPE: DtypeEnum = DtypeEnum::I8;
-
-    fn from_f32(value: f32) -> Self {
-        value as i8
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    fn to_u32(self) -> u32 {
-        self as u32
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-}
-
 impl Dtype for usize {
-    #[cfg(target_pointer_width = "32")]
-    const DTYPE: DtypeEnum = DtypeEnum::U32;
-
-    #[cfg(target_pointer_width = "64")]
-    const DTYPE: DtypeEnum = DtypeEnum::U64;
+    const DTYPE: DtypeEnum = DtypeEnum::Usize;
 
     fn from_f32(value: f32) -> Self {
         value as usize
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-
-    fn to_u32(self) -> u32 {
-        self as u32
-    }
-}
-
-impl Dtype for isize {
-    #[cfg(target_pointer_width = "32")]
-    const DTYPE: DtypeEnum = DtypeEnum::I32;
-
-    #[cfg(target_pointer_width = "64")]
-    const DTYPE: DtypeEnum = DtypeEnum::I64;
-
-    fn from_f32(value: f32) -> Self {
-        value as isize
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    fn to_u32(self) -> u32 {
-        self as u32
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-}
-
-impl Dtype for i32 {
-    const DTYPE: DtypeEnum = DtypeEnum::I32;
-
-    fn from_f32(value: f32) -> Self {
-        value as i32
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    fn to_u32(self) -> u32 {
-        self as u32
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-}
-
-impl Dtype for u32 {
-    const DTYPE: DtypeEnum = DtypeEnum::U32;
-
-    fn from_f32(value: f32) -> Self {
-        value as u32
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    fn to_u32(self) -> u32 {
-        self
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-}
-
-impl Dtype for i64 {
-    const DTYPE: DtypeEnum = DtypeEnum::I64;
-
-    fn from_f32(value: f32) -> Self {
-        value as i64
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-
-    fn to_u32(self) -> u32 {
-        self as u32
-    }
-}
-
-impl Dtype for u64 {
-    const DTYPE: DtypeEnum = DtypeEnum::U64;
-
-    fn from_f32(value: f32) -> Self {
-        value as u64
     }
 
     fn to_f32(self) -> f32 {
@@ -223,26 +88,6 @@ impl Dtype for f32 {
 
     fn to_f32(self) -> f32 {
         self
-    }
-
-    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
-        todo!()
-    }
-
-    fn to_u32(self) -> u32 {
-        self as u32
-    }
-}
-
-impl Dtype for f64 {
-    const DTYPE: DtypeEnum = DtypeEnum::F64;
-
-    fn from_f32(value: f32) -> Self {
-        value as f64
-    }
-
-    fn to_f32(self) -> f32 {
-        self as f32
     }
 
     fn from_bytes(_bytes: &[u8]) -> Vec<Self> {

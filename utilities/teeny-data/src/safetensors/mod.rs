@@ -75,17 +75,22 @@ impl<'data> SafeTensors<'data> for FileSafeTensors<'data> {
         self.tensors
             .iter()
             .flat_map(|t| t.tensors())
+            .map(|(name, view)| (name, TensorView(view)))
             .collect::<Vec<_>>()
     }
 
     fn iter(&self) -> impl Iterator<Item = (&str, TensorView<'data>)> {
-        self.tensors.iter().flat_map(|t| t.iter())
+        self.tensors
+            .iter()
+            .flat_map(|t| t.iter())
+            .map(|(name, view)| (name, TensorView(view)))
     }
 
     fn tensor(&'data self, tensor_name: &str) -> Result<TensorView<'data>> {
         self.tensors
             .iter()
             .find_map(|t| t.tensor(tensor_name).ok())
+            .map(TensorView)
             .ok_or(
                 Error::SafeTensorsError(SafeTensorsError::TensorNotFound(tensor_name.to_string()))
                     .into(),

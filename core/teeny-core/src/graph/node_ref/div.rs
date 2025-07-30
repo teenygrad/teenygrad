@@ -18,7 +18,6 @@
 use std::ops::Div;
 use std::sync::Arc;
 
-use crate::dtype::Dtype;
 use crate::graph::ops::mult::MultOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 

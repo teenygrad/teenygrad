@@ -15,10 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -34,31 +34,13 @@ impl<'data> MeanOp<'data> {
     }
 }
 
-impl<'data> OpShape for MeanOp<'data> {
+impl<'data> Op for MeanOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        let input_shape = self.input.shape()?;
+        todo!()
+    }
 
-        match self.dim {
-            Some(dim) => {
-                // Validate dimension index
-                if dim >= input_shape.dims.len() {
-                    panic!(
-                        "Dimension {} is out of bounds for tensor with {} dimensions",
-                        dim,
-                        input_shape.dims.len()
-                    );
-                }
-
-                // Remove the specified dimension
-                let mut new_shape = input_shape.dims.clone();
-                new_shape.remove(dim);
-                Ok(DynamicShape { dims: new_shape })
-            }
-            None => {
-                // No dimension specified - compute mean across all dimensions (scalar)
-                Ok(DynamicShape::new(&[]))
-            }
-        }
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

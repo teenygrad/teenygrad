@@ -15,13 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::marker::PhantomData;
-
 use crate::dtype::{DtypeEnum, Value};
 use crate::error::Result;
 use crate::{
-    dtype::Dtype,
-    graph::{NodeOp, NodeRef, ops::OpShape},
+    graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
 
@@ -30,15 +27,19 @@ pub struct ScalarOp {
     pub scalar: Value,
 }
 
-impl<'data> ScalarOp {
+impl ScalarOp {
     pub fn new(scalar: Value) -> Self {
         Self { scalar }
     }
 }
 
-impl OpShape for ScalarOp {
+impl Op for ScalarOp {
     fn shape(&self) -> Result<DynamicShape> {
-        Ok(DynamicShape::new(&[]))
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

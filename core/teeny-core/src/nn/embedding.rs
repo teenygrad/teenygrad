@@ -18,24 +18,24 @@
 use derive_builder::Builder;
 
 use crate::{
-    dtype::{Dtype, DtypeEnum},
+    dtype::DtypeEnum,
     error::Result,
-    graph::{self, NodeOp, NodeRef, ops::tensor::TensorOpF32},
+    graph::NodeRef,
     nn::Module,
     tensor::{FloatTensor, LongTensor},
 };
 
 #[derive(Debug, Clone, Builder)]
-pub struct Embedding<N: Dtype> {
+pub struct Embedding<'data> {
     pub num_embeddings: usize,
     pub embedding_dim: usize,
     pub padding_idx: Option<usize>,
-    pub weight: ndarray::Array<N, ndarray::IxDyn>,
+    pub weight: NodeRef<'data>,
 
     #[builder(default)]
-    pub max_norm: Option<N>,
+    pub max_norm: Option<f32>,
 
-    #[builder(default = N::DTYPE)]
+    #[builder(default = DtypeEnum::F32)]
     pub norm_type: DtypeEnum,
 
     #[builder(default)]
@@ -48,17 +48,18 @@ pub struct Embedding<N: Dtype> {
     pub sparse: bool,
 }
 
-impl<'data, N: Dtype> Module<'data, N, LongTensor<'data>, FloatTensor<'data>> for Embedding<N> {
+impl<'data> Module<'data, LongTensor<'data>, FloatTensor<'data>> for Embedding<'data> {
     fn forward(&self, input_ids: LongTensor<'data>) -> Result<FloatTensor<'data>> {
-        let input_ids = input_ids.0;
+        let _input_ids = input_ids.0;
 
-        let tokens = match &input_ids.op {
-            NodeOp::Tensor(TensorOpF32 { input, .. }) => input.map(|x| self.weight[*x]),
-            _ => unreachable!(),
-        };
+        todo!()
+        // let tokens = match &input_ids.op {
+        //     NodeOp::Tensor(TensorF32 { input, .. }) => input.map(|x| self.weight[*x]),
+        //     _ => unreachable!(),
+        // };
 
-        println!("tokens: {tokens:?}");
-        Ok(graph::tensor_f32(tokens))
+        // println!("tokens: {tokens:?}");
+        // Ok(graph::tensor_f32(tokens))
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data>> {

@@ -17,7 +17,6 @@
 
 use ndarray::Array1;
 use teeny_core::{
-    dtype,
     graph::{NodeRef, tensor_f32},
     nn::Module,
 };
@@ -25,45 +24,34 @@ use teeny_core::{
 use crate::error::Result;
 
 #[derive(Debug)]
-pub struct VectorAdd<'data::Dtype> {
+pub struct VectorAdd<'data> {
     pub v1: NodeRef<'data>,
     pub v2: NodeRef<'data>,
 }
 
 #[allow(clippy::new_without_default)]
-impl<'data::Dtype> VectorAdd<'data> {
+impl<'data> VectorAdd<'data> {
     pub fn new() -> Self
-    where
-        N: dtype::Dtype + Copy + 'static,
-        f32: Into<N>,
-    {
-        let v1 = tensor_f32(
-            Array1::from(vec![1.0f32, 2.0, 3.0])
-                .mapv(|x| N::from_f32(x))
-                .into_dyn(),
-        );
-        let v2 = tensor_f32(
-            Array1::from(vec![4.0f32, 5.0, 6.0])
-                .mapv(|x| N::from_f32(x))
-                .into_dyn(),
-        );
+where {
+        let v1 = tensor_f32(Array1::from(vec![1.0f32, 2.0, 3.0]).mapv(|x| x).into_dyn());
+        let v2 = tensor_f32(Array1::from(vec![4.0f32, 5.0, 6.0]).mapv(|x| x).into_dyn());
 
         Self { v1, v2 }
     }
 }
 
-impl<'data> Module<'data, f32, NodeRef<'data, f32>, NodeRef<'data, f32>> for VectorAdd<'data, f32> {
-    fn forward(&self, _x: NodeRef<'data, f32>) -> Result<NodeRef<'data, f32>> {
+impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for VectorAdd<'data> {
+    fn forward(&self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         Ok(&self.v1 + &self.v2)
     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data, f32>> {
+    fn parameters(&self) -> Vec<NodeRef<'data>> {
         vec![]
     }
 }
 
 pub async fn run() -> Result<()> {
-    let _model: VectorAdd<f32> = VectorAdd::new();
+    let _model = VectorAdd::new();
 
     // compile the model
     // run the model

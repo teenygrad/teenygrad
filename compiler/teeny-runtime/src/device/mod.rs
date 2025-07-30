@@ -59,8 +59,8 @@ impl Device {
 
     pub fn compile<N: dtype::Dtype, T, U>(
         &self,
-        _module: Box<dyn Module<N, T, U>>,
-    ) -> Result<Box<dyn CompiledModule<N, T, U>>> {
+        _module: Box<dyn Module<T, U>>,
+    ) -> Result<Box<dyn CompiledModule<T, U>>> {
         todo!()
     }
 }

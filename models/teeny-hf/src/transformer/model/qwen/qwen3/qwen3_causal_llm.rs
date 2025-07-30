@@ -18,7 +18,6 @@
 use std::path::Path;
 
 use teeny_core::{
-    dtype::Dtype,
     graph::NodeRef,
     nn::{Module, linear::Linear},
     safetensors::SafeTensors,
@@ -39,12 +38,12 @@ pub struct Qwen3ForCausalLM<'data> {
 
 impl<'data> Qwen3ForCausalLM<'data> {
     pub fn from_pretrained<T: SafeTensors<'data>>(
-        config: Qwen3Config,
+        config: &Qwen3Config,
         cache_dir: &Path,
         safetensors: &'data T,
     ) -> Result<Self> {
         Ok(Self {
-            model: Qwen3Model::from_pretrained(&config, cache_dir, safetensors)?,
+            model: Qwen3Model::from_pretrained(config, cache_dir, safetensors)?,
             vocab_size: config.vocab_size,
             lm_head: Linear::from_pretrained("lm_head", false, safetensors)?,
         })
@@ -59,7 +58,7 @@ impl<'data> Qwen3ForCausalLM<'data> {
     }
 }
 
-impl<'data> Module<'data, N, QwenModelInputs<'data>, NodeRef<'data>> for Qwen3ForCausalLM<'data> {
+impl<'data> Module<'data, QwenModelInputs<'data>, NodeRef<'data>> for Qwen3ForCausalLM<'data> {
     fn forward(&self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data>> {
         let hidden_states = self.model.forward(model_inputs)?;
         self.lm_head.forward(hidden_states.hidden_states)

@@ -15,9 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::Dtype;
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::graph::ops::OpShape;
+use crate::graph::ops::Op;
 use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::DynamicShape;
 
@@ -32,9 +32,13 @@ impl<'data> ReluOp<'data> {
     }
 }
 
-impl<'data> OpShape for ReluOp<'data> {
+impl<'data> Op for ReluOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        self.input.shape()
+        todo!()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
     }
 }
 

@@ -16,7 +16,7 @@
  */
 
 use crate::{
-    dtype,
+    dtype::DtypeEnum,
     error::Result,
     graph::{self, NodeRef},
     nn::Module,
@@ -31,11 +31,17 @@ pub struct Linear<'data> {
 }
 
 impl<'data> Linear<'data> {
-    pub fn new(name: &str, input_dim: usize, output_dim: usize, use_bias: bool) -> Result<Self> {
-        let weight = graph::randn(shape![output_dim, input_dim]);
+    pub fn new(
+        name: &str,
+        dtype: DtypeEnum,
+        input_dim: usize,
+        output_dim: usize,
+        use_bias: bool,
+    ) -> Result<Self> {
+        let weight = graph::randn(shape![output_dim, input_dim], dtype);
 
         let bias = if use_bias {
-            Some(graph::zeros(shape![output_dim]))
+            Some(graph::zeros(shape![output_dim], dtype))
         } else {
             None
         };
@@ -69,7 +75,7 @@ impl<'data> Linear<'data> {
     }
 }
 
-impl<'data, N: dtype::Dtype> Module<'data, N, NodeRef<'data>, NodeRef<'data>> for Linear<'data> {
+impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Linear<'data> {
     fn forward(&self, x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         let a = x * &self.weight.t();
         let result = if let Some(bias) = &self.bias {

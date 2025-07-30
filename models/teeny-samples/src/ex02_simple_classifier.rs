@@ -23,9 +23,9 @@
 // use teeny_data::dataset::loader::load_csv;
 // use tracing::info;
 
-use teeny_core::{dtype, nn};
+use teeny_core::nn;
 
-pub struct SimpleClassifier<'data::Dtype> {
+pub struct SimpleClassifier<'data> {
     pub model: nn::sequential::Sequential<'data>,
 }
 
