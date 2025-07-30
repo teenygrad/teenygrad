@@ -23,21 +23,21 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct TransposeOp<'data> {
-    pub input: NodeRef<'data>,
-    pub dims: Vec<isize>,
+pub struct CatOp<'data> {
+    pub inputs: Vec<NodeRef<'data>>,
+    pub dim: isize,
 }
 
-impl<'data> TransposeOp<'data> {
-    pub fn new(input: NodeRef<'data>, dims: &[isize]) -> Self {
+impl<'data> CatOp<'data> {
+    pub fn new(inputs: &[NodeRef<'data>], dim: isize) -> Self {
         Self {
-            input,
-            dims: dims.to_vec(),
+            inputs: inputs.to_vec(),
+            dim,
         }
     }
 }
 
-impl<'data> Op for TransposeOp<'data> {
+impl<'data> Op for CatOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
@@ -47,8 +47,8 @@ impl<'data> Op for TransposeOp<'data> {
     }
 }
 
-impl<'data> From<TransposeOp<'data>> for NodeRef<'data> {
-    fn from(op: TransposeOp<'data>) -> Self {
-        NodeOp::Transpose(op).into()
+impl<'data> From<CatOp<'data>> for NodeRef<'data> {
+    fn from(op: CatOp<'data>) -> Self {
+        NodeOp::Cat(op).into()
     }
 }

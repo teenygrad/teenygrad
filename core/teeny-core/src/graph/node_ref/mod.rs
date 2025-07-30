@@ -24,9 +24,11 @@ use crate::graph::Node;
 use crate::graph::NodeOp;
 use crate::graph::ops::Op;
 use crate::graph::ops::dot::DotOp;
+use crate::graph::ops::expand::ExpandOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
+use crate::graph::ops::unsqueeze::UnsqueezeOp;
 use crate::graph::scalar;
 use crate::tensor::shape::DynamicShape;
 
@@ -45,7 +47,15 @@ impl<'data> NodeRef<'data> {
 
     pub fn t(&self) -> Self {
         NodeRef(Arc::new(Node::new(
-            NodeOp::Transpose(TransposeOp::new(self.clone())),
+            NodeOp::Transpose(TransposeOp::new(self.clone(), &[1, 0])),
+            true,
+            false,
+        )))
+    }
+
+    pub fn transpose(self, dims: &[isize]) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Transpose(TransposeOp::new(self, dims)),
             true,
             false,
         )))
@@ -54,6 +64,22 @@ impl<'data> NodeRef<'data> {
     pub fn to_dtype(self, dtype: DtypeEnum) -> Self {
         NodeRef(Arc::new(Node::new(
             NodeOp::ToDtype(ToDtype::new(self, dtype)),
+            true,
+            false,
+        )))
+    }
+
+    pub fn unsqueeze(self, dim: isize) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Unsqueeze(UnsqueezeOp::new(self, dim)),
+            true,
+            false,
+        )))
+    }
+
+    pub fn expand(self, dims: &[isize]) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Expand(ExpandOp::new(self, dims)),
             true,
             false,
         )))

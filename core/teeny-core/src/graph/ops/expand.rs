@@ -23,12 +23,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct TransposeOp<'data> {
+pub struct ExpandOp<'data> {
     pub input: NodeRef<'data>,
     pub dims: Vec<isize>,
 }
 
-impl<'data> TransposeOp<'data> {
+impl<'data> ExpandOp<'data> {
     pub fn new(input: NodeRef<'data>, dims: &[isize]) -> Self {
         Self {
             input,
@@ -37,7 +37,7 @@ impl<'data> TransposeOp<'data> {
     }
 }
 
-impl<'data> Op for TransposeOp<'data> {
+impl<'data> Op for ExpandOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
@@ -47,8 +47,8 @@ impl<'data> Op for TransposeOp<'data> {
     }
 }
 
-impl<'data> From<TransposeOp<'data>> for NodeRef<'data> {
-    fn from(op: TransposeOp<'data>) -> Self {
-        NodeOp::Transpose(op).into()
+impl<'data> From<ExpandOp<'data>> for NodeRef<'data> {
+    fn from(op: ExpandOp<'data>) -> Self {
+        NodeOp::Expand(op).into()
     }
 }

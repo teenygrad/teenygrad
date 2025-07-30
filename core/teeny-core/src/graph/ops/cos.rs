@@ -17,27 +17,22 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::{
-    graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
-};
+use crate::graph::ops::Op;
+use crate::graph::{NodeOp, NodeRef};
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
-pub struct TransposeOp<'data> {
+pub struct CosOp<'data> {
     pub input: NodeRef<'data>,
-    pub dims: Vec<isize>,
 }
 
-impl<'data> TransposeOp<'data> {
-    pub fn new(input: NodeRef<'data>, dims: &[isize]) -> Self {
-        Self {
-            input,
-            dims: dims.to_vec(),
-        }
+impl<'data> CosOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
+        Self { input }
     }
 }
 
-impl<'data> Op for TransposeOp<'data> {
+impl<'data> Op for CosOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
@@ -47,8 +42,8 @@ impl<'data> Op for TransposeOp<'data> {
     }
 }
 
-impl<'data> From<TransposeOp<'data>> for NodeRef<'data> {
-    fn from(op: TransposeOp<'data>) -> Self {
-        NodeOp::Transpose(op).into()
+impl<'data> From<CosOp<'data>> for NodeRef<'data> {
+    fn from(op: CosOp<'data>) -> Self {
+        NodeOp::Cos(op).into()
     }
 }

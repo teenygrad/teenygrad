@@ -29,7 +29,7 @@ pub trait Shape {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynamicShape {
-    pub dims: Vec<usize>,
+    dims: Vec<usize>,
 }
 
 impl DynamicShape {
@@ -37,6 +37,10 @@ impl DynamicShape {
         Self {
             dims: dims.to_vec(),
         }
+    }
+
+    pub fn dims(&self) -> &[usize] {
+        &self.dims
     }
 }
 
@@ -87,9 +91,7 @@ impl Shape for DynamicShape {
 #[macro_export]
 macro_rules! shape {
     ($($dim:expr),*) => {
-        $crate::tensor::shape::DynamicShape {
-            dims: vec![$($dim),*],
-        }
+        $crate::tensor::shape::DynamicShape::new(&[$($dim),*])
     };
 }
 

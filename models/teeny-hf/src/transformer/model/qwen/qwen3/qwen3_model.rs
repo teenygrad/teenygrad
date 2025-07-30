@@ -111,6 +111,93 @@ impl<'data> Qwen3Model<'data> {
     }
 
     fn create_causal_mask(&self) -> NodeRef<'data> {
+        //        def create_causal_mask(
+        //     config: PretrainedConfig,
+        //     input_embeds: torch.Tensor,
+        //     attention_mask: Optional[torch.Tensor],
+        //     cache_position: torch.Tensor,
+        //     past_key_values: Optional[Cache],
+        //     position_ids: Optional[torch.Tensor] = None,
+        //     or_mask_function: Optional[Callable] = None,
+        //     and_mask_function: Optional[Callable] = None,
+        // ) -> Optional[Union[torch.Tensor, BlockMask]]:
+        //     """
+        //     Create a standard causal mask based on the attention implementation used (stored in the config). If `past_key_values`
+        //     has an HybridCache structure, this function will return the mask corresponding to one of the "full_attention" layers (to align
+        //     to what is needed in the `modeling_xxx.py` files).
+
+        //     Args:
+        //         config (`PretrainedConfig`):
+        //             The model config.
+        //         input_embeds (`torch.Tensor`):
+        //             The input embeddings of shape (batch_size, query_length, hidden_dim). This is used only to infer the
+        //             batch size, query length and dtype.
+        //         attention_mask (`torch.Tensor`, optional):
+        //             The 2D attention mask corresponding to padded tokens of shape (batch_size, number_of_seen_tokens+q_length).
+        //             It can also be an already prepared 4D mask, in which case it is returned as-is.
+        //         cache_position (`torch.Tensor`):
+        //             A tensor of shape (query_length,) indicating the current indices of the input sequence elements.
+        //         past_key_values (`Cache`, optional):
+        //             The past key values, if we use a cache.
+        //         position_ids (`torch.Tensor`, optional)
+        //             A 2D tensor of shape (batch_size, query_length) indicating the positions of each token in the sequences.
+        //         or_mask_function (`Callable`, optional):
+        //             An optional mask function to combine with the causal mask function (by doing the union of both). This is
+        //             useful to easily overlay another mask on top of the causal one, for example for image tokens handling.
+        //         and_mask_function (`Callable`, optional):
+        //             An optional mask function to combine with the causal mask function (by doing the intersection of both). This is
+        //             useful to easily overlay another mask on top of the causal one, for example for image tokens handling.
+        //     """
+        //     # If we have an HybridCache structure, here we want to create the mask for the full layers
+        //     if hasattr(past_key_values, "is_sliding") and False in past_key_values.is_sliding:
+        //         layer_idx = past_key_values.is_sliding.index(False)
+        //     else:
+        //         layer_idx = 0
+
+        //     early_exit, attention_mask, packed_sequence_mask, kv_length, kv_offset = _preprocess_mask_arguments(
+        //         config, input_embeds, attention_mask, cache_position, past_key_values, position_ids, layer_idx
+        //     )
+        //     if early_exit:
+        //         return attention_mask
+
+        //     batch_size, dtype = input_embeds.shape[0], input_embeds.dtype
+        //     mask_factory_function = causal_mask_function
+        //     mask_interface = ALL_MASK_ATTENTION_FUNCTIONS[config._attn_implementation]
+
+        //     # Do not allow skip if we are compiling (this is to match BC)
+        //     # TODO: cyril -> probably revisit and remove this, but a lot of tests rely on it
+        //     allow_is_causal_skip = not past_key_values.is_compileable if past_key_values is not None else True
+
+        //     # If we detected packing format
+        //     if packed_sequence_mask is not None and _is_torch_greater_or_equal_than_2_6:
+        //         mask_factory_function = and_masks(mask_factory_function, packed_sequence_mask_function(packed_sequence_mask))
+        //         allow_is_causal_skip = False
+
+        //     # Allow slight deviations from causal mask
+        //     if or_mask_function is not None:
+        //         if not _is_torch_greater_or_equal_than_2_6:
+        //             raise ValueError("Using `or_mask_function` or `and_mask_function` arguments require torch>=2.6")
+        //         mask_factory_function = or_masks(mask_factory_function, or_mask_function)
+        //         allow_is_causal_skip = False
+        //     if and_mask_function is not None:
+        //         if not _is_torch_greater_or_equal_than_2_6:
+        //             raise ValueError("Using `or_mask_function` or `and_mask_function` arguments require torch>=2.6")
+        //         mask_factory_function = and_masks(mask_factory_function, and_mask_function)
+        //         allow_is_causal_skip = False
+
+        //     # We now create the mask
+        //     causal_mask = mask_interface(
+        //         batch_size=batch_size,
+        //         cache_position=cache_position,
+        //         kv_length=kv_length,
+        //         kv_offset=kv_offset,
+        //         mask_function=mask_factory_function,
+        //         attention_mask=attention_mask,
+        //         allow_is_causal_skip=allow_is_causal_skip,  # additional kwarg for sdpa
+        //         dtype=dtype,  # Additional kwarg for eager
+        //         config=config,  # Pass the config as well, in case someone wants to easily have their own mask_interface
+        //     )
+        //     return causal_mask
         todo!()
     }
 
@@ -167,7 +254,7 @@ impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Q
                 let embeds_shape = inputs_embeds.shape()?;
                 graph::arange(
                     Value::Usize(past_seen_tokens),
-                    Value::Usize(past_seen_tokens + embeds_shape.dims[1]),
+                    Value::Usize(past_seen_tokens + embeds_shape.dims()[1]),
                     Value::Usize(1),
                 )
             }
@@ -175,14 +262,13 @@ impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Q
 
         let position_ids = match position_ids {
             Some(ids) => ids,
-            None => graph::unsqueeze(cache_position.clone(), 0),
+            None => cache_position.clone().unsqueeze(0),
         };
 
         let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, NodeRef<'data>>::new();
         if let Some(_mask) = attention_mask {
             causal_mask_mapping
                 .insert(Qwen3AttentionType::FullAttention, self.create_causal_mask());
-            // todo create attention mask
         }
 
         if self.has_sliding_layers {
@@ -376,22 +462,30 @@ impl<'data> Qwen3RotaryEmbedding<'data> {
 impl<'data> Module<'data, NodeRef<'data>, (NodeRef<'data>, NodeRef<'data>)>
     for Qwen3RotaryEmbedding<'data>
 {
-    fn forward(&self, _position_ids: NodeRef<'data>) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
-        //    @torch.no_grad()
-        // @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
-        // def forward(self, x, position_ids):
-        //     inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
-        //     position_ids_expanded = position_ids[:, None, :].float()
+    fn forward(&self, position_ids: NodeRef<'data>) -> Result<(NodeRef<'data>, NodeRef<'data>)> {
+        let position_ids_shape = position_ids.shape()?;
+        let batch_size = position_ids_shape.dims()[0].try_into().unwrap();
 
-        //     device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
-        //     with torch.autocast(device_type=device_type, enabled=False):  # Force float32
-        //         freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-        //         emb = torch.cat((freqs, freqs), dim=-1)
-        //         cos = emb.cos() * self.attention_scaling
-        //         sin = emb.sin() * self.attention_scaling
+        let inv_freq_expanded = self
+            .inv_freq
+            .clone()
+            .unsqueeze(0)
+            .unsqueeze(1)
+            .to_dtype(DtypeEnum::F32)
+            .expand(&[batch_size, -1, 1]);
 
-        //     return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
-        todo!()
+        let position_ids_expanded = position_ids
+            .clone()
+            .unsqueeze(1)
+            .unsqueeze(-1)
+            .to_dtype(DtypeEnum::F32);
+
+        let freqs = (inv_freq_expanded.dot(&position_ids_expanded)).transpose(&[1, 2]);
+        let emb = graph::cat(&[freqs.clone(), freqs.clone()], -1);
+        let cos = graph::cos(emb.clone()).dot(&self.attention_scaling);
+        let sin = graph::sin(emb).dot(&self.attention_scaling);
+
+        Ok((cos, sin))
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data>> {

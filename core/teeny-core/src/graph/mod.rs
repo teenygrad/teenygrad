@@ -21,13 +21,17 @@ pub mod ops;
 use crate::dtype::{DtypeEnum, Value};
 use crate::error::Result;
 use crate::graph::ops::Op;
+use crate::graph::ops::cat::CatOp;
+use crate::graph::ops::cos::CosOp;
 use crate::graph::ops::dot::DotOp;
+use crate::graph::ops::expand::ExpandOp;
 use crate::graph::ops::inverse::InverseOp;
 use crate::graph::ops::ones::OnesOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::rsqrt::RSqrtOp;
 use crate::graph::ops::safetensor::SafeTensorOp;
+use crate::graph::ops::sin::SinOp;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op};
 use crate::graph::ops::to_dtype::ToDtype;
@@ -85,9 +89,13 @@ pub enum NodeOp<'data> {
     Pow(PowOp<'data>),
     SafeTensor(SafeTensorOp<'data>),
     Unsqueeze(UnsqueezeOp<'data>),
+    Expand(ExpandOp<'data>),
+    Cat(CatOp<'data>),
     ToDtype(ToDtype<'data>),
     TensorF32(TensorF32Op),
     TensorBF16(TensorBF16Op),
+    Sin(SinOp<'data>),
+    Cos(CosOp<'data>),
 }
 
 impl<'data> Op for NodeOp<'data> {
@@ -115,11 +123,15 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Pow(op) => op.shape(),
             NodeOp::SafeTensor(op) => op.shape(),
             NodeOp::Unsqueeze(op) => op.shape(),
+            NodeOp::Expand(op) => op.shape(),
+            NodeOp::Cat(op) => op.shape(),
             NodeOp::ToDtype(op) => op.shape(),
             NodeOp::TensorF32(op) => op.shape(),
             NodeOp::TensorBF16(op) => op.shape(),
             NodeOp::Dot(op) => op.shape(),
             NodeOp::RSqrt(op) => op.shape(),
+            NodeOp::Sin(op) => op.shape(),
+            NodeOp::Cos(op) => op.shape(),
         }
     }
 
@@ -147,11 +159,15 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Pow(op) => op.dtype(),
             NodeOp::SafeTensor(op) => op.dtype(),
             NodeOp::Unsqueeze(op) => op.dtype(),
+            NodeOp::Expand(op) => op.dtype(),
+            NodeOp::Cat(op) => op.dtype(),
             NodeOp::ToDtype(op) => op.dtype(),
             NodeOp::TensorF32(op) => op.dtype(),
             NodeOp::TensorBF16(op) => op.dtype(),
             NodeOp::Dot(op) => op.dtype(),
             NodeOp::RSqrt(op) => op.dtype(),
+            NodeOp::Sin(op) => op.dtype(),
+            NodeOp::Cos(op) => op.dtype(),
         }
     }
 }
@@ -214,10 +230,6 @@ pub fn arange<'data>(start: Value, end: Value, step: Value) -> NodeRef<'data> {
     ArangeOp::new(start, end, step).into()
 }
 
-pub fn unsqueeze<'data>(x: NodeRef<'data>, dim: usize) -> NodeRef<'data> {
-    UnsqueezeOp::new(x, dim).into()
-}
-
 pub fn pow<'data>(x: NodeRef<'data>, y: NodeRef<'data>) -> NodeRef<'data> {
     PowOp::new(x, y).into()
 }
@@ -248,10 +260,6 @@ pub fn log<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     LogOp::new(x.clone()).into()
 }
 
-pub fn transpose<'data>(x: &NodeRef<'data>) -> NodeRef<'data> {
-    TransposeOp::new(x.clone()).into()
-}
-
 pub fn scalar(x: Value) -> NodeRef<'static> {
     ScalarOp::new(x).into()
 }
@@ -270,6 +278,18 @@ pub fn mean<'data>(x: NodeRef<'data>, dim: Option<isize>) -> NodeRef<'data> {
 
 pub fn rsqrt<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     RSqrtOp::new(x).into()
+}
+
+pub fn cat<'data>(inputs: &[NodeRef<'data>], dim: isize) -> NodeRef<'data> {
+    CatOp::new(inputs, dim).into()
+}
+
+pub fn sin<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
+    SinOp::new(x).into()
+}
+
+pub fn cos<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
+    CosOp::new(x).into()
 }
 // use std::ops::Add;
 // use std::sync::Arc;

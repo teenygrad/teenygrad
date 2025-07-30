@@ -25,11 +25,11 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct UnsqueezeOp<'data> {
     pub input: NodeRef<'data>,
-    pub dim: usize,
+    pub dim: isize,
 }
 
 impl<'data> UnsqueezeOp<'data> {
-    pub fn new(input: NodeRef<'data>, dim: usize) -> Self {
+    pub fn new(input: NodeRef<'data>, dim: isize) -> Self {
         Self { input, dim }
     }
 }
