@@ -26,4 +26,12 @@ impl DynamicCache {
     pub fn get_sequence_length(&self) -> usize {
         todo!()
     }
+
+    pub fn is_sliding(&self) -> Option<bool> {
+        todo!()
+    }
+
+    pub fn is_compileable(&self) -> bool {
+        todo!()
+    }
 }

@@ -53,6 +53,21 @@ pub struct RopeScaling {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum Attention {
+    #[serde(rename = "flex_attention")]
+    FlexAttention,
+
+    #[serde(rename = "flash_attention_2")]
+    FlashAttention2,
+}
+
+impl Default for Attention {
+    fn default() -> Self {
+        Attention::FlashAttention2
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Qwen3Config {
     pub architectures: Vec<Architecture>,
     pub attention_bias: bool,
@@ -83,15 +98,23 @@ pub struct Qwen3Config {
     pub vocab_size: usize,
 
     #[serde(default)]
+    pub attn_implementation: Attention,
+
+    #[serde(default)]
     pub keys_to_ignore_at_inference: Vec<String>,
+
     #[serde(default)]
     pub base_model_tp_plan: HashMap<String, String>,
+
     #[serde(default)]
     pub base_model_pp_plan: HashMap<String, [Vec<String>; 2]>,
+
     #[serde(default)]
     pub layer_types: Vec<Qwen3AttentionType>,
+
     #[serde(default)]
     pub pad_token_id: Option<usize>,
+
     #[serde(default)]
     pub partial_rotary_factor: Option<f32>,
 }

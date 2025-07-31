@@ -35,7 +35,7 @@ use teeny_core::tensor::{FloatTensor, LongTensor};
 use crate::transformer::activations::get_activation;
 
 use crate::error::{Error, Result};
-use crate::transformer::model::qwen::qwen3::qwen3_config::{Qwen3Config, RopeType};
+use crate::transformer::model::qwen::qwen3::qwen3_config::{Attention, Qwen3Config, RopeType};
 use crate::transformer::util::rope_util::compute_default_rope_parameters;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -46,6 +46,8 @@ pub enum Qwen3AttentionType {
     #[serde(rename = "sliding_attention")]
     SlidingAttention,
 }
+
+type MaskFunction = fn(isize, isize, isize, isize) -> bool;
 
 pub struct Qwen3Model<'data> {
     pub vocab_size: usize,
@@ -110,100 +112,229 @@ impl<'data> Qwen3Model<'data> {
         })
     }
 
-    fn create_causal_mask(&self) -> NodeRef<'data> {
-        //        def create_causal_mask(
-        //     config: PretrainedConfig,
-        //     input_embeds: torch.Tensor,
-        //     attention_mask: Optional[torch.Tensor],
-        //     cache_position: torch.Tensor,
-        //     past_key_values: Optional[Cache],
-        //     position_ids: Optional[torch.Tensor] = None,
-        //     or_mask_function: Optional[Callable] = None,
-        //     and_mask_function: Optional[Callable] = None,
-        // ) -> Optional[Union[torch.Tensor, BlockMask]]:
-        //     """
-        //     Create a standard causal mask based on the attention implementation used (stored in the config). If `past_key_values`
-        //     has an HybridCache structure, this function will return the mask corresponding to one of the "full_attention" layers (to align
-        //     to what is needed in the `modeling_xxx.py` files).
+    fn create_causal_mask(
+        &self,
+        config: &Qwen3Config,
+        input_embeds: NodeRef<'data>,
+        attention_mask: Option<NodeRef<'data>>,
+        cache_position: NodeRef<'data>,
+        past_key_values: Option<DynamicCache>,
+        position_ids: Option<NodeRef<'data>>,
+        or_mask_function: Option<MaskFunction>,
+        and_mask_function: Option<MaskFunction>,
+    ) -> Result<Option<NodeRef<'data>>> {
+        let layer_idx = past_key_values
+            .as_ref()
+            .map(|cache| cache.get_sequence_length())
+            .unwrap_or(0);
 
-        //     Args:
-        //         config (`PretrainedConfig`):
-        //             The model config.
-        //         input_embeds (`torch.Tensor`):
-        //             The input embeddings of shape (batch_size, query_length, hidden_dim). This is used only to infer the
-        //             batch size, query length and dtype.
-        //         attention_mask (`torch.Tensor`, optional):
-        //             The 2D attention mask corresponding to padded tokens of shape (batch_size, number_of_seen_tokens+q_length).
-        //             It can also be an already prepared 4D mask, in which case it is returned as-is.
-        //         cache_position (`torch.Tensor`):
-        //             A tensor of shape (query_length,) indicating the current indices of the input sequence elements.
-        //         past_key_values (`Cache`, optional):
-        //             The past key values, if we use a cache.
-        //         position_ids (`torch.Tensor`, optional)
-        //             A 2D tensor of shape (batch_size, query_length) indicating the positions of each token in the sequences.
-        //         or_mask_function (`Callable`, optional):
-        //             An optional mask function to combine with the causal mask function (by doing the union of both). This is
-        //             useful to easily overlay another mask on top of the causal one, for example for image tokens handling.
-        //         and_mask_function (`Callable`, optional):
-        //             An optional mask function to combine with the causal mask function (by doing the intersection of both). This is
-        //             useful to easily overlay another mask on top of the causal one, for example for image tokens handling.
-        //     """
-        //     # If we have an HybridCache structure, here we want to create the mask for the full layers
-        //     if hasattr(past_key_values, "is_sliding") and False in past_key_values.is_sliding:
-        //         layer_idx = past_key_values.is_sliding.index(False)
-        //     else:
-        //         layer_idx = 0
+        let (early_exit, attention_mask, packed_sequence_mask, kv_length, kv_offset) =
+            Self::preprocess_mask_arguments(
+                config,
+                &input_embeds,
+                &attention_mask,
+                &cache_position,
+                &past_key_values,
+                &position_ids,
+                layer_idx,
+            );
 
-        //     early_exit, attention_mask, packed_sequence_mask, kv_length, kv_offset = _preprocess_mask_arguments(
-        //         config, input_embeds, attention_mask, cache_position, past_key_values, position_ids, layer_idx
-        //     )
-        //     if early_exit:
-        //         return attention_mask
+        if early_exit {
+            return Ok(attention_mask);
+        }
 
-        //     batch_size, dtype = input_embeds.shape[0], input_embeds.dtype
-        //     mask_factory_function = causal_mask_function
-        //     mask_interface = ALL_MASK_ATTENTION_FUNCTIONS[config._attn_implementation]
+        let batch_size = input_embeds.shape()?.dims()[0];
+        let dtype = input_embeds.dtype();
+        let mut mask_factory_function: MaskFunction = Self::causal_mask_function;
+        let mask_interface = match config.attn_implementation {
+            Attention::FlexAttention => Self::flash_attention_mask,
+            Attention::FlashAttention2 => Self::flex_attention_mask,
+        };
 
-        //     # Do not allow skip if we are compiling (this is to match BC)
-        //     # TODO: cyril -> probably revisit and remove this, but a lot of tests rely on it
-        //     allow_is_causal_skip = not past_key_values.is_compileable if past_key_values is not None else True
+        let mut allow_is_causal_skip = past_key_values
+            .map(|cache| !cache.is_compileable())
+            .unwrap_or(true);
 
-        //     # If we detected packing format
-        //     if packed_sequence_mask is not None and _is_torch_greater_or_equal_than_2_6:
-        //         mask_factory_function = and_masks(mask_factory_function, packed_sequence_mask_function(packed_sequence_mask))
-        //         allow_is_causal_skip = False
+        if let Some(packed_sequence_mask) = packed_sequence_mask {
+            mask_factory_function = and_masks(
+                mask_factory_function,
+                packed_sequence_mask_function(packed_sequence_mask),
+            );
+            allow_is_causal_skip = false;
+        }
 
-        //     # Allow slight deviations from causal mask
-        //     if or_mask_function is not None:
-        //         if not _is_torch_greater_or_equal_than_2_6:
-        //             raise ValueError("Using `or_mask_function` or `and_mask_function` arguments require torch>=2.6")
-        //         mask_factory_function = or_masks(mask_factory_function, or_mask_function)
-        //         allow_is_causal_skip = False
-        //     if and_mask_function is not None:
-        //         if not _is_torch_greater_or_equal_than_2_6:
-        //             raise ValueError("Using `or_mask_function` or `and_mask_function` arguments require torch>=2.6")
-        //         mask_factory_function = and_masks(mask_factory_function, and_mask_function)
-        //         allow_is_causal_skip = False
+        if let Some(mask_function) = or_mask_function {
+            mask_factory_function = or_masks(mask_factory_function, mask_function);
+            allow_is_causal_skip = false;
+        }
 
-        //     # We now create the mask
-        //     causal_mask = mask_interface(
-        //         batch_size=batch_size,
-        //         cache_position=cache_position,
-        //         kv_length=kv_length,
-        //         kv_offset=kv_offset,
-        //         mask_function=mask_factory_function,
-        //         attention_mask=attention_mask,
-        //         allow_is_causal_skip=allow_is_causal_skip,  # additional kwarg for sdpa
-        //         dtype=dtype,  # Additional kwarg for eager
-        //         config=config,  # Pass the config as well, in case someone wants to easily have their own mask_interface
-        //     )
-        //     return causal_mask
-        todo!()
+        if let Some(mask_function) = and_mask_function {
+            mask_factory_function = and_masks(mask_factory_function, mask_function);
+            allow_is_causal_skip = false;
+        }
+
+        let causal_mask = mask_interface(
+            &config,
+            batch_size,
+            cache_position,
+            kv_length,
+            kv_offset,
+            mask_factory_function,
+            attention_mask,
+            allow_is_causal_skip,
+            dtype,
+        );
+
+        Ok(causal_mask)
     }
 
     fn create_sliding_window_causal_mask(&self) -> NodeRef<'data> {
         todo!()
     }
+
+    fn preprocess_mask_arguments(
+        _config: &Qwen3Config,
+        _input_embeds: &NodeRef<'data>,
+        _attention_mask: &Option<NodeRef<'data>>,
+        _cache_position: &NodeRef<'data>,
+        _past_key_values: &Option<DynamicCache>,
+        _position_ids: &Option<NodeRef<'data>>,
+        _layer_idx: usize,
+    ) -> (
+        bool,
+        Option<NodeRef<'data>>,
+        Option<NodeRef<'data>>,
+        Option<NodeRef<'data>>,
+        Option<NodeRef<'data>>,
+    ) {
+        todo!()
+    }
+
+    fn causal_mask_function(
+        _batch_idx: isize,
+        _head_idx: isize,
+        q_idx: isize,
+        kv_idx: isize,
+    ) -> bool {
+        kv_idx <= q_idx
+    }
+
+    fn flash_attention_mask(
+        _batch_size: isize,
+        _cache_position: NodeRef<'data>,
+        _kv_length: isize,
+        _kv_offset: isize,
+        _mask_function: Option<fn(isize, isize, isize, isize) -> bool>,
+        _attention_mask: Option<NodeRef<'data>>,
+    ) -> Option<NodeRef<'data>> {
+        let _mask_function = _mask_function.unwrap_or(Self::causal_mask_function);
+        todo!()
+    }
+
+    //     def flash_attention_mask(
+    //     batch_size: int,
+    //     cache_position: torch.Tensor,
+    //     kv_length: int,
+    //     kv_offset: int = 0,
+    //     mask_function: Callable = causal_mask_function,
+    //     attention_mask: Optional[torch.Tensor] = None,
+    //     **kwargs,
+    // ):
+    //     """
+    //     Create the attention mask necesary to use FA2. Since FA2 is un-padded by definition, here we simply return
+    //     `None` if the mask is fully causal, or we return the 2D mask which will then be used to extract the seq_lens.
+    //     We just slice it in case of sliding window.
+
+    //     Args:
+    //         batch_size (`int`):
+    //             The batch size of the input sequence.
+    //         cache_position (`torch.Tensor`):
+    //             A tensor of shape (query_length,) indicating the current indices of the input sequence elements.
+    //         kv_length (`int`):
+    //             The size that the key and value states will have during the attention computation.
+    //         kv_offset (`int`, optional):
+    //             An optional offset to indicate at which first position the key and values states will refer to.
+    //         mask_function (`Callable`):
+    //             The mask factory function describing the mask pattern.
+    //         attention_mask (`torch.Tensor`, optional):
+    //             The 2D attention mask corresponding to padded tokens of shape (batch_size, number_of_seen_tokens+q_length)
+    //     """
+    //     if attention_mask is not None:
+    //         # Here we need to slice from the right if using sliding or chunked (for full attention, this is equivalent to doing nothing)
+    //         attention_mask = attention_mask[:, -kv_length:]
+    //         # We only return an actual mask if there is at least 1 padding token, otherwise we return `None` and use `is_causal` in FA2
+    //         # (note that the attention_mask is a boolean dtype here)
+    //         if attention_mask.all():
+    //             attention_mask = None
+
+    //     return attention_mask
+
+    fn flex_attention_mask(
+        _batch_size: isize,
+        _cache_position: NodeRef<'data>,
+        _kv_length: isize,
+        _kv_offset: isize,
+        _mask_function: Option<fn(isize, isize, isize, isize) -> bool>,
+        _attention_mask: Option<NodeRef<'data>>,
+    ) -> Option<NodeRef<'data>> {
+        todo!()
+    }
+
+    // def flex_attention_mask(
+    //     batch_size: int,
+    //     cache_position: torch.Tensor,
+    //     kv_length: int,
+    //     kv_offset: int = 0,
+    //     mask_function: Callable = causal_mask_function,
+    //     attention_mask: Optional[torch.Tensor] = None,
+    //     **kwargs,
+    // ) -> BlockMask:
+    //     """
+    //     Create a 4D block mask which is a compressed representation of the full 4D block causal mask. BlockMask is essential
+    //     for performant computation of flex attention. See: https://pytorch.org/blog/flexattention/
+
+    //     Args:
+    //         batch_size (`int`):
+    //             The batch size of the input sequence.
+    //         cache_position (`torch.Tensor`):
+    //             A tensor of shape (query_length,) indicating the current indices of the input sequence elements.
+    //         kv_length (`int`):
+    //             The size that the key and value states will have during the attention computation.
+    //         kv_offset (`int`, optional):
+    //             An optional offset to indicate at which first position the key and values states will refer to.
+    //         mask_function (`Callable`):
+    //             The mask factory function describing the mask pattern.
+    //         attention_mask (`torch.Tensor`, optional):
+    //             The 2D attention mask corresponding to padded tokens of shape (batch_size, number_of_seen_tokens+q_length)
+    //     """
+    //     q_length, q_offset = cache_position.shape[0], cache_position[0]
+
+    //     # Potentially add the padding 2D mask
+    //     if attention_mask is not None:
+    //         # Older torch (2.5.x) cannot handle sequences not in multiples of 128 (default block size)
+    //         # Hence we pad to multiples of this as a minimum to ensure this
+    //         pad_len = ((attention_mask.shape[1] // flex_default_block_size) + 1) * flex_default_block_size
+    //         pad_len = pad_len - attention_mask.shape[1]
+    //         if not _is_torch_greater_or_equal_than_2_6 and pad_len > 0:
+    //             attention_mask = torch.nn.functional.pad(attention_mask, value=0, pad=(0, pad_len))
+
+    //         padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset, _slice=False)
+    //         mask_function = and_masks(mask_function, padding_mask_function(padding_mask))
+
+    //     # Add the offsets on top (because flex interface only allows length, not start and end indices)
+    //     mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset)
+
+    //     # Finally create the block mask
+    //     block_mask = create_block_mask(
+    //         mask_mod=mask_function,
+    //         B=batch_size,
+    //         H=None,
+    //         Q_LEN=q_length,
+    //         KV_LEN=kv_length,
+    //         device=cache_position.device,
+    //         _compile=_is_torch_greater_or_equal_than_2_6,
+    //     )
+    //     return block_mask
 }
 
 pub struct Qwen3ModelOutput<'data> {
