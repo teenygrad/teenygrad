@@ -5,6 +5,14 @@ edition = "2024"
 
 [[bin]]
 name = "tllm"
-path = "src/main.rs"
+path = "src/server/main.rs"
+
+[[bin]]
+name = "tllm-agent"
+path = "src/agent/main.rs"
+
+[[bin]]
+name = "tllm-console"
+path = "src/console/main.rs"
 
 [dependencies]
