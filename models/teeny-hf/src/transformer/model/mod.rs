@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use ndarray::Array1;
 use teeny_core::dtype::{Dtype, Value};
-use teeny_core::graph::tensor_f32;
+use teeny_core::graph::tensor_usize;
 use teeny_core::nn::Module;
 use teeny_core::safetensors::SafeTensors;
 use teeny_data::safetensors::{FileSafeTensors, SafeTensorsMmaps};
@@ -53,12 +53,12 @@ pub fn run_qwen3<N: Dtype>(model_id: &str, cache_dir: &Path) -> Result<()> {
     let encoded_inputs = tokenizer
         .encode(text, false)
         .map_err(Error::TokenizerError)?;
-    let encoded_ids = tensor_f32(
+    let encoded_ids = tensor_usize(
         Array1::from(
             encoded_inputs
                 .get_ids()
                 .iter()
-                .map(|x| *x as f32)
+                .map(|x| *x as usize)
                 .collect::<Vec<_>>(),
         )
         .into_dyn(),

@@ -16,11 +16,15 @@
  */
 
 use derive_builder::Builder;
+use ndarray::Axis;
 
 use crate::{
     dtype::DtypeEnum,
     error::Result,
-    graph::NodeRef,
+    graph::{
+        self, NodeOp, NodeRef,
+        ops::tensor::{TensorBF16Op, TensorUsizeOp},
+    },
     nn::Module,
     tensor::{FloatTensor, LongTensor},
 };
@@ -50,16 +54,20 @@ pub struct Embedding<'data> {
 
 impl<'data> Module<'data, LongTensor<'data>, FloatTensor<'data>> for Embedding<'data> {
     fn forward(&self, input_ids: LongTensor<'data>) -> Result<FloatTensor<'data>> {
-        let _input_ids = input_ids.0;
+        let tokens = match (&input_ids.0.op, &self.weight.0.op) {
+            (
+                NodeOp::TensorUsize(TensorUsizeOp { input: ids, .. }),
+                NodeOp::TensorBF16(TensorBF16Op { input: weights, .. }),
+            ) => ids.map(|x| graph::tensor_bf16(weights.index_axis(Axis(0), *x).to_owned())),
+            _ => {
+                println!("input_ids: {:?}", input_ids.0.op);
+                println!("weight: {:?}", self.weight.0.op);
+                panic!("Unsupported input_ids and weight types");
+            }
+        };
 
-        todo!()
-        // let tokens = match &input_ids.op {
-        //     NodeOp::Tensor(TensorF32 { input, .. }) => input.map(|x| self.weight[*x]),
-        //     _ => unreachable!(),
-        // };
-
-        // println!("tokens: {tokens:?}");
-        // Ok(graph::tensor_f32(tokens))
+        println!("tokens: {tokens:?}");
+        Ok(graph::tensor_noderef(tokens))
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data>> {

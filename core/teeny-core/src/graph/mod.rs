@@ -33,7 +33,7 @@ use crate::graph::ops::rsqrt::RSqrtOp;
 use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sin::SinOp;
 use crate::graph::ops::sqrt::SqrtOp;
-use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op};
+use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op, TensorNodeRefOp, TensorUsizeOp};
 use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
@@ -92,8 +92,10 @@ pub enum NodeOp<'data> {
     Expand(ExpandOp<'data>),
     Cat(CatOp<'data>),
     ToDtype(ToDtype<'data>),
+    TensorUsize(TensorUsizeOp),
     TensorF32(TensorF32Op),
     TensorBF16(TensorBF16Op),
+    TensorNodeRef(TensorNodeRefOp<'data>),
     Sin(SinOp<'data>),
     Cos(CosOp<'data>),
 }
@@ -126,8 +128,10 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Expand(op) => op.shape(),
             NodeOp::Cat(op) => op.shape(),
             NodeOp::ToDtype(op) => op.shape(),
+            NodeOp::TensorUsize(op) => op.shape(),
             NodeOp::TensorF32(op) => op.shape(),
             NodeOp::TensorBF16(op) => op.shape(),
+            NodeOp::TensorNodeRef(op) => op.shape(),
             NodeOp::Dot(op) => op.shape(),
             NodeOp::RSqrt(op) => op.shape(),
             NodeOp::Sin(op) => op.shape(),
@@ -162,8 +166,10 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Expand(op) => op.dtype(),
             NodeOp::Cat(op) => op.dtype(),
             NodeOp::ToDtype(op) => op.dtype(),
+            NodeOp::TensorUsize(op) => op.dtype(),
             NodeOp::TensorF32(op) => op.dtype(),
             NodeOp::TensorBF16(op) => op.dtype(),
+            NodeOp::TensorNodeRef(op) => op.dtype(),
             NodeOp::Dot(op) => op.dtype(),
             NodeOp::RSqrt(op) => op.dtype(),
             NodeOp::Sin(op) => op.dtype(),
@@ -206,15 +212,15 @@ impl<'data> Node<'data> {
     }
 }
 
-pub fn zeros(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'static> {
+pub fn zeros<'data>(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'data> {
     ZerosOp::new(shape, dtype).into()
 }
 
-pub fn ones(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'static> {
+pub fn ones<'data>(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'data> {
     OnesOp::new(shape, dtype).into()
 }
 
-pub fn randn(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'static> {
+pub fn randn<'data>(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'data> {
     RandnOp::new(shape, dtype).into()
 }
 
@@ -240,8 +246,18 @@ pub fn tensor_f32<'data>(input: ndarray::Array<f32, IxDyn>) -> NodeRef<'data> {
 }
 
 #[cfg(feature = "ndarray")]
+pub fn tensor_usize<'data>(input: ndarray::Array<usize, IxDyn>) -> NodeRef<'data> {
+    TensorUsizeOp::new(input).into()
+}
+
+#[cfg(feature = "ndarray")]
 pub fn tensor_bf16<'data>(input: ndarray::Array<bf16, IxDyn>) -> NodeRef<'data> {
     TensorBF16Op::new(input).into()
+}
+
+#[cfg(feature = "ndarray")]
+pub fn tensor_noderef<'data>(input: ndarray::Array<NodeRef<'data>, IxDyn>) -> NodeRef<'data> {
+    TensorNodeRefOp::new(input).into()
 }
 
 pub fn safetensor<'data>(input: TensorView<'data>) -> NodeRef<'data> {
@@ -260,7 +276,7 @@ pub fn log<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     LogOp::new(x.clone()).into()
 }
 
-pub fn scalar(x: Value) -> NodeRef<'static> {
+pub fn scalar<'data>(x: Value) -> NodeRef<'data> {
     ScalarOp::new(x).into()
 }
 

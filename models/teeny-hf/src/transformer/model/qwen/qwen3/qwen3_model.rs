@@ -65,11 +65,23 @@ pub struct Qwen3Model<'data> {
 #[derive(Debug, Builder, Clone)]
 pub struct QwenModelInputs<'data> {
     pub input_ids: Option<LongTensor<'data>>,
+
+    #[builder(default)]
     pub attention_mask: Option<FloatTensor<'data>>,
+
+    #[builder(default)]
     pub position_ids: Option<LongTensor<'data>>,
+
+    #[builder(default)]
     pub past_key_values: Option<DynamicCache>,
+
+    #[builder(default)]
     pub inputs_embeds: Option<FloatTensor<'data>>,
+
+    #[builder(default)]
     pub use_cache: bool,
+
+    #[builder(default)]
     pub cache_position: Option<LongTensor<'data>>,
 }
 

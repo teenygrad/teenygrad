@@ -24,6 +24,8 @@ use crate::{
     shape,
 };
 
+#[derive(Debug, Clone)]
+
 pub struct Linear<'data> {
     pub name: String,
     pub weight: NodeRef<'data>,
