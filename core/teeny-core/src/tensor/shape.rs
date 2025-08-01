@@ -88,6 +88,47 @@ impl Shape for DynamicShape {
     }
 }
 
+impl Index<usize> for DynamicShape {
+    type Output = usize;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.dims[index]
+    }
+}
+
+// Implement Index for ranges
+impl Index<std::ops::Range<usize>> for DynamicShape {
+    type Output = [usize];
+
+    fn index(&self, index: std::ops::Range<usize>) -> &Self::Output {
+        &self.dims[index]
+    }
+}
+
+impl Index<std::ops::RangeFrom<usize>> for DynamicShape {
+    type Output = [usize];
+
+    fn index(&self, index: std::ops::RangeFrom<usize>) -> &Self::Output {
+        &self.dims[index]
+    }
+}
+
+impl Index<std::ops::RangeTo<usize>> for DynamicShape {
+    type Output = [usize];
+
+    fn index(&self, index: std::ops::RangeTo<usize>) -> &Self::Output {
+        &self.dims[index]
+    }
+}
+
+impl Index<std::ops::RangeFull> for DynamicShape {
+    type Output = [usize];
+
+    fn index(&self, _index: std::ops::RangeFull) -> &Self::Output {
+        &self.dims
+    }
+}
+
 #[macro_export]
 macro_rules! shape {
     ($($dim:expr),*) => {
@@ -106,5 +147,22 @@ mod tests {
 
         let result = shape1.broadcast(&shape2);
         assert_eq!(result.dims, vec![4, 5, 3]);
+    }
+
+    #[test]
+    fn test_array_access() {
+        let shape = DynamicShape::new(&[10, 20, 30, 40]);
+
+        // Single index access
+        assert_eq!(shape[0], 10);
+        assert_eq!(shape[1], 20);
+        assert_eq!(shape[2], 30);
+        assert_eq!(shape[3], 40);
+
+        // Range access
+        assert_eq!(shape[0..2], [10, 20]);
+        assert_eq!(shape[1..], [20, 30, 40]);
+        assert_eq!(shape[..3], [10, 20, 30]);
+        assert_eq!(shape[..], [10, 20, 30, 40]);
     }
 }

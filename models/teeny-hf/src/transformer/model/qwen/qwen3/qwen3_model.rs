@@ -47,9 +47,10 @@ pub enum Qwen3AttentionType {
     SlidingAttention,
 }
 
-type MaskFunction = fn(isize, isize, isize, isize) -> bool;
+type MaskFunction = fn(&Qwen3Config, isize, isize, isize, isize) -> bool;
 
 pub struct Qwen3Model<'data> {
+    pub config: Qwen3Config,
     pub vocab_size: usize,
     pub padding_idx: Option<usize>,
     pub embed_tokens: Embedding<'data>,
@@ -86,6 +87,7 @@ impl<'data> Qwen3Model<'data> {
         };
 
         Ok(Qwen3Model {
+            config: config.clone(),
             vocab_size: config.vocab_size,
             padding_idx: config.pad_token_id,
             num_hidden_layers: config.num_hidden_layers,
@@ -112,29 +114,26 @@ impl<'data> Qwen3Model<'data> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_causal_mask(
-        &self,
         config: &Qwen3Config,
-        input_embeds: NodeRef<'data>,
-        attention_mask: Option<NodeRef<'data>>,
-        cache_position: NodeRef<'data>,
-        past_key_values: Option<DynamicCache>,
+        input_embeds: &NodeRef<'data>,
+        attention_mask: &Option<NodeRef<'data>>,
+        cache_position: &NodeRef<'data>,
+        past_key_values: &Option<DynamicCache>,
         position_ids: Option<NodeRef<'data>>,
         or_mask_function: Option<MaskFunction>,
         and_mask_function: Option<MaskFunction>,
     ) -> Result<Option<NodeRef<'data>>> {
-        let layer_idx = past_key_values
-            .as_ref()
-            .map(|cache| cache.get_sequence_length())
-            .unwrap_or(0);
+        let layer_idx = 0; // AXM TODO: Use cache to determine the layer idx
 
         let (early_exit, attention_mask, packed_sequence_mask, kv_length, kv_offset) =
             Self::preprocess_mask_arguments(
                 config,
-                &input_embeds,
-                &attention_mask,
-                &cache_position,
-                &past_key_values,
+                input_embeds,
+                attention_mask,
+                cache_position,
+                past_key_values,
                 &position_ids,
                 layer_idx,
             );
@@ -152,34 +151,34 @@ impl<'data> Qwen3Model<'data> {
         };
 
         let mut allow_is_causal_skip = past_key_values
+            .as_ref()
             .map(|cache| !cache.is_compileable())
             .unwrap_or(true);
 
         if let Some(packed_sequence_mask) = packed_sequence_mask {
-            mask_factory_function = and_masks(
+            mask_factory_function = Self::and_masks(
                 mask_factory_function,
-                packed_sequence_mask_function(packed_sequence_mask),
+                Self::packed_sequence_mask_function(packed_sequence_mask),
             );
             allow_is_causal_skip = false;
         }
 
         if let Some(mask_function) = or_mask_function {
-            mask_factory_function = or_masks(mask_factory_function, mask_function);
+            mask_factory_function = Self::or_masks(mask_factory_function, mask_function);
             allow_is_causal_skip = false;
         }
 
         if let Some(mask_function) = and_mask_function {
-            mask_factory_function = and_masks(mask_factory_function, mask_function);
+            mask_factory_function = Self::and_masks(mask_factory_function, mask_function);
             allow_is_causal_skip = false;
         }
 
         let causal_mask = mask_interface(
-            &config,
             batch_size,
             cache_position,
             kv_length,
             kv_offset,
-            mask_factory_function,
+            Some(mask_factory_function),
             attention_mask,
             allow_is_causal_skip,
             dtype,
@@ -188,7 +187,17 @@ impl<'data> Qwen3Model<'data> {
         Ok(causal_mask)
     }
 
-    fn create_sliding_window_causal_mask(&self) -> NodeRef<'data> {
+    #[allow(clippy::too_many_arguments)]
+    fn create_sliding_window_causal_mask(
+        _config: &Qwen3Config,
+        _input_embeds: &NodeRef<'data>,
+        _attention_mask: &Option<NodeRef<'data>>,
+        _cache_position: &NodeRef<'data>,
+        _past_key_values: &Option<DynamicCache>,
+        _position_ids: Option<NodeRef<'data>>,
+        _or_mask_function: Option<MaskFunction>,
+        _and_mask_function: Option<MaskFunction>,
+    ) -> Result<Option<NodeRef<'data>>> {
         todo!()
     }
 
@@ -204,13 +213,14 @@ impl<'data> Qwen3Model<'data> {
         bool,
         Option<NodeRef<'data>>,
         Option<NodeRef<'data>>,
-        Option<NodeRef<'data>>,
-        Option<NodeRef<'data>>,
+        usize,
+        usize,
     ) {
         todo!()
     }
 
     fn causal_mask_function(
+        _config: &Qwen3Config,
         _batch_idx: isize,
         _head_idx: isize,
         q_idx: isize,
@@ -219,15 +229,30 @@ impl<'data> Qwen3Model<'data> {
         kv_idx <= q_idx
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn flash_attention_mask(
-        _batch_size: isize,
-        _cache_position: NodeRef<'data>,
-        _kv_length: isize,
-        _kv_offset: isize,
-        _mask_function: Option<fn(isize, isize, isize, isize) -> bool>,
+        _batch_size: usize,
+        _cache_position: &NodeRef<'data>,
+        _kv_length: usize,
+        _kv_offset: usize,
+        _mask_function: Option<MaskFunction>,
         _attention_mask: Option<NodeRef<'data>>,
+        _allow_is_causal_skip: bool,
+        _dtype: DtypeEnum,
     ) -> Option<NodeRef<'data>> {
         let _mask_function = _mask_function.unwrap_or(Self::causal_mask_function);
+        todo!()
+    }
+
+    fn or_masks(_mask_function1: MaskFunction, _mask_function2: MaskFunction) -> MaskFunction {
+        todo!()
+    }
+
+    fn and_masks(_mask_function1: MaskFunction, _mask_function2: MaskFunction) -> MaskFunction {
+        todo!()
+    }
+
+    fn packed_sequence_mask_function(_packed_sequence_mask: NodeRef<'data>) -> MaskFunction {
         todo!()
     }
 
@@ -269,13 +294,16 @@ impl<'data> Qwen3Model<'data> {
 
     //     return attention_mask
 
+    #[allow(clippy::too_many_arguments)]
     fn flex_attention_mask(
-        _batch_size: isize,
-        _cache_position: NodeRef<'data>,
-        _kv_length: isize,
-        _kv_offset: isize,
-        _mask_function: Option<fn(isize, isize, isize, isize) -> bool>,
+        _batch_size: usize,
+        _cache_position: &NodeRef<'data>,
+        _kv_length: usize,
+        _kv_offset: usize,
+        _mask_function: Option<MaskFunction>,
         _attention_mask: Option<NodeRef<'data>>,
+        _allow_is_causal_skip: bool,
+        _dtype: DtypeEnum,
     ) -> Option<NodeRef<'data>> {
         todo!()
     }
@@ -396,16 +424,36 @@ impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Q
             None => cache_position.clone().unsqueeze(0),
         };
 
-        let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, NodeRef<'data>>::new();
-        if let Some(_mask) = attention_mask {
-            causal_mask_mapping
-                .insert(Qwen3AttentionType::FullAttention, self.create_causal_mask());
+        let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, Option<NodeRef<'data>>>::new();
+        if let Some(_mask) = &attention_mask {
+            causal_mask_mapping.insert(
+                Qwen3AttentionType::FullAttention,
+                Self::create_causal_mask(
+                    &self.config,
+                    &inputs_embeds,
+                    &attention_mask,
+                    &cache_position,
+                    &past_key_values,
+                    Some(position_ids.clone()),
+                    None,
+                    None,
+                )?,
+            );
         }
 
         if self.has_sliding_layers {
             causal_mask_mapping.insert(
                 Qwen3AttentionType::SlidingAttention,
-                self.create_sliding_window_causal_mask(),
+                Self::create_sliding_window_causal_mask(
+                    &self.config,
+                    &inputs_embeds,
+                    &attention_mask,
+                    &cache_position,
+                    &past_key_values,
+                    Some(position_ids.clone()),
+                    None,
+                    None,
+                )?,
             );
         }
 
@@ -475,7 +523,7 @@ impl<'data> Qwen3DecoderLayer<'data> {
 
 struct LayerInputs<'data> {
     hidden_states: NodeRef<'data>,
-    attention_mask: NodeRef<'data>,
+    attention_mask: Option<NodeRef<'data>>,
     position_ids: NodeRef<'data>,
     past_key_values: Option<DynamicCache>,
     use_cache: bool,

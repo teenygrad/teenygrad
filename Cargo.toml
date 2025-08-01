@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = [ "core/*", "compiler/*", "models/*", "support/*", "drivers/*", "interop/*", "utilities/*"]
+members = [ "core/*", "compiler/*", "models/*", "support/*", "drivers/*", "interop/*", "utilities/*", "apps/*"]
 
 [workspace.dependencies]
 protobuf = "3.7.2"

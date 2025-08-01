@@ -52,19 +52,14 @@ pub struct RopeScaling {
     pub rope_type: RopeType,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
 pub enum Attention {
     #[serde(rename = "flex_attention")]
     FlexAttention,
 
     #[serde(rename = "flash_attention_2")]
+    #[default]
     FlashAttention2,
-}
-
-impl Default for Attention {
-    fn default() -> Self {
-        Attention::FlashAttention2
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

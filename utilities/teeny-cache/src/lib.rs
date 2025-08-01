@@ -27,7 +27,7 @@ impl DynamicCache {
         todo!()
     }
 
-    pub fn is_sliding(&self) -> Option<bool> {
+    pub fn is_sliding(&self) -> Option<&[(usize, bool)]> {
         todo!()
     }
 
