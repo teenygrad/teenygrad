@@ -17,9 +17,10 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::tensor::shape::DynamicShape;
 use crate::{
     graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
+    tensor::shape::Shape,
 };
 
 #[derive(Debug, Clone)]
@@ -36,7 +37,13 @@ impl<'data> MeanOp<'data> {
 
 impl<'data> Op for MeanOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        let shape = self.input.shape()?;
+        if let Some(dim) = self.dim {
+            let new_shape = shape.unsqueeze(dim);
+            Ok(new_shape)
+        } else {
+            Ok(shape)
+        }
     }
 
     fn dtype(&self) -> DtypeEnum {

@@ -17,6 +17,7 @@
 
 use crate::graph::NodeRef;
 
+#[macro_use]
 pub mod shape;
 
 pub type LongTensor<'data> = NodeRef<'data>;

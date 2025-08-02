@@ -16,6 +16,7 @@
  */
 
 use crate::error::Result;
+
 use crate::{
     dtype::DtypeEnum,
     graph::{NodeOp, NodeRef, ops::Op},
@@ -36,7 +37,7 @@ impl ZerosOp {
 
 impl Op for ZerosOp {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(self.shape.clone())
     }
 
     fn dtype(&self) -> DtypeEnum {

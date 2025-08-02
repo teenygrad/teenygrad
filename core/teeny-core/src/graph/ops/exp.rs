@@ -34,7 +34,7 @@ impl<'data> ExpOp<'data> {
 
 impl<'data> Op for ExpOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {

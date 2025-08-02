@@ -25,3 +25,4 @@ pub mod safetensors;
 pub mod storage;
 pub mod tensor;
 pub mod util;
+pub mod value;

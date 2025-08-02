@@ -17,9 +17,10 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::tensor::shape::DynamicShape;
 use crate::{
     graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
+    tensor::shape::Shape,
 };
 
 #[derive(Debug, Clone)]
@@ -39,7 +40,9 @@ impl<'data> TransposeOp<'data> {
 
 impl<'data> Op for TransposeOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        let shape = self.input.shape()?;
+        let new_shape = shape.permute(&self.dims);
+        Ok(new_shape)
     }
 
     fn dtype(&self) -> DtypeEnum {

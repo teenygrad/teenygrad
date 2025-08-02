@@ -15,8 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::{DtypeEnum, Value};
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::value::Value;
 use crate::{
     graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
@@ -35,7 +36,7 @@ impl ScalarOp {
 
 impl Op for ScalarOp {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(DynamicShape::new(&[]))
     }
 
     fn dtype(&self) -> DtypeEnum {

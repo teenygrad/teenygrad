@@ -17,6 +17,7 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
+
 use crate::{
     graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
@@ -36,7 +37,7 @@ impl OnesOp {
 
 impl Op for OnesOp {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(self.shape.clone())
     }
 
     fn dtype(&self) -> DtypeEnum {

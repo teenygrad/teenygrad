@@ -34,7 +34,7 @@ impl<'data> SinOp<'data> {
 
 impl<'data> Op for SinOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {

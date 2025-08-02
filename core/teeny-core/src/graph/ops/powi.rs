@@ -15,12 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::{DtypeEnum, Value};
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::{
-    graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
-};
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::DynamicShape;
+use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub struct Powi<'data> {
@@ -36,7 +35,7 @@ impl<'data> Powi<'data> {
 
 impl<'data> Op for Powi<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {

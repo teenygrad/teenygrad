@@ -16,7 +16,7 @@
  */
 
 use derive_builder::Builder;
-use ndarray::Axis;
+use ndarray::Array2;
 
 use crate::{
     dtype::DtypeEnum,
@@ -58,7 +58,9 @@ impl<'data> Module<'data, LongTensor<'data>, FloatTensor<'data>> for Embedding<'
             (
                 NodeOp::TensorUsize(TensorUsizeOp { input: ids, .. }),
                 NodeOp::TensorBF16(TensorBF16Op { input: weights, .. }),
-            ) => ids.map(|x| graph::tensor_bf16(weights.index_axis(Axis(0), *x).to_owned())),
+            ) => Array2::from_shape_fn((ids.len(), self.embedding_dim), |(i, j)| {
+                weights[[ids[i], j]]
+            }),
             _ => {
                 println!("input_ids: {:?}", input_ids.0.op);
                 println!("weight: {:?}", self.weight.0.op);
@@ -66,11 +68,10 @@ impl<'data> Module<'data, LongTensor<'data>, FloatTensor<'data>> for Embedding<'
             }
         };
 
-        println!("tokens: {tokens:?}");
-        Ok(graph::tensor_noderef(tokens))
+        Ok(graph::tensor_bf16(tokens.into_dyn()))
     }
 
     fn parameters(&self) -> Vec<NodeRef<'data>> {
-        todo!()
+        vec![self.weight.clone()]
     }
 }

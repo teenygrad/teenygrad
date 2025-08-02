@@ -36,7 +36,7 @@ impl<'data> SafeTensorOp<'data> {
 
 impl<'data> Op for SafeTensorOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(DynamicShape::from(self.input.0.shape()))
     }
 
     fn dtype(&self) -> DtypeEnum {

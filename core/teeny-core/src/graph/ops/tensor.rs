@@ -18,44 +18,12 @@
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
 
-#[cfg(feature = "ndarray")]
 use crate::num::bf16::bf16;
 use crate::{dtype::DtypeEnum, error::Result};
 use crate::{
     graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
 };
-
-/*--------------------------------- TensorNodeRef ---------------------------------*/
-
-#[derive(Debug, Clone)]
-pub struct TensorNodeRefOp<'data> {
-    #[cfg(feature = "ndarray")]
-    pub input: ndarray::Array<NodeRef<'data>, IxDyn>,
-}
-
-impl<'data> TensorNodeRefOp<'data> {
-    #[cfg(feature = "ndarray")]
-    pub fn new(input: ndarray::Array<NodeRef<'data>, IxDyn>) -> Self {
-        Self { input }
-    }
-}
-
-impl<'data> Op for TensorNodeRefOp<'data> {
-    fn shape(&self) -> Result<DynamicShape> {
-        todo!()
-    }
-
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
-    }
-}
-
-impl<'data> From<TensorNodeRefOp<'data>> for NodeRef<'data> {
-    fn from(op: TensorNodeRefOp<'data>) -> Self {
-        NodeOp::TensorNodeRef(op).into()
-    }
-}
 
 /*--------------------------------- TensorUsize ---------------------------------*/
 
@@ -74,11 +42,11 @@ impl TensorUsizeOp {
 
 impl Op for TensorUsizeOp {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(DynamicShape::from(self.input.shape()))
     }
 
     fn dtype(&self) -> DtypeEnum {
-        todo!()
+        DtypeEnum::Usize
     }
 }
 
@@ -105,11 +73,11 @@ impl TensorF32Op {
 
 impl Op for TensorF32Op {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(DynamicShape::from(self.input.shape()))
     }
 
     fn dtype(&self) -> DtypeEnum {
-        todo!()
+        DtypeEnum::F32
     }
 }
 
@@ -136,11 +104,11 @@ impl TensorBF16Op {
 
 impl Op for TensorBF16Op {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(DynamicShape::from(self.input.shape()))
     }
 
     fn dtype(&self) -> DtypeEnum {
-        todo!()
+        DtypeEnum::Bf16
     }
 }
 

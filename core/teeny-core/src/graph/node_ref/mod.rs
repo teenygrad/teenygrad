@@ -18,7 +18,6 @@
 use std::sync::Arc;
 
 use crate::dtype::DtypeEnum;
-use crate::dtype::Value;
 use crate::error::Result;
 use crate::graph::Node;
 use crate::graph::NodeOp;
@@ -31,6 +30,7 @@ use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
 use crate::graph::scalar;
 use crate::tensor::shape::DynamicShape;
+use crate::value::Value;
 
 pub mod add;
 pub mod div;

@@ -18,7 +18,7 @@
 pub mod node_ref;
 pub mod ops;
 
-use crate::dtype::{DtypeEnum, Value};
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::graph::ops::Op;
 use crate::graph::ops::cat::CatOp;
@@ -33,7 +33,7 @@ use crate::graph::ops::rsqrt::RSqrtOp;
 use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sin::SinOp;
 use crate::graph::ops::sqrt::SqrtOp;
-use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op, TensorNodeRefOp, TensorUsizeOp};
+use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op, TensorUsizeOp};
 use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
@@ -43,6 +43,7 @@ use crate::safetensors::{SafeTensors, TensorView};
 use crate::tensor::shape::DynamicShape;
 
 use crate::util::unique_id::UniqueId;
+use crate::value::Value;
 
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
@@ -95,7 +96,6 @@ pub enum NodeOp<'data> {
     TensorUsize(TensorUsizeOp),
     TensorF32(TensorF32Op),
     TensorBF16(TensorBF16Op),
-    TensorNodeRef(TensorNodeRefOp<'data>),
     Sin(SinOp<'data>),
     Cos(CosOp<'data>),
 }
@@ -104,8 +104,8 @@ impl<'data> Op for NodeOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         match self {
             NodeOp::Scalar(op) => op.shape(),
-            NodeOp::Add(op) => op.shape(),
             NodeOp::Sub(op) => op.shape(),
+            NodeOp::Add(op) => op.shape(),
             NodeOp::Mult(op) => op.shape(),
             NodeOp::Div(op) => op.shape(),
             NodeOp::Neg(op) => op.shape(),
@@ -131,7 +131,6 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::TensorUsize(op) => op.shape(),
             NodeOp::TensorF32(op) => op.shape(),
             NodeOp::TensorBF16(op) => op.shape(),
-            NodeOp::TensorNodeRef(op) => op.shape(),
             NodeOp::Dot(op) => op.shape(),
             NodeOp::RSqrt(op) => op.shape(),
             NodeOp::Sin(op) => op.shape(),
@@ -169,7 +168,6 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::TensorUsize(op) => op.dtype(),
             NodeOp::TensorF32(op) => op.dtype(),
             NodeOp::TensorBF16(op) => op.dtype(),
-            NodeOp::TensorNodeRef(op) => op.dtype(),
             NodeOp::Dot(op) => op.dtype(),
             NodeOp::RSqrt(op) => op.dtype(),
             NodeOp::Sin(op) => op.dtype(),
@@ -232,7 +230,7 @@ pub fn exp<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     ExpOp::new(x).into()
 }
 
-pub fn arange<'data>(start: Value, end: Value, step: Value) -> NodeRef<'data> {
+pub fn arange<'data, N: Into<Value>>(start: N, end: N, step: N) -> NodeRef<'data> {
     ArangeOp::new(start, end, step).into()
 }
 
@@ -253,11 +251,6 @@ pub fn tensor_usize<'data>(input: ndarray::Array<usize, IxDyn>) -> NodeRef<'data
 #[cfg(feature = "ndarray")]
 pub fn tensor_bf16<'data>(input: ndarray::Array<bf16, IxDyn>) -> NodeRef<'data> {
     TensorBF16Op::new(input).into()
-}
-
-#[cfg(feature = "ndarray")]
-pub fn tensor_noderef<'data>(input: ndarray::Array<NodeRef<'data>, IxDyn>) -> NodeRef<'data> {
-    TensorNodeRefOp::new(input).into()
 }
 
 pub fn safetensor<'data>(input: TensorView<'data>) -> NodeRef<'data> {

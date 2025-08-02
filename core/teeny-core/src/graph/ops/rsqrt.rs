@@ -17,10 +17,8 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::{
-    graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
-};
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct RSqrtOp<'data> {
@@ -35,7 +33,7 @@ impl<'data> RSqrtOp<'data> {
 
 impl<'data> Op for RSqrtOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {

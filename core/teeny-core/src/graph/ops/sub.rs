@@ -19,7 +19,7 @@ use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::graph::ops::Op;
 use crate::graph::{NodeOp, NodeRef};
-use crate::tensor::shape::DynamicShape;
+use crate::tensor::shape::{DynamicShape, Shape};
 
 #[derive(Debug, Clone)]
 pub struct SubOp<'data> {
@@ -35,7 +35,7 @@ impl<'data> SubOp<'data> {
 
 impl<'data> Op for SubOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        Ok(self.lhs.shape()?.broadcast(&self.rhs.shape()?))
     }
 
     fn dtype(&self) -> DtypeEnum {

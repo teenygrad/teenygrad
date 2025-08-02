@@ -17,10 +17,8 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::{
-    graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
-};
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::{DynamicShape, Shape};
 
 #[derive(Debug, Clone)]
 pub struct UnsqueezeOp<'data> {
@@ -36,11 +34,12 @@ impl<'data> UnsqueezeOp<'data> {
 
 impl<'data> Op for UnsqueezeOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        let shape = self.input.shape()?;
+        Ok(shape.unsqueeze(self.dim))
     }
 
     fn dtype(&self) -> DtypeEnum {
-        todo!()
+        self.input.dtype()
     }
 }
 

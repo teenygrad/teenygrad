@@ -22,7 +22,7 @@ use std::sync::Arc;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use teeny_cache::DynamicCache;
-use teeny_core::dtype::{DtypeEnum, Value};
+use teeny_core::dtype::DtypeEnum;
 use teeny_core::graph::ops::Op;
 use teeny_core::graph::{self, NodeRef};
 use teeny_core::nn::Module;
@@ -31,6 +31,7 @@ use teeny_core::nn::{embedding::Embedding, linear::Linear};
 use teeny_core::num::bf16::bf16;
 use teeny_core::safetensors::SafeTensors;
 use teeny_core::tensor::{FloatTensor, LongTensor};
+use teeny_core::value::Value;
 
 use crate::transformer::activations::get_activation;
 
@@ -433,7 +434,7 @@ impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Q
 
         let position_ids = match position_ids {
             Some(ids) => ids,
-            None => cache_position.clone().unsqueeze(0),
+            None => cache_position.clone().unsqueeze(1),
         };
 
         let mut causal_mask_mapping = HashMap::<Qwen3AttentionType, Option<NodeRef<'data>>>::new();
@@ -660,8 +661,8 @@ impl<'data> Module<'data, NodeRef<'data>, (NodeRef<'data>, NodeRef<'data>)>
         let inv_freq_expanded = self
             .inv_freq
             .clone()
-            .unsqueeze(0)
             .unsqueeze(1)
+            .unsqueeze(-1)
             .to_dtype(DtypeEnum::F32)
             .expand(&[batch_size, -1, 1]);
 

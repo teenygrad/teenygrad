@@ -52,13 +52,6 @@ pub trait Dtype: 'static + Default + Clone + Copy + Zero + std::fmt::Debug {
     fn to_u32(self) -> u32;
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
-    Usize(usize),
-    F32(f32),
-    Bf16(bf16),
-}
-
 impl Dtype for usize {
     const DTYPE: DtypeEnum = DtypeEnum::Usize;
 

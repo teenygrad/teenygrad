@@ -20,9 +20,10 @@ use std::marker::PhantomData;
 use derive_builder::Builder;
 
 use crate::{
-    dtype::{Dtype, Value},
+    dtype::Dtype,
     graph::{NodeRef, zeros},
     nn::param::Param,
+    value::Value,
 };
 
 #[derive(Builder, Debug, Clone)]

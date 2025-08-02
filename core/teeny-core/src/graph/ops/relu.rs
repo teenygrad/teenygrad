@@ -34,7 +34,7 @@ impl<'data> ReluOp<'data> {
 
 impl<'data> Op for ReluOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {

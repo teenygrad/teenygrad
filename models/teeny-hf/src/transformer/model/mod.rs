@@ -19,10 +19,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ndarray::Array1;
-use teeny_core::dtype::{Dtype, Value};
+use teeny_core::dtype::Dtype;
 use teeny_core::graph::tensor_usize;
 use teeny_core::nn::Module;
 use teeny_core::safetensors::SafeTensors;
+use teeny_core::value::Value;
 use teeny_data::safetensors::{FileSafeTensors, SafeTensorsMmaps};
 use teeny_nlp::tokenizer::Message;
 

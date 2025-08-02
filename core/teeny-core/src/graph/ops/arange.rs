@@ -15,8 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::{DtypeEnum, Value};
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::value::Value;
 use crate::{
     graph::{NodeOp, NodeRef, ops::Op},
     tensor::shape::DynamicShape,
@@ -30,14 +31,19 @@ pub struct ArangeOp {
 }
 
 impl ArangeOp {
-    pub fn new(start: Value, end: Value, step: Value) -> Self {
-        Self { start, end, step }
+    pub fn new<N: Into<Value>>(start: N, end: N, step: N) -> Self {
+        Self {
+            start: start.into(),
+            end: end.into(),
+            step: step.into(),
+        }
     }
 }
 
 impl Op for ArangeOp {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        let len = 0; // = (self.end - self.start) / self.step;
+        Ok(DynamicShape::new(&[len]))
     }
 
     fn dtype(&self) -> DtypeEnum {

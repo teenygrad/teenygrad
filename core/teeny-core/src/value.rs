@@ -15,38 +15,29 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::DtypeEnum;
-use crate::error::Result;
+use crate::num::bf16::bf16;
 
-use crate::{
-    graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
-};
-
-#[derive(Debug, Clone)]
-pub struct RandnOp {
-    pub shape: DynamicShape,
-    pub dtype: DtypeEnum,
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Usize(usize),
+    F32(f32),
+    Bf16(bf16),
 }
 
-impl RandnOp {
-    pub fn new(shape: DynamicShape, dtype: DtypeEnum) -> Self {
-        Self { shape, dtype }
+impl From<usize> for Value {
+    fn from(value: usize) -> Self {
+        Value::Usize(value)
     }
 }
 
-impl Op for RandnOp {
-    fn shape(&self) -> Result<DynamicShape> {
-        Ok(self.shape.clone())
-    }
-
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
+impl From<f32> for Value {
+    fn from(value: f32) -> Self {
+        Value::F32(value)
     }
 }
 
-impl<'data> From<RandnOp> for NodeRef<'data> {
-    fn from(op: RandnOp) -> Self {
-        NodeOp::Randn(op).into()
+impl From<bf16> for Value {
+    fn from(value: bf16) -> Self {
+        Value::Bf16(value)
     }
 }

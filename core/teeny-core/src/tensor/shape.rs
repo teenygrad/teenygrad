@@ -25,6 +25,10 @@ pub trait Shape {
     fn dims(&self) -> Self::Dims;
 
     fn broadcast(&self, other: &Self) -> Self;
+
+    fn unsqueeze(&self, axis: isize) -> Self;
+
+    fn permute(&self, dims: &[isize]) -> Self;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +88,25 @@ impl Shape for DynamicShape {
         }
 
         result.reverse();
+        Self { dims: result }
+    }
+
+    fn unsqueeze(&self, axis: isize) -> Self {
+        let mut dims = self.dims.clone();
+        match axis {
+            -1 => dims.push(1),
+            1 => dims.insert(0, 1),
+            _ => panic!("Invalid axis: {axis}"),
+        }
+
+        DynamicShape::new(&dims)
+    }
+
+    fn permute(&self, dims: &[isize]) -> Self {
+        let mut result = Vec::new();
+        for dim in dims {
+            result.push(self.dims[*dim as usize]);
+        }
         Self { dims: result }
     }
 }

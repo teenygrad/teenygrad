@@ -16,10 +16,7 @@
  */
 
 use ndarray::Array1;
-use teeny_core::{
-    dtype::Value,
-    graph::{NodeRef, arange, inverse, pow, tensor_f32},
-};
+use teeny_core::graph::{NodeRef, arange, inverse, pow, tensor_f32};
 
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 
@@ -37,8 +34,7 @@ pub fn compute_default_rope_parameters<'data>(
     let attention_factor = tensor_f32(Array1::from(vec![1.0]).into_dyn()); // Unused in this type of RoPE
     let inv_freq = inverse(pow(
         base,
-        arange(Value::F32(0.0), Value::F32(dim), Value::F32(2.0))
-            / tensor_f32(Array1::from(vec![dim]).into_dyn()),
+        arange::<f32>(0.0, dim, 2.0) / tensor_f32(Array1::from(vec![dim]).into_dyn()),
     ));
 
     (inv_freq, attention_factor)
