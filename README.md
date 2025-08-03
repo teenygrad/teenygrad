@@ -48,25 +48,15 @@ Our goals:
 
 ## Roadmap
 
-- ✅ 0.0.0/Jun 30 - Compile Rust based kernel to PTX (nVidia 3090)
-  - Integrated Rust/LLVM/Triton to generate PTX for arbitrary MLIR modules
-- v0.1.0/Jul 31 - Run Qwen3 1.7B model on CPU
+### 2025/Q3 - Torch Inductor in Rust
 
-- v0.2.0/Aug 31 - Run Qwen3 1.7B model on nVidia 3090
-
-- v0.3.0/Sep 30 - Compile Triton kernels to SPIR-V
-
-- v0.4.0/Oct 31 - Run Qwen3 1.7B model on Rockchip 3588 using Vulkan/SPIR-V
-
-- v0.5.0/Dec 31 - Run Deepseek R1 on Moorethreads MT-4000
+### 2025/Q4 - tLLM: vLLM inference but 2x faster
 
 - 2026 and beyond
-  - Q1: Training/Pytorch JIT
-  - Q2: Teeny LLM server
-  - Q3: Performance optimization
-  - Q4: Sparsity/Quantization support
-  - Q1: Observability/metrics
-  - Q2: Model storage/versioning
+  - Q1: Performance optimization
+  - Q2: Embedded Support
+  - Q3: Sparsity/Quantization support
+  - Q4: Observability/metrics
 
 ## FAQ
 
@@ -91,4 +81,3 @@ We embrace open source because it fosters collaboration and learning—not to mo
 - Startups and companies with under $3M annual revenue qualify for a free commercial license. Once the project is stable and ready for usage, we will provide a simple web interface for you to get a license.
 
 - Free commercial license holders get a basic level of support, companies on higher tiers get additional support options as well as an SLA.
-
