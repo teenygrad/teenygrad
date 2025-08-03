@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::{Add, Div, Sub};
+
 use crate::num::bf16::bf16;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,5 +41,45 @@ impl From<f32> for Value {
 impl From<bf16> for Value {
     fn from(value: bf16) -> Self {
         Value::Bf16(value)
+    }
+}
+
+/* -------------------- ARITHMETIC OPERATIONS -------------------- */
+
+impl Add<&Value> for &Value {
+    type Output = Value;
+
+    fn add(self, other: &Value) -> Value {
+        match (self, other) {
+            (Value::Usize(a), Value::Usize(b)) => Value::Usize(a + b),
+            (Value::F32(a), Value::F32(b)) => Value::F32(a + b),
+            _ => todo!(),
+        }
+    }
+}
+
+impl Sub<&Value> for &Value {
+    type Output = Value;
+
+    fn sub(self, other: &Value) -> Value {
+        match (self, other) {
+            (Value::Usize(a), Value::Usize(b)) => Value::Usize(a - b),
+            (Value::F32(a), Value::F32(b)) => Value::F32(a - b),
+            (Value::Bf16(_), Value::Bf16(_)) => todo!(),
+            _ => todo!(),
+        }
+    }
+}
+
+impl Div<&Value> for &Value {
+    type Output = Value;
+
+    fn div(self, other: &Value) -> Value {
+        match (self, other) {
+            (Value::Usize(a), Value::Usize(b)) => Value::Usize(a / b),
+            (Value::F32(a), Value::F32(b)) => Value::F32(a / b),
+            (Value::Bf16(_), Value::Bf16(_)) => todo!(),
+            _ => todo!(),
+        }
     }
 }

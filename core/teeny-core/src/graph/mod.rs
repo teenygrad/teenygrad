@@ -18,7 +18,7 @@
 pub mod node_ref;
 pub mod ops;
 
-use crate::dtype::DtypeEnum;
+use crate::dtype::{self, DtypeEnum};
 use crate::error::Result;
 use crate::graph::ops::Op;
 use crate::graph::ops::cat::CatOp;
@@ -230,7 +230,7 @@ pub fn exp<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     ExpOp::new(x).into()
 }
 
-pub fn arange<'data, N: Into<Value>>(start: N, end: N, step: N) -> NodeRef<'data> {
+pub fn arange<'data, N: dtype::Dtype + Into<Value>>(start: N, end: N, step: N) -> NodeRef<'data> {
     ArangeOp::new(start, end, step).into()
 }
 

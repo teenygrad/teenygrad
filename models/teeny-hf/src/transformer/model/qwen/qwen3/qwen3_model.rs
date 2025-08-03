@@ -425,9 +425,9 @@ impl<'data> Module<'data, QwenModelInputs<'data>, Qwen3ModelOutput<'data>> for Q
 
                 let embeds_shape = inputs_embeds.shape()?;
                 graph::arange(
-                    Value::Usize(past_seen_tokens),
-                    Value::Usize(past_seen_tokens + embeds_shape.dims()[1]),
-                    Value::Usize(1),
+                    past_seen_tokens,
+                    past_seen_tokens + embeds_shape.dims()[1],
+                    1,
                 )
             }
         };
