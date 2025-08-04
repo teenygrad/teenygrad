@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Index;
 use std::sync::Arc;
 
 use crate::dtype::DtypeEnum;
@@ -22,9 +23,15 @@ use crate::error::Result;
 use crate::graph::Node;
 use crate::graph::NodeOp;
 use crate::graph::ops::Op;
+use crate::graph::ops::cumsum::CumSumOp;
+use crate::graph::ops::diff::DiffOp;
 use crate::graph::ops::dot::DotOp;
+use crate::graph::ops::eq::EqOp;
 use crate::graph::ops::expand::ExpandOp;
+use crate::graph::ops::neq::NotEqOp;
 use crate::graph::ops::powi::Powi;
+use crate::graph::ops::slice::SliceOp;
+use crate::graph::ops::slice::TensorIndex;
 use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
@@ -100,6 +107,46 @@ impl<'data> NodeRef<'data> {
             false,
         )))
     }
+
+    pub fn slice(&self, indices: &[TensorIndex]) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Slice(SliceOp::new(self, indices.to_vec())),
+            true,
+            false,
+        )))
+    }
+
+    pub fn diff(&self, dummy_value: &NodeRef<'data>, dim: isize) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Diff(DiffOp::new(self.clone(), dummy_value.clone(), dim)),
+            true,
+            false,
+        )))
+    }
+
+    pub fn cumsum(&self, dim: isize) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::CumSum(CumSumOp::new(self.clone(), dim)),
+            true,
+            false,
+        )))
+    }
+
+    pub fn neq(&self, other: &NodeRef<'data>) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::NotEq(NotEqOp::new(self.clone(), other.clone())),
+            true,
+            false,
+        )))
+    }
+
+    pub fn eq(&self, other: &NodeRef<'data>) -> Self {
+        NodeRef(Arc::new(Node::new(
+            NodeOp::Eq(EqOp::new(self.clone(), other.clone())),
+            true,
+            false,
+        )))
+    }
 }
 
 impl<'data> From<NodeOp<'data>> for NodeRef<'data> {
@@ -110,7 +157,7 @@ impl<'data> From<NodeOp<'data>> for NodeRef<'data> {
 
 impl<'data> From<f32> for NodeRef<'data> {
     fn from(value: f32) -> Self {
-        scalar(Value::F32(value))
+        scalar(value)
     }
 }
 
@@ -121,5 +168,13 @@ impl<'data> Op for NodeRef<'data> {
 
     fn dtype(&self) -> DtypeEnum {
         self.0.op.dtype()
+    }
+}
+
+impl<'data> Index<(usize, usize)> for NodeRef<'data> {
+    type Output = NodeRef<'data>;
+
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        todo!()
     }
 }

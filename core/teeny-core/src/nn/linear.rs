@@ -78,7 +78,7 @@ impl<'data> Linear<'data> {
 }
 
 impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Linear<'data> {
-    fn forward(&self, x: NodeRef<'data>) -> Result<NodeRef<'data>> {
+    fn forward(&mut self, x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         let a = x * &self.weight.t();
         let result = if let Some(bias) = &self.bias {
             a + bias

@@ -23,15 +23,21 @@ use crate::error::Result;
 use crate::graph::ops::Op;
 use crate::graph::ops::cat::CatOp;
 use crate::graph::ops::cos::CosOp;
+use crate::graph::ops::cumsum::CumSumOp;
+use crate::graph::ops::diff::DiffOp;
 use crate::graph::ops::dot::DotOp;
+use crate::graph::ops::eq::EqOp;
 use crate::graph::ops::expand::ExpandOp;
+use crate::graph::ops::index::IndexOp;
 use crate::graph::ops::inverse::InverseOp;
+use crate::graph::ops::neq::NotEqOp;
 use crate::graph::ops::ones::OnesOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::rsqrt::RSqrtOp;
 use crate::graph::ops::safetensor::SafeTensorOp;
 use crate::graph::ops::sin::SinOp;
+use crate::graph::ops::slice::SliceOp;
 use crate::graph::ops::sqrt::SqrtOp;
 use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op, TensorUsizeOp};
 use crate::graph::ops::to_dtype::ToDtype;
@@ -98,6 +104,12 @@ pub enum NodeOp<'data> {
     TensorBF16(TensorBF16Op),
     Sin(SinOp<'data>),
     Cos(CosOp<'data>),
+    Slice(SliceOp<'data>),
+    Diff(DiffOp<'data>),
+    CumSum(CumSumOp<'data>),
+    NotEq(NotEqOp<'data>),
+    Eq(EqOp<'data>),
+    Index(IndexOp<'data>),
 }
 
 impl<'data> Op for NodeOp<'data> {
@@ -135,6 +147,12 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::RSqrt(op) => op.shape(),
             NodeOp::Sin(op) => op.shape(),
             NodeOp::Cos(op) => op.shape(),
+            NodeOp::Slice(op) => op.shape(),
+            NodeOp::Diff(op) => op.shape(),
+            NodeOp::CumSum(op) => op.shape(),
+            NodeOp::NotEq(op) => op.shape(),
+            NodeOp::Eq(op) => op.shape(),
+            NodeOp::Index(op) => op.shape(),
         }
     }
 
@@ -172,6 +190,12 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::RSqrt(op) => op.dtype(),
             NodeOp::Sin(op) => op.dtype(),
             NodeOp::Cos(op) => op.dtype(),
+            NodeOp::Slice(op) => op.dtype(),
+            NodeOp::Diff(op) => op.dtype(),
+            NodeOp::CumSum(op) => op.dtype(),
+            NodeOp::NotEq(op) => op.dtype(),
+            NodeOp::Eq(op) => op.dtype(),
+            NodeOp::Index(op) => op.dtype(),
         }
     }
 }
@@ -269,8 +293,8 @@ pub fn log<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     LogOp::new(x.clone()).into()
 }
 
-pub fn scalar<'data>(x: Value) -> NodeRef<'data> {
-    ScalarOp::new(x).into()
+pub fn scalar<'data, N: dtype::Dtype + Into<Value>>(x: N) -> NodeRef<'data> {
+    ScalarOp::new(x.into()).into()
 }
 
 pub fn relu<'data>(x: NodeRef<'data>) -> NodeRef<'data> {

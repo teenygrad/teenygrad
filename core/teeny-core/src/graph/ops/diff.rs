@@ -15,40 +15,31 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::{self, DtypeEnum};
+use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::value::Value;
-use crate::{
-    graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
-};
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::DynamicShape;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ArangeOp {
-    pub start: Value,
-    pub end: Value,
-    pub step: Value,
+#[derive(Debug, Clone)]
+pub struct DiffOp<'data> {
+    pub input: NodeRef<'data>,
+    pub dummy_value: NodeRef<'data>,
+    pub dim: isize,
 }
 
-impl ArangeOp {
-    pub fn new<N: dtype::Dtype + Into<Value>>(start: N, end: N, step: N) -> Self {
+impl<'data> DiffOp<'data> {
+    pub fn new(input: NodeRef<'data>, dummy_value: NodeRef<'data>, dim: isize) -> Self {
         Self {
-            start: start.into(),
-            end: end.into(),
-            step: step.into(),
+            input,
+            dummy_value,
+            dim,
         }
     }
 }
 
-impl Op for ArangeOp {
+impl<'data> Op for DiffOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        let len = &(&self.end - &self.start) / &self.step;
-
-        match len {
-            Value::Usize(len) => Ok(DynamicShape::new(&[len])),
-            Value::F32(len) => Ok(DynamicShape::new(&[len as usize])),
-            _ => todo!(),
-        }
+        self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {
@@ -56,8 +47,8 @@ impl Op for ArangeOp {
     }
 }
 
-impl<'data> From<ArangeOp> for NodeRef<'data> {
-    fn from(op: ArangeOp) -> Self {
-        NodeOp::Arange(op).into()
+impl<'data> From<DiffOp<'data>> for NodeRef<'data> {
+    fn from(op: DiffOp<'data>) -> Self {
+        NodeOp::Diff(op).into()
     }
 }

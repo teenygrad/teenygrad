@@ -45,7 +45,7 @@ pub fn run_qwen3<N: Dtype>(model_id: &str, cache_dir: &Path) -> Result<()> {
 
     let tokenizer_config = TokenizerConfig::from_pretrained(model_id, cache_dir)?;
     let tokenizer = tokenizer::from_pretrained(model_id, cache_dir)?;
-    let model = transformer::model::from_pretrained(model_id, cache_dir, &safetensors)?;
+    let mut model = transformer::model::from_pretrained(model_id, cache_dir, &safetensors)?;
 
     let prompt = "Give me a short introduction to large language model.";
     let messages = [Message::new("user", prompt)];

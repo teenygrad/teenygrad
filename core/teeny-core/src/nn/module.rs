@@ -19,7 +19,7 @@ use crate::error::Result;
 use crate::graph::NodeRef;
 
 pub trait Module<'data, T, U> {
-    fn forward(&self, x: T) -> Result<U>;
+    fn forward(&mut self, x: T) -> Result<U>;
 
     fn parameters(&self) -> Vec<NodeRef<'data>>;
 }

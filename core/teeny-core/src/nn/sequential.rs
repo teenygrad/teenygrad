@@ -32,10 +32,10 @@ impl<'data> Sequential<'data> {
 }
 
 impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Sequential<'data> {
-    fn forward(&self, input: NodeRef<'data>) -> Result<NodeRef<'data>> {
+    fn forward(&mut self, input: NodeRef<'data>) -> Result<NodeRef<'data>> {
         let mut output = input.clone();
 
-        for layer in &self.layers {
+        for layer in &mut self.layers {
             output = layer.forward(output)?;
         }
 

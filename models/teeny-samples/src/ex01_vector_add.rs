@@ -41,7 +41,7 @@ where {
 }
 
 impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for VectorAdd<'data> {
-    fn forward(&self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
+    fn forward(&mut self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         Ok(&self.v1 + &self.v2)
     }
 

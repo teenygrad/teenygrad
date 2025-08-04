@@ -15,22 +15,35 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[macro_export]
-macro_rules! sequential {
-    ($($layer:expr),*) => {
-        $crate::nn::sequential::Sequential::new(vec![$(Box::new($layer)),*])
-    };
+use crate::dtype::DtypeEnum;
+use crate::error::Result;
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::DynamicShape;
+
+#[derive(Debug, Clone)]
+pub struct CumSumOp<'data> {
+    pub input: NodeRef<'data>,
+    pub dim: isize,
 }
 
-#[macro_export]
-macro_rules! slice {
-    ($($index:expr),+) => {
-         {
-             let indices = vec![
-                 $(Into::<$crate::graph::ops::slice::TensorIndex>::into($index)),+
-             ];
+impl<'data> CumSumOp<'data> {
+    pub fn new(input: NodeRef<'data>, dim: isize) -> Self {
+        Self { input, dim }
+    }
+}
 
-             indices
-         }
-     };
+impl<'data> Op for CumSumOp<'data> {
+    fn shape(&self) -> Result<DynamicShape> {
+        self.input.shape()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
+    }
+}
+
+impl<'data> From<CumSumOp<'data>> for NodeRef<'data> {
+    fn from(op: CumSumOp<'data>) -> Self {
+        NodeOp::CumSum(op).into()
+    }
 }

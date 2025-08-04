@@ -27,7 +27,7 @@ use crate::{error::Result, transformer::config::model_config::HiddenAct};
 pub struct Silu;
 
 impl<'data> Module<'data, NodeRef<'data>, NodeRef<'data>> for Silu {
-    fn forward(&self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
+    fn forward(&mut self, _x: NodeRef<'data>) -> Result<NodeRef<'data>> {
         todo!()
     }
 

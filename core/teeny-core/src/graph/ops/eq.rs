@@ -15,22 +15,35 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[macro_export]
-macro_rules! sequential {
-    ($($layer:expr),*) => {
-        $crate::nn::sequential::Sequential::new(vec![$(Box::new($layer)),*])
-    };
+use crate::dtype::DtypeEnum;
+use crate::error::Result;
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::DynamicShape;
+
+#[derive(Debug, Clone)]
+pub struct EqOp<'data> {
+    pub lhs: NodeRef<'data>,
+    pub rhs: NodeRef<'data>,
 }
 
-#[macro_export]
-macro_rules! slice {
-    ($($index:expr),+) => {
-         {
-             let indices = vec![
-                 $(Into::<$crate::graph::ops::slice::TensorIndex>::into($index)),+
-             ];
+impl<'data> EqOp<'data> {
+    pub fn new(lhs: NodeRef<'data>, rhs: NodeRef<'data>) -> Self {
+        Self { lhs, rhs }
+    }
+}
 
-             indices
-         }
-     };
+impl<'data> Op for EqOp<'data> {
+    fn shape(&self) -> Result<DynamicShape> {
+        self.lhs.shape()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
+    }
+}
+
+impl<'data> From<EqOp<'data>> for NodeRef<'data> {
+    fn from(op: EqOp<'data>) -> Self {
+        NodeOp::Eq(op).into()
+    }
 }

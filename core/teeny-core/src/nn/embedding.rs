@@ -53,7 +53,7 @@ pub struct Embedding<'data> {
 }
 
 impl<'data> Module<'data, LongTensor<'data>, FloatTensor<'data>> for Embedding<'data> {
-    fn forward(&self, input_ids: LongTensor<'data>) -> Result<FloatTensor<'data>> {
+    fn forward(&mut self, input_ids: LongTensor<'data>) -> Result<FloatTensor<'data>> {
         let tokens = match (&input_ids.0.op, &self.weight.0.op) {
             (
                 NodeOp::TensorUsize(TensorUsizeOp { input: ids, .. }),

@@ -23,7 +23,7 @@ use crate::{
     tensor::shape::DynamicShape,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ZerosOp {
     pub shape: DynamicShape,
     pub dtype: DtypeEnum,
