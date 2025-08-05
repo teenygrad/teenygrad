@@ -17,7 +17,6 @@
 
 use std::ops::BitAnd;
 use std::ops::BitOr;
-use std::ops::Index;
 use std::sync::Arc;
 
 use crate::dtype::DtypeEnum;
@@ -35,6 +34,7 @@ use crate::graph::ops::index::IndexOp;
 use crate::graph::ops::leq::LeqOp;
 use crate::graph::ops::neq::NotEqOp;
 use crate::graph::ops::or::OrOp;
+use crate::graph::ops::pad::PadOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::slice::SliceOp;
 use crate::graph::ops::slice::TensorIndex;
@@ -86,7 +86,7 @@ impl<'data> NodeRef<'data> {
         NodeOp::Dot(DotOp::new(self.clone(), other.clone())).into()
     }
 
-    pub fn slice(&self, indices: &[TensorIndex]) -> Self {
+    pub fn slice(&self, indices: &[TensorIndex<'data>]) -> Self {
         NodeOp::Slice(SliceOp::new(self, indices.to_vec())).into()
     }
 
@@ -110,8 +110,12 @@ impl<'data> NodeRef<'data> {
         NodeOp::Leq(LeqOp::new(self.clone(), other.clone())).into()
     }
 
-    pub fn index(&self, index: usize) -> Self {
-        NodeOp::Index(IndexOp::new(self.clone(), vec![index])).into()
+    pub fn index(&self, indices: &[usize]) -> Self {
+        NodeOp::Index(IndexOp::new(self.clone(), indices.to_vec())).into()
+    }
+
+    pub fn pad(&self, pad: &[usize]) -> Self {
+        NodeOp::Pad(PadOp::new(self.clone(), pad.to_vec())).into()
     }
 }
 

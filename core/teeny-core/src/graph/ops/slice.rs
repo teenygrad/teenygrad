@@ -24,7 +24,7 @@ use crate::tensor::shape::DynamicShape;
 
 /// Enum representing different types of slice indices
 #[derive(Debug, Clone)]
-pub enum TensorIndex {
+pub enum TensorIndex<'data> {
     Single(isize),
     Range(Range<isize>),
     RangeFrom(RangeFrom<isize>),
@@ -32,58 +32,65 @@ pub enum TensorIndex {
     RangeFull(RangeFull),
     RangeInclusive(RangeInclusive<isize>),
     RangeToInclusive(RangeToInclusive<isize>),
+    NodeRef(NodeRef<'data>),
 }
 
-impl From<isize> for TensorIndex {
+impl<'data> From<isize> for TensorIndex<'data> {
     fn from(value: isize) -> Self {
         TensorIndex::Single(value)
     }
 }
 
-impl From<Range<isize>> for TensorIndex {
+impl<'data> From<Range<isize>> for TensorIndex<'data> {
     fn from(value: Range<isize>) -> Self {
         TensorIndex::Range(value)
     }
 }
 
-impl From<RangeFrom<isize>> for TensorIndex {
+impl<'data> From<RangeFrom<isize>> for TensorIndex<'data> {
     fn from(value: RangeFrom<isize>) -> Self {
         TensorIndex::RangeFrom(value)
     }
 }
 
-impl From<RangeTo<isize>> for TensorIndex {
+impl<'data> From<RangeTo<isize>> for TensorIndex<'data> {
     fn from(value: RangeTo<isize>) -> Self {
         TensorIndex::RangeTo(value)
     }
 }
 
-impl From<RangeFull> for TensorIndex {
+impl<'data> From<RangeFull> for TensorIndex<'data> {
     fn from(value: RangeFull) -> Self {
         TensorIndex::RangeFull(value)
     }
 }
 
-impl From<RangeInclusive<isize>> for TensorIndex {
+impl<'data> From<RangeInclusive<isize>> for TensorIndex<'data> {
     fn from(value: RangeInclusive<isize>) -> Self {
         TensorIndex::RangeInclusive(value)
     }
 }
 
-impl From<RangeToInclusive<isize>> for TensorIndex {
+impl<'data> From<RangeToInclusive<isize>> for TensorIndex<'data> {
     fn from(value: RangeToInclusive<isize>) -> Self {
         TensorIndex::RangeToInclusive(value)
+    }
+}
+
+impl<'data> From<NodeRef<'data>> for TensorIndex<'data> {
+    fn from(value: NodeRef<'data>) -> Self {
+        TensorIndex::NodeRef(value)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SliceOp<'data> {
     node: NodeRef<'data>,
-    indices: Vec<TensorIndex>,
+    indices: Vec<TensorIndex<'data>>,
 }
 
 impl<'data> SliceOp<'data> {
-    pub fn new(node: &NodeRef<'data>, indices: Vec<TensorIndex>) -> Self {
+    pub fn new(node: &NodeRef<'data>, indices: Vec<TensorIndex<'data>>) -> Self {
         Self {
             node: node.clone(),
             indices,

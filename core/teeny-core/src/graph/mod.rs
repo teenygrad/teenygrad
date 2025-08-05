@@ -35,6 +35,7 @@ use crate::graph::ops::leq::LeqOp;
 use crate::graph::ops::neq::NotEqOp;
 use crate::graph::ops::ones::OnesOp;
 use crate::graph::ops::or::OrOp;
+use crate::graph::ops::pad::PadOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::rsqrt::RSqrtOp;
@@ -116,6 +117,7 @@ pub enum NodeOp<'data> {
     Index(IndexOp<'data>),
     And(AndOp<'data>),
     Or(OrOp<'data>),
+    Pad(PadOp<'data>),
 }
 
 impl<'data> Op for NodeOp<'data> {
@@ -162,6 +164,7 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Index(op) => op.shape(),
             NodeOp::And(op) => op.shape(),
             NodeOp::Or(op) => op.shape(),
+            NodeOp::Pad(op) => op.shape(),
         }
     }
 
@@ -208,6 +211,7 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Index(op) => op.dtype(),
             NodeOp::And(op) => op.dtype(),
             NodeOp::Or(op) => op.dtype(),
+            NodeOp::Pad(op) => op.dtype(),
         }
     }
 }

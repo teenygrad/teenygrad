@@ -18,7 +18,7 @@
 use teeny_cache::DynamicCache;
 use teeny_core::dtype::DtypeEnum;
 use teeny_core::graph::ops::Op;
-use teeny_core::graph::{NodeOp, NodeRef, scalar};
+use teeny_core::graph::{arange, scalar, NodeOp, NodeRef};
 use teeny_core::num::bool::Bool;
 use teeny_core::slice;
 
@@ -120,25 +120,25 @@ pub fn create_sliding_window_causal_mask<'data>(
 pub fn flex_attention_mask<'data>(
     _batch_size: usize,
     cache_position: &NodeRef<'data>,
-    _kv_length: usize,
-    _kv_offset: usize,
-    _mask_function: Option<MaskFunction>,
+    kv_length: usize,
+    kv_offset: usize,
+    mask_function: Option<MaskFunction<'data>>,
     attention_mask: Option<NodeRef<'data>>,
     _allow_is_causal_skip: bool,
     _dtype: DtypeEnum,
 ) -> Result<Option<NodeRef<'data>>> {
     let q_length = cache_position.shape()?.dims()[0];
-    let q_offset = cache_position.index(0);
+    let q_offset = cache_position.index(&[0]);
 
-    if let Some(attention_mask) = attention_mask {
-        //    pad_len = ((attention_mask.shape[1] / flex_default_block_size) + 1) * flex_default_block_size
-        //     pad_len = pad_len - attention_mask.shape[1]
-        //     if not _is_torch_greater_or_equal_than_2_6 and pad_len > 0:
-        //         attention_mask = torch.nn.functional.pad(attention_mask, value=0, pad=(0, pad_len))
-
-        //     padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset, _slice=False)
-        //     mask_function = and_masks(mask_function, padding_mask_function(padding_mask))
-        //
+    let mask_function = if let Some(attention_mask) = attention_mask {
+        let flex_default_block_size = 128;
+        let mask_dims = attention_mask.shape()?.dims();
+        let pad_len = ((mask_dims[1] / flex_default_block_size) + 1) * flex_default_block_size;
+        let pad_len = pad_len - mask_dims[1];
+        let padding_mask = prepare_padding_mask(Some(attention_mask), kv_length, kv_offset, false)?;
+         and_masks(vec![mask_function, padding_mask_function(padding_mask)])
+    } else {
+      todo!()
     }
 
     //   mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset)
@@ -156,6 +156,56 @@ pub fn flex_attention_mask<'data>(
 
     todo!()
 }
+
+fn padding_mask_function<'data>(padding_mask: NodeRef<'data>) -> MaskFunction<'data> {
+  let inner_mask = move  |_config: &Qwen3Config, batch_idx: usize, _head_idx: usize, _q_idx: usize, kv_idx: usize| {
+    padding_mask.index(&[batch_idx, kv_idx])
+  };
+
+  Box::new(inner_mask)
+}
+
+
+fn prepare_padding_mask<'data>(
+    attention_mask: Option<NodeRef<'data>>,
+    kv_length: usize,
+    kv_offset: usize,
+    slice: bool,
+) -> Result<Option<NodeRef<'data>>> {
+    let mut local_padding_mask = attention_mask.clone();
+    if let Some(attention_mask) = attention_mask {
+      let padding_length = kv_length + kv_offset - attention_mask.shape()?.last();
+      if padding_length > 0 {
+        local_padding_mask = Some(attention_mask.pad(&[0, padding_length]));
+      }
+      if slice {
+        let mask_indices = arange(kv_offset, kv_offset + kv_length, 1);
+        local_padding_mask = local_padding_mask.map(|mask| mask.slice(&slice!(.., mask_indices)));
+      }
+    }
+    
+    Ok(local_padding_mask)
+  }
+//     attention_mask: Optional[torch.Tensor], kv_length: int, kv_offset: int, _slice: bool = True
+// ) -> Optional[torch.Tensor]:
+//     """
+//     From the 2D attention mask, prepare the correct padding mask to use by potentially padding it, and slicing
+//     according to the `kv_offset` if `_slice` is `True`.
+//     """
+//     local_padding_mask = attention_mask
+//     if attention_mask is not None:
+//         # Pad it if necesary
+//         if (padding_length := kv_length + kv_offset - attention_mask.shape[-1]) > 0:
+//             local_padding_mask = torch.nn.functional.pad(attention_mask, (0, padding_length))
+//         # For flex, we should not slice them, only use an offset
+//         if _slice:
+//             # Equivalent to: `local_padding_mask = attention_mask[:, kv_offset : kv_offset + kv_length]`,
+//             # but without data-dependent slicing (i.e. torch.compile friendly)
+//             mask_indices = torch.arange(kv_length, device=local_padding_mask.device)
+//             mask_indices += kv_offset
+//             local_padding_mask = local_padding_mask[:, mask_indices]
+//     return local_padding_mask
+
 
 #[allow(clippy::type_complexity)]
 pub fn preprocess_mask_arguments<'a, 'data>(
@@ -263,7 +313,10 @@ pub fn or_masks<'data>(mask_functions: Vec<MaskFunction<'data>>) -> MaskFunction
     Box::new(and_mask)
 }
 
-pub fn and_masks<'data>(mask_functions: Vec<MaskFunction<'data>>) -> MaskFunction<'data> {
+pub fn and_masks<'data, T: IntoIterator<Item = MaskFunction<'data>>>(
+    mask_functions: T,
+) -> MaskFunction<'data> {
+    let mask_functions = mask_functions.into_iter().collect::<Vec<_>>();
     let and_mask = move |_config: &Qwen3Config,
                          _batch_idx: usize,
                          _head_idx: usize,
@@ -288,7 +341,9 @@ pub fn packed_sequence_mask_function<'data>(
                            q_idx: usize,
                            kv_idx: usize|
           -> NodeRef<'data> {
-        packed_sequence_mask[(batch_idx, q_idx)].eq(&packed_sequence_mask[(batch_idx, kv_idx)])
+        packed_sequence_mask
+            .index(&[batch_idx, q_idx])
+            .eq(&packed_sequence_mask.index(&[batch_idx, kv_idx]))
     };
 
     Box::new(inner_mask)

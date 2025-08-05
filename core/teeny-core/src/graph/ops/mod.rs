@@ -41,6 +41,7 @@ pub mod neg;
 pub mod neq;
 pub mod ones;
 pub mod or;
+pub mod pad;
 pub mod pow;
 pub mod powi;
 pub mod randn;

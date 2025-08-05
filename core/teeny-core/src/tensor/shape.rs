@@ -46,6 +46,10 @@ impl DynamicShape {
     pub fn dims(&self) -> &[usize] {
         &self.dims
     }
+
+    pub fn last(&self) -> usize {
+        self.dims[self.dims.len() - 1]
+    }
 }
 
 impl<T: AsRef<[usize]>> From<T> for DynamicShape {
