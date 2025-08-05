@@ -4,7 +4,7 @@
 
 ## Community
 
-[Join our Discord](https://discord.gg/UyEUqmY36k) to discuss the project or seek help with any issues.
+[Join our Discord](https://discord.gg/FG65XyPzuD) to discuss the project or seek help with any issues.
 
 ## Teenygrad Vision
 
