@@ -15,9 +15,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod qwen3_causal_llm;
-pub mod qwen3_config;
-pub mod qwen3_model;
+use serde::{Deserialize, Serialize};
 
-pub(crate) mod attention;
-pub(crate) mod mask;
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
+pub enum Attention {
+    #[serde(rename = "flex_attention")]
+    FlexAttention,
+
+    #[serde(rename = "flash_attention_2")]
+    #[default]
+    FlashAttention2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Qwen3AttentionType {
+    #[serde(rename = "full_attention")]
+    FullAttention,
+
+    #[serde(rename = "sliding_attention")]
+    SlidingAttention,
+}

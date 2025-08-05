@@ -21,6 +21,7 @@ pub mod ops;
 use crate::dtype::{self, DtypeEnum};
 use crate::error::Result;
 use crate::graph::ops::Op;
+use crate::graph::ops::and::AndOp;
 use crate::graph::ops::cat::CatOp;
 use crate::graph::ops::cos::CosOp;
 use crate::graph::ops::cumsum::CumSumOp;
@@ -30,8 +31,10 @@ use crate::graph::ops::eq::EqOp;
 use crate::graph::ops::expand::ExpandOp;
 use crate::graph::ops::index::IndexOp;
 use crate::graph::ops::inverse::InverseOp;
+use crate::graph::ops::leq::LeqOp;
 use crate::graph::ops::neq::NotEqOp;
 use crate::graph::ops::ones::OnesOp;
+use crate::graph::ops::or::OrOp;
 use crate::graph::ops::pow::PowOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::rsqrt::RSqrtOp;
@@ -109,7 +112,10 @@ pub enum NodeOp<'data> {
     CumSum(CumSumOp<'data>),
     NotEq(NotEqOp<'data>),
     Eq(EqOp<'data>),
+    Leq(LeqOp<'data>),
     Index(IndexOp<'data>),
+    And(AndOp<'data>),
+    Or(OrOp<'data>),
 }
 
 impl<'data> Op for NodeOp<'data> {
@@ -152,7 +158,10 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::CumSum(op) => op.shape(),
             NodeOp::NotEq(op) => op.shape(),
             NodeOp::Eq(op) => op.shape(),
+            NodeOp::Leq(op) => op.shape(),
             NodeOp::Index(op) => op.shape(),
+            NodeOp::And(op) => op.shape(),
+            NodeOp::Or(op) => op.shape(),
         }
     }
 
@@ -195,7 +204,10 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::CumSum(op) => op.dtype(),
             NodeOp::NotEq(op) => op.dtype(),
             NodeOp::Eq(op) => op.dtype(),
+            NodeOp::Leq(op) => op.dtype(),
             NodeOp::Index(op) => op.dtype(),
+            NodeOp::And(op) => op.dtype(),
+            NodeOp::Or(op) => op.dtype(),
         }
     }
 }

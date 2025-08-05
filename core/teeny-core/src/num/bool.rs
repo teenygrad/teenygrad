@@ -20,48 +20,48 @@ use std::ops::Add;
 use crate::dtype::{Dtype, DtypeEnum};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-#[allow(non_camel_case_types)]
-pub struct bf16(pub half::bf16);
-impl num_traits::Zero for bf16 {
+pub struct Bool(pub bool);
+
+impl num_traits::Zero for Bool {
     fn zero() -> Self {
-        bf16(half::bf16::ZERO)
+        Bool(false)
     }
 
     fn is_zero(&self) -> bool {
-        half::bf16::ZERO.eq(&self.0)
+        !self.0
     }
 }
 
-impl Add for bf16 {
+impl From<bool> for Bool {
+    fn from(value: bool) -> Self {
+        Bool(value)
+    }
+}
+
+impl Add for Bool {
     type Output = Self;
 
-    fn add(self, other: Self) -> Self {
-        bf16(self.0 + other.0)
+    fn add(self, _other: Self) -> Self {
+        unimplemented!()
     }
 }
 
-impl Dtype for bf16 {
-    const DTYPE: DtypeEnum = DtypeEnum::Bf16;
+impl Dtype for Bool {
+    const DTYPE: DtypeEnum = DtypeEnum::Bool;
 
-    fn from_f32(value: f32) -> Self {
-        bf16(half::bf16::from_f32(value))
+    fn from_f32(_value: f32) -> Self {
+        unimplemented!()
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        unimplemented!()
     }
 
     fn to_f32(self) -> f32 {
-        self.0.to_f32()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Vec<Self> {
-        let mut data = Vec::new();
-        assert_eq!(bytes.len() % 2, 0);
-        for i in 0..bytes.len() / 2 {
-            let value = half::bf16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
-            data.push(bf16(value));
-        }
-        data
+        unimplemented!()
     }
 
     fn to_u32(self) -> u32 {
-        self.0.to_f32() as u32
+        unimplemented!()
     }
 }

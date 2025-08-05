@@ -15,9 +15,35 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod qwen3_causal_llm;
-pub mod qwen3_config;
-pub mod qwen3_model;
+use crate::dtype::DtypeEnum;
+use crate::error::Result;
+use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::tensor::shape::DynamicShape;
 
-pub(crate) mod attention;
-pub(crate) mod mask;
+#[derive(Debug, Clone)]
+pub struct AndOp<'data> {
+    pub lhs: NodeRef<'data>,
+    pub rhs: NodeRef<'data>,
+}
+
+impl<'data> AndOp<'data> {
+    pub fn new(lhs: NodeRef<'data>, rhs: NodeRef<'data>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
+impl<'data> Op for AndOp<'data> {
+    fn shape(&self) -> Result<DynamicShape> {
+        self.lhs.shape()
+    }
+
+    fn dtype(&self) -> DtypeEnum {
+        todo!()
+    }
+}
+
+impl<'data> From<AndOp<'data>> for NodeRef<'data> {
+    fn from(op: AndOp<'data>) -> Self {
+        NodeOp::And(op).into()
+    }
+}

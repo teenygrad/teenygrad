@@ -18,12 +18,14 @@
 use std::ops::{Add, Div, Sub};
 
 use crate::num::bf16::bf16;
+use crate::num::bool::Bool;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Usize(usize),
     F32(f32),
     Bf16(bf16),
+    Bool(Bool),
 }
 
 impl From<usize> for Value {
@@ -41,6 +43,12 @@ impl From<f32> for Value {
 impl From<bf16> for Value {
     fn from(value: bf16) -> Self {
         Value::Bf16(value)
+    }
+}
+
+impl From<Bool> for Value {
+    fn from(value: Bool) -> Self {
+        Value::Bool(value)
     }
 }
 

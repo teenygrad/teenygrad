@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::BitAnd;
+use std::ops::BitOr;
 use std::ops::Index;
 use std::sync::Arc;
 
@@ -23,12 +25,16 @@ use crate::error::Result;
 use crate::graph::Node;
 use crate::graph::NodeOp;
 use crate::graph::ops::Op;
+use crate::graph::ops::and::AndOp;
 use crate::graph::ops::cumsum::CumSumOp;
 use crate::graph::ops::diff::DiffOp;
 use crate::graph::ops::dot::DotOp;
 use crate::graph::ops::eq::EqOp;
 use crate::graph::ops::expand::ExpandOp;
+use crate::graph::ops::index::IndexOp;
+use crate::graph::ops::leq::LeqOp;
 use crate::graph::ops::neq::NotEqOp;
+use crate::graph::ops::or::OrOp;
 use crate::graph::ops::powi::Powi;
 use crate::graph::ops::slice::SliceOp;
 use crate::graph::ops::slice::TensorIndex;
@@ -53,99 +59,59 @@ impl<'data> NodeRef<'data> {
     }
 
     pub fn t(&self) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Transpose(TransposeOp::new(self.clone(), &[1, 0])),
-            true,
-            false,
-        )))
+        NodeOp::Transpose(TransposeOp::new(self.clone(), &[1, 0])).into()
     }
 
     pub fn transpose(self, dims: &[isize]) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Transpose(TransposeOp::new(self, dims)),
-            true,
-            false,
-        )))
+        NodeOp::Transpose(TransposeOp::new(self, dims)).into()
     }
 
     pub fn to_dtype(self, dtype: DtypeEnum) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::ToDtype(ToDtype::new(self, dtype)),
-            true,
-            false,
-        )))
+        NodeOp::ToDtype(ToDtype::new(self, dtype)).into()
     }
 
     pub fn unsqueeze(self, dim: isize) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Unsqueeze(UnsqueezeOp::new(self, dim)),
-            true,
-            false,
-        )))
+        NodeOp::Unsqueeze(UnsqueezeOp::new(self, dim)).into()
     }
 
     pub fn expand(self, dims: &[isize]) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Expand(ExpandOp::new(self, dims)),
-            true,
-            false,
-        )))
+        NodeOp::Expand(ExpandOp::new(self, dims)).into()
     }
 
     pub fn powi(&self, exp: Value) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Powi(Powi::new(self.clone(), exp)),
-            true,
-            false,
-        )))
+        NodeOp::Powi(Powi::new(self.clone(), exp)).into()
     }
 
     pub fn dot(&self, other: &NodeRef<'data>) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Dot(DotOp::new(self.clone(), other.clone())),
-            true,
-            false,
-        )))
+        NodeOp::Dot(DotOp::new(self.clone(), other.clone())).into()
     }
 
     pub fn slice(&self, indices: &[TensorIndex]) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Slice(SliceOp::new(self, indices.to_vec())),
-            true,
-            false,
-        )))
+        NodeOp::Slice(SliceOp::new(self, indices.to_vec())).into()
     }
 
     pub fn diff(&self, dummy_value: &NodeRef<'data>, dim: isize) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Diff(DiffOp::new(self.clone(), dummy_value.clone(), dim)),
-            true,
-            false,
-        )))
+        NodeOp::Diff(DiffOp::new(self.clone(), dummy_value.clone(), dim)).into()
     }
 
     pub fn cumsum(&self, dim: isize) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::CumSum(CumSumOp::new(self.clone(), dim)),
-            true,
-            false,
-        )))
+        NodeOp::CumSum(CumSumOp::new(self.clone(), dim)).into()
     }
 
     pub fn neq(&self, other: &NodeRef<'data>) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::NotEq(NotEqOp::new(self.clone(), other.clone())),
-            true,
-            false,
-        )))
+        NodeOp::NotEq(NotEqOp::new(self.clone(), other.clone())).into()
     }
 
     pub fn eq(&self, other: &NodeRef<'data>) -> Self {
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Eq(EqOp::new(self.clone(), other.clone())),
-            true,
-            false,
-        )))
+        NodeOp::Eq(EqOp::new(self.clone(), other.clone())).into()
+    }
+
+    pub fn leq(&self, other: &NodeRef<'data>) -> Self {
+        NodeOp::Leq(LeqOp::new(self.clone(), other.clone())).into()
+    }
+
+    pub fn index(&self, index: usize) -> Self {
+        NodeOp::Index(IndexOp::new(self.clone(), vec![index])).into()
     }
 }
 
@@ -171,10 +137,18 @@ impl<'data> Op for NodeRef<'data> {
     }
 }
 
-impl<'data> Index<(usize, usize)> for NodeRef<'data> {
+impl<'data> BitAnd<NodeRef<'data>> for NodeRef<'data> {
     type Output = NodeRef<'data>;
 
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
-        todo!()
+    fn bitand(self, rhs: NodeRef<'data>) -> Self::Output {
+        NodeOp::And(AndOp::new(self, rhs)).into()
+    }
+}
+
+impl<'data> BitOr<NodeRef<'data>> for NodeRef<'data> {
+    type Output = NodeRef<'data>;
+
+    fn bitor(self, rhs: NodeRef<'data>) -> Self::Output {
+        NodeOp::Or(OrOp::new(self, rhs)).into()
     }
 }

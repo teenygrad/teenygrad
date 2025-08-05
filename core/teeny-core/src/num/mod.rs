@@ -16,3 +16,6 @@
  */
 
 pub mod bf16;
+pub mod bool;
+pub mod f32;
+pub mod usize;

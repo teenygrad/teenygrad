@@ -15,9 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod qwen3_causal_llm;
-pub mod qwen3_config;
-pub mod qwen3_model;
+use crate::dtype::{Dtype, DtypeEnum};
 
-pub(crate) mod attention;
-pub(crate) mod mask;
+impl Dtype for usize {
+    const DTYPE: DtypeEnum = DtypeEnum::Usize;
+
+    fn from_f32(value: f32) -> Self {
+        value as usize
+    }
+
+    fn to_f32(self) -> f32 {
+        self as f32
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
+        todo!()
+    }
+
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+}

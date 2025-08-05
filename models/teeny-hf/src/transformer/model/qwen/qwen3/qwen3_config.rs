@@ -24,7 +24,8 @@ use serde::{Deserialize, Serialize};
 use crate::transformer::config::model_config::{Architecture, HiddenAct, ModelType, TorchDtype};
 
 use crate::error::{Error, Result};
-use crate::transformer::model::qwen::qwen3::qwen3_model::Qwen3AttentionType;
+use crate::transformer::model::qwen::qwen3::attention::Attention;
+use crate::transformer::model::qwen::qwen3::attention::Qwen3AttentionType;
 
 #[derive(Debug, Copy, Serialize, Deserialize, PartialEq, Clone)]
 pub enum RopeType {
@@ -50,16 +51,6 @@ pub enum RopeType {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RopeScaling {
     pub rope_type: RopeType,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
-pub enum Attention {
-    #[serde(rename = "flex_attention")]
-    FlexAttention,
-
-    #[serde(rename = "flash_attention_2")]
-    #[default]
-    FlashAttention2,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

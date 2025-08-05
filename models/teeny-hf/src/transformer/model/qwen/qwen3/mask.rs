@@ -1,0 +1,295 @@
+/*
+ * Copyright (c) 2025 Teenygrad. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+use teeny_cache::DynamicCache;
+use teeny_core::dtype::DtypeEnum;
+use teeny_core::graph::ops::Op;
+use teeny_core::graph::{NodeOp, NodeRef, scalar};
+use teeny_core::num::bool::Bool;
+use teeny_core::slice;
+
+use crate::error::{Error, Result};
+use crate::transformer::model::qwen::qwen3::attention::Attention;
+use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
+
+pub type MaskFunction<'data> =
+    Box<dyn Fn(&Qwen3Config, usize, usize, usize, usize) -> NodeRef<'data> + 'data>;
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_causal_mask<'data>(
+    config: &Qwen3Config,
+    input_embeds: &NodeRef<'data>,
+    attention_mask: &Option<NodeRef<'data>>,
+    cache_position: &NodeRef<'data>,
+    past_key_values: &Option<DynamicCache>,
+    position_ids: Option<NodeRef<'data>>,
+    or_mask_function: Option<MaskFunction<'data>>,
+    and_mask_function: Option<MaskFunction<'data>>,
+) -> Result<Option<NodeRef<'data>>> {
+    let layer_idx = 0; // AXM TODO: Use cache to determine the layer idx
+
+    let (early_exit, attention_mask, packed_sequence_mask, kv_length, kv_offset) =
+        preprocess_mask_arguments(
+            config,
+            input_embeds,
+            attention_mask,
+            cache_position,
+            past_key_values,
+            &position_ids,
+            layer_idx,
+        )?;
+
+    if early_exit {
+        return Ok(attention_mask.clone());
+    }
+
+    let batch_size = input_embeds.shape()?.dims()[0];
+    let dtype = input_embeds.dtype();
+    let mut mask_factory_function: MaskFunction = Box::new(causal_mask_function);
+    let mask_interface = match config.attn_implementation {
+        Attention::FlexAttention => flash_attention_mask,
+        Attention::FlashAttention2 => flex_attention_mask,
+    };
+
+    let mut allow_is_causal_skip = past_key_values
+        .as_ref()
+        .map(|cache| !cache.is_compileable())
+        .unwrap_or(true);
+
+    if let Some(packed_sequence_mask) = packed_sequence_mask {
+        mask_factory_function = and_masks(vec![
+            mask_factory_function,
+            packed_sequence_mask_function(packed_sequence_mask),
+        ]);
+        allow_is_causal_skip = false;
+    }
+
+    if let Some(mask_function) = or_mask_function {
+        mask_factory_function = or_masks(vec![mask_factory_function, mask_function]);
+        allow_is_causal_skip = false;
+    }
+
+    if let Some(mask_function) = and_mask_function {
+        mask_factory_function = and_masks(vec![mask_factory_function, mask_function]);
+        allow_is_causal_skip = false;
+    }
+
+    let causal_mask = mask_interface(
+        batch_size,
+        cache_position,
+        kv_length.unwrap_or(0),
+        kv_offset.unwrap_or(0),
+        Some(mask_factory_function),
+        attention_mask.clone(),
+        allow_is_causal_skip,
+        dtype,
+    );
+
+    Ok(causal_mask)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_sliding_window_causal_mask<'data>(
+    _config: &Qwen3Config,
+    _input_embeds: &NodeRef<'data>,
+    _attention_mask: &Option<NodeRef<'data>>,
+    _cache_position: &NodeRef<'data>,
+    _past_key_values: &Option<DynamicCache>,
+    _position_ids: Option<NodeRef<'data>>,
+    _or_mask_function: Option<MaskFunction>,
+    _and_mask_function: Option<MaskFunction>,
+) -> Result<Option<NodeRef<'data>>> {
+    todo!()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn flex_attention_mask<'data>(
+    _batch_size: usize,
+    cache_position: &NodeRef<'data>,
+    _kv_length: usize,
+    _kv_offset: usize,
+    _mask_function: Option<MaskFunction>,
+    attention_mask: Option<NodeRef<'data>>,
+    _allow_is_causal_skip: bool,
+    _dtype: DtypeEnum,
+) -> Result<Option<NodeRef<'data>>> {
+    let q_length = cache_position.shape()?.dims()[0];
+    let q_offset = cache_position.index(0);
+
+    if let Some(attention_mask) = attention_mask {
+        //    pad_len = ((attention_mask.shape[1] / flex_default_block_size) + 1) * flex_default_block_size
+        //     pad_len = pad_len - attention_mask.shape[1]
+        //     if not _is_torch_greater_or_equal_than_2_6 and pad_len > 0:
+        //         attention_mask = torch.nn.functional.pad(attention_mask, value=0, pad=(0, pad_len))
+
+        //     padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset, _slice=False)
+        //     mask_function = and_masks(mask_function, padding_mask_function(padding_mask))
+        //
+    }
+
+    //   mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset)
+
+    // block_mask = create_block_mask(
+    //     mask_mod=mask_function,
+    //     B=batch_size,
+    //     H=None,
+    //     Q_LEN=q_length,
+    //     KV_LEN=kv_length,
+    //     device=cache_position.device,
+    //     _compile=_is_torch_greater_or_equal_than_2_6,
+    // )
+    // return block_mask
+
+    todo!()
+}
+
+#[allow(clippy::type_complexity)]
+pub fn preprocess_mask_arguments<'a, 'data>(
+    _config: &Qwen3Config,
+    input_embeds: &NodeRef<'data>,
+    attention_mask: &'a Option<NodeRef<'data>>,
+    _cache_position: &NodeRef<'data>,
+    past_key_values: &Option<DynamicCache>,
+    position_ids: &Option<NodeRef<'data>>,
+    _layer_idx: usize,
+) -> Result<(
+    bool,
+    &'a Option<NodeRef<'data>>,
+    Option<NodeRef<'data>>,
+    Option<usize>,
+    Option<usize>,
+)> {
+    if let Some(mask) = attention_mask {
+        match &mask.0.op {
+            NodeOp::TensorF32(t) => {
+                if t.shape()?.dims().len() == 4 {
+                    return Ok((true, attention_mask, None, None, None));
+                }
+            }
+            NodeOp::TensorBF16(t) => {
+                if t.shape()?.dims().len() == 4 {
+                    return Ok((true, attention_mask, None, None, None));
+                }
+            }
+            _ => {
+                return Err(
+                    Error::ModelError("Attention mask must be a 4D tensor.".to_string()).into(),
+                );
+            }
+        }
+    }
+
+    let mut packed_sequence_mask = None;
+    if position_ids.is_some() && attention_mask.is_none() && past_key_values.is_none() {
+        let batch_size = input_embeds.shape()?.dims()[0];
+        let mut position_ids = position_ids.as_ref().unwrap().clone();
+        if batch_size != position_ids.shape()?.dims()[0] {
+            position_ids = position_ids.expand(&[batch_size as isize, -1]);
+        }
+        packed_sequence_mask = Some(find_packed_sequence_indices(position_ids)?);
+    }
+
+    // AXM TODO: Implement this, but it needs the cache
+    let kv_length = None;
+    let kv_offset = None;
+
+    Ok((
+        false,
+        attention_mask,
+        packed_sequence_mask,
+        kv_length,
+        kv_offset,
+    ))
+}
+
+fn find_packed_sequence_indices<'data>(position_ids: NodeRef<'data>) -> Result<NodeRef<'data>> {
+    let first_dummy_value = position_ids.slice(&slice!(.., ..1)) - scalar(1);
+    let position_diff = position_ids.diff(&first_dummy_value, -1);
+    Ok((position_diff.neq(&scalar(1))).cumsum(-1))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn flash_attention_mask<'data>(
+    _batch_size: usize,
+    _cache_position: &NodeRef<'data>,
+    _kv_length: usize,
+    _kv_offset: usize,
+    _mask_function: Option<MaskFunction>,
+    _attention_mask: Option<NodeRef<'data>>,
+    _allow_is_causal_skip: bool,
+    _dtype: DtypeEnum,
+) -> Option<NodeRef<'data>> {
+    let _mask_function = _mask_function.unwrap_or(Box::new(causal_mask_function));
+    todo!()
+}
+
+pub fn causal_mask_function<'data>(
+    _config: &Qwen3Config,
+    _batch_idx: usize,
+    _head_idx: usize,
+    q_idx: usize,
+    kv_idx: usize,
+) -> NodeRef<'data> {
+    scalar(kv_idx).leq(&scalar(q_idx))
+}
+
+pub fn or_masks<'data>(mask_functions: Vec<MaskFunction<'data>>) -> MaskFunction<'data> {
+    let and_mask = move |_config: &Qwen3Config,
+                         _batch_idx: usize,
+                         _head_idx: usize,
+                         q_idx: usize,
+                         kv_idx: usize|
+          -> NodeRef<'data> {
+        mask_functions
+            .iter()
+            .fold(scalar(Bool(false)), |acc, mask_function| {
+                acc | mask_function(_config, _batch_idx, _head_idx, q_idx, kv_idx)
+            })
+    };
+    Box::new(and_mask)
+}
+
+pub fn and_masks<'data>(mask_functions: Vec<MaskFunction<'data>>) -> MaskFunction<'data> {
+    let and_mask = move |_config: &Qwen3Config,
+                         _batch_idx: usize,
+                         _head_idx: usize,
+                         q_idx: usize,
+                         kv_idx: usize|
+          -> NodeRef<'data> {
+        mask_functions
+            .iter()
+            .fold(scalar(Bool(true)), |acc, mask_function| {
+                acc & mask_function(_config, _batch_idx, _head_idx, q_idx, kv_idx)
+            })
+    };
+    Box::new(and_mask)
+}
+
+pub fn packed_sequence_mask_function<'data>(
+    packed_sequence_mask: NodeRef<'data>,
+) -> MaskFunction<'data> {
+    let inner_mask = move |_config: &Qwen3Config,
+                           batch_idx: usize,
+                           _head_idx: usize,
+                           q_idx: usize,
+                           kv_idx: usize|
+          -> NodeRef<'data> {
+        packed_sequence_mask[(batch_idx, q_idx)].eq(&packed_sequence_mask[(batch_idx, kv_idx)])
+    };
+
+    Box::new(inner_mask)
+}
