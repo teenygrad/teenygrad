@@ -18,7 +18,7 @@
 use teeny_cache::DynamicCache;
 use teeny_core::dtype::DtypeEnum;
 use teeny_core::graph::ops::Op;
-use teeny_core::graph::{arange, scalar, NodeOp, NodeRef};
+use teeny_core::graph::{self, arange, scalar, zeros, NodeOp, NodeRef};
 use teeny_core::num::bool::Bool;
 use teeny_core::slice;
 
@@ -27,7 +27,7 @@ use crate::transformer::model::qwen::qwen3::attention::Attention;
 use crate::transformer::model::qwen::qwen3::qwen3_config::Qwen3Config;
 
 pub type MaskFunction<'data> =
-    Box<dyn Fn(&Qwen3Config, usize, usize, usize, usize) -> NodeRef<'data> + 'data>;
+    Box<dyn Fn(&Qwen3Config, usize, usize, &NodeRef<'data>, usize) -> NodeRef<'data> + 'data>;
 
 #[allow(clippy::too_many_arguments)]
 pub fn create_causal_mask<'data>(
@@ -122,49 +122,189 @@ pub fn flex_attention_mask<'data>(
     cache_position: &NodeRef<'data>,
     kv_length: usize,
     kv_offset: usize,
-    mask_function: Option<MaskFunction<'data>>,
+    mask_function: MaskFunction<'data>,
     attention_mask: Option<NodeRef<'data>>,
     _allow_is_causal_skip: bool,
     _dtype: DtypeEnum,
 ) -> Result<Option<NodeRef<'data>>> {
-    let q_length = cache_position.shape()?.dims()[0];
-    let q_offset = cache_position.index(&[0]);
+    let _q_length = cache_position.shape()?.dims()[0];
+    let q_offset = cache_position.index(vec![scalar(0)]);
 
     let mask_function = if let Some(attention_mask) = attention_mask {
-        let flex_default_block_size = 128;
-        let mask_dims = attention_mask.shape()?.dims();
-        let pad_len = ((mask_dims[1] / flex_default_block_size) + 1) * flex_default_block_size;
-        let pad_len = pad_len - mask_dims[1];
-        let padding_mask = prepare_padding_mask(Some(attention_mask), kv_length, kv_offset, false)?;
-         and_masks(vec![mask_function, padding_mask_function(padding_mask)])
+        let padding_mask = prepare_padding_mask(Some(attention_mask), kv_length, kv_offset, false)?
+            .ok_or(Error::ModelError("Padding mask is None".to_string()))?;
+        and_masks(vec![mask_function, padding_mask_function(padding_mask)])
     } else {
-      todo!()
+        mask_function
+    };
+
+    let mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset);
+
+    let block_mask = create_block_mask(
+        mask_mod = mask_function,
+        B = batch_size,
+        H = None,
+        Q_LEN = q_length,
+        KV_LEN = kv_length,
+        device = cache_position.device,
+        _compile = _is_torch_greater_or_equal_than_2_6,
+    );
+
+    Ok(block_mask)
+}
+
+enum ModificationType<'data> {
+    ScoreMod(Box<dyn Fn(NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>) -> NodeRef<'data> + 'data>),
+    MaskMod(Box<dyn Fn(NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>) -> NodeRef<'data> + 'data>),
+}
+
+fn create_mask<'data>(
+    mod_fn: ModificationType<'data>,
+    B: Option<usize>,
+    H: Option<usize>,
+    Q_LEN: usize,
+    KV_LEN: usize,
+) -> NodeRef<'data> {
+    let B = B.unwrap_or(1);
+    let H = H.unwrap_or(1);
+    let b = arange(0, B, 1);
+    let h = arange(0, H, 1);
+    let m = arange(0, Q_LEN, 1);
+    let n = arange(0, KV_LEN, 1);
+
+    let mask = match &mod_fn {
+        ModificationType::ScoreMod(score_mod) => {          
+            let prefix = &[Some(0)];
+            let suffix = &[];
+            let score_mod = vmap_for_bhqkv(mod_fn, Some(0), None, 0, false);
+            let out = score_mod(zeros(&[B, H, Q_LEN, KV_LEN], DtypeEnum::Default), b, h, m, n);
+            graph::where(torch.isneginf(out), False, True)                  
+        }
+
+        ModificationType::MaskMod(mask_mod) => {
+            let mask_mod = vmap_for_bhqkv(mod_fn, None, None, 0, false);
+            mask_mod(b, h, m, n)            
+        }
+    };
+
+    Ok(mask)
+}
+
+fn vmap_for_bhqkv<'data>(
+    mod_fn: ModificationType<'data>,
+    prefix: &[Option<usize>],
+    suffix: &[Option<usize>],
+    out_dims: usize,
+    _group_dim: bool,
+) -> MaskFunction<'data> {
+    let mut dimensions = vec![];
+    dimensions.push((None, None, None, Some(0)));
+    dimensions.push((None, None, Some(0), None));
+    dimensions.push((None, Some(0), None, None));
+
+    if _group_dim {
+        dimensions.push((None, Some(0), None, None));
     }
 
-    //   mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset)
+    dimensions.push((Some(0), None, None, None));
 
-    // block_mask = create_block_mask(
-    //     mask_mod=mask_function,
-    //     B=batch_size,
-    //     H=None,
-    //     Q_LEN=q_length,
-    //     KV_LEN=kv_length,
-    //     device=cache_position.device,
-    //     _compile=_is_torch_greater_or_equal_than_2_6,
-    // )
-    // return block_mask
+    let prefix = vec![prefix.0, prefix.1, prefix.2, prefix.3];
+    let mut mask_fn = mask_fn;
 
-    todo!()
+    for dims in dimensions {
+        let in_dims = prefix.clone().into_iter()
+        .chain(vec![dims.0, dims.1, dims.2, dims.3].into_iter())
+        .chain(vec![suffix.0, suffix.1, suffix.2, suffix.3].into_iter())
+        .collect::<Vec<_>>();
+
+        mask_fn = graph::vmap(mask_fn, in_dims, out_dims);
+    }
+
+
+    Ok(mask_fn)
+//     dimensions: list[tuple[None | int, None | int, None | int, None | int]] = []
+//     dimensions = [
+//         (None, None, None, 0),
+//         (None, None, 0, None),
+//         (None, 0, None, None),
+//     ]
+
+//     if group_dim:
+//         dimensions += [
+//             (None, 0, None, None),
+//         ]
+
+//     dimensions += [
+//         (0, None, None, None),
+//     ]
+
+//     for dims in dimensions:
+//         fn = torch.vmap(fn, in_dims=prefix + dims + suffix, out_dims=out_dims)  # type: ignore[arg-type]
+//     return fn
+}
+
+#[allow(non_snake_case)]
+fn create_block_mask<'data>(
+    mask_mod: MaskFunction<'data>,
+    B: Option<usize>,
+    H: Option<usize>,
+    Q_LEN: usize,
+    KV_LEN: usize,
+    BLOCK_SIZE: &[usize],
+) {
+    let B = B.unwrap_or(1);
+    let H = H.unwrap_or(1);
+
+    let (Q_BLOCK_SIZE, KV_BLOCK_SIZE) = if BLOCK_SIZE.len() == 1 {
+        (BLOCK_SIZE[0], BLOCK_SIZE[0])
+    } else {
+        (BLOCK_SIZE[0], BLOCK_SIZE[1])
+    };
+
+    let mask_tensor = create_mask(mask_mod, B, H, Q_LEN, KV_LEN);
+    let (partial_block_mask, full_block_mask) =
+        convert_mask_to_block_mask(mask_tensor, Q_BLOCK_SIZE, KV_BLOCK_SIZE, true);
+
+    let block_mask = create_sparse_block_from_block_mask(
+        (partial_block_mask, full_block_mask),
+        mask_mod,
+        (Q_LEN, KV_LEN),
+        Q_BLOCK_SIZE,
+        KV_BLOCK_SIZE,
+    );
+
+    Ok(block_mask)
+}
+
+fn add_offsets_to_mask_function<'a, 'data>(
+    mask_function: MaskFunction<'data>,
+    q_offset: NodeRef<'data>,
+    kv_offset: usize,
+) -> MaskFunction<'data> {
+    let inner_mask = move |_config: &Qwen3Config,
+                           batch_idx: usize,
+                           _head_idx: usize,
+                           q_idx: &NodeRef<'data>,
+                           kv_idx: usize|
+          -> NodeRef<'data> {
+        let q = q_idx.clone() + q_offset.clone();
+        mask_function(_config, batch_idx, _head_idx, &q, kv_idx + kv_offset)
+    };
+
+    Box::new(inner_mask)
 }
 
 fn padding_mask_function<'data>(padding_mask: NodeRef<'data>) -> MaskFunction<'data> {
-  let inner_mask = move  |_config: &Qwen3Config, batch_idx: usize, _head_idx: usize, _q_idx: usize, kv_idx: usize| {
-    padding_mask.index(&[batch_idx, kv_idx])
-  };
+    let inner_mask = move |_config: &Qwen3Config,
+                           batch_idx: usize,
+                           _head_idx: usize,
+                           _q_idx: &NodeRef<'data>,
+                           kv_idx: usize| {
+        padding_mask.index(vec![scalar(batch_idx), scalar(kv_idx)])
+    };
 
-  Box::new(inner_mask)
+    Box::new(inner_mask)
 }
-
 
 fn prepare_padding_mask<'data>(
     attention_mask: Option<NodeRef<'data>>,
@@ -174,18 +314,19 @@ fn prepare_padding_mask<'data>(
 ) -> Result<Option<NodeRef<'data>>> {
     let mut local_padding_mask = attention_mask.clone();
     if let Some(attention_mask) = attention_mask {
-      let padding_length = kv_length + kv_offset - attention_mask.shape()?.last();
-      if padding_length > 0 {
-        local_padding_mask = Some(attention_mask.pad(&[0, padding_length]));
-      }
-      if slice {
-        let mask_indices = arange(kv_offset, kv_offset + kv_length, 1);
-        local_padding_mask = local_padding_mask.map(|mask| mask.slice(&slice!(.., mask_indices)));
-      }
+        let padding_length = kv_length + kv_offset - attention_mask.shape()?.last();
+        if padding_length > 0 {
+            local_padding_mask = Some(attention_mask.pad(&[0, padding_length]));
+        }
+        if slice {
+            let mask_indices = arange(kv_offset, kv_offset + kv_length, 1);
+            local_padding_mask =
+                local_padding_mask.map(|mask| mask.slice(&slice!(.., mask_indices)));
+        }
     }
-    
+
     Ok(local_padding_mask)
-  }
+}
 //     attention_mask: Optional[torch.Tensor], kv_length: int, kv_offset: int, _slice: bool = True
 // ) -> Optional[torch.Tensor]:
 //     """
@@ -205,7 +346,6 @@ fn prepare_padding_mask<'data>(
 //             mask_indices += kv_offset
 //             local_padding_mask = local_padding_mask[:, mask_indices]
 //     return local_padding_mask
-
 
 #[allow(clippy::type_complexity)]
 pub fn preprocess_mask_arguments<'a, 'data>(
@@ -291,17 +431,17 @@ pub fn causal_mask_function<'data>(
     _config: &Qwen3Config,
     _batch_idx: usize,
     _head_idx: usize,
-    q_idx: usize,
+    q_idx: &NodeRef<'data>,
     kv_idx: usize,
 ) -> NodeRef<'data> {
-    scalar(kv_idx).leq(&scalar(q_idx))
+    scalar(kv_idx).leq(q_idx)
 }
 
 pub fn or_masks<'data>(mask_functions: Vec<MaskFunction<'data>>) -> MaskFunction<'data> {
     let and_mask = move |_config: &Qwen3Config,
                          _batch_idx: usize,
                          _head_idx: usize,
-                         q_idx: usize,
+                         q_idx: &NodeRef<'data>,
                          kv_idx: usize|
           -> NodeRef<'data> {
         mask_functions
@@ -320,7 +460,7 @@ pub fn and_masks<'data, T: IntoIterator<Item = MaskFunction<'data>>>(
     let and_mask = move |_config: &Qwen3Config,
                          _batch_idx: usize,
                          _head_idx: usize,
-                         q_idx: usize,
+                         q_idx: &NodeRef<'data>,
                          kv_idx: usize|
           -> NodeRef<'data> {
         mask_functions
@@ -338,12 +478,12 @@ pub fn packed_sequence_mask_function<'data>(
     let inner_mask = move |_config: &Qwen3Config,
                            batch_idx: usize,
                            _head_idx: usize,
-                           q_idx: usize,
+                           q_idx: &NodeRef<'data>,
                            kv_idx: usize|
           -> NodeRef<'data> {
         packed_sequence_mask
-            .index(&[batch_idx, q_idx])
-            .eq(&packed_sequence_mask.index(&[batch_idx, kv_idx]))
+            .index(vec![scalar(batch_idx), q_idx.clone()])
+            .eq(&packed_sequence_mask.index(vec![scalar(batch_idx), scalar(kv_idx)]))
     };
 
     Box::new(inner_mask)

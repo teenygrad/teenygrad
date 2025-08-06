@@ -21,29 +21,34 @@ use crate::graph::{NodeOp, NodeRef, ops::Op};
 use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
-pub struct IndexOp<'data> {
-    pub input: NodeRef<'data>,
-    pub indices: Vec<NodeRef<'data>>,
+pub struct VMapOp<'data> {
+    pub function: NodeRef<'data>,
+    pub in_dims: Vec<usize>,
+    pub out_dims: Vec<usize>,
 }
 
-impl<'data> IndexOp<'data> {
-    pub fn new(input: NodeRef<'data>, indices: Vec<NodeRef<'data>>) -> Self {
-        Self { input, indices }
+impl<'data> VMapOp<'data> {
+    pub fn new(function: NodeRef<'data>, in_dims: &[usize], out_dims: &[usize]) -> Self {
+        Self {
+            function,
+            in_dims: in_dims.to_vec(),
+            out_dims: out_dims.to_vec(),
+        }
     }
 }
 
-impl<'data> Op for IndexOp<'data> {
+impl<'data> Op for VMapOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         todo!()
     }
 
     fn dtype(&self) -> DtypeEnum {
-        todo!()
+        self.function.dtype()
     }
 }
 
-impl<'data> From<IndexOp<'data>> for NodeRef<'data> {
-    fn from(op: IndexOp<'data>) -> Self {
-        NodeOp::Index(op).into()
+impl<'data> From<VMapOp<'data>> for NodeRef<'data> {
+    fn from(op: VMapOp<'data>) -> Self {
+        NodeOp::VMap(op).into()
     }
 }

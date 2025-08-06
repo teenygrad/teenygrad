@@ -22,21 +22,6 @@ use crate::graph::ops::neg::NegOp;
 use crate::graph::ops::sub::SubOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 
-impl<'data> Sub<&NodeRef<'data>> for &NodeRef<'data> {
-    type Output = NodeRef<'data>;
-
-    fn sub(self, rhs: &NodeRef<'data>) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-        let rhs = NodeRef(rhs.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Sub(SubOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
-    }
-}
-
 impl<'data> Sub<NodeRef<'data>> for NodeRef<'data> {
     type Output = NodeRef<'data>;
 
@@ -52,18 +37,19 @@ impl<'data> Sub<NodeRef<'data>> for NodeRef<'data> {
     }
 }
 
+impl<'data> Sub<&NodeRef<'data>> for &NodeRef<'data> {
+    type Output = NodeRef<'data>;
+
+    fn sub(self, rhs: &NodeRef<'data>) -> Self::Output {
+        self.clone() - rhs.clone()
+    }
+}
+
 impl<'data> Sub<&NodeRef<'data>> for NodeRef<'data> {
     type Output = NodeRef<'data>;
 
     fn sub(self, rhs: &NodeRef<'data>) -> Self::Output {
-        let lhs = NodeRef(self.0);
-        let rhs = NodeRef(rhs.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Sub(SubOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
+        self - rhs.clone()
     }
 }
 
@@ -71,14 +57,7 @@ impl<'data> Sub<NodeRef<'data>> for &NodeRef<'data> {
     type Output = NodeRef<'data>;
 
     fn sub(self, rhs: NodeRef<'data>) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-        let rhs = NodeRef(rhs.0);
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Sub(SubOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
+        self.clone() - rhs
     }
 }
 
@@ -100,12 +79,6 @@ impl<'data> Neg for &NodeRef<'data> {
     type Output = NodeRef<'data>;
 
     fn neg(self) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Neg(NegOp::new(lhs)),
-            true,
-            false,
-        )))
+        -self.clone()
     }
 }

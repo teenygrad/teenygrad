@@ -31,6 +31,8 @@ pub enum DtypeEnum {
     Bf16,
     #[display("bool")]
     Bool,
+    #[display("default")]
+    Default,
 }
 
 impl From<(DtypeEnum, DtypeEnum)> for DtypeEnum {
@@ -40,6 +42,7 @@ impl From<(DtypeEnum, DtypeEnum)> for DtypeEnum {
             (DtypeEnum::F32, _) | (_, DtypeEnum::F32) => DtypeEnum::F32,
             (DtypeEnum::Bf16, _) | (_, DtypeEnum::Bf16) => DtypeEnum::Bf16,
             (DtypeEnum::Usize, _) => DtypeEnum::Usize,
+            (DtypeEnum::Default, _) => DtypeEnum::Default,
         }
     }
 }

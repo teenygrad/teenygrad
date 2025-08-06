@@ -21,21 +21,6 @@ use std::sync::Arc;
 use crate::graph::ops::mult::MultOp;
 use crate::graph::{Node, NodeOp, NodeRef};
 
-impl<'data> Mul<&NodeRef<'data>> for &NodeRef<'data> {
-    type Output = NodeRef<'data>;
-
-    fn mul(self, rhs: &NodeRef<'data>) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-        let rhs = NodeRef(rhs.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Mult(MultOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
-    }
-}
-
 impl<'data> Mul<NodeRef<'data>> for NodeRef<'data> {
     type Output = NodeRef<'data>;
 
@@ -51,18 +36,19 @@ impl<'data> Mul<NodeRef<'data>> for NodeRef<'data> {
     }
 }
 
+impl<'data> Mul<&NodeRef<'data>> for &NodeRef<'data> {
+    type Output = NodeRef<'data>;
+
+    fn mul(self, rhs: &NodeRef<'data>) -> Self::Output {
+        self.clone() * rhs.clone()
+    }
+}
+
 impl<'data> Mul<&NodeRef<'data>> for NodeRef<'data> {
     type Output = NodeRef<'data>;
 
     fn mul(self, rhs: &NodeRef<'data>) -> Self::Output {
-        let lhs = NodeRef(self.0);
-        let rhs = NodeRef(rhs.0.clone());
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Mult(MultOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
+        self * rhs.clone()
     }
 }
 
@@ -70,13 +56,6 @@ impl<'data> Mul<NodeRef<'data>> for &NodeRef<'data> {
     type Output = NodeRef<'data>;
 
     fn mul(self, rhs: NodeRef<'data>) -> Self::Output {
-        let lhs = NodeRef(self.0.clone());
-        let rhs = NodeRef(rhs.0);
-
-        NodeRef(Arc::new(Node::new(
-            NodeOp::Mult(MultOp::new(lhs, rhs)),
-            true,
-            false,
-        )))
+        self.clone() * rhs
     }
 }

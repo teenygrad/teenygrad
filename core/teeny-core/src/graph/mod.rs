@@ -47,6 +47,8 @@ use crate::graph::ops::tensor::{TensorBF16Op, TensorF32Op, TensorUsizeOp};
 use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
+use crate::graph::ops::vmap::VMapOp;
+use crate::graph::ops::r#where::WhereOp;
 #[cfg(feature = "ndarray")]
 use crate::num::bf16::bf16;
 use crate::safetensors::{SafeTensors, TensorView};
@@ -118,6 +120,8 @@ pub enum NodeOp<'data> {
     And(AndOp<'data>),
     Or(OrOp<'data>),
     Pad(PadOp<'data>),
+    Where(WhereOp<'data>),
+    VMap(VMapOp<'data>),
 }
 
 impl<'data> Op for NodeOp<'data> {
@@ -165,6 +169,8 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::And(op) => op.shape(),
             NodeOp::Or(op) => op.shape(),
             NodeOp::Pad(op) => op.shape(),
+            NodeOp::Where(op) => op.shape(),
+            NodeOp::VMap(op) => op.shape(),
         }
     }
 
@@ -212,6 +218,8 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::And(op) => op.dtype(),
             NodeOp::Or(op) => op.dtype(),
             NodeOp::Pad(op) => op.dtype(),
+            NodeOp::Where(op) => op.dtype(),
+            NodeOp::VMap(op) => op.dtype(),
         }
     }
 }
@@ -250,8 +258,8 @@ impl<'data> Node<'data> {
     }
 }
 
-pub fn zeros<'data>(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'data> {
-    ZerosOp::new(shape, dtype).into()
+pub fn zeros<'data, S: Into<DynamicShape>>(shape: S, dtype: DtypeEnum) -> NodeRef<'data> {
+    ZerosOp::new(shape.into(), dtype).into()
 }
 
 pub fn ones<'data>(shape: DynamicShape, dtype: DtypeEnum) -> NodeRef<'data> {
@@ -340,6 +348,15 @@ pub fn sin<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
 pub fn cos<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     CosOp::new(x).into()
 }
+
+pub fn where_op<'data>(
+    condition: NodeRef<'data>,
+    x: NodeRef<'data>,
+    y: NodeRef<'data>,
+) -> Result<NodeRef<'data>> {
+    Ok(WhereOp::new(condition, x, y)?.into())
+}
+
 // use std::ops::Add;
 // use std::sync::Arc;
 

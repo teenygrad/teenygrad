@@ -15,35 +15,42 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::graph::{NodeOp, NodeRef, ops::Op};
-use crate::tensor::shape::DynamicShape;
+
+use crate::{
+    dtype::DtypeEnum,
+    graph::{NodeOp, NodeRef, ops::Op},
+    tensor::shape::DynamicShape,
+};
 
 #[derive(Debug, Clone)]
-pub struct IndexOp<'data> {
-    pub input: NodeRef<'data>,
-    pub indices: Vec<NodeRef<'data>>,
+pub struct WhereOp<'data> {
+    pub condition: NodeRef<'data>,
+    pub x: NodeRef<'data>,
+    pub y: NodeRef<'data>,
 }
 
-impl<'data> IndexOp<'data> {
-    pub fn new(input: NodeRef<'data>, indices: Vec<NodeRef<'data>>) -> Self {
-        Self { input, indices }
+impl<'data> WhereOp<'data> {
+    pub fn new(condition: NodeRef<'data>, x: NodeRef<'data>, y: NodeRef<'data>) -> Result<Self> {
+        assert_eq!(x.shape()?, y.shape()?);
+        assert_eq!(x.dtype(), y.dtype());
+
+        Ok(Self { condition, x, y })
     }
 }
 
-impl<'data> Op for IndexOp<'data> {
+impl<'data> Op for WhereOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        todo!()
+        self.x.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {
-        todo!()
+        self.x.dtype()
     }
 }
 
-impl<'data> From<IndexOp<'data>> for NodeRef<'data> {
-    fn from(op: IndexOp<'data>) -> Self {
-        NodeOp::Index(op).into()
+impl<'data> From<WhereOp<'data>> for NodeRef<'data> {
+    fn from(op: WhereOp<'data>) -> Self {
+        NodeOp::Where(op).into()
     }
 }

@@ -110,8 +110,8 @@ impl<'data> NodeRef<'data> {
         NodeOp::Leq(LeqOp::new(self.clone(), other.clone())).into()
     }
 
-    pub fn index(&self, indices: &[usize]) -> Self {
-        NodeOp::Index(IndexOp::new(self.clone(), indices.to_vec())).into()
+    pub fn index<I: IntoIterator<Item = NodeRef<'data>>>(&self, indices: I) -> Self {
+        NodeOp::Index(IndexOp::new(self.clone(), indices.into_iter().collect())).into()
     }
 
     pub fn pad(&self, pad: &[usize]) -> Self {
