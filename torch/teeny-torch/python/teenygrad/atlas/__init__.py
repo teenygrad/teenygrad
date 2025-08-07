@@ -22,10 +22,9 @@ Module description.
 
 import importlib.metadata
 
-from teeny_torch import atlas_compile
-
 import torch
 
+from .. import atlas_compile
 from ..graph import serialize_fx_graph
 
 REQUIRED_TORCH = "2.7.0"

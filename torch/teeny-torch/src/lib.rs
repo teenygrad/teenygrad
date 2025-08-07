@@ -24,6 +24,6 @@ pub mod fxgraph;
 use crate::atlas::compile as atlas_compile;
 
 #[pymodule]
-fn teeny_torch(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(atlas_compile, m)?)
 }
