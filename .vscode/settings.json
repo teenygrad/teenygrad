@@ -13,5 +13,13 @@
         "*.hpp": "cpp",
         "*.cpp": "cpp"
     },
-    "cmake.sourceDirectory": "/home/arshadm/Workspace/projects/spinorml/teenygrad/compiler/teeny-llvm/modules/llvm-project/libc"
+    "python.linting.pylintArgs": [
+        "--disable=C0301"
+    ],
+    "python.linting.flake8Args": [
+        "--config", ".flake8"
+    ],
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.linting.flake8Enabled": false
 } 

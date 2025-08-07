@@ -12,4 +12,4 @@ license = "GPL v3"
 teeny-macros = { path = "../teeny-macros" }
 teeny-triton = { path = "../teeny-triton" }
 teeny-core = { path = "../../core/teeny-core" }
-teeny-torch = { path = "../../interop/teeny-torch" }
+teeny-torch = { path = "../../torch/teeny-torch" }

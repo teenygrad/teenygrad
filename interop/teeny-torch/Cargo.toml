@@ -1,8 +1,0 @@
-[package]
-name = "teeny-torch"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-teeny-core = { path = "../../core/teeny-core" }
-teeny-triton = { path = "../../compiler/teeny-triton" }

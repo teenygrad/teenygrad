@@ -1,0 +1,20 @@
+[package]
+name = "teeny-torch"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "teeny_torch"
+crate-type = ["cdylib"]
+
+[build-dependencies]
+flatc-rust.workspace = true
+cargo_metadata.workspace = true
+pyo3-build-config.workspace = true
+
+[dependencies]
+teeny-core = { path = "../../core/teeny-core" }
+teeny-triton = { path = "../../compiler/teeny-triton" }
+thiserror.workspace = true
+pyo3.workspace = true
+flatbuffers.workspace = true

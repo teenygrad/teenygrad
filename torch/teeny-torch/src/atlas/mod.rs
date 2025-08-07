@@ -1,0 +1,45 @@
+/*
+ * Copyright (c) 2025 Teenygrad. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+use pyo3::prelude::*;
+
+pub use crate::fxgraph::*;
+
+#[pyfunction]
+pub fn compile(buffer: &[u8]) -> pyo3::PyResult<String> {
+    let graph = deserialize_graph(buffer)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+    for i in 0..graph.nodes().unwrap().len() {
+        let node = graph.nodes().unwrap().get(i);
+        println!("Node: {}", node.name().unwrap());
+        println!("Op: {:?}", node.op());
+        println!("Target: {}", node.target().unwrap());
+
+        // Process args
+        for j in 0..node.args().unwrap().len() {
+            println!("Arg {j}: {}", node.args().unwrap().get(j));
+        }
+
+        // Process users
+        for user in node.users().unwrap().iter() {
+            println!("-> User: {user}");
+        }
+    }
+
+    Ok("Hello, world!".to_string())
+}
