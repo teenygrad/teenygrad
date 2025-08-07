@@ -26,26 +26,34 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct WhereOp<'data> {
     pub condition: NodeRef<'data>,
-    pub x: NodeRef<'data>,
-    pub y: NodeRef<'data>,
+    pub if_true: NodeRef<'data>,
+    pub if_false: NodeRef<'data>,
 }
 
 impl<'data> WhereOp<'data> {
-    pub fn new(condition: NodeRef<'data>, x: NodeRef<'data>, y: NodeRef<'data>) -> Result<Self> {
-        assert_eq!(x.shape()?, y.shape()?);
-        assert_eq!(x.dtype(), y.dtype());
+    pub fn new(
+        condition: NodeRef<'data>,
+        if_true: NodeRef<'data>,
+        if_false: NodeRef<'data>,
+    ) -> Result<Self> {
+        assert_eq!(if_true.shape()?, if_false.shape()?);
+        assert_eq!(if_true.dtype(), if_false.dtype());
 
-        Ok(Self { condition, x, y })
+        Ok(Self {
+            condition,
+            if_true,
+            if_false,
+        })
     }
 }
 
 impl<'data> Op for WhereOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
-        self.x.shape()
+        self.if_true.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {
-        self.x.dtype()
+        self.if_true.dtype()
     }
 }
 

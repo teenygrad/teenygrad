@@ -40,7 +40,7 @@ impl<'data> Linear<'data> {
         output_dim: usize,
         use_bias: bool,
     ) -> Result<Self> {
-        let weight = graph::randn(shape![output_dim, input_dim], dtype);
+        let weight = graph::randn(shape![output_dim, input_dim], dtype.clone());
 
         let bias = if use_bias {
             Some(graph::zeros(shape![output_dim], dtype))

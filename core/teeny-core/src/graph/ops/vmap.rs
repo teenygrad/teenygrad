@@ -23,16 +23,16 @@ use crate::tensor::shape::DynamicShape;
 #[derive(Debug, Clone)]
 pub struct VMapOp<'data> {
     pub function: NodeRef<'data>,
-    pub in_dims: Vec<usize>,
-    pub out_dims: Vec<usize>,
+    pub in_dims: Vec<Option<usize>>,
+    pub out_dims: usize,
 }
 
 impl<'data> VMapOp<'data> {
-    pub fn new(function: NodeRef<'data>, in_dims: &[usize], out_dims: &[usize]) -> Self {
+    pub fn new(function: NodeRef<'data>, in_dims: &[Option<usize>], out_dims: usize) -> Self {
         Self {
             function,
             in_dims: in_dims.to_vec(),
-            out_dims: out_dims.to_vec(),
+            out_dims,
         }
     }
 }

@@ -33,6 +33,7 @@ pub mod exp;
 pub mod expand;
 pub mod index;
 pub mod inverse;
+pub mod isneginf;
 pub mod leq;
 pub mod log;
 pub mod mean;
@@ -61,6 +62,7 @@ pub mod unsqueeze;
 pub mod vmap;
 pub mod r#where;
 pub mod zeros;
+
 pub trait Op {
     fn shape(&self) -> Result<DynamicShape>;
     fn dtype(&self) -> DtypeEnum;

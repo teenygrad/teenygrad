@@ -31,6 +31,7 @@ use crate::graph::ops::eq::EqOp;
 use crate::graph::ops::expand::ExpandOp;
 use crate::graph::ops::index::IndexOp;
 use crate::graph::ops::inverse::InverseOp;
+use crate::graph::ops::isneginf::IsNegInfOp;
 use crate::graph::ops::leq::LeqOp;
 use crate::graph::ops::neq::NotEqOp;
 use crate::graph::ops::ones::OnesOp;
@@ -122,6 +123,7 @@ pub enum NodeOp<'data> {
     Pad(PadOp<'data>),
     Where(WhereOp<'data>),
     VMap(VMapOp<'data>),
+    IsNegInf(IsNegInfOp<'data>),
 }
 
 impl<'data> Op for NodeOp<'data> {
@@ -171,6 +173,7 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Pad(op) => op.shape(),
             NodeOp::Where(op) => op.shape(),
             NodeOp::VMap(op) => op.shape(),
+            NodeOp::IsNegInf(op) => op.shape(),
         }
     }
 
@@ -220,6 +223,7 @@ impl<'data> Op for NodeOp<'data> {
             NodeOp::Pad(op) => op.dtype(),
             NodeOp::Where(op) => op.dtype(),
             NodeOp::VMap(op) => op.dtype(),
+            NodeOp::IsNegInf(op) => op.dtype(),
         }
     }
 }
@@ -349,12 +353,24 @@ pub fn cos<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
     CosOp::new(x).into()
 }
 
-pub fn where_op<'data>(
+pub fn r#where<'data>(
     condition: NodeRef<'data>,
-    x: NodeRef<'data>,
-    y: NodeRef<'data>,
+    if_true: NodeRef<'data>,
+    if_false: NodeRef<'data>,
 ) -> Result<NodeRef<'data>> {
-    Ok(WhereOp::new(condition, x, y)?.into())
+    Ok(WhereOp::new(condition, if_true, if_false)?.into())
+}
+
+pub fn isneginf<'data>(x: NodeRef<'data>) -> NodeRef<'data> {
+    IsNegInfOp::new(x).into()
+}
+
+pub fn vmap<'data>(
+    op: NodeRef<'data>,
+    in_dims: &[Option<usize>],
+    out_dims: usize,
+) -> NodeRef<'data> {
+    VMapOp::new(op, in_dims, out_dims).into()
 }
 
 // use std::ops::Add;

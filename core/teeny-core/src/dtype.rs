@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::num::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Display)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Display)]
 pub enum DtypeEnum {
     #[display("usize")]
     Usize,
@@ -33,6 +33,8 @@ pub enum DtypeEnum {
     Bool,
     #[display("default")]
     Default,
+    #[display("tensor")]
+    Tensor(Box<DtypeEnum>),
 }
 
 impl From<(DtypeEnum, DtypeEnum)> for DtypeEnum {
@@ -43,6 +45,7 @@ impl From<(DtypeEnum, DtypeEnum)> for DtypeEnum {
             (DtypeEnum::Bf16, _) | (_, DtypeEnum::Bf16) => DtypeEnum::Bf16,
             (DtypeEnum::Usize, _) => DtypeEnum::Usize,
             (DtypeEnum::Default, _) => DtypeEnum::Default,
+            _ => todo!(),
         }
     }
 }

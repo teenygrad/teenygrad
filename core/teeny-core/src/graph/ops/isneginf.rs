@@ -17,34 +17,33 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::graph::NodeOp;
-use crate::graph::{NodeRef, ops::Op};
+use crate::graph::ops::Op;
+use crate::graph::{NodeOp, NodeRef};
 use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
-pub struct ToDtype<'data> {
+pub struct IsNegInfOp<'data> {
     pub input: NodeRef<'data>,
-    pub dest_dtype: DtypeEnum,
 }
 
-impl<'data> ToDtype<'data> {
-    pub fn new(input: NodeRef<'data>, dest_dtype: DtypeEnum) -> Self {
-        Self { input, dest_dtype }
+impl<'data> IsNegInfOp<'data> {
+    pub fn new(input: NodeRef<'data>) -> Self {
+        Self { input }
     }
 }
 
-impl<'data> Op for ToDtype<'data> {
+impl<'data> Op for IsNegInfOp<'data> {
     fn shape(&self) -> Result<DynamicShape> {
         self.input.shape()
     }
 
     fn dtype(&self) -> DtypeEnum {
-        self.dest_dtype.clone()
+        DtypeEnum::Tensor(Box::new(DtypeEnum::Bool))
     }
 }
 
-impl<'data> From<ToDtype<'data>> for NodeRef<'data> {
-    fn from(op: ToDtype<'data>) -> Self {
-        NodeOp::ToDtype(op).into()
+impl<'data> From<IsNegInfOp<'data>> for NodeRef<'data> {
+    fn from(op: IsNegInfOp<'data>) -> Self {
+        NodeOp::IsNegInf(op).into()
     }
 }

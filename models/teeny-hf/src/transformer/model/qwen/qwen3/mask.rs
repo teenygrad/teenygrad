@@ -18,7 +18,7 @@
 use teeny_cache::DynamicCache;
 use teeny_core::dtype::DtypeEnum;
 use teeny_core::graph::ops::Op;
-use teeny_core::graph::{self, arange, scalar, zeros, NodeOp, NodeRef};
+use teeny_core::graph::{NodeOp, NodeRef, arange, scalar};
 use teeny_core::num::bool::Bool;
 use teeny_core::slice;
 
@@ -62,7 +62,7 @@ pub fn create_causal_mask<'data>(
     let mut mask_factory_function: MaskFunction = Box::new(causal_mask_function);
     let mask_interface = match config.attn_implementation {
         Attention::FlexAttention => flash_attention_mask,
-        Attention::FlashAttention2 => flex_attention_mask,
+        Attention::FlashAttention2 => todo!(), // flex_attention_mask,
     };
 
     let mut allow_is_causal_skip = past_key_values
@@ -117,7 +117,7 @@ pub fn create_sliding_window_causal_mask<'data>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn flex_attention_mask<'data>(
+pub fn _flex_attention_mask<'data>(
     _batch_size: usize,
     cache_position: &NodeRef<'data>,
     kv_length: usize,
@@ -138,28 +138,51 @@ pub fn flex_attention_mask<'data>(
         mask_function
     };
 
-    let mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset);
+    // let mask_function = add_offsets_to_mask_function(mask_function, q_offset, kv_offset);
 
-    let block_mask = create_block_mask(
-        mask_mod = mask_function,
-        B = batch_size,
-        H = None,
-        Q_LEN = q_length,
-        KV_LEN = kv_length,
-        device = cache_position.device,
-        _compile = _is_torch_greater_or_equal_than_2_6,
-    );
+    // let block_mask = create_block_mask(
+    //     mask_function,
+    //     Some(batch_size),
+    //     None,
+    //     q_length,
+    //     kv_length,
+    //     &[batch_size],
+    // );
 
-    Ok(block_mask)
+    // Ok(block_mask)
+    todo!()
 }
 
 enum ModificationType<'data> {
-    ScoreMod(Box<dyn Fn(NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>) -> NodeRef<'data> + 'data>),
-    MaskMod(Box<dyn Fn(NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>, NodeRef<'data>) -> NodeRef<'data> + 'data>),
+    ScoreMod(
+        Box<
+            dyn Fn(
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                ) -> NodeRef<'data>
+                + 'data,
+        >,
+    ),
+    MaskMod(
+        Box<
+            dyn Fn(
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                    NodeRef<'data>,
+                ) -> NodeRef<'data>
+                + 'data,
+        >,
+    ),
 }
 
-fn create_mask<'data>(
-    mod_fn: ModificationType<'data>,
+#[allow(non_snake_case)]
+fn _create_mask<'data>(
+    _mod_fn: ModificationType<'data>,
     B: Option<usize>,
     H: Option<usize>,
     Q_LEN: usize,
@@ -167,113 +190,109 @@ fn create_mask<'data>(
 ) -> NodeRef<'data> {
     let B = B.unwrap_or(1);
     let H = H.unwrap_or(1);
-    let b = arange(0, B, 1);
-    let h = arange(0, H, 1);
-    let m = arange(0, Q_LEN, 1);
-    let n = arange(0, KV_LEN, 1);
+    let _b = arange(0, B, 1);
+    let _h = arange(0, H, 1);
+    let _m = arange(0, Q_LEN, 1);
+    let _n = arange(0, KV_LEN, 1);
 
-    let mask = match &mod_fn {
-        ModificationType::ScoreMod(score_mod) => {          
-            let prefix = &[Some(0)];
-            let suffix = &[];
-            let score_mod = vmap_for_bhqkv(mod_fn, Some(0), None, 0, false);
-            let out = score_mod(zeros(&[B, H, Q_LEN, KV_LEN], DtypeEnum::Default), b, h, m, n);
-            graph::where(torch.isneginf(out), False, True)                  
-        }
+    todo!()
+    // let mask = match &mod_fn {
+    //     ModificationType::ScoreMod(score_mod) => {
+    //         let prefix = &[Some(0)];
+    //         let suffix = &[];
+    //         let score_mod = vmap_for_bhqkv(mod_fn, &[Some(0)], &[], 0, false);
+    //         let out = score_mod(
+    //             zeros(&[B, H, Q_LEN, KV_LEN], DtypeEnum::Default),
+    //             b,
+    //             h,
+    //             m,
+    //             n,
+    //         );
+    //         graph::r#where(
+    //             graph::isneginf(out),
+    //             scalar(Bool(false)),
+    //             scalar(Bool(true)),
+    //         )
+    //     }
 
-        ModificationType::MaskMod(mask_mod) => {
-            let mask_mod = vmap_for_bhqkv(mod_fn, None, None, 0, false);
-            mask_mod(b, h, m, n)            
-        }
-    };
+    //     ModificationType::MaskMod(mask_mod) => {
+    //         let mask_mod = vmap_for_bhqkv(mod_fn, &[], &[], 0, false);
+    //         mask_mod(b, h, m, n)
+    //     }
+    // };
 
-    Ok(mask)
+    // Ok(mask)
 }
 
-fn vmap_for_bhqkv<'data>(
-    mod_fn: ModificationType<'data>,
-    prefix: &[Option<usize>],
-    suffix: &[Option<usize>],
-    out_dims: usize,
-    _group_dim: bool,
+fn _vmap_for_bhqkv<'data>(
+    _mod_fn: ModificationType<'data>,
+    _prefix: &[Option<usize>],
+    _suffix: &[Option<usize>],
+    _out_dims: usize,
+    group_dim: bool,
 ) -> MaskFunction<'data> {
     let mut dimensions = vec![];
-    dimensions.push((None, None, None, Some(0)));
-    dimensions.push((None, None, Some(0), None));
-    dimensions.push((None, Some(0), None, None));
+    dimensions.push(&[None, None, None, Some(0)]);
+    dimensions.push(&[None, None, Some(0), None]);
+    dimensions.push(&[None, Some(0), None, None]);
 
-    if _group_dim {
-        dimensions.push((None, Some(0), None, None));
+    if group_dim {
+        dimensions.push(&[None, Some(0), None, None]);
     }
 
-    dimensions.push((Some(0), None, None, None));
+    dimensions.push(&[Some(0), None, None, None]);
 
-    let prefix = vec![prefix.0, prefix.1, prefix.2, prefix.3];
-    let mut mask_fn = mask_fn;
+    // let mut mask_fn = mod_fn;
 
-    for dims in dimensions {
-        let in_dims = prefix.clone().into_iter()
-        .chain(vec![dims.0, dims.1, dims.2, dims.3].into_iter())
-        .chain(vec![suffix.0, suffix.1, suffix.2, suffix.3].into_iter())
-        .collect::<Vec<_>>();
+    // for dims in dimensions {
+    //     let in_dims = prefix
+    //         .clone()
+    //         .iter()
+    //         .copied()
+    //         .chain(dims.iter().copied())
+    //         .chain(suffix.iter().copied())
+    //         .collect::<Vec<_>>();
 
-        mask_fn = graph::vmap(mask_fn, in_dims, out_dims);
-    }
+    //     mask_fn = graph::vmap(mask_fn, &in_dims, out_dims);
+    // }
 
-
-    Ok(mask_fn)
-//     dimensions: list[tuple[None | int, None | int, None | int, None | int]] = []
-//     dimensions = [
-//         (None, None, None, 0),
-//         (None, None, 0, None),
-//         (None, 0, None, None),
-//     ]
-
-//     if group_dim:
-//         dimensions += [
-//             (None, 0, None, None),
-//         ]
-
-//     dimensions += [
-//         (0, None, None, None),
-//     ]
-
-//     for dims in dimensions:
-//         fn = torch.vmap(fn, in_dims=prefix + dims + suffix, out_dims=out_dims)  # type: ignore[arg-type]
-//     return fn
+    // Ok(mask_fn)
+    todo!()
 }
 
 #[allow(non_snake_case)]
-fn create_block_mask<'data>(
-    mask_mod: MaskFunction<'data>,
+fn _create_block_mask<'data>(
+    _mask_mod: ModificationType<'data>,
     B: Option<usize>,
     H: Option<usize>,
-    Q_LEN: usize,
-    KV_LEN: usize,
+    _Q_LEN: usize,
+    _KV_LEN: usize,
     BLOCK_SIZE: &[usize],
 ) {
-    let B = B.unwrap_or(1);
-    let H = H.unwrap_or(1);
+    let _B = B.unwrap_or(1);
+    let _H = H.unwrap_or(1);
 
-    let (Q_BLOCK_SIZE, KV_BLOCK_SIZE) = if BLOCK_SIZE.len() == 1 {
+    let (_Q_BLOCK_SIZE, _KV_BLOCK_SIZE) = if BLOCK_SIZE.len() == 1 {
         (BLOCK_SIZE[0], BLOCK_SIZE[0])
     } else {
         (BLOCK_SIZE[0], BLOCK_SIZE[1])
     };
 
-    let mask_tensor = create_mask(mask_mod, B, H, Q_LEN, KV_LEN);
-    let (partial_block_mask, full_block_mask) =
-        convert_mask_to_block_mask(mask_tensor, Q_BLOCK_SIZE, KV_BLOCK_SIZE, true);
+    // let mask_tensor = create_mask(mask_mod, B, H, Q_LEN, KV_LEN);
+    // let (partial_block_mask, full_block_mask) =
+    //     convert_mask_to_block_mask(mask_tensor, Q_BLOCK_SIZE, KV_BLOCK_SIZE, true);
 
-    let block_mask = create_sparse_block_from_block_mask(
-        (partial_block_mask, full_block_mask),
-        mask_mod,
-        (Q_LEN, KV_LEN),
-        Q_BLOCK_SIZE,
-        KV_BLOCK_SIZE,
-    );
+    // let block_mask = create_sparse_block_from_block_mask(
+    //     (partial_block_mask, full_block_mask),
+    //     mask_mod,
+    //     (Q_LEN, KV_LEN),
+    //     Q_BLOCK_SIZE,
+    //     KV_BLOCK_SIZE,
+    // );
 
-    Ok(block_mask)
+    // Ok(block_mask)
+
+    todo!()
 }
 
 fn add_offsets_to_mask_function<'a, 'data>(
