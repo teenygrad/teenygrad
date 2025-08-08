@@ -19,7 +19,8 @@ import flatbuffers  # type: ignore
 
 import torch
 
-from .FXGraph import Graph, KeyValue, Node, OpType
+from .FXGraph import Graph, KeyValue, Node
+from .FXGraph.OpType import OpType
 
 
 def serialize_fx_graph(gm: torch.fx.GraphModule) -> bytes:
