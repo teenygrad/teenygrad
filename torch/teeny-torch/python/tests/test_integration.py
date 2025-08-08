@@ -15,9 +15,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 #
 
-# Import the native extension module teenygrad (teenygrad.cpython-*.so)
-# and expose the atlas_compiler function at the package level.
+import teenygrad  # type: ignore  # noqa: F401
 
-from .atlas import atlas  # type: ignore noqa: F401
+import torch
 
-__all__ = ["atlas"]
+
+def test_simple_add():
+    """Test that the simple add function works"""
+    @torch.compile(backend="atlas")
+    def add(x, y):
+        return x + y
+    x = torch.tensor([1.0, 2.0])
+    y = torch.tensor([3.0, 4.0])
+    result = add(x, y)
+    expected = torch.tensor([4.0, 6.0])
+    assert torch.allclose(result, expected)

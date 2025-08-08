@@ -21,7 +21,7 @@ pub mod atlas;
 pub mod error;
 pub mod fxgraph;
 
-use crate::atlas::compile as atlas_compile;
+use crate::atlas::atlas_compile;
 
 #[pymodule]
 fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {

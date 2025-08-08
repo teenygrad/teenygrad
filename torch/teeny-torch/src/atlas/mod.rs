@@ -20,7 +20,7 @@ use pyo3::prelude::*;
 pub use crate::fxgraph::*;
 
 #[pyfunction]
-pub fn compile(buffer: &[u8]) -> pyo3::PyResult<String> {
+pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
     let graph = deserialize_graph(buffer)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 

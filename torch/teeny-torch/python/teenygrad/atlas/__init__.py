@@ -24,8 +24,8 @@ import importlib.metadata
 
 import torch
 
-from .. import atlas_compile
 from ..graph import serialize_fx_graph
+from ..teenygrad import atlas_compile  # type: ignore noqa: F401
 
 REQUIRED_TORCH = "2.7.0"
 
@@ -38,7 +38,7 @@ if tuple(map(int, torch_version.split("."))) < tuple(map(int, REQUIRED_TORCH.spl
     raise RuntimeError(f"Requires torch>={REQUIRED_TORCH}, found {torch_version}")
 
 
-def compile(gm: torch.fx.GraphModule, _example_inputs: list[torch.Tensor]):
+def atlas(gm: torch.fx.GraphModule, _example_inputs: list[torch.Tensor]):
     """
     This is a dummy implementation of the atlas backend for TorchDynamo.
     It is used to test the Teenygrad-Torch interop.
@@ -56,4 +56,4 @@ def compile(gm: torch.fx.GraphModule, _example_inputs: list[torch.Tensor]):
 
 
 # pylint: disable=protected-access
-torch._dynamo.register_backend(compile, "atlas")
+torch._dynamo.register_backend(atlas, "atlas")
