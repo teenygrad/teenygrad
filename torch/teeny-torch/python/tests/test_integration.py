@@ -22,11 +22,11 @@ import torch
 
 def test_simple_add():
     """Test that the simple add function works"""
-    @torch.compile(backend="atlas")
     def add(x, y):
         return x + y
     x = torch.tensor([1.0, 2.0])
     y = torch.tensor([3.0, 4.0])
+    add = torch.compile(add, backend="atlas")
     result = add(x, y)
     expected = torch.tensor([4.0, 6.0])
     assert torch.allclose(result, expected)
