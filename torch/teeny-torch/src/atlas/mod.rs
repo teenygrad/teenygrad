@@ -21,25 +21,51 @@ pub use crate::fxgraph::*;
 
 #[pyfunction]
 pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
-    let graph = deserialize_graph(buffer)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    let graph = deserialize_graph(buffer).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to deserialize graph: {e}"))
+    })?;
 
-    for i in 0..graph.nodes().unwrap().len() {
-        let node = graph.nodes().unwrap().get(i);
-        println!("Node: {}", node.name().unwrap());
-        println!("Op: {:?}", node.op());
-        println!("Target: {}", node.target().unwrap());
+    // Safely access nodes with error handling
+    let nodes = graph
+        .nodes()
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Graph has no nodes"))?;
 
-        // Process args
-        for j in 0..node.args().unwrap().len() {
-            println!("Arg {j}: {}", node.args().unwrap().get(j));
+    for i in 0..nodes.len() {
+        let node = nodes.get(i);
+
+        // Safely access node properties with null checks
+        let node_name = node.name().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Node {i} has no name"))
+        })?;
+
+        let op = node.op();
+        let target = node.target().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Node '{node_name}' has no target"))
+        })?;
+
+        println!("Node: {node_name}");
+        println!("Op: {op:?}");
+        println!("Target: {target}");
+
+        // Safely process args
+        if let Some(args) = node.args() {
+            for j in 0..args.len() {
+                let arg = args.get(j);
+                println!("Arg {j}: {arg:?}");
+            }
+        } else {
+            println!("Args: <none>");
         }
 
-        // Process users
-        for user in node.users().unwrap().iter() {
-            println!("-> User: {user}");
+        // Safely process users
+        if let Some(users) = node.users() {
+            for user in users.iter() {
+                println!("-> User: {user}");
+            }
+        } else {
+            println!("Users: <none>");
         }
     }
 
-    Ok("Hello, world!".to_string())
+    Ok("Graph deserialized successfully".to_string())
 }

@@ -23,4 +23,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("Flatbuffers error: {0}")]
     InvalidFlatbuffer(#[from] flatbuffers::InvalidFlatbuffer),
+
+    #[error("Invalid buffer: {0}")]
+    InvalidBuffer(String),
+
+    #[error("Deserialization error: {0}")]
+    DeserializationError(String),
 }

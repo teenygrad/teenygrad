@@ -21,5 +21,63 @@ use crate::error::Result;
 pub use fxgraph::*;
 
 pub fn deserialize_graph(buffer: &[u8]) -> Result<Graph> {
-    Ok(flatbuffers::root::<Graph>(buffer)?)
+    // Validate buffer size before deserialization
+    if buffer.is_empty() {
+        return Err(crate::error::Error::InvalidBuffer(
+            "Buffer is empty".to_string(),
+        ));
+    }
+
+    // Check if buffer is too large (safety check)
+    if buffer.len() > 100_000_000 {
+        // 100MB limit
+        return Err(crate::error::Error::InvalidBuffer(format!(
+            "Buffer too large: {} bytes",
+            buffer.len()
+        )));
+    }
+
+    // Additional buffer integrity checks
+    if buffer.len() < 8 {
+        return Err(crate::error::Error::InvalidBuffer(
+            "Buffer too small to contain valid flatbuffer".to_string(),
+        ));
+    }
+
+    // Try to deserialize with better error context and multiple fallback strategies
+    let result = flatbuffers::root::<Graph>(buffer);
+
+    match result {
+        Ok(graph) => {
+            // Additional validation: check if the graph structure is valid
+            if let Some(nodes) = graph.nodes() {
+                if nodes.len() > 1_000_000 {
+                    return Err(crate::error::Error::InvalidBuffer(
+                        "Graph has too many nodes".to_string(),
+                    ));
+                }
+            }
+            Ok(graph)
+        }
+        Err(e) => {
+            // Try to provide more specific error information
+            let error_msg = format!(
+                "Failed to deserialize graph: {} (buffer size: {} bytes, error type: {:?})",
+                e,
+                buffer.len(),
+                std::any::type_name::<flatbuffers::InvalidFlatbuffer>()
+            );
+
+            // Check if this is a specific range error
+            if error_msg.contains("Range") && error_msg.contains("out of bounds") {
+                return Err(crate::error::Error::DeserializationError(format!(
+                    "Buffer corruption detected - range out of bounds. This usually indicates \
+                     a mismatch between Python serialization and Rust deserialization. {}",
+                    error_msg
+                )));
+            }
+
+            Err(crate::error::Error::DeserializationError(error_msg))
+        }
+    }
 }
