@@ -17,10 +17,10 @@
 
 use teeny_core::dtype;
 
-use crate::compiler::mlir::{compiler::MlirCompiler, module::MlirModule};
+use crate::backend::mlir::{compiler::MlirCompiler, module::MlirModule};
 
 #[cfg(feature = "ndarray")]
-use crate::compiler::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
+use crate::backend::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
 
 #[cfg(feature = "ndarray")]
 pub mod ndarray;

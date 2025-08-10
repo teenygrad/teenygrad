@@ -23,7 +23,7 @@ from .FXGraph import Graph, KeyValue, Node
 from .FXGraph.OpType import OpType
 
 
-def serialize_fx_graph(gm: torch.fx.GraphModule) -> bytes:
+def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor] | None = None) -> bytes:
     """Serialize a torch.fx.GraphModule to a flatbuffer."""
     builder = flatbuffers.Builder(1024)
 

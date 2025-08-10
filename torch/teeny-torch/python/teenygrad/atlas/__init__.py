@@ -38,7 +38,7 @@ if tuple(map(int, torch_version.split("."))) < tuple(map(int, REQUIRED_TORCH.spl
     raise RuntimeError(f"Requires torch>={REQUIRED_TORCH}, found {torch_version}")
 
 
-def atlas(gm: torch.fx.GraphModule, _example_inputs: list[torch.Tensor]):
+def atlas(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor] | None = None):
     """
     This is a dummy implementation of the atlas backend for TorchDynamo.
     It is used to test the Teenygrad-Torch interop.
@@ -49,7 +49,7 @@ def atlas(gm: torch.fx.GraphModule, _example_inputs: list[torch.Tensor]):
     It is not a real atlas backend, it is just a placeholder to allow the
     Teenygrad-Torch interop to be tested.
     """
-    graph = serialize_fx_graph(gm)
+    graph = serialize_fx_graph(gm, example_inputs)
     result = atlas_compile(graph)
     print(result)
     return gm.forward  # Return original function

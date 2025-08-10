@@ -128,9 +128,9 @@ pub fn _flex_attention_mask<'data>(
     _dtype: DtypeEnum,
 ) -> Result<Option<NodeRef<'data>>> {
     let _q_length = cache_position.shape()?.dims()[0];
-    let q_offset = cache_position.index(vec![scalar(0)]);
+    let _q_offset = cache_position.index(vec![scalar(0)]);
 
-    let mask_function = if let Some(attention_mask) = attention_mask {
+    let _mask_function = if let Some(attention_mask) = attention_mask {
         let padding_mask = prepare_padding_mask(Some(attention_mask), kv_length, kv_offset, false)?
             .ok_or(Error::ModelError("Padding mask is None".to_string()))?;
         and_masks(vec![mask_function, padding_mask_function(padding_mask)])
@@ -295,7 +295,7 @@ fn _create_block_mask<'data>(
     todo!()
 }
 
-fn add_offsets_to_mask_function<'a, 'data>(
+fn _add_offsets_to_mask_function<'data>(
     mask_function: MaskFunction<'data>,
     q_offset: NodeRef<'data>,
     kv_offset: usize,

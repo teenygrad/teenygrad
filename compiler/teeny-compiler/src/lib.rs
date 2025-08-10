@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod compiler;
+pub mod backend;
 pub mod error;
+pub mod fxgraph;
 pub mod target;

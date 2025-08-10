@@ -40,7 +40,45 @@ table KeyValue {
   value: string;
 }
 
+enum DType : byte {
+  FLOAT32 = 0,
+  FLOAT64 = 1,
+  INT32 = 2,
+  INT64 = 3,
+  UINT8 = 4,
+  INT8 = 5,
+  BOOL = 6,
+  BFLOAT16 = 7,
+  FLOAT16 = 8
+}
+
+enum Device : byte {
+  CPU = 0,
+  CUDA = 1,
+  XPU = 2
+}
+
+table Shape {
+  dims: [uint];
+}
+
+table Tensor {
+  dtype: DType;
+  device: Device;
+  shape: Shape;
+  data: [ubyte];
+  requires_grad: bool = false;
+  stride: [long];
+  storage_offset: long = 0;
+}
+
+table ExampleInputs {
+  inputs: [Tensor];
+  kwargs: [KeyValue];  // For keyword arguments
+}
+
 table Graph {
+  example_inputs: ExampleInputs;
   nodes: [Node];
   input_names: [string];  // Placeholder names
   output_names: [string]; // Output node names

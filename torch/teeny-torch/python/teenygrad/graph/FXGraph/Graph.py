@@ -25,8 +25,19 @@ class Graph(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # Graph
-    def Nodes(self, j):
+    def ExampleInputs(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from FXGraph.ExampleInputs import ExampleInputs
+            obj = ExampleInputs()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Graph
+    def Nodes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
@@ -39,19 +50,19 @@ class Graph(object):
 
     # Graph
     def NodesLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # Graph
     def NodesIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
     # Graph
     def InputNames(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             a = self._tab.Vector(o)
             return self._tab.String(a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
@@ -59,19 +70,19 @@ class Graph(object):
 
     # Graph
     def InputNamesLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # Graph
     def InputNamesIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         return o == 0
 
     # Graph
     def OutputNames(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             a = self._tab.Vector(o)
             return self._tab.String(a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
@@ -79,24 +90,30 @@ class Graph(object):
 
     # Graph
     def OutputNamesLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # Graph
     def OutputNamesIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
 def GraphStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 def Start(builder):
     GraphStart(builder)
 
+def GraphAddExampleInputs(builder, exampleInputs):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(exampleInputs), 0)
+
+def AddExampleInputs(builder, exampleInputs):
+    GraphAddExampleInputs(builder, exampleInputs)
+
 def GraphAddNodes(builder, nodes):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(nodes), 0)
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(nodes), 0)
 
 def AddNodes(builder, nodes):
     GraphAddNodes(builder, nodes)
@@ -108,7 +125,7 @@ def StartNodesVector(builder, numElems):
     return GraphStartNodesVector(builder, numElems)
 
 def GraphAddInputNames(builder, inputNames):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(inputNames), 0)
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(inputNames), 0)
 
 def AddInputNames(builder, inputNames):
     GraphAddInputNames(builder, inputNames)
@@ -120,7 +137,7 @@ def StartInputNamesVector(builder, numElems):
     return GraphStartInputNamesVector(builder, numElems)
 
 def GraphAddOutputNames(builder, outputNames):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(outputNames), 0)
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(outputNames), 0)
 
 def AddOutputNames(builder, outputNames):
     GraphAddOutputNames(builder, outputNames)
