@@ -52,4 +52,14 @@ fn main() {
     .expect("flatc-python");
 
     pyo3_build_config::add_extension_module_link_args();
+
+    // Run the import fix script after generating Python files
+    let status = std::process::Command::new("python3")
+        .arg("fix_imports.py")
+        .current_dir(&project_dir)
+        .status();
+
+    if let Err(e) = status {
+        eprintln!("Warning: Failed to run import fix script: {}", e);
+    }
 }

@@ -78,10 +78,10 @@ table ExampleInputs {
 }
 
 table Graph {
-  example_inputs: ExampleInputs;
   nodes: [Node];
   input_names: [string];  // Placeholder names
   output_names: [string]; // Output node names
+  example_inputs: ExampleInputs;
 }
 
 root_type Graph;

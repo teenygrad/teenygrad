@@ -1,3 +1,4 @@
 teenygrad.egg-info/
 teenygrad.*.so
 __pycache__/
+FXGraph/
