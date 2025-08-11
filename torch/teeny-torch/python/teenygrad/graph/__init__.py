@@ -17,10 +17,11 @@
 
 """Test serialization of FX graphs to flatbuffers"""
 
+import traceback
+
 import flatbuffers  # type: ignore
 
 import torch
-from teenygrad.graph.FXGraph.Graph import Graph as FBGraph
 
 # Import the generated flatbuffer classes and functions
 from .FXGraph.Device import Device
@@ -31,6 +32,7 @@ from .FXGraph.ExampleInputs import (
     ExampleInputsStart,
     ExampleInputsStartInputsVector,
 )
+from .FXGraph.Graph import Graph as FBGraph
 from .FXGraph.Graph import (
     GraphAddExampleInputs,
     GraphAddInputNames,
@@ -82,22 +84,28 @@ def verify_buffer_integrity(buffer: bytes) -> bool:
     try:
         # Try to deserialize the buffer to verify it's valid
         graph = FBGraph.GetRootAs(buffer, 0)
-        
+
         # Check if we can access basic fields
         if graph.NodesLength() < 0:
+            print("No nodes found in the graph")
             return False
-            
+
         # Try to access a few nodes to ensure the structure is sound
         for i in range(min(graph.NodesLength(), 5)):  # Check first 5 nodes
             node = graph.Nodes(i)
             if node is None:
+                print("Node is None")
                 return False
             # Try to access basic node fields
             if node.Name() is None or node.Target() is None:
+                print("Node name or target is None")
                 return False
-                
+
         return True
-    except Exception:
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print("Exception occurred while verifying buffer integrity")
+        traceback.print_exc()
+        print(e)
         return False
 
 
@@ -108,25 +116,25 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
     base_size = 1024
     node_count = len(list(gm.graph.nodes))
     tensor_count = len(example_inputs) if example_inputs else 0
-    
+
     # Estimate buffer size: base + nodes + tensors + safety margin
     estimated_size = base_size + (node_count * 256) + (tensor_count * 512) + 2048
-    
+
     # Ensure minimum size and cap at reasonable maximum
     buffer_size = max(1024, min(estimated_size, 65536))
-    
+
     builder = flatbuffers.Builder(buffer_size)
-    
-    try:                
+
+    try:
         # Build all nested objects first, then assemble the final structure
         # This ensures proper offset calculations
-        
+
         # 1. Build nodes first (most complex part)
         node_offsets = []
         for node in gm.graph.nodes:
             if not hasattr(node, 'name') or not hasattr(node, 'target'):
                 continue
-                
+
             # Build users vector (empty for now to avoid circular references)
             NodeStartUsersVector(builder, 0)
             users_vec = builder.EndVector()
@@ -135,7 +143,7 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
             args = []
             if hasattr(node, 'args'):
                 args = [builder.CreateString(str(a)) for a in node.args if a is not None]
-            
+
             NodeStartArgsVector(builder, len(args))
             for arg in reversed(args):
                 builder.PrependUOffsetTRelative(arg)
@@ -161,7 +169,7 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
             # Build the node
             name = builder.CreateString(str(node.name))
             target = builder.CreateString(str(node.target))
-            
+
             op_type = OpType.placeholder  # default
             if hasattr(node, 'op') and hasattr(OpType, node.op):
                 op_type = getattr(OpType, node.op)
@@ -258,12 +266,11 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
 
         # 5. Build the final Graph structure
         GraphStart(builder)
+        if example_inputs_offset is not None:
+            GraphAddExampleInputs(builder, example_inputs_offset)
         GraphAddNodes(builder, nodes_vec)
         GraphAddInputNames(builder, inputs_vec)
         GraphAddOutputNames(builder, outputs_vec)
-        
-        if example_inputs_offset is not None:
-            GraphAddExampleInputs(builder, example_inputs_offset)
 
         graph_offset = GraphEnd(builder)
 
@@ -272,23 +279,14 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
             raise ValueError(f"Invalid graph offset: {graph_offset}")
 
         builder.Finish(graph_offset)
-        
+
         # 7. Get output and validate
         output = builder.Output()
         if len(output) <= 0:
             raise ValueError("Generated buffer is empty")
-            
-        # Additional validation: try to verify the buffer structure
-        # Temporarily disabled due to import issues
-        # try:
-        #     # This will catch structural issues early
-        #     from .FXGraph.Graph import Graph as FBGraph
-        #     FBGraph.GetRootAs(output, 0)
-        # except Exception as e:
-        #     raise ValueError(f"Generated buffer failed validation: {e}")
 
         return bytes(output)
-        
+
     except Exception as e:
         raise RuntimeError(f"Failed to serialize graph: {e}") from e
 
