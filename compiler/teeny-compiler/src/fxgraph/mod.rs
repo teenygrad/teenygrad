@@ -22,6 +22,7 @@ pub mod analysis;
 pub mod dtype;
 pub mod lang;
 pub mod literal;
+pub mod rules;
 pub mod shape;
 
 use crate::fxgraph::analysis::TensorAnalysis;
