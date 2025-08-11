@@ -43,7 +43,7 @@ pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Node '{node_name}' has no target"))
         })?;
 
-        println!("Node: {node_name}");
+        println!("Node name: {node_name}");
         println!("Op: {op:?}");
         println!("Target: {target}");
 
@@ -65,6 +65,11 @@ pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
         } else {
             println!("Users: <none>");
         }
+    }
+
+    println!("Example inputs:");
+    for example in graph.example_inputs().iter() {
+        println!("Example: {example:?}");
     }
 
     Ok("Graph deserialized successfully".to_string())

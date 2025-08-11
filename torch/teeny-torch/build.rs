@@ -35,6 +35,7 @@ fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     println!("cargo:rerun-if-changed=graph.fbs");
+    println!("cargo:rerun-if-changed=src/");
 
     flatc_rust::run(flatc_rust::Args {
         inputs: &[Path::new("graph.fbs")],
