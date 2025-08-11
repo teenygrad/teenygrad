@@ -17,7 +17,7 @@
 
 use teeny_core::dtype;
 
-use crate::backend::mlir::{compiler::MlirCompiler, module::MlirModule};
+use crate::backend::llvm::{compiler::MlirCompiler, module::MlirModule};
 
 #[cfg(feature = "ndarray")]
 use crate::backend::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
@@ -25,7 +25,7 @@ use crate::backend::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
 #[cfg(feature = "ndarray")]
 pub mod ndarray;
 
-pub mod mlir;
+pub mod llvm;
 
 #[derive(Debug, Clone)]
 pub enum Module<N: dtype::Dtype> {
