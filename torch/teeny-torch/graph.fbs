@@ -52,19 +52,13 @@ enum DType : byte {
   FLOAT16 = 8
 }
 
-enum Device : byte {
-  CPU = 0,
-  CUDA = 1,
-  XPU = 2
-}
-
 table Shape {
   dims: [uint];
 }
 
 table Tensor {
   dtype: DType;
-  device: Device;
+  device: string;
   shape: Shape;
   data: [ubyte];
   requires_grad: bool = false;

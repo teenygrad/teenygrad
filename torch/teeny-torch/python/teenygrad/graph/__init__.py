@@ -24,7 +24,6 @@ import flatbuffers  # type: ignore
 import torch
 
 # Import the generated flatbuffer classes and functions
-from .FXGraph.Device import Device
 from .FXGraph.DType import DType
 from .FXGraph.ExampleInputs import (
     ExampleInputsAddInputs,
@@ -225,13 +224,7 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
                 shape_offset = ShapeEnd(builder)
 
                 # Map device and dtype
-                device_str = str(tensor.device)
-                if 'cuda' in device_str:
-                    device_enum = Device.CUDA
-                elif 'xpu' in device_str:
-                    device_enum = Device.XPU
-                else:
-                    device_enum = Device.CPU
+                device_str = builder.CreateString(str(tensor.device))
 
                 dtype_mapping = {
                     torch.float32: DType.FLOAT32,
@@ -250,7 +243,7 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
                 TensorStart(builder)
                 TensorAddShape(builder, shape_offset)
                 TensorAddDtype(builder, dtype_enum)
-                TensorAddDevice(builder, device_enum)
+                TensorAddDevice(builder, device_str)
                 tensor_offsets.append(TensorEnd(builder))
 
             # Build inputs vector
