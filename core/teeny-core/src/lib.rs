@@ -17,6 +17,7 @@
 
 pub mod dtype;
 pub mod error;
+pub mod fxgraph;
 pub mod graph;
 pub mod macros;
 pub mod nn;

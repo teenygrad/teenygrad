@@ -23,12 +23,7 @@ use crate::error::Error;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DtypeValue {
     F32,
-    F64,
-    I32,
-    I64,
-    Bool,
-    Complex64,
-    Complex128,
+    BF16,
 }
 
 impl FromStr for DtypeValue {
@@ -43,12 +38,7 @@ impl Display for DtypeValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             DtypeValue::F32 => write!(f, "f32"),
-            DtypeValue::F64 => write!(f, "f64"),
-            DtypeValue::I32 => write!(f, "i32"),
-            DtypeValue::I64 => write!(f, "i64"),
-            DtypeValue::Bool => write!(f, "bool"),
-            DtypeValue::Complex64 => write!(f, "c64"),
-            DtypeValue::Complex128 => write!(f, "c128"),
+            DtypeValue::BF16 => write!(f, "bf16"),
         }
     }
 }

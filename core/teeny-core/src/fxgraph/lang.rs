@@ -41,16 +41,15 @@ define_language! {
         "relu" = Relu(Id),
 
 
-        // Add
-        "add" = Add([Id; 2]), // [a_id, b_id]
-        "mul" = Mul([Id; 2]), // [a_id, b_id]
-        "sub" = Sub([Id; 2]), // [a_id, b_id]
-        "div" = Div([Id; 2]), // [a_id, b_id]
+        // Tensor operations
+        "+" = Add([Id; 2]), // [a_id, b_id]
+        "*" = Mul([Id; 2]), // [a_id, b_id]
+        "-" = Sub([Id; 2]), // [a_id, b_id]
+        "/" = Div([Id; 2]), // [a_id, b_id]
+        "@" = MatMul([Id; 2]), // [a_id, b_id]
 
         // Tensor operations
         "contiguous" = Contiguous(Id),
-        "matmul" = MatMul([Id; 2]), // [a_id, b_id]
         "transpose" = Transpose(Id),
-
     }
 }

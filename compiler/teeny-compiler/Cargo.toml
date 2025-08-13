@@ -13,8 +13,8 @@ teeny-core = { path = "../../core/teeny-core" }
 teeny-llvm = { path = "../teeny-llvm" }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
+ndarray = { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true
-ndarray = { workspace = true, optional = true }
 egg.workspace = true
