@@ -36,15 +36,14 @@ class AtlasModule(nn.Module):
         super().__init__()
         self.gm = gm
         self.example_inputs = example_inputs
-        if example_inputs is not None:
-            self._compile(example_inputs)
+        self._compile(example_inputs)
 
     def forward(self, *args, **kwargs):
         """Forward pass."""
-        self._compile(list(args))
         return self.gm.forward(*args, **kwargs)
 
     def _compile(self, args: list[Any] | None):
         """Compile the module."""
+        print("Compiling module...")
         fxgraph = serialize_fx_graph(self.gm, args)
         self.compiled_module = atlas_compile(fxgraph)
