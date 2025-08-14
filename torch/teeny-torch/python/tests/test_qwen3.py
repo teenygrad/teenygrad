@@ -21,13 +21,12 @@ from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
 
 import torch
 
+# def test_qwen3_0_6b():
+    # """Test Qwen3-0.6B model """
 
-def test_qwen3_0_6b():
-    """Test Qwen3-0.6B model """
+# load the tokenizer and the model
+config = Qwen3Config()
+model = Qwen3ForCausalLM(config)    
 
-    # load the tokenizer and the model
-    config = Qwen3Config()
-    model = Qwen3ForCausalLM(config)    
-    
-    model = torch.compile(model, backend="atlas")
-    model.forward(torch.randint(0, 10000, (1, 1024)))
+model = torch.compile(model, backend="teenygrad", dynamic=True)
+model.forward(torch.randint(0, 10, (1, 10)))

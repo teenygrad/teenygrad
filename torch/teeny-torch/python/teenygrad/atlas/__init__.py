@@ -21,6 +21,7 @@ Module description.
 """
 
 import importlib.metadata
+from typing import Any
 
 import torch
 
@@ -37,13 +38,10 @@ if tuple(map(int, torch_version.split("."))) < tuple(map(int, REQUIRED_TORCH.spl
     raise RuntimeError(f"Requires torch>={REQUIRED_TORCH}, found {torch_version}")
 
 
-def atlas(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor] | None = None):
+def atlas(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = None):
     """
     To Do
     """
     module = AtlasModule(gm, example_inputs)
     return module
 
-
-# pylint: disable=protected-access
-torch._dynamo.register_backend(atlas, "atlas")

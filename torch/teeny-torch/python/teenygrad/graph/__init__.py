@@ -211,40 +211,41 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[torch.Tens
         if example_inputs and len(example_inputs) > 0:
             # Build tensor objects first
             tensor_offsets = []
-            for tensor in example_inputs:
-                # Build shape
-                shape = list(tensor.shape)
-                ShapeStartDimsVector(builder, len(shape))
-                for dim in reversed(shape):
-                    builder.PrependUint32(dim)
-                shape_dims_vec = builder.EndVector()
+            for arg in example_inputs:
+                if isinstance(arg, torch.Tensor):
+                    # Build shape
+                    shape = list(arg.shape)
+                    ShapeStartDimsVector(builder, len(shape))
+                    for dim in reversed(shape):
+                        builder.PrependUint32(dim)
+                    shape_dims_vec = builder.EndVector()
 
-                ShapeStart(builder)
-                ShapeAddDims(builder, shape_dims_vec)
-                shape_offset = ShapeEnd(builder)
+                    ShapeStart(builder)
+                    ShapeAddDims(builder, shape_dims_vec)
+                    shape_offset = ShapeEnd(builder)
 
-                # Map device and dtype
-                device_str = builder.CreateString(str(tensor.device))
+                    # Map device and dtype
+                    device_str = builder.CreateString(str(arg.device))
 
-                dtype_mapping = {
-                    torch.float32: DType.FLOAT32,
-                    torch.float64: DType.FLOAT64,
-                    torch.int32: DType.INT32,
-                    torch.int64: DType.INT64,
-                    torch.uint8: DType.UINT8,
-                    torch.int8: DType.INT8,
-                    torch.bool: DType.BOOL,
-                    torch.bfloat16: DType.BFLOAT16,
-                    torch.float16: DType.FLOAT16,
-                }
-                dtype_enum = dtype_mapping.get(tensor.dtype, DType.FLOAT32)
+                    dtype_mapping = {
+                        torch.float32: DType.FLOAT32,
+                        torch.bfloat16: DType.BFLOAT16,
+                    }
+                    dtype_enum = dtype_mapping.get(arg.dtype)
+                    if dtype_enum is None:
+                        raise ValueError(f"Unsupported dtype: {arg.dtype}")
 
-                # Build tensor
-                TensorStart(builder)
-                TensorAddShape(builder, shape_offset)
-                TensorAddDtype(builder, dtype_enum)
-                TensorAddDevice(builder, device_str)
-                tensor_offsets.append(TensorEnd(builder))
+                    # Build tensor
+                    TensorStart(builder)
+                    TensorAddShape(builder, shape_offset)
+                    TensorAddDtype(builder, dtype_enum)
+                    TensorAddDevice(builder, device_str)
+                    tensor_offsets.append(TensorEnd(builder))
+                elif isinstance(arg, torch.SymInt):
+                    # TODO: Handle SymInts
+                    raise ValueError(f"Unsupported tensor type: {arg}")
+                else:
+                    raise ValueError(f"Expected tensor, got {type(arg)}")
 
             # Build inputs vector
             ExampleInputsStartInputsVector(builder, len(tensor_offsets))

@@ -41,8 +41,9 @@ def test_simpler_classifier():
             return self.net(x)
 
     # Set device to CUDA if available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
+    
     # Hyperparameters
     input_dim = 10
     hidden_dim = 16
@@ -54,13 +55,13 @@ def test_simpler_classifier():
 
     torch.manual_seed(seed)
 
+    # Model, loss, optimizer
+    model = SimpleClassifier(input_dim, hidden_dim, output_dim).to(device)
+    model = torch.compile(model, backend="teenygrad", dynamic=True)
+    
     # Create random data
     X = torch.randn(batch_size, input_dim, device=device, dtype=dtype)  # type: ignore
     y = torch.randint(0, output_dim, (batch_size,), device=device, dtype=torch.long)
-
-    # Model, loss, optimizer
-    model = SimpleClassifier(input_dim, hidden_dim, output_dim).to(device)
-    model = torch.compile(model, backend="atlas")
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3)

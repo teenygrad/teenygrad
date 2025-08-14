@@ -18,6 +18,21 @@
 # Import the native extension module teenygrad (teenygrad.cpython-*.so)
 # and expose the atlas_compiler function at the package level.
 
+from typing import Any
+
+import torch
+
 from .atlas import atlas  # type: ignore noqa: F401
 
-__all__ = ["atlas"]
+
+def teenygrad(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = None):
+    """
+    Forwards to atlas.
+    """
+    return atlas(gm, example_inputs)
+
+
+# pylint: disable=protected-access
+torch._dynamo.register_backend(teenygrad, "teenygrad")
+
+__all__ = ["teenygrad"]
