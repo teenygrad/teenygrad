@@ -76,8 +76,8 @@ enum InputType : byte {
 }
 
 union InputValue {
-  tensor: Tensor,
-  symint: SymInt
+  symint: SymInt,
+  tensor: Tensor
 }
 
 table ExampleInput {

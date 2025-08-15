@@ -243,8 +243,15 @@ def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[
             device_str = builder.CreateString(str(arg.device))
 
             dtype_mapping = {
+                torch.float64: DType.FLOAT64,
                 torch.float32: DType.FLOAT32,               
-                torch.bfloat16: DType.BFLOAT16
+                torch.int64: DType.INT64,
+                torch.int32: DType.INT32,
+                torch.int8: DType.INT8,
+                torch.uint8: DType.UINT8,
+                torch.bool: DType.BOOL,
+                torch.bfloat16: DType.BFLOAT16,
+                torch.float16: DType.FLOAT16,
             }
             dtype_enum = dtype_mapping.get(arg.dtype)
             if dtype_enum is None:

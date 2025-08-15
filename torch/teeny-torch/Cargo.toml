@@ -7,14 +7,17 @@ edition = "2024"
 name = "teenygrad"
 crate-type = ["cdylib"]
 
-[build-dependencies]
-flatc-rust.workspace = true
-cargo_metadata.workspace = true
-pyo3-build-config.workspace = true
-
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
 thiserror.workspace = true
 pyo3.workspace = true
 flatbuffers.workspace = true
+
+[dev-dependencies]
+flate2.workspace = true
+
+[build-dependencies]
+flatc-rust.workspace = true
+cargo_metadata.workspace = true
+pyo3-build-config.workspace = true

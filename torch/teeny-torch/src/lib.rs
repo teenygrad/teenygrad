@@ -17,9 +17,10 @@
 
 use pyo3::prelude::*;
 
-pub mod atlas;
-pub mod error;
-pub mod fxgraph;
+mod atlas;
+mod error;
+mod fxgraph;
+mod graph;
 
 use crate::atlas::atlas_compile;
 

@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
     "torch>=2.6.0",
     "flatbuffers>=25.2.10",
+    "pybind11>=3.0.0",
 ]
 
 [tool.setuptools.packages]

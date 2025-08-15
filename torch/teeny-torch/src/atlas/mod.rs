@@ -16,11 +16,18 @@
  */
 
 use pyo3::prelude::*;
+use std::{fs::File, io::Write};
 
-pub use crate::fxgraph::*;
+use crate::graph::*;
 
 #[pyfunction]
 pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
+    println!("Writing file to /tmp/qwen");
+
+    write_file(buffer).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write file: {e}"))
+    })?;
+
     let graph = deserialize_graph(buffer).map_err(|e| {
         pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to deserialize graph: {e}"))
     })?;
@@ -73,4 +80,27 @@ pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
     }
 
     Ok("Graph deserialized successfully".to_string())
+}
+
+fn write_file(data: &[u8]) -> PyResult<()> {
+    // Generate a unique filename by adding a digit suffix to "qwen_[digit].bin"
+    use std::path::Path;
+    let mut unique_path = String::new();
+    for i in 1..1000 {
+        let candidate = format!("qwen_{i}.bin");
+        if !Path::new(&candidate).exists() {
+            unique_path = candidate;
+            break;
+        }
+    }
+    let path = &unique_path;
+
+    println!("Writing file to {path}-{}", data.len());
+    let mut file = File::create(path).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create file: {e}"))
+    })?;
+    file.write_all(data).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write to file: {e}"))
+    })?;
+    Ok(())
 }

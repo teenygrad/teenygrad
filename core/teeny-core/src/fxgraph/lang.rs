@@ -34,7 +34,7 @@ define_language! {
         "tensor" = Tensor([Id; 2]), // [shape_id, dtype_id]
 
         // Placeholders
-        "placeholder" = Placeholder([Id; 2]), // [shape_id, dtype_id]
+        "placeholder" = Placeholder([Id; 1]), // [shape_id, dtype_id]
 
         // Operations
         "linear" = Linear([Id; 3]), // [input_id, weight_id, bias_id]

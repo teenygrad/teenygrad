@@ -31,14 +31,14 @@ use crate::fxgraph::shape::ShapeValue;
 
 // Higher-level IR for mapping from FX graphs
 #[derive(Debug, Clone, Default)]
-pub struct FxGraph {
+pub struct FXGraph {
     pub egraph: EGraph<FxGraphLang, TensorAnalysis>,
     pub inputs: Vec<Id>,
     pub outputs: Vec<Id>,
     pub node_map: HashMap<String, Id>, // For mapping from FX node names
 }
 
-impl FxGraph {
+impl FXGraph {
     pub fn new() -> Self {
         Self {
             egraph: EGraph::default(),
@@ -56,9 +56,9 @@ impl FxGraph {
         tensor_id
     }
 
-    pub fn add_operation(&mut self, name: String, op: FxGraphLang) -> Id {
+    pub fn add_operation(&mut self, name: &str, op: FxGraphLang) -> Id {
         let id = self.egraph.add(op);
-        self.node_map.insert(name, id);
+        self.node_map.insert(name.to_string(), id);
         id
     }
 

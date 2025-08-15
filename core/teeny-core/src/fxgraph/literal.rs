@@ -27,6 +27,7 @@ pub enum ConstantValue {
     // Float(OrderedFloat),
     Bool(bool),
     IntList(Vec<i64>),
+    String(String),
     // FloatList(Vec<OrderedFloat>),
 }
 
@@ -42,7 +43,6 @@ impl Display for ConstantValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ConstantValue::Int(i) => write!(f, "{i}"),
-            // ConstantValue::Float(OrderedFloat(fl)) => write!(f, "{}", fl),
             ConstantValue::Bool(b) => write!(f, "{b}"),
             ConstantValue::IntList(list) => write!(
                 f,
@@ -52,14 +52,7 @@ impl Display for ConstantValue {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            // ConstantValue::FloatList(list) => write!(
-            //     f,
-            //     "[{}]",
-            //     list.iter()
-            //         .map(|x| x.0.to_string())
-            //         .collect::<Vec<_>>()
-            //         .join(", ")
-            // ),
+            ConstantValue::String(s) => write!(f, "{s}"),
         }
     }
 }

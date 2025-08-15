@@ -17,6 +17,7 @@
 
 use thiserror::Error;
 
+use crate::graph::OpType;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
@@ -27,6 +28,18 @@ pub enum Error {
     #[error("Invalid buffer: {0}")]
     InvalidBuffer(String),
 
-    #[error("Deserialization error: {0}")]
-    DeserializationError(String),
+    #[error("Deserialization failed: {0}")]
+    DeserializationFailed(String),
+
+    #[error("No graph nodes")]
+    NoGraphNodes,
+
+    #[error("No graph node name")]
+    NoGraphNodeName,
+
+    #[error("No graph node target")]
+    NoGraphNodeTarget,
+
+    #[error("Unsupported op: {0:?}")]
+    UnsupportedOp(OpType),
 }
