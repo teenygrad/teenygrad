@@ -16,8 +16,11 @@
  */
 
 use crate::{error::Error, graph::Graph};
-use std::{collections::HashSet, convert::TryFrom};
+use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::sync::OnceLock;
 
+use regex::Regex;
 use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang, literal::ConstantValue};
 
 use crate::graph::{Node, OpType};
@@ -27,9 +30,6 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
 
     fn try_from(graph: Graph<'a>) -> Result<Self, Self::Error> {
         let mut fxgraph = FXGraph::new();
-        let mut funcs = HashSet::new();
-        let mut built_ins = HashSet::new();
-        let mut modules = HashSet::new();
 
         // Safely access nodes with error handling
         let nodes = graph.nodes().ok_or(Error::NoGraphNodes)?;
@@ -37,96 +37,123 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
         for node in nodes {
             let _name = node.name().ok_or(Error::NoGraphNodeName)?;
             let op = node.op();
-            let target = node.target().ok_or(Error::NoGraphNodeTarget)?;
 
-            if op == OpType::call_function {
-                funcs.insert(target);
-            } else if op == OpType::call_method {
-                built_ins.insert(target);
-            } else if op == OpType::call_module {
-                modules.insert(target);
+            match op {
+                OpType::placeholder => {
+                    handle_placeholder(&mut fxgraph, &node)?;
+                }
+                OpType::call_function => {
+                    call_function(&mut fxgraph, &node)?;
+                }
+                OpType::call_method => {
+                    call_method(&mut fxgraph, &node)?;
+                }
+                _ => {
+                    println!("Unknown op: {node:?}");
+                    // return Err(Error::UnsupportedOp(op));
+                }
             }
-            // match op {
-            //     OpType::placeholder => {
-            //         handle_placeholder(&mut fxgraph, &node)?;
-            //     }
-            //     OpType::call_function => {
-            //         handle_call_function(&mut fxgraph, &node)?;
-            //     }
-            //     OpType::call_method => {
-            //         handle_call_method(&mut fxgraph, &node)?;
-            //     }
-            //     _ => {
-            //         println!("{op:?} {_target:?}");
-            //         // return Err(Error::UnsupportedOp(op));
-            //     }
-            // }
         }
 
-        println!("================");
-        for func in funcs {
-            println!("{func:?}");
-        }
-        for built_in in built_ins {
-            println!("{built_in:?}");
-        }
-        for module in modules {
-            println!("{module:?}");
-        }
-        println!("================");
         Ok(fxgraph)
     }
 }
 
 fn handle_placeholder(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
     let target = node.target().ok_or(Error::NoGraphNodeTarget)?;
-    let id = fxgraph.add_operation(
-        target,
-        FxGraphLang::Constant(ConstantValue::String(target.to_string())),
-    );
 
     fxgraph.add_operation(
-        &format!("placeholder#{target}"),
-        FxGraphLang::Placeholder([id]),
+        &format!("p#{target}"),
+        FxGraphLang::Placeholder(target.to_string()),
     );
 
     Ok(())
 }
 
-fn handle_call_function(_fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+// Static HashMap mapping function names to their handler functions
+type ConvertFn = fn(&mut FXGraph, &Node) -> Result<(), Error>;
+static FUNCS: OnceLock<HashMap<String, ConvertFn>> = OnceLock::new();
+
+// Initialize the functions HashMap
+fn get_functions() -> &'static HashMap<String, ConvertFn> {
+    FUNCS.get_or_init(|| {
+        HashMap::from([
+            ("embedding".to_string(), function_embedding as ConvertFn),
+            // ("arange", function_arange),
+        ])
+    })
+}
+
+fn call_function(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
     let target = node.target().ok_or(Error::NoGraphNodeTarget)?;
     let op = node.op();
     let args = node.args();
+    let pat =
+        r#"^(?:<function\s+|<built-in\s+(?:method|function)\s+|aten\.)([a-zA-Z_][a-zA-Z0-9_]*)"#;
+    let re = Regex::new(pat).unwrap();
+    let func_name = re
+        .captures(target)
+        .ok_or(Error::NoGraphNodeTarget)?
+        .get(1)
+        .ok_or(Error::NoGraphNodeTarget)?
+        .as_str();
+    println!("Func name: {func_name:?}");
 
-    let functions = [
-        "<function embedding",
-        "<function lazy_load_decompositions",
-        "<function _enter_autocast",
-        "aten.index",
-    ];
-    let built_ins = [
-        "<built-in method arange",
-        "<built-in function iadd",
-        "<built-in method _vmap_increment_nesting",
-        "<built-in method _add_batch_dim",
-        "<built-in method _remove_batch_dim",
-        "<built-in method _vmap_decrement_nesting",
-        "<built-in function getitem>",
-    ];
-
-    if functions.iter().any(|f| target.starts_with(f)) {
-        // todo handle functions
-    } else if built_ins.iter().any(|f| target.starts_with(f)) {
-        // todo handle built-ins
+    let functions = get_functions();
+    if let Some(handler) = functions.get(func_name) {
+        handler(fxgraph, node)?;
     } else {
-        println!("{target:?} {op:?} {args:?}");
-        return Err(Error::UnsupportedOp(op));
+        println!("Unknown function: {func_name:?}");
     }
 
     Ok(())
 }
 
-fn handle_call_method(_fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+fn function_getitem(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_lazy_load_decompositions(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_iadd(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_arange(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_embedding(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_add_batch_dim(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_remove_batch_dim(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_vmap_decrement_nesting(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_enter_autocast(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_matmul(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn function_vmap_increment_nesting(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+    todo!()
+}
+
+fn call_method(_fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
     let _target = node.target().ok_or(Error::NoGraphNodeTarget)?;
     let _op = node.op();
     let _args = node.args();

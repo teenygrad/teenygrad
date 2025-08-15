@@ -13,6 +13,7 @@ teeny-compiler = { path = "../../compiler/teeny-compiler" }
 thiserror.workspace = true
 pyo3.workspace = true
 flatbuffers.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true

@@ -2995,6 +2995,7 @@ dependencies = [
  "flate2",
  "pyo3",
  "pyo3-build-config",
+ "regex",
  "teeny-compiler",
  "teeny-core",
  "thiserror 2.0.14",

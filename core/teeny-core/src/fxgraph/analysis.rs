@@ -19,7 +19,7 @@ use egg::{Analysis, DidMerge, EGraph};
 
 use crate::fxgraph::dtype::DtypeValue;
 use crate::fxgraph::lang::FxGraphLang::{
-    self, Add, Constant, Contiguous, Div, Dtype, MatMul, Mul, Placeholder, Shape, Sub, Tensor,
+    self, Add, Constant, Contiguous, Div, Dtype, MatMul, Mul, Shape, Sub, Tensor,
 };
 use crate::fxgraph::shape::ShapeValue;
 
