@@ -65,4 +65,15 @@ impl FXGraph {
     pub fn get_node(&self, name: &str) -> Option<Id> {
         self.node_map.get(name).copied()
     }
+
+    pub fn unique_name(&self) -> String {
+        let mut i = self.node_map.len();
+        loop {
+            let name = format!("#{i}");
+            i += 1;
+            if !self.node_map.contains_key(&name) {
+                return name;
+            }
+        }
+    }
 }

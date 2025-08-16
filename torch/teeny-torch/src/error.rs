@@ -15,9 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::str::ParseBoolError;
+
 use thiserror::Error;
 
-use crate::graph::OpType;
+use crate::graph::{Node, OpType};
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
@@ -34,12 +36,27 @@ pub enum Error {
     #[error("No graph nodes")]
     NoGraphNodes,
 
-    #[error("No graph node name")]
-    NoGraphNodeName,
+    #[error("No graph node name: {0}")]
+    NoGraphNodeName(String),
 
-    #[error("No graph node target")]
-    NoGraphNodeTarget,
+    #[error("No graph node target: {0}")]
+    NoGraphNodeTarget(String),
+
+    #[error("No graph node args: {0}")]
+    NoGraphNodeArgs(String),
+
+    #[error("Graph node missing args: {0}")]
+    GraphNodeMissingArgs(String),
+
+    #[error("Graph node not found: {0}")]
+    GraphNodeNotFound(String),
+
+    #[error("No matching function: {0}")]
+    NoMatchingFunction(String),
 
     #[error("Unsupported op: {0:?}")]
     UnsupportedOp(OpType),
+
+    #[error("Parse error: {0}")]
+    ParseBoolError(ParseBoolError),
 }

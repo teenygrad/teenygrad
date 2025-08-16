@@ -57,7 +57,7 @@ define_language! {
         "arange" = Arange([Id; 3]),
         "cat" = Cat([Id; 2]),
         "rsqrt" = Rsqrt(Id),
-        "embedding" = Embedding([Id; 2]),
+        "embedding" = Embedding([Id; 5]),
         "silu" = Silu(Id),
         "symsum" = SymSum(Id),
         "aten.index" = AtenIndex([Id; 2]),
@@ -78,4 +78,16 @@ define_language! {
         "unsqueeze" = Unsqueeze(Id),
         "view" = View(Id),
     }
+}
+
+pub fn const_bool(value: bool) -> FxGraphLang {
+    FxGraphLang::Constant(ConstantValue::Bool(value))
+}
+
+pub fn const_int(value: i64) -> FxGraphLang {
+    FxGraphLang::Constant(ConstantValue::Int(value))
+}
+
+pub fn const_string(value: &str) -> FxGraphLang {
+    FxGraphLang::Constant(ConstantValue::String(value.to_string()))
 }
