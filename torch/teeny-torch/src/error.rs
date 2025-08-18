@@ -48,6 +48,9 @@ pub enum Error {
     #[error("Graph node missing args: {0}")]
     GraphNodeMissingArgs(String),
 
+    #[error("Graph node invalid args: {0}")]
+    GraphNodeInvalidArgs(String),
+
     #[error("Graph node not found: {0}")]
     GraphNodeNotFound(String),
 

@@ -18,6 +18,7 @@
 use egg::{Id, define_language};
 
 use crate::fxgraph::dtype::DtypeValue;
+use crate::fxgraph::keyvalue::KeyValue;
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::shape::ShapeValue;
 
@@ -29,6 +30,7 @@ define_language! {
         Shape(ShapeValue),
         Dtype(DtypeValue),
         Symbol(egg::Symbol),
+        KeyValue(KeyValue),
 
         // Placeholders
         Placeholder(String),
@@ -37,46 +39,50 @@ define_language! {
         "tensor" = Tensor([Id; 2]), // [shape_id, dtype_id]
 
         // Pytorch ops
-        "log_api_usage_once" = LogApiUsageOnce([Id; 0]),
-        "sdpa" = ScaledDotProductAttention([Id; 3]),
-        "add_batch_dim" = AddBatchDim(Id),
-        "remove_batch_dim" = RemoveBatchDim(Id),
-        "vmap_decrement_nesting" = VmapDecrementNesting([Id; 0]),
-        "vmap_increment_nesting" = VmapIncrementNesting([Id; 0]),
-        "enter_autocast" = EnterAutocast([Id; 0]),
-        "exit_autocast" = ExitAutocast([Id; 0]),
-        "lazy_load_decompositions" = LazyLoadDecompositions([Id; 0]),
-        "+" = Add([Id; 2]),
-        "/" = Div([Id; 2]),
-        "-" = Sub([Id; 2]),
-        "iadd" = IAdd([Id; 2]),
-        "linear" = Linear([Id; 2]),
-        "@" = MatMul([Id; 2]),
-        "*" =  Mul([Id; 2]),
-        "neg" = Neg(Id),
-        "arange" = Arange([Id; 3]),
-        "cat" = Cat([Id; 2]),
-        "rsqrt" = Rsqrt(Id),
+        "tuple" = Tuple(Vec<Id>),
         "embedding" = Embedding([Id; 5]),
-        "silu" = Silu(Id),
-        "symsum" = SymSum(Id),
-        "aten.index" = AtenIndex([Id; 2]),
+        "arange" = Arange([Id; 3]),
+        "iadd" = IAdd([Id; 2]),
+        "lazy_load_decompositions" = LazyLoadDecompositions([Id; 0]),
+        "getitem" = GetItem([Id; 2]),
         "contiguous" = Contiguous(Id),
-        "cos" = Cos(Id),
-        "expand" = Expand([Id; 2]),
-        "float" = Float(Id),
-        "item" = Item(Id),
-        "le" = Le([Id; 2]),
-        "mean" = Mean(Id),
-        "new_ones" = NewOnes(Id),
-        "numel" = Numel(Id),
-        "pow" = Pow([Id; 2]),
-        "reshape" = Reshape(Id),
-        "sin" = Sin(Id),
-        "to" = To(Id),
-        "transpose" = Transpose(Id),
-        "unsqueeze" = Unsqueeze(Id),
-        "view" = View(Id),
+        "enter_autocast" = EnterAutocast([Id; 2]),
+        "exit_autocast" = ExitAutocast([Id; 1]),
+        "silu" = Silu([Id; 2]),
+        "vmap_increment_nesting" = VmapIncrementNesting([Id; 2]),
+        "vmap_decrement_nesting" = VmapDecrementNesting([Id; 0]),
+        "add_batch_dim" = AddBatchDim([Id; 3]),
+        "remove_batch_dim" = RemoveBatchDim([Id; 4]),
+        "aten.index" = AtenIndex([Id; 2]),
+        "cat" = Cat([Id; 2]),
+        // "log_api_usage_once" = LogApiUsageOnce([Id; 0]),
+        // "sdpa" = ScaledDotProductAttention([Id; 3]),
+        "+" = Add([Id; 2]),
+        "-" = Sub([Id; 2]),
+        "*" =  Mul([Id; 2]),
+        "/" = Div([Id; 2]),
+        "@" = MatMul([Id; 2]),
+        // "linear" = Linear([Id; 2]),
+        // "neg" = Neg(Id),
+        // "cat" = Cat([Id; 2]),
+        // "rsqrt" = Rsqrt(Id),
+        // "silu" = Silu(Id),
+        // "symsum" = SymSum(Id),
+        // "cos" = Cos(Id),
+        // "expand" = Expand([Id; 2]),
+        // "float" = Float(Id),
+        // "item" = Item(Id),
+        // "le" = Le([Id; 2]),
+        // "mean" = Mean(Id),
+        // "new_ones" = NewOnes(Id),
+        // "numel" = Numel(Id),
+        // "pow" = Pow([Id; 2]),
+        // "reshape" = Reshape(Id),
+        // "sin" = Sin(Id),
+        // "to" = To(Id),
+        // "transpose" = Transpose(Id),
+        // "unsqueeze" = Unsqueeze(Id),
+        // "view" = View(Id),
     }
 }
 
@@ -90,4 +96,8 @@ pub fn const_i64(value: i64) -> FxGraphLang {
 
 pub fn const_string(value: &str) -> FxGraphLang {
     FxGraphLang::Constant(ConstantValue::String(value.to_string()))
+}
+
+pub fn const_kv(key: &str, value: Id) -> FxGraphLang {
+    FxGraphLang::KeyValue(KeyValue::Kv(key.to_string(), value))
 }

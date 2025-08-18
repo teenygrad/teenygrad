@@ -20,12 +20,14 @@ use std::collections::HashMap;
 
 pub mod analysis;
 pub mod dtype;
+pub mod keyvalue;
 pub mod lang;
 pub mod literal;
 pub mod shape;
 
 use crate::fxgraph::analysis::TensorAnalysis;
 use crate::fxgraph::dtype::DtypeValue;
+use crate::fxgraph::keyvalue::KeyValue;
 use crate::fxgraph::lang::FxGraphLang;
 use crate::fxgraph::shape::ShapeValue;
 
