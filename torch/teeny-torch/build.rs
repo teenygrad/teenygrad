@@ -46,10 +46,10 @@ fn main() {
 
     // Remove the folder python/teenygrad/graph/FXGraph if it exists
     let fxgraph_dir = project_dir.join("python/teenygrad/graph/FXGraph");
-    if fxgraph_dir.exists() {
-        if let Err(e) = std::fs::remove_dir_all(&fxgraph_dir) {
-            eprintln!("Warning: Failed to remove FXGraph directory: {e}");
-        }
+    if fxgraph_dir.exists()
+        && let Err(e) = std::fs::remove_dir_all(&fxgraph_dir)
+    {
+        eprintln!("Warning: Failed to remove FXGraph directory: {e}");
     }
 
     flatc_rust::run(flatc_rust::Args {

@@ -21,7 +21,7 @@ include!(concat!(env!("OUT_DIR"), "/flatbuffers/graph_generated.rs"));
 use crate::error::Result;
 pub use fxgraph::*;
 
-pub fn deserialize_graph(buffer: &[u8]) -> Result<Graph> {
+pub fn deserialize_graph<'a>(buffer: &'a [u8]) -> Result<Graph<'a>> {
     // Validate buffer size before deserialization
     if buffer.is_empty() {
         return Err(crate::error::Error::InvalidBuffer(
@@ -49,17 +49,7 @@ pub fn deserialize_graph(buffer: &[u8]) -> Result<Graph> {
     let result = flatbuffers::root::<Graph>(buffer);
 
     match result {
-        Ok(graph) => {
-            // Additional validation: check if the graph structure is valid
-            if let Some(nodes) = graph.nodes() {
-                if nodes.len() > 1_000_000 {
-                    return Err(crate::error::Error::InvalidBuffer(
-                        "Graph has too many nodes".to_string(),
-                    ));
-                }
-            }
-            Ok(graph)
-        }
+        Ok(graph) => Ok(graph),
         Err(e) => {
             // Try to provide more specific error information
             let error_msg = format!(

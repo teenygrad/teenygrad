@@ -36,11 +36,11 @@ impl SafeTensorsMmaps {
         for entry in fs::read_dir(folder)? {
             let entry = entry?;
             let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "safetensors" {
-                    let mmap = Self::mmap_file(&path)?;
-                    mmaps.push(mmap);
-                }
+            if let Some(ext) = path.extension()
+                && ext == "safetensors"
+            {
+                let mmap = Self::mmap_file(&path)?;
+                mmaps.push(mmap);
             }
         }
 

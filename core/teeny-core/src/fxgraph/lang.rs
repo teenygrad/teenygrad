@@ -84,7 +84,7 @@ pub fn const_bool(value: bool) -> FxGraphLang {
     FxGraphLang::Constant(ConstantValue::Bool(value))
 }
 
-pub fn const_int(value: i64) -> FxGraphLang {
+pub fn const_i64(value: i64) -> FxGraphLang {
     FxGraphLang::Constant(ConstantValue::Int(value))
 }
 

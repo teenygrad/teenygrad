@@ -19,7 +19,7 @@ use std::str::ParseBoolError;
 
 use thiserror::Error;
 
-use crate::graph::{Node, OpType};
+use crate::graph::OpType;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
