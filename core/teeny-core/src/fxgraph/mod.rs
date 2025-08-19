@@ -27,7 +27,6 @@ pub mod shape;
 
 use crate::fxgraph::analysis::TensorAnalysis;
 use crate::fxgraph::dtype::DtypeValue;
-use crate::fxgraph::keyvalue::KeyValue;
 use crate::fxgraph::lang::FxGraphLang;
 use crate::fxgraph::shape::ShapeValue;
 

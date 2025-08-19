@@ -16,6 +16,7 @@
  */
 
 use egg::{Id, define_language};
+use ordered_float::OrderedFloat;
 
 use crate::fxgraph::dtype::DtypeValue;
 use crate::fxgraph::keyvalue::KeyValue;
@@ -49,49 +50,37 @@ define_language! {
         "enter_autocast" = EnterAutocast([Id; 2]),
         "exit_autocast" = ExitAutocast([Id; 1]),
         "silu" = Silu([Id; 2]),
+        "rsqrt" = Rsqrt([Id; 1]),
+        "linear" = Linear([Id; 2]),
+        "sym_sum" = SymSum(Vec<Id>),
         "vmap_increment_nesting" = VmapIncrementNesting([Id; 2]),
         "vmap_decrement_nesting" = VmapDecrementNesting([Id; 0]),
         "add_batch_dim" = AddBatchDim([Id; 3]),
         "remove_batch_dim" = RemoveBatchDim([Id; 4]),
         "aten.index" = AtenIndex([Id; 2]),
         "cat" = Cat([Id; 2]),
-        // "log_api_usage_once" = LogApiUsageOnce([Id; 0]),
-        // "sdpa" = ScaledDotProductAttention([Id; 3]),
+        "output" = Output(Vec<Id>),
+        "sdpa" = ScaledDotProductAttention([Id; 7]),
         "+" = Add([Id; 2]),
         "-" = Sub([Id; 2]),
         "*" =  Mul([Id; 2]),
         "/" = Div([Id; 2]),
         "@" = MatMul([Id; 2]),
-        // "linear" = Linear([Id; 2]),
-        // "neg" = Neg(Id),
-        // "cat" = Cat([Id; 2]),
-        // "rsqrt" = Rsqrt(Id),
-        // "silu" = Silu(Id),
-        // "symsum" = SymSum(Id),
-        // "cos" = Cos(Id),
-        // "expand" = Expand([Id; 2]),
-        // "float" = Float(Id),
-        // "item" = Item(Id),
-        // "le" = Le([Id; 2]),
-        // "mean" = Mean(Id),
-        // "new_ones" = NewOnes(Id),
-        // "numel" = Numel(Id),
-        // "pow" = Pow([Id; 2]),
-        // "reshape" = Reshape(Id),
-        // "sin" = Sin(Id),
-        // "to" = To(Id),
-        // "transpose" = Transpose(Id),
-        // "unsqueeze" = Unsqueeze(Id),
-        // "view" = View(Id),
+        "neg" = Neg(Id),
+
     }
 }
 
-pub fn const_bool(value: bool) -> FxGraphLang {
-    FxGraphLang::Constant(ConstantValue::Bool(value))
+pub fn const_bool(value: &str) -> FxGraphLang {
+    FxGraphLang::Constant(ConstantValue::Bool(value.to_lowercase().parse().unwrap()))
 }
 
 pub fn const_i64(value: i64) -> FxGraphLang {
     FxGraphLang::Constant(ConstantValue::Int(value))
+}
+
+pub fn const_f32(value: f32) -> FxGraphLang {
+    FxGraphLang::Constant(ConstantValue::Float32(OrderedFloat::from(value)))
 }
 
 pub fn const_string(value: &str) -> FxGraphLang {

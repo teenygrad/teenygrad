@@ -18,13 +18,15 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use ordered_float::OrderedFloat;
+
 use crate::error::Error;
 
 // Value types for constants
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
     Int(i64),
-    // Float(OrderedFloat),
+    Float32(OrderedFloat<f32>),
     Bool(bool),
     IntList(Vec<i64>),
     String(String),
@@ -53,6 +55,7 @@ impl Display for ConstantValue {
                     .join(", ")
             ),
             ConstantValue::String(s) => write!(f, "{s}"),
+            ConstantValue::Float32(s) => write!(f, "{s}"),
         }
     }
 }
