@@ -136,6 +136,11 @@ fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
         return fxgraph.add_operation(&fxgraph.unique_name(), const_i64(v));
     }
 
+    let v = name.parse::<f32>();
+    if let Ok(v) = v {
+        return fxgraph.add_operation(&fxgraph.unique_name(), const_f32(v));
+    }
+
     let v = name.to_lowercase().parse::<bool>();
     if let Ok(v) = v {
         return fxgraph.add_operation(&fxgraph.unique_name(), const_bool(&v.to_string()));
@@ -150,24 +155,22 @@ fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
         return fxgraph.add_operation(&fxgraph.unique_name(), FxGraphLang::Tuple(args));
     }
 
-    fxgraph.add_operation(name, FxGraphLang::Placeholder(name.to_string()))
+    fxgraph.add_operation(&fxgraph.unique_name(), const_string(name))
 }
 
-fn find_kw_arg<'a, T: FromStr>(node: &'a Node, key: &str) -> Result<Option<T>, Error> {
+fn find_kw_arg<T: FromStr>(node: &Node, key: &str) -> Result<Option<T>, Error> {
     let x = node
         .kwargs()
         .iter()
         .flatten()
         .find(|x| x.key() == Some(key))
         .and_then(|x| x.value())
-        .and_then(|x| Some(x.parse::<T>()));
+        .map(|x| x.parse::<T>());
 
     match x {
-        Some(Ok(v)) => return Ok(Some(v)),
-        Some(Err(_)) => {
-            return Err(Error::GraphNodeInvalidArgs(format!("{:?} {}", node, key)));
-        }
-        None => return Ok(None),
+        Some(Ok(v)) => Ok(Some(v)),
+        Some(Err(_)) => Err(Error::GraphNodeInvalidArgs(format!("{:?} {}", node, key))),
+        None => Ok(None),
     }
 }
 
