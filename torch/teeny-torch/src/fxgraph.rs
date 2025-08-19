@@ -176,11 +176,13 @@ fn handle_placeholder(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
         .target()
         .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
 
-    fxgraph.add_operation(
+    let id = fxgraph.add_operation(
         node.name()
             .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?,
         FxGraphLang::Placeholder(target.to_string()),
     );
+
+    fxgraph.inputs.push(id);
 
     Ok(())
 }
@@ -640,6 +642,8 @@ fn handle_output(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
         let name = node
             .name()
             .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
+
+        fxgraph.outputs.extend(args.clone());
         fxgraph.add_operation(name, FxGraphLang::Output(args));
     } else {
         return Err(Error::GraphNodeInvalidArgs(format!("output - {:?}", node)));
