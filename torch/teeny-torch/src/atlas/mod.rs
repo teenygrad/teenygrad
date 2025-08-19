@@ -22,7 +22,7 @@ use crate::graph::*;
 
 #[pyfunction]
 pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
-    println!("Writing file to /tmp/qwen");
+    println!("Writing file to /tmp/model");
 
     write_file(buffer).map_err(|e| {
         pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write file: {e}"))
@@ -87,7 +87,7 @@ fn write_file(data: &[u8]) -> PyResult<()> {
     use std::path::Path;
     let mut unique_path = String::new();
     for i in 1..1000 {
-        let candidate = format!("qwen_{i}.bin");
+        let candidate = format!("/tmp/model/model_{i}.bin");
         if !Path::new(&candidate).exists() {
             unique_path = candidate;
             break;
