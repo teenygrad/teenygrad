@@ -15,8 +15,34 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#![allow(non_camel_case_types)]
-#![allow(dead_code)]
-#![allow(non_upper_case_globals)]
-#![allow(non_snake_case)]
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+
+use egg::Id;
+
+use crate::error::Error;
+use crate::fxgraph::keyvalue::KeyValue;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Cat {
+    pub tensors: Vec<Id>,
+    pub kw: Vec<KeyValue>,
+}
+
+impl FromStr for Cat {
+    type Err = Error;
+
+    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
+        todo!()
+    }
+}
+
+impl Display for Cat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Cat {{ tensors: {:?}, kw: {:?} }}",
+            self.tensors, self.kw
+        )
+    }
+}

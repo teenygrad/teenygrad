@@ -18,26 +18,18 @@
 use egg::{Id, define_language};
 use ordered_float::OrderedFloat;
 
-use crate::fxgraph::dtype::DtypeValue;
 use crate::fxgraph::keyvalue::KeyValue;
 use crate::fxgraph::literal::ConstantValue;
-use crate::fxgraph::shape::ShapeValue;
+use crate::fxgraph::placeholder::Placeholder;
 
 // Define the core language for your compiler IR
 define_language! {
     pub enum FxGraphLang {
         // Constants and literals
         Constant(ConstantValue),
-        Shape(ShapeValue),
-        Dtype(DtypeValue),
-        Symbol(egg::Symbol),
-        KeyValue(KeyValue),
 
         // Placeholders
-        Placeholder(String),
-
-        // Tensor
-        "tensor" = Tensor([Id; 2]), // [shape_id, dtype_id]
+        Placeholder(Placeholder),
 
         // Pytorch ops
         "tuple" = Tuple(Vec<Id>),
@@ -87,6 +79,6 @@ pub fn const_string(value: &str) -> FxGraphLang {
     FxGraphLang::Constant(ConstantValue::String(value.to_string()))
 }
 
-pub fn const_kv(key: &str, value: Id) -> FxGraphLang {
-    FxGraphLang::KeyValue(KeyValue::Kv(key.to_string(), value))
+pub fn const_kv(key: &str, value: Id) -> KeyValue {
+    KeyValue::Kv(key.to_string(), value)
 }

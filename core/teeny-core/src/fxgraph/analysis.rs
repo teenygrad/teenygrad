@@ -18,9 +18,7 @@
 use egg::{Analysis, DidMerge, EGraph};
 
 use crate::fxgraph::dtype::DtypeValue;
-use crate::fxgraph::lang::FxGraphLang::{
-    self, Add, Constant, Contiguous, Div, Dtype, MatMul, Mul, Shape, Sub, Tensor,
-};
+use crate::fxgraph::lang::FxGraphLang::{self, Add, Constant, Contiguous, Div, MatMul, Mul, Sub};
 use crate::fxgraph::shape::ShapeValue;
 
 // Analysis for tracking tensor properties and optimization opportunities
@@ -58,18 +56,6 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
 
     fn make(egraph: &mut EGraph<FxGraphLang, Self>, enode: &FxGraphLang) -> Self::Data {
         match enode {
-            Tensor([shape_id, dtype_id]) => {
-                let shape = egraph[*shape_id].data.shape.clone();
-                let dtype = egraph[*dtype_id].data.dtype.clone();
-                TensorAnalysis {
-                    shape,
-                    dtype,
-                    is_contiguous: true,
-                    memory_format: MemoryFormat::Contiguous,
-                    compute_cost: 1,
-                }
-            }
-
             Add([a, b]) | Mul([a, b]) | Sub([a, b]) | Div([a, b]) => {
                 let a_data = &egraph[*a].data;
                 let b_data = &egraph[*b].data;
@@ -117,22 +103,6 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
                 data.compute_cost += 5; // Cost of making contiguous
                 data
             }
-
-            Shape(shape_val) => TensorAnalysis {
-                shape: Some(shape_val.clone()),
-                dtype: None,
-                is_contiguous: true,
-                memory_format: MemoryFormat::Contiguous,
-                compute_cost: 0,
-            },
-
-            Dtype(dtype_val) => TensorAnalysis {
-                shape: None,
-                dtype: Some(dtype_val.clone()),
-                is_contiguous: true,
-                memory_format: MemoryFormat::Contiguous,
-                compute_cost: 0,
-            },
 
             Constant(_) => TensorAnalysis {
                 shape: Some(ShapeValue::Static(vec![])), // Scalar

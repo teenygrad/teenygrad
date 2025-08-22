@@ -40,6 +40,7 @@ class AtlasModule(nn.Module):
 
     def forward(self, *args, **kwargs):
         """Forward pass."""
+        self._print_args(*args, **kwargs)
         return self.gm.forward(*args, **kwargs)
 
     def _compile(self, args: list[Any] | None):
@@ -47,3 +48,8 @@ class AtlasModule(nn.Module):
         print("Compiling module...")
         fxgraph = serialize_fx_graph(self.gm, args)
         self.compiled_module = atlas_compile(fxgraph)
+
+    def _print_args(self, *args, **kwargs):
+        """Print the argument."""
+        # print("ARGS:", args)
+        print("KWARGS:", kwargs)

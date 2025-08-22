@@ -17,6 +17,7 @@
 
 """Serialize FX graphs to flatbuffers"""
 
+import json
 from typing import Any
 
 import flatbuffers  # type: ignore
@@ -91,6 +92,9 @@ from .FXGraph.Tensor import (
 
 def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = None) -> bytes:
     """Serialize a torch.fx.GraphModule to a flatbuffer."""
+
+    print_fx_graph(gm, example_inputs)
+
     # Calculate buffer size dynamically based on graph complexity
     # Base size + per-node overhead + per-tensor overhead
     base_size = 1024
@@ -217,7 +221,48 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | Non
         raise RuntimeError(f"Failed to serialize graph: {e}") from e
 
 
-def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[Any]) -> int | None:
+def print_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = None):
+    """Print the fx graph and example inputs to a file in /tmp for debugging"""
+
+    def serialize_fx_node(node):
+        return {
+            "name": getattr(node, "name", None),
+            "op": getattr(node, "op", None),
+            "target": str(getattr(node, "target", None)),
+            "args": [str(a) for a in getattr(node, "args", [])],
+            "kwargs": {str(k): str(v) for k, v in getattr(node, "kwargs", {}).items()},
+            "users": [str(u) for u in getattr(node, "users", [])],
+        }
+
+    graph_dict = {
+        "nodes": [serialize_fx_node(node) for node in gm.graph.nodes],
+    }
+
+    def serialize_example_input(inp):
+        if hasattr(inp, "shape") and hasattr(inp, "dtype"):
+            return {
+                "type": "tensor",
+                "shape": list(inp.shape),
+                "dtype": str(inp.dtype),
+                "device": str(inp.device) if hasattr(inp, "device") else None,
+            }
+        elif hasattr(inp, "__class__") and inp.__class__.__name__ == "SymInt":
+            return {
+                "type": "symint",
+                "value": str(inp),
+            }
+        else:
+            return str(inp)
+
+    print("--------------------------------")
+    print(json.dumps({
+        "graph": graph_dict,
+        "example_inputs": [serialize_example_input(inp) for inp in example_inputs] if example_inputs else [],
+    }, indent=2, sort_keys=True))
+    print("--------------------------------")
+
+
+def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[Any] | None) -> int | None:
     """Serialize example inputs to a flatbuffer.
 
     Returns the offset to the ExampleInputs table, or None if no inputs.
@@ -244,7 +289,7 @@ def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[
 
             dtype_mapping = {
                 torch.float64: DType.FLOAT64,
-                torch.float32: DType.FLOAT32,               
+                torch.float32: DType.FLOAT32,
                 torch.int64: DType.INT64,
                 torch.int32: DType.INT32,
                 torch.int8: DType.INT8,

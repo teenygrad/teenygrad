@@ -19,16 +19,16 @@ use egg::{EGraph, Id};
 use std::collections::HashMap;
 
 pub mod analysis;
+pub mod cat;
 pub mod dtype;
 pub mod keyvalue;
 pub mod lang;
 pub mod literal;
+pub mod placeholder;
 pub mod shape;
 
 use crate::fxgraph::analysis::TensorAnalysis;
-use crate::fxgraph::dtype::DtypeValue;
 use crate::fxgraph::lang::FxGraphLang;
-use crate::fxgraph::shape::ShapeValue;
 
 // Higher-level IR for mapping from FX graphs
 #[derive(Debug, Clone, Default)]
@@ -47,14 +47,6 @@ impl FXGraph {
             outputs: Vec::new(),
             node_map: HashMap::new(),
         }
-    }
-
-    pub fn add_tensor(&mut self, name: String, shape: ShapeValue, dtype: DtypeValue) -> Id {
-        let shape_id = self.egraph.add(FxGraphLang::Shape(shape));
-        let dtype_id = self.egraph.add(FxGraphLang::Dtype(dtype));
-        let tensor_id = self.egraph.add(FxGraphLang::Tensor([shape_id, dtype_id]));
-        self.node_map.insert(name, tensor_id);
-        tensor_id
     }
 
     pub fn add_operation(&mut self, name: &str, op: FxGraphLang) -> Id {

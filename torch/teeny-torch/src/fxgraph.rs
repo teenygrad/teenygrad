@@ -23,7 +23,6 @@ use std::{collections::HashMap, str::FromStr};
 use egg::Id;
 
 use regex::Regex;
-use teeny_compiler::fxgraph;
 use teeny_core::fxgraph::lang::const_f32;
 use teeny_core::fxgraph::{
     FXGraph,
@@ -67,6 +66,7 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
             }
         }
 
+        fxgraph.egraph.rebuild();
         Ok(fxgraph)
     }
 }

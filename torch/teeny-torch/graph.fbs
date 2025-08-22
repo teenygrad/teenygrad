@@ -26,20 +26,6 @@ enum OpType : byte {
   output
 }
 
-table Node {
-  name: string;
-  op: OpType;
-  target: string;
-  args: [string];  // Serialized argument representations
-  kwargs: [KeyValue];
-  users: [string];  // Consumer node names
-}
-
-table KeyValue {
-  key: string;
-  value: string;
-}
-
 enum DType : byte {
   FLOAT32 = 0,
   FLOAT64 = 1,
@@ -50,6 +36,16 @@ enum DType : byte {
   BOOL = 6,
   BFLOAT16 = 7,
   FLOAT16 = 8
+}
+
+table SymInt {
+  type: DType;
+  value: string;
+}
+
+table KeyValue {
+  key: string;
+  value: string;
 }
 
 table Shape {
@@ -66,8 +62,18 @@ table Tensor {
   storage_offset: long = 0;
 }
 
-table SymInt {
-  id: string;
+union Placeholder {
+  symint: SymInt,
+  tensor: Tensor,
+}
+
+table Node {
+  name: string;
+  op: OpType;
+  target: string;
+  args: [string];  // Serialized argument representations
+  kwargs: [KeyValue];
+  users: [string];  // Consumer node names
 }
 
 enum InputType : byte {
