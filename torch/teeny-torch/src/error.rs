@@ -19,7 +19,6 @@ use std::str::ParseBoolError;
 
 use thiserror::Error;
 
-use crate::graph::OpType;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
@@ -56,9 +55,6 @@ pub enum Error {
 
     #[error("No matching function: {0}")]
     NoMatchingFunction(String),
-
-    #[error("Unsupported op: {0:?}")]
-    UnsupportedOp(OpType),
 
     #[error("Parse error: {0}")]
     ParseBoolError(ParseBoolError),

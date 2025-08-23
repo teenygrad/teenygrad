@@ -28,8 +28,9 @@ use teeny_core::fxgraph::{
     FXGraph,
     lang::{FxGraphLang, const_bool, const_i64, const_kv, const_string},
 };
+use teeny_core::value::Value;
 
-use crate::graph::{Node, OpType};
+use crate::graph::{Node, PlaceholderWrapper};
 
 impl<'a> TryFrom<Graph<'a>> for FXGraph {
     type Error = Error;
@@ -41,29 +42,37 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
         let nodes = graph.nodes().ok_or(Error::NoGraphNodes)?;
 
         for node in nodes {
-            let _name = node
-                .name()
-                .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
-            let op = node.op();
-
-            match op {
-                OpType::placeholder => {
-                    handle_placeholder(&mut fxgraph, &node)?;
-                }
-                OpType::call_function => {
-                    call_function(&mut fxgraph, &node)?;
-                }
-                OpType::call_method => {
-                    call_method(&mut fxgraph, &node)?;
-                }
-                OpType::output => {
-                    handle_output(&mut fxgraph, &node)?;
+            let node_type = node.node_type();
+            match node_type {
+                Node::placeholder => {
+                    let placeholder = node
+                        .node_as_placeholder()
+                        .ok_or(Error::InvalidBuffer(format!("{node:?}")))?;
+                    handle_placeholder(&mut fxgraph, &placeholder)?;
                 }
                 _ => {
-                    println!("Unknown op: {node:?}");
-                    // return Err(Error::UnsupportedOp(op));
+                    todo!("Unknown node type: {node_type:?}");
                 }
             }
+
+            // match op {
+            //     OpType::placeholder => {
+            //         handle_placeholder(&mut fxgraph, &node)?;
+            //     }
+            //     OpType::call_function => {
+            //         call_function(&mut fxgraph, &node)?;
+            //     }
+            //     OpType::call_method => {
+            //         call_method(&mut fxgraph, &node)?;
+            //     }
+            //     OpType::output => {
+            //         handle_output(&mut fxgraph, &node)?;
+            //     }
+            //     _ => {
+            //         println!("Unknown op: {node:?}");
+            //         // return Err(Error::UnsupportedOp(op));
+            //     }
+            // }
         }
 
         fxgraph.egraph.rebuild();
@@ -159,67 +168,70 @@ fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
 }
 
 fn find_kw_arg<T: FromStr>(node: &Node, key: &str) -> Result<Option<T>, Error> {
-    let x = node
-        .kwargs()
-        .iter()
-        .flatten()
-        .find(|x| x.key() == Some(key))
-        .and_then(|x| x.value())
-        .map(|x| x.parse::<T>());
+    todo!()
+    // let x = node
+    //     .kwargs()
+    //     .iter()
+    //     .flatten()
+    //     .find(|x| x.key() == Some(key))
+    //     .and_then(|x| x.value())
+    //     .map(|x| x.parse::<T>());
 
-    match x {
-        Some(Ok(v)) => Ok(Some(v)),
-        Some(Err(_)) => Err(Error::GraphNodeInvalidArgs(format!("{:?} {}", node, key))),
-        None => Ok(None),
-    }
+    // match x {
+    //     Some(Ok(v)) => Ok(Some(v)),
+    //     Some(Err(_)) => Err(Error::GraphNodeInvalidArgs(format!("{:?} {}", node, key))),
+    //     None => Ok(None),
+    // }
 }
 
-fn handle_placeholder(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
-    let target = node
-        .target()
-        .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
+fn handle_placeholder(_fxgraph: &mut FXGraph, _node: &PlaceholderWrapper) -> Result<(), Error> {
+    todo!()
+    // let target = node
+    //     .target()
+    //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
 
-    let id = fxgraph.add_operation(
-        node.name()
-            .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?,
-        FxGraphLang::Placeholder(target.to_string()),
-    );
+    // let id = fxgraph.add_operation(
+    //     node.name()
+    //         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?,
+    //     FxGraphLang::Placeholder(target.to_string()),
+    // );
 
-    fxgraph.inputs.push(id);
+    // fxgraph.inputs.push(id);
 
-    Ok(())
+    // Ok(())
 }
 
 fn call_function(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
-    let target = node
-        .target()
-        .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
-    let pat = r#"^(?:<function\s+|<built-in\s+(?:method|function)\s+)([a-zA-Z_][a-zA-Z0-9_]*)"#;
-    let re = Regex::new(pat).unwrap();
-    let func_name = re
-        .captures(target)
-        .and_then(|x| x.get(1))
-        .map(|x| x.as_str())
-        .unwrap_or(target);
+    // let target = node
+    //     .target()
+    //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
+    // let pat = r#"^(?:<function\s+|<built-in\s+(?:method|function)\s+)([a-zA-Z_][a-zA-Z0-9_]*)"#;
+    // let re = Regex::new(pat).unwrap();
+    // let func_name = re
+    //     .captures(target)
+    //     .and_then(|x| x.get(1))
+    //     .map(|x| x.as_str())
+    //     .unwrap_or(target);
 
-    let args = node
-        .args()
-        .ok_or_else(|| Error::NoGraphNodeArgs(format!("args: {node:?}")))?
-        .iter()
-        .collect::<Vec<_>>();
+    // let args = node
+    //     .args()
+    //     .ok_or_else(|| Error::NoGraphNodeArgs(format!("args: {node:?}")))?
+    //     .iter()
+    //     .collect::<Vec<_>>();
 
-    let name = node
-        .name()
-        .ok_or_else(|| Error::NoGraphNodeName(format!("{:?}", node)))?;
+    // let name = node
+    //     .name()
+    //     .ok_or_else(|| Error::NoGraphNodeName(format!("{:?}", node)))?;
 
-    let functions = get_functions();
-    if let Some(handler) = functions.get(func_name) {
-        handler(fxgraph, node, name, &args)?;
-    } else {
-        todo!("Unknown function: {func_name:?} {target:?}");
-    }
+    // let functions = get_functions();
+    // if let Some(handler) = functions.get(func_name) {
+    //     handler(fxgraph, node, name, &args)?;
+    // } else {
+    //     todo!("Unknown function: {func_name:?} {target:?}");
+    // }
 
-    Ok(())
+    // Ok(())
+    todo!()
 }
 
 fn mul(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<(), Error> {
@@ -610,49 +622,52 @@ fn cat(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<
 
     let dim = find_kw_arg::<i64>(node, "dim")?.unwrap_or(0);
     let dim = fxgraph.add_operation(&fxgraph.unique_name(), const_i64(dim));
-    let arg2 = fxgraph.add_operation(&fxgraph.unique_name(), const_kv("dim", dim));
+    // let arg2 = fxgraph.add_operation(&fxgraph.unique_name(), const_kv("dim", dim));
 
-    fxgraph.add_operation(name, FxGraphLang::Cat([arg1, arg2]));
+    // fxgraph.add_operation(name, FxGraphLang::Cat([arg1, arg2]));
 
-    Ok(())
+    // Ok(())
+    todo!()
 }
 
 fn call_method(_fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
-    let _target = node
-        .target()
-        .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
-    let _op = node.op();
-    let _args = node.args();
+    // let _target = node
+    //     .target()
+    //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
+    // let _op = node.op();
+    // let _args = node.args();
 
-    Ok(())
+    // Ok(())
+    todo!()
 }
 
 fn handle_output(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
-    let args = node
-        .args()
-        .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?
-        .iter()
-        .collect::<Vec<_>>();
-    if args.len() != 1 {
-        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    }
+    // let args = node
+    //     .args()
+    //     .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?
+    //     .iter()
+    //     .collect::<Vec<_>>();
+    // if args.len() != 1 {
+    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    // }
 
-    if args[0].starts_with("(") && args[0].ends_with(")") {
-        let args = args[0][1..args[0].len() - 1]
-            .split(",")
-            .map(|x| find_or_create(fxgraph, x))
-            .collect::<Vec<_>>();
-        let name = node
-            .name()
-            .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
+    // if args[0].starts_with("(") && args[0].ends_with(")") {
+    //     let args = args[0][1..args[0].len() - 1]
+    //         .split(",")
+    //         .map(|x| find_or_create(fxgraph, x))
+    //         .collect::<Vec<_>>();
+    //     let name = node
+    //         .name()
+    //         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
 
-        fxgraph.outputs.extend(args.clone());
-        fxgraph.add_operation(name, FxGraphLang::Output(args));
-    } else {
-        return Err(Error::GraphNodeInvalidArgs(format!("output - {:?}", node)));
-    }
+    //     fxgraph.outputs.extend(args.clone());
+    //     fxgraph.add_operation(name, FxGraphLang::Output(args));
+    // } else {
+    //     return Err(Error::GraphNodeInvalidArgs(format!("output - {:?}", node)));
+    // }
 
-    Ok(())
+    // Ok(())
+    todo!()
 }
 
 #[cfg(test)]

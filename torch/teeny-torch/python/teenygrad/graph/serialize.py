@@ -24,70 +24,67 @@ import flatbuffers  # type: ignore
 
 import torch
 
+from .FXGraph.CallFunction import (
+    CallFunctionAddName,
+    CallFunctionEnd,
+    CallFunctionStart,
+)
+from .FXGraph.CallMethod import CallMethodAddName, CallMethodEnd, CallMethodStart
+from .FXGraph.CallModule import CallModuleAddName, CallModuleEnd, CallModuleStart
+
 # Import the generated flatbuffer classes and functions
 from .FXGraph.DType import DType
-
-# Import the required classes and functions
-from .FXGraph.ExampleInput import (
-    ExampleInputAddType,
-    ExampleInputAddValue,
-    ExampleInputAddValueType,
-    ExampleInputEnd,
-    ExampleInputStart,
-)
 from .FXGraph.ExampleInputs import (
     ExampleInputsAddInputs,
     ExampleInputsEnd,
     ExampleInputsStart,
     ExampleInputsStartInputsVector,
 )
+from .FXGraph.ExampleInputWrapper import (
+    ExampleInputWrapperAddValue,
+    ExampleInputWrapperEnd,
+    ExampleInputWrapperStart,
+)
+from .FXGraph.GetAttr import GetAttrAddName, GetAttrEnd, GetAttrStart
 from .FXGraph.Graph import (
     GraphAddExampleInputs,
-    GraphAddInputNames,
     GraphAddNodes,
-    GraphAddOutputNames,
     GraphEnd,
     GraphStart,
-    GraphStartInputNamesVector,
     GraphStartNodesVector,
-    GraphStartOutputNamesVector,
 )
-from .FXGraph.InputType import InputType
-from .FXGraph.InputValue import InputValue
-from .FXGraph.KeyValue import (
-    KeyValueAddKey,
-    KeyValueAddValue,
-    KeyValueEnd,
-    KeyValueStart,
+from .FXGraph.Node import Node
+from .FXGraph.NodeWrapper import (
+    NodeWrapperAddNode,
+    NodeWrapperAddNodeType,
+    NodeWrapperEnd,
+    NodeWrapperStart,
 )
-from .FXGraph.Node import (
-    NodeAddArgs,
-    NodeAddKwargs,
-    NodeAddName,
-    NodeAddOp,
-    NodeAddTarget,
-    NodeAddUsers,
-    NodeEnd,
-    NodeStart,
-    NodeStartArgsVector,
-    NodeStartKwargsVector,
-    NodeStartUsersVector,
+from .FXGraph.Output import OutputAddName, OutputEnd, OutputStart
+from .FXGraph.Placeholder import Placeholder
+from .FXGraph.PlaceholderWrapper import (
+    PlaceholderWrapperAddName,
+    PlaceholderWrapperAddTarget,
+    PlaceholderWrapperAddUsers,
+    PlaceholderWrapperAddValue,
+    PlaceholderWrapperAddValueType,
+    PlaceholderWrapperEnd,
+    PlaceholderWrapperStart,
+    PlaceholderWrapperStartUsersVector,
 )
-from .FXGraph.OpType import OpType
-from .FXGraph.Shape import (
-    ShapeAddDims,
-    ShapeEnd,
-    ShapeStart,
-    ShapeStartDimsVector,
-)
-from .FXGraph.SymInt import SymIntAddId, SymIntEnd, SymIntStart
+from .FXGraph.Shape import ShapeAddDims, ShapeEnd, ShapeStart, ShapeStartDimsVector
+from .FXGraph.SymInt import SymIntAddValue, SymIntEnd, SymIntStart
 from .FXGraph.Tensor import (
     TensorAddDevice,
     TensorAddDtype,
+    TensorAddRequiresGrad,
     TensorAddShape,
+    TensorAddStride,
     TensorEnd,
     TensorStart,
+    TensorStartStrideVector,
 )
+from .FXGraph.ValInt import ValIntAddValue, ValIntEnd, ValIntStart
 
 
 def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = None) -> bytes:
@@ -106,7 +103,6 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | Non
 
     # Ensure minimum size and cap at reasonable maximum
     buffer_size = max(1024, min(estimated_size, 65536))
-
     builder = flatbuffers.Builder(buffer_size)
 
     try:
@@ -119,53 +115,43 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | Non
             if not hasattr(node, 'name') or not hasattr(node, 'target'):
                 continue
 
-            # Build users vector (empty for now to avoid circular references)
-            NodeStartUsersVector(builder, 0)
+            # Build users vector
+            users = [builder.CreateString(str(u.name)) for u in node.users if hasattr(u, 'name')]
+            PlaceholderWrapperStartUsersVector(builder, len(users))
+            for user in reversed(users):
+                builder.PrependUOffsetTRelative(user)
             users_vec = builder.EndVector()
 
-            # Build args vector
-            args = []
-            if hasattr(node, 'args'):
-                args = [builder.CreateString(str(a)) for a in node.args if a is not None]
+            # Build the node based on its operation type
+            node_offset = None
+            node_type = Node.NONE
 
-            NodeStartArgsVector(builder, len(args))
-            for arg in reversed(args):
-                builder.PrependUOffsetTRelative(arg)
-            args_vec = builder.EndVector()
+            if node.op == "placeholder":
+                node_type = Node.placeholder
+                node_offset = build_placeholder_node(builder, node, users_vec)
+            elif node.op == "call_function":
+                node_type = Node.call_function
+                node_offset = build_call_function_node(builder, node)
+            elif node.op == "call_method":
+                node_type = Node.call_method
+                node_offset = build_call_method_node(builder, node)
+            elif node.op == "call_module":
+                node_type = Node.call_module
+                node_offset = build_call_module_node(builder, node)
+            elif node.op == "get_attr":
+                node_type = Node.get_attr
+                node_offset = build_get_attr_node(builder, node)
+            elif node.op == "output":
+                node_type = Node.output
+                node_offset = build_output_node(builder, node)
 
-            # Build kwargs vector
-            kwargs = []
-            if hasattr(node, 'kwargs'):
-                for k, v in node.kwargs.items():
-                    if k is not None and v is not None:
-                        key = builder.CreateString(str(k))
-                        val = builder.CreateString(str(v))
-                        KeyValueStart(builder)
-                        KeyValueAddKey(builder, key)
-                        KeyValueAddValue(builder, val)
-                        kwargs.append(KeyValueEnd(builder))
-
-            NodeStartKwargsVector(builder, len(kwargs))
-            for kv in reversed(kwargs):
-                builder.PrependUOffsetTRelative(kv)
-            kwargs_vec = builder.EndVector()
-
-            # Build the node
-            name = builder.CreateString(str(node.name))
-            target = builder.CreateString(str(node.target))
-
-            op_type = OpType.placeholder  # default
-            if hasattr(node, 'op') and hasattr(OpType, node.op):
-                op_type = getattr(OpType, node.op)
-
-            NodeStart(builder)
-            NodeAddName(builder, name)
-            NodeAddOp(builder, op_type)
-            NodeAddTarget(builder, target)
-            NodeAddArgs(builder, args_vec)
-            NodeAddKwargs(builder, kwargs_vec)
-            NodeAddUsers(builder, users_vec)
-            node_offsets.append(NodeEnd(builder))
+            if node_offset is not None:
+                # Build NodeWrapper
+                NodeWrapperStart(builder)
+                NodeWrapperAddNodeType(builder, node_type)
+                NodeWrapperAddNode(builder, node_offset)
+                node_wrapper_offset = NodeWrapperEnd(builder)
+                node_offsets.append(node_wrapper_offset)
 
         if not node_offsets:
             raise ValueError("No valid nodes found for serialization")
@@ -176,41 +162,23 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | Non
             builder.PrependUOffsetTRelative(offset)
         nodes_vec = builder.EndVector()
 
-        # 3. Build input/output name vectors
-        inputs = [builder.CreateString(n.name)
-                  for n in gm.graph.nodes if n.op == "placeholder"]
-        GraphStartInputNamesVector(builder, len(inputs))
-        for name in reversed(inputs):
-            builder.PrependUOffsetTRelative(name)
-        inputs_vec = builder.EndVector()
-
-        outputs = [builder.CreateString(n.name)
-                   for n in gm.graph.nodes if n.op == "output"]
-        GraphStartOutputNamesVector(builder, len(outputs))
-        for name in reversed(outputs):
-            builder.PrependUOffsetTRelative(name)
-        outputs_vec = builder.EndVector()
-
-        # 4. Build example inputs if provided
+        # 3. Build example inputs if provided
         example_inputs_offset = serialize_example_inputs(builder, example_inputs)
 
-        # 5. Build the final Graph structure
+        # 4. Build the final Graph structure
         GraphStart(builder)
+        GraphAddNodes(builder, nodes_vec)
         if example_inputs_offset is not None:
             GraphAddExampleInputs(builder, example_inputs_offset)
-        GraphAddNodes(builder, nodes_vec)
-        GraphAddInputNames(builder, inputs_vec)
-        GraphAddOutputNames(builder, outputs_vec)
-
         graph_offset = GraphEnd(builder)
 
-        # 6. Finish and validate
+        # 5. Finish and validate
         if graph_offset <= 0:
             raise ValueError(f"Invalid graph offset: {graph_offset}")
 
         builder.Finish(graph_offset)
 
-        # 7. Get output and validate
+        # 6. Get output and validate
         output = builder.Output()
         if len(output) <= 0:
             raise ValueError("Generated buffer is empty")
@@ -219,6 +187,66 @@ def serialize_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | Non
 
     except Exception as e:
         raise RuntimeError(f"Failed to serialize graph: {e}") from e
+
+
+def build_placeholder_node(builder: flatbuffers.Builder, node: torch.fx.Node, users_vec: int) -> int:
+    """Build a PlaceholderWrapper node."""
+    name = builder.CreateString(str(node.name))
+    target = builder.CreateString(str(node.target))
+
+    # For placeholder nodes, we need to determine the value type
+    # This is typically a tensor or symint, but we'll use a placeholder for now
+    value_type = Placeholder.NONE
+    value_offset = 0
+
+    # Build the PlaceholderWrapper
+    PlaceholderWrapperStart(builder)
+    PlaceholderWrapperAddName(builder, name)
+    PlaceholderWrapperAddValueType(builder, value_type)
+    PlaceholderWrapperAddValue(builder, value_offset)
+    PlaceholderWrapperAddTarget(builder, target)
+    PlaceholderWrapperAddUsers(builder, users_vec)
+    return PlaceholderWrapperEnd(builder)
+
+
+def build_call_function_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> int:
+    """Build a CallFunction node."""
+    name = builder.CreateString(str(node.target))
+    CallFunctionStart(builder)
+    CallFunctionAddName(builder, name)
+    return CallFunctionEnd(builder)
+
+
+def build_call_method_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> int:
+    """Build a CallMethod node."""
+    name = builder.CreateString(str(node.target))
+    CallMethodStart(builder)
+    CallMethodAddName(builder, name)
+    return CallMethodEnd(builder)
+
+
+def build_call_module_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> int:
+    """Build a CallModule node."""
+    name = builder.CreateString(str(node.target))
+    CallModuleStart(builder)
+    CallModuleAddName(builder, name)
+    return CallModuleEnd(builder)
+
+
+def build_get_attr_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> int:
+    """Build a GetAttr node."""
+    name = builder.CreateString(str(node.target))
+    GetAttrStart(builder)
+    GetAttrAddName(builder, name)
+    return GetAttrEnd(builder)
+
+
+def build_output_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> int:
+    """Build an Output node."""
+    name = builder.CreateString(str(node.name))
+    OutputStart(builder)
+    OutputAddName(builder, name)
+    return OutputEnd(builder)
 
 
 def print_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = None):
@@ -232,6 +260,7 @@ def print_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = 
             "args": [str(a) for a in getattr(node, "args", [])],
             "kwargs": {str(k): str(v) for k, v in getattr(node, "kwargs", {}).items()},
             "users": [str(u) for u in getattr(node, "users", [])],
+            "_all_attrs": {k: v for k, v in node.__dict__.items() if not k.startswith("_")},
         }
 
     graph_dict = {
@@ -245,14 +274,20 @@ def print_fx_graph(gm: torch.fx.GraphModule, example_inputs: list[Any] | None = 
                 "shape": list(inp.shape),
                 "dtype": str(inp.dtype),
                 "device": str(inp.device) if hasattr(inp, "device") else None,
+                "_all_attrs": {k: v for k, v in inp.__dict__.items() if not k.startswith("_")},
             }
         elif hasattr(inp, "__class__") and inp.__class__.__name__ == "SymInt":
             return {
                 "type": "symint",
                 "value": str(inp),
+                "_all_attrs": {k: v for k, v in inp.__dict__.items() if not k.startswith("_")},
             }
         else:
-            return str(inp)
+            return {
+                "type": "unknown",
+                "value": str(inp),
+                "_all_attrs": {k: v for k, v in inp.__dict__.items() if not k.startswith("_")},
+            }
 
     print("--------------------------------")
     print(json.dumps({
@@ -274,10 +309,27 @@ def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[
     for arg in example_inputs:
         if isinstance(arg, torch.Tensor):
             # Build shape
-            shape = list(arg.shape)
-            ShapeStartDimsVector(builder, len(shape))
-            for dim in reversed(shape):
-                builder.PrependUint32(dim)
+            shape_dims = []
+            for dim in arg.shape:
+                if hasattr(dim, '__class__') and dim.__class__.__name__ == "SymInt":
+                    # Handle symbolic dimensions
+                    symint_value = builder.CreateString(str(dim))
+                    SymIntStart(builder)
+                    SymIntAddValue(builder, symint_value)
+                    symint_offset = SymIntEnd(builder)
+                    shape_dims.append(symint_offset)
+                else:
+                    # Handle concrete dimensions
+                    valint_value = int(dim)
+                    ValIntStart(builder)
+                    ValIntAddValue(builder, valint_value)
+                    valint_offset = ValIntEnd(builder)
+                    shape_dims.append(valint_offset)
+
+            # Build shape vector
+            ShapeStartDimsVector(builder, len(shape_dims))
+            for dim_offset in reversed(shape_dims):
+                builder.PrependUOffsetTRelative(dim_offset)
             shape_dims_vec = builder.EndVector()
 
             ShapeStart(builder)
@@ -302,34 +354,39 @@ def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[
             if dtype_enum is None:
                 raise ValueError(f"Unsupported dtype: {arg.dtype}")
 
+            # Build stride vector
+            stride = list(arg.stride()) if hasattr(arg, 'stride') else []
+            TensorStartStrideVector(builder, len(stride))
+            for s in reversed(stride):
+                builder.PrependUint32(s)
+            stride_vec = builder.EndVector()
+
             # Build tensor
             TensorStart(builder)
             TensorAddShape(builder, shape_offset)
             TensorAddDtype(builder, dtype_enum)
             TensorAddDevice(builder, device_str)
+            TensorAddStride(builder, stride_vec)
+            TensorAddRequiresGrad(builder, getattr(arg, 'requires_grad', False))
             tensor_offset = TensorEnd(builder)
 
-            # Build ExampleInput as a tensor
-            ExampleInputStart(builder)
-            ExampleInputAddType(builder, InputType.Tensor)
-            ExampleInputAddValueType(builder, InputValue.tensor)
-            ExampleInputAddValue(builder, tensor_offset)
-            sample_input_offsets.append(ExampleInputEnd(builder))
+            # Build ExampleInputWrapper as a tensor
+            ExampleInputWrapperStart(builder)
+            ExampleInputWrapperAddValue(builder, tensor_offset)
+            sample_input_offsets.append(ExampleInputWrapperEnd(builder))
 
-        elif isinstance(arg, torch.SymInt):
-            # Build SymInt with string ID
-            symint_id = builder.CreateString(str(arg))
+        elif hasattr(arg, '__class__') and arg.__class__.__name__ == "SymInt":
+            # Build SymInt with string value
+            symint_value = builder.CreateString(str(arg))
 
             SymIntStart(builder)
-            SymIntAddId(builder, symint_id)
+            SymIntAddValue(builder, symint_value)
             symint_offset = SymIntEnd(builder)
 
-            # Build ExampleInput as a symint
-            ExampleInputStart(builder)
-            ExampleInputAddType(builder, InputType.SymInt)
-            ExampleInputAddValueType(builder, InputValue.symint)
-            ExampleInputAddValue(builder, symint_offset)
-            sample_input_offsets.append(ExampleInputEnd(builder))
+            # Build ExampleInputWrapper as a symint
+            ExampleInputWrapperStart(builder)
+            ExampleInputWrapperAddValue(builder, symint_offset)
+            sample_input_offsets.append(ExampleInputWrapperEnd(builder))
 
         else:
             raise ValueError(f"Expected tensor or SymInt, got {type(arg)}")
@@ -343,6 +400,7 @@ def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[
     # Build ExampleInputs
     ExampleInputsStart(builder)
     ExampleInputsAddInputs(builder, inputs_vec)
+    # Note: kwargs are not implemented in this version as they're not part of the basic schema
     example_inputs_offset = ExampleInputsEnd(builder)
 
     return example_inputs_offset

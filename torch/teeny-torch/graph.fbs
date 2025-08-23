@@ -17,15 +17,6 @@
  
 namespace FXGraph;
 
-enum OpType : byte {
-  placeholder, 
-  get_attr, 
-  call_function, 
-  call_method, 
-  call_module, 
-  output
-}
-
 enum DType : byte {
   FLOAT32 = 0,
   FLOAT64 = 1,
@@ -39,27 +30,36 @@ enum DType : byte {
 }
 
 table SymInt {
-  type: DType;
   value: string;
+}
+
+table ValInt {
+  value: int;
+}
+
+union Value {
+  valint: ValInt,  
+}
+
+table ValueWrapper {
+  value: Value;
 }
 
 table KeyValue {
   key: string;
-  value: string;
+  value: ValueWrapper;
 }
 
 table Shape {
-  dims: [uint];
+  dims: [SymInt];
 }
 
 table Tensor {
   dtype: DType;
   device: string;
   shape: Shape;
-  data: [ubyte];
+  stride: [uint];
   requires_grad: bool = false;
-  stride: [long];
-  storage_offset: long = 0;
 }
 
 union Placeholder {
@@ -67,39 +67,62 @@ union Placeholder {
   tensor: Tensor,
 }
 
-table Node {
+table PlaceholderWrapper {
   name: string;
-  op: OpType;
+  value: Placeholder;
   target: string;
-  args: [string];  // Serialized argument representations
-  kwargs: [KeyValue];
-  users: [string];  // Consumer node names
+  users: [string];
 }
 
-enum InputType : byte {
-  SymInt = 0,
-  Tensor = 1
+table CallFunction {
+  name: string;
 }
 
-union InputValue {
+table CallMethod {
+  name: string;
+}
+
+table CallModule {
+  name: string;
+}
+
+table GetAttr {
+  name: string;
+}
+
+table Output {
+  name: string;
+}
+
+union Node {
+  placeholder: PlaceholderWrapper,
+  call_function: CallFunction,
+  call_method: CallMethod,
+  call_module: CallModule,
+  get_attr: GetAttr,
+  output: Output,
+}
+
+table NodeWrapper {
+  node: Node;
+}
+
+union ExampleInput {
   symint: SymInt,
   tensor: Tensor
 }
 
-table ExampleInput {
-  type: InputType;
-  value: InputValue;
+table ExampleInputWrapper {
+  value: ExampleInput;
 }
 
 table ExampleInputs {
-  inputs: [ExampleInput];
+  inputs: [ExampleInputWrapper];
   kwargs: [KeyValue];  // For keyword arguments
 }
 
 table Graph {
-  nodes: [Node];
-  input_names: [string];  // Placeholder names
-  output_names: [string]; // Output node names
+  nodes: [NodeWrapper];
   example_inputs: ExampleInputs;
 }
 

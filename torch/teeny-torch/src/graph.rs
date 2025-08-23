@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unsafe_code)]
 include!(concat!(env!("OUT_DIR"), "/flatbuffers/graph_generated.rs"));
 

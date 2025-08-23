@@ -37,42 +37,42 @@ pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
         .nodes()
         .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Graph has no nodes"))?;
 
-    for i in 0..nodes.len() {
-        let node = nodes.get(i);
+    // for i in 0..nodes.len() {
+    //     let node = nodes.get(i);
 
-        // Safely access node properties with null checks
-        let node_name = node.name().ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Node {i} has no name"))
-        })?;
+    //     // Safely access node properties with null checks
+    //     let node_name = node.name().ok_or_else(|| {
+    //         pyo3::exceptions::PyRuntimeError::new_err(format!("Node {i} has no name"))
+    //     })?;
 
-        let op = node.op();
-        let target = node.target().ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Node '{node_name}' has no target"))
-        })?;
+    //     let op = node.op();
+    //     let target = node.target().ok_or_else(|| {
+    //         pyo3::exceptions::PyRuntimeError::new_err(format!("Node '{node_name}' has no target"))
+    //     })?;
 
-        println!("Node name: {node_name}");
-        println!("Op: {op:?}");
-        println!("Target: {target}");
+    //     println!("Node name: {node_name}");
+    //     println!("Op: {op:?}");
+    //     println!("Target: {target}");
 
-        // Safely process args
-        if let Some(args) = node.args() {
-            for j in 0..args.len() {
-                let arg = args.get(j);
-                println!("Arg {j}: {arg:?}");
-            }
-        } else {
-            println!("Args: <none>");
-        }
+    //     // Safely process args
+    //     if let Some(args) = node.args() {
+    //         for j in 0..args.len() {
+    //             let arg = args.get(j);
+    //             println!("Arg {j}: {arg:?}");
+    //         }
+    //     } else {
+    //         println!("Args: <none>");
+    //     }
 
-        // Safely process users
-        if let Some(users) = node.users() {
-            for user in users.iter() {
-                println!("-> User: {user}");
-            }
-        } else {
-            println!("Users: <none>");
-        }
-    }
+    //     // Safely process users
+    //     if let Some(users) = node.users() {
+    //         for user in users.iter() {
+    //             println!("-> User: {user}");
+    //         }
+    //     } else {
+    //         println!("Users: <none>");
+    //     }
+    // }
 
     println!("Example inputs:");
     for example in graph.example_inputs().iter() {
