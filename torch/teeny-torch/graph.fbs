@@ -76,10 +76,18 @@ table PlaceholderWrapper {
 
 table CallFunction {
   name: string;
+  target: string;
+  args: [ValueWrapper];
+  kwargs: [KeyValue];
+  users: [string];
 }
 
 table CallMethod {
   name: string;
+  target: string;
+  args: [ValueWrapper];
+  kwargs: [KeyValue];
+  users: [string];
 }
 
 table CallModule {

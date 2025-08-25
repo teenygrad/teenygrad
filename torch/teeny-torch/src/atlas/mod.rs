@@ -87,7 +87,16 @@ fn write_file(data: &[u8]) -> PyResult<()> {
     use std::path::Path;
     let mut unique_path = String::new();
     for i in 1..1000 {
-        let candidate = format!("/tmp/model/model_{i}.bin");
+        // Create /tmp/model directory if it doesn't exist
+        let model_dir = "/tmp/model";
+        if !Path::new(model_dir).exists() {
+            std::fs::create_dir_all(model_dir).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to create directory {model_dir}: {e}"
+                ))
+            })?;
+        }
+        let candidate = format!("{model_dir}/model_{i}.bin");
         if !Path::new(&candidate).exists() {
             unique_path = candidate;
             break;
