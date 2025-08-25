@@ -250,7 +250,7 @@ def _build_value_wrapper_for_arg(builder: flatbuffers.Builder, arg: Any) -> int:
         ValIntStart(builder)
         ValIntAddValue(builder, int(arg))
         val_int_offset = ValIntEnd(builder)
-        
+
         # Create ValueWrapper
         ValueWrapperStart(builder)
         ValueWrapperAddValueType(builder, Value.valint)
@@ -268,11 +268,11 @@ def _build_args_vector(builder: flatbuffers.Builder, args: tuple[Argument, ...],
     """Build a vector of ValueWrapper objects for function arguments."""
     if not args:
         return 0
-    
+
     args_offsets = []
     for arg in args:
         args_offsets.append(_build_value_wrapper_for_arg(builder, arg))
-    
+
     # Build args vector
     vector_start_func(builder, len(args_offsets))
     for arg_offset in reversed(args_offsets):
@@ -284,20 +284,20 @@ def _build_kwargs_vector(builder: flatbuffers.Builder, kwargs: dict[str, Any], v
     """Build a vector of KeyValue objects for function keyword arguments."""
     if not kwargs:
         return 0
-    
+
     kwargs_offsets = []
     for key, value in kwargs.items():
         key_str = builder.CreateString(str(key))
-        
+
         # Create ValueWrapper for the value
         value_wrapper_offset = _build_value_wrapper_for_arg(builder, value)
-        
+
         # Create KeyValue
         KeyValueStart(builder)
         KeyValueAddKey(builder, key_str)
         KeyValueAddValue(builder, value_wrapper_offset)
         kwargs_offsets.append(KeyValueEnd(builder))
-    
+
     # Build kwargs vector
     vector_start_func(builder, len(kwargs_offsets))
     for kwarg_offset in reversed(kwargs_offsets):
@@ -309,11 +309,11 @@ def _build_users_vector(builder: flatbuffers.Builder, users: dict[torch.fx.node.
     """Build a vector of user names for a node."""
     if not users:
         return 0
-    
+
     user_strings = [builder.CreateString(str(u.name)) for u in users if hasattr(u, 'name')]
     if not user_strings:
         return 0
-    
+
     vector_start_func(builder, len(user_strings))
     for user in reversed(user_strings):
         builder.PrependUOffsetTRelative(user)
@@ -324,12 +324,12 @@ def build_call_function_node(builder: flatbuffers.Builder, node: torch.fx.Node) 
     """Build a CallFunction node."""
     name = builder.CreateString(str(node.name))
     target = builder.CreateString(str(node.target))
-    
+
     # Build vectors using helper functions
     args_vec = _build_args_vector(builder, node.args, CallFunctionStartArgsVector)
     kwargs_vec = _build_kwargs_vector(builder, node.kwargs, CallFunctionStartKwargsVector)
     users_vec = _build_users_vector(builder, node.users, CallFunctionStartUsersVector)
-    
+
     # Build the complete CallFunction
     CallFunctionStart(builder)
     CallFunctionAddName(builder, name)
@@ -490,7 +490,7 @@ def serialize_example_inputs(builder: flatbuffers.Builder, example_inputs: list[
                     stride_uint32.append(abs(s))
                 else:
                     stride_uint32.append(s)
-            
+
             TensorStartStrideVector(builder, len(stride_uint32))
             for s in reversed(stride_uint32):
                 builder.PrependUint32(s)
