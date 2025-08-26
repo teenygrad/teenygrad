@@ -15,32 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use crate::{error::Error, graph::Shape};
 
-use crate::error::Error;
+impl<'a> TryFrom<Shape<'a>> for teeny_core::fxgraph::shape::Shape {
+    type Error = Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SymInt {
-    Int(i64),
-    Str(String),
-}
+    fn try_from(shape: Shape) -> Result<Self, Self::Error> {
+        let shape = shape
+            .dims()
+            .ok_or_else(|| Error::InvalidBuffer(format!("{shape:?}")))?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Shape {
-    pub shape: Vec<SymInt>,
-}
-
-impl FromStr for Shape {
-    type Err = Error;
-
-    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-impl Display for Shape {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        format!("{:?}", self).fmt(f)
+        Ok(teeny_core::fxgraph::shape::Shape { shape })
     }
 }

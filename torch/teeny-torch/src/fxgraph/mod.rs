@@ -25,17 +25,17 @@ use egg::Id;
 
 use regex::Regex;
 use teeny_core::fxgraph::lang::const_f32;
-use teeny_core::fxgraph::placeholder::PlaceholderValue;
-use teeny_core::fxgraph::shape::SymInt;
 use teeny_core::fxgraph::{
     FXGraph,
     lang::{FxGraphLang, const_bool, const_i64, const_kv, const_string},
 };
-use teeny_core::value::Value;
 
-use crate::graph::{Node, Placeholder, PlaceholderWrapper};
+use crate::graph::{CallFunction, CallMethod, Node, Output};
 
+mod dtype;
 mod placeholder;
+mod shape;
+mod symint;
 
 impl<'a> TryFrom<Graph<'a>> for FXGraph {
     type Error = Error;
@@ -54,6 +54,24 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
                         .node_as_placeholder()
                         .ok_or(Error::InvalidBuffer(format!("{node:?}")))?;
                     handle_placeholder(&mut fxgraph, &placeholder)?;
+                }
+                Node::call_function => {
+                    let call_function = node
+                        .node_as_call_function()
+                        .ok_or(Error::InvalidBuffer(format!("{node:?}")))?;
+                    handle_call_function(&mut fxgraph, &call_function)?;
+                }
+                Node::call_method => {
+                    let call_method = node
+                        .node_as_call_method()
+                        .ok_or(Error::InvalidBuffer(format!("{node:?}")))?;
+                    handle_call_method(&mut fxgraph, &call_method)?;
+                }
+                Node::output => {
+                    let output = node
+                        .node_as_output()
+                        .ok_or(Error::InvalidBuffer(format!("{node:?}")))?;
+                    handle_output(&mut fxgraph, &output)?;
                 }
                 _ => {
                     todo!("Unknown node type: {node_type:?}");
@@ -189,7 +207,10 @@ fn find_kw_arg<T: FromStr>(_node: &Node, _key: &str) -> Result<Option<T>, Error>
     // }
 }
 
-fn call_function(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+fn handle_call_function<'a>(
+    _fxgraph: &mut FXGraph,
+    _node: &'a CallFunction<'a>,
+) -> Result<(), Error> {
     // let target = node
     //     .target()
     //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
@@ -618,7 +639,7 @@ fn cat(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<
     todo!()
 }
 
-fn call_method(_fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+fn handle_call_method<'a>(_fxgraph: &mut FXGraph, _node: &CallMethod<'a>) -> Result<(), Error> {
     // let _target = node
     //     .target()
     //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
@@ -629,7 +650,7 @@ fn call_method(_fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
     todo!()
 }
 
-fn handle_output(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {
+fn handle_output<'a>(fxgraph: &mut FXGraph, node: &Output<'a>) -> Result<(), Error> {
     // let args = node
     //     .args()
     //     .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?

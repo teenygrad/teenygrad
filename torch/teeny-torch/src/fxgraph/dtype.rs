@@ -15,32 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use crate::{error::Error, graph::DType};
 
-use crate::error::Error;
+impl TryFrom<DType> for teeny_core::fxgraph::dtype::Dtype {
+    type Error = Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SymInt {
-    Int(i64),
-    Str(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Shape {
-    pub shape: Vec<SymInt>,
-}
-
-impl FromStr for Shape {
-    type Err = Error;
-
-    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-impl Display for Shape {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        format!("{:?}", self).fmt(f)
+    fn try_from(dtype: DType) -> Result<Self, Self::Error> {
+        match dtype {
+            DType::FLOAT32 => Ok(teeny_core::fxgraph::dtype::Dtype::F32),
+            DType::FLOAT16 => Ok(teeny_core::fxgraph::dtype::Dtype::BF16),
+            _ => Err(Error::UnsupportedDtype(dtype)),
+        }
     }
 }

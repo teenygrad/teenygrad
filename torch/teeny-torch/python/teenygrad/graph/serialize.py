@@ -88,13 +88,10 @@ from .FXGraph.NodeWrapper import (
     NodeWrapperStart,
 )
 from .FXGraph.Output import OutputAddName, OutputEnd, OutputStart
-from .FXGraph.Placeholder import Placeholder
 from .FXGraph.PlaceholderWrapper import (
     PlaceholderWrapperAddName,
     PlaceholderWrapperAddTarget,
     PlaceholderWrapperAddUsers,
-    PlaceholderWrapperAddValue,
-    PlaceholderWrapperAddValueType,
     PlaceholderWrapperEnd,
     PlaceholderWrapperStart,
     PlaceholderWrapperStartUsersVector,
@@ -228,16 +225,9 @@ def build_placeholder_node(builder: flatbuffers.Builder, node: torch.fx.Node, us
     name = builder.CreateString(str(node.name))
     target = builder.CreateString(str(node.target))
 
-    # For placeholder nodes, we need to determine the value type
-    # This is typically a tensor or symint, but we'll use a placeholder for now
-    value_type = Placeholder.NONE
-    value_offset = 0
-
     # Build the PlaceholderWrapper
     PlaceholderWrapperStart(builder)
     PlaceholderWrapperAddName(builder, name)
-    PlaceholderWrapperAddValueType(builder, value_type)
-    PlaceholderWrapperAddValue(builder, value_offset)
     PlaceholderWrapperAddTarget(builder, target)
     PlaceholderWrapperAddUsers(builder, users_vec)
     return PlaceholderWrapperEnd(builder)

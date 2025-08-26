@@ -62,14 +62,8 @@ table Tensor {
   requires_grad: bool = false;
 }
 
-union Placeholder {
-  symint: SymInt,
-  tensor: Tensor,
-}
-
 table PlaceholderWrapper {
   name: string;
-  value: Placeholder;
   target: string;
   users: [string];
 }

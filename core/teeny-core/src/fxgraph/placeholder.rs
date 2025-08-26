@@ -25,24 +25,9 @@ use crate::fxgraph::dtype::Dtype;
 use crate::fxgraph::shape::{Shape, SymInt};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Tensor {
-    dtype: Dtype,
-    shape: Shape,
-    stride: Vec<usize>,
-    requires_grad: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PlaceholderValue {
-    SymInt(SymInt),
-    Tensor(Tensor),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Placeholder {
     pub name: String,
     pub target: String,
-    pub value: PlaceholderValue,
     pub users: Vec<Id>,
 }
 

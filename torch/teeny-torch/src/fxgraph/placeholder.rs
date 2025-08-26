@@ -15,15 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::fxgraph::{
-    FXGraph, lang::FxGraphLang, placeholder::PlaceholderValue, shape::SymInt,
-};
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
-use crate::{
-    error::Error,
-    fxgraph::find_or_create,
-    graph::{Placeholder, PlaceholderWrapper},
-};
+use crate::{error::Error, fxgraph::find_or_create, graph::PlaceholderWrapper};
 
 pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> Result<(), Error> {
     let name = node
@@ -41,16 +35,9 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
         .map(|x| find_or_create(fxgraph, x))
         .collect::<Vec<_>>();
 
-    let value = match node.value_type() {
-        Placeholder::symint => handle_symint(node)?,
-        Placeholder::tensor => todo!(),
-        _ => unreachable!(), // required because value_type is an int and not an enum
-    };
-
     let placeholder = teeny_core::fxgraph::placeholder::Placeholder {
         name: name.to_string(),
         target: target.to_string(),
-        value,
         users,
     };
 
@@ -62,23 +49,4 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
     fxgraph.inputs.push(id);
 
     Ok(())
-}
-
-fn handle_symint(node: &PlaceholderWrapper) -> Result<PlaceholderValue, Error> {
-    let value = node
-        .value_as_symint()
-        .ok_or_else(|| Error::InvalidBuffer(format!("{node:?}")))?
-        .value()
-        .ok_or_else(|| Error::InvalidBuffer(format!("{node:?}")))?;
-
-    let sym_int = value.parse::<i64>().ok();
-    if let Some(sym_int) = sym_int {
-        Ok(PlaceholderValue::SymInt(SymInt::Int(sym_int)))
-    } else {
-        Ok(PlaceholderValue::SymInt(SymInt::Str(value.to_string())))
-    }
-}
-
-fn handle_tensor(node: &PlaceholderWrapper) -> Result<PlaceholderValue, Error> {
-    todo!()
 }

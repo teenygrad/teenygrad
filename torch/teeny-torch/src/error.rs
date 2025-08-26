@@ -19,6 +19,8 @@ use std::str::ParseBoolError;
 
 use thiserror::Error;
 
+use crate::graph::DType;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
@@ -58,4 +60,7 @@ pub enum Error {
 
     #[error("Parse error: {0}")]
     ParseBoolError(ParseBoolError),
+
+    #[error("Unsupported dtype: {0:?}")]
+    UnsupportedDtype(DType),
 }
