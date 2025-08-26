@@ -17,15 +17,15 @@
 
 use egg::{Analysis, DidMerge, EGraph};
 
-use crate::fxgraph::dtype::DtypeValue;
+use crate::fxgraph::dtype::Dtype;
 use crate::fxgraph::lang::FxGraphLang::{self, Add, Constant, Contiguous, Div, MatMul, Mul, Sub};
-use crate::fxgraph::shape::ShapeValue;
+use crate::fxgraph::shape::Shape;
 
 // Analysis for tracking tensor properties and optimization opportunities
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorAnalysis {
-    pub shape: Option<ShapeValue>,
-    pub dtype: Option<DtypeValue>,
+    pub shape: Option<Shape>,
+    pub dtype: Option<Dtype>,
     pub is_contiguous: bool,
     pub memory_format: MemoryFormat,
     pub compute_cost: u64,
@@ -76,24 +76,25 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
                 }
             }
 
-            MatMul([a, b]) => {
-                let a_data = &egraph[*a].data;
-                let b_data = &egraph[*b].data;
+            MatMul([_a, _b]) => {
+                todo!()
+                // let a_data = &egraph[*a].data;
+                // let b_data = &egraph[*b].data;
 
-                let shape = match (&a_data.shape, &b_data.shape) {
-                    (Some(ShapeValue::Static(s1)), Some(ShapeValue::Static(s2))) => {
-                        matmul_output_shape(s1, s2)
-                    }
-                    _ => None,
-                };
+                // let shape = match (&a_data.shape, &b_data.shape) {
+                //     (Some(ShapeValue::Static(s1)), Some(ShapeValue::Static(s2))) => {
+                //         matmul_output_shape(s1, s2)
+                //     }
+                //     _ => None,
+                // };
 
-                TensorAnalysis {
-                    shape,
-                    dtype: a_data.dtype.clone().or_else(|| b_data.dtype.clone()),
-                    is_contiguous: false, // MatMul often produces non-contiguous results
-                    memory_format: MemoryFormat::Unknown,
-                    compute_cost: a_data.compute_cost + b_data.compute_cost + 100, // High cost
-                }
+                // TensorAnalysis {
+                //     shape,
+                //     dtype: a_data.dtype.clone().or_else(|| b_data.dtype.clone()),
+                //     is_contiguous: false, // MatMul often produces non-contiguous results
+                //     memory_format: MemoryFormat::Unknown,
+                //     compute_cost: a_data.compute_cost + b_data.compute_cost + 100, // High cost
+                // }
             }
 
             Contiguous(id) => {
@@ -103,14 +104,6 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
                 data.compute_cost += 5; // Cost of making contiguous
                 data
             }
-
-            Constant(_) => TensorAnalysis {
-                shape: Some(ShapeValue::Static(vec![])), // Scalar
-                dtype: None,                             // Would need to infer from constant type
-                is_contiguous: true,
-                memory_format: MemoryFormat::Contiguous,
-                compute_cost: 0,
-            },
 
             _ => TensorAnalysis::default(),
         }
@@ -148,35 +141,36 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
 }
 
 // Helper functions for shape inference
-fn broadcast_shapes(s1: &ShapeValue, s2: &ShapeValue) -> Option<ShapeValue> {
-    match (s1, s2) {
-        (ShapeValue::Static(dims1), ShapeValue::Static(dims2)) => {
-            // Implement broadcasting logic
-            let mut result = Vec::new();
-            let max_len = dims1.len().max(dims2.len());
+fn broadcast_shapes(s1: &Shape, s2: &Shape) -> Option<Shape> {
+    // match (s1, s2) {
+    //     (ShapeValue::Static(dims1), ShapeValue::Static(dims2)) => {
+    //         // Implement broadcasting logic
+    //         let mut result = Vec::new();
+    //         let max_len = dims1.len().max(dims2.len());
 
-            for i in 0..max_len {
-                let d1 = dims1
-                    .get(dims1.len().saturating_sub(max_len - i))
-                    .unwrap_or(&1);
-                let d2 = dims2
-                    .get(dims2.len().saturating_sub(max_len - i))
-                    .unwrap_or(&1);
+    //         for i in 0..max_len {
+    //             let d1 = dims1
+    //                 .get(dims1.len().saturating_sub(max_len - i))
+    //                 .unwrap_or(&1);
+    //             let d2 = dims2
+    //                 .get(dims2.len().saturating_sub(max_len - i))
+    //                 .unwrap_or(&1);
 
-                match (*d1, *d2) {
-                    (1, _) => result.push(*d2),
-                    (_, 1) => result.push(*d1),
-                    (_, _) if d1 == d2 => result.push(*d1),
-                    _ => return None, // Incompatible shapes
-                }
-            }
-            Some(ShapeValue::Static(result))
-        }
-        _ => None, // Can't broadcast dynamic/symbolic shapes easily
-    }
+    //             match (*d1, *d2) {
+    //                 (1, _) => result.push(*d2),
+    //                 (_, 1) => result.push(*d1),
+    //                 (_, _) if d1 == d2 => result.push(*d1),
+    //                 _ => return None, // Incompatible shapes
+    //             }
+    //         }
+    //         Some(ShapeValue::Static(result))
+    //     }
+    //     _ => None, // Can't broadcast dynamic/symbolic shapes easily
+    // }
+    todo!()
 }
 
-fn matmul_output_shape(s1: &[i64], s2: &[i64]) -> Option<ShapeValue> {
+fn matmul_output_shape(s1: &[i64], s2: &[i64]) -> Option<Shape> {
     if s1.len() < 2 || s2.len() < 2 {
         return None;
     }
@@ -204,5 +198,6 @@ fn matmul_output_shape(s1: &[i64], s2: &[i64]) -> Option<ShapeValue> {
     result.push(m);
     result.push(n);
 
-    Some(ShapeValue::Static(result))
+    todo!()
+    // Some(ShapeValue::Static(result))
 }

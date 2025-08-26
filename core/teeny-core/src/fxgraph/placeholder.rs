@@ -18,19 +18,32 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use egg::Id;
+
 use crate::error::Error;
-use crate::fxgraph::dtype::DtypeValue;
-use crate::fxgraph::shape::ShapeValue;
+use crate::fxgraph::dtype::Dtype;
+use crate::fxgraph::shape::{Shape, SymInt};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Placeholder {
-    SymInt {
-        value: String,
-    },
-    Tensor {
-        dtype: DtypeValue,
-        shape: ShapeValue,
-    },
+pub struct Tensor {
+    dtype: Dtype,
+    shape: Shape,
+    stride: Vec<usize>,
+    requires_grad: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PlaceholderValue {
+    SymInt(SymInt),
+    Tensor(Tensor),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Placeholder {
+    pub name: String,
+    pub target: String,
+    pub value: PlaceholderValue,
+    pub users: Vec<Id>,
 }
 
 impl FromStr for Placeholder {
@@ -43,13 +56,6 @@ impl FromStr for Placeholder {
 
 impl Display for Placeholder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Placeholder::SymInt { value } => {
-                write!(f, "SymInt {{ value: {value} }}")
-            }
-            Placeholder::Tensor { dtype, shape } => {
-                write!(f, "Tensor {{  dtype: {dtype}, shape: {shape} }}")
-            }
-        }
+        format!("{:?}", self).fmt(f)
     }
 }

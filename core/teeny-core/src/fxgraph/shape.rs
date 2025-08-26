@@ -21,13 +21,17 @@ use std::str::FromStr;
 use crate::error::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ShapeValue {
-    Static(Vec<i64>),
-    Dynamic(Vec<Option<i64>>), // None represents dynamic dimensions
-    Symbolic(Vec<String>),     // For symbolic shapes
+pub enum SymInt {
+    Int(i64),
+    Str(String),
 }
 
-impl FromStr for ShapeValue {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Shape {
+    shape: Vec<SymInt>,
+}
+
+impl FromStr for Shape {
     type Err = Error;
 
     fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
@@ -35,29 +39,8 @@ impl FromStr for ShapeValue {
     }
 }
 
-impl Display for ShapeValue {
+impl Display for Shape {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ShapeValue::Static(dims) => write!(
-                f,
-                "[{}]",
-                dims.iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            ShapeValue::Dynamic(dims) => write!(
-                f,
-                "[{}]",
-                dims.iter()
-                    .map(|x| match x {
-                        Some(d) => d.to_string(),
-                        None => "?".to_string(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            ShapeValue::Symbolic(syms) => write!(f, "[{}]", syms.join(", ")),
-        }
+        format!("{:?}", self).fmt(f)
     }
 }

@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::fxgraph::placeholder::handle_placeholder;
 use crate::{error::Error, graph::Graph};
 use std::convert::TryFrom;
 use std::sync::OnceLock;
@@ -24,13 +25,17 @@ use egg::Id;
 
 use regex::Regex;
 use teeny_core::fxgraph::lang::const_f32;
+use teeny_core::fxgraph::placeholder::PlaceholderValue;
+use teeny_core::fxgraph::shape::SymInt;
 use teeny_core::fxgraph::{
     FXGraph,
     lang::{FxGraphLang, const_bool, const_i64, const_kv, const_string},
 };
 use teeny_core::value::Value;
 
-use crate::graph::{Node, PlaceholderWrapper};
+use crate::graph::{Node, Placeholder, PlaceholderWrapper};
+
+mod placeholder;
 
 impl<'a> TryFrom<Graph<'a>> for FXGraph {
     type Error = Error;
@@ -167,7 +172,7 @@ fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
     fxgraph.add_operation(&fxgraph.unique_name(), const_string(name))
 }
 
-fn find_kw_arg<T: FromStr>(node: &Node, key: &str) -> Result<Option<T>, Error> {
+fn find_kw_arg<T: FromStr>(_node: &Node, _key: &str) -> Result<Option<T>, Error> {
     todo!()
     // let x = node
     //     .kwargs()
@@ -182,23 +187,6 @@ fn find_kw_arg<T: FromStr>(node: &Node, key: &str) -> Result<Option<T>, Error> {
     //     Some(Err(_)) => Err(Error::GraphNodeInvalidArgs(format!("{:?} {}", node, key))),
     //     None => Ok(None),
     // }
-}
-
-fn handle_placeholder(_fxgraph: &mut FXGraph, _node: &PlaceholderWrapper) -> Result<(), Error> {
-    todo!()
-    // let target = node
-    //     .target()
-    //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
-
-    // let id = fxgraph.add_operation(
-    //     node.name()
-    //         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?,
-    //     FxGraphLang::Placeholder(target.to_string()),
-    // );
-
-    // fxgraph.inputs.push(id);
-
-    // Ok(())
 }
 
 fn call_function(fxgraph: &mut FXGraph, node: &Node) -> Result<(), Error> {

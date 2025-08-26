@@ -21,12 +21,12 @@ use std::str::FromStr;
 use crate::error::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DtypeValue {
+pub enum Dtype {
     F32,
     BF16,
 }
 
-impl FromStr for DtypeValue {
+impl FromStr for Dtype {
     type Err = Error;
 
     fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
@@ -34,11 +34,11 @@ impl FromStr for DtypeValue {
     }
 }
 
-impl Display for DtypeValue {
+impl Display for Dtype {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            DtypeValue::F32 => write!(f, "f32"),
-            DtypeValue::BF16 => write!(f, "bf16"),
+            Dtype::F32 => write!(f, "f32"),
+            Dtype::BF16 => write!(f, "bf16"),
         }
     }
 }
