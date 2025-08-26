@@ -37,8 +37,51 @@ table ValInt {
   value: int;
 }
 
+table ValStr {
+  value: string;
+}
+
+table ValNode {
+  value: string;
+}
+
+table ValDevice {
+  value: string;
+}
+
+table ValDType {
+  value: DType;
+}
+
+table ValNone {}
+
+table ValTuple {
+  values: [ValueWrapper];
+}
+
+table ValList {
+  values: [ValueWrapper];
+}
+
+table ValEllipsis {}
+
+table ValSlice {
+  start: ValueWrapper;
+  end: ValueWrapper;
+  step: ValueWrapper;
+}
+
 union Value {
+  valnone: ValNone,
   valint: ValInt,  
+  valstr: ValStr,
+  valnode: ValNode,
+  valdevice: ValDevice,
+  valdtype: ValDType,
+  valellipsis: ValEllipsis,
+  valtuple: ValTuple,
+  vallist: ValList,
+  valslice: ValSlice,
 }
 
 table ValueWrapper {

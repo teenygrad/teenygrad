@@ -640,6 +640,7 @@ fn cat(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<
 }
 
 fn handle_call_method<'a>(_fxgraph: &mut FXGraph, _node: &CallMethod<'a>) -> Result<(), Error> {
+    todo!("CallMethod: {:?}", _node);
     // let _target = node
     //     .target()
     //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
@@ -647,7 +648,6 @@ fn handle_call_method<'a>(_fxgraph: &mut FXGraph, _node: &CallMethod<'a>) -> Res
     // let _args = node.args();
 
     // Ok(())
-    todo!()
 }
 
 fn handle_output<'a>(fxgraph: &mut FXGraph, node: &Output<'a>) -> Result<(), Error> {
