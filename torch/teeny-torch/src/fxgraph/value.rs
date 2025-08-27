@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use egg::Id;
 use teeny_core::fxgraph::FXGraph;
 
 use crate::{
@@ -22,21 +23,32 @@ use crate::{
     torch::{Value, ValueWrapper},
 };
 
-pub fn handle_value<'a>(
+pub fn value<'a>(
     fxgraph: &mut FXGraph,
     value: ValueWrapper<'a>,
 ) -> Result<teeny_core::fxgraph::value::Value, Error> {
     let val_type = value.value_type();
 
     let res = match val_type {
-        Value::valnode => handle_valnode(fxgraph, value)?,
+        Value::valnode => valnode(fxgraph, value)?,
+        Value::valnone => valnone(fxgraph, value)?,
+        Value::valint => valint(fxgraph, value)?,
         _ => todo!("ValueWrapper: {:?}", value),
     };
 
     Ok(res)
 }
 
-fn handle_valnode<'a>(
+pub fn node_value<'a>(fxgraph: &mut FXGraph, node: ValueWrapper<'a>) -> Result<Id, Error> {
+    let node = valnode(fxgraph, node)?;
+
+    match node {
+        teeny_core::fxgraph::value::Value::Node(node) => Ok(node),
+        _ => Err(Error::GraphNodeInvalidArgs(format!("{node:?}"))),
+    }
+}
+
+fn valnode<'a>(
     fxgraph: &mut FXGraph,
     value: ValueWrapper<'a>,
 ) -> Result<teeny_core::fxgraph::value::Value, Error> {
@@ -56,4 +68,24 @@ fn handle_valnode<'a>(
         .ok_or(Error::NoGraphNode(format!("{value:?}")))?;
 
     Ok(teeny_core::fxgraph::value::Value::Node(node))
+}
+
+fn valnone<'a>(
+    _fxgraph: &mut FXGraph,
+    _value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    Ok(teeny_core::fxgraph::value::Value::None)
+}
+
+fn valint<'a>(
+    _fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let intval = value
+        .value_as_valint()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let value = intval.value();
+
+    // AXM : what is the correct type for this?
+    Ok(teeny_core::fxgraph::value::Value::Int(value as i64))
 }

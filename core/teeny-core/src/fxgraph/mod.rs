@@ -21,12 +21,12 @@ use std::collections::HashMap;
 pub mod analysis;
 pub mod cat;
 pub mod dtype;
-pub mod item;
 pub mod keyvalue;
 pub mod lang;
 pub mod literal;
 pub mod placeholder;
 pub mod shape;
+pub mod torch;
 pub mod value;
 
 use crate::fxgraph::analysis::TensorAnalysis;

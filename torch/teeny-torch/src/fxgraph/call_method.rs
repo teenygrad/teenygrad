@@ -15,35 +15,33 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang, torch::item::Item};
 
-use crate::{error::Error, fxgraph::util::find_or_create, torch::PlaceholderWrapper};
+use crate::{error::Error, fxgraph::value::value, torch::CallMethod};
 
-pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> Result<(), Error> {
+pub fn call_method<'a>(fxgraph: &mut FXGraph, node: &CallMethod<'a>) -> Result<(), Error> {
     let name = node
         .name()
         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
-
     let target = node
         .target()
         .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
-
-    let users = node
-        .users()
-        .unwrap_or_default()
+    let args: Vec<teeny_core::fxgraph::value::Value> = node
+        .args()
+        .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?
         .iter()
-        .map(|x| find_or_create(fxgraph, x))
-        .collect::<Vec<_>>();
+        .map(|x| value(fxgraph, x))
+        .collect::<Result<Vec<_>, Error>>()?;
 
-    let placeholder = teeny_core::fxgraph::placeholder::Placeholder {
-        name: name.to_string(),
-        target: target.to_string(),
-        users,
-    };
-
-    let id = fxgraph.add_operation(name, FxGraphLang::Placeholder(placeholder));
-
-    fxgraph.inputs.push(id);
+    if target == "item" {
+        let item = Item {
+            name: name.to_string(),
+            args,
+        };
+        fxgraph.add_operation(name, FxGraphLang::Item(item));
+    } else {
+        todo!("CallMethod: {:?}", node);
+    }
 
     Ok(())
 }
