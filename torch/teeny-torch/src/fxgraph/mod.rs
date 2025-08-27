@@ -16,7 +16,8 @@
  */
 
 use crate::fxgraph::placeholder::handle_placeholder;
-use crate::{error::Error, graph::Graph};
+use crate::fxgraph::value::handle_value;
+use crate::{error::Error, torch::Graph};
 use std::convert::TryFrom;
 use std::sync::OnceLock;
 use std::{collections::HashMap, str::FromStr};
@@ -24,18 +25,20 @@ use std::{collections::HashMap, str::FromStr};
 use egg::Id;
 
 use regex::Regex;
+use teeny_core::fxgraph::item::Item;
 use teeny_core::fxgraph::lang::const_f32;
 use teeny_core::fxgraph::{
     FXGraph,
     lang::{FxGraphLang, const_bool, const_i64, const_kv, const_string},
 };
 
-use crate::graph::{CallFunction, CallMethod, Node, Output};
+use crate::torch::{CallFunction, CallMethod, Node, Output};
 
 mod dtype;
 mod placeholder;
 mod shape;
 mod symint;
+mod value;
 
 impl<'a> TryFrom<Graph<'a>> for FXGraph {
     type Error = Error;
@@ -179,12 +182,7 @@ fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
     }
 
     if name.starts_with("(") && name.ends_with(")") {
-        let args = name[1..name.len() - 1].split(",").collect::<Vec<_>>();
-        let args = args
-            .iter()
-            .map(|x| find_or_create(fxgraph, x))
-            .collect::<Vec<_>>();
-        return fxgraph.add_operation(&fxgraph.unique_name(), FxGraphLang::Tuple(args));
+        todo!("tuple: {:?}", name);
     }
 
     fxgraph.add_operation(&fxgraph.unique_name(), const_string(name))
@@ -209,8 +207,9 @@ fn find_kw_arg<T: FromStr>(_node: &Node, _key: &str) -> Result<Option<T>, Error>
 
 fn handle_call_function<'a>(
     _fxgraph: &mut FXGraph,
-    _node: &'a CallFunction<'a>,
+    node: &'a CallFunction<'a>,
 ) -> Result<(), Error> {
+    todo!("handle_call_function: {:?}", node);
     // let target = node
     //     .target()
     //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
@@ -240,7 +239,6 @@ fn handle_call_function<'a>(
     // }
 
     // Ok(())
-    todo!()
 }
 
 fn mul(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<(), Error> {
@@ -377,16 +375,7 @@ fn log_api_usage_once(
 }
 
 fn getitem(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<(), Error> {
-    if args.len() != 2 {
-        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    }
-
-    let arg1 = find_or_create(fxgraph, args[0]);
-    let arg2 = fxgraph.add_operation(&fxgraph.unique_name(), const_string(args[1]));
-
-    fxgraph.add_operation(name, FxGraphLang::GetItem([arg1, arg2]));
-
-    Ok(())
+    todo!("getitem: {:?}", node);
 }
 
 fn lazy_load_decompositions(
@@ -639,15 +628,31 @@ fn cat(fxgraph: &mut FXGraph, node: &Node, name: &str, args: &[&str]) -> Result<
     todo!()
 }
 
-fn handle_call_method<'a>(_fxgraph: &mut FXGraph, _node: &CallMethod<'a>) -> Result<(), Error> {
-    todo!("CallMethod: {:?}", _node);
-    // let _target = node
-    //     .target()
-    //     .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
-    // let _op = node.op();
-    // let _args = node.args();
+fn handle_call_method<'a>(fxgraph: &mut FXGraph, node: &CallMethod<'a>) -> Result<(), Error> {
+    let name = node
+        .name()
+        .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
+    let target = node
+        .target()
+        .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
+    let args: Vec<teeny_core::fxgraph::value::Value> = node
+        .args()
+        .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?
+        .iter()
+        .map(|x| handle_value(fxgraph, x))
+        .collect::<Result<Vec<_>, Error>>()?;
 
-    // Ok(())
+    if target == "item" {
+        let item = Item {
+            name: name.to_string(),
+            args,
+        };
+        fxgraph.add_operation(name, FxGraphLang::Item(item));
+    } else {
+        todo!("CallMethod: {:?}", node);
+    }
+
+    Ok(())
 }
 
 fn handle_output<'a>(fxgraph: &mut FXGraph, node: &Output<'a>) -> Result<(), Error> {
@@ -681,7 +686,7 @@ fn handle_output<'a>(fxgraph: &mut FXGraph, node: &Output<'a>) -> Result<(), Err
 
 #[cfg(test)]
 mod tests {
-    use crate::graph::deserialize_graph;
+    use crate::torch::deserialize_graph;
 
     use super::*;
 

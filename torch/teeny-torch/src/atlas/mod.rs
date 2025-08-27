@@ -18,7 +18,7 @@
 use pyo3::prelude::*;
 use std::{fs::File, io::Write};
 
-use crate::graph::*;
+use crate::torch::*;
 
 #[pyfunction]
 pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {

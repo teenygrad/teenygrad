@@ -18,6 +18,7 @@
 use egg::{Id, define_language};
 use ordered_float::OrderedFloat;
 
+use crate::fxgraph::item::Item;
 use crate::fxgraph::keyvalue::KeyValue;
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::placeholder::Placeholder;
@@ -25,19 +26,15 @@ use crate::fxgraph::placeholder::Placeholder;
 // Define the core language for your compiler IR
 define_language! {
     pub enum FxGraphLang {
-        // Constants and literals
         Constant(ConstantValue),
-
-        // Placeholders
         Placeholder(Placeholder),
+        Item(Item),
 
-        // Pytorch ops
-        "tuple" = Tuple(Vec<Id>),
+        // ops
         "embedding" = Embedding([Id; 5]),
         "arange" = Arange([Id; 3]),
         "iadd" = IAdd([Id; 2]),
         "lazy_load_decompositions" = LazyLoadDecompositions([Id; 0]),
-        "getitem" = GetItem([Id; 2]),
         "contiguous" = Contiguous(Id),
         "enter_autocast" = EnterAutocast([Id; 2]),
         "exit_autocast" = ExitAutocast([Id; 1]),

@@ -19,7 +19,7 @@ use std::str::ParseBoolError;
 
 use thiserror::Error;
 
-use crate::graph::DType;
+use crate::torch::DType;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -36,6 +36,9 @@ pub enum Error {
 
     #[error("No graph nodes")]
     NoGraphNodes,
+
+    #[error("No graph node: {0}")]
+    NoGraphNode(String),
 
     #[error("No graph node name: {0}")]
     NoGraphNodeName(String),

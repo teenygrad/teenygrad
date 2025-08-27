@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{error::Error, graph::SymInt};
+use crate::{error::Error, torch::SymInt};
 
 impl<'a> TryFrom<SymInt<'a>> for teeny_core::fxgraph::shape::SymInt {
     type Error = Error;

@@ -15,15 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{error::Error, graph::DType};
+use crate::{error::Error, torch::DType};
 
-impl TryFrom<DType> for teeny_core::fxgraph::dtype::Dtype {
+impl TryFrom<DType> for teeny_core::fxgraph::dtype::DType {
     type Error = Error;
 
     fn try_from(dtype: DType) -> Result<Self, Self::Error> {
         match dtype {
-            DType::FLOAT32 => Ok(teeny_core::fxgraph::dtype::Dtype::F32),
-            DType::FLOAT16 => Ok(teeny_core::fxgraph::dtype::Dtype::BF16),
+            DType::FLOAT32 => Ok(teeny_core::fxgraph::dtype::DType::F32),
+            DType::FLOAT16 => Ok(teeny_core::fxgraph::dtype::DType::BF16),
             _ => Err(Error::UnsupportedDtype(dtype)),
         }
     }

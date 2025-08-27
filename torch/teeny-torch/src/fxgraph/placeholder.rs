@@ -17,7 +17,7 @@
 
 use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
-use crate::{error::Error, fxgraph::find_or_create, graph::PlaceholderWrapper};
+use crate::{error::Error, fxgraph::find_or_create, torch::PlaceholderWrapper};
 
 pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> Result<(), Error> {
     let name = node
@@ -41,10 +41,7 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
         users,
     };
 
-    let id = fxgraph.add_operation(
-        &fxgraph.unique_name(),
-        FxGraphLang::Placeholder(placeholder),
-    );
+    let id = fxgraph.add_operation(name, FxGraphLang::Placeholder(placeholder));
 
     fxgraph.inputs.push(id);
 

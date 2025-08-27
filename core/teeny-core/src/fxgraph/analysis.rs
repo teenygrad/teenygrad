@@ -17,7 +17,7 @@
 
 use egg::{Analysis, DidMerge, EGraph};
 
-use crate::fxgraph::dtype::Dtype;
+use crate::fxgraph::dtype::DType;
 use crate::fxgraph::lang::FxGraphLang::{self, Add, Constant, Contiguous, Div, MatMul, Mul, Sub};
 use crate::fxgraph::shape::Shape;
 
@@ -25,7 +25,7 @@ use crate::fxgraph::shape::Shape;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorAnalysis {
     pub shape: Option<Shape>,
-    pub dtype: Option<Dtype>,
+    pub dtype: Option<DType>,
     pub is_contiguous: bool,
     pub memory_format: MemoryFormat,
     pub compute_cost: u64,

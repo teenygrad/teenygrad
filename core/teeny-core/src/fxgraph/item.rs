@@ -15,30 +15,33 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
-use egg::Id;
-
-use crate::error::Error;
+use crate::{error::Error, fxgraph::value::Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Placeholder {
+pub struct Item {
     pub name: String,
-    pub target: String,
-    pub users: Vec<Id>,
+    pub args: Vec<Value>,
 }
 
-impl FromStr for Placeholder {
-    type Err = Error;
-
-    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
-        todo!()
+impl Display for Item {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Item({})", self.name)?;
+        for arg in &self.args {
+            write!(f, " {}", arg)?;
+        }
+        Ok(())
     }
 }
 
-impl Display for Placeholder {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        format!("{:?}", self).fmt(f)
+impl FromStr for Item {
+    type Err = Error;
+
+    fn from_str(_s: &str) -> Result<Self, Self::Err> {
+        todo!()
     }
 }

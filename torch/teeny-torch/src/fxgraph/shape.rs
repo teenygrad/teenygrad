@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{error::Error, graph::Shape};
+use crate::{error::Error, torch::Shape};
 
 impl<'a> TryFrom<Shape<'a>> for teeny_core::fxgraph::shape::Shape {
     type Error = Error;

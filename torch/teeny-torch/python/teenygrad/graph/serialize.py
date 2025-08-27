@@ -301,7 +301,7 @@ def _build_value_wrapper_for_arg(builder: flatbuffers.Builder, arg: Any) -> int:
         elif isinstance(arg, torch.fx.Node):
             # Create ValNode for node values
             print(f"      Building ValNode for node: {arg.name}")
-            node_name = builder.CreateString(str(arg.name))
+            node_name = builder.CreateString(arg.name)
             print(f"      Created string for node name: {arg.name}")
             ValNodeStart(builder)
             print(f"      ValNodeStart completed")

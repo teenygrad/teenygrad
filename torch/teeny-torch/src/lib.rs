@@ -20,7 +20,7 @@ use pyo3::prelude::*;
 mod atlas;
 mod error;
 mod fxgraph;
-mod graph;
+mod torch;
 
 use crate::atlas::atlas_compile;
 
