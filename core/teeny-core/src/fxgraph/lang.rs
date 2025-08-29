@@ -21,18 +21,19 @@ use ordered_float::OrderedFloat;
 use crate::fxgraph::keyvalue::KeyValue;
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::placeholder::Placeholder;
-use crate::fxgraph::torch::embedding::Embedding;
 use crate::fxgraph::torch::item::Item;
+use crate::fxgraph::value::Value;
 
 // Define the core language for your compiler IR
 define_language! {
     pub enum FxGraphLang {
         Constant(ConstantValue),
         Placeholder(Placeholder),
+        Value(Value),
         Item(Item),
-        Embedding(Embedding),
 
         // ops
+        "embedding" = Embedding([Id; 7]),
         "arange" = Arange([Id; 3]),
         "iadd" = IAdd([Id; 2]),
         "lazy_load_decompositions" = LazyLoadDecompositions([Id; 0]),

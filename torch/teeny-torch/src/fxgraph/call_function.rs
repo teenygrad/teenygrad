@@ -18,7 +18,7 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use regex::Regex;
-use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang, torch::embedding::Embedding};
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
 use crate::{
     error::Error,
@@ -421,23 +421,31 @@ fn embedding<'a>(
     let input_ids = node_value(fxgraph, args[0])?;
     let weight = node_value(fxgraph, args[1])?;
 
-    let padding_idx = value(fxgraph, args[2])?;
-    let max_norm = value(fxgraph, args[3])?;
-    let norm_type = value(fxgraph, args[4])?;
-    let scale_grad_by_freq = value(fxgraph, args[5])?;
-    let sparse = value(fxgraph, args[6])?;
+    let padding_idx = FxGraphLang::Value(value(fxgraph, args[2])?);
+    let max_norm = FxGraphLang::Value(value(fxgraph, args[3])?);
+    let norm_type = FxGraphLang::Value(value(fxgraph, args[4])?);
+    let scale_grad_by_freq = FxGraphLang::Value(value(fxgraph, args[5])?);
+    let sparse = FxGraphLang::Value(value(fxgraph, args[6])?);
 
-    let embedding = Embedding {
-        input_ids,
-        weight,
-        padding_idx,
-        max_norm,
-        norm_type,
-        scale_grad_by_freq,
-        sparse,
-    };
+    let padding_idx = fxgraph.add_operation(&fxgraph.unique_name(), padding_idx);
+    let max_norm = fxgraph.add_operation(&fxgraph.unique_name(), max_norm);
+    let norm_type = fxgraph.add_operation(&fxgraph.unique_name(), norm_type);
+    let scale_grad_by_freq = fxgraph.add_operation(&fxgraph.unique_name(), scale_grad_by_freq);
+    let sparse = fxgraph.add_operation(&fxgraph.unique_name(), sparse);
 
-    fxgraph.add_operation(name, FxGraphLang::Embedding(embedding));
+    fxgraph.add_operation(
+        name,
+        FxGraphLang::Embedding([
+            input_ids,
+            weight,
+            padding_idx,
+            max_norm,
+            norm_type,
+            scale_grad_by_freq,
+            sparse,
+        ]),
+    );
+
     Ok(())
 }
 
