@@ -21,15 +21,8 @@ use crate::fxgraph::output::output;
 use crate::fxgraph::placeholder::handle_placeholder;
 use crate::{error::Error, torch::Graph};
 use std::convert::TryFrom;
-use std::str::FromStr;
 
-use egg::Id;
-
-use teeny_core::fxgraph::lang::const_f32;
-use teeny_core::fxgraph::{
-    FXGraph,
-    lang::{const_bool, const_i64, const_string},
-};
+use teeny_core::fxgraph::FXGraph;
 
 use crate::torch::Node;
 

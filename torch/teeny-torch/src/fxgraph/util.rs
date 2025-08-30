@@ -23,7 +23,10 @@ use teeny_core::fxgraph::{
     lang::{const_bool, const_f32, const_i64, const_string},
 };
 
-use crate::{error::Error, torch::Node};
+use crate::{
+    error::Error,
+    torch::{KeyValue, Node, Value, ValueWrapper},
+};
 
 pub fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
     let node = fxgraph.get_node(name);
@@ -53,19 +56,14 @@ pub fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
     fxgraph.add_operation(&fxgraph.unique_name(), const_string(name))
 }
 
-pub fn find_kw_arg<T: FromStr>(_node: &Node, _key: &str) -> Result<Option<T>, Error> {
-    todo!()
-    // let x = node
-    //     .kwargs()
-    //     .iter()
-    //     .flatten()
-    //     .find(|x| x.key() == Some(key))
-    //     .and_then(|x| x.value())
-    //     .map(|x| x.parse::<T>());
+pub fn find_kw_arg<'a>(
+    kwargs: &[KeyValue<'a>],
+    key: &str,
+) -> Result<Option<ValueWrapper<'a>>, Error> {
+    let value = kwargs
+        .iter()
+        .find(|x| x.key() == Some(key))
+        .and_then(|x| x.value());
 
-    // match x {
-    //     Some(Ok(v)) => Ok(Some(v)),
-    //     Some(Err(_)) => Err(Error::GraphNodeInvalidArgs(format!("{:?} {}", node, key))),
-    //     None => Ok(None),
-    // }
+    Ok(value)
 }

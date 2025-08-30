@@ -23,7 +23,7 @@ use crate::{
     torch::{Value, ValueWrapper},
 };
 
-pub fn value<'a>(
+pub fn into_value<'a>(
     fxgraph: &mut FXGraph,
     value: ValueWrapper<'a>,
 ) -> Result<teeny_core::fxgraph::value::Value, Error> {

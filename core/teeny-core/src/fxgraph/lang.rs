@@ -58,6 +58,7 @@ define_language! {
         "/" = Div([Id; 2]),
         "@" = MatMul([Id; 2]),
         "neg" = Neg(Id),
+        "to" = To([Id; 2]),
 
     }
 }

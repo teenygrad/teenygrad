@@ -22,7 +22,7 @@ use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
 use crate::{
     error::Error,
-    fxgraph::value::{node_value, value},
+    fxgraph::value::{into_value, node_value},
     torch::{CallFunction, ValueWrapper},
 };
 
@@ -421,11 +421,11 @@ fn embedding<'a>(
     let input_ids = node_value(fxgraph, args[0])?;
     let weight = node_value(fxgraph, args[1])?;
 
-    let padding_idx = FxGraphLang::Value(value(fxgraph, args[2])?);
-    let max_norm = FxGraphLang::Value(value(fxgraph, args[3])?);
-    let norm_type = FxGraphLang::Value(value(fxgraph, args[4])?);
-    let scale_grad_by_freq = FxGraphLang::Value(value(fxgraph, args[5])?);
-    let sparse = FxGraphLang::Value(value(fxgraph, args[6])?);
+    let padding_idx = FxGraphLang::Value(into_value(fxgraph, args[2])?);
+    let max_norm = FxGraphLang::Value(into_value(fxgraph, args[3])?);
+    let norm_type = FxGraphLang::Value(into_value(fxgraph, args[4])?);
+    let scale_grad_by_freq = FxGraphLang::Value(into_value(fxgraph, args[5])?);
+    let sparse = FxGraphLang::Value(into_value(fxgraph, args[6])?);
 
     let padding_idx = fxgraph.add_operation(&fxgraph.unique_name(), padding_idx);
     let max_norm = fxgraph.add_operation(&fxgraph.unique_name(), max_norm);
