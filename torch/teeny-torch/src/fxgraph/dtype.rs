@@ -23,7 +23,8 @@ impl TryFrom<DType> for teeny_core::fxgraph::dtype::DType {
     fn try_from(dtype: DType) -> Result<Self, Self::Error> {
         match dtype {
             DType::FLOAT32 => Ok(teeny_core::fxgraph::dtype::DType::F32),
-            DType::FLOAT16 => Ok(teeny_core::fxgraph::dtype::DType::BF16),
+            DType::BFLOAT16 => Ok(teeny_core::fxgraph::dtype::DType::BF16),
+            DType::BOOL => Ok(teeny_core::fxgraph::dtype::DType::Bool),
             _ => Err(Error::UnsupportedDtype(dtype)),
         }
     }

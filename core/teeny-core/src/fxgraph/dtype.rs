@@ -24,6 +24,7 @@ use crate::error::Error;
 pub enum DType {
     F32,
     BF16,
+    Bool,
 }
 
 impl FromStr for DType {
@@ -39,6 +40,7 @@ impl Display for DType {
         match self {
             DType::F32 => write!(f, "f32"),
             DType::BF16 => write!(f, "bf16"),
+            DType::Bool => write!(f, "bool"),
         }
     }
 }

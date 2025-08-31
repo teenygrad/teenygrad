@@ -18,10 +18,9 @@
 use egg::{Id, define_language};
 use ordered_float::OrderedFloat;
 
-use crate::fxgraph::keyvalue::KeyValue;
+use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::placeholder::Placeholder;
-use crate::fxgraph::torch::item::Item;
 use crate::fxgraph::value::Value;
 
 // Define the core language for your compiler IR
@@ -30,11 +29,13 @@ define_language! {
         Constant(ConstantValue),
         Placeholder(Placeholder),
         Value(Value),
-        Item(Item),
+        KwArgs(KeyValueList),
 
         // ops
+        "args" = Args(Vec<Id>),
+        "mitem" = MethodItem(Vec<Id>), // method item
         "embedding" = Embedding([Id; 7]),
-        "arange" = Arange([Id; 3]),
+        "arange" = Arange(Vec<Id>),
         "iadd" = IAdd([Id; 2]),
         "lazy_load_decompositions" = LazyLoadDecompositions([Id; 0]),
         "contiguous" = Contiguous(Id),

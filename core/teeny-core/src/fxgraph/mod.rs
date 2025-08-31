@@ -30,7 +30,9 @@ pub mod torch;
 pub mod value;
 
 use crate::fxgraph::analysis::TensorAnalysis;
+use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
 use crate::fxgraph::lang::FxGraphLang;
+use crate::fxgraph::value::Value;
 
 // Higher-level IR for mapping from FX graphs
 #[derive(Debug, Clone, Default)]
@@ -55,6 +57,25 @@ impl FXGraph {
         let id = self.egraph.add(op);
         self.node_map.insert(name.to_string(), id);
         id
+    }
+
+    pub fn add_value(&mut self, value: Value) -> Id {
+        self.add_operation(&self.unique_name(), FxGraphLang::Value(value))
+    }
+
+    pub fn add_args(&mut self, args: Vec<Value>) -> Id {
+        let args = args
+            .into_iter()
+            .map(|x| self.add_value(x))
+            .collect::<Vec<_>>();
+        self.add_operation(&self.unique_name(), FxGraphLang::Args(args))
+    }
+
+    pub fn add_kwargs(&mut self, kvs: Vec<KeyValue>) -> Id {
+        self.add_operation(
+            &self.unique_name(),
+            FxGraphLang::KwArgs(KeyValueList::new(kvs)),
+        )
     }
 
     pub fn get_node(&self, name: &str) -> Option<Id> {

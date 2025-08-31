@@ -421,17 +421,17 @@ fn embedding<'a>(
     let input_ids = node_value(fxgraph, args[0])?;
     let weight = node_value(fxgraph, args[1])?;
 
-    let padding_idx = FxGraphLang::Value(into_value(fxgraph, args[2])?);
-    let max_norm = FxGraphLang::Value(into_value(fxgraph, args[3])?);
-    let norm_type = FxGraphLang::Value(into_value(fxgraph, args[4])?);
-    let scale_grad_by_freq = FxGraphLang::Value(into_value(fxgraph, args[5])?);
-    let sparse = FxGraphLang::Value(into_value(fxgraph, args[6])?);
+    let padding_idx = into_value(fxgraph, args[2])?;
+    let max_norm = into_value(fxgraph, args[3])?;
+    let norm_type = into_value(fxgraph, args[4])?;
+    let scale_grad_by_freq = into_value(fxgraph, args[5])?;
+    let sparse = into_value(fxgraph, args[6])?;
 
-    let padding_idx = fxgraph.add_operation(&fxgraph.unique_name(), padding_idx);
-    let max_norm = fxgraph.add_operation(&fxgraph.unique_name(), max_norm);
-    let norm_type = fxgraph.add_operation(&fxgraph.unique_name(), norm_type);
-    let scale_grad_by_freq = fxgraph.add_operation(&fxgraph.unique_name(), scale_grad_by_freq);
-    let sparse = fxgraph.add_operation(&fxgraph.unique_name(), sparse);
+    let padding_idx = fxgraph.add_value(padding_idx);
+    let max_norm = fxgraph.add_value(max_norm);
+    let norm_type = fxgraph.add_value(norm_type);
+    let scale_grad_by_freq = fxgraph.add_value(scale_grad_by_freq);
+    let sparse = fxgraph.add_value(sparse);
 
     fxgraph.add_operation(
         name,

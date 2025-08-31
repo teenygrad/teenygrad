@@ -29,6 +29,7 @@ use crate::torch::Node;
 mod call_function;
 mod call_method;
 mod dtype;
+mod keyvalue;
 mod output;
 mod placeholder;
 mod shape;

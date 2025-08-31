@@ -42,3 +42,42 @@ impl Display for KeyValue {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct KeyValueList(Vec<KeyValue>);
+
+impl KeyValueList {
+    pub fn new(kvs: Vec<KeyValue>) -> Self {
+        Self(kvs)
+    }
+}
+
+impl IntoIterator for KeyValueList {
+    type Item = KeyValue;
+    type IntoIter = std::vec::IntoIter<KeyValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl FromStr for KeyValueList {
+    type Err = Error;
+
+    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
+        todo!()
+    }
+}
+
+impl Display for KeyValueList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.0
+                .iter()
+                .map(|kv| kv.to_string())
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+    }
+}

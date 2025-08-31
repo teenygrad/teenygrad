@@ -33,7 +33,7 @@ pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
     })?;
 
     // Safely access nodes with error handling
-    let nodes = graph
+    let _nodes = graph
         .nodes()
         .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Graph has no nodes"))?;
 

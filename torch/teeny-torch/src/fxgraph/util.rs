@@ -15,17 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::str::FromStr;
-
 use egg::Id;
 use teeny_core::fxgraph::{
     FXGraph,
     lang::{const_bool, const_f32, const_i64, const_string},
-};
-
-use crate::{
-    error::Error,
-    torch::{KeyValue, Node, Value, ValueWrapper},
 };
 
 pub fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
@@ -54,16 +47,4 @@ pub fn find_or_create(fxgraph: &mut FXGraph, name: &str) -> Id {
     }
 
     fxgraph.add_operation(&fxgraph.unique_name(), const_string(name))
-}
-
-pub fn find_kw_arg<'a>(
-    kwargs: &[KeyValue<'a>],
-    key: &str,
-) -> Result<Option<ValueWrapper<'a>>, Error> {
-    let value = kwargs
-        .iter()
-        .find(|x| x.key() == Some(key))
-        .and_then(|x| x.value());
-
-    Ok(value)
 }

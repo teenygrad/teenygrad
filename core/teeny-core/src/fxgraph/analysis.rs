@@ -18,7 +18,7 @@
 use egg::{Analysis, DidMerge, EGraph};
 
 use crate::fxgraph::dtype::DType;
-use crate::fxgraph::lang::FxGraphLang::{self, Add, Constant, Contiguous, Div, MatMul, Mul, Sub};
+use crate::fxgraph::lang::FxGraphLang::{self, Add, Contiguous, Div, MatMul, Mul, Sub};
 use crate::fxgraph::shape::Shape;
 
 // Analysis for tracking tensor properties and optimization opportunities
@@ -141,7 +141,7 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
 }
 
 // Helper functions for shape inference
-fn broadcast_shapes(s1: &Shape, s2: &Shape) -> Option<Shape> {
+fn broadcast_shapes(_s1: &Shape, _s2: &Shape) -> Option<Shape> {
     // match (s1, s2) {
     //     (ShapeValue::Static(dims1), ShapeValue::Static(dims2)) => {
     //         // Implement broadcasting logic

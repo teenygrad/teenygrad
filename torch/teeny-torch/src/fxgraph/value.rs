@@ -33,6 +33,8 @@ pub fn into_value<'a>(
         Value::valnode => valnode(fxgraph, value)?,
         Value::valnone => valnone(fxgraph, value)?,
         Value::valint => valint(fxgraph, value)?,
+        Value::valdevice => valdevice(fxgraph, value)?,
+        Value::valdtype => valdtype(fxgraph, value)?,
         _ => todo!("ValueWrapper: {:?}", value),
     };
 
@@ -88,4 +90,31 @@ fn valint<'a>(
 
     // AXM : what is the correct type for this?
     Ok(teeny_core::fxgraph::value::Value::Int(value as i64))
+}
+
+fn valdevice<'a>(
+    _fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let deviceval = value
+        .value_as_valdevice()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let value = deviceval
+        .value()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+
+    // AXM : what is the correct type for this?
+    Ok(teeny_core::fxgraph::value::Value::Device(value.to_string()))
+}
+
+fn valdtype<'a>(
+    _fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let dtypeval = value
+        .value_as_valdtype()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let value = dtypeval.value();
+
+    Ok(teeny_core::fxgraph::value::Value::DType(value.try_into()?))
 }
