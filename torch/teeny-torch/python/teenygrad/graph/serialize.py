@@ -87,7 +87,18 @@ from .FXGraph.NodeWrapper import (
     NodeWrapperEnd,
     NodeWrapperStart,
 )
-from .FXGraph.Output import OutputAddName, OutputEnd, OutputStart
+from .FXGraph.Output import (
+    OutputAddArgs,
+    OutputAddKwargs,
+    OutputAddName,
+    OutputAddTarget,
+    OutputAddUsers,
+    OutputEnd,
+    OutputStart,
+    OutputStartArgsVector,
+    OutputStartKwargsVector,
+    OutputStartUsersVector,
+)
 from .FXGraph.PlaceholderWrapper import (
     PlaceholderWrapperAddName,
     PlaceholderWrapperAddTarget,
@@ -274,6 +285,7 @@ def build_placeholder_node(builder: flatbuffers.Builder, node: torch.fx.Node, us
 def _build_value_wrapper_for_arg(builder: flatbuffers.Builder, arg: Any) -> int:
     """Build a ValueWrapper for a function argument."""
     try:
+        print(f"    Building ValueWrapper for arg: {arg} - {type(arg)}")
         if isinstance(arg, (int, float)):
             # Create ValInt for numeric values
             ValIntStart(builder)
@@ -298,7 +310,7 @@ def _build_value_wrapper_for_arg(builder: flatbuffers.Builder, arg: Any) -> int:
             ValueWrapperAddValueType(builder, Value.valstr)
             ValueWrapperAddValue(builder, val_str_offset)
             return ValueWrapperEnd(builder)
-        elif isinstance(arg, torch.fx.Node):
+        elif isinstance(arg, torch.fx.node.Node):
             # Create ValNode for node values
             print(f"      Building ValNode for node: {arg.name}")
             node_name = builder.CreateString(arg.name)
@@ -439,12 +451,7 @@ def _build_value_wrapper_for_arg(builder: flatbuffers.Builder, arg: Any) -> int:
             result = ValueWrapperEnd(builder)
             return result
         else:
-            # For other types, create a placeholder ValueWrapper
-            print(f"    Warning: Unsupported argument type {type(arg)} for value {arg}")
-            ValueWrapperStart(builder)
-            ValueWrapperAddValueType(builder, Value.NONE)
-            ValueWrapperAddValue(builder, 0)  # No value for now
-            return ValueWrapperEnd(builder)
+            raise TypeError(f"Unsupported argument type {type(arg)} for value {arg}")           
     except Exception as e:
         print(f"    Error building ValueWrapper for arg {arg} (type: {type(arg)}): {e}")
         raise
@@ -586,8 +593,20 @@ def build_get_attr_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> in
 def build_output_node(builder: flatbuffers.Builder, node: torch.fx.Node) -> int:
     """Build an Output node."""
     name = builder.CreateString(str(node.name))
+    target = builder.CreateString(str(getattr(node, 'target', '')))
+    
+    # Build vectors using helper functions
+    args_vec = _build_args_vector(builder, node.args, OutputStartArgsVector)
+    kwargs_vec = _build_kwargs_vector(builder, node.kwargs, OutputStartKwargsVector)
+    users_vec = _build_users_vector(builder, node.users, OutputStartUsersVector)
+    
+    # Build the complete Output
     OutputStart(builder)
     OutputAddName(builder, name)
+    OutputAddTarget(builder, target)
+    OutputAddArgs(builder, args_vec)
+    OutputAddKwargs(builder, kwargs_vec)
+    OutputAddUsers(builder, users_vec)
     return OutputEnd(builder)
 
 

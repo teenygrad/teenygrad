@@ -47,6 +47,7 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
         let nodes = graph.nodes().ok_or(Error::NoGraphNodes)?;
 
         for node in nodes {
+            println!("Node: {:?}", node);
             let node_type = node.node_type();
             match node_type {
                 Node::placeholder => {
@@ -97,6 +98,30 @@ mod tests {
     #[test]
     fn test_qwen3_conversion() -> Result<(), Error> {
         let qwen_files = ["qwen3_1.bin.gz", "qwen3_2.bin.gz", "qwen3_3.bin.gz"];
+
+        for filename in qwen_files {
+            let file_path = format!("{CARGO_MANIFEST_DIR}/tests/data/{filename}");
+
+            // Read and decompress gzip file
+            let file = std::fs::File::open(&file_path).unwrap();
+            let mut decoder = flate2::read::GzDecoder::new(file);
+            let mut buffer = Vec::new();
+            std::io::Read::read_to_end(&mut decoder, &mut buffer).unwrap();
+
+            // Deserialize graph
+            let graph = deserialize_graph(&buffer)?;
+
+            // Convert to FXGraph
+            let fxgraph = FXGraph::try_from(graph)?;
+            println!("FXGraph: #nodes {}", fxgraph.node_map.len());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_vector_add_conversion() -> Result<(), Error> {
+        let qwen_files = ["vector_add_1.bin.gz"];
 
         for filename in qwen_files {
             let file_path = format!("{CARGO_MANIFEST_DIR}/tests/data/{filename}");

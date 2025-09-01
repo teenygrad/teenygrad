@@ -24,9 +24,7 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
         .name()
         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
 
-    let target = node
-        .target()
-        .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
+    let target = node.target().map(|x| x.to_string());
 
     let users = node
         .users()
@@ -37,7 +35,7 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
 
     let placeholder = teeny_core::fxgraph::placeholder::Placeholder {
         name: name.to_string(),
-        target: target.to_string(),
+        target,
         users,
     };
 

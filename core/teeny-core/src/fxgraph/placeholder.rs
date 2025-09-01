@@ -25,7 +25,7 @@ use crate::error::Error;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Placeholder {
     pub name: String,
-    pub target: String,
+    pub target: Option<String>,
     pub users: Vec<Id>,
 }
 

@@ -30,7 +30,7 @@ pub fn into_value<'a>(
 
     let res = match val_type {
         Value::valnode => valnode(fxgraph, value)?,
-        Value::valnone => valnone(fxgraph, value)?,
+        Value::valnone | Value::NONE => valnone(fxgraph, value)?,
         Value::valint => valint(fxgraph, value)?,
         Value::valdevice => valdevice(fxgraph, value)?,
         Value::valdtype => valdtype(fxgraph, value)?,

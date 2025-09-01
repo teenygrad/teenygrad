@@ -137,6 +137,10 @@ table GetAttr {
 
 table Output {
   name: string;
+  target: string;
+  args: [ValueWrapper];
+  kwargs: [KeyValue];
+  users: [string];
 }
 
 union Node {
