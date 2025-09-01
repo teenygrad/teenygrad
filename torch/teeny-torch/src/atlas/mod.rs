@@ -32,6 +32,7 @@ pub fn atlas_compile(buffer: &[u8]) -> pyo3::PyResult<String> {
         pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to deserialize graph: {e}"))
     })?;
 
+    println!("Graph: {:?}", graph);
     // Safely access nodes with error handling
     let _nodes = graph
         .nodes()

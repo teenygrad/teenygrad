@@ -47,7 +47,6 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
         let nodes = graph.nodes().ok_or(Error::NoGraphNodes)?;
 
         for node in nodes {
-            println!("Node: {:?}", node);
             let node_type = node.node_type();
             match node_type {
                 Node::placeholder => {
