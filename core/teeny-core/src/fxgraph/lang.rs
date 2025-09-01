@@ -33,7 +33,7 @@ define_language! {
 
         // ops
         "args" = Args(Vec<Id>),
-        "mitem" = MethodItem(Vec<Id>), // method item
+        "mitem" = ItemMethod(Vec<Id>), // item method
         "embedding" = Embedding([Id; 7]),
         "arange" = Arange(Vec<Id>),
         "iadd" = IAdd([Id; 2]),
@@ -59,7 +59,7 @@ define_language! {
         "/" = Div([Id; 2]),
         "@" = MatMul([Id; 2]),
         "neg" = Neg(Id),
-        "to" = To([Id; 2]),
+        "to" = To(Vec<Id>),
 
     }
 }

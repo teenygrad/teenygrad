@@ -35,6 +35,7 @@ pub fn into_value<'a>(
         Value::valint => valint(fxgraph, value)?,
         Value::valdevice => valdevice(fxgraph, value)?,
         Value::valdtype => valdtype(fxgraph, value)?,
+        Value::valstr => valstr(fxgraph, value)?,
         _ => todo!("ValueWrapper: {:?}", value),
     };
 
@@ -117,4 +118,18 @@ fn valdtype<'a>(
     let value = dtypeval.value();
 
     Ok(teeny_core::fxgraph::value::Value::DType(value.try_into()?))
+}
+
+fn valstr<'a>(
+    _fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let strval = value
+        .value_as_valstr()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let value = strval
+        .value()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+
+    Ok(teeny_core::fxgraph::value::Value::String(value.to_string()))
 }

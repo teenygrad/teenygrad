@@ -26,7 +26,7 @@ use crate::{
     torch::CallMethod,
 };
 
-type NodeHandler = fn(&mut FXGraph, &CallMethod, &str, Vec<Value>, Id) -> Result<(), Error>;
+type NodeHandler = fn(&mut FXGraph, &CallMethod, &str, Vec<Value>, Option<Id>) -> Result<(), Error>;
 static METHODS: OnceLock<HashMap<String, NodeHandler>> = OnceLock::new();
 
 fn get_methods() -> &'static HashMap<String, NodeHandler> {
@@ -47,17 +47,21 @@ pub fn call_method<'a>(fxgraph: &mut FXGraph, node: &CallMethod<'a>) -> Result<(
         .ok_or_else(|| Error::NoGraphNodeTarget(format!("{node:?}")))?;
     let args: Vec<teeny_core::fxgraph::value::Value> = node
         .args()
-        .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?
+        .unwrap_or_default()
         .iter()
         .map(|x| into_value(fxgraph, x))
         .collect::<Result<Vec<_>, Error>>()?;
     let keyvalues = node
         .kwargs()
-        .ok_or_else(|| Error::GraphNodeMissingArgs(format!("{node:?}")))?
+        .unwrap_or_default()
         .iter()
         .map(|x| into_keyvalue(fxgraph, x))
         .collect::<Result<Vec<_>, Error>>()?;
-    let kwargs = fxgraph.add_kwargs(keyvalues);
+    let kwargs = if keyvalues.is_empty() {
+        None
+    } else {
+        Some(fxgraph.add_kwargs(keyvalues))
+    };
 
     let methods = get_methods();
     if let Some(method) = methods.get(target) {
@@ -74,14 +78,14 @@ fn item(
     _node: &CallMethod,
     name: &str,
     args: Vec<Value>,
-    _kwargs: Id,
+    _kwargs: Option<Id>,
 ) -> Result<(), Error> {
     let args = args
         .into_iter()
         .map(|x| fxgraph.add_value(x))
         .collect::<Vec<_>>();
 
-    fxgraph.add_operation(name, FxGraphLang::MethodItem(args));
+    fxgraph.add_operation(name, FxGraphLang::ItemMethod(args));
     Ok(())
 }
 
@@ -90,7 +94,7 @@ fn to(
     node: &CallMethod,
     name: &str,
     _args: Vec<Value>,
-    kwargs: Id,
+    kwargs: Option<Id>,
 ) -> Result<(), Error> {
     let args = node
         .args()
@@ -98,29 +102,14 @@ fn to(
         .into_iter()
         .map(|x| into_value(fxgraph, x))
         .collect::<Result<Vec<_>, Error>>()?;
-    let args = fxgraph.add_args(args);
+    let mut args = vec![fxgraph.add_args(args)];
+
+    if let Some(kwargs) = kwargs {
+        args.push(kwargs);
+    }
 
     // pytoch: torch.tensor.to(*args, **kwargs) - yuck!
-    fxgraph.add_operation(name, FxGraphLang::To([args, kwargs]));
-
-    Ok(())
-}
-
-fn arange<'a>(
-    fxgraph: &mut FXGraph,
-    _node: &CallMethod<'a>,
-    name: &str,
-    args: Vec<Value>,
-    kwargs: Id,
-) -> Result<(), Error> {
-    let mut args = args
-        .into_iter()
-        .map(|x| fxgraph.add_value(x))
-        .collect::<Vec<_>>();
-
-    args.push(kwargs);
-
-    fxgraph.add_operation(name, FxGraphLang::Arange(args));
+    fxgraph.add_operation(name, FxGraphLang::To(args));
 
     Ok(())
 }
