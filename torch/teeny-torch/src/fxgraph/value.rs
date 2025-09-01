@@ -15,7 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use egg::Id;
 use teeny_core::fxgraph::FXGraph;
 
 use crate::{
@@ -36,19 +35,14 @@ pub fn into_value<'a>(
         Value::valdevice => valdevice(fxgraph, value)?,
         Value::valdtype => valdtype(fxgraph, value)?,
         Value::valstr => valstr(fxgraph, value)?,
+        Value::valtuple => valtuple(fxgraph, value)?,
+        Value::vallist => vallist(fxgraph, value)?,
+        Value::valslice => valslice(fxgraph, value)?,
+        Value::valellipsis => valellipsis(fxgraph, value)?,
         _ => todo!("ValueWrapper: {:?}", value),
     };
 
     Ok(res)
-}
-
-pub fn node_value<'a>(fxgraph: &mut FXGraph, node: ValueWrapper<'a>) -> Result<Id, Error> {
-    let node = valnode(fxgraph, node)?;
-
-    match node {
-        teeny_core::fxgraph::value::Value::Node(node) => Ok(node),
-        _ => Err(Error::GraphNodeInvalidArgs(format!("{node:?}"))),
-    }
 }
 
 fn valnode<'a>(
@@ -132,4 +126,75 @@ fn valstr<'a>(
         .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
 
     Ok(teeny_core::fxgraph::value::Value::String(value.to_string()))
+}
+
+fn valtuple<'a>(
+    fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let tupleval = value
+        .value_as_valtuple()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let values = tupleval
+        .values()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?
+        .iter()
+        .map(|x| into_value(fxgraph, x))
+        .collect::<Result<Vec<teeny_core::fxgraph::value::Value>, Error>>()?
+        .into_iter()
+        .map(Box::new)
+        .collect::<Vec<_>>();
+
+    Ok(teeny_core::fxgraph::value::Value::Tuple(values))
+}
+
+fn vallist<'a>(
+    fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let listval = value
+        .value_as_vallist()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let values = listval
+        .values()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?
+        .iter()
+        .map(|x| into_value(fxgraph, x))
+        .collect::<Result<Vec<teeny_core::fxgraph::value::Value>, Error>>()?
+        .into_iter()
+        .map(Box::new)
+        .collect::<Vec<_>>();
+
+    Ok(teeny_core::fxgraph::value::Value::List(values))
+}
+
+fn valslice<'a>(
+    fxgraph: &mut FXGraph,
+    value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    let sliceval = value
+        .value_as_valslice()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let start = sliceval
+        .start()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let end = sliceval
+        .end()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+    let step = sliceval
+        .step()
+        .ok_or(Error::InvalidBuffer(format!("{value:?}")))?;
+
+    Ok(teeny_core::fxgraph::value::Value::Slice(
+        Box::new(into_value(fxgraph, start)?),
+        Box::new(into_value(fxgraph, end)?),
+        Box::new(into_value(fxgraph, step)?),
+    ))
+}
+
+fn valellipsis<'a>(
+    _fxgraph: &mut FXGraph,
+    _value: ValueWrapper<'a>,
+) -> Result<teeny_core::fxgraph::value::Value, Error> {
+    Ok(teeny_core::fxgraph::value::Value::Ellipsis)
 }

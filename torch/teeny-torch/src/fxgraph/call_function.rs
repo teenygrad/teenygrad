@@ -19,15 +19,12 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use egg::Id;
 use regex::Regex;
-use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang, value::Value};
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
 use crate::{
     error::Error,
-    fxgraph::{
-        keyvalue::into_keyvalue,
-        value::{into_value, node_value},
-    },
-    torch::{CallFunction, ValueWrapper},
+    fxgraph::{keyvalue::into_keyvalue, value::into_value},
+    torch::CallFunction,
 };
 
 pub fn call_function<'a>(fxgraph: &'a mut FXGraph, node: &CallFunction<'a>) -> Result<(), Error> {
@@ -42,15 +39,15 @@ pub fn call_function<'a>(fxgraph: &'a mut FXGraph, node: &CallFunction<'a>) -> R
         .map(|x| x.as_str())
         .unwrap_or(target);
 
-    let name = node
-        .name()
-        .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
-    let args: Vec<Value> = node
+    let args: Vec<Id> = node
         .args()
         .unwrap_or_default()
         .iter()
         .map(|x| into_value(fxgraph, x))
-        .collect::<Result<Vec<_>, Error>>()?;
+        .collect::<Result<Vec<_>, Error>>()?
+        .into_iter()
+        .map(|x| fxgraph.add_value(x))
+        .collect::<Vec<_>>();
     let keyvalues = node
         .kwargs()
         .unwrap_or_default()
@@ -77,8 +74,7 @@ pub fn call_function<'a>(fxgraph: &'a mut FXGraph, node: &CallFunction<'a>) -> R
     Ok(())
 }
 
-type NodeHandler =
-    fn(&mut FXGraph, &CallFunction, &str, Vec<Value>, Option<Id>) -> Result<(), Error>;
+type NodeHandler = fn(&mut FXGraph, &CallFunction, &str, Vec<Id>, Option<Id>) -> Result<(), Error>;
 static FUNCS: OnceLock<HashMap<String, NodeHandler>> = OnceLock::new();
 
 // Initialize the functions HashMap
@@ -135,167 +131,97 @@ fn mul(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("mul: {:?}", node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 2 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
+    let args = [args[0], args[1]];
 
-    // fxgraph.add_operation(name, FxGraphLang::Mul([arg1, arg2]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::Mul(args));
+    Ok(())
 }
 
 fn rsqrt(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("rsqrt: {:?}", node);
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 1 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // fxgraph.add_operation(name, FxGraphLang::Rsqrt([arg1]));
+    let args = [args[0]];
 
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::Rsqrt(args));
+    Ok(())
 }
 
 fn linear(
     fxgraph: &mut FXGraph,
-    node: &CallFunction,
+    _node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("linear: {:?}", node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
-
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-
-    // fxgraph.add_operation(name, FxGraphLang::Linear([arg1, arg2]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::Linear(args));
+    Ok(())
 }
 
 fn neg(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("neg: {:?}", node);
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 1 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // fxgraph.add_operation(name, FxGraphLang::Neg(arg1));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::Neg(args[0]));
+    Ok(())
 }
 
 fn sym_sum(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("sym_sum: {:?}", node);
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 1 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // if args[0].starts_with("[") && args[0].ends_with("]") {
-    //     let args = args[0][1..args[0].len() - 1]
-    //         .split(",")
-    //         .map(|x| find_or_create(fxgraph, x))
-    //         .collect::<Vec<_>>();
-    //     fxgraph.add_operation(name, FxGraphLang::SymSum(args));
-    // } else {
-    //     return Err(Error::GraphNodeInvalidArgs(format!("sym_sum - {:?}", node)));
-    // }
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::SymSum(args[0]));
+    Ok(())
 }
 
 fn scaled_dot_product_attention(
     fxgraph: &mut FXGraph,
-    node: &CallFunction,
+    _node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
-    _kwargs: Option<Id>,
+    mut args: Vec<Id>,
+    kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("scaled_dot_product_attention: {:?}", node);
-    // if args.len() != 3 {
-    //     return Err(Error::GraphNodeMissingArgs(format!(
-    //         "arg len  {} - {:?}",
-    //         args.len(),
-    //         node
-    //     )));
-    // }
+    if let Some(kwargs) = kwargs {
+        args.push(kwargs);
+    }
 
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-    // let arg3 = find_or_create(fxgraph, args[2]);
-
-    // let attn_mask = find_or_create(
-    //     fxgraph,
-    //     &find_kw_arg::<String>(node, "attn_mask")?.ok_or(Error::GraphNodeMissingArgs(format!(
-    //         "attn_mask - {:?}",
-    //         node
-    //     )))?,
-    // );
-
-    // let dropout_p =
-    //     fxgraph.add_operation(
-    //         &fxgraph.unique_name(),
-    //         const_f32(find_kw_arg::<f32>(node, "dropout_p")?.ok_or(
-    //             Error::GraphNodeMissingArgs(format!("dropout_p - {:?}", node)),
-    //         )?),
-    //     );
-
-    // let scale = find_or_create(
-    //     fxgraph,
-    //     &find_kw_arg::<String>(node, "scale")?
-    //         .ok_or(Error::GraphNodeMissingArgs(format!("scale - {:?}", node)))?,
-    // );
-
-    // let is_causal = fxgraph.add_operation(
-    //     &fxgraph.unique_name(),
-    //     const_bool(&find_kw_arg::<String>(node, "is_causal")?.ok_or(
-    //         Error::GraphNodeMissingArgs(format!("is_causal - {:?}", node)),
-    //     )?),
-    // );
-
-    // fxgraph.add_operation(
-    //     name,
-    //     FxGraphLang::ScaledDotProductAttention([
-    //         arg1, arg2, arg3, attn_mask, dropout_p, scale, is_causal,
-    //     ]),
-    // );
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::ScaledDotProductAttention(args));
+    Ok(())
 }
 
 fn log_api_usage_once(
-    fxgraph: &mut FXGraph,
+    _fxgraph: &mut FXGraph,
     _node: &CallFunction,
-    name: &str,
-    args: Vec<Value>,
+    _name: &str,
+    _args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
     // no-op
@@ -306,17 +232,24 @@ fn getitem(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("getitem: {:?}", node);
+    if args.len() != 2 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
+
+    let args = [args[0], args[1]];
+
+    fxgraph.add_operation(name, FxGraphLang::GetItem(args));
+    Ok(())
 }
 
 fn lazy_load_decompositions(
     fxgraph: &mut FXGraph,
     _node: &CallFunction,
     name: &str,
-    _args: Vec<Value>,
+    _args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
     fxgraph.add_operation(name, FxGraphLang::LazyLoadDecompositions([]));
@@ -325,81 +258,63 @@ fn lazy_load_decompositions(
 
 fn silu(
     fxgraph: &mut FXGraph,
-    node: &CallFunction,
+    _node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
-    _kwargs: Option<Id>,
+    mut args: Vec<Id>,
+    kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("silu: {:?}", node);
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if let Some(kwargs) = kwargs {
+        args.push(kwargs);
+    }
 
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let inplace =
-    //     const_bool(&find_kw_arg::<String>(node, "inplace")?.unwrap_or("false".to_string()));
-    // let arg2 = fxgraph.add_operation(&fxgraph.unique_name(), inplace);
-
-    // fxgraph.add_operation(name, FxGraphLang::Silu([arg1, arg2]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::Silu(args));
+    Ok(())
 }
 
 fn aten_index(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
-    _kwargs: Option<Id>,
-) -> Result<(), Error> {
-    todo!("aten_index: {:?}", node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
-
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-
-    // fxgraph.add_operation(name, FxGraphLang::AtenIndex([arg1, arg2]));
-
-    // Ok(())
-}
-
-fn add(
-    fxgraph: &mut FXGraph,
-    node: &CallFunction,
-    name: &str,
-    args: Vec<Value>,
-    _kwargs: Option<Id>,
-) -> Result<(), Error> {
-    todo!("add: {:?}", node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
-
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-
-    // fxgraph.add_operation(name, FxGraphLang::Add([arg1, arg2]));
-
-    // Ok(())
-}
-
-fn iadd(
-    fxgraph: &mut FXGraph,
-    node: &CallFunction,
-    name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
     if args.len() != 2 {
         return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
     }
 
-    let args = args
-        .into_iter()
-        .map(|x| fxgraph.add_value(x))
-        .collect::<Vec<_>>();
+    let args = [args[0], args[1]];
+    fxgraph.add_operation(name, FxGraphLang::AtenIndex(args));
+    Ok(())
+}
+
+fn add(
+    fxgraph: &mut FXGraph,
+    node: &CallFunction,
+    name: &str,
+    args: Vec<Id>,
+    _kwargs: Option<Id>,
+) -> Result<(), Error> {
+    if args.len() != 2 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
+
+    let args = [args[0], args[1]];
+
+    fxgraph.add_operation(name, FxGraphLang::Add(args));
+    Ok(())
+}
+
+fn iadd(
+    fxgraph: &mut FXGraph,
+    node: &CallFunction,
+    name: &str,
+    args: Vec<Id>,
+    _kwargs: Option<Id>,
+) -> Result<(), Error> {
+    if args.len() != 2 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
+
     let args = [args[0], args[1]];
 
     fxgraph.add_operation(name, FxGraphLang::IAdd(args));
@@ -410,13 +325,9 @@ fn arange(
     fxgraph: &mut FXGraph,
     _node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    mut args: Vec<Id>,
     kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    let mut args = args
-        .into_iter()
-        .map(|x| fxgraph.add_value(x))
-        .collect::<Vec<_>>();
     if let Some(kwargs) = kwargs {
         args.push(kwargs);
     }
@@ -430,17 +341,12 @@ fn embedding(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
     if args.len() != 7 {
         return Err(Error::GraphNodeMissingArgs(format!("args len: {node:?}")));
     }
-
-    let args = args
-        .into_iter()
-        .map(|x| fxgraph.add_value(x))
-        .collect::<Vec<_>>();
 
     let args = [
         args[0], args[1], args[2], args[3], args[4], args[5], args[6],
@@ -453,168 +359,130 @@ fn embedding(
 
 fn add_batch_dim(
     fxgraph: &mut FXGraph,
-    _node: &CallFunction,
+    node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("add_batch_dim: {:?}", _node);
-    // if args.len() != 3 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 3 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // todo!("add_batch_dim: {:?}", node);
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-    // let arg3 = find_or_create(fxgraph, args[2]);
-    // fxgraph.add_operation(name, FxGraphLang::AddBatchDim([arg1, arg2, arg3]));
+    let args = [args[0], args[1], args[2]];
 
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::AddBatchDim(args));
+    Ok(())
 }
 
 fn remove_batch_dim(
     fxgraph: &mut FXGraph,
-    _node: &CallFunction,
+    node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("remove_batch_dim: {:?}", _node);
-    // if args.len() != 4 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 4 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // todo!("remove_batch_dim: {:?}", node);
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-    // let arg3 = find_or_create(fxgraph, args[2]);
-    // let arg4 = find_or_create(fxgraph, args[3]);
-    // fxgraph.add_operation(name, FxGraphLang::RemoveBatchDim([arg1, arg2, arg3, arg4]));
+    let args = [args[0], args[1], args[2], args[3]];
 
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::RemoveBatchDim(args));
+    Ok(())
 }
 
 fn vmap_decrement_nesting(
     fxgraph: &mut FXGraph,
-    _node: &CallFunction,
+    node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("vmap_decrement_nesting: {:?}", _node);
-    // if !args.is_empty() {
-    //     return Err(Error::GraphNodeInvalidArgs(format!("{:?}", node)));
-    // }
+    if !args.is_empty() {
+        return Err(Error::GraphNodeInvalidArgs(format!("{:?}", node)));
+    }
 
-    // todo!("vmap_decrement_nesting: {:?}", node);
-    // fxgraph.add_operation(name, FxGraphLang::VmapDecrementNesting([]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::VmapDecrementNesting([]));
+    Ok(())
 }
 
 fn enter_autocast(
     fxgraph: &mut FXGraph,
     _node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("enter_autocast: {:?}", _node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
-
-    // todo!("enter_autocast: {:?}", node);
-    // let arg1 = fxgraph.add_operation(name, const_string(args[0]));
-    // let arg2 = find_or_create(fxgraph, args[1]);
-    // fxgraph.add_operation(name, FxGraphLang::EnterAutocast([arg1, arg2]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::EnterAutocast(args));
+    Ok(())
 }
 
 fn exit_autocast(
     fxgraph: &mut FXGraph,
-    _node: &CallFunction,
+    node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("exit_autocast: {:?}", _node);
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 1 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // todo!("exit_autocast: {:?}", node);
-    // let arg1 = fxgraph
-    //     .get_node(args[0])
-    //     .ok_or_else(|| Error::GraphNodeNotFound(format!("{:?}", node)))?;
+    let args = [args[0]];
 
-    // fxgraph.add_operation(name, FxGraphLang::ExitAutocast([arg1]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::ExitAutocast(args));
+    Ok(())
 }
 
 fn matmul(
     fxgraph: &mut FXGraph,
     node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("matmul: {:?}", node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 2 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // todo!("matmul: {:?}", node);
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
+    let args = [args[0], args[1]];
 
-    // fxgraph.add_operation(name, FxGraphLang::MatMul([arg1, arg2]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::MatMul(args));
+    Ok(())
 }
 
 fn vmap_increment_nesting(
     fxgraph: &mut FXGraph,
-    _node: &CallFunction,
+    node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
+    args: Vec<Id>,
     _kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("vmap_increment_nesting: {:?}", _node);
-    // if args.len() != 2 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 2 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // todo!("vmap_increment_nesting: {:?}", node);
-    // let arg1 = find_or_create(fxgraph, args[0]);
-    // let arg2 = find_or_create(fxgraph, args[1]);
-    // fxgraph.add_operation(name, FxGraphLang::VmapIncrementNesting([arg1, arg2]));
+    let args = [args[0], args[1]];
 
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::VmapIncrementNesting(args));
+    Ok(())
 }
 
 fn cat(
     fxgraph: &mut FXGraph,
-    _node: &CallFunction,
+    node: &CallFunction,
     name: &str,
-    args: Vec<Value>,
-    _kwargs: Option<Id>,
+    mut args: Vec<Id>,
+    kwargs: Option<Id>,
 ) -> Result<(), Error> {
-    todo!("cat: {:?}", _node);
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+    if args.len() != 1 {
+        return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
+    }
 
-    // todo!("cat: {:?}", node);
-    // let arg1 = find_or_create(fxgraph, args[0]);
+    if let Some(kwargs) = kwargs {
+        args.push(kwargs);
+    }
 
-    // let dim = find_kw_arg::<i64>(node, "dim")?.unwrap_or(0);
-    // let dim = fxgraph.add_operation(&fxgraph.unique_name(), const_i64(dim));
-    // // let arg2 = fxgraph.add_operation(&fxgraph.unique_name(), const_kv("dim", dim));
-
-    // fxgraph.add_operation(name, FxGraphLang::Cat([arg1, arg2]));
-
-    // Ok(())
+    fxgraph.add_operation(name, FxGraphLang::Cat(args));
+    Ok(())
 }

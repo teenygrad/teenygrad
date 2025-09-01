@@ -77,7 +77,9 @@ impl Analysis<FxGraphLang> for TensorAnalysis {
             }
 
             MatMul([_a, _b]) => {
-                todo!()
+                // AXM TODO - fix the analysis for matmul
+                TensorAnalysis::default()
+
                 // let a_data = &egraph[*a].data;
                 // let b_data = &egraph[*b].data;
 
@@ -170,7 +172,7 @@ fn broadcast_shapes(_s1: &Shape, _s2: &Shape) -> Option<Shape> {
     todo!()
 }
 
-fn matmul_output_shape(s1: &[i64], s2: &[i64]) -> Option<Shape> {
+fn _matmul_output_shape(s1: &[i64], s2: &[i64]) -> Option<Shape> {
     if s1.len() < 2 || s2.len() < 2 {
         return None;
     }

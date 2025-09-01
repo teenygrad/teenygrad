@@ -15,35 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::fxgraph::FXGraph;
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
 use crate::{error::Error, torch::Output};
 
-pub fn output<'a>(fxgraph: &mut FXGraph, node: &Output<'a>) -> Result<(), Error> {
-    todo!("output: {:?}", node);
-    // let args = node
-    //     .args()
-    //     .ok_or_else(|| Error::NoGraphNodeArgs(format!("{node:?}")))?
-    //     .iter()
-    //     .collect::<Vec<_>>();
-    // if args.len() != 1 {
-    //     return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
-    // }
+pub fn output<'a>(fxgraph: &mut FXGraph, output: &Output<'a>) -> Result<(), Error> {
+    let name = output
+        .name()
+        .ok_or_else(|| Error::NoGraphNodeName(format!("{output:?}")))?;
 
-    // if args[0].starts_with("(") && args[0].ends_with(")") {
-    //     let args = args[0][1..args[0].len() - 1]
-    //         .split(",")
-    //         .map(|x| find_or_create(fxgraph, x))
-    //         .collect::<Vec<_>>();
-    //     let name = node
-    //         .name()
-    //         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
+    let output = fxgraph.add_operation(name, FxGraphLang::Output(name.to_string()));
+    fxgraph.outputs.push(output);
 
-    //     fxgraph.outputs.extend(args.clone());
-    //     fxgraph.add_operation(name, FxGraphLang::Output(args));
-    // } else {
-    //     return Err(Error::GraphNodeInvalidArgs(format!("output - {:?}", node)));
-    // }
-
-    // Ok(())
+    Ok(())
 }

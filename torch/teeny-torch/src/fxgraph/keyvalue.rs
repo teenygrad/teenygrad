@@ -16,11 +16,9 @@
  */
 
 use crate::fxgraph::value::into_value;
-use crate::torch::Node;
 use crate::{error::Error, torch::KeyValue};
 use teeny_core::fxgraph::FXGraph;
 use teeny_core::fxgraph::keyvalue::KeyValue as CoreKeyValue;
-use teeny_core::fxgraph::keyvalue::KeyValueList as CoreKeyValueList;
 
 pub fn into_keyvalue<'a>(
     fxgraph: &mut FXGraph,
