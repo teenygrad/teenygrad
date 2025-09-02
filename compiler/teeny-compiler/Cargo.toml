@@ -18,3 +18,4 @@ thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true
 egg.workspace = true
+z3.workspace = true

@@ -9,7 +9,6 @@ training = []
 ndarray = ["dep:ndarray"]
 
 [dependencies]
-teeny-macros = { path = "../../compiler/teeny-macros" }
 ndarray= { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true

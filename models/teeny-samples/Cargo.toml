@@ -15,7 +15,6 @@ path = "src/lib.rs"
 teeny-core = { path = "../../core/teeny-core" }
 teeny-data = { path = "../../utilities/teeny-data" }
 teeny-runtime = { path = "../../compiler/teeny-runtime" }
-teeny-macros = { path = "../../compiler/teeny-macros" }
 clap.workspace = true
 tokio.workspace = true
 ndarray.workspace = true

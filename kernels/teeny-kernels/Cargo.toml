@@ -9,7 +9,6 @@ license = "GPL v3"
 [lib]
 
 [dependencies]
-teeny-macros = { path = "../teeny-macros" }
-teeny-triton = { path = "../teeny-triton" }
+teeny-macros = { path = "../../macros/teeny-macros" }
 teeny-core = { path = "../../core/teeny-core" }
 teeny-torch = { path = "../../torch/teeny-torch" }
