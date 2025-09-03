@@ -15,17 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod dtype;
-pub mod error;
-pub mod graph;
-pub mod macros;
-pub mod nn;
-pub mod num;
-pub mod safetensors;
-pub mod storage;
-pub mod tensor;
-pub mod util;
-pub mod value;
+use crate::fxgraph::{dtype::DType, shape::Shape};
 
-#[cfg(feature = "compiler")]
-pub mod fxgraph;
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Tensor {
+    pub dtype: DType,
+    pub shape: Shape,
+    pub device: String,
+    pub stride: Vec<u32>,
+    pub requires_grad: bool,
+}

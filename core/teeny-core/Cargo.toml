@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["training", "ndarray"]
-training = []
+default = ["training", "ndarray", "compiler"]
 ndarray = ["dep:ndarray"]
+training = []
+compiler = [ "egg", "z3" ]
 
 [dependencies]
-ndarray= { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true
 once_cell.workspace = true
@@ -22,5 +22,8 @@ ksuid.workspace = true
 serde.workspace = true
 derive_more.workspace = true
 safetensors.workspace = true
-egg.workspace = true
 ordered-float.workspace = true
+
+ndarray = { workspace = true, optional = true }
+egg = { workspace = true, optional = true }
+z3 = { workspace = true, optional = true }

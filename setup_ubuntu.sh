@@ -3,7 +3,7 @@
 set -e
 
 # install build tools
-sudo apt-get install build-essential
+sudo apt-get install build-essential z3 libz3-dev
 
 RELOGIN_REQUIRED=false
 

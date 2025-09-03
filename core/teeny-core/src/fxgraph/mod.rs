@@ -17,6 +17,7 @@
 
 use egg::{EGraph, Id};
 use std::collections::HashMap;
+use z3::Solver;
 
 pub mod analysis;
 pub mod cat;
@@ -26,31 +27,43 @@ pub mod lang;
 pub mod literal;
 pub mod placeholder;
 pub mod shape;
+pub mod tensor;
 pub mod torch;
 pub mod value;
 
-use crate::fxgraph::analysis::TensorAnalysis;
+use crate::fxgraph::analysis::GraphAnalysis;
 use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
 use crate::fxgraph::lang::FxGraphLang;
 use crate::fxgraph::value::Value;
 
 // Higher-level IR for mapping from FX graphs
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct FXGraph {
-    pub egraph: EGraph<FxGraphLang, TensorAnalysis>,
+    pub egraph: EGraph<FxGraphLang, GraphAnalysis>,
     pub inputs: Vec<Id>,
     pub outputs: Vec<Id>,
+    pub example_inputs: Vec<Value>,
     pub node_map: HashMap<String, Id>, // For mapping from FX node names
+    pub solver: Solver,
 }
 
 impl FXGraph {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        let solver = Solver::new();
+
         Self {
             egraph: EGraph::default(),
             inputs: Vec::new(),
             outputs: Vec::new(),
+            example_inputs: Vec::new(),
             node_map: HashMap::new(),
+            solver,
         }
+    }
+
+    pub fn solver(&self) -> &Solver {
+        &self.solver
     }
 
     pub fn add_operation(&mut self, name: &str, op: FxGraphLang) -> Id {

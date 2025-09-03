@@ -17,6 +17,7 @@
 
 use crate::fxgraph::call_function::call_function;
 use crate::fxgraph::call_method::call_method;
+use crate::fxgraph::example_input::into_example_input;
 use crate::fxgraph::output::output;
 use crate::fxgraph::placeholder::handle_placeholder;
 use crate::{error::Error, torch::Graph};
@@ -29,6 +30,7 @@ use crate::torch::Node;
 mod call_function;
 mod call_method;
 mod dtype;
+mod example_input;
 mod keyvalue;
 mod output;
 mod placeholder;
@@ -42,6 +44,17 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
 
     fn try_from(graph: Graph<'a>) -> Result<Self, Self::Error> {
         let mut fxgraph = FXGraph::new();
+
+        let example_inputs = graph.example_inputs();
+        if let Some(example_input) = example_inputs {
+            let inputs = example_input.inputs();
+            if let Some(inputs) = inputs {
+                for input in inputs {
+                    let value = into_example_input(input)?;
+                    fxgraph.example_inputs.push(value);
+                }
+            }
+        }
 
         // Safely access nodes with error handling
         let nodes = graph.nodes().ok_or(Error::NoGraphNodes)?;

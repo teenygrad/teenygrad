@@ -15,10 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use once_cell::sync::Lazy;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use crate::error::Error;
+
+use z3::{Sort, Symbol};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DType {
@@ -44,3 +48,21 @@ impl Display for DType {
         }
     }
 }
+
+pub struct DTypeSort {
+    pub sort: Sort,
+}
+
+unsafe impl Send for DTypeSort {}
+unsafe impl Sync for DTypeSort {}
+
+impl DTypeSort {
+    pub fn new() -> Self {
+        Self {
+            sort: Sort::uninterpreted(Symbol::String("DType".to_string())),
+        }
+    }
+}
+
+pub static DTYPE_SORT: Lazy<Arc<Mutex<DTypeSort>>> =
+    Lazy::new(|| Arc::new(Mutex::new(DTypeSort::new())));

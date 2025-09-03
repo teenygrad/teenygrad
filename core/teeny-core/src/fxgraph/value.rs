@@ -23,12 +23,16 @@ use std::{
 use egg::Id;
 use ordered_float::OrderedFloat;
 
-use crate::{error::Error, fxgraph::dtype::DType};
+use crate::{
+    error::Error,
+    fxgraph::{dtype::DType, shape::SymInt, tensor::Tensor},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Value {
     None,
     Ellipsis,
+    SymInt(SymInt),
     Int(i64),
     DType(DType),
     Float64(OrderedFloat<f64>),
@@ -36,6 +40,7 @@ pub enum Value {
     Device(String),
     Bool(bool),
     Node(Id),
+    Tensor(Tensor),
     Tuple(Vec<Box<Value>>),
     List(Vec<Box<Value>>),
     Slice(Box<Value>, Box<Value>, Box<Value>),
@@ -76,6 +81,8 @@ impl Display for Value {
                 Ok(())
             }
             Value::Slice(s1, s2, s3) => write!(f, "slice({},{},{})", s1, s2, s3),
+            Value::SymInt(s) => write!(f, "{:?}", s),
+            Value::Tensor(t) => write!(f, "{:?}", t),
         }
     }
 }

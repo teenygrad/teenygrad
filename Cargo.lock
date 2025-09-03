@@ -2839,6 +2839,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.16",
  "uuid",
+ "z3",
 ]
 
 [[package]]
@@ -3024,10 +3025,6 @@ dependencies = [
 
 [[package]]
 name = "teeny-vulkan"
-version = "0.1.0"
-
-[[package]]
-name = "teeny-xformers"
 version = "0.1.0"
 
 [[package]]
