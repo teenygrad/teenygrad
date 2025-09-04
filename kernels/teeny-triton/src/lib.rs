@@ -14,33 +14,3 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
-
-use crate::error::Error;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DType {
-    F32,
-    BF16,
-    Bool,
-}
-
-impl FromStr for DType {
-    type Err = Error;
-
-    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-impl Display for DType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DType::F32 => write!(f, "f32"),
-            DType::BF16 => write!(f, "bf16"),
-            DType::Bool => write!(f, "bool"),
-        }
-    }
-}

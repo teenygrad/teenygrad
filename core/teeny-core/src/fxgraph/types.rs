@@ -15,32 +15,27 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
-use crate::error::Error;
+use once_cell::sync::Lazy;
+use z3::{Sort, Symbol};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DType {
-    F32,
-    BF16,
-    Bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeSort {
+    pub sort: Sort,
 }
 
-impl FromStr for DType {
-    type Err = Error;
+unsafe impl Send for TypeSort {}
+unsafe impl Sync for TypeSort {}
 
-    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-impl Display for DType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DType::F32 => write!(f, "f32"),
-            DType::BF16 => write!(f, "bf16"),
-            DType::Bool => write!(f, "bool"),
+impl TypeSort {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            sort: Sort::uninterpreted(Symbol::String("Type".to_string())),
         }
     }
 }
+
+pub static TYPE_SORT: Lazy<Arc<Mutex<TypeSort>>> =
+    Lazy::new(|| Arc::new(Mutex::new(TypeSort::new())));

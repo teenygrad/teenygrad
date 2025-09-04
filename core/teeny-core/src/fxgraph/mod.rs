@@ -15,9 +15,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use ::z3::Solver;
 use egg::{EGraph, Id};
 use std::collections::HashMap;
-use z3::Solver;
 
 pub mod analysis;
 pub mod cat;
@@ -29,6 +29,7 @@ pub mod placeholder;
 pub mod shape;
 pub mod tensor;
 pub mod torch;
+pub mod types;
 pub mod value;
 
 use crate::fxgraph::analysis::GraphAnalysis;

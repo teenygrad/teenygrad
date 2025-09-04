@@ -18,15 +18,15 @@
 use egg::{Analysis, DidMerge, EGraph};
 use z3::ast;
 
-use crate::fxgraph::dtype::DTYPE_SORT;
 use crate::fxgraph::lang::FxGraphLang;
 use crate::fxgraph::placeholder::Placeholder;
+use crate::fxgraph::types::TYPE_SORT;
 
 // Analysis for tracking tensor properties and optimization opportunities
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphAnalysis {
     Unknown,
-    Placeholder { dtype: ast::Dynamic },
+    Placeholder { _type: ast::Dynamic },
 }
 
 impl Default for GraphAnalysis {
@@ -54,9 +54,9 @@ fn analyse_placeholder(
     _egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
     placeholder: &Placeholder,
 ) -> GraphAnalysis {
-    let dtype_sort = DTYPE_SORT.lock().unwrap();
+    let dtype_sort = TYPE_SORT.lock().unwrap();
 
     GraphAnalysis::Placeholder {
-        dtype: ast::Dynamic::new_const(placeholder.name.clone(), &dtype_sort.sort),
+        _type: ast::Dynamic::new_const(placeholder.name.clone(), &dtype_sort.sort),
     }
 }
