@@ -23,6 +23,8 @@ use z3::{
     ast::{Array, Ast, Bool, Dynamic, Int},
 };
 
+use crate::fxgraph::shape::SymInt;
+
 #[derive(Debug)]
 pub struct TypeTheory {
     solver: Solver,
@@ -137,21 +139,31 @@ impl TypeTheory {
         type_theory
     }
 
-    pub fn create_tensor_type(&self, dtype: &Dynamic, shape_dims: Vec<u32>) -> Dynamic {
+    pub fn create_tensor_type(
+        &self,
+        dtype: &Dynamic,
+        device: &Dynamic,
+        shape_dims: &[SymInt],
+    ) -> Dynamic {
         let rank = Int::from_i64(shape_dims.len() as i64);
         let shape = self.create_shape(shape_dims);
 
-        self.make_tensor_fn.apply(&[dtype, &shape, &rank]).into()
+        self.make_tensor_fn.apply(&[dtype, device, &shape, &rank])
     }
 
-    pub fn create_shape(&self, dims: Vec<u32>) -> Array {
+    pub fn create_shape(&self, dims: &[SymInt]) -> Array {
         let mut shape = Array::fresh_const("shape", &Sort::int(), &self.symint_sort.sort);
 
-        for (i, &dim) in dims.iter().enumerate() {
+        for (i, dim) in dims.iter().cloned().enumerate() {
             let index = Int::from_i64(i as i64);
-            let value = self.symint_sort.variants[0]
-                .constructor
-                .apply(&[&Int::from_i64(dim as i64)]);
+            let value = match dim {
+                SymInt::Int(value) => self.symint_sort.variants[0]
+                    .constructor
+                    .apply(&[&Int::from_i64(value)]),
+                SymInt::Str(value) => self.symint_sort.variants[1]
+                    .constructor
+                    .apply(&[&z3::ast::String::from(value)]),
+            };
             shape = shape.store(&index, &value);
         }
 
