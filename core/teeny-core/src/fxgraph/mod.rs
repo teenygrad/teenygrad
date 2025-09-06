@@ -21,6 +21,7 @@ use std::collections::HashMap;
 
 pub mod analysis;
 pub mod cat;
+pub mod device;
 pub mod dtype;
 pub mod keyvalue;
 pub mod lang;

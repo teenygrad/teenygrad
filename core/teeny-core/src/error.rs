@@ -32,4 +32,13 @@ pub enum Error {
 
     #[error("SafeTensors error: {0}")]
     SafeTensorsError(SafeTensorsError),
+
+    #[error("Z3 error: {0}")]
+    Z3(String),
+
+    #[error("Invalid device: {0}")]
+    InvalidDevice(String),
+
+    #[error("Device type not found: {0}")]
+    DeviceTypeNotFound(String),
 }

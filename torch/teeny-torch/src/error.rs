@@ -66,4 +66,7 @@ pub enum Error {
 
     #[error("Unsupported dtype: {0:?}")]
     UnsupportedDtype(DType),
+
+    #[error("Parsing device error: {0}")]
+    ParsingDevice(String),
 }

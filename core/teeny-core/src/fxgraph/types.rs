@@ -15,15 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
-use once_cell::sync::Lazy;
 use z3::{
     DatatypeAccessor, DatatypeBuilder, DatatypeSort, FuncDecl, Solver, Sort, Symbol,
     ast::{Array, Ast, Bool, Dynamic, Int},
 };
 
-use crate::fxgraph::shape::SymInt;
+use crate::{
+    error::Error,
+    fxgraph::{dtype::DType, shape::SymInt, tensor::Tensor},
+};
 
 #[derive(Debug)]
 pub struct TypeTheory {
@@ -52,6 +54,9 @@ pub struct TypeTheory {
     pub make_tensor_fn: FuncDecl,
     pub tensor_compatible_fn: FuncDecl,
     pub broadcast_compatible_fn: FuncDecl,
+
+    // cache for device types
+    pub devices: HashMap<String, Dynamic>,
 }
 
 unsafe impl Send for TypeTheory {}
@@ -59,7 +64,7 @@ unsafe impl Sync for TypeTheory {}
 
 impl TypeTheory {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, Error> {
         let solver = Solver::new();
 
         let any_type_sort = Sort::uninterpreted(Symbol::String("Any".to_string()));
@@ -130,25 +135,49 @@ impl TypeTheory {
             // compatibility functions
             tensor_compatible_fn,
             broadcast_compatible_fn,
+
+            // type constants for devices
+            devices: HashMap::new(),
         };
 
-        type_theory.setup_subtyping_axioms();
+        type_theory.setup_subtyping_axioms()?;
         type_theory.setup_tensor_axioms();
         type_theory.setup_shape_axioms();
 
-        type_theory
+        Ok(type_theory)
     }
 
     pub fn create_tensor_type(
-        &self,
-        dtype: &Dynamic,
-        device: &Dynamic,
-        shape_dims: &[SymInt],
-    ) -> Dynamic {
+        &mut self,
+        tensor: &Tensor, // dtype: &Dynamic,
+                         // device: &Dynamic,
+                         // shape_dims: &[SymInt],
+    ) -> Result<Dynamic, Error> {
+        let device_desc = format!("{}", tensor.device);
+        let device = self.devices.get(&device_desc);
+        if device.is_none() {
+            let device = Dynamic::new_const(device_desc.clone(), &self.device_sort);
+            self.devices.insert(device_desc.clone(), device);
+        }
+
+        let device = self
+            .devices
+            .get(&device_desc)
+            .ok_or(Error::DeviceTypeNotFound(device_desc))?;
+        let dtype = self.create_dtype(&tensor.dtype);
+        let shape_dims = &tensor.shape.shape;
         let rank = Int::from_i64(shape_dims.len() as i64);
         let shape = self.create_shape(shape_dims);
 
-        self.make_tensor_fn.apply(&[dtype, device, &shape, &rank])
+        Ok(self.make_tensor_fn.apply(&[dtype, device, &shape, &rank]))
+    }
+
+    pub fn create_dtype(&self, dtype: &DType) -> &Dynamic {
+        match dtype {
+            DType::F32 => &self.dtype_f32,
+            DType::BF16 => &self.dtype_bf16,
+            DType::Bool => &self.dtype_bool,
+        }
     }
 
     pub fn create_shape(&self, dims: &[SymInt]) -> Array {
@@ -170,7 +199,7 @@ impl TypeTheory {
         shape
     }
 
-    fn setup_subtyping_axioms(&mut self) {
+    fn setup_subtyping_axioms(&mut self) -> Result<(), Error> {
         let t = Dynamic::new_const("t", &self.any_type_sort);
         let t1 = Dynamic::new_const("t1", &self.any_type_sort);
         let t2 = Dynamic::new_const("t2", &self.any_type_sort);
@@ -185,20 +214,31 @@ impl TypeTheory {
         self.solver.assert(&reflexive);
 
         // Transitivity: ∀t1,t2,t3. subtype(t1,t2) ∧ subtype(t2,t3) → subtype(t1,t3)
+        let a = self
+            .subtype_fn
+            .apply(&[&t1, &t2])
+            .try_into()
+            .map_err(Error::Z3)?;
+        let b = self
+            .subtype_fn
+            .apply(&[&t2, &t3])
+            .try_into()
+            .map_err(Error::Z3)?;
+        let c = self
+            .subtype_fn
+            .apply(&[&t1, &t3])
+            .try_into()
+            .map_err(Error::Z3)?;
         let transitive = z3::ast::forall_const(
             &[&t1, &t2, &t3],
             &[],
-            &Bool::implies(
-                &Bool::and(&[
-                    &self.subtype_fn.apply(&[&t1, &t2]).try_into().unwrap(),
-                    &self.subtype_fn.apply(&[&t2, &t3]).try_into().unwrap(),
-                ]),
-                &self.subtype_fn.apply(&[&t1, &t3]).try_into().unwrap(),
-            ),
+            &Bool::implies(&Bool::and(&[&a, &b]), &c),
         );
         self.solver.assert(&transitive);
 
         // add additional subtype axioms here
+
+        Ok(())
     }
 
     fn setup_tensor_axioms(&mut self) {
@@ -287,6 +327,3 @@ impl TypeTheory {
         self.solver.assert(&broadcast_def);
     }
 }
-
-pub static TYPE_THEORY: Lazy<Arc<Mutex<TypeTheory>>> =
-    Lazy::new(|| Arc::new(Mutex::new(TypeTheory::new())));

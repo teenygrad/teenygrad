@@ -20,7 +20,6 @@ use z3::ast;
 
 use crate::fxgraph::lang::FxGraphLang;
 use crate::fxgraph::placeholder::Placeholder;
-use crate::fxgraph::types::TYPE_THEORY;
 
 // Analysis for tracking tensor properties and optimization opportunities
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,11 +51,7 @@ impl Analysis<FxGraphLang> for GraphAnalysis {
 
 fn analyse_placeholder(
     _egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    placeholder: &Placeholder,
+    _placeholder: &Placeholder,
 ) -> GraphAnalysis {
-    let dtype_sort = TYPE_THEORY.lock().unwrap();
-
-    GraphAnalysis::Placeholder {
-        _type: ast::Dynamic::new_const(placeholder.name.clone(), &dtype_sort.dtype_sort),
-    }
+    todo!()
 }

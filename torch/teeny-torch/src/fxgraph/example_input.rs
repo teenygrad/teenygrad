@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::fxgraph::{tensor::Tensor, value::Value};
+use teeny_core::fxgraph::{device::Device, tensor::Tensor, value::Value};
 
 use crate::{
     error::Error,
@@ -81,7 +81,9 @@ fn handle_tensor(example_input: ExampleInputWrapper) -> Result<Value, Error> {
     Ok(Value::Tensor(Tensor {
         dtype,
         shape,
-        device: device.to_string(),
+        device: device
+            .parse::<Device>()
+            .map_err(|e| Error::ParsingDevice(e.to_string()))?,
         stride,
         requires_grad,
     }))
