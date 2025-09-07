@@ -84,7 +84,7 @@ fn valint<'a>(
     let value = intval.value();
 
     // AXM : what is the correct type for this?
-    Ok(teeny_core::fxgraph::value::Value::Int(value as i64))
+    Ok(teeny_core::fxgraph::value::Value::Int64(value as i64))
 }
 
 fn valdevice<'a>(

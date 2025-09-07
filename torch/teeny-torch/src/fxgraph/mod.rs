@@ -43,7 +43,7 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
     type Error = Error;
 
     fn try_from(graph: Graph<'a>) -> Result<Self, Self::Error> {
-        let mut fxgraph = FXGraph::new();
+        let mut fxgraph = FXGraph::new().map_err(Error::TeenyCore)?;
 
         let example_inputs = graph.example_inputs();
         if let Some(example_input) = example_inputs {

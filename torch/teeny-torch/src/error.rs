@@ -69,4 +69,7 @@ pub enum Error {
 
     #[error("Parsing device error: {0}")]
     ParsingDevice(String),
+
+    #[error("Core error: {0}")]
+    TeenyCore(teeny_core::error::Error),
 }

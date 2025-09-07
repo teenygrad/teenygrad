@@ -33,7 +33,7 @@ pub enum Value {
     None,
     Ellipsis,
     SymInt(SymInt),
-    Int(i64),
+    Int64(i64),
     DType(DType),
     Float64(OrderedFloat<f64>),
     String(String),
@@ -51,7 +51,7 @@ impl Display for Value {
         match self {
             Value::None => write!(f, "None"),
             Value::Ellipsis => write!(f, "..."),
-            Value::Int(i) => write!(f, "{}", i),
+            Value::Int64(i) => write!(f, "{}", i),
             Value::DType(dtype) => write!(f, "{}", dtype),
             Value::Float64(fx) => write!(f, "{}", fx),
             Value::String(s) => write!(f, "{}", s),

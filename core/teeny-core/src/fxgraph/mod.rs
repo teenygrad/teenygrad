@@ -15,7 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use ::z3::Solver;
 use egg::{EGraph, Id};
 use std::collections::HashMap;
 
@@ -33,9 +32,11 @@ pub mod torch;
 pub mod types;
 pub mod value;
 
+use crate::error::Error;
 use crate::fxgraph::analysis::GraphAnalysis;
 use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
 use crate::fxgraph::lang::FxGraphLang;
+use crate::fxgraph::types::TypeTheory;
 use crate::fxgraph::value::Value;
 
 // Higher-level IR for mapping from FX graphs
@@ -46,26 +47,20 @@ pub struct FXGraph {
     pub outputs: Vec<Id>,
     pub example_inputs: Vec<Value>,
     pub node_map: HashMap<String, Id>, // For mapping from FX node names
-    pub solver: Solver,
+    pub type_theory: TypeTheory,
 }
 
 impl FXGraph {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let solver = Solver::new();
-
-        Self {
+    pub fn new() -> Result<Self, Error> {
+        Ok(Self {
             egraph: EGraph::default(),
             inputs: Vec::new(),
             outputs: Vec::new(),
             example_inputs: Vec::new(),
             node_map: HashMap::new(),
-            solver,
-        }
-    }
-
-    pub fn solver(&self) -> &Solver {
-        &self.solver
+            type_theory: TypeTheory::new()?,
+        })
     }
 
     pub fn add_operation(&mut self, name: &str, op: FxGraphLang) -> Id {

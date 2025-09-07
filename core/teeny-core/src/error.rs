@@ -41,4 +41,7 @@ pub enum Error {
 
     #[error("Device type not found: {0}")]
     DeviceTypeNotFound(String),
+
+    #[error("Mutex lock error: {0}")]
+    MutexLockError(String),
 }

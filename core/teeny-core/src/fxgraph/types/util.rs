@@ -15,32 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use z3::{DatatypeAccessor, Symbol};
 
-use crate::error::Error;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SymInt {
-    Int(i64),
-    Sym(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Shape {
-    pub shape: Vec<SymInt>,
-}
-
-impl FromStr for Shape {
-    type Err = Error;
-
-    fn from_str(_s: &str) -> core::result::Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-impl Display for Shape {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        format!("{:?}", self).fmt(f)
-    }
+pub fn datatype_sort(name: &str) -> DatatypeAccessor {
+    DatatypeAccessor::Datatype(Symbol::String(name.to_string()))
 }

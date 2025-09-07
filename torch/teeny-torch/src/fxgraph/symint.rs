@@ -29,7 +29,7 @@ impl<'a> TryFrom<SymInt<'a>> for teeny_core::fxgraph::shape::SymInt {
         if let Some(sym_int) = sym_int {
             Ok(teeny_core::fxgraph::shape::SymInt::Int(sym_int))
         } else {
-            Ok(teeny_core::fxgraph::shape::SymInt::Str(value.to_string()))
+            Ok(teeny_core::fxgraph::shape::SymInt::Sym(value.to_string()))
         }
     }
 }

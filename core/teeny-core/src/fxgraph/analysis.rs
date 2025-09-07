@@ -25,7 +25,7 @@ use crate::fxgraph::placeholder::Placeholder;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphAnalysis {
     Unknown,
-    Placeholder { _type: ast::Dynamic },
+    Placeholder { r#type: ast::Dynamic },
 }
 
 impl Default for GraphAnalysis {
@@ -51,7 +51,15 @@ impl Analysis<FxGraphLang> for GraphAnalysis {
 
 fn analyse_placeholder(
     _egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    _placeholder: &Placeholder,
+    placeholder: &Placeholder,
 ) -> GraphAnalysis {
-    todo!()
+    todo!("analyse_placeholder not implemented for {:?}", placeholder)
+    // let any_type_sort = &ANY_TYPE_SORT.lock().unwrap().0;
+
+    // // Initially we don't know the type of the placeholder, so we use the any type sort
+    // // to create a dynamic type, later on we will assert the type of the placeholder
+    // // from the example inputs.
+    // GraphAnalysis::Placeholder {
+    //     r#type: ast::Dynamic::new_const(placeholder.name.clone(), any_type_sort),
+    // }
 }
