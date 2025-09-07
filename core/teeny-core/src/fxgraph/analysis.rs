@@ -37,29 +37,15 @@ impl Default for GraphAnalysis {
 impl Analysis<FxGraphLang> for GraphAnalysis {
     type Data = GraphAnalysis;
 
-    fn make(egraph: &mut EGraph<FxGraphLang, Self>, enode: &FxGraphLang) -> Self::Data {
-        match enode {
-            FxGraphLang::Placeholder(placeholder) => analyse_placeholder(egraph, placeholder),
-            _ => unimplemented!("make not implemented for {:?}", enode),
-        }
+    fn make(_egraph: &mut EGraph<FxGraphLang, Self>, _enode: &FxGraphLang) -> Self::Data {
+        // The current approach to analysis isn't flexible it has not support
+        // for helper structs (such as type theories), there we do not do any analysis
+        // and just return Unknown. The type cheecking will be done after the egraph is
+        // built.
+        GraphAnalysis::Unknown
     }
 
     fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {
         todo!("merge not implemented for {a:?} and {b:?}")
     }
-}
-
-fn analyse_placeholder(
-    _egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    placeholder: &Placeholder,
-) -> GraphAnalysis {
-    todo!("analyse_placeholder not implemented for {:?}", placeholder)
-    // let any_type_sort = &ANY_TYPE_SORT.lock().unwrap().0;
-
-    // // Initially we don't know the type of the placeholder, so we use the any type sort
-    // // to create a dynamic type, later on we will assert the type of the placeholder
-    // // from the example inputs.
-    // GraphAnalysis::Placeholder {
-    //     r#type: ast::Dynamic::new_const(placeholder.name.clone(), any_type_sort),
-    // }
 }
