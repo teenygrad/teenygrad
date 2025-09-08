@@ -63,6 +63,11 @@ impl FXGraph {
         })
     }
 
+    pub fn verify_types(&mut self) -> Result<(), Error> {
+        let _sorted_node_ids = self.node_ids_sorted();
+        todo!("Implement type verification")
+    }
+
     pub fn add_operation(&mut self, name: &str, op: FxGraphLang) -> Id {
         let id = self.egraph.add(op);
         self.node_map.insert(name.to_string(), id);
@@ -101,5 +106,9 @@ impl FXGraph {
                 return name;
             }
         }
+    }
+
+    fn node_ids_sorted(&self) -> Vec<Id> {
+        todo!("Implement topo sort")
     }
 }

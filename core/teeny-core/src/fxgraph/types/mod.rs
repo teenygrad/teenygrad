@@ -76,6 +76,9 @@ impl TypeTheory {
 
         let any_type = DatatypeBuilder::new("Any")
             .variant("Any", vec![])
+            .variant("Int64", vec![])
+            .variant("Float32", vec![])
+            .variant("Bool", vec![])
             .variant("Tensor", vec![("value", datatype_sort("Tensor"))]);
 
         let datatypes = create_datatypes(vec![dtype, device, shape, tensor, any_type]);

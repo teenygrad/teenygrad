@@ -46,6 +46,7 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
         let mut fxgraph = FXGraph::new().map_err(Error::TeenyCore)?;
 
         let example_inputs = graph.example_inputs();
+        println!("Example inputs: {:?}", example_inputs);
         if let Some(example_input) = example_inputs {
             let inputs = example_input.inputs();
             if let Some(inputs) = inputs {
