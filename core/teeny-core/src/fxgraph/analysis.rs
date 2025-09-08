@@ -19,7 +19,6 @@ use egg::{Analysis, DidMerge, EGraph};
 use z3::ast;
 
 use crate::fxgraph::lang::FxGraphLang;
-use crate::fxgraph::placeholder::Placeholder;
 
 // Analysis for tracking tensor properties and optimization opportunities
 #[derive(Debug, Clone, PartialEq, Eq)]

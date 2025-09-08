@@ -20,7 +20,7 @@ use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort};
 use crate::{
     error::Error,
     fxgraph::types::{
-        ty_device::create_device, ty_dtype::create_dtype, ty_shape::create_shape,
+        ty_device::create_device, ty_dtype::build_dtype_builder, ty_shape::create_shape,
         ty_symint::create_symint, util::datatype_sort,
     },
 };
@@ -36,7 +36,7 @@ pub struct TyTensor {
 
 impl TyTensor {
     pub fn new() -> Result<Self, Error> {
-        let dtype = create_dtype();
+        let dtype = build_dtype_builder();
         let device = create_device();
         let symint_sort = create_symint();
         let shape = create_shape(&symint_sort.sort);

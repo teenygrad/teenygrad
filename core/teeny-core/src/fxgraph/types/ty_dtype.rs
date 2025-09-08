@@ -34,7 +34,7 @@
 
 use z3::DatatypeBuilder;
 
-pub fn create_dtype() -> DatatypeBuilder {
+pub fn build_dtype_builder() -> DatatypeBuilder {
     DatatypeBuilder::new("DType")
         .variant("F32", vec![])
         .variant("BF16", vec![])
