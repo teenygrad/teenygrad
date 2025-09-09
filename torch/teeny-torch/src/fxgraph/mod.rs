@@ -45,6 +45,8 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
     fn try_from(graph: Graph<'a>) -> Result<Self, Self::Error> {
         let mut fxgraph = FXGraph::new().map_err(Error::TeenyCore)?;
 
+        println!("Graph: {:?}", graph);
+
         let example_inputs = graph.example_inputs();
         println!("Example inputs: {:?}", example_inputs);
         if let Some(example_input) = example_inputs {
@@ -94,6 +96,8 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
         }
 
         fxgraph.egraph.rebuild();
+        fxgraph.verify_types().map_err(Error::TeenyCore)?;
+
         Ok(fxgraph)
     }
 }

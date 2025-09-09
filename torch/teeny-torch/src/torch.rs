@@ -17,6 +17,7 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unsafe_code)]
+#![allow(unused_imports)]
 include!(concat!(env!("OUT_DIR"), "/flatbuffers/graph_generated.rs"));
 
 use crate::error::Result;

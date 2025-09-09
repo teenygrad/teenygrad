@@ -94,3 +94,33 @@ impl FromStr for Value {
         todo!()
     }
 }
+
+impl Value {
+    pub fn depends_on(&self) -> Vec<Id> {
+        match self {
+            Value::Node(id) => vec![*id],
+            Value::List(ids) => ids.iter().map(|id| id.depends_on()).flatten().collect(),
+            Value::Tuple(values) => values
+                .iter()
+                .map(|value| value.depends_on())
+                .flatten()
+                .collect(),
+            Value::Slice(value1, value2, value3) => {
+                let mut depends_on = value1.depends_on();
+                depends_on.extend(value2.depends_on());
+                depends_on.extend(value3.depends_on());
+                depends_on
+            }
+            Value::None => vec![],
+            Value::Ellipsis => vec![],
+            Value::SymInt(_) => vec![],
+            Value::Int64(_) => vec![],
+            Value::DType(_) => vec![],
+            Value::Float32(_) => vec![],
+            Value::String(_) => vec![],
+            Value::Device(_) => vec![],
+            Value::Bool(_) => vec![],
+            Value::Tensor(_) => vec![],
+        }
+    }
+}

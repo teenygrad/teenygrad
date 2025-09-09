@@ -30,9 +30,10 @@ define_language! {
         Placeholder(Placeholder),
         Value(Value),
         KwArgs(KeyValueList),
-        Output(String),
 
         // ops
+        "output" = Output([Id; 2]),  // arg0: list of args, arg1: kwargs
+        "list" = List(Vec<Id>),
         "args" = Args(Vec<Id>),
         "item" = ItemMethod(Vec<Id>), // item method
         "getitem" = GetItem([Id; 2]),

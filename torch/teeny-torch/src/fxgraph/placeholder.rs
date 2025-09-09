@@ -26,12 +26,7 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
 
     let target = node.target().map(|x| x.to_string());
 
-    let users = node
-        .users()
-        .unwrap_or_default()
-        .iter()
-        .map(|x| find_or_create(fxgraph, x))
-        .collect::<Vec<_>>();
+    let users = vec![];
 
     let placeholder = teeny_core::fxgraph::placeholder::Placeholder {
         name: name.to_string(),

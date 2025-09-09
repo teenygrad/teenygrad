@@ -30,6 +30,9 @@ pub enum Error {
     #[error("Invalid shape: {0}")]
     InvalidShape(String),
 
+    #[error("Invalid graph: {0}")]
+    InvalidGraph(String),
+
     #[error("SafeTensors error: {0}")]
     SafeTensorsError(SafeTensorsError),
 

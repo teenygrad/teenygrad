@@ -16,7 +16,7 @@
  */
 
 use egg::{EGraph, Id};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub mod analysis;
 pub mod cat;
@@ -64,7 +64,12 @@ impl FXGraph {
     }
 
     pub fn verify_types(&mut self) -> Result<(), Error> {
-        let _sorted_node_ids = self.node_ids_sorted();
+        let sorted_node_ids = self.topological_sort()?;
+        for id in sorted_node_ids {
+            let node = self.egraph.id_to_node(id);
+            println!("Node: {:?}", node);
+        }
+
         todo!("Implement type verification")
     }
 
@@ -108,7 +113,99 @@ impl FXGraph {
         }
     }
 
-    fn node_ids_sorted(&self) -> Vec<Id> {
-        todo!("Implement topo sort")
+    pub fn depends_on(&self, id: &Id) -> Vec<Id> {
+        let node = self.egraph.id_to_node(*id);
+
+        match node {
+            FxGraphLang::Value(v) => v.depends_on(),
+            FxGraphLang::Placeholder(_) => vec![],
+            FxGraphLang::Constant(_) => vec![],
+            FxGraphLang::KwArgs(_) => vec![],
+            FxGraphLang::Output(args) => vec![args[0]],
+            FxGraphLang::Add(args) => args.to_vec(),
+            _ => todo!("Implement depends_on: {:?}", node),
+        }
+    }
+
+    pub fn topological_sort(&self) -> Result<Vec<Id>, Error> {
+        // Count incoming edges for each node
+        let mut in_degree: HashMap<Id, usize> = HashMap::new();
+
+        // Initialize in-degree count
+        for node_id in self.node_map.values() {
+            in_degree.insert(*node_id, 0);
+        }
+
+        // Calculate in-degrees
+        for id in self.node_map.values() {
+            println!("Node: id={}, node={:?}", id, self.egraph.id_to_node(*id));
+            let dependencies = self.depends_on(id);
+            *in_degree.get_mut(id).unwrap() += dependencies.len();
+        }
+
+        println!("-----");
+
+        // Find all nodes with no incoming edges (no dependencies)
+        let mut queue = in_degree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(node_id, _)| *node_id)
+            .collect::<VecDeque<_>>();
+
+        queue.iter().for_each(|id| {
+            println!(
+                "Queue Node: id={}, node={:?}",
+                id,
+                self.egraph.id_to_node(*id)
+            );
+        });
+
+        let mut result: Vec<Id> = Vec::new();
+        while let Some(current) = queue.pop_front() {
+            result.push(current);
+
+            // For each node that depends on the current node
+            for id in self.node_map.values() {
+                let dependencies = self.depends_on(id);
+                if dependencies.contains(&current) {
+                    // Reduce in-degree
+                    let degree = in_degree.get_mut(id).unwrap();
+                    *degree -= 1;
+
+                    // If no more dependencies, add to queue
+                    if *degree == 0 {
+                        queue.push_back(*id);
+                    }
+                }
+            }
+        }
+
+        // Check for cycles
+        if result.len() != self.node_map.len() {
+            println!("-----");
+            self.node_map.iter().for_each(|(name, id)| {
+                println!(
+                    "Node: name={}, id={}, node={:?}",
+                    name,
+                    id,
+                    self.egraph.id_to_node(*id)
+                );
+            });
+            println!("-----");
+            result.iter().for_each(|id| {
+                println!(
+                    "Result Node: id={}, node={:?}",
+                    id,
+                    self.egraph.id_to_node(*id)
+                );
+            });
+            println!("-----");
+
+            return Err(Error::InvalidGraph(
+                "Graph contains a cycle - not a valid DAG".to_string(),
+            ));
+        }
+
+        Ok(result)
     }
 }
