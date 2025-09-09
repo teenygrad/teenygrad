@@ -34,6 +34,6 @@ pub fn into_keyvalue<'a>(
 
     Ok(teeny_core::fxgraph::keyvalue::KeyValue::Kv(
         key.to_string(),
-        fxgraph.add_value(value),
+        value,
     ))
 }

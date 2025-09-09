@@ -17,7 +17,7 @@
 
 use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
 
-use crate::{error::Error, fxgraph::util::find_or_create, torch::PlaceholderWrapper};
+use crate::{error::Error, torch::PlaceholderWrapper};
 
 pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> Result<(), Error> {
     let name = node

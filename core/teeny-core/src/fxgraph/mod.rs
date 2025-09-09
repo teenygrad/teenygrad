@@ -33,7 +33,7 @@ pub mod types;
 pub mod value;
 
 use crate::error::Error;
-use crate::fxgraph::analysis::GraphAnalysis;
+use crate::fxgraph::analysis::{GraphAnalysis, NodeAnalysis};
 use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
 use crate::fxgraph::lang::FxGraphLang;
 use crate::fxgraph::types::TypeTheory;
@@ -47,19 +47,17 @@ pub struct FXGraph {
     pub outputs: Vec<Id>,
     pub example_inputs: Vec<Value>,
     pub node_map: HashMap<String, Id>, // For mapping from FX node names
-    pub type_theory: TypeTheory,
 }
 
 impl FXGraph {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
-            egraph: EGraph::default(),
+            egraph: EGraph::new(GraphAnalysis::new()?),
             inputs: Vec::new(),
             outputs: Vec::new(),
             example_inputs: Vec::new(),
             node_map: HashMap::new(),
-            type_theory: TypeTheory::new()?,
         })
     }
 

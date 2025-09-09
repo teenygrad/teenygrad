@@ -18,13 +18,12 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use egg::Id;
-
 use crate::error::Error;
+use crate::fxgraph::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KeyValue {
-    Kv(String, Id),
+    Kv(String, Value),
 }
 
 impl FromStr for KeyValue {

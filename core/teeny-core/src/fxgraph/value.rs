@@ -99,12 +99,8 @@ impl Value {
     pub fn depends_on(&self) -> Vec<Id> {
         match self {
             Value::Node(id) => vec![*id],
-            Value::List(ids) => ids.iter().map(|id| id.depends_on()).flatten().collect(),
-            Value::Tuple(values) => values
-                .iter()
-                .map(|value| value.depends_on())
-                .flatten()
-                .collect(),
+            Value::List(ids) => ids.iter().flat_map(|id| id.depends_on()).collect(),
+            Value::Tuple(values) => values.iter().flat_map(|value| value.depends_on()).collect(),
             Value::Slice(value1, value2, value3) => {
                 let mut depends_on = value1.depends_on();
                 depends_on.extend(value2.depends_on());

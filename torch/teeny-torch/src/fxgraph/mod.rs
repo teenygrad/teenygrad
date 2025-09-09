@@ -138,9 +138,9 @@ mod tests {
 
     #[test]
     fn test_vector_add_conversion() -> Result<(), Error> {
-        let qwen_files = ["vector_add_1.bin.gz"];
+        let vector_add_files = ["vector_add_1.bin.gz"];
 
-        for filename in qwen_files {
+        for filename in vector_add_files {
             let file_path = format!("{CARGO_MANIFEST_DIR}/tests/data/{filename}");
 
             // Read and decompress gzip file

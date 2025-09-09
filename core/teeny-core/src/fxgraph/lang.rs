@@ -18,7 +18,7 @@
 use egg::{Id, define_language};
 use ordered_float::OrderedFloat;
 
-use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
+use crate::fxgraph::keyvalue::KeyValueList;
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::placeholder::Placeholder;
 use crate::fxgraph::value::Value;
@@ -93,8 +93,4 @@ pub fn const_f32(value: f32) -> FxGraphLang {
 
 pub fn const_string(value: &str) -> FxGraphLang {
     FxGraphLang::Constant(ConstantValue::String(value.to_string()))
-}
-
-pub fn const_kv(key: &str, value: Id) -> KeyValue {
-    KeyValue::Kv(key.to_string(), value)
 }

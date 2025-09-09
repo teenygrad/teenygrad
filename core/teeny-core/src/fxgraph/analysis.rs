@@ -16,32 +16,46 @@
  */
 
 use egg::{Analysis, DidMerge, EGraph};
-use z3::ast;
 
-use crate::fxgraph::lang::FxGraphLang;
+use crate::{
+    error::Error,
+    fxgraph::{
+        lang::FxGraphLang,
+        types::{Type, TypeTheory},
+    },
+};
 
 // Analysis for tracking tensor properties and optimization opportunities
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GraphAnalysis {
-    Unknown,
-    Placeholder { r#type: ast::Dynamic },
+pub struct NodeAnalysis {
+    r#type: Type,
 }
 
-impl Default for GraphAnalysis {
-    fn default() -> Self {
-        Self::Unknown
+impl NodeAnalysis {
+    pub fn new(r#type: Type) -> Self {
+        Self { r#type }
+    }
+}
+
+#[derive(Debug)]
+pub struct GraphAnalysis {
+    pub type_theory: TypeTheory,
+}
+
+impl GraphAnalysis {
+    pub fn new() -> Result<Self, Error> {
+        Ok(Self {
+            type_theory: TypeTheory::new()?,
+        })
     }
 }
 
 impl Analysis<FxGraphLang> for GraphAnalysis {
-    type Data = GraphAnalysis;
+    type Data = NodeAnalysis;
 
     fn make(_egraph: &mut EGraph<FxGraphLang, Self>, _enode: &FxGraphLang) -> Self::Data {
-        // The current approach to analysis isn't flexible it has not support
-        // for helper structs (such as type theories), there we do not do any analysis
-        // and just return Unknown. The type cheecking will be done after the egraph is
-        // built.
-        GraphAnalysis::Unknown
+        // Analyse node
+        todo!()
     }
 
     fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {

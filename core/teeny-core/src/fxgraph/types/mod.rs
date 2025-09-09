@@ -41,6 +41,8 @@ mod ty_symint;
 mod ty_tensor;
 mod util;
 
+pub type Type = z3::ast::Dynamic;
+
 #[derive(Debug)]
 pub struct TypeTheory {
     pub solver: Solver,
