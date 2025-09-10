@@ -60,6 +60,8 @@ impl Analysis<FxGraphLang> for GraphAnalysis {
     fn make(egraph: &mut EGraph<FxGraphLang, Self>, enode: &FxGraphLang) -> Self::Data {
         let ty = match enode {
             FxGraphLang::Placeholder(p) => p.ty(egraph),
+            FxGraphLang::Value(v) => v.ty(egraph),
+            FxGraphLang::Add(add) => add.ty(egraph),
             _ => todo!("unsupported node: {enode:?}"),
         };
 

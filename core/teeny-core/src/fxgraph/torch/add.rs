@@ -15,6 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
+
 use egg::{EGraph, Id};
 
 use crate::{
@@ -26,14 +31,28 @@ use crate::{
     },
 };
 
-impl TypeInfo for Id {
-    fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
-        let node = egraph.id_to_node(*self).clone();
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Add {
+    pub lhs: Id,
+    pub rhs: Id,
+}
 
-        match node {
-            FxGraphLang::Placeholder(p) => p.ty(egraph),
-            FxGraphLang::Value(v) => v.ty(egraph),
-            _ => todo!("unsupported node: {node:?}"),
-        }
+impl Display for Add {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl FromStr for Add {
+    type Err = Error;
+
+    fn from_str(_s: &str) -> Result<Self, Self::Err> {
+        todo!()
+    }
+}
+
+impl TypeInfo for Add {
+    fn ty(&self, _egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
+        todo!()
     }
 }

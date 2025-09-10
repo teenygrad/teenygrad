@@ -21,6 +21,7 @@ use ordered_float::OrderedFloat;
 use crate::fxgraph::keyvalue::KeyValueList;
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::placeholder::Placeholder;
+use crate::fxgraph::torch::add::Add;
 use crate::fxgraph::value::Value;
 
 // Define the core language for your compiler IR
@@ -30,6 +31,9 @@ define_language! {
         Placeholder(Placeholder),
         Value(Value),
         KwArgs(KeyValueList),
+
+        // pytorch ops
+        Add(Add),
 
         // ops
         "output" = Output([Id; 2]),  // arg0: list of args, arg1: kwargs
@@ -55,7 +59,6 @@ define_language! {
         "aten.index" = AtenIndex([Id; 2]),
         "cat" = Cat(Vec<Id>),
         "sdpa" = ScaledDotProductAttention(Vec<Id>),
-        "+" = Add([Id; 2]),
         "-" = Sub([Id; 2]),
         "*" =  Mul([Id; 2]),
         "/" = Div([Id; 2]),

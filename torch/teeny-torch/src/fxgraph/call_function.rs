@@ -19,7 +19,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use egg::Id;
 use regex::Regex;
-use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang, torch::add::Add};
 
 use crate::{
     error::Error,
@@ -298,7 +298,10 @@ fn add(
         return Err(Error::GraphNodeMissingArgs(format!("{:?}", node)));
     }
 
-    let args = [args[0], args[1]];
+    let args = Add {
+        lhs: args[0],
+        rhs: args[1],
+    };
 
     fxgraph.add_operation(name, FxGraphLang::Add(args));
     Ok(())

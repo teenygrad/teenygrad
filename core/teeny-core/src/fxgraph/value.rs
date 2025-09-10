@@ -35,7 +35,7 @@ use crate::{
         dtype::DType,
         shape::SymInt,
         tensor::Tensor,
-        types::{Type, TypeInfo, TypeTheory},
+        types::{Type, TypeInfo},
     },
 };
 
@@ -139,7 +139,7 @@ impl TypeInfo for Value {
         let ty = match self {
             Value::SymInt(s) => create_symint_ty(th, s)?,
             Value::Tensor(t) => create_tensor_ty(th, t)?,
-            Value::Node(id) => todo!("node type is not supported"),
+            Value::Node(id) => id.ty(egraph)?,
             _ => todo!("unsupported value: {self:?}"),
         };
 

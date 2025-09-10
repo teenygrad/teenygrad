@@ -118,7 +118,7 @@ impl FXGraph {
             FxGraphLang::Constant(_) => vec![],
             FxGraphLang::KwArgs(_) => vec![],
             FxGraphLang::Output(args) => vec![args[0]],
-            FxGraphLang::Add(args) => args.to_vec(),
+            FxGraphLang::Add(add) => vec![add.lhs, add.rhs],
             _ => todo!("Implement depends_on: {:?}", node),
         }
     }
