@@ -15,11 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang};
+use teeny_core::fxgraph::{FXGraph, lang::FxGraphLang, value::Value};
 
 use crate::{error::Error, torch::PlaceholderWrapper};
 
-pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> Result<(), Error> {
+pub fn handle_placeholder(
+    fxgraph: &mut FXGraph,
+    node: &PlaceholderWrapper,
+    example_inputs: &[Value],
+) -> Result<(), Error> {
     let name = node
         .name()
         .ok_or_else(|| Error::NoGraphNodeName(format!("{node:?}")))?;
@@ -28,15 +32,18 @@ pub fn handle_placeholder(fxgraph: &mut FXGraph, node: &PlaceholderWrapper) -> R
 
     let users = vec![];
 
+    println!("Example inputs: {:?}", example_inputs);
+
     let placeholder = teeny_core::fxgraph::placeholder::Placeholder {
         name: name.to_string(),
         target,
         users,
+        example_input: example_inputs[fxgraph.inputs.len()].clone(),
     };
 
+    println!("Added placeholder: {:?}", placeholder);
     let id = fxgraph.add_operation(name, FxGraphLang::Placeholder(placeholder));
 
     fxgraph.inputs.push(id);
-
     Ok(())
 }

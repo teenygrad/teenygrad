@@ -15,13 +15,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort};
+use z3::{
+    DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort,
+    ast::{Dynamic, Int},
+};
 
 use crate::{
     error::Error,
-    fxgraph::types::{
-        ty_device::create_device, ty_dtype::build_dtype_builder, ty_shape::create_shape,
-        ty_symint::create_symint, util::datatype_sort,
+    fxgraph::{
+        tensor::Tensor,
+        types::{
+            TypeTheory,
+            ty_device::{create_device_ty, device_builder},
+            ty_dtype::{create_dtype_ty, dtype_builder},
+            ty_shape::{create_shape_ty, shape_builder},
+            ty_symint::symint_builder,
+            util::datatype_sort,
+        },
     },
 };
 
@@ -34,28 +44,39 @@ pub struct TyTensor {
     pub tensor: DatatypeBuilder,
 }
 
-impl TyTensor {
-    pub fn new() -> Result<Self, Error> {
-        let dtype = build_dtype_builder();
-        let device = create_device();
-        let symint_sort = create_symint();
-        let shape = create_shape(&symint_sort.sort);
-        let tensor = DatatypeBuilder::new("Tensor").variant(
-            "value",
-            vec![
-                ("dtype", datatype_sort("DType")),
-                ("device", datatype_sort("Device")),
-                ("shape", datatype_sort("Shape")),
-                ("rank", DatatypeAccessor::Sort(Sort::int())),
-            ],
-        );
+pub fn tensor_builder() -> Result<TyTensor, Error> {
+    let dtype = dtype_builder();
+    let device = device_builder();
+    let symint_sort = symint_builder();
+    let shape = shape_builder(&symint_sort.sort);
+    let tensor = DatatypeBuilder::new("Tensor").variant(
+        "value",
+        vec![
+            ("dtype", datatype_sort("DType")),
+            ("device", datatype_sort("Device")),
+            ("shape", datatype_sort("Shape")),
+            ("rank", DatatypeAccessor::Sort(Sort::int())),
+        ],
+    );
 
-        Ok(Self {
-            dtype,
-            device,
-            shape,
-            symint_sort,
-            tensor,
-        })
-    }
+    Ok(TyTensor {
+        dtype,
+        device,
+        shape,
+        symint_sort,
+        tensor,
+    })
+}
+
+pub fn create_tensor_ty(th: &mut TypeTheory, tensor: &Tensor) -> Result<Dynamic, Error> {
+    let device_ty = create_device_ty(th, &tensor.device);
+
+    let dtype_ty = create_dtype_ty(th, &tensor.dtype);
+    let shape_dims = &tensor.shape.shape;
+    let shape_ty = create_shape_ty(th, shape_dims);
+    let rank_ty = Int::from_i64(shape_dims.len() as i64);
+
+    Ok(th
+        .make_tensor_fn
+        .apply(&[&dtype_ty, &device_ty, &shape_ty, &rank_ty]))
 }

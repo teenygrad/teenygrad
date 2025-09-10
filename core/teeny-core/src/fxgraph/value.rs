@@ -20,12 +20,23 @@ use std::{
     str::FromStr,
 };
 
-use egg::Id;
+use egg::{EGraph, Id};
 use ordered_float::OrderedFloat;
+
+use crate::fxgraph::{
+    analysis::GraphAnalysis,
+    lang::FxGraphLang,
+    types::{ty_symint::create_symint_ty, ty_tensor::create_tensor_ty},
+};
 
 use crate::{
     error::Error,
-    fxgraph::{dtype::DType, shape::SymInt, tensor::Tensor},
+    fxgraph::{
+        dtype::DType,
+        shape::SymInt,
+        tensor::Tensor,
+        types::{Type, TypeInfo, TypeTheory},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -118,5 +129,20 @@ impl Value {
             Value::Bool(_) => vec![],
             Value::Tensor(_) => vec![],
         }
+    }
+}
+
+impl TypeInfo for Value {
+    fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
+        let th = &mut egraph.analysis.type_theory;
+
+        let ty = match self {
+            Value::SymInt(s) => create_symint_ty(th, s)?,
+            Value::Tensor(t) => create_tensor_ty(th, t)?,
+            Value::Node(id) => todo!("node type is not supported"),
+            _ => todo!("unsupported value: {self:?}"),
+        };
+
+        Ok(ty)
     }
 }

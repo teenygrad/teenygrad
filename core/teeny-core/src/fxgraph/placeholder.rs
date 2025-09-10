@@ -18,15 +18,20 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use egg::Id;
+use egg::{EGraph, Id};
 
 use crate::error::Error;
+use crate::fxgraph::analysis::GraphAnalysis;
+use crate::fxgraph::lang::FxGraphLang;
+use crate::fxgraph::types::{Type, TypeInfo, TypeTheory};
+use crate::fxgraph::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Placeholder {
     pub name: String,
     pub target: Option<String>,
     pub users: Vec<Id>,
+    pub example_input: Value,
 }
 
 impl FromStr for Placeholder {
@@ -40,5 +45,11 @@ impl FromStr for Placeholder {
 impl Display for Placeholder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         format!("{:?}", self).fmt(f)
+    }
+}
+
+impl TypeInfo for Placeholder {
+    fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
+        self.example_input.ty(egraph)
     }
 }

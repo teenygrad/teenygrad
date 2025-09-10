@@ -32,11 +32,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use z3::DatatypeBuilder;
+use z3::{DatatypeBuilder, ast::Dynamic};
 
-pub fn build_dtype_builder() -> DatatypeBuilder {
+use crate::fxgraph::{dtype::DType, types::TypeTheory};
+
+pub fn dtype_builder() -> DatatypeBuilder {
     DatatypeBuilder::new("DType")
         .variant("F32", vec![])
         .variant("BF16", vec![])
         .variant("Bool", vec![])
+}
+
+pub fn create_dtype_ty(th: &mut TypeTheory, dtype: &DType) -> Dynamic {
+    let constructor = match dtype {
+        DType::F32 => &th.dtype_sort.variants[0].constructor,
+        DType::BF16 => &th.dtype_sort.variants[1].constructor,
+        DType::Bool => &th.dtype_sort.variants[2].constructor,
+    };
+
+    constructor.apply(&[])
 }

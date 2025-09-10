@@ -15,9 +15,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort};
+use std::str::FromStr;
 
-pub fn create_symint() -> DatatypeSort {
+use z3::{
+    DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort,
+    ast::{Dynamic, Int},
+};
+
+use crate::{
+    error::Error,
+    fxgraph::{shape::SymInt, types::TypeTheory},
+};
+
+pub fn symint_builder() -> DatatypeSort {
     DatatypeBuilder::new("SymInt")
         .variant("Int", vec![("value", DatatypeAccessor::Sort(Sort::int()))])
         .variant(
@@ -25,4 +35,22 @@ pub fn create_symint() -> DatatypeSort {
             vec![("value", DatatypeAccessor::Sort(Sort::string()))],
         )
         .finish()
+}
+
+pub fn create_symint_ty(th: &mut TypeTheory, symint: &SymInt) -> Result<Dynamic, Error> {
+    let result = match symint {
+        SymInt::Int(value) => {
+            let constructor = &th.symint_sort.variants[0].constructor;
+            let value = Int::from_i64(*value);
+            constructor.apply(&[&value])
+        }
+        SymInt::Sym(value) => {
+            let constructor = &th.symint_sort.variants[1].constructor;
+            let value = z3::ast::String::from_str(value)
+                .map_err(|e| Error::Z3(format!("Failed to convert SymInt to String: {}", e)))?;
+            constructor.apply(&[&value])
+        }
+    };
+
+    Ok(result)
 }

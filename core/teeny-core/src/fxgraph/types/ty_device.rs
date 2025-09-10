@@ -15,9 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use z3::{DatatypeAccessor, DatatypeBuilder, Sort};
+use z3::{DatatypeAccessor, DatatypeBuilder, Sort, ast::Dynamic};
 
-pub fn create_device() -> DatatypeBuilder {
+use crate::fxgraph::{device::Device, types::TypeTheory};
+
+pub fn device_builder() -> DatatypeBuilder {
     DatatypeBuilder::new("Device")
         .variant(
             "CPU",
@@ -27,4 +29,14 @@ pub fn create_device() -> DatatypeBuilder {
             "GPU",
             vec![("value", DatatypeAccessor::Sort(Sort::string()))],
         )
+}
+
+pub fn create_device_ty(th: &mut TypeTheory, device: &Device) -> Dynamic {
+    let (constructor, value) = match device {
+        Device::Cpu(value) => (&th.device_sort.variants[0].constructor, value),
+        Device::Cuda(value) => (&th.device_sort.variants[1].constructor, value),
+    };
+
+    let value = z3::ast::String::new_const(value.clone());
+    constructor.apply(&[&value])
 }

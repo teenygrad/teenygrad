@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use egg::EGraph;
 use z3::{
     DatatypeBuilder, DatatypeSort, FuncDecl, Solver, Sort,
     ast::{Array, Bool, Dynamic, Int},
@@ -26,22 +27,31 @@ use z3::{
 use crate::{
     error::Error,
     fxgraph::{
+        analysis::GraphAnalysis,
         device::Device,
         dtype::DType,
+        lang::FxGraphLang,
         shape::SymInt,
         tensor::Tensor,
-        types::{ty_tensor::TyTensor, util::datatype_sort},
+        types::{
+            ty_tensor::{TyTensor, tensor_builder},
+            util::datatype_sort,
+        },
     },
 };
 
-mod ty_device;
-mod ty_dtype;
-mod ty_shape;
-mod ty_symint;
-mod ty_tensor;
-mod util;
+pub(super) mod ty_device;
+pub(super) mod ty_dtype;
+pub(super) mod ty_shape;
+pub(super) mod ty_symint;
+pub(super) mod ty_tensor;
+pub(super) mod util;
 
 pub type Type = z3::ast::Dynamic;
+
+pub trait TypeInfo {
+    fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error>;
+}
 
 #[derive(Debug)]
 pub struct TypeTheory {
@@ -74,7 +84,7 @@ impl TypeTheory {
             shape,
             symint_sort,
             tensor,
-        } = TyTensor::new()?;
+        } = tensor_builder()?;
 
         let any_type = DatatypeBuilder::new("Any")
             .variant("Any", vec![])
@@ -157,70 +167,6 @@ impl TypeTheory {
         type_theory.setup_shape_axioms()?;
 
         Ok(type_theory)
-    }
-
-    pub fn create_tensor_type(
-        &mut self,
-        tensor: &Tensor, // dtype: &Dynamic,
-                         // device: &Dynamic,
-                         // shape_dims: &[SymInt],
-    ) -> Result<Dynamic, Error> {
-        let device_desc = format!("{}", tensor.device);
-        let device = self.devices.get(&device_desc);
-        if device.is_none() {
-            let device = self.create_device(&tensor.device);
-            self.devices.insert(device_desc.clone(), device);
-        }
-
-        let device = self
-            .devices
-            .get(&device_desc)
-            .ok_or(Error::DeviceTypeNotFound(device_desc))?;
-        let dtype = self.create_dtype(&tensor.dtype);
-        let shape_dims = &tensor.shape.shape;
-        let rank = Int::from_i64(shape_dims.len() as i64);
-        let shape = self.create_shape(shape_dims);
-
-        Ok(self.make_tensor_fn.apply(&[&dtype, device, &shape, &rank]))
-    }
-
-    pub fn create_dtype(&self, dtype: &DType) -> Dynamic {
-        let constructor = match dtype {
-            DType::F32 => &self.dtype_sort.variants[0].constructor,
-            DType::BF16 => &self.dtype_sort.variants[1].constructor,
-            DType::Bool => &self.dtype_sort.variants[2].constructor,
-        };
-
-        constructor.apply(&[])
-    }
-
-    pub fn create_device(&self, device: &Device) -> Dynamic {
-        let (constructor, value) = match device {
-            Device::Cpu(value) => (&self.device_sort.variants[0].constructor, value),
-            Device::Cuda(value) => (&self.device_sort.variants[1].constructor, value),
-        };
-
-        let value = z3::ast::String::new_const(value.clone());
-        constructor.apply(&[&value])
-    }
-
-    pub fn create_shape(&self, dims: &[SymInt]) -> Array {
-        let mut shape = Array::fresh_const("shape", &Sort::int(), &self.symint_sort.sort);
-
-        for (i, dim) in dims.iter().cloned().enumerate() {
-            let index = Int::from_i64(i as i64);
-            let value = match dim {
-                SymInt::Int(value) => self.symint_sort.variants[0]
-                    .constructor
-                    .apply(&[&Int::from_i64(value)]),
-                SymInt::Sym(value) => self.symint_sort.variants[1]
-                    .constructor
-                    .apply(&[&z3::ast::String::from(value)]),
-            };
-            shape = shape.store(&index, &value);
-        }
-
-        shape
     }
 
     fn setup_subtyping_axioms(&mut self) -> Result<(), Error> {

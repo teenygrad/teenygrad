@@ -15,13 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::collections::HashMap;
+
 use egg::{Analysis, DidMerge, EGraph};
 
 use crate::{
     error::Error,
     fxgraph::{
         lang::FxGraphLang,
-        types::{Type, TypeTheory},
+        placeholder::Placeholder,
+        types::{Type, TypeInfo, TypeTheory},
+        value::Value,
     },
 };
 
@@ -53,9 +57,22 @@ impl GraphAnalysis {
 impl Analysis<FxGraphLang> for GraphAnalysis {
     type Data = NodeAnalysis;
 
-    fn make(_egraph: &mut EGraph<FxGraphLang, Self>, _enode: &FxGraphLang) -> Self::Data {
-        // Analyse node
-        todo!()
+    fn make(egraph: &mut EGraph<FxGraphLang, Self>, enode: &FxGraphLang) -> Self::Data {
+        let ty = match enode {
+            FxGraphLang::Placeholder(p) => p.ty(egraph),
+            _ => todo!("unsupported node: {enode:?}"),
+        };
+
+        if let Err(e) = ty {
+            // aarghh - egg doesn't support fallible analyses
+            panic!("Error creating type for node: {enode:?}: {e:?}");
+        }
+
+        let solver = &egraph.analysis.type_theory.solver;
+        println!("type check: {:?}", solver.check());
+        println!("type check: {:?}", solver.get_model());
+
+        NodeAnalysis::new(ty.unwrap())
     }
 
     fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {

@@ -47,14 +47,13 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
 
         println!("Graph: {:?}", graph);
 
-        let example_inputs = graph.example_inputs();
-        println!("Example inputs: {:?}", example_inputs);
-        if let Some(example_input) = example_inputs {
+        let mut example_inputs = vec![];
+        if let Some(example_input) = graph.example_inputs() {
             let inputs = example_input.inputs();
             if let Some(inputs) = inputs {
                 for input in inputs {
                     let value = into_example_input(input)?;
-                    fxgraph.example_inputs.push(value);
+                    example_inputs.push(value);
                 }
             }
         }
@@ -69,7 +68,7 @@ impl<'a> TryFrom<Graph<'a>> for FXGraph {
                     let placeholder = node
                         .node_as_placeholder()
                         .ok_or(Error::InvalidBuffer(format!("{node:?}")))?;
-                    handle_placeholder(&mut fxgraph, &placeholder)?;
+                    handle_placeholder(&mut fxgraph, &placeholder, &example_inputs)?;
                 }
                 Node::call_function => {
                     let node = node

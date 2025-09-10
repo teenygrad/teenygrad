@@ -25,6 +25,7 @@ pub mod dtype;
 pub mod keyvalue;
 pub mod lang;
 pub mod literal;
+pub mod node;
 pub mod placeholder;
 pub mod shape;
 pub mod tensor;
@@ -33,10 +34,9 @@ pub mod types;
 pub mod value;
 
 use crate::error::Error;
-use crate::fxgraph::analysis::{GraphAnalysis, NodeAnalysis};
+use crate::fxgraph::analysis::GraphAnalysis;
 use crate::fxgraph::keyvalue::{KeyValue, KeyValueList};
 use crate::fxgraph::lang::FxGraphLang;
-use crate::fxgraph::types::TypeTheory;
 use crate::fxgraph::value::Value;
 
 // Higher-level IR for mapping from FX graphs
@@ -45,7 +45,6 @@ pub struct FXGraph {
     pub egraph: EGraph<FxGraphLang, GraphAnalysis>,
     pub inputs: Vec<Id>,
     pub outputs: Vec<Id>,
-    pub example_inputs: Vec<Value>,
     pub node_map: HashMap<String, Id>, // For mapping from FX node names
 }
 
@@ -56,7 +55,6 @@ impl FXGraph {
             egraph: EGraph::new(GraphAnalysis::new()?),
             inputs: Vec::new(),
             outputs: Vec::new(),
-            example_inputs: Vec::new(),
             node_map: HashMap::new(),
         })
     }
