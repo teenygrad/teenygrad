@@ -67,6 +67,7 @@ pub struct TypeTheory {
     pub tensor_dtype_fn: FuncDecl,
     pub tensor_shape_fn: FuncDecl,
     pub tensor_rank_fn: FuncDecl,
+    pub shape_index_fn: FuncDecl,
     pub shape_dim_fn: FuncDecl,
     pub make_tensor_fn: FuncDecl,
     pub tensor_compatible_fn: FuncDecl,
@@ -119,6 +120,11 @@ impl TypeTheory {
         let tensor_shape_fn = FuncDecl::new("tensor_shape", &[&tensor_sort.sort], &shape_sort.sort);
         let tensor_rank_fn = FuncDecl::new("tensor_rank", &[&tensor_sort.sort], &Sort::int());
         let shape_dim_fn = FuncDecl::new("shape_dim", &[&shape_sort.sort], &Sort::int());
+        let shape_index_fn = FuncDecl::new(
+            "shape_index",
+            &[&shape_sort.sort, &Sort::int()],
+            &symint_sort.sort,
+        );
 
         let make_tensor_fn = FuncDecl::new(
             "make_tensor",
@@ -163,6 +169,7 @@ impl TypeTheory {
             tensor_dtype_fn,
             tensor_shape_fn,
             tensor_rank_fn,
+            shape_index_fn,
             shape_dim_fn,
             make_tensor_fn,
             tensor_compatible_fn,
@@ -296,6 +303,40 @@ impl TypeTheory {
         self.solver.assert(&compatible_def);
 
         // Broadcasting compatibility (simplified - same rank for now)
+        // Broadcasting compatibility axiom for tensors:
+        // Two tensors are broadcast compatible if:
+        //  - Their ranks are equal, and
+        //  - For each dimension, either the sizes are equal or one of them is 1.
+        //
+        // We encode this axiom in Z3 using universal quantification over all dimension indices.
+
+        let idx = Dynamic::new_const("idx", &self.symint_sort.sort);
+
+        let t1_shape = self.tensor_shape_fn.apply(&[&t1]);
+        let t2_shape = self.tensor_shape_fn.apply(&[&t2]);
+        let t1_rank = self.tensor_rank_fn.apply(&[&t1]);
+        let t2_rank = self.tensor_rank_fn.apply(&[&t2]);
+
+        // For all idx in [0, rank), the dimension sizes are equal or one is 1
+        let idx_in_bounds = idx
+            .lt(&t1_rank)
+            .and(&[idx.ge(&Dynamic::from_i64(&self.ctx, 0))]);
+
+        let dim1 = self.shape_index_fn.apply(&[&t1_shape, &idx]);
+        let dim2 = self.shape_index_fn.apply(&[&t2_shape, &idx]);
+
+        let dims_broadcastable = Bool::or(&[
+            &dim1._eq(&dim2),
+            &dim1._eq(&Dynamic::from_i64(&self.ctx, 1)),
+            &dim2._eq(&Dynamic::from_i64(&self.ctx, 1)),
+        ]);
+
+        let all_dims_broadcastable = z3::ast::forall_const(
+            &[&idx],
+            &[],
+            &Bool::implies(&idx_in_bounds, &dims_broadcastable),
+        );
+
         let broadcast_def = z3::ast::forall_const(
             &[&t1, &t2],
             &[],
@@ -305,11 +346,10 @@ impl TypeTheory {
                     .apply(&[&t1, &t2])
                     .try_into()
                     .map_err(Error::Z3)?,
-                self.tensor_rank_fn
-                    .apply(&[&t1])
-                    .eq(self.tensor_rank_fn.apply(&[&t2])),
+                Bool::and(&[&t1_rank._eq(&t2_rank), &all_dims_broadcastable]),
             ),
         );
+
         self.solver.assert(&broadcast_def);
 
         Ok(())
