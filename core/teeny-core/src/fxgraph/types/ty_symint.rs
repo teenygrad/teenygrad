@@ -17,6 +17,7 @@
 
 use std::str::FromStr;
 
+use egg::EGraph;
 use z3::{
     DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort,
     ast::{Dynamic, Int},
@@ -24,7 +25,7 @@ use z3::{
 
 use crate::{
     error::Error,
-    fxgraph::{shape::SymInt, types::TypeTheory},
+    fxgraph::{analysis::GraphAnalysis, lang::FxGraphLang, shape::SymInt, types::TypeTheory},
 };
 
 pub fn symint_builder() -> DatatypeSort {
@@ -37,7 +38,13 @@ pub fn symint_builder() -> DatatypeSort {
         .finish()
 }
 
-pub fn create_symint_ty(th: &mut TypeTheory, symint: &SymInt) -> Result<Dynamic, Error> {
+pub fn create_symint_ty(
+    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
+    symint: &SymInt,
+) -> Result<Dynamic, Error> {
+    let next_id = egraph.analysis.next_id();
+    let th = &egraph.analysis.type_theory;
+
     let result = match symint {
         SymInt::Int(value) => {
             let constructor = &th.symint_sort.variants[0].constructor;
@@ -51,6 +58,9 @@ pub fn create_symint_ty(th: &mut TypeTheory, symint: &SymInt) -> Result<Dynamic,
             constructor.apply(&[&value])
         }
     };
+
+    let ty = Dynamic::new_const(format!("#{}", next_id), &th.symint_sort.sort);
+    th.solver.assert(result.eq(&ty));
 
     Ok(result)
 }

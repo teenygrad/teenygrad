@@ -18,12 +18,15 @@
 use std::collections::HashMap;
 
 use egg::{Analysis, DidMerge, EGraph};
+use z3::ast::Dynamic;
 
 use crate::{
     error::Error,
     fxgraph::{
         lang::FxGraphLang,
+        node::node_ty,
         placeholder::Placeholder,
+        torch::add::add_ty,
         types::{Type, TypeInfo, TypeTheory},
         value::Value,
     },
@@ -44,13 +47,20 @@ impl NodeAnalysis {
 #[derive(Debug)]
 pub struct GraphAnalysis {
     pub type_theory: TypeTheory,
+    pub next_id: usize,
 }
 
 impl GraphAnalysis {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
             type_theory: TypeTheory::new()?,
+            next_id: 0,
         })
+    }
+
+    pub fn next_id(&mut self) -> usize {
+        self.next_id += 1;
+        self.next_id
     }
 }
 
@@ -58,23 +68,18 @@ impl Analysis<FxGraphLang> for GraphAnalysis {
     type Data = NodeAnalysis;
 
     fn make(egraph: &mut EGraph<FxGraphLang, Self>, enode: &FxGraphLang) -> Self::Data {
-        let ty = match enode {
-            FxGraphLang::Placeholder(p) => p.ty(egraph),
-            FxGraphLang::Value(v) => v.ty(egraph),
-            FxGraphLang::Add(add) => add.ty(egraph),
-            _ => todo!("unsupported node: {enode:?}"),
-        };
-
-        if let Err(e) = ty {
-            // aarghh - egg doesn't support fallible analyses
+        let node_ty = node_ty(egraph, enode);
+        if let Err(e) = node_ty {
+            // aarghh - egg doesn't support fallible analysis
             panic!("Error creating type for node: {enode:?}: {e:?}");
         }
 
         let solver = &egraph.analysis.type_theory.solver;
+
         println!("type check: {:?}", solver.check());
         println!("type check: {:?}", solver.get_model());
 
-        NodeAnalysis::new(ty.unwrap())
+        NodeAnalysis::new(node_ty.unwrap())
     }
 
     fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {

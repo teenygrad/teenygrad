@@ -22,9 +22,22 @@ use crate::{
     fxgraph::{
         analysis::GraphAnalysis,
         lang::FxGraphLang,
+        torch::add::add_ty,
         types::{Type, TypeInfo},
     },
 };
+
+pub fn node_ty(
+    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
+    node: &FxGraphLang,
+) -> Result<Type, Error> {
+    match node {
+        FxGraphLang::Placeholder(p) => p.ty(egraph),
+        FxGraphLang::Value(v) => v.ty(egraph),
+        FxGraphLang::Add(args) => add_ty(egraph, args),
+        _ => todo!("unsupported node: {node:?}"),
+    }
+}
 
 impl TypeInfo for Id {
     fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {

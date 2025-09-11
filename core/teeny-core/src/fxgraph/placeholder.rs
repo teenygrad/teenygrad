@@ -19,6 +19,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use egg::{EGraph, Id};
+use z3::ast::{Ast, Dynamic};
 
 use crate::error::Error;
 use crate::fxgraph::analysis::GraphAnalysis;
@@ -50,6 +51,12 @@ impl Display for Placeholder {
 
 impl TypeInfo for Placeholder {
     fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
-        self.example_input.ty(egraph)
+        let next_id = egraph.analysis.next_id();
+        let example_input_ty = self.example_input.ty(egraph)?;
+        let ty = Dynamic::new_const(format!("#{}", next_id), &example_input_ty.get_sort());
+
+        let solver = &egraph.analysis.type_theory.solver;
+        solver.assert(ty.eq(&example_input_ty));
+        Ok(ty)
     }
 }

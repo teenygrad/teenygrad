@@ -71,7 +71,8 @@ pub struct TypeTheory {
     pub make_tensor_fn: FuncDecl,
     pub tensor_compatible_fn: FuncDecl,
     pub broadcast_compatible_fn: FuncDecl,
-    pub devices: HashMap<String, Dynamic>,
+    pub unary_fn: FuncDecl,
+    pub binary_fn: FuncDecl,
 }
 
 impl TypeTheory {
@@ -142,6 +143,13 @@ impl TypeTheory {
             &Sort::bool(),
         );
 
+        let unary_fn = FuncDecl::new("unary_fn", &[&anytype_sort.sort], &anytype_sort.sort);
+        let binary_fn = FuncDecl::new(
+            "binary_fn",
+            &[&anytype_sort.sort, &anytype_sort.sort],
+            &anytype_sort.sort,
+        );
+
         let mut type_theory = Self {
             solver,
             anytype_sort,
@@ -159,7 +167,8 @@ impl TypeTheory {
             make_tensor_fn,
             tensor_compatible_fn,
             broadcast_compatible_fn,
-            devices: HashMap::new(),
+            unary_fn,
+            binary_fn,
         };
 
         type_theory.setup_subtyping_axioms()?;

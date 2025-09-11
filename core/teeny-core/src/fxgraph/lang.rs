@@ -21,8 +21,9 @@ use ordered_float::OrderedFloat;
 use crate::fxgraph::keyvalue::KeyValueList;
 use crate::fxgraph::literal::ConstantValue;
 use crate::fxgraph::placeholder::Placeholder;
-use crate::fxgraph::torch::add::Add;
 use crate::fxgraph::value::Value;
+
+pub type Node = FxGraphLang;
 
 // Define the core language for your compiler IR
 define_language! {
@@ -32,11 +33,9 @@ define_language! {
         Value(Value),
         KwArgs(KeyValueList),
 
-        // pytorch ops
-        Add(Add),
-
         // ops
         "output" = Output([Id; 2]),  // arg0: list of args, arg1: kwargs
+        "add" = Add([Id; 2]),
         "list" = List(Vec<Id>),
         "args" = Args(Vec<Id>),
         "item" = ItemMethod(Vec<Id>), // item method

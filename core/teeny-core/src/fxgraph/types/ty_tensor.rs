@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use egg::EGraph;
 use z3::{
     DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort,
     ast::{Dynamic, Int},
@@ -23,9 +24,10 @@ use z3::{
 use crate::{
     error::Error,
     fxgraph::{
+        analysis::GraphAnalysis,
+        lang::FxGraphLang,
         tensor::Tensor,
         types::{
-            TypeTheory,
             ty_device::{create_device_ty, device_builder},
             ty_dtype::{create_dtype_ty, dtype_builder},
             ty_shape::{create_shape_ty, shape_builder},
@@ -68,7 +70,12 @@ pub fn tensor_builder() -> Result<TyTensor, Error> {
     })
 }
 
-pub fn create_tensor_ty(th: &mut TypeTheory, tensor: &Tensor) -> Result<Dynamic, Error> {
+pub fn create_tensor_ty(
+    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
+    tensor: &Tensor,
+) -> Result<Dynamic, Error> {
+    let next_id = egraph.analysis.next_id();
+    let th = &mut egraph.analysis.type_theory;
     let device_ty = create_device_ty(th, &tensor.device);
 
     let dtype_ty = create_dtype_ty(th, &tensor.dtype);
@@ -76,7 +83,11 @@ pub fn create_tensor_ty(th: &mut TypeTheory, tensor: &Tensor) -> Result<Dynamic,
     let shape_ty = create_shape_ty(th, shape_dims);
     let rank_ty = Int::from_i64(shape_dims.len() as i64);
 
-    Ok(th
+    let tensor_ty = th
         .make_tensor_fn
-        .apply(&[&dtype_ty, &device_ty, &shape_ty, &rank_ty]))
+        .apply(&[&dtype_ty, &device_ty, &shape_ty, &rank_ty]);
+    let ty = Dynamic::new_const(format!("#{}", next_id), &th.tensor_sort.sort);
+    th.solver.assert(tensor_ty.eq(&ty));
+
+    Ok(ty)
 }

@@ -15,12 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::{
-    fmt::{Display, Formatter},
-    str::FromStr,
-};
-
 use egg::{EGraph, Id};
+use z3::{FuncDecl, ast::Dynamic};
 
 use crate::{
     error::Error,
@@ -31,28 +27,17 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Add {
-    pub lhs: Id,
-    pub rhs: Id,
-}
+pub fn add_ty(
+    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
+    args: &[Id; 2],
+) -> Result<Dynamic, Error> {
+    let lhs = args[0].ty(egraph)?;
+    let rhs = args[1].ty(egraph)?;
 
-impl Display for Add {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
+    let add_fn = &egraph.analysis.type_theory.binary_fn;
+    todo!()
+    // lhs and rhs are broadcast compatible
+    // the result is broadcast of lhs and rhs
 
-impl FromStr for Add {
-    type Err = Error;
-
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-impl TypeInfo for Add {
-    fn ty(&self, _egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
-        todo!()
-    }
+    // Ok(add_fn.apply(&[&lhs, &rhs]))
 }
