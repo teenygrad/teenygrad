@@ -15,20 +15,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::collections::HashMap;
-
 use egg::{Analysis, DidMerge, EGraph};
-use z3::ast::Dynamic;
 
 use crate::{
     error::Error,
     fxgraph::{
         lang::FxGraphLang,
         node::node_ty,
-        placeholder::Placeholder,
-        torch::add::add_ty,
-        types::{Type, TypeInfo, TypeTheory},
-        value::Value,
+        types::{Type, TypeTheory},
     },
 };
 

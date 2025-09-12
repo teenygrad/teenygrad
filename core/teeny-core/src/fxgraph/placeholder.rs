@@ -24,7 +24,7 @@ use z3::ast::{Ast, Dynamic};
 use crate::error::Error;
 use crate::fxgraph::analysis::GraphAnalysis;
 use crate::fxgraph::lang::FxGraphLang;
-use crate::fxgraph::types::{Type, TypeInfo, TypeTheory};
+use crate::fxgraph::types::{Type, TypeInfo};
 use crate::fxgraph::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use egg::EGraph;
 use z3::{
     DatatypeBuilder, DatatypeSort, FuncDecl, Params, Solver, Sort,
-    ast::{Bool, Dynamic, Int},
+    ast::{Bool, Dynamic},
     datatype_builder::create_datatypes,
 };
 
@@ -33,7 +33,7 @@ use crate::{
         types::{
             ty_dtype::create_dtype_ty,
             ty_shape::shape_sort,
-            ty_tensor::{TyTensor, setup_tensor_axioms, tensor_builder},
+            ty_tensor::{TyTensor, tensor_builder},
             util::datatype_sort,
         },
     },
@@ -181,9 +181,6 @@ impl TypeTheory {
         type_theory.configure_solver();
         type_theory.setup_subtyping_axioms()?;
 
-        setup_tensor_axioms(&mut type_theory);
-        type_theory.setup_shape_axioms()?;
-
         Ok(type_theory)
     }
 
@@ -250,99 +247,6 @@ impl TypeTheory {
 
         self.solver.assert(&reflexivity);
         self.solver.assert(&transitivity);
-
-        Ok(())
-    }
-
-    fn setup_shape_axioms(&mut self) -> Result<(), Error> {
-        let t1 = Dynamic::new_const("tensor1", &self.tensor_sort.sort);
-        let t2 = Dynamic::new_const("tensor2", &self.tensor_sort.sort);
-
-        // Tensor compatibility: compatible tensors have compatible dtypes and shapes
-        // let compatible_def = z3::ast::forall_const(
-        //     &[&t1, &t2],
-        //     &[],
-        //     &Bool::iff(
-        //         &self
-        //             .tensor_compatible_fn
-        //             .apply(&[&t1, &t2])
-        //             .try_into()
-        //             .map_err(Error::Z3)?,
-        //         Bool::and(&[
-        //             // Compatible dtypes
-        //             &self
-        //                 .subtype_dtype_fn
-        //                 .apply(&[
-        //                     &self.tensor_dtype_fn.apply(&[&t1]),
-        //                     &self.tensor_dtype_fn.apply(&[&t2]),
-        //                 ])
-        //                 .try_into()
-        //                 .map_err(Error::Z3)?,
-        //             // Same rank
-        //             &self
-        //                 .tensor_rank_fn
-        //                 .apply(&[&t1])
-        //                 .eq(self.tensor_rank_fn.apply(&[&t2])),
-        //         ]),
-        //     ),
-        // );
-        // self.solver.assert(&compatible_def);
-
-        // Broadcasting compatibility (simplified - same rank for now)
-        // Broadcasting compatibility axiom for tensors:
-        // Two tensors are broadcast compatible if:
-        //  - Their ranks are equal, and
-        //  - For each dimension, either the sizes are equal or one of them is 1.
-        //
-        // We encode this axiom in Z3 using universal quantification over all dimension indices.
-
-        let idx = Int::new_const("idx");
-
-        let t1_shape = self.tensor_shape_fn.apply(&[&t1]);
-        let t2_shape = self.tensor_shape_fn.apply(&[&t2]);
-        let t1_rank: Int = self
-            .tensor_rank_fn
-            .apply(&[&t1])
-            .try_into()
-            .map_err(Error::Z3)?;
-        let t2_rank: Int = self
-            .tensor_rank_fn
-            .apply(&[&t2])
-            .try_into()
-            .map_err(Error::Z3)?;
-
-        // For all idx in [0, rank), the dimension sizes are equal or one is 1
-        let idx_in_bounds = Bool::and(&[idx.lt(&t1_rank), idx.ge(&Int::from_i64(0))]);
-
-        let dim1 = self.shape_index_fn.apply(&[&t1_shape, &idx]);
-        let dim2 = self.shape_index_fn.apply(&[&t2_shape, &idx]);
-
-        let dims_broadcastable = Bool::or(&[
-            &dim1.eq(&dim2),
-            &dim1.eq(&Int::from_i64(1)),
-            &dim2.eq(&Int::from_i64(1)),
-        ]);
-
-        let all_dims_broadcastable = z3::ast::forall_const(
-            &[&idx],
-            &[],
-            &Bool::implies(&idx_in_bounds, &dims_broadcastable),
-        );
-
-        // let broadcast_def = z3::ast::forall_const(
-        //     &[&t1, &t2],
-        //     &[],
-        //     &Bool::iff(
-        //         &self
-        //             .broadcast_compatible_fn
-        //             .apply(&[&t1, &t2])
-        //             .try_into()
-        //             .map_err(Error::Z3)?,
-        //         Bool::and(&[&t1_rank.eq(&t2_rank), &all_dims_broadcastable]),
-        //     ),
-        // );
-
-        // self.solver.assert(&broadcast_def);
 
         Ok(())
     }

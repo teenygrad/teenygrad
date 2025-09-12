@@ -16,15 +16,11 @@
  */
 
 use egg::{EGraph, Id};
-use z3::{FuncDecl, ast::Dynamic};
+use z3::ast::Dynamic;
 
 use crate::{
     error::Error,
-    fxgraph::{
-        analysis::GraphAnalysis,
-        lang::FxGraphLang,
-        types::{Type, TypeInfo},
-    },
+    fxgraph::{analysis::GraphAnalysis, lang::FxGraphLang, types::TypeInfo},
 };
 
 pub fn add_ty(

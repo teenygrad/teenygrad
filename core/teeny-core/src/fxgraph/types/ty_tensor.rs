@@ -17,7 +17,7 @@
 
 use egg::EGraph;
 use z3::{
-    DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort,
+    DatatypeAccessor, DatatypeBuilder, Sort,
     ast::{Dynamic, Int},
 };
 
@@ -28,7 +28,6 @@ use crate::{
         lang::FxGraphLang,
         tensor::Tensor,
         types::{
-            TypeTheory,
             ty_device::{create_device_ty, device_builder},
             ty_dtype::{create_dtype_ty, dtype_builder},
             ty_shape::{create_shape_ty, shape_sort},
@@ -63,40 +62,6 @@ pub fn tensor_builder() -> Result<TyTensor, Error> {
         device,
         tensor,
     })
-}
-
-pub fn setup_tensor_axioms(th: &mut TypeTheory) {
-    let dtype = Dynamic::new_const("dtype", &th.dtype_sort.sort);
-    let shape = Dynamic::new_const("shape", &th.shape_sort);
-    let device = Dynamic::new_const("device", &th.device_sort.sort);
-    let rank = Int::new_const("rank");
-
-    // Tensor constructor axiom: make_tensor creates valid tensors
-    let tensor = th.make_tensor_fn.apply(&[&dtype, &device, &shape, &rank]);
-
-    // // dtype(make_tensor(d, s, r)) = d
-    // let dtype_axiom = z3::ast::forall_const(
-    //     &[&dtype, &shape, &rank],
-    //     &[],
-    //     &th.tensor_dtype_fn.apply(&[&tensor]).eq(&dtype),
-    // );
-    // th.solver.assert(&dtype_axiom);
-
-    // // shape(make_tensor(d, s, r)) = s
-    // let shape_axiom = z3::ast::forall_const(
-    //     &[&dtype, &shape, &rank],
-    //     &[],
-    //     &th.tensor_shape_fn.apply(&[&tensor]).eq(&shape),
-    // );
-    // th.solver.assert(&shape_axiom);
-
-    // // rank(make_tensor(d, s, r)) = r
-    // let rank_axiom = z3::ast::forall_const(
-    //     &[&dtype, &shape, &rank],
-    //     &[],
-    //     &th.tensor_rank_fn.apply(&[&tensor]).eq(&rank),
-    // );
-    // th.solver.assert(&rank_axiom);
 }
 
 pub fn create_tensor_ty(
