@@ -16,38 +16,27 @@
  */
 
 use z3::{
-    DatatypeAccessor, DatatypeBuilder, Sort,
-    ast::{Array, Dynamic, Int},
+    Sort,
+    ast::{Array, Int},
 };
 
-use crate::fxgraph::{shape::SymInt, types::TypeTheory};
+use crate::fxgraph::shape::SymInt;
 
-pub fn shape_builder(symint_sort: &Sort) -> DatatypeBuilder {
-    DatatypeBuilder::new("Shape").variant(
-        "value",
-        vec![(
-            "value",
-            DatatypeAccessor::Sort(Sort::array(&Sort::int(), symint_sort)),
-        )],
-    )
+pub fn shape_sort() -> Sort {
+    Sort::array(&Sort::int(), &Sort::int())
 }
 
-pub fn create_shape_ty(th: &mut TypeTheory, dims: &[SymInt]) -> Dynamic {
-    let shape = Array::fresh_const("shape", &Sort::int(), &th.symint_sort.sort);
+pub fn create_shape_ty(dims: &[SymInt]) -> Array {
+    let shape = Array::fresh_const("shape", &Sort::int(), &Sort::int());
 
     for (i, dim) in dims.iter().cloned().enumerate() {
         let index = Int::from_i64(i as i64);
         let value = match dim {
-            SymInt::Int(value) => th.symint_sort.variants[0]
-                .constructor
-                .apply(&[&Int::from_i64(value)]),
-            SymInt::Sym(value) => th.symint_sort.variants[1]
-                .constructor
-                .apply(&[&z3::ast::String::from(value)]),
+            SymInt::Int(value) => Int::from_i64(value),
+            SymInt::Sym(value) => Int::new_const(value),
         };
         shape.store(&index, &value);
     }
 
-    let constructor = &th.shape_sort.variants[0].constructor;
-    constructor.apply(&[&shape])
+    shape
 }

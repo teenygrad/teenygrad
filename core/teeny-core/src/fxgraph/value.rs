@@ -135,7 +135,7 @@ impl Value {
 impl TypeInfo for Value {
     fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error> {
         match self {
-            Value::SymInt(s) => create_symint_ty(egraph, s),
+            Value::SymInt(s) => create_symint_ty(s),
             Value::Tensor(t) => create_tensor_ty(egraph, t),
             Value::Node(id) => id.ty(egraph),
             _ => todo!("unsupported value: {self:?}"),

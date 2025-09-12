@@ -28,10 +28,10 @@ use crate::{
         lang::FxGraphLang,
         tensor::Tensor,
         types::{
+            TypeTheory,
             ty_device::{create_device_ty, device_builder},
             ty_dtype::{create_dtype_ty, dtype_builder},
-            ty_shape::{create_shape_ty, shape_builder},
-            ty_symint::symint_builder,
+            ty_shape::{create_shape_ty, shape_sort},
             util::datatype_sort,
         },
     },
@@ -41,22 +41,19 @@ use crate::{
 pub struct TyTensor {
     pub dtype: DatatypeBuilder,
     pub device: DatatypeBuilder,
-    pub shape: DatatypeBuilder,
-    pub symint_sort: DatatypeSort,
     pub tensor: DatatypeBuilder,
 }
 
 pub fn tensor_builder() -> Result<TyTensor, Error> {
     let dtype = dtype_builder();
     let device = device_builder();
-    let symint_sort = symint_builder();
-    let shape = shape_builder(&symint_sort.sort);
+    let shape = shape_sort();
     let tensor = DatatypeBuilder::new("Tensor").variant(
         "value",
         vec![
             ("dtype", datatype_sort("DType")),
             ("device", datatype_sort("Device")),
-            ("shape", datatype_sort("Shape")),
+            ("shape", DatatypeAccessor::Sort(shape)),
             ("rank", DatatypeAccessor::Sort(Sort::int())),
         ],
     );
@@ -64,10 +61,42 @@ pub fn tensor_builder() -> Result<TyTensor, Error> {
     Ok(TyTensor {
         dtype,
         device,
-        shape,
-        symint_sort,
         tensor,
     })
+}
+
+pub fn setup_tensor_axioms(th: &mut TypeTheory) {
+    let dtype = Dynamic::new_const("dtype", &th.dtype_sort.sort);
+    let shape = Dynamic::new_const("shape", &th.shape_sort);
+    let device = Dynamic::new_const("device", &th.device_sort.sort);
+    let rank = Int::new_const("rank");
+
+    // Tensor constructor axiom: make_tensor creates valid tensors
+    let tensor = th.make_tensor_fn.apply(&[&dtype, &device, &shape, &rank]);
+
+    // // dtype(make_tensor(d, s, r)) = d
+    // let dtype_axiom = z3::ast::forall_const(
+    //     &[&dtype, &shape, &rank],
+    //     &[],
+    //     &th.tensor_dtype_fn.apply(&[&tensor]).eq(&dtype),
+    // );
+    // th.solver.assert(&dtype_axiom);
+
+    // // shape(make_tensor(d, s, r)) = s
+    // let shape_axiom = z3::ast::forall_const(
+    //     &[&dtype, &shape, &rank],
+    //     &[],
+    //     &th.tensor_shape_fn.apply(&[&tensor]).eq(&shape),
+    // );
+    // th.solver.assert(&shape_axiom);
+
+    // // rank(make_tensor(d, s, r)) = r
+    // let rank_axiom = z3::ast::forall_const(
+    //     &[&dtype, &shape, &rank],
+    //     &[],
+    //     &th.tensor_rank_fn.apply(&[&tensor]).eq(&rank),
+    // );
+    // th.solver.assert(&rank_axiom);
 }
 
 pub fn create_tensor_ty(
@@ -80,14 +109,78 @@ pub fn create_tensor_ty(
 
     let dtype_ty = create_dtype_ty(th, &tensor.dtype);
     let shape_dims = &tensor.shape.shape;
-    let shape_ty = create_shape_ty(th, shape_dims);
+    let shape_ty = create_shape_ty(shape_dims);
     let rank_ty = Int::from_i64(shape_dims.len() as i64);
 
     let tensor_ty = th
         .make_tensor_fn
         .apply(&[&dtype_ty, &device_ty, &shape_ty, &rank_ty]);
     let ty = Dynamic::new_const(format!("#{}", next_id), &th.tensor_sort.sort);
+
     th.solver.assert(tensor_ty.eq(&ty));
+    th.solver
+        .assert(th.tensor_dtype_fn.apply(&[&ty]).eq(&dtype_ty));
+    th.solver
+        .assert(th.tensor_shape_fn.apply(&[&ty]).eq(&shape_ty));
+    th.solver
+        .assert(th.tensor_rank_fn.apply(&[&ty]).eq(&rank_ty));
 
     Ok(ty)
+}
+
+#[cfg(test)]
+mod tests {
+    use z3::SatResult;
+
+    use crate::fxgraph::{
+        device::Device,
+        dtype::DType,
+        shape::{Shape, SymInt},
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_create_tensor_ty() {
+        let mut egraph = EGraph::new(GraphAnalysis::new().unwrap());
+
+        let tensor = Tensor::new(
+            DType::F32,
+            Shape::new(&[SymInt::Int(1), SymInt::Int(2), SymInt::Sym("x".to_string())]),
+            Device::Cpu("cpu:0".to_string()),
+            vec![1, 2, 3],
+            false,
+        );
+
+        let tensor = create_tensor_ty(&mut egraph, &tensor).unwrap();
+        let th = &mut egraph.analysis.type_theory;
+
+        let dtype_ty = create_dtype_ty(th, &DType::F32);
+        let dtype_axiom = th.tensor_dtype_fn.apply(&[&tensor]).eq(&dtype_ty);
+
+        let shape_ty =
+            create_shape_ty(&[SymInt::Int(1), SymInt::Int(2), SymInt::Sym("x".to_string())]);
+        let shape_axiom = th.tensor_shape_fn.apply(&[&tensor]).eq(&shape_ty);
+
+        let device_ty = create_device_ty(th, &Device::Cpu("cpu:0".to_string()));
+        let device_axiom = th.tensor_device_fn.apply(&[&tensor]).eq(&device_ty);
+
+        let rank_ty = Int::from_i64(3);
+        let rank_axiom = th.tensor_rank_fn.apply(&[&tensor]).eq(&rank_ty);
+
+        th.solver.assert(dtype_axiom);
+        th.solver.assert(shape_axiom);
+        th.solver.assert(device_axiom);
+        th.solver.assert(rank_axiom);
+
+        let result = th.solver.check();
+        if result == SatResult::Unknown {
+            println!(
+                "Solver returned Unknown. Reason: {:?}",
+                th.solver.get_reason_unknown()
+            );
+        }
+        assert_eq!(result, SatResult::Sat);
+        println!("Tensor type axiom: {:?}", th.solver.get_model());
+    }
 }

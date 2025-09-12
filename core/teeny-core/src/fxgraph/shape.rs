@@ -31,6 +31,14 @@ pub struct Shape {
     pub shape: Vec<SymInt>,
 }
 
+impl Shape {
+    pub fn new(shape: &[SymInt]) -> Self {
+        Self {
+            shape: shape.to_vec(),
+        }
+    }
+}
+
 impl FromStr for Shape {
     type Err = Error;
 

@@ -15,52 +15,39 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::str::FromStr;
-
-use egg::EGraph;
-use z3::{
-    DatatypeAccessor, DatatypeBuilder, DatatypeSort, Sort,
-    ast::{Dynamic, Int},
-};
+use z3::ast::Int;
 
 use crate::{
     error::Error,
-    fxgraph::{analysis::GraphAnalysis, lang::FxGraphLang, shape::SymInt, types::TypeTheory},
+    fxgraph::{shape::SymInt, types::Type},
 };
 
-pub fn symint_builder() -> DatatypeSort {
-    DatatypeBuilder::new("SymInt")
-        .variant("Int", vec![("value", DatatypeAccessor::Sort(Sort::int()))])
-        .variant(
-            "Sym",
-            vec![("value", DatatypeAccessor::Sort(Sort::string()))],
-        )
-        .finish()
-}
-
-pub fn create_symint_ty(
-    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    symint: &SymInt,
-) -> Result<Dynamic, Error> {
-    let next_id = egraph.analysis.next_id();
-    let th = &egraph.analysis.type_theory;
-
-    let result = match symint {
-        SymInt::Int(value) => {
-            let constructor = &th.symint_sort.variants[0].constructor;
-            let value = Int::from_i64(*value);
-            constructor.apply(&[&value])
-        }
-        SymInt::Sym(value) => {
-            let constructor = &th.symint_sort.variants[1].constructor;
-            let value = z3::ast::String::from_str(value)
-                .map_err(|e| Error::Z3(format!("Failed to convert SymInt to String: {}", e)))?;
-            constructor.apply(&[&value])
-        }
+pub fn create_symint_ty(symint: &SymInt) -> Result<Type, Error> {
+    let symint_ty = match symint {
+        SymInt::Int(value) => Int::from_i64(*value),
+        SymInt::Sym(value) => Int::new_const(value.as_str()),
     };
 
-    let ty = Dynamic::new_const(format!("#{}", next_id), &th.symint_sort.sort);
-    th.solver.assert(result.eq(&ty));
+    Ok(symint_ty.into())
+}
 
-    Ok(result)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_symint_ty() {
+        let symint = SymInt::Int(1);
+        let symint_ty = create_symint_ty(&symint).unwrap();
+
+        assert_eq!(symint_ty, Int::from_i64(1));
+    }
+
+    #[test]
+    fn test_create_symint_ty_sym() {
+        let symint = SymInt::Sym("x".to_string());
+        let symint_ty = create_symint_ty(&symint).unwrap();
+
+        assert_eq!(symint_ty, Int::new_const("x"));
+    }
 }

@@ -19,8 +19,8 @@ use std::collections::HashMap;
 
 use egg::EGraph;
 use z3::{
-    DatatypeBuilder, DatatypeSort, FuncDecl, Solver, Sort,
-    ast::{Array, Bool, Dynamic, Int},
+    DatatypeBuilder, DatatypeSort, FuncDecl, Params, Solver, Sort,
+    ast::{Bool, Dynamic, Int},
     datatype_builder::create_datatypes,
 };
 
@@ -28,13 +28,12 @@ use crate::{
     error::Error,
     fxgraph::{
         analysis::GraphAnalysis,
-        device::Device,
         dtype::DType,
         lang::FxGraphLang,
-        shape::SymInt,
-        tensor::Tensor,
         types::{
-            ty_tensor::{TyTensor, tensor_builder},
+            ty_dtype::create_dtype_ty,
+            ty_shape::shape_sort,
+            ty_tensor::{TyTensor, setup_tensor_axioms, tensor_builder},
             util::datatype_sort,
         },
     },
@@ -59,13 +58,13 @@ pub struct TypeTheory {
     pub anytype_sort: DatatypeSort,
     pub dtype_sort: DatatypeSort,
     pub device_sort: DatatypeSort,
-    pub shape_sort: DatatypeSort,
-    pub symint_sort: DatatypeSort,
+    pub shape_sort: Sort,
     pub tensor_sort: DatatypeSort,
     pub subtype_any_fn: FuncDecl,
     pub subtype_dtype_fn: FuncDecl,
     pub tensor_dtype_fn: FuncDecl,
     pub tensor_shape_fn: FuncDecl,
+    pub tensor_device_fn: FuncDecl,
     pub tensor_rank_fn: FuncDecl,
     pub shape_index_fn: FuncDecl,
     pub shape_dim_fn: FuncDecl,
@@ -74,6 +73,7 @@ pub struct TypeTheory {
     pub broadcast_compatible_fn: FuncDecl,
     pub unary_fn: FuncDecl,
     pub binary_fn: FuncDecl,
+    pub dtype_ty: HashMap<DType, Dynamic>,
 }
 
 impl TypeTheory {
@@ -83,8 +83,6 @@ impl TypeTheory {
         let TyTensor {
             dtype,
             device,
-            shape,
-            symint_sort,
             tensor,
         } = tensor_builder()?;
 
@@ -95,14 +93,10 @@ impl TypeTheory {
             .variant("Bool", vec![])
             .variant("Tensor", vec![("value", datatype_sort("Tensor"))]);
 
-        let datatypes = create_datatypes(vec![dtype, device, shape, tensor, any_type]);
-        let [
-            dtype_sort,
-            device_sort,
-            shape_sort,
-            tensor_sort,
-            anytype_sort,
-        ] = <[_; 5]>::try_from(datatypes).map_err(|_| Error::Z3("Expected 5 datatypes".into()))?;
+        let datatypes = create_datatypes(vec![dtype, device, tensor, any_type]);
+        let [dtype_sort, device_sort, tensor_sort, anytype_sort] =
+            <[_; 4]>::try_from(datatypes).map_err(|_| Error::Z3("Expected 5 datatypes".into()))?;
+        let shape_sort = shape_sort();
 
         let subtype_any_fn = FuncDecl::new(
             "subtype_any",
@@ -117,21 +111,20 @@ impl TypeTheory {
         );
 
         let tensor_dtype_fn = FuncDecl::new("tensor_dtype", &[&tensor_sort.sort], &dtype_sort.sort);
-        let tensor_shape_fn = FuncDecl::new("tensor_shape", &[&tensor_sort.sort], &shape_sort.sort);
+        let tensor_shape_fn = FuncDecl::new("tensor_shape", &[&tensor_sort.sort], &shape_sort);
+        let tensor_device_fn =
+            FuncDecl::new("tensor_device", &[&tensor_sort.sort], &device_sort.sort);
         let tensor_rank_fn = FuncDecl::new("tensor_rank", &[&tensor_sort.sort], &Sort::int());
-        let shape_dim_fn = FuncDecl::new("shape_dim", &[&shape_sort.sort], &Sort::int());
-        let shape_index_fn = FuncDecl::new(
-            "shape_index",
-            &[&shape_sort.sort, &Sort::int()],
-            &symint_sort.sort,
-        );
+        let shape_dim_fn = FuncDecl::new("shape_dim", &[&shape_sort, &Sort::int()], &Sort::int());
+        let shape_index_fn =
+            FuncDecl::new("shape_index", &[&shape_sort, &Sort::int()], &Sort::int());
 
         let make_tensor_fn = FuncDecl::new(
             "make_tensor",
             &[
                 &dtype_sort.sort,
                 &device_sort.sort,
-                &shape_sort.sort,
+                &shape_sort,
                 &Sort::int(),
             ],
             &tensor_sort.sort,
@@ -162,12 +155,12 @@ impl TypeTheory {
             dtype_sort,
             device_sort,
             shape_sort,
-            symint_sort,
             tensor_sort,
             subtype_any_fn,
             subtype_dtype_fn,
             tensor_dtype_fn,
             tensor_shape_fn,
+            tensor_device_fn,
             tensor_rank_fn,
             shape_index_fn,
             shape_dim_fn,
@@ -176,13 +169,40 @@ impl TypeTheory {
             broadcast_compatible_fn,
             unary_fn,
             binary_fn,
+            dtype_ty: HashMap::new(),
         };
 
+        type_theory.dtype_ty = [DType::BF16, DType::F32, DType::Bool]
+            .iter()
+            .map(|dtype| (dtype.clone(), create_dtype_ty(&mut type_theory, dtype)))
+            .collect();
+
+        // Configure solver for better performance with quantified formulas
+        type_theory.configure_solver();
         type_theory.setup_subtyping_axioms()?;
-        type_theory.setup_tensor_axioms();
+
+        setup_tensor_axioms(&mut type_theory);
         type_theory.setup_shape_axioms()?;
 
         Ok(type_theory)
+    }
+
+    fn configure_solver(&mut self) {
+        // Configure solver parameters for better performance with quantified formulas and array theory
+        let mut params = Params::new();
+        params.set_bool("smt.qi.profile", true);
+        params.set_u32("smt.qi.eager_threshold", 10); // More aggressive instantiation
+        params.set_u32("smt.qi.max_multi_patterns", 100); // Reduce complexity
+        params.set_u32("smt.arith.solver", 2); // Use simplex solver
+        params.set_u32("smt.qi.profile_freq", 1000);
+        params.set_u32("smt.qi.max_instances", 1000); // Limit instances
+        params.set_u32("smt.qi.lazy_threshold", 20); // More eager instantiation
+        params.set_bool("smt.qi.lazy", false); // Disable lazy quantifier instantiation
+        // Array theory specific parameters
+        params.set_bool("smt.array.weak", false); // Use strong array theory
+        params.set_u32("smt.array.extensional", 1); // Enable extensionality
+        params.set_u32("smt.array.weak", 0); // Disable weak array theory
+        self.solver.set_params(&params);
     }
 
     fn setup_subtyping_axioms(&mut self) -> Result<(), Error> {
@@ -234,73 +254,39 @@ impl TypeTheory {
         Ok(())
     }
 
-    fn setup_tensor_axioms(&mut self) {
-        let dtype = Dynamic::new_const("dtype", &self.dtype_sort.sort);
-        let shape = Dynamic::new_const("shape", &self.shape_sort.sort);
-        let device = Dynamic::new_const("device", &self.device_sort.sort);
-        let rank = Int::new_const("rank");
-
-        // Tensor constructor axiom: make_tensor creates valid tensors
-        let tensor = self.make_tensor_fn.apply(&[&dtype, &device, &shape, &rank]);
-
-        // dtype(make_tensor(d, s, r)) = d
-        let dtype_axiom = z3::ast::forall_const(
-            &[&dtype, &shape, &rank],
-            &[],
-            &self.tensor_dtype_fn.apply(&[&tensor]).eq(&dtype),
-        );
-        self.solver.assert(&dtype_axiom);
-
-        // shape(make_tensor(d, s, r)) = s
-        let shape_axiom = z3::ast::forall_const(
-            &[&dtype, &shape, &rank],
-            &[],
-            &self.tensor_shape_fn.apply(&[&tensor]).eq(&shape),
-        );
-        self.solver.assert(&shape_axiom);
-
-        // rank(make_tensor(d, s, r)) = r
-        let rank_axiom = z3::ast::forall_const(
-            &[&dtype, &shape, &rank],
-            &[],
-            &self.tensor_rank_fn.apply(&[&tensor]).eq(&rank),
-        );
-        self.solver.assert(&rank_axiom);
-    }
-
     fn setup_shape_axioms(&mut self) -> Result<(), Error> {
         let t1 = Dynamic::new_const("tensor1", &self.tensor_sort.sort);
         let t2 = Dynamic::new_const("tensor2", &self.tensor_sort.sort);
 
         // Tensor compatibility: compatible tensors have compatible dtypes and shapes
-        let compatible_def = z3::ast::forall_const(
-            &[&t1, &t2],
-            &[],
-            &Bool::iff(
-                &self
-                    .tensor_compatible_fn
-                    .apply(&[&t1, &t2])
-                    .try_into()
-                    .map_err(Error::Z3)?,
-                Bool::and(&[
-                    // Compatible dtypes
-                    &self
-                        .subtype_dtype_fn
-                        .apply(&[
-                            &self.tensor_dtype_fn.apply(&[&t1]),
-                            &self.tensor_dtype_fn.apply(&[&t2]),
-                        ])
-                        .try_into()
-                        .map_err(Error::Z3)?,
-                    // Same rank
-                    &self
-                        .tensor_rank_fn
-                        .apply(&[&t1])
-                        .eq(self.tensor_rank_fn.apply(&[&t2])),
-                ]),
-            ),
-        );
-        self.solver.assert(&compatible_def);
+        // let compatible_def = z3::ast::forall_const(
+        //     &[&t1, &t2],
+        //     &[],
+        //     &Bool::iff(
+        //         &self
+        //             .tensor_compatible_fn
+        //             .apply(&[&t1, &t2])
+        //             .try_into()
+        //             .map_err(Error::Z3)?,
+        //         Bool::and(&[
+        //             // Compatible dtypes
+        //             &self
+        //                 .subtype_dtype_fn
+        //                 .apply(&[
+        //                     &self.tensor_dtype_fn.apply(&[&t1]),
+        //                     &self.tensor_dtype_fn.apply(&[&t2]),
+        //                 ])
+        //                 .try_into()
+        //                 .map_err(Error::Z3)?,
+        //             // Same rank
+        //             &self
+        //                 .tensor_rank_fn
+        //                 .apply(&[&t1])
+        //                 .eq(self.tensor_rank_fn.apply(&[&t2])),
+        //         ]),
+        //     ),
+        // );
+        // self.solver.assert(&compatible_def);
 
         // Broadcasting compatibility (simplified - same rank for now)
         // Broadcasting compatibility axiom for tensors:
@@ -310,25 +296,31 @@ impl TypeTheory {
         //
         // We encode this axiom in Z3 using universal quantification over all dimension indices.
 
-        let idx = Dynamic::new_const("idx", &self.symint_sort.sort);
+        let idx = Int::new_const("idx");
 
         let t1_shape = self.tensor_shape_fn.apply(&[&t1]);
         let t2_shape = self.tensor_shape_fn.apply(&[&t2]);
-        let t1_rank = self.tensor_rank_fn.apply(&[&t1]);
-        let t2_rank = self.tensor_rank_fn.apply(&[&t2]);
+        let t1_rank: Int = self
+            .tensor_rank_fn
+            .apply(&[&t1])
+            .try_into()
+            .map_err(Error::Z3)?;
+        let t2_rank: Int = self
+            .tensor_rank_fn
+            .apply(&[&t2])
+            .try_into()
+            .map_err(Error::Z3)?;
 
         // For all idx in [0, rank), the dimension sizes are equal or one is 1
-        let idx_in_bounds = idx
-            .lt(&t1_rank)
-            .and(&[idx.ge(&Dynamic::from_i64(&self.ctx, 0))]);
+        let idx_in_bounds = Bool::and(&[idx.lt(&t1_rank), idx.ge(&Int::from_i64(0))]);
 
         let dim1 = self.shape_index_fn.apply(&[&t1_shape, &idx]);
         let dim2 = self.shape_index_fn.apply(&[&t2_shape, &idx]);
 
         let dims_broadcastable = Bool::or(&[
-            &dim1._eq(&dim2),
-            &dim1._eq(&Dynamic::from_i64(&self.ctx, 1)),
-            &dim2._eq(&Dynamic::from_i64(&self.ctx, 1)),
+            &dim1.eq(&dim2),
+            &dim1.eq(&Int::from_i64(1)),
+            &dim2.eq(&Int::from_i64(1)),
         ]);
 
         let all_dims_broadcastable = z3::ast::forall_const(
@@ -337,20 +329,20 @@ impl TypeTheory {
             &Bool::implies(&idx_in_bounds, &dims_broadcastable),
         );
 
-        let broadcast_def = z3::ast::forall_const(
-            &[&t1, &t2],
-            &[],
-            &Bool::iff(
-                &self
-                    .broadcast_compatible_fn
-                    .apply(&[&t1, &t2])
-                    .try_into()
-                    .map_err(Error::Z3)?,
-                Bool::and(&[&t1_rank._eq(&t2_rank), &all_dims_broadcastable]),
-            ),
-        );
+        // let broadcast_def = z3::ast::forall_const(
+        //     &[&t1, &t2],
+        //     &[],
+        //     &Bool::iff(
+        //         &self
+        //             .broadcast_compatible_fn
+        //             .apply(&[&t1, &t2])
+        //             .try_into()
+        //             .map_err(Error::Z3)?,
+        //         Bool::and(&[&t1_rank.eq(&t2_rank), &all_dims_broadcastable]),
+        //     ),
+        // );
 
-        self.solver.assert(&broadcast_def);
+        // self.solver.assert(&broadcast_def);
 
         Ok(())
     }

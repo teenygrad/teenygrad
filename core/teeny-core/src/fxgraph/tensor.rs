@@ -25,3 +25,21 @@ pub struct Tensor {
     pub stride: Vec<u32>,
     pub requires_grad: bool,
 }
+
+impl Tensor {
+    pub fn new(
+        dtype: DType,
+        shape: Shape,
+        device: Device,
+        stride: Vec<u32>,
+        requires_grad: bool,
+    ) -> Self {
+        Self {
+            dtype,
+            shape,
+            device,
+            stride,
+            requires_grad,
+        }
+    }
+}
