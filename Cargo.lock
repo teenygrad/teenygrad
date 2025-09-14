@@ -2925,6 +2925,7 @@ dependencies = [
  "teeny-core",
  "teeny-macros",
  "teeny-torch",
+ "teeny-triton",
 ]
 
 [[package]]
@@ -3026,6 +3027,9 @@ dependencies = [
 [[package]]
 name = "teeny-triton"
 version = "0.1.0"
+dependencies = [
+ "teeny-core",
+]
 
 [[package]]
 name = "teeny-vulkan"

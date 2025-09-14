@@ -18,4 +18,4 @@
 pub mod attention;
 pub mod blocksparse;
 pub mod cross_entropy;
-pub mod matmul;
+pub mod math;

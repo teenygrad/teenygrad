@@ -15,4 +15,37 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod triton;
+use std::ops::Add;
+
+use teeny_core::dtype::Dtype;
+
+pub struct Buffer<T: Dtype> {
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: Dtype, D: Dtype> Add<Tensor<T>> for Buffer<D> {
+    type Output = Buffer<T>;
+
+    fn add(self, _other: Tensor<T>) -> Buffer<T> {
+        todo!()
+    }
+}
+pub struct Tensor<T> {
+    _phantom: std::marker::PhantomData<T>,
+}
+
+pub fn program_id(_axis: usize) -> usize {
+    todo!()
+}
+
+pub fn arange<T: Dtype>(_start: usize, _end: usize) -> Tensor<T> {
+    todo!()
+}
+
+pub fn load<T: Dtype>(_ptr: &Buffer<T>, _mask: bool) {
+    todo!()
+}
+
+pub fn store<T: Dtype>(_ptr: &Buffer<T>, _value: usize, _mask: bool) {
+    todo!()
+}
