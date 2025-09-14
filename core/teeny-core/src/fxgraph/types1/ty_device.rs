@@ -17,7 +17,7 @@
 
 use z3::{DatatypeAccessor, DatatypeBuilder, Sort, ast::Dynamic};
 
-use crate::fxgraph::{device::Device, types::TypeTheory};
+use crate::fxgraph::{device::Device, types1::TypeTheory};
 
 pub fn device_builder() -> DatatypeBuilder {
     DatatypeBuilder::new("Device")

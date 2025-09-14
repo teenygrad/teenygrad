@@ -20,11 +20,26 @@ use std::str::FromStr;
 
 use crate::error::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DType {
     F32,
     BF16,
     Bool,
+}
+
+impl DType {
+    pub fn promote(&self, other: &DType) -> Result<DType, Error> {
+        match (self, other) {
+            (DType::F32, DType::F32) => Ok(DType::F32),
+            (DType::BF16, DType::BF16) => Ok(DType::BF16),
+            (DType::F32, DType::BF16) | (DType::BF16, DType::F32) => Ok(DType::F32),
+            (DType::Bool, DType::Bool) => Ok(DType::Bool),
+            _ => Err(Error::InvalidTypeConversion(format!(
+                "Cannot promote dtype: {} and {}",
+                self, other
+            ))),
+        }
+    }
 }
 
 impl FromStr for DType {

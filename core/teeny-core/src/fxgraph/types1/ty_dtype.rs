@@ -17,7 +17,7 @@
 
 use z3::{DatatypeBuilder, ast::Dynamic};
 
-use crate::fxgraph::{dtype::DType, types::TypeTheory};
+use crate::fxgraph::{dtype::DType, types1::TypeTheory};
 
 pub fn dtype_builder() -> DatatypeBuilder {
     DatatypeBuilder::new("DType")

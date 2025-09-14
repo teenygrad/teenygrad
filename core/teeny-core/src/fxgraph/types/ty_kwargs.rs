@@ -15,29 +15,34 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use egg::{EGraph, Id};
+use egg::EGraph;
 
 use crate::{
     error::Error,
     fxgraph::{
         analysis::GraphAnalysis,
+        keyvalue::{KeyValue, KeyValueList},
         lang::FxGraphLang,
         types::{Type, TypeInfo},
     },
 };
 
-pub fn add_ty(
-    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    args: &[Id; 2],
-) -> Result<Type, Error> {
-    let lhs = args[0].ty(egraph)?;
-    let rhs = args[1].ty(egraph)?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TyKwArgs {
+    pub args: Vec<(String, Type)>,
+}
 
-    match (&lhs, &rhs) {
-        (Type::Tensor(lhs), Type::Tensor(rhs)) => {
-            let result = lhs.broadcast(rhs)?;
-            Ok(Type::Tensor(result))
-        }
-        _ => todo!("unsupported types: {lhs:?} and {rhs:?}"),
+impl TyKwArgs {
+    pub fn new(
+        egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
+        args: &KeyValueList,
+    ) -> Result<Self, Error> {
+        Ok(TyKwArgs {
+            args: args
+                .0
+                .iter()
+                .map(|KeyValue::Kv(key, value)| value.ty(egraph).map(|ty| (key.clone(), ty)))
+                .collect::<Result<Vec<(String, Type)>, Error>>()?,
+        })
     }
 }

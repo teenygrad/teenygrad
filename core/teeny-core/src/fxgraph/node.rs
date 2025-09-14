@@ -21,9 +21,10 @@ use crate::{
     error::Error,
     fxgraph::{
         analysis::GraphAnalysis,
+        keyvalue::{KeyValue, KeyValueList},
         lang::FxGraphLang,
-        torch::add::add_ty,
-        types::{Type, TypeInfo},
+        torch::{add::add_ty, output::output_ty},
+        types::{Type, TypeInfo, ty_kwargs::TyKwArgs},
     },
 };
 
@@ -35,6 +36,8 @@ pub fn node_ty(
         FxGraphLang::Placeholder(p) => p.ty(egraph),
         FxGraphLang::Value(v) => v.ty(egraph),
         FxGraphLang::Add(args) => add_ty(egraph, args),
+        FxGraphLang::KwArgs(args) => Ok(Type::KwArgs(TyKwArgs::new(egraph, args)?)),
+        FxGraphLang::Output(args) => output_ty(egraph, args),
         _ => todo!("unsupported node: {node:?}"),
     }
 }
@@ -46,6 +49,9 @@ impl TypeInfo for Id {
         match node {
             FxGraphLang::Placeholder(p) => p.ty(egraph),
             FxGraphLang::Value(v) => v.ty(egraph),
+            FxGraphLang::Add(args) => add_ty(egraph, &args),
+            FxGraphLang::KwArgs(args) => Ok(Type::KwArgs(TyKwArgs::new(egraph, &args)?)),
+            FxGraphLang::Output(args) => output_ty(egraph, &args),
             _ => todo!("unsupported node: {node:?}"),
         }
     }

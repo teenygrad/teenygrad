@@ -19,7 +19,7 @@ use z3::ast::Int;
 
 use crate::{
     error::Error,
-    fxgraph::{shape::SymInt, types::Type},
+    fxgraph::{shape::SymInt, types1::Type},
 };
 
 pub fn create_symint_ty(symint: &SymInt) -> Result<Type, Error> {

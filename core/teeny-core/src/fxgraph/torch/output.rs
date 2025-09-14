@@ -26,18 +26,13 @@ use crate::{
     },
 };
 
-pub fn add_ty(
+pub fn output_ty(
     egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    args: &[Id; 2],
+    args: &[Id],
 ) -> Result<Type, Error> {
-    let lhs = args[0].ty(egraph)?;
-    let rhs = args[1].ty(egraph)?;
-
-    match (&lhs, &rhs) {
-        (Type::Tensor(lhs), Type::Tensor(rhs)) => {
-            let result = lhs.broadcast(rhs)?;
-            Ok(Type::Tensor(result))
-        }
-        _ => todo!("unsupported types: {lhs:?} and {rhs:?}"),
-    }
+    Ok(Type::Tuple(
+        args.iter()
+            .map(|arg| arg.ty(egraph))
+            .collect::<Result<Vec<Type>, Error>>()?,
+    ))
 }

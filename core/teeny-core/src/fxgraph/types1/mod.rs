@@ -1,0 +1,253 @@
+/*
+ * Copyright (c) 2025 Teenygrad. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+use std::collections::HashMap;
+
+use egg::EGraph;
+use z3::{
+    DatatypeBuilder, DatatypeSort, FuncDecl, Params, Solver, Sort,
+    ast::{Bool, Dynamic},
+    datatype_builder::create_datatypes,
+};
+
+use crate::{
+    error::Error,
+    fxgraph::{
+        analysis::GraphAnalysis,
+        dtype::DType,
+        lang::FxGraphLang,
+        types1::{
+            ty_dtype::create_dtype_ty,
+            ty_shape::shape_sort,
+            ty_tensor::{TyTensor, tensor_builder},
+            util::datatype_sort,
+        },
+    },
+};
+
+pub(super) mod ty_device;
+pub(super) mod ty_dtype;
+pub(super) mod ty_shape;
+pub(super) mod ty_symint;
+pub(super) mod ty_tensor;
+pub(super) mod util;
+
+pub type Type = z3::ast::Dynamic;
+
+pub trait TypeInfo {
+    fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error>;
+}
+
+#[derive(Debug)]
+pub struct TypeTheory {
+    pub solver: Solver,
+    pub anytype_sort: DatatypeSort,
+    pub dtype_sort: DatatypeSort,
+    pub device_sort: DatatypeSort,
+    pub shape_sort: Sort,
+    pub tensor_sort: DatatypeSort,
+    pub subtype_any_fn: FuncDecl,
+    pub subtype_dtype_fn: FuncDecl,
+    pub tensor_dtype_fn: FuncDecl,
+    pub tensor_shape_fn: FuncDecl,
+    pub tensor_device_fn: FuncDecl,
+    pub tensor_rank_fn: FuncDecl,
+    pub shape_index_fn: FuncDecl,
+    pub shape_dim_fn: FuncDecl,
+    pub make_tensor_fn: FuncDecl,
+    pub tensor_compatible_fn: FuncDecl,
+    pub broadcast_compatible_fn: FuncDecl,
+    pub unary_fn: FuncDecl,
+    pub binary_fn: FuncDecl,
+    pub dtype_ty: HashMap<DType, Dynamic>,
+}
+
+impl TypeTheory {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Result<Self, Error> {
+        let solver = Solver::new();
+        let TyTensor {
+            dtype,
+            device,
+            tensor,
+        } = tensor_builder()?;
+
+        let any_type = DatatypeBuilder::new("Any")
+            .variant("Any", vec![])
+            .variant("Int64", vec![])
+            .variant("Float32", vec![])
+            .variant("Bool", vec![])
+            .variant("Tensor", vec![("value", datatype_sort("Tensor"))]);
+
+        let datatypes = create_datatypes(vec![dtype, device, tensor, any_type]);
+        let [dtype_sort, device_sort, tensor_sort, anytype_sort] =
+            <[_; 4]>::try_from(datatypes).map_err(|_| Error::Z3("Expected 5 datatypes".into()))?;
+        let shape_sort = shape_sort();
+
+        let subtype_any_fn = FuncDecl::new(
+            "subtype_any",
+            &[&anytype_sort.sort, &anytype_sort.sort],
+            &Sort::bool(),
+        );
+
+        let subtype_dtype_fn = FuncDecl::new(
+            "subtype_dtype",
+            &[&dtype_sort.sort, &dtype_sort.sort],
+            &Sort::bool(),
+        );
+
+        let tensor_dtype_fn = FuncDecl::new("tensor_dtype", &[&tensor_sort.sort], &dtype_sort.sort);
+        let tensor_shape_fn = FuncDecl::new("tensor_shape", &[&tensor_sort.sort], &shape_sort);
+        let tensor_device_fn =
+            FuncDecl::new("tensor_device", &[&tensor_sort.sort], &device_sort.sort);
+        let tensor_rank_fn = FuncDecl::new("tensor_rank", &[&tensor_sort.sort], &Sort::int());
+        let shape_dim_fn = FuncDecl::new("shape_dim", &[&shape_sort, &Sort::int()], &Sort::int());
+        let shape_index_fn =
+            FuncDecl::new("shape_index", &[&shape_sort, &Sort::int()], &Sort::int());
+
+        let make_tensor_fn = FuncDecl::new(
+            "make_tensor",
+            &[
+                &dtype_sort.sort,
+                &device_sort.sort,
+                &shape_sort,
+                &Sort::int(),
+            ],
+            &tensor_sort.sort,
+        );
+
+        let tensor_compatible_fn = FuncDecl::new(
+            "tensor_compatible",
+            &[&tensor_sort.sort, &tensor_sort.sort],
+            &Sort::bool(),
+        );
+
+        let broadcast_compatible_fn = FuncDecl::new(
+            "broadcast_compatible",
+            &[&tensor_sort.sort, &tensor_sort.sort],
+            &Sort::bool(),
+        );
+
+        let unary_fn = FuncDecl::new("unary_fn", &[&anytype_sort.sort], &anytype_sort.sort);
+        let binary_fn = FuncDecl::new(
+            "binary_fn",
+            &[&anytype_sort.sort, &anytype_sort.sort],
+            &anytype_sort.sort,
+        );
+
+        let mut type_theory = Self {
+            solver,
+            anytype_sort,
+            dtype_sort,
+            device_sort,
+            shape_sort,
+            tensor_sort,
+            subtype_any_fn,
+            subtype_dtype_fn,
+            tensor_dtype_fn,
+            tensor_shape_fn,
+            tensor_device_fn,
+            tensor_rank_fn,
+            shape_index_fn,
+            shape_dim_fn,
+            make_tensor_fn,
+            tensor_compatible_fn,
+            broadcast_compatible_fn,
+            unary_fn,
+            binary_fn,
+            dtype_ty: HashMap::new(),
+        };
+
+        type_theory.dtype_ty = [DType::BF16, DType::F32, DType::Bool]
+            .iter()
+            .map(|dtype| (dtype.clone(), create_dtype_ty(&mut type_theory, dtype)))
+            .collect();
+
+        // Configure solver for better performance with quantified formulas
+        type_theory.configure_solver();
+        type_theory.setup_subtyping_axioms()?;
+
+        Ok(type_theory)
+    }
+
+    fn configure_solver(&mut self) {
+        // Configure solver parameters for better performance with quantified formulas and array theory
+        let mut params = Params::new();
+        params.set_bool("smt.qi.profile", true);
+        params.set_u32("smt.qi.eager_threshold", 10); // More aggressive instantiation
+        params.set_u32("smt.qi.max_multi_patterns", 100); // Reduce complexity
+        params.set_u32("smt.arith.solver", 2); // Use simplex solver
+        params.set_u32("smt.qi.profile_freq", 1000);
+        params.set_u32("smt.qi.max_instances", 1000); // Limit instances
+        params.set_u32("smt.qi.lazy_threshold", 20); // More eager instantiation
+        params.set_bool("smt.qi.lazy", false); // Disable lazy quantifier instantiation
+        // Array theory specific parameters
+        params.set_bool("smt.array.weak", false); // Use strong array theory
+        params.set_u32("smt.array.extensional", 1); // Enable extensionality
+        params.set_u32("smt.array.weak", 0); // Disable weak array theory
+        self.solver.set_params(&params);
+    }
+
+    fn setup_subtyping_axioms(&mut self) -> Result<(), Error> {
+        let t = Dynamic::new_const("t", &self.anytype_sort.sort);
+        let t1 = Dynamic::new_const("t1", &self.anytype_sort.sort);
+        let t2 = Dynamic::new_const("t2", &self.anytype_sort.sort);
+        let t3 = Dynamic::new_const("t3", &self.anytype_sort.sort);
+
+        // Reflexivity: ∀t. subtype(t, t)
+        let reflexivity = z3::ast::forall_const(
+            &[&t],
+            &[],
+            &self
+                .subtype_any_fn
+                .apply(&[&t, &t])
+                .try_into()
+                .map_err(Error::Z3)?,
+        );
+
+        // Transitivity: ∀t1,t2,t3. subtype(t1,t2) ∧ subtype(t2,t3) → subtype(t1,t3)
+        let a: Bool = self
+            .subtype_any_fn
+            .apply(&[&t1, &t2])
+            .try_into()
+            .map_err(Error::Z3)?;
+
+        let b: Bool = self
+            .subtype_any_fn
+            .apply(&[&t2, &t3])
+            .try_into()
+            .map_err(Error::Z3)?;
+
+        let c: Bool = self
+            .subtype_any_fn
+            .apply(&[&t1, &t3])
+            .try_into()
+            .map_err(Error::Z3)?;
+
+        println!("Adding transitivity");
+        let transitivity = z3::ast::forall_const(
+            &[&t1, &t2, &t3],
+            &[],
+            &Bool::implies(&Bool::and(&[&a, &b]), &c),
+        );
+
+        self.solver.assert(&reflexivity);
+        self.solver.assert(&transitivity);
+
+        Ok(())
+    }
+}

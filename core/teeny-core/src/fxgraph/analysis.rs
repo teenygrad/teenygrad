@@ -19,11 +19,7 @@ use egg::{Analysis, DidMerge, EGraph};
 
 use crate::{
     error::Error,
-    fxgraph::{
-        lang::FxGraphLang,
-        node::node_ty,
-        types::{Type, TypeTheory},
-    },
+    fxgraph::{lang::FxGraphLang, node::node_ty, types::Type},
 };
 
 // Analysis for tracking tensor properties and optimization opportunities
@@ -39,22 +35,11 @@ impl NodeAnalysis {
 }
 
 #[derive(Debug)]
-pub struct GraphAnalysis {
-    pub type_theory: TypeTheory,
-    pub next_id: usize,
-}
+pub struct GraphAnalysis {}
 
 impl GraphAnalysis {
     pub fn new() -> Result<Self, Error> {
-        Ok(Self {
-            type_theory: TypeTheory::new()?,
-            next_id: 0,
-        })
-    }
-
-    pub fn next_id(&mut self) -> usize {
-        self.next_id += 1;
-        self.next_id
+        Ok(Self {})
     }
 }
 
@@ -68,11 +53,12 @@ impl Analysis<FxGraphLang> for GraphAnalysis {
             panic!("Error creating type for node: {enode:?}: {e:?}");
         }
 
-        let solver = &egraph.analysis.type_theory.solver;
+        // let solver = &egraph.analysis.type_theory.solver;
 
-        println!("type check: {:?}", solver.check());
-        println!("type check: {:?}", solver.get_model());
+        // println!("type check: {:?}", solver.check());
+        // println!("type check: {:?}", solver.get_model());
 
+        println!("node: {:?}, node_ty: {:?}", enode, node_ty);
         NodeAnalysis::new(node_ty.unwrap())
     }
 

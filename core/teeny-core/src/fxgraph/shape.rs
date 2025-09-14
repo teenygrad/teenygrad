@@ -26,6 +26,12 @@ pub enum SymInt {
     Sym(String),
 }
 
+impl From<i32> for SymInt {
+    fn from(value: i32) -> Self {
+        SymInt::Int(value as i64)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Shape {
     pub shape: Vec<SymInt>,

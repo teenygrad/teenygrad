@@ -15,137 +15,120 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use egg::EGraph;
-use z3::{
-    DatatypeAccessor, DatatypeBuilder, Sort,
-    ast::{Dynamic, Int},
-};
-
 use crate::{
     error::Error,
     fxgraph::{
-        analysis::GraphAnalysis,
-        lang::FxGraphLang,
+        dtype::DType,
+        shape::{Shape, SymInt},
         tensor::Tensor,
-        types::{
-            ty_device::{create_device_ty, device_builder},
-            ty_dtype::{create_dtype_ty, dtype_builder},
-            ty_shape::{create_shape_ty, shape_sort},
-            util::datatype_sort,
-        },
     },
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TyTensor {
-    pub dtype: DatatypeBuilder,
-    pub device: DatatypeBuilder,
-    pub tensor: DatatypeBuilder,
+    pub dtype: DType,
+    pub shape: Vec<SymInt>,
 }
 
-pub fn tensor_builder() -> Result<TyTensor, Error> {
-    let dtype = dtype_builder();
-    let device = device_builder();
-    let shape = shape_sort();
-    let tensor = DatatypeBuilder::new("Tensor").variant(
-        "value",
-        vec![
-            ("dtype", datatype_sort("DType")),
-            ("device", datatype_sort("Device")),
-            ("shape", DatatypeAccessor::Sort(shape)),
-            ("rank", DatatypeAccessor::Sort(Sort::int())),
-        ],
-    );
+impl TyTensor {
+    pub fn new(tensor: &Tensor) -> Self {
+        Self {
+            dtype: tensor.dtype,
+            shape: tensor.shape.shape.clone(),
+        }
+    }
 
-    Ok(TyTensor {
-        dtype,
-        device,
-        tensor,
-    })
-}
+    pub fn new_from_dtype_and_shape(dtype: DType, shape: &Shape) -> Self {
+        Self {
+            dtype,
+            shape: shape.shape.clone(),
+        }
+    }
 
-pub fn create_tensor_ty(
-    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
-    tensor: &Tensor,
-) -> Result<Dynamic, Error> {
-    let next_id = egraph.analysis.next_id();
-    let th = &mut egraph.analysis.type_theory;
-    let device_ty = create_device_ty(th, &tensor.device);
+    pub fn rank(&self) -> usize {
+        self.shape.len()
+    }
 
-    let dtype_ty = create_dtype_ty(th, &tensor.dtype);
-    let shape_dims = &tensor.shape.shape;
-    let shape_ty = create_shape_ty(shape_dims);
-    let rank_ty = Int::from_i64(shape_dims.len() as i64);
+    pub fn dtype_compatible(&self, other: &TyTensor) -> bool {
+        self.dtype.promote(&other.dtype).is_ok()
+    }
 
-    let tensor_ty = th
-        .make_tensor_fn
-        .apply(&[&dtype_ty, &device_ty, &shape_ty, &rank_ty]);
-    let ty = Dynamic::new_const(format!("#{}", next_id), &th.tensor_sort.sort);
+    pub fn broadcast(&self, other: &TyTensor) -> Result<TyTensor, Error> {
+        if self.rank() < other.rank() {
+            return other.broadcast(self);
+        }
 
-    th.solver.assert(tensor_ty.eq(&ty));
-    th.solver
-        .assert(th.tensor_dtype_fn.apply(&[&ty]).eq(&dtype_ty));
-    th.solver
-        .assert(th.tensor_shape_fn.apply(&[&ty]).eq(&shape_ty));
-    th.solver
-        .assert(th.tensor_rank_fn.apply(&[&ty]).eq(&rank_ty));
+        let mut result_shape = Vec::with_capacity(self.rank());
 
-    Ok(ty)
+        let shape_a = &self.shape;
+        let shape_b = {
+            let mut v = vec![SymInt::from(1); self.rank() - other.rank()];
+            v.extend_from_slice(&other.shape);
+            v
+        };
+
+        for (dim_a, dim_b) in shape_a.iter().zip(shape_b.iter()) {
+            match (dim_a, dim_b) {
+                (SymInt::Int(1), SymInt::Int(a)) => {
+                    result_shape.push(SymInt::Int(*a));
+                }
+                (SymInt::Int(a), SymInt::Int(1)) => {
+                    result_shape.push(SymInt::Int(*a));
+                }
+                (SymInt::Int(a), SymInt::Int(b)) => {
+                    if a == b {
+                        result_shape.push(SymInt::Int(*a));
+                    } else {
+                        return Err(Error::InvalidTensorBroadcast(format!(
+                            "Cannot broadcast dimensions: {:?} and {:?}",
+                            self.shape, other.shape
+                        )));
+                    }
+                }
+                _ => {
+                    return Err(Error::InvalidTensorBroadcast(format!(
+                        "Symbolic dimensions are not supported for broadcasting: {:?} and {:?}",
+                        self.shape, other.shape
+                    )));
+                }
+            }
+        }
+
+        let dtype = self.dtype.promote(&other.dtype)?;
+        let ty_tensor = TyTensor {
+            dtype,
+            shape: result_shape,
+        };
+
+        Ok(ty_tensor)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use z3::SatResult;
-
-    use crate::fxgraph::{
-        device::Device,
-        dtype::DType,
-        shape::{Shape, SymInt},
-    };
-
     use super::*;
 
     #[test]
-    fn test_create_tensor_ty() {
-        let mut egraph = EGraph::new(GraphAnalysis::new().unwrap());
-
-        let tensor = Tensor::new(
+    fn test_valid_broadcast() {
+        let a = TyTensor::new_from_dtype_and_shape(DType::F32, &Shape::new(&[3.into(), 4.into()]));
+        let b = TyTensor::new_from_dtype_and_shape(
             DType::F32,
-            Shape::new(&[SymInt::Int(1), SymInt::Int(2), SymInt::Sym("x".to_string())]),
-            Device::Cpu("cpu:0".to_string()),
-            vec![1, 2, 3],
-            false,
+            &Shape::new(&[2.into(), 3.into(), 4.into()]),
         );
 
-        let tensor = create_tensor_ty(&mut egraph, &tensor).unwrap();
-        let th = &mut egraph.analysis.type_theory;
+        let c = a.broadcast(&b).unwrap();
+        assert_eq!(c.shape, vec![2.into(), 3.into(), 4.into()]);
+    }
 
-        let dtype_ty = create_dtype_ty(th, &DType::F32);
-        let dtype_axiom = th.tensor_dtype_fn.apply(&[&tensor]).eq(&dtype_ty);
+    #[test]
+    fn test_invalid_broadcast() {
+        let a = TyTensor::new_from_dtype_and_shape(DType::F32, &Shape::new(&[3.into(), 4.into()]));
+        let b = TyTensor::new_from_dtype_and_shape(
+            DType::F32,
+            &Shape::new(&[2.into(), 3.into(), 5.into()]),
+        );
 
-        let shape_ty =
-            create_shape_ty(&[SymInt::Int(1), SymInt::Int(2), SymInt::Sym("x".to_string())]);
-        let shape_axiom = th.tensor_shape_fn.apply(&[&tensor]).eq(&shape_ty);
-
-        let device_ty = create_device_ty(th, &Device::Cpu("cpu:0".to_string()));
-        let device_axiom = th.tensor_device_fn.apply(&[&tensor]).eq(&device_ty);
-
-        let rank_ty = Int::from_i64(3);
-        let rank_axiom = th.tensor_rank_fn.apply(&[&tensor]).eq(&rank_ty);
-
-        th.solver.assert(dtype_axiom);
-        th.solver.assert(shape_axiom);
-        th.solver.assert(device_axiom);
-        th.solver.assert(rank_axiom);
-
-        let result = th.solver.check();
-        if result == SatResult::Unknown {
-            println!(
-                "Solver returned Unknown. Reason: {:?}",
-                th.solver.get_reason_unknown()
-            );
-        }
-        assert_eq!(result, SatResult::Sat);
-        println!("Tensor type axiom: {:?}", th.solver.get_model());
+        let c = a.broadcast(&b);
+        assert!(c.is_err());
     }
 }

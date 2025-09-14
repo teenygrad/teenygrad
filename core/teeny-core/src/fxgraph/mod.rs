@@ -60,13 +60,7 @@ impl FXGraph {
     }
 
     pub fn verify_types(&mut self) -> Result<(), Error> {
-        let sorted_node_ids = self.topological_sort()?;
-        for id in sorted_node_ids {
-            let node = self.egraph.id_to_node(id);
-            println!("Node: {:?}", node);
-        }
-
-        todo!("Implement type verification")
+        Ok(())
     }
 
     pub fn add_operation(&mut self, name: &str, op: FxGraphLang) -> Id {

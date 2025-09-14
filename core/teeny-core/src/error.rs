@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::safetensors::SafeTensorsError;
+use crate::{fxgraph::dtype::DType, safetensors::SafeTensorsError};
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -47,4 +47,10 @@ pub enum Error {
 
     #[error("Mutex lock error: {0}")]
     MutexLockError(String),
+
+    #[error("Invalid type conversion: {0}")]
+    InvalidTypeConversion(String),
+
+    #[error("Invalid tensor broadcast: {0}")]
+    InvalidTensorBroadcast(String),
 }

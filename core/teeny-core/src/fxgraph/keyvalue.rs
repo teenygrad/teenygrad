@@ -43,7 +43,7 @@ impl Display for KeyValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct KeyValueList(Vec<KeyValue>);
+pub struct KeyValueList(pub Vec<KeyValue>);
 
 impl KeyValueList {
     pub fn new(kvs: Vec<KeyValue>) -> Self {
