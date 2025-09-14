@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{fxgraph::dtype::DType, safetensors::SafeTensorsError};
+use crate::safetensors::SafeTensorsError;
 
 pub type Result<T> = anyhow::Result<T>;
 

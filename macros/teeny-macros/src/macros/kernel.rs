@@ -27,6 +27,21 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     let block = input.block;
     let attrs = input.attrs;
 
+    sig.inputs.iter().for_each(|input| {
+        // INSERT_YOUR_CODE
+        if let syn::FnArg::Typed(pat_type) = input {
+            for attr in &pat_type.attrs {
+                if attr.path().is_ident("constexpr") {
+                    println!("Found #[constexpr] on argument");
+                    // Do something if #[constexpr] is present
+                    // For now, just a placeholder
+                    // e.g., println!("Found #[constexpr] on argument");
+                    // break;
+                }
+            }
+        }
+    });
+
     let function_stream: TokenStream = quote! {
         #[allow(non_snake_case)]
         #[allow(clippy::too_many_arguments)]

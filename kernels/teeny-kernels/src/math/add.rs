@@ -20,12 +20,11 @@ use teeny_macros::kernel;
 use teeny_triton::triton as tl;
 
 #[kernel]
-pub fn tensor_add<D: Dtype>(
+pub fn tensor_add<D: Dtype, const BLOCK_SIZE: usize>(
     x_ptr: &[D],
     y_ptr: &[D],
     output_ptr: &[D],
     n_elements: usize,
-    #[constexpr] BLOCK_SIZE: usize,
 ) {
     let pid = tl::program_id(0);
 
