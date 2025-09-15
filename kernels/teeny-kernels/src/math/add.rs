@@ -17,13 +17,13 @@
 
 use teeny_core::dtype::Dtype;
 use teeny_macros::kernel;
-use teeny_triton::triton as tl;
+use teeny_triton::triton::{self as tl, Buffer};
 
 #[kernel]
 pub fn tensor_add<D: Dtype, const BLOCK_SIZE: usize>(
-    x_ptr: &[D],
-    y_ptr: &[D],
-    output_ptr: &[D],
+    x_ptr: &Buffer<D>,
+    y_ptr: &Buffer<D>,
+    output_ptr: &Buffer<D>,
     n_elements: usize,
 ) {
     let pid = tl::program_id(0);

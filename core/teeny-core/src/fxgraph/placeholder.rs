@@ -19,7 +19,6 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use egg::{EGraph, Id};
-use z3::ast::{Ast, Dynamic};
 
 use crate::error::Error;
 use crate::fxgraph::analysis::GraphAnalysis;

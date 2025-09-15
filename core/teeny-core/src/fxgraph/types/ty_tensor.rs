@@ -15,19 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use derive_builder::Builder;
+
 use crate::{
     error::Error,
-    fxgraph::{
-        dtype::DType,
-        shape::{Shape, SymInt},
-        tensor::Tensor,
-    },
+    fxgraph::{device::Device, dtype::DType, shape::SymInt, tensor::Tensor},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Builder, Clone, PartialEq, Eq)]
 pub struct TyTensor {
     pub dtype: DType,
     pub shape: Vec<SymInt>,
+    pub device: Device,
 }
 
 impl TyTensor {
@@ -35,13 +34,7 @@ impl TyTensor {
         Self {
             dtype: tensor.dtype,
             shape: tensor.shape.shape.clone(),
-        }
-    }
-
-    pub fn new_from_dtype_and_shape(dtype: DType, shape: &Shape) -> Self {
-        Self {
-            dtype,
-            shape: shape.shape.clone(),
+            device: tensor.device.clone(),
         }
     }
 
@@ -54,6 +47,8 @@ impl TyTensor {
     }
 
     pub fn broadcast(&self, other: &TyTensor) -> Result<TyTensor, Error> {
+        assert_eq!(self.device, other.device);
+
         if self.rank() < other.rank() {
             return other.broadcast(self);
         }
@@ -98,6 +93,7 @@ impl TyTensor {
         let ty_tensor = TyTensor {
             dtype,
             shape: result_shape,
+            device: self.device.clone(),
         };
 
         Ok(ty_tensor)
@@ -110,23 +106,40 @@ mod tests {
 
     #[test]
     fn test_valid_broadcast() {
-        let a = TyTensor::new_from_dtype_and_shape(DType::F32, &Shape::new(&[3.into(), 4.into()]));
-        let b = TyTensor::new_from_dtype_and_shape(
-            DType::F32,
-            &Shape::new(&[2.into(), 3.into(), 4.into()]),
-        );
+        let device = Device::Cpu("cpu".to_string());
+        let a = TyTensorBuilder::default()
+            .dtype(DType::F32)
+            .shape(vec![3.into(), 4.into()])
+            .device(device.clone())
+            .build()
+            .unwrap();
+        let b = TyTensorBuilder::default()
+            .dtype(DType::F32)
+            .shape(vec![2.into(), 3.into(), 4.into()])
+            .device(device.clone())
+            .build()
+            .unwrap();
 
         let c = a.broadcast(&b).unwrap();
         assert_eq!(c.shape, vec![2.into(), 3.into(), 4.into()]);
+        assert_eq!(c.device, device);
     }
 
     #[test]
     fn test_invalid_broadcast() {
-        let a = TyTensor::new_from_dtype_and_shape(DType::F32, &Shape::new(&[3.into(), 4.into()]));
-        let b = TyTensor::new_from_dtype_and_shape(
-            DType::F32,
-            &Shape::new(&[2.into(), 3.into(), 5.into()]),
-        );
+        let device = Device::Cpu("cpu".to_string());
+        let a = TyTensorBuilder::default()
+            .dtype(DType::F32)
+            .shape(vec![3.into(), 4.into()])
+            .device(device.clone())
+            .build()
+            .unwrap();
+        let b = TyTensorBuilder::default()
+            .dtype(DType::F32)
+            .shape(vec![2.into(), 3.into(), 5.into()])
+            .device(device.clone())
+            .build()
+            .unwrap();
 
         let c = a.broadcast(&b);
         assert!(c.is_err());

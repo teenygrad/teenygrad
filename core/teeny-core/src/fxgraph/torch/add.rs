@@ -35,6 +35,13 @@ pub fn add_ty(
 
     match (&lhs, &rhs) {
         (Type::Tensor(lhs), Type::Tensor(rhs)) => {
+            if lhs.device != rhs.device {
+                return Err(Error::InvalidDevice(format!(
+                    "Mismatched devices: {:?} and {:?}",
+                    lhs.device, rhs.device
+                )));
+            }
+
             let result = lhs.broadcast(rhs)?;
             Ok(Type::Tensor(result))
         }

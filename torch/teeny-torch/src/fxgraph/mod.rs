@@ -36,7 +36,6 @@ mod output;
 mod placeholder;
 mod shape;
 mod symint;
-mod util;
 mod value;
 
 impl<'a> TryFrom<Graph<'a>> for FXGraph {
