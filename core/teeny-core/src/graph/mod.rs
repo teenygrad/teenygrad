@@ -50,13 +50,18 @@ use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
 use crate::graph::ops::vmap::VMapOp;
 use crate::graph::ops::r#where::WhereOp;
-#[cfg(feature = "ndarray")]
-use crate::num::bf16::bf16;
+use crate::graph::shape::DynamicShape;
 use crate::safetensors::{SafeTensors, TensorView};
-use crate::tensor::shape::DynamicShape;
+#[cfg(feature = "ndarray")]
+use crate::types::bf16::bf16;
 
 use crate::util::unique_id::UniqueId;
 use crate::value::Value;
+
+pub mod shape;
+
+#[macro_use]
+pub mod tensor;
 
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;

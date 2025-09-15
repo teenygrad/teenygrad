@@ -15,35 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::DtypeEnum;
-use crate::error::Result;
-use crate::graph::shape::DynamicShape;
-use crate::graph::{NodeOp, NodeRef, ops::Op};
-
-#[derive(Debug, Clone)]
-pub struct IndexOp<'data> {
-    pub input: NodeRef<'data>,
-    pub indices: Vec<NodeRef<'data>>,
-}
-
-impl<'data> IndexOp<'data> {
-    pub fn new(input: NodeRef<'data>, indices: Vec<NodeRef<'data>>) -> Self {
-        Self { input, indices }
-    }
-}
-
-impl<'data> Op for IndexOp<'data> {
-    fn shape(&self) -> Result<DynamicShape> {
-        todo!()
-    }
-
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
-    }
-}
-
-impl<'data> From<IndexOp<'data>> for NodeRef<'data> {
-    fn from(op: IndexOp<'data>) -> Self {
-        NodeOp::Index(op).into()
-    }
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
 }

@@ -15,11 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::graph::NodeRef;
+use std::ops::Add;
 
-#[macro_use]
-pub mod shape;
+use crate::dtype::Dtype;
 
-pub type LongTensor<'data> = NodeRef<'data>;
-
-pub type FloatTensor<'data> = NodeRef<'data>;
+pub trait Tensor<D: Dtype>: Add<i32, Output = Self> {
+    fn lt<T: Dtype>(&self, other: T) -> Self;
+}

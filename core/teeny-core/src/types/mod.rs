@@ -15,38 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::error::Result;
-
-use crate::{
-    dtype::DtypeEnum,
-    graph::shape::DynamicShape,
-    graph::{NodeOp, NodeRef, ops::Op},
-};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ZerosOp {
-    pub shape: DynamicShape,
-    pub dtype: DtypeEnum,
-}
-
-impl ZerosOp {
-    pub fn new(shape: DynamicShape, dtype: DtypeEnum) -> Self {
-        Self { shape, dtype }
-    }
-}
-
-impl Op for ZerosOp {
-    fn shape(&self) -> Result<DynamicShape> {
-        Ok(self.shape.clone())
-    }
-
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
-    }
-}
-
-impl<'data> From<ZerosOp> for NodeRef<'data> {
-    fn from(op: ZerosOp) -> Self {
-        NodeOp::Zeros(op).into()
-    }
-}
+pub mod bf16;
+pub mod bool;
+pub mod f32;
+pub mod i32;
+pub mod usize;

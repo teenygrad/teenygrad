@@ -21,12 +21,12 @@ use ndarray::Array2;
 use crate::{
     dtype::DtypeEnum,
     error::Result,
+    graph::tensor::{FloatTensor, LongTensor},
     graph::{
         self, NodeOp, NodeRef,
         ops::tensor::{TensorBF16Op, TensorUsizeOp},
     },
     nn::Module,
-    tensor::{FloatTensor, LongTensor},
 };
 
 #[derive(Debug, Clone, Builder)]

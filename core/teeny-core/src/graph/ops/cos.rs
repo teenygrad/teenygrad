@@ -18,8 +18,8 @@
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::graph::ops::Op;
+use crate::graph::shape::DynamicShape;
 use crate::graph::{NodeOp, NodeRef};
-use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct CosOp<'data> {

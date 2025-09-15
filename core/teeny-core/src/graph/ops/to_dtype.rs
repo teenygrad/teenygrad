@@ -18,8 +18,8 @@
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::graph::NodeOp;
+use crate::graph::shape::DynamicShape;
 use crate::graph::{NodeRef, ops::Op};
-use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct ToDtype<'data> {

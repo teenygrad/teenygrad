@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use serde::Deserialize;
-use teeny_core::num::bf16::bf16;
+use teeny_core::types::bf16::bf16;
 use teeny_hf::transformer;
 use tracing::info;
 use tracing_subscriber::{self, EnvFilter};

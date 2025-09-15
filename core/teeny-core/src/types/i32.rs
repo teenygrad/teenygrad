@@ -15,35 +15,24 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::DtypeEnum;
-use crate::error::Result;
-use crate::graph::shape::DynamicShape;
-use crate::graph::{NodeOp, NodeRef, ops::Op};
+use crate::dtype::{Dtype, DtypeEnum};
 
-#[derive(Debug, Clone)]
-pub struct IndexOp<'data> {
-    pub input: NodeRef<'data>,
-    pub indices: Vec<NodeRef<'data>>,
-}
+impl Dtype for i32 {
+    const DTYPE: DtypeEnum = DtypeEnum::I32;
 
-impl<'data> IndexOp<'data> {
-    pub fn new(input: NodeRef<'data>, indices: Vec<NodeRef<'data>>) -> Self {
-        Self { input, indices }
+    fn from_f32(value: f32) -> Self {
+        value as i32
     }
-}
 
-impl<'data> Op for IndexOp<'data> {
-    fn shape(&self) -> Result<DynamicShape> {
+    fn to_f32(self) -> f32 {
+        self as f32
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Vec<Self> {
         todo!()
     }
 
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
-    }
-}
-
-impl<'data> From<IndexOp<'data>> for NodeRef<'data> {
-    fn from(op: IndexOp<'data>) -> Self {
-        NodeOp::Index(op).into()
+    fn to_u32(self) -> u32 {
+        self as u32
     }
 }

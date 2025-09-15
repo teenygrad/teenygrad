@@ -19,12 +19,14 @@ use derive_more::Display;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
-pub use crate::num::*;
+pub use crate::types::*;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Display)]
 pub enum DtypeEnum {
     #[display("usize")]
     Usize,
+    #[display("i32")]
+    I32,
     #[display("f32")]
     F32,
     #[display("bf16")]

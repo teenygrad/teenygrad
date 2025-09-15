@@ -19,8 +19,8 @@ use teeny_cache::DynamicCache;
 use teeny_core::dtype::DtypeEnum;
 use teeny_core::graph::ops::Op;
 use teeny_core::graph::{NodeOp, NodeRef, arange, scalar};
-use teeny_core::num::bool::Bool;
 use teeny_core::slice;
+use teeny_core::types::bool::Bool;
 
 use crate::error::{Error, Result};
 use crate::transformer::model::qwen::qwen3::attention::Attention;

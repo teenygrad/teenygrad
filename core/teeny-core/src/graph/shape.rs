@@ -159,7 +159,7 @@ impl Index<std::ops::RangeFull> for DynamicShape {
 #[macro_export]
 macro_rules! shape {
     ($($dim:expr),*) => {
-        $crate::tensor::shape::DynamicShape::new(&[$($dim),*])
+        $crate::graph::shape::DynamicShape::new(&[$($dim),*])
     };
 }
 

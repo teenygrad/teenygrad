@@ -17,8 +17,8 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::graph::shape::{DynamicShape, Shape};
 use crate::graph::{NodeOp, NodeRef, ops::Op};
-use crate::tensor::shape::{DynamicShape, Shape};
 
 #[derive(Debug, Clone)]
 pub struct DivOp<'data> {

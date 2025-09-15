@@ -19,8 +19,8 @@ use crate::dtype::DtypeEnum;
 use crate::error::Result;
 use crate::safetensors::TensorView;
 use crate::{
+    graph::shape::DynamicShape,
     graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
 };
 
 #[derive(Debug, Clone)]

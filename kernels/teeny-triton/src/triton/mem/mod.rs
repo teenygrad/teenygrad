@@ -15,35 +15,39 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::DtypeEnum;
-use crate::error::Result;
-use crate::graph::shape::DynamicShape;
-use crate::graph::{NodeOp, NodeRef, ops::Op};
+use std::ops::Add;
 
-#[derive(Debug, Clone)]
-pub struct IndexOp<'data> {
-    pub input: NodeRef<'data>,
-    pub indices: Vec<NodeRef<'data>>,
+use teeny_core::{dtype::Dtype, tensor::Tensor};
+
+pub mod load;
+pub mod store;
+
+pub use load::*;
+pub use store::*;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Pointer<T: Dtype> {
+    _phantom: std::marker::PhantomData<T>,
 }
 
-impl<'data> IndexOp<'data> {
-    pub fn new(input: NodeRef<'data>, indices: Vec<NodeRef<'data>>) -> Self {
-        Self { input, indices }
-    }
+#[derive(Debug, Clone, Copy)]
+pub enum Mask<T: Tensor<i32>> {
+    None,
+    Some(T),
 }
 
-impl<'data> Op for IndexOp<'data> {
-    fn shape(&self) -> Result<DynamicShape> {
+impl<D: Dtype, T: Tensor<i32>> Add<&T> for &Pointer<D> {
+    type Output = Pointer<D>;
+
+    fn add(self, _other: &T) -> Self::Output {
         todo!()
     }
-
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
-    }
 }
 
-impl<'data> From<IndexOp<'data>> for NodeRef<'data> {
-    fn from(op: IndexOp<'data>) -> Self {
-        NodeOp::Index(op).into()
+impl<D: Dtype> Add<Pointer<D>> for Pointer<D> {
+    type Output = Pointer<D>;
+
+    fn add(self, _other: Pointer<D>) -> Self::Output {
+        todo!()
     }
 }

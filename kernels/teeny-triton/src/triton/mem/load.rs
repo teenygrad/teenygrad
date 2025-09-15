@@ -15,35 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::dtype::DtypeEnum;
-use crate::error::Result;
-use crate::graph::shape::DynamicShape;
-use crate::graph::{NodeOp, NodeRef, ops::Op};
+use teeny_core::{dtype::Dtype, tensor::Tensor};
 
-#[derive(Debug, Clone)]
-pub struct IndexOp<'data> {
-    pub input: NodeRef<'data>,
-    pub indices: Vec<NodeRef<'data>>,
-}
+use crate::triton::{Mask, Pointer};
 
-impl<'data> IndexOp<'data> {
-    pub fn new(input: NodeRef<'data>, indices: Vec<NodeRef<'data>>) -> Self {
-        Self { input, indices }
-    }
-}
-
-impl<'data> Op for IndexOp<'data> {
-    fn shape(&self) -> Result<DynamicShape> {
-        todo!()
-    }
-
-    fn dtype(&self) -> DtypeEnum {
-        todo!()
-    }
-}
-
-impl<'data> From<IndexOp<'data>> for NodeRef<'data> {
-    fn from(op: IndexOp<'data>) -> Self {
-        NodeOp::Index(op).into()
-    }
+pub fn load<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
+    todo!()
 }

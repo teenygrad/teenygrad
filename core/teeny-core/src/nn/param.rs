@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::{dtype::Dtype, graph::NodeRef, tensor::shape::DynamicShape};
+use crate::{dtype::Dtype, graph::NodeRef, graph::shape::DynamicShape};
 
 pub trait Param<'data, N: Dtype>: Sized + Clone {
     fn shape(&self) -> DynamicShape;

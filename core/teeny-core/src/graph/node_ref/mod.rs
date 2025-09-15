@@ -42,7 +42,7 @@ use crate::graph::ops::to_dtype::ToDtype;
 use crate::graph::ops::transpose::TransposeOp;
 use crate::graph::ops::unsqueeze::UnsqueezeOp;
 use crate::graph::scalar;
-use crate::tensor::shape::DynamicShape;
+use crate::graph::shape::DynamicShape;
 use crate::value::Value;
 
 pub mod add;

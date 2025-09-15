@@ -15,56 +15,56 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::path::Path;
+// use std::path::Path;
 
-use teeny_core::{
-    graph::NodeRef,
-    nn::{Module, linear::Linear},
-    safetensors::SafeTensors,
-};
+// use teeny_core::{
+//     graph::NodeRef,
+//     nn::{Module, linear::Linear},
+//     safetensors::SafeTensors,
+// };
 
-use super::qwen3_config::Qwen3Config;
+// use super::qwen3_config::Qwen3Config;
 
-use crate::{
-    error::Result,
-    transformer::model::qwen::qwen3::qwen3_model::{Qwen3Model, QwenModelInputs},
-};
+// use crate::{
+//     error::Result,
+//     transformer::model::qwen::qwen3::qwen3_model::{Qwen3Model, QwenModelInputs},
+// };
 
-pub struct Qwen3ForCausalLM<'data> {
-    pub model: Qwen3Model<'data>,
-    pub vocab_size: usize,
-    pub lm_head: Linear<'data>,
-}
+// pub struct Qwen3ForCausalLM<'data> {
+//     pub model: Qwen3Model<'data>,
+//     pub vocab_size: usize,
+//     pub lm_head: Linear<'data>,
+// }
 
-impl<'data> Qwen3ForCausalLM<'data> {
-    pub fn from_pretrained<T: SafeTensors<'data>>(
-        config: &Qwen3Config,
-        cache_dir: &Path,
-        safetensors: &'data T,
-    ) -> Result<Self> {
-        Ok(Self {
-            model: Qwen3Model::from_pretrained(config, cache_dir, safetensors)?,
-            vocab_size: config.vocab_size,
-            lm_head: Linear::from_pretrained("lm_head", false, safetensors)?,
-        })
-    }
+// impl<'data> Qwen3ForCausalLM<'data> {
+//     pub fn from_pretrained<T: SafeTensors<'data>>(
+//         config: &Qwen3Config,
+//         cache_dir: &Path,
+//         safetensors: &'data T,
+//     ) -> Result<Self> {
+//         Ok(Self {
+//             model: Qwen3Model::from_pretrained(config, cache_dir, safetensors)?,
+//             vocab_size: config.vocab_size,
+//             lm_head: Linear::from_pretrained("lm_head", false, safetensors)?,
+//         })
+//     }
 
-    pub fn generate(
-        &mut self,
-        model_inputs: QwenModelInputs<'data>,
-        _max_new_tokens: usize,
-    ) -> Result<NodeRef<'data>> {
-        self.forward(model_inputs)
-    }
-}
+//     pub fn generate(
+//         &mut self,
+//         model_inputs: QwenModelInputs<'data>,
+//         _max_new_tokens: usize,
+//     ) -> Result<NodeRef<'data>> {
+//         self.forward(model_inputs)
+//     }
+// }
 
-impl<'data> Module<'data, QwenModelInputs<'data>, NodeRef<'data>> for Qwen3ForCausalLM<'data> {
-    fn forward(&mut self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data>> {
-        let hidden_states = self.model.forward(model_inputs)?;
-        self.lm_head.forward(hidden_states.hidden_states)
-    }
+// impl<'data> Module<'data, QwenModelInputs<'data>, NodeRef<'data>> for Qwen3ForCausalLM<'data> {
+//     fn forward(&mut self, model_inputs: QwenModelInputs<'data>) -> Result<NodeRef<'data>> {
+//         let hidden_states = self.model.forward(model_inputs)?;
+//         self.lm_head.forward(hidden_states.hidden_states)
+//     }
 
-    fn parameters(&self) -> Vec<NodeRef<'data>> {
-        todo!()
-    }
-}
+//     fn parameters(&self) -> Vec<NodeRef<'data>> {
+//         todo!()
+//     }
+// }

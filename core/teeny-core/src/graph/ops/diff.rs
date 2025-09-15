@@ -11,14 +11,14 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received     a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::graph::shape::DynamicShape;
 use crate::graph::{NodeOp, NodeRef, ops::Op};
-use crate::tensor::shape::DynamicShape;
 
 #[derive(Debug, Clone)]
 pub struct DiffOp<'data> {

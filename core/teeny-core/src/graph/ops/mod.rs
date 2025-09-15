@@ -17,7 +17,7 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::tensor::shape::DynamicShape;
+use crate::graph::shape::DynamicShape;
 
 pub mod add;
 pub mod and;

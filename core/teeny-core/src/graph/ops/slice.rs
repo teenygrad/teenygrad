@@ -19,8 +19,8 @@ use std::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToIncl
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
+use crate::graph::shape::DynamicShape;
 use crate::graph::{NodeOp, NodeRef, ops::Op};
-use crate::tensor::shape::DynamicShape;
 
 /// Enum representing different types of slice indices
 #[derive(Debug, Clone)]

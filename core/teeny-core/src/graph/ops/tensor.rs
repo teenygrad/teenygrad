@@ -18,11 +18,11 @@
 #[cfg(feature = "ndarray")]
 use ndarray::IxDyn;
 
-use crate::num::bf16::bf16;
+use crate::types::bf16::bf16;
 use crate::{dtype::DtypeEnum, error::Result};
 use crate::{
+    graph::shape::DynamicShape,
     graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::DynamicShape,
 };
 
 /*--------------------------------- TensorUsize ---------------------------------*/

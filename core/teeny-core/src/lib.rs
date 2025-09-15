@@ -20,10 +20,10 @@ pub mod error;
 pub mod graph;
 pub mod macros;
 pub mod nn;
-pub mod num;
 pub mod safetensors;
 pub mod storage;
 pub mod tensor;
+pub mod types;
 pub mod util;
 pub mod value;
 

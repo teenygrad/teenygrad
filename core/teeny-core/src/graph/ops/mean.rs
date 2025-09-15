@@ -17,10 +17,10 @@
 
 use crate::dtype::DtypeEnum;
 use crate::error::Result;
-use crate::tensor::shape::DynamicShape;
+use crate::graph::shape::DynamicShape;
 use crate::{
+    graph::shape::Shape,
     graph::{NodeOp, NodeRef, ops::Op},
-    tensor::shape::Shape,
 };
 
 #[derive(Debug, Clone)]

@@ -15,7 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod bf16;
-pub mod bool;
-pub mod f32;
-pub mod usize;
+use crate::graph::NodeRef;
+
+pub type LongTensor<'data> = NodeRef<'data>;
+
+pub type FloatTensor<'data> = NodeRef<'data>;

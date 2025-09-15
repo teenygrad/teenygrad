@@ -17,8 +17,8 @@
 
 use std::ops::{Add, Div, Sub};
 
-use crate::num::bf16::bf16;
-use crate::num::bool::Bool;
+use crate::types::bf16::bf16;
+use crate::types::bool::Bool;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
