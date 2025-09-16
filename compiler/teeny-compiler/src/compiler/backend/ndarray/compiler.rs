@@ -15,29 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::dtype;
+#[derive(Debug, Clone, Default)]
+pub struct NdarrayCompiler {}
 
-use crate::backend::llvm::{compiler::MlirCompiler, module::MlirModule};
-
-#[cfg(feature = "ndarray")]
-use crate::backend::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
-
-#[cfg(feature = "ndarray")]
-pub mod ndarray;
-
-pub mod llvm;
-
-#[derive(Debug, Clone)]
-pub enum Module<N: dtype::Dtype> {
-    Mlir(MlirModule<N>),
-
-    #[cfg(feature = "ndarray")]
-    Ndarray(NdarrayModule<N>),
-}
-
-pub enum Compiler<N: dtype::Dtype> {
-    Mlir(MlirCompiler<N>),
-
-    #[cfg(feature = "ndarray")]
-    Ndarray(NdarrayCompiler<N>),
+impl NdarrayCompiler {
+    pub fn new() -> Self {
+        Self {}
+    }
 }

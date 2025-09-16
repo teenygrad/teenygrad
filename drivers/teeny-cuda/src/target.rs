@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::collections::HashMap;
+
 use derive_more::Display;
 
 use crate::error::Error;
@@ -22,23 +24,23 @@ use crate::error::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Capability {
     #[display("sm_60")]
-    PascalSm60,
+    Sm60,
     #[display("sm_61")]
-    PascalSm61,
+    Sm61,
     #[display("sm_70")]
-    VoltaSm70,
+    Sm70,
     #[display("sm_72")]
-    VoltaSm72,
+    Sm72,
     #[display("sm_75")]
-    TuringSm75,
+    Sm75,
     #[display("sm_80")]
-    AmpereSm80,
+    Sm80,
     #[display("sm_86")]
-    AmpereSm86,
+    Sm86,
     #[display("sm_89")]
-    HopperSm89,
+    Sm89,
     #[display("sm_90")]
-    AdaLovelaceSm90,
+    Sm90,
 }
 
 #[derive(Debug, Clone)]
@@ -62,23 +64,27 @@ impl TryFrom<(i32, i32)> for Target {
     type Error = Error;
 
     fn try_from((major, minor): (i32, i32)) -> std::result::Result<Self, Self::Error> {
-        let capability = match (major, minor) {
-            (6, 0) => Capability::PascalSm60,
-            (6, 1) => Capability::PascalSm61,
-            (7, 0) => Capability::VoltaSm70,
-            (7, 2) => Capability::VoltaSm72,
-            (7, 5) => Capability::TuringSm75,
-            (8, 0) => Capability::AmpereSm80,
-            (8, 6) => Capability::AmpereSm86,
-            (8, 9) => Capability::HopperSm89,
-            (9, 0) => Capability::AdaLovelaceSm90,
-            _ => {
-                return Err(Error::UnknownCapability(format!(
-                    "Capability not found: {major}.{minor}"
-                )));
-            }
-        };
+        let capabilities: HashMap<i32, Capability> = vec![
+            (60, Capability::Sm60),
+            (61, Capability::Sm61),
+            (70, Capability::Sm70),
+            (72, Capability::Sm72),
+            (75, Capability::Sm75),
+            (80, Capability::Sm80),
+            (86, Capability::Sm86),
+            (89, Capability::Sm89),
+            (90, Capability::Sm90),
+        ]
+        .into_iter()
+        .collect();
+        let capability = capabilities.get(&(major * 10 + minor)).cloned();
 
-        Ok(Self { capability })
+        if let Some(capability) = capability {
+            return Ok(Self { capability });
+        }
+
+        Err(Error::UnknownCapability(format!(
+            "Capability not found: {major}.{minor}"
+        )))
     }
 }

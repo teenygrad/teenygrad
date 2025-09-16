@@ -15,17 +15,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::dtype;
+use crate::{compiler::target::Target, error::Result};
 
 #[derive(Debug, Clone, Default)]
-pub struct MlirCompiler<N: dtype::Dtype> {
-    _marker: std::marker::PhantomData<N>,
-}
+pub struct LlvmCompiler {}
 
-impl<N: dtype::Dtype> MlirCompiler<N> {
+impl LlvmCompiler {
     pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
+        Self {}
+    }
+
+    pub fn compile(
+        &self,
+        _kernel: &teeny_triton::triton::TritonKernel,
+        _target: &Target,
+    ) -> Result<()> {
+        // 1. Parse the kernel into a AST
+        // 2. Semantic analysis
+        // 3. MLIR code generation
+        // 4. LLVM compilation
+        todo!()
     }
 }

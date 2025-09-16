@@ -15,7 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod expr;
-pub mod jit;
-pub mod jit_module;
 pub mod kernel;

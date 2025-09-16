@@ -22,3 +22,10 @@ pub mod program;
 pub use mem::*;
 pub use ops::*;
 pub use program::*;
+
+#[derive(Debug)]
+pub struct TritonKernel {
+    pub name: &'static str,
+    pub sig: &'static str,
+    pub block_str: &'static str,
+}

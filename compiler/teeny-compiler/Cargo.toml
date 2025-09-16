@@ -10,6 +10,7 @@ cuda = ["teeny-cuda"]
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
+teeny-triton = { path = "../../kernels/teeny-triton" }
 teeny-llvm = { path = "../teeny-llvm" }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
@@ -17,5 +18,10 @@ ndarray = { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true
+syn.workspace = true
+proc-macro2.workspace = true
 egg.workspace = true
 z3.workspace = true
+
+[dev-dependencies]
+teeny-kernels = { path = "../../kernels/teeny-kernels" }

@@ -21,6 +21,7 @@ use teeny_cpu::target::Target as CpuTarget;
 #[cfg(feature = "cuda")]
 use teeny_cuda::target::Target as CudaTarget;
 
+#[derive(Debug, Clone)]
 pub enum Target {
     #[cfg(feature = "cpu")]
     Cpu(CpuTarget),
