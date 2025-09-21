@@ -7,3 +7,7 @@
 [submodule "support/teeny-onnx/onnx"]
 	path = support/teeny-onnx/onnx
 	url = git@github.com:onnx/onnx
+[submodule "compiler/rustx"]
+	path = compiler/rustx
+	url = git@github.com:teenygrad/rustx.git
+	branch = tg-1.90.0
