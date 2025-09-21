@@ -11,7 +11,6 @@ cuda = ["teeny-cuda"]
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../../kernels/teeny-triton" }
-teeny-llvm = { path = "../teeny-llvm" }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 ndarray = { workspace = true, optional = true }

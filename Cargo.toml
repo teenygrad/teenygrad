@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = [ "core/*", "compiler/*", "kernels/*", "macros/*", "models/*", "support/*", "drivers/*", "torch/*", "utilities/*", "apps/*"]
+members = [ "core/*", "kernels/*", "macros/*", "models/*", "support/*", "drivers/*", "torch/*", "utilities/*", "apps/*",
+"compiler/teeny-compiler", "compiler/rustx/compiler/*"]
+
+exclude = [
+  "compiler/rustx/compiler/rustc_codegen_cranelift",
+]
 
 [workspace.dependencies]
 protobuf = "3.7.2"
