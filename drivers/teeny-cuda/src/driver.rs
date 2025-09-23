@@ -21,7 +21,7 @@ use crate::device::CudaDevice;
 use crate::device::DeviceProperties;
 use crate::error::Error;
 use crate::error::Result;
-use crate::target::Target;
+use crate::target::CudaTarget;
 
 #[derive(Debug)]
 pub struct CudaDriver;
@@ -67,7 +67,7 @@ impl CudaDriver {
                     l2_cache_size: props.l2CacheSize,
                     concurrent_kernels: props.concurrentKernels,
                     compute_mode: props.computeMode,
-                    target: Target::try_from((props.major, props.minor))?,
+                    target: CudaTarget::try_from((props.major, props.minor))?,
                 },
             };
             devices.push(device);

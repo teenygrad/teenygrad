@@ -4764,6 +4764,7 @@ dependencies = [
  "egg",
  "ndarray",
  "proc-macro2",
+ "rustc_driver",
  "syn",
  "teeny-core",
  "teeny-cpu",

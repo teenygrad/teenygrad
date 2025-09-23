@@ -15,6 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::fs::File;
+use std::io::Write;
+
+use rustc_driver::{TimePassesCallbacks, run_compiler};
+
 use crate::{compiler::target::Target, error::Result};
 
 #[derive(Debug, Clone, Default)]
@@ -27,13 +32,32 @@ impl LlvmCompiler {
 
     pub fn compile(
         &self,
-        _kernel: &teeny_triton::triton::TritonKernel,
+        kernel: &teeny_triton::triton::TritonKernel,
         _target: &Target,
     ) -> Result<()> {
-        // 1. Parse the kernel into a AST
-        // 2. Semantic analysis
-        // 3. MLIR code generation
-        // 4. LLVM compilation
-        todo!()
+        let filename = "/tmp/kernel.txt".to_string();
+        let mut file = File::create(&filename)?;
+        file.write_all(kernel.block_str.as_bytes())?;
+
+        let mut callbacks = TimePassesCallbacks::default();
+        let output = "-o /tmp/kernel.ll".to_string();
+
+        run_compiler(&[filename, output], &mut callbacks);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use teeny_cuda::target::{Capability, CudaTarget};
+
+    use super::*;
+
+    #[test]
+    fn test_compile() {
+        let compiler = LlvmCompiler::new();
+        let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
+        let target = Target::Cuda(CudaTarget::new(Capability::Sm89));
+        let result = compiler.compile(&tensor_add, &target);
     }
 }

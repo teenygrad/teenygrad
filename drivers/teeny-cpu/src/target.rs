@@ -44,20 +44,20 @@ pub enum Abi {
 }
 
 #[derive(Debug, Clone)]
-pub struct Target {
+pub struct CpuTarget {
     pub arch: Arch,
     pub vendor: Vendor,
     pub os: Os,
     pub abi: Abi,
 }
 
-impl std::fmt::Display for Target {
+impl std::fmt::Display for CpuTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-{}-{}-{}", self.arch, self.vendor, self.os, self.abi)
     }
 }
 
-impl TryFrom<&str> for Target {
+impl TryFrom<&str> for CpuTarget {
     type Error = Error;
 
     fn try_from(target: &str) -> std::result::Result<Self, Self::Error> {
@@ -87,7 +87,7 @@ impl TryFrom<&str> for Target {
             _ => return Err(Error::InvalidTarget(format!("Invalid target: {target:?}"))),
         };
 
-        Ok(Self {
+        Ok(CpuTarget {
             arch,
             vendor,
             os,

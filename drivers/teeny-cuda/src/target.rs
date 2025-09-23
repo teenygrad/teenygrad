@@ -44,23 +44,23 @@ pub enum Capability {
 }
 
 #[derive(Debug, Clone)]
-pub struct Target {
+pub struct CudaTarget {
     pub capability: Capability,
 }
 
-impl std::fmt::Display for Target {
+impl std::fmt::Display for CudaTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "cuda-{}", self.capability)
     }
 }
 
-impl Target {
+impl CudaTarget {
     pub fn new(capability: Capability) -> Self {
         Self { capability }
     }
 }
 
-impl TryFrom<(i32, i32)> for Target {
+impl TryFrom<(i32, i32)> for CudaTarget {
     type Error = Error;
 
     fn try_from((major, minor): (i32, i32)) -> std::result::Result<Self, Self::Error> {

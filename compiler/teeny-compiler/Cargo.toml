@@ -13,6 +13,7 @@ teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../../kernels/teeny-triton" }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
+rustc_driver = { path = "../rustx/compiler/rustc_driver" }
 ndarray = { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true

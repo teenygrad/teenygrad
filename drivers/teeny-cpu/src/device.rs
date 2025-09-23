@@ -15,12 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::target::Target;
+use crate::target::CpuTarget;
 
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {
     pub host: &'static str,
-    pub target: Target,
+    pub target: CpuTarget,
 }
 
 #[derive(Debug, Clone)]

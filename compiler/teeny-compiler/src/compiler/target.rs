@@ -16,10 +16,10 @@
  */
 
 #[cfg(feature = "cpu")]
-use teeny_cpu::target::Target as CpuTarget;
+use teeny_cpu::target::CpuTarget;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::target::Target as CudaTarget;
+use teeny_cuda::target::CudaTarget;
 
 #[derive(Debug, Clone)]
 pub enum Target {

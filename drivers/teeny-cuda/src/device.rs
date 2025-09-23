@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::target::Target;
+use crate::target::CudaTarget;
 
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {
@@ -37,7 +37,7 @@ pub struct DeviceProperties {
     pub l2_cache_size: i32,
     pub concurrent_kernels: i32,
     pub compute_mode: i32,
-    pub target: Target,
+    pub target: CudaTarget,
 }
 
 #[derive(Debug, Clone)]

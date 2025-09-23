@@ -20,7 +20,7 @@ use target_triple::{HOST, TARGET};
 use crate::device::{CpuDevice, DeviceProperties};
 
 use crate::error::Result;
-use crate::target::Target;
+use crate::target::CpuTarget;
 
 pub struct CpuDriver;
 
@@ -31,7 +31,7 @@ impl CpuDriver {
             name: "CPU".to_string(),
             properties: DeviceProperties {
                 host: HOST,
-                target: Target::try_from(TARGET)?,
+                target: CpuTarget::try_from(TARGET)?,
             },
         };
 

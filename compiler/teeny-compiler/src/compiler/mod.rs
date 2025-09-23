@@ -45,7 +45,7 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_compile_vector_add() {
-        use teeny_cuda::target::{Capability, Target as CudaTarget};
+        use teeny_cuda::target::{Capability, CudaTarget};
 
         let target = Target::Cuda(CudaTarget::new(Capability::Sm89));
         let kernel = &teeny_kernels::math::add::tensor_add_kernel;
