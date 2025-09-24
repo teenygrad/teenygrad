@@ -33,16 +33,18 @@ impl LlvmCompiler {
     pub fn compile(
         &self,
         kernel: &teeny_triton::triton::TritonKernel,
-        _target: &Target,
+        target: &Target,
     ) -> Result<()> {
         let filename = "/tmp/kernel.txt".to_string();
         let mut file = File::create(&filename)?;
         file.write_all(kernel.block_str.as_bytes())?;
 
         let mut callbacks = TimePassesCallbacks::default();
+        let exe_name = "rustc".to_string(); // AXM FIXME: remove this once API changes
         let output = "-o /tmp/kernel.ll".to_string();
-
-        run_compiler(&[filename, output], &mut callbacks);
+        let target = format!("-t{}", target);
+        println!("target: {}", target);
+        run_compiler(&[exe_name, filename, output, target], &mut callbacks);
         Ok(())
     }
 }
@@ -58,6 +60,7 @@ mod tests {
         let compiler = LlvmCompiler::new();
         let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
         let target = Target::Cuda(CudaTarget::new(Capability::Sm89));
-        let result = compiler.compile(&tensor_add, &target);
+        let result = compiler.compile(tensor_add, &target);
+        assert!(result.is_ok());
     }
 }

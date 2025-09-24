@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::fmt::Display;
+
 #[cfg(feature = "cpu")]
 use teeny_cpu::target::CpuTarget;
 
@@ -39,5 +41,14 @@ impl From<CpuTarget> for Target {
 impl From<CudaTarget> for Target {
     fn from(target: CudaTarget) -> Self {
         Target::Cuda(target)
+    }
+}
+
+impl Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Target::Cpu(target) => write!(f, "{}", target),
+            Target::Cuda(target) => write!(f, "nvidia-{}", target),
+        }
     }
 }
