@@ -33,16 +33,16 @@ impl LlvmCompiler {
     pub fn compile(
         &self,
         kernel: &teeny_triton::triton::TritonKernel,
-        target: &Target,
+        _target: &Target,
     ) -> Result<()> {
         let filename = "/tmp/kernel.txt".to_string();
         let mut file = File::create(&filename)?;
         file.write_all(kernel.block_str.as_bytes())?;
 
         let mut callbacks = TimePassesCallbacks::default();
-        let exe_name = "rustc".to_string(); // AXM FIXME: remove this once API changes
+        let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
         let output = "-o /tmp/kernel.ll".to_string();
-        let target = format!("-t{}", target);
+        let target = "-tnvptx64-nvidia-cuda".to_string();
         println!("target: {}", target);
         run_compiler(&[exe_name, filename, output, target], &mut callbacks);
         Ok(())
