@@ -76,84 +76,88 @@ pub trait Sized : MetaSized + PointeeSized {}
 #[lang = "copy"]
 pub trait Copy {}
 
-// Basic types
-pub struct bool;
-pub struct char;
-pub struct i8;
-pub struct i16;
-pub struct i32;
-pub struct i64;
-pub struct i128;
-pub struct isize;
-pub struct u8;
-pub struct u16;
-pub struct u32;
-pub struct u64;
-pub struct u128;
-pub struct usize;
-pub struct f32;
-pub struct f64;
+// Arithmetic operation lang items
+#[lang = "mul"]
+pub trait Mul<RHS = Self> {
+    type Output;
+    fn mul(self, rhs: RHS) -> Self::Output;
+}
 
-// Basic traits
-impl Copy for i8 {}
-impl Copy for i16 {}
-impl Copy for i32 {}
-impl Copy for i64 {}
-impl Copy for i128 {}
-impl Copy for isize {}
-impl Copy for u8 {}
-impl Copy for u16 {}
-impl Copy for u32 {}
-impl Copy for u64 {}
-impl Copy for u128 {}
-impl Copy for usize {}
-impl Copy for f32 {}
-impl Copy for f64 {}
-impl Copy for bool {}
-impl Copy for char {}
+impl Mul for i32 {
+    type Output = i32;
+    fn mul(self, _rhs: i32) -> i32 {
+        loop {}
+    }
+}
+
+#[lang = "add"]
+pub trait Add<RHS = Self> {
+    type Output;
+    fn add(self, rhs: RHS) -> Self::Output;
+}
+
+impl Add for i32 {
+    type Output = i32;
+    fn add(self, _rhs: i32) -> i32 {
+        loop {}
+    }
+}
+
+pub trait Dtype: 'static {}
+
+pub enum Mask<T: Tensor<i32>> {
+    None,
+    Some(T),
+}   
+
+impl Dtype for i32 {}
+
+pub trait Tensor<T: Dtype> : Add<i32>{    
+}    
+
+pub struct TensorImpl<T: Dtype> {
+    x: T,
+}
+
+pub struct Pointer<T: Dtype> {
+    x: T,
+}
+
+impl <D: Dtype> Add<Pointer<D>> for Pointer<D> {
+    type Output = Pointer<D>;
+    fn add(self, rhs: Pointer<D>) -> Pointer<D> {
+        loop {}
+    }
+}
 
 mod tl {
+    pub use super::*;
+
     pub enum ProgramAxis {
         Axis0,
         Axis1,
         Axis2,
     }
 
-    pub trait Dtype: 'static {
-    }
-
-    pub trait Tensor<D: Dtype> {
-    }    
-
-    pub struct TensorImpl<D: Dtype> {
-    }
-
-    pub struct Pointer<T: Dtype> {
-    }
-
-    pub enum Mask<T: Tensor<i32>> {
-        None,
-        Some(T),
-    }   
-
     pub fn program_id(_axis: ProgramAxis) -> i32 {
-        0 
+        loop {}
     }
 
     pub fn num_programs(_axis: ProgramAxis) -> i32 {
-        0
+        loop {}
     }
 
-    pub fn load<D: Dtype, MT: Tensor<i32>>(ptr: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
-       ptr
+    pub fn load<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
+       loop {}
     }
 
-    pub fn store<D: Dtype, MT: Tensor<i32>>(ptr: Pointer<D>, _ptr1: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
-        ptr
+    pub fn store<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _ptr1: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
+        loop {}
     }
 
-    // Note: arange function removed for no_core compatibility
-    // This would need to be implemented differently in a real no_core environment
+    pub fn arange<T: Tensor<i32>>(_start: i32, _end: i32) -> T {
+        loop {}
+    }
 
 }
 
