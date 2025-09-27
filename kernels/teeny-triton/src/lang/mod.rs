@@ -15,6 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod error;
-pub mod lang;
-pub mod triton;
+pub static CORE: &str = include_str!("core.rs");
+
+pub static TRITON: &str = include_str!("triton.rs");

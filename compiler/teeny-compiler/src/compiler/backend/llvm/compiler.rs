@@ -38,7 +38,8 @@ impl LlvmCompiler {
         let filename = "/tmp/kernel.txt".to_string();
         let mut file = File::create(&filename)?;
 
-        file.write_all(LlvmCompiler::triton().as_bytes())?;
+        file.write_all(teeny_triton::lang::CORE.as_bytes())?;
+        file.write_all(teeny_triton::lang::TRITON.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;
 
         let mut callbacks = TimePassesCallbacks::default();
@@ -52,117 +53,6 @@ impl LlvmCompiler {
             &mut callbacks,
         );
         Ok(())
-    }
-
-    fn triton() -> &'static str {
-        r#"
-#![allow(non_camel_case_types)]
-#![allow(internal_features)]
-#![feature(no_core)]
-#![feature(lang_items)]
-#![no_core]
-#![no_implicit_prelude]
-
-#[lang = "meta_sized"]
-pub trait MetaSized {}
-
-#[lang = "pointee_sized"]
-pub trait PointeeSized {}
-
-// Required language items for no_core
-#[lang = "sized"]
-pub trait Sized : MetaSized + PointeeSized {}
-
-#[lang = "copy"]
-pub trait Copy {}
-
-// Arithmetic operation lang items
-#[lang = "mul"]
-pub trait Mul<RHS = Self> {
-    type Output;
-    fn mul(self, rhs: RHS) -> Self::Output;
-}
-
-impl Mul for i32 {
-    type Output = i32;
-    fn mul(self, _rhs: i32) -> i32 {
-        loop {}
-    }
-}
-
-#[lang = "add"]
-pub trait Add<RHS = Self> {
-    type Output;
-    fn add(self, rhs: RHS) -> Self::Output;
-}
-
-impl Add for i32 {
-    type Output = i32;
-    fn add(self, _rhs: i32) -> i32 {
-        loop {}
-    }
-}
-
-pub trait Dtype: 'static {}
-
-pub enum Mask<T: Tensor<i32>> {
-    None,
-    Some(T),
-}   
-
-impl Dtype for i32 {}
-
-pub trait Tensor<T: Dtype> : Add<i32>{    
-}    
-
-pub struct TensorImpl<T: Dtype> {
-    x: T,
-}
-
-pub struct Pointer<T: Dtype> {
-    x: T,
-}
-
-impl <D: Dtype> Add<Pointer<D>> for Pointer<D> {
-    type Output = Pointer<D>;
-    fn add(self, rhs: Pointer<D>) -> Pointer<D> {
-        loop {}
-    }
-}
-
-mod tl {
-    pub use super::*;
-
-    pub enum ProgramAxis {
-        Axis0,
-        Axis1,
-        Axis2,
-    }
-
-    pub fn program_id(_axis: ProgramAxis) -> i32 {
-        loop {}
-    }
-
-    pub fn num_programs(_axis: ProgramAxis) -> i32 {
-        loop {}
-    }
-
-    pub fn load<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
-       loop {}
-    }
-
-    pub fn store<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _ptr1: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
-        loop {}
-    }
-
-    pub fn arange<T: Tensor<i32>>(_start: i32, _end: i32) -> T {
-        loop {}
-    }
-
-}
-
-use crate::tl::*;
-"#
     }
 }
 
