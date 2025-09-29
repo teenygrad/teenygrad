@@ -17,8 +17,11 @@
 
 #![allow(non_camel_case_types)]
 #![allow(internal_features)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]
 #![feature(no_core)]
 #![feature(lang_items)]
+#![feature(arbitrary_self_types)]
 #![no_core]
 #![no_implicit_prelude]
 
@@ -34,6 +37,9 @@ pub trait Sized: MetaSized + PointeeSized {}
 
 #[lang = "copy"]
 pub trait Copy {}
+
+#[lang = "legacy_receiver"]
+pub trait LegacyReceiver {}
 
 // Arithmetic operation lang items
 #[lang = "mul"]

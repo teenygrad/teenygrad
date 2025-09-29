@@ -24,19 +24,30 @@ pub enum Mask<T: Tensor<i32>> {
 
 impl Dtype for i32 {}
 
-pub trait Tensor<T: Dtype>: Add<i32> {}
+pub trait Tensor<T: Dtype>: Add<i32, Output = Self> {
+    fn lt<U: Dtype>(&self, other: U) -> Self;
+}
+
+impl<T: Tensor<i32>> LegacyReceiver for &T {}
 
 pub struct TensorImpl<T: Dtype> {
-    x: T,
+    _x: T,
 }
 
 pub struct Pointer<T: Dtype> {
-    x: T,
+    _x: T,
 }
 
 impl<D: Dtype> Add<Pointer<D>> for Pointer<D> {
     type Output = Pointer<D>;
-    fn add(self, rhs: Pointer<D>) -> Pointer<D> {
+    fn add(self, _rhs: Pointer<D>) -> Pointer<D> {
+        loop {}
+    }
+}
+
+impl<D: Dtype, T: Tensor<i32>> Add<&T> for &Pointer<D> {
+    type Output = Pointer<D>;
+    fn add(self, _rhs: &T) -> Pointer<D> {
         loop {}
     }
 }
@@ -50,18 +61,22 @@ mod tl {
         Axis2,
     }
 
+    #[inline(never)]
     pub fn program_id(_axis: ProgramAxis) -> i32 {
-        loop {}
+        0 as i32
     }
 
+    #[inline(never)]
     pub fn num_programs(_axis: ProgramAxis) -> i32 {
-        loop {}
+        0 as i32
     }
 
+    #[inline(never)]
     pub fn load<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
         loop {}
     }
 
+    #[inline(never)]
     pub fn store<D: Dtype, MT: Tensor<i32>>(
         _ptr: Pointer<D>,
         _ptr1: Pointer<D>,
@@ -70,6 +85,7 @@ mod tl {
         loop {}
     }
 
+    #[inline(never)]
     pub fn arange<T: Tensor<i32>>(_start: i32, _end: i32) -> T {
         loop {}
     }

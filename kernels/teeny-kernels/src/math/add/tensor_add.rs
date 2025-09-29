@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#![allow(non_snake_case)]
+
 use teeny_core::{dtype::Dtype, tensor::Tensor};
 use teeny_macros::kernel;
 use teeny_triton::triton::{self as tl, Mask, Pointer, ProgramAxis};
@@ -29,22 +31,22 @@ pub fn tensor_add<D: Dtype, T: Tensor<i32>>(
 ) {
     let pid = tl::program_id(ProgramAxis::Axis0);
 
-    // Calculate the starting offset for this block
-    let block_start = pid * BLOCK_SIZE;
+    // // Calculate the starting offset for this block
+    // let block_start = pid * BLOCK_SIZE;
 
-    // Create offsets for the elements this block will process
-    let offsets = tl::arange::<T>(0, BLOCK_SIZE) + block_start;
+    // // Create offsets for the elements this block will process
+    // let offsets = tl::arange::<T>(0, BLOCK_SIZE) + block_start;
 
-    // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
-    let mask = Mask::Some(offsets.lt(n_elements));
+    // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
+    // let mask = Mask::Some(offsets.lt(n_elements));
 
-    // Load data from global memory with masking
-    let x = tl::load(x_ptr + &offsets, &mask);
-    let y = tl::load(y_ptr + &offsets, &mask);
+    // // Load data from global memory with masking
+    // let x = tl::load(x_ptr + &offsets, &mask);
+    // let y = tl::load(y_ptr + &offsets, &mask);
 
-    // Perform element-wise addition
-    let output = x + y;
+    // // Perform element-wise addition
+    // let output = x + y;
 
-    // Store result back to global memory
-    tl::store(output_ptr + &offsets, output, &mask);
+    // // Store result back to global memory
+    // tl::store(output_ptr + &offsets, output, &mask);
 }
