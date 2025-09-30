@@ -4772,6 +4772,8 @@ dependencies = [
  "teeny-kernels",
  "teeny-triton",
  "thiserror 2.0.16",
+ "tracing",
+ "tracing-subscriber",
  "z3",
 ]
 

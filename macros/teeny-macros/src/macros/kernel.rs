@@ -31,9 +31,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         #[allow(non_snake_case)]
         #[allow(clippy::too_many_arguments)]
         #(#attrs)*
-        #vis #sig {
-            #block
-        }
+        #vis #sig #block
     }
     .into();
 
@@ -41,9 +39,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     let static_ident = Ident::new(kernel_name, input.sig.ident.span());
     let sig_str = quote!(#sig).to_string();
     let block_str = quote!(
-      #sig {
-            #block
-        }
+      #vis #sig #block
     )
     .to_string();
     let static_stream: TokenStream = quote! (

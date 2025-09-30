@@ -19,3 +19,12 @@ pub mod error;
 pub mod fxgraph;
 
 mod compiler;
+
+/// Initialize logging for the teeny-compiler
+pub fn init_logging() {
+    use tracing_subscriber::{EnvFilter, fmt};
+
+    let _ = fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
+}

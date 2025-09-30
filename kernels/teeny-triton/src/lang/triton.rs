@@ -17,39 +17,26 @@
 
 pub trait Dtype: 'static {}
 
-pub enum Mask<T: Tensor<i32>> {
-    None,
-    Some(T),
-}
-
 impl Dtype for i32 {}
+impl Dtype for f32 {}
 
-pub trait Tensor<T: Dtype>: Add<i32, Output = Self> {
-    fn lt<U: Dtype>(&self, other: U) -> Self;
-}
+pub trait Tensor<T: Dtype> {}
 
 impl<T: Tensor<i32>> LegacyReceiver for &T {}
 
 pub struct TensorImpl<T: Dtype> {
-    _x: T,
+    pub x: T,
 }
+
+impl<T: Dtype> Tensor<T> for TensorImpl<T> {}
 
 pub struct Pointer<T: Dtype> {
-    _x: T,
+    ptr: *mut T,
 }
 
-impl<D: Dtype> Add<Pointer<D>> for Pointer<D> {
-    type Output = Pointer<D>;
-    fn add(self, _rhs: Pointer<D>) -> Pointer<D> {
-        loop {}
-    }
-}
-
-impl<D: Dtype, T: Tensor<i32>> Add<&T> for &Pointer<D> {
-    type Output = Pointer<D>;
-    fn add(self, _rhs: &T) -> Pointer<D> {
-        loop {}
-    }
+pub enum Mask<T: Tensor<i32>> {
+    None,
+    Some(T),
 }
 
 mod tl {
@@ -63,12 +50,12 @@ mod tl {
 
     #[inline(never)]
     pub fn program_id(_axis: ProgramAxis) -> i32 {
-        0 as i32
+        0
     }
 
     #[inline(never)]
     pub fn num_programs(_axis: ProgramAxis) -> i32 {
-        0 as i32
+        0
     }
 
     #[inline(never)]

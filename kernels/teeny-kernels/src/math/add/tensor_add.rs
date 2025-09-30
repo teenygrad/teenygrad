@@ -29,7 +29,7 @@ pub fn tensor_add<D: Dtype, T: Tensor<i32>>(
     n_elements: i32,
     BLOCK_SIZE: i32, // uppercase implies constexpr
 ) {
-    let pid = tl::program_id(ProgramAxis::Axis0);
+    let pid = tl::program_id(ProgramAxis::Axis0) + n_elements + BLOCK_SIZE;
 
     // // Calculate the starting offset for this block
     // let block_start = pid * BLOCK_SIZE;

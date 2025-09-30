@@ -15,10 +15,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::env;
 use std::fs::File;
 use std::io::Write;
 
 use rustc_driver::{TimePassesCallbacks, run_compiler};
+use tracing::{debug, info};
 
 use crate::{compiler::target::Target, error::Result};
 
@@ -35,23 +37,81 @@ impl LlvmCompiler {
         kernel: &teeny_triton::triton::TritonKernel,
         _target: &Target,
     ) -> Result<()> {
-        let filename = "/tmp/kernel.txt".to_string();
+        // Create a proper working directory for rustc
+        let temp_dir = env::temp_dir();
+        let working_dir = temp_dir.join("teenygrad_rustc");
+        debug!("Creating working directory: {}", working_dir.display());
+        std::fs::create_dir_all(&working_dir)?;
+
+        // Change to the working directory to avoid path issues
+        let original_dir = env::current_dir()?;
+        debug!(
+            "Changing directory from {} to {}",
+            original_dir.display(),
+            working_dir.display()
+        );
+        env::set_current_dir(&working_dir)?;
+
+        let filename = working_dir.join("kernel.txt");
+        debug!("Creating kernel file: {}", filename.display());
         let mut file = File::create(&filename)?;
 
+        let user_func = r#"
+            pub fn entry_point(
+                x_ptr: &Pointer<i32>,
+                y_ptr: &Pointer<i32>, 
+                output_ptr: &Pointer<i32>,
+                n_elements: i32,
+                BLOCK_SIZE: i32) 
+            {
+                tensor_add::<i32, TensorImpl<i32>>(x_ptr, y_ptr, output_ptr, n_elements, BLOCK_SIZE);
+            }
+        "#;
+
+        info!("Writing kernel code to file");
         file.write_all(teeny_triton::lang::CORE.as_bytes())?;
         file.write_all(teeny_triton::lang::TRITON.as_bytes())?;
+        file.write_all(user_func.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;
 
         let mut callbacks = TimePassesCallbacks::default();
         let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
-        let output = "-o /tmp/kernel.ll".to_string();
+        let output = format!("-o{}", working_dir.join("kernel.ll").display());
         let target = "-tnvptx64-nvidia-cuda".to_string();
         let crate_type = "--crate-type=lib".to_string();
-        println!("target: {}", target);
+        let emit = "--emit=llvm-ir".to_string();
+
+        info!("Working directory: {}", working_dir.display());
+        info!("Target: {}", target);
+        info!("Output: {}", output);
+        debug!(
+            "Rustc command: {} {} {} {} {}",
+            exe_name,
+            filename.display(),
+            output,
+            target,
+            crate_type
+        );
+
+        unsafe {
+            env::set_var("CFG_VERSION", "tg-1.90.0");
+        }
         run_compiler(
-            &[exe_name, filename, output, target, crate_type],
+            &[
+                exe_name,
+                filename.display().to_string(),
+                output,
+                target,
+                crate_type,
+                emit,
+            ],
             &mut callbacks,
         );
+
+        // Restore original directory
+        debug!("Restoring original directory: {}", original_dir.display());
+        env::set_current_dir(original_dir)?;
+
         Ok(())
     }
 }

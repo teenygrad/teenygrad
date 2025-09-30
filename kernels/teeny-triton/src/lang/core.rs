@@ -20,7 +20,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![feature(no_core)]
-#![feature(lang_items)]
+#![feature(intrinsics, lang_items)]
 #![feature(arbitrary_self_types)]
 #![no_core]
 #![no_implicit_prelude]
@@ -40,6 +40,15 @@ pub trait Copy {}
 
 #[lang = "legacy_receiver"]
 pub trait LegacyReceiver {}
+
+#[stable(feature = "test", since = "0.0.0")]
+impl Copy for usize {}
+
+// #[repr(transparent)]
+// pub struct i32(i32);
+
+// #[repr(transparent)]
+// pub struct f32(f32);
 
 // Arithmetic operation lang items
 #[lang = "mul"]
