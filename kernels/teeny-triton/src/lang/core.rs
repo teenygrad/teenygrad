@@ -41,14 +41,52 @@ pub trait Copy {}
 #[lang = "legacy_receiver"]
 pub trait LegacyReceiver {}
 
-#[stable(feature = "test", since = "0.0.0")]
+// Required language items for arithmetic operations
+#[lang = "panic_const_add_overflow"]
+pub fn panic_const_add_overflow() -> ! {
+    loop {}
+}
+
+#[lang = "panic_const_sub_overflow"]
+pub fn panic_const_sub_overflow() -> ! {
+    loop {}
+}
+
+#[lang = "panic_const_mul_overflow"]
+pub fn panic_const_mul_overflow() -> ! {
+    loop {}
+}
+
+#[lang = "panic_const_div_overflow"]
+pub fn panic_const_div_overflow() -> ! {
+    loop {}
+}
+
+#[lang = "panic_const_rem_overflow"]
+pub fn panic_const_rem_overflow() -> ! {
+    loop {}
+}
+
+#[lang = "panic_location"]
+pub struct PanicLocation {
+    pub file: &'static str,
+    pub line: u32,
+    pub column: u32,
+}
+
+// Explicitly implement Copy for usize to satisfy the type checker
 impl Copy for usize {}
 
-// #[repr(transparent)]
-// pub struct i32(i32);
-
-// #[repr(transparent)]
-// pub struct f32(f32);
+// Also implement Copy for other primitive types that might be needed
+impl Copy for i32 {}
+impl Copy for f32 {}
+impl Copy for i8 {}
+impl Copy for i16 {}
+impl Copy for i64 {}
+impl Copy for u8 {}
+impl Copy for u16 {}
+impl Copy for u32 {}
+impl Copy for u64 {}
 
 // Arithmetic operation lang items
 #[lang = "mul"]

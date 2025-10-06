@@ -57,7 +57,7 @@ impl LlvmCompiler {
         let mut file = File::create(&filename)?;
 
         let user_func = r#"
-            pub fn entry_point(
+            pub extern "C" fn entry_point(
                 x_ptr: &Pointer<i32>,
                 y_ptr: &Pointer<i32>, 
                 output_ptr: &Pointer<i32>,

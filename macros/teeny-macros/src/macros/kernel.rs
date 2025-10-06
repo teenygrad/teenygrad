@@ -39,7 +39,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     let static_ident = Ident::new(kernel_name, input.sig.ident.span());
     let sig_str = quote!(#sig).to_string();
     let block_str = quote!(
-      #vis #sig #block
+      #vis extern "C" #sig #block
     )
     .to_string();
     let static_stream: TokenStream = quote! (
