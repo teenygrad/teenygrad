@@ -80,6 +80,8 @@ impl LlvmCompiler {
         let target = "-tnvptx64-nvidia-cuda".to_string();
         let crate_type = "--crate-type=lib".to_string();
         let emit = "--emit=llvm-ir".to_string();
+        let overflow_checks = "-C".to_string();
+        let overflow_checks_off = "overflow-checks=off".to_string();
 
         info!("Working directory: {}", working_dir.display());
         info!("Target: {}", target);
@@ -104,6 +106,8 @@ impl LlvmCompiler {
                 target,
                 crate_type,
                 emit,
+                overflow_checks,
+                overflow_checks_off,
             ],
             &mut callbacks,
         );

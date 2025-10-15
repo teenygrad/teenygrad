@@ -97,7 +97,7 @@ pub trait Mul<RHS = Self> {
 
 impl Mul for i32 {
     type Output = i32;
-    fn mul(self, _rhs: i32) -> i32 {
+    fn mul(self, rhs: i32) -> i32 {
         loop {}
     }
 }
@@ -110,7 +110,46 @@ pub trait Add<RHS = Self> {
 
 impl Add for i32 {
     type Output = i32;
-    fn add(self, _rhs: i32) -> i32 {
+    fn add(self, rhs: i32) -> i32 {
+        loop {}
+    }
+}
+
+#[lang = "sub"]
+pub trait Sub<RHS = Self> {
+    type Output;
+    fn sub(self, rhs: RHS) -> Self::Output;
+}
+
+impl Sub for i32 {
+    type Output = i32;
+    fn sub(self, rhs: i32) -> i32 {
+        loop {}
+    }
+}
+
+#[lang = "div"]
+pub trait Div<RHS = Self> {
+    type Output;
+    fn div(self, rhs: RHS) -> Self::Output;
+}
+
+impl Div for i32 {
+    type Output = i32;
+    fn div(self, rhs: i32) -> i32 {
+        loop {}
+    }
+}
+
+#[lang = "rem"]
+pub trait Rem<RHS = Self> {
+    type Output;
+    fn rem(self, rhs: RHS) -> Self::Output;
+}
+
+impl Rem for i32 {
+    type Output = i32;
+    fn rem(self, rhs: i32) -> i32 {
         loop {}
     }
 }
