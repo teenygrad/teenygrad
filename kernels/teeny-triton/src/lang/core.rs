@@ -110,6 +110,7 @@ pub trait Add<RHS = Self> {
 
 impl Add for i32 {
     type Output = i32;
+    
     fn add(self, rhs: i32) -> i32 {
         loop {}
     }

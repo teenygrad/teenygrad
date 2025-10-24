@@ -20,18 +20,36 @@ pub trait Dtype: 'static {}
 impl Dtype for i32 {}
 impl Dtype for f32 {}
 
-pub trait Tensor<T: Dtype> {}
+pub trait Tensor<D: Dtype> {}
 
 impl<T: Tensor<i32>> LegacyReceiver for &T {}
 
-pub struct TensorImpl<T: Dtype> {
-    pub x: T,
+pub struct TensorImpl<D: Dtype> {
+    pub x: D,
 }
 
 impl<T: Dtype> Tensor<T> for TensorImpl<T> {}
 
-pub struct Pointer<T: Dtype> {
-    ptr: *mut T,
+impl<D: Dtype, T: Tensor<i32>> Add<&T> for &Pointer<D> {
+    type Output = Pointer<D>;
+
+    #[inline(never)]
+    fn add(self, _other: &T) -> Self::Output {
+        loop {}
+    }
+}
+
+pub struct Pointer<D: Dtype> {
+    ptr: *mut D,
+}
+
+impl<D: Dtype> Add<Pointer<D>> for Pointer<D> {
+    type Output = Pointer<D>;
+
+    #[inline(never)]
+    fn add(self, other: Pointer<D>) -> Self::Output {
+        other
+    }
 }
 
 pub enum Mask<T: Tensor<i32>> {

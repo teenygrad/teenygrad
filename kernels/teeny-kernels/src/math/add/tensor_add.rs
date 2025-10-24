@@ -29,24 +29,24 @@ pub fn tensor_add<D: Dtype, T: Tensor<i32>>(
     n_elements: i32,
     BLOCK_SIZE: i32, // uppercase implies constexpr
 ) {
-    let _ = tl::program_id(ProgramAxis::Axis0) + n_elements + BLOCK_SIZE;
+    let pid = tl::program_id(ProgramAxis::Axis0);
 
-    // // Calculate the starting offset for this block
-    // let block_start = pid * BLOCK_SIZE;
+    // Calculate the starting offset for this block
+    let block_start = pid * BLOCK_SIZE;
 
-    // // Create offsets for the elements this block will process
-    // let offsets = tl::arange::<T>(0, BLOCK_SIZE) + block_start;
+    // Create offsets for the elements this block will process
+    let offsets = tl::arange::<T>(0, BLOCK_SIZE) + block_start;
 
-    // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
-    // let mask = Mask::Some(offsets.lt(n_elements));
+    // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
+    let mask = Mask::Some(offsets.lt(n_elements));
 
-    // // Load data from global memory with masking
-    // let x = tl::load(x_ptr + &offsets, &mask);
-    // let y = tl::load(y_ptr + &offsets, &mask);
+    // Load data from global memory with masking
+    let x = tl::load(x_ptr + &offsets, &mask);
+    let y = tl::load(y_ptr + &offsets, &mask);
 
-    // // Perform element-wise addition
-    // let output = x + y;
+    // Perform element-wise addition
+    let output = x + y;
 
-    // // Store result back to global memory
-    // tl::store(output_ptr + &offsets, output, &mask);
+    // Store result back to global memory
+    tl::store(output_ptr + &offsets, output, &mask);
 }
