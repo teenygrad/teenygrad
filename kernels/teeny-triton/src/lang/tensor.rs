@@ -15,48 +15,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub enum Mask<T: Tensor<i32>> {
-    None,
-    Some(T),
+pub trait Tensor<D: Dtype> {}
+
+impl<T: Tensor<i32>> LegacyReceiver for &T {}
+
+pub struct TensorImpl<D: Dtype> {
+    pub x: D,
 }
 
-mod tl {
-    pub use super::*;
+impl<T: Dtype> Tensor<T> for TensorImpl<T> {}
 
-    pub enum ProgramAxis {
-        Axis0,
-        Axis1,
-        Axis2,
-    }
+impl<D: Dtype, T: Tensor<i32>> Add<&T> for &Pointer<D> {
+    type Output = Pointer<D>;
 
     #[inline(never)]
-    pub fn program_id(_axis: ProgramAxis) -> i32 {
-        0
-    }
-
-    #[inline(never)]
-    pub fn num_programs(_axis: ProgramAxis) -> i32 {
-        0
-    }
-
-    #[inline(never)]
-    pub fn load<D: Dtype, MT: Tensor<i32>>(_ptr: Pointer<D>, _mask: &Mask<MT>) -> Pointer<D> {
-        loop {}
-    }
-
-    #[inline(never)]
-    pub fn store<D: Dtype, MT: Tensor<i32>>(
-        _ptr: Pointer<D>,
-        _ptr1: Pointer<D>,
-        _mask: &Mask<MT>,
-    ) -> Pointer<D> {
-        loop {}
-    }
-
-    #[inline(never)]
-    pub fn arange<T: Tensor<i32>>(_start: i32, _end: i32) -> T {
+    fn add(self, _other: &T) -> Self::Output {
         loop {}
     }
 }
-
-use crate::tl::*;

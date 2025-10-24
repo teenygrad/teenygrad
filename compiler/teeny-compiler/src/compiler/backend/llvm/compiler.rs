@@ -69,7 +69,6 @@ impl LlvmCompiler {
         "#;
 
         info!("Writing kernel code to file");
-        file.write_all(teeny_triton::lang::CORE.as_bytes())?;
         file.write_all(teeny_triton::lang::TRITON.as_bytes())?;
         file.write_all(user_func.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;

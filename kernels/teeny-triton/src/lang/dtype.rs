@@ -15,10 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub static TRITON: &str = concat!(
-    include_str!("core.rs"),
-    include_str!("dtype.rs"),
-    include_str!("pointer.rs"),
-    include_str!("tensor.rs"),
-    include_str!("triton.rs")
-);
+pub trait Dtype: 'static {}
+
+impl Dtype for i32 {}
+impl Dtype for f32 {}

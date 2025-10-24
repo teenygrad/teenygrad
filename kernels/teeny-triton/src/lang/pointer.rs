@@ -15,10 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub static TRITON: &str = concat!(
-    include_str!("core.rs"),
-    include_str!("dtype.rs"),
-    include_str!("pointer.rs"),
-    include_str!("tensor.rs"),
-    include_str!("triton.rs")
-);
+pub struct Pointer<D: Dtype> {
+    ptr: *mut D,
+}
+
+impl<D: Dtype> Add<Pointer<D>> for Pointer<D> {
+    type Output = Pointer<D>;
+
+    #[inline(never)]
+    fn add(self, other: Pointer<D>) -> Self::Output {
+        other
+    }
+}
