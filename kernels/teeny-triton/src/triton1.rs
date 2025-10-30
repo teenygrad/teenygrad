@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub trait Dtype: Sized {}
+pub trait Dtype: Sized + Copy {}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct I32(pub i32);
