@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod types;
+
 pub trait Dtype: Sized + Copy {}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
