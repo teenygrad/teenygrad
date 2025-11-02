@@ -49,3 +49,13 @@ pub fn tensor_add<T: Triton, D: Dtype>(
     // // Store result back to global memory
     // T::store(output_ptr + &offsets, output, &mask);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dummy_triton_tensor_add() {
+        todo!()
+    }
+}
