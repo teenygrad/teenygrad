@@ -25,16 +25,16 @@ pub fn tensor_add<T: Triton, D: Dtype>(
     x_ptr: &T::Pointer<D>,
     y_ptr: &T::Pointer<D>,
     output_ptr: &T::Pointer<D>,
-    // n_elements: I32,
-    // BLOCK_SIZE: I32, // uppercase implies constexpr
+    n_elements: T::I32,
+    BLOCK_SIZE: T::I32, // uppercase implies constexpr
 ) {
     let pid = T::program_id(ProgramAxis::Axis0);
 
     // // Calculate the starting offset for this block
-    // let block_start = pid * BLOCK_SIZE;
+    let block_start = pid * BLOCK_SIZE;
 
     // // Create offsets for the elements this block will process
-    // let offsets = T::arange(I32(0), BLOCK_SIZE) + block_start;
+    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
 
     // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
     // let mask = Some(offsets.lt(n_elements));
