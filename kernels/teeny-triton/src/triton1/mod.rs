@@ -16,21 +16,9 @@
  */
 
 pub mod types;
+use types::*;
 
 pub trait Dtype: Sized + Copy {}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct I32(pub i32);
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct F32(pub f32);
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Bool(pub bool);
-
-impl Dtype for I32 {}
-impl Dtype for F32 {}
-impl Dtype for Bool {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramAxis {
@@ -40,23 +28,27 @@ pub enum ProgramAxis {
 }
 
 pub trait Triton {
-    type Pointer<D: Dtype>: Sized;
-    type Tensor<D: Dtype>: Sized;
+    type AnyType: types::AnyType;
+    type I32Like: types::I32Like;
+    type Pointer<D: Dtype>;
+    type Tensor<D: Dtype>;
 
-    fn program_id(axis: ProgramAxis) -> I32;
+    type I32: types::I32<Self::I32Like, Self::AnyType>;
 
-    fn num_programs(axis: ProgramAxis) -> I32;
+    fn program_id(axis: ProgramAxis) -> Self::I32;
 
-    fn arange(start: I32, end: I32) -> Self::Tensor<I32>;
+    // fn num_programs(axis: ProgramAxis) -> I32;
 
-    fn load<D: Dtype>(
-        ptr: &Self::Pointer<D>,
-        mask: &Option<Self::Tensor<Bool>>,
-    ) -> Self::Pointer<D>;
+    // fn arange(start: I32, end: I32) -> Self::Tensor<I32>;
 
-    fn store<D: Dtype>(
-        src: &Self::Pointer<D>,
-        dest: &mut Self::Pointer<D>,
-        mask: &Option<Self::Tensor<Bool>>,
-    );
+    // fn load<D: Dtype>(
+    //     ptr: &Self::Pointer<D>,
+    //     mask: &Option<Self::Tensor<Bool>>,
+    // ) -> Self::Pointer<D>;
+
+    // fn store<D: Dtype>(
+    //     src: &Self::Pointer<D>,
+    //     dest: &mut Self::Pointer<D>,
+    //     mask: &Option<Self::Tensor<Bool>>,
+    // );
 }

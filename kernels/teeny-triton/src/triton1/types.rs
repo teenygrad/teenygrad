@@ -15,45 +15,59 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+// Any type
+pub trait AnyType {}
+
 // Tensor
-pub trait RankedTensor<T> {}
+pub trait RankedTensor<S: AnyType, T>: Into<S> {}
 
 // Floating-point Type
-pub trait IntoFloat: IntoFloatLike {}
-pub trait IntoFloatLike {}
-pub trait FloatTensor<T: IntoFloat>: RankedTensor<T> + IntoFloatLike {}
+pub trait FloatLike {}
+pub trait Float<S: FloatLike, T: AnyType>: Into<S> + Into<T> {}
+pub trait FloatTensor<S: FloatLike, T: AnyType, U: Float<S, T>>:
+    RankedTensor<T, U> + Into<S> + Into<T>
+{
+}
 
-pub trait F8E4M3FN: IntoFloat {}
-pub trait F8E4M3FNUZ: IntoFloat {}
-pub trait F8E5M2: IntoFloat {}
-pub trait F8E5M2FNUZ: IntoFloat {}
+pub trait F8E4M3FN<S: FloatLike, T: AnyType>: Float<S, T> {}
+pub trait F8E4M3FNUZ<S: FloatLike, T: AnyType>: Float<S, T> {}
+pub trait F8E5M2<S: FloatLike, T: AnyType>: Float<S, T> {}
+pub trait F8E5M2FNUZ<S: FloatLike, T: AnyType>: Float<S, T> {}
 
-pub trait F16: IntoFloat {}
-pub trait BF16: IntoFloat {}
-pub trait F32: IntoFloat {}
-pub trait F64: IntoFloat {}
+pub trait F16<S: FloatLike, T: AnyType>: Float<S, T> {}
+pub trait BF16<S: FloatLike, T: AnyType>: Float<S, T> {}
+pub trait F32<S: FloatLike, T: AnyType>: Float<S, T> {}
+pub trait F64<S: FloatLike, T: AnyType>: Float<S, T> {}
 
 // Boolean Type
-pub trait BoolTensor<T: I1>: RankedTensor<T> + IntoBoolLike {}
-pub trait IntoBoolLike {}
+pub trait BoolLike {}
+pub trait BoolTensor<S: BoolLike, T: AnyType, U: I1<S, T>>:
+    RankedTensor<T, U> + Into<S> + Into<T>
+{
+}
 
 // Integer Type
-pub trait I1: Sized + IntoBoolLike {}
-pub trait I4: Sized {}
-pub trait I8: Sized {}
-pub trait I16: Sized {}
-pub trait I32: Sized + IntoI32Like {}
-pub trait I64: Sized {}
+pub trait I1<S: BoolLike, T: AnyType>: Into<S> + Into<T> {}
+pub trait I4<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
+pub trait I8<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
+pub trait I16<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
+pub trait I32<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
+pub trait I64<S: I64Like, T: AnyType>: Into<S> + Into<T> {}
 
 // I32 Type
-pub trait I32Tensor<T: I32>: RankedTensor<T> + IntoI32Like {}
-pub trait IntoI32Like {}
+pub trait I32Like {}
+pub trait I32Tensor<S: I32Like, T: AnyType, U: I32<S, T>>:
+    RankedTensor<T, U> + Into<S> + Into<T>
+{
+}
 
 // I64 Type
-pub trait I64Tensor<T: I64>: RankedTensor<T> + IntoI64Like {}
-pub trait IntoI64Like {}
+pub trait I64Like {}
+pub trait I64Tensor<S: I64Like, T: AnyType, U: I64<S, T>>:
+    RankedTensor<T, U> + Into<S> + Into<T>
+{
+}
 
 // Pointer Type
-pub trait Pointer<T>: IntoPointerLike {}
-pub trait PointerTensor<S, T: Pointer<S>>: RankedTensor<T> + IntoPointerLike {}
-pub trait IntoPointerLike {}
+pub trait PointerLike {}
+pub trait Pointer<S: PointerLike, T: AnyType>: Into<S> + Into<T> {}

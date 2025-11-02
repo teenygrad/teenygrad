@@ -25,27 +25,27 @@ pub fn tensor_add<T: Triton, D: Dtype>(
     x_ptr: &T::Pointer<D>,
     y_ptr: &T::Pointer<D>,
     output_ptr: &T::Pointer<D>,
-    n_elements: I32,
-    BLOCK_SIZE: I32, // uppercase implies constexpr
+    // n_elements: I32,
+    // BLOCK_SIZE: I32, // uppercase implies constexpr
 ) {
     let pid = T::program_id(ProgramAxis::Axis0);
 
-    // Calculate the starting offset for this block
-    let block_start = pid * BLOCK_SIZE;
+    // // Calculate the starting offset for this block
+    // let block_start = pid * BLOCK_SIZE;
 
-    // Create offsets for the elements this block will process
-    let offsets = T::arange(I32(0), BLOCK_SIZE) + block_start;
+    // // Create offsets for the elements this block will process
+    // let offsets = T::arange(I32(0), BLOCK_SIZE) + block_start;
 
-    // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
-    let mask = Some(offsets.lt(n_elements));
+    // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
+    // let mask = Some(offsets.lt(n_elements));
 
-    // Load data from global memory with masking
-    let x = T::load(x_ptr + &offsets, &mask);
-    let y = T::load(y_ptr + &offsets, &mask);
+    // // Load data from global memory with masking
+    // let x = T::load(x_ptr + &offsets, &mask);
+    // let y = T::load(y_ptr + &offsets, &mask);
 
-    // Perform element-wise addition
-    let output = x + y;
+    // // Perform element-wise addition
+    // let output = x + y;
 
-    // Store result back to global memory
-    T::store(output_ptr + &offsets, output, &mask);
+    // // Store result back to global memory
+    // T::store(output_ptr + &offsets, output, &mask);
 }
