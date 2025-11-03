@@ -18,7 +18,7 @@
 #![allow(non_snake_case)]
 
 use teeny_macros::kernel;
-use teeny_triton::triton1::*;
+use teeny_triton::triton1::{types::Comparison, *};
 
 #[kernel]
 pub fn tensor_add<T: Triton, D: Dtype>(
@@ -37,10 +37,10 @@ pub fn tensor_add<T: Triton, D: Dtype>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
 
     // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
-    // let mask = Some(offsets.lt(n_elements));
+    let mask = Some(offsets.slt(n_elements));
 
     // // Load data from global memory with masking
-    // let x = T::load(x_ptr + &offsets, &mask);
+    let x = T::load(x_ptr + &offsets, &mask);
     // let y = T::load(y_ptr + &offsets, &mask);
 
     // // Perform element-wise addition

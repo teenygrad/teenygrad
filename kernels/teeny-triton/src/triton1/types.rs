@@ -15,6 +15,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::{Add, Mul};
+
+// Comparison
+pub trait Comparison<T> {
+    type Output;
+
+    fn eq(&self, other: T) -> Self::Output;
+    fn ne(&self, other: T) -> Self::Output;
+    fn slt(&self, other: T) -> Self::Output;
+    fn sle(&self, other: T) -> Self::Output;
+    fn sgt(&self, other: T) -> Self::Output;
+    fn sge(&self, other: T) -> Self::Output;
+}
+
 // Any type
 pub trait AnyType {}
 
@@ -23,7 +37,7 @@ pub trait RankedTensor<S: AnyType, T>: Into<S> {}
 
 // Floating-point Type
 pub trait FloatLike {}
-pub trait Float<S: FloatLike, T: AnyType>: Into<S> + Into<T> {}
+pub trait Float<S: FloatLike, T: AnyType>: Copy + Into<S> + Into<T> {}
 pub trait FloatTensor<S: FloatLike, T: AnyType, U: Float<S, T>>:
     RankedTensor<T, U> + Into<S> + Into<T>
 {
@@ -47,27 +61,42 @@ pub trait BoolTensor<S: BoolLike, T: AnyType, U: I1<S, T>>:
 }
 
 // Integer Type
-pub trait I1<S: BoolLike, T: AnyType>: Into<S> + Into<T> {}
-pub trait I4<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
-pub trait I8<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
-pub trait I16<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
-pub trait I32<S: I32Like, T: AnyType>: Into<S> + Into<T> {}
-pub trait I64<S: I64Like, T: AnyType>: Into<S> + Into<T> {}
+pub trait Int: Copy {}
+
+pub trait I1<S: BoolLike, T: AnyType>: Int + Into<S> + Into<T> {}
+pub trait I4<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
+pub trait I8<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
+pub trait I16<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
+pub trait I32<S: IntLike, T: AnyType, O: I64<S, T>>:
+    Int + Into<S> + Into<T> + Add<Self, Output = O> + Mul<Self, Output = O> + From<isize>
+{
+}
+pub trait I64<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
+
+// Int Tensor
+pub trait IntTensor<S: IntLike, T: AnyType, O: I64<S, T>, V: I32<S, T, O>>:
+    RankedTensor<T, V>
+    + Into<S>
+    + Into<T>
+    + Add<O, Output = Self>
+    + Mul<O, Output = Self>
+    + Comparison<O, Output = Self>
+    + Comparison<V, Output = Self>
+{
+}
+
+pub trait IntLike {}
 
 // I32 Type
 pub trait I32Like {}
-pub trait I32Tensor<S: I32Like, T: AnyType, U: I32<S, T>>:
-    RankedTensor<T, U> + Into<S> + Into<T>
+pub trait I32Tensor<S: IntLike, T: AnyType, U: I64Like, O: I64<S, T>, V: I32<S, T, O>>:
+    RankedTensor<T, V> + Into<S> + Into<T> + Comparison<V>
 {
 }
 
 // I64 Type
 pub trait I64Like {}
-pub trait I64Tensor<S: I64Like, T: AnyType, U: I64<S, T>>:
-    RankedTensor<T, U> + Into<S> + Into<T>
-{
-}
 
 // Pointer Type
+pub trait Pointer<S: PointerLike, T: AnyType>: Into<S> {}
 pub trait PointerLike {}
-pub trait Pointer<S: PointerLike, T: AnyType>: Into<S> + Into<T> {}

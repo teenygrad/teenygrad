@@ -16,7 +16,6 @@
  */
 
 pub mod types;
-use types::*;
 
 pub trait Dtype: Sized + Copy {}
 
@@ -29,22 +28,28 @@ pub enum ProgramAxis {
 
 pub trait Triton {
     type AnyType: types::AnyType;
-    type I32Like: types::I32Like;
-    type Pointer<D: Dtype>;
+    type IntLike: types::IntLike;
+    type I64Like: types::I64Like;
+    type PointerLike: types::PointerLike;
+
+    type Pointer<D: Dtype>: types::Pointer<Self::PointerLike, Self::AnyType>;
     type Tensor<D: Dtype>;
 
-    type I32: types::I32<Self::I32Like, Self::AnyType>;
+    type I32: types::I32<Self::IntLike, Self::AnyType, Self::I64>;
+    type I64: types::I64<Self::IntLike, Self::AnyType>;
+
+    type IntTensor: types::IntTensor<Self::IntLike, Self::AnyType, Self::I64, Self::I32>;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
-    // fn num_programs(axis: ProgramAxis) -> I32;
+    fn num_programs(axis: ProgramAxis) -> Self::I32;
 
-    // fn arange(start: I32, end: I32) -> Self::Tensor<I32>;
+    fn arange<S1, S2>(start: S1, end: S2) -> Self::IntTensor
+    where
+        S1: Into<Self::I32>,
+        S2: Into<Self::I32>;
 
-    // fn load<D: Dtype>(
-    //     ptr: &Self::Pointer<D>,
-    //     mask: &Option<Self::Tensor<Bool>>,
-    // ) -> Self::Pointer<D>;
+    fn load<D: Dtype>(ptr: &Self::Pointer<D>, mask: &Option<Self::IntTensor>) -> Self::Pointer<D>;
 
     // fn store<D: Dtype>(
     //     src: &Self::Pointer<D>,
