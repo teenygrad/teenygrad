@@ -17,8 +17,6 @@
 
 pub mod types;
 
-pub trait Dtype: Sized + Copy {}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramAxis {
     Axis0,
@@ -30,26 +28,53 @@ pub trait Triton {
     type AnyType: types::AnyType;
     type IntLike: types::IntLike;
     type I64Like: types::I64Like;
+    type BoolLike: types::BoolLike;
     type PointerLike: types::PointerLike;
 
-    type Pointer<D: Dtype>: types::Pointer<Self::PointerLike, Self::AnyType>;
-    type Tensor<D: Dtype>;
+    type Pointer<'a, D: types::Dtype>: types::Pointer<
+            'a,
+            D,
+            Self::PointerLike,
+            Self::IntLike,
+            Self::BoolLike,
+            Self::AnyType,
+            Self::I64,
+            Self::I32,
+            Self::I1,
+            Self::BoolTensor,
+        >
+    where
+        Self::IntTensor<'a, D>: 'a;
 
+    type I1: types::I1<Self::BoolLike, Self::AnyType>;
     type I32: types::I32<Self::IntLike, Self::AnyType, Self::I64>;
     type I64: types::I64<Self::IntLike, Self::AnyType>;
 
-    type IntTensor: types::IntTensor<Self::IntLike, Self::AnyType, Self::I64, Self::I32>;
+    type Tensor<D: types::Dtype>: types::RankedTensor<Self::AnyType, D>;
+    type BoolTensor: types::BoolTensor<Self::BoolLike, Self::AnyType, Self::I1>;
+    type IntTensor<'a, D: types::Dtype>: types::IntTensor<
+            Self::IntLike,
+            Self::BoolLike,
+            Self::AnyType,
+            Self::I64,
+            Self::I32,
+            Self::I1,
+            Self::BoolTensor,
+        >;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
     fn num_programs(axis: ProgramAxis) -> Self::I32;
 
-    fn arange<S1, S2>(start: S1, end: S2) -> Self::IntTensor
+    fn arange<'a, S1, S2>(start: S1, end: S2) -> Self::IntTensor<'a, Self::I32>
     where
         S1: Into<Self::I32>,
         S2: Into<Self::I32>;
 
-    fn load<D: Dtype>(ptr: &Self::Pointer<D>, mask: &Option<Self::IntTensor>) -> Self::Pointer<D>;
+    fn load<'a, D: types::Dtype>(
+        ptr: &Self::Pointer<'a, D>,
+        mask: &Option<Self::BoolTensor>,
+    ) -> Self::Pointer<'a, D>;
 
     // fn store<D: Dtype>(
     //     src: &Self::Pointer<D>,

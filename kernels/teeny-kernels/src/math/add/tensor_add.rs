@@ -18,13 +18,16 @@
 #![allow(non_snake_case)]
 
 use teeny_macros::kernel;
-use teeny_triton::triton1::{types::Comparison, *};
+use teeny_triton::triton1::{
+    types::{Comparison, Pointer},
+    *,
+};
 
 #[kernel]
-pub fn tensor_add<T: Triton, D: Dtype>(
-    x_ptr: &T::Pointer<D>,
-    y_ptr: &T::Pointer<D>,
-    output_ptr: &T::Pointer<D>,
+pub fn tensor_add<'a, T: Triton + 'a, D: types::Dtype>(
+    x_ptr: &'a T::Pointer<'a, D>,
+    y_ptr: &'a T::Pointer<'a, D>,
+    output_ptr: &'a mut T::Pointer<'a, D>,
     n_elements: T::I32,
     BLOCK_SIZE: T::I32, // uppercase implies constexpr
 ) {
@@ -40,8 +43,8 @@ pub fn tensor_add<T: Triton, D: Dtype>(
     let mask = Some(offsets.slt(n_elements));
 
     // // Load data from global memory with masking
-    let x = T::load(x_ptr + &offsets, &mask);
-    // let y = T::load(y_ptr + &offsets, &mask);
+    let x = T::load(&x_ptr.add(&offsets), &mask);
+    let y = T::load(&y_ptr.add(&offsets), &mask);
 
     // // Perform element-wise addition
     // let output = x + y;

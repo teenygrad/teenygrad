@@ -29,15 +29,18 @@ pub trait Comparison<T> {
     fn sge(&self, other: T) -> Self::Output;
 }
 
+// Dtype Type
+pub trait Dtype {}
+
 // Any type
 pub trait AnyType {}
 
 // Tensor
-pub trait RankedTensor<S: AnyType, T>: Into<S> {}
+pub trait RankedTensor<S: AnyType, T>: Dtype + Into<S> {}
 
 // Floating-point Type
 pub trait FloatLike {}
-pub trait Float<S: FloatLike, T: AnyType>: Copy + Into<S> + Into<T> {}
+pub trait Float<S: FloatLike, T: AnyType>: Dtype + Copy + Into<S> + Into<T> {}
 pub trait FloatTensor<S: FloatLike, T: AnyType, U: Float<S, T>>:
     RankedTensor<T, U> + Into<S> + Into<T>
 {
@@ -61,7 +64,7 @@ pub trait BoolTensor<S: BoolLike, T: AnyType, U: I1<S, T>>:
 }
 
 // Integer Type
-pub trait Int: Copy {}
+pub trait Int: Dtype + Copy {}
 
 pub trait I1<S: BoolLike, T: AnyType>: Int + Into<S> + Into<T> {}
 pub trait I4<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
@@ -71,17 +74,25 @@ pub trait I32<S: IntLike, T: AnyType, O: I64<S, T>>:
     Int + Into<S> + Into<T> + Add<Self, Output = O> + Mul<Self, Output = O> + From<isize>
 {
 }
-pub trait I64<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
+pub trait I64<S: IntLike, T: AnyType>: Dtype + Int + Into<S> + Into<T> {}
 
 // Int Tensor
-pub trait IntTensor<S: IntLike, T: AnyType, O: I64<S, T>, V: I32<S, T, O>>:
+pub trait IntTensor<
+    S: IntLike,
+    B: BoolLike,
+    T: AnyType,
+    O: I64<S, T>,
+    V: I32<S, T, O>,
+    U: I1<B, T>,
+    BT: BoolTensor<B, T, U>,
+>:
     RankedTensor<T, V>
     + Into<S>
     + Into<T>
     + Add<O, Output = Self>
     + Mul<O, Output = Self>
-    + Comparison<O, Output = Self>
-    + Comparison<V, Output = Self>
+    + Comparison<O, Output = BT>
+    + Comparison<V, Output = BT>
 {
 }
 
@@ -98,5 +109,20 @@ pub trait I32Tensor<S: IntLike, T: AnyType, U: I64Like, O: I64<S, T>, V: I32<S, 
 pub trait I64Like {}
 
 // Pointer Type
-pub trait Pointer<S: PointerLike, T: AnyType>: Into<S> {}
+pub trait Pointer<
+    'a,
+    D: Dtype,
+    PL: PointerLike,
+    S: IntLike,
+    B: BoolLike,
+    T: AnyType,
+    O: I64<S, T>,
+    V: I32<S, T, O>,
+    U: I1<B, T>,
+    BT: BoolTensor<B, T, U>,
+>: Into<PL>
+{
+    fn add<IT: IntTensor<S, B, T, O, V, U, BT>>(&self, other: &IT) -> Self;
+}
+
 pub trait PointerLike {}
