@@ -122,7 +122,9 @@ pub trait Pointer<
     BT: BoolTensor<B, T, U>,
 >: Into<PL>
 {
-    fn add<IT: IntTensor<S, B, T, O, V, U, BT>>(&self, other: &IT) -> Self;
+    fn add(&self, other: &Self) -> Self;
+
+    fn add_offsets<IT: IntTensor<S, B, T, O, V, U, BT>>(&self, other: &IT) -> Self;
 }
 
 pub trait PointerLike {}

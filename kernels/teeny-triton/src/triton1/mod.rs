@@ -76,9 +76,9 @@ pub trait Triton {
         mask: &Option<Self::BoolTensor>,
     ) -> Self::Pointer<'a, D>;
 
-    // fn store<D: Dtype>(
-    //     src: &Self::Pointer<D>,
-    //     dest: &mut Self::Pointer<D>,
-    //     mask: &Option<Self::Tensor<Bool>>,
-    // );
+    fn store<'a, D: types::Dtype>(
+        src: &Self::Pointer<'a, D>,
+        dest: &Self::Pointer<'a, D>,
+        mask: &Option<Self::BoolTensor>,
+    );
 }
