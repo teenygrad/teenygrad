@@ -36,7 +36,7 @@ pub trait Dtype {}
 pub trait AnyType {}
 
 // Tensor
-pub trait RankedTensor<S: AnyType, T>: Dtype + Into<S> {}
+pub trait RankedTensor<S: AnyType, T: Dtype>: Into<S> {}
 
 // Floating-point Type
 pub trait FloatLike {}
@@ -110,7 +110,6 @@ pub trait I64Like {}
 
 // Pointer Type
 pub trait Pointer<
-    'a,
     D: Dtype,
     PL: PointerLike,
     S: IntLike,

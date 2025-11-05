@@ -15,6 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod dummy;
 pub mod types;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,8 +32,7 @@ pub trait Triton {
     type BoolLike: types::BoolLike;
     type PointerLike: types::PointerLike;
 
-    type Pointer<'a, D: types::Dtype>: types::Pointer<
-            'a,
+    type Pointer<D: types::Dtype>: types::Pointer<
             D,
             Self::PointerLike,
             Self::IntLike,
@@ -42,9 +42,7 @@ pub trait Triton {
             Self::I32,
             Self::I1,
             Self::BoolTensor,
-        >
-    where
-        Self::IntTensor<'a, D>: 'a;
+        >;
 
     type I1: types::I1<Self::BoolLike, Self::AnyType>;
     type I32: types::I32<Self::IntLike, Self::AnyType, Self::I64>;
@@ -72,13 +70,13 @@ pub trait Triton {
         S2: Into<Self::I32>;
 
     fn load<'a, D: types::Dtype>(
-        ptr: &Self::Pointer<'a, D>,
+        ptr: &Self::Pointer<D>,
         mask: &Option<Self::BoolTensor>,
-    ) -> Self::Pointer<'a, D>;
+    ) -> Self::Pointer<D>;
 
     fn store<'a, D: types::Dtype>(
-        src: &Self::Pointer<'a, D>,
-        dest: &Self::Pointer<'a, D>,
+        src: &Self::Pointer<D>,
+        dest: &Self::Pointer<D>,
         mask: &Option<Self::BoolTensor>,
     );
 }

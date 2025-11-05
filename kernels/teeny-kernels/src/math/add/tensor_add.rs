@@ -53,7 +53,6 @@ pub fn tensor_add<'a, T: Triton + 'a, D: types::Dtype>(
     T::store(&output_ptr.add_offsets(&offsets), &output, &mask);
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 
