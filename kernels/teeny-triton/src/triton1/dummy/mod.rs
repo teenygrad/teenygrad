@@ -34,3 +34,5 @@ impl<D: ty::Dtype> From<RankedTensor<D>> for AnyType<D> {
         AnyType::Tensor(tensor)
     }
 }
+
+pub enum FloatLike {}
