@@ -31,12 +31,9 @@ pub struct DeviceProperties {
     pub max_blocks_per_multi_processor: i32,
     pub max_threads_dim: [i32; 3],
     pub max_grid_size: [i32; 3],
-    pub clock_rate: i32,
-    pub memory_clock_rate: i32,
     pub memory_bus_width: i32,
     pub l2_cache_size: i32,
     pub concurrent_kernels: i32,
-    pub compute_mode: i32,
     pub target: CudaTarget,
 }
 

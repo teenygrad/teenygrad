@@ -37,7 +37,7 @@ impl CudaDriver {
 
         for i in 0..device_count {
             let mut props = cuda::cudaDeviceProp::default();
-            let err = unsafe { cuda::cudaGetDeviceProperties_v2(&mut props, i) };
+            let err = unsafe { cuda::cudaGetDeviceProperties(&mut props, i) };
             if err != cuda::cudaError_enum_CUDA_SUCCESS {
                 return Err(Error::CudaError(err).into());
             }
@@ -61,12 +61,9 @@ impl CudaDriver {
                     max_blocks_per_multi_processor: props.maxBlocksPerMultiProcessor,
                     max_threads_dim: props.maxThreadsDim,
                     max_grid_size: props.maxGridSize,
-                    clock_rate: props.clockRate,
-                    memory_clock_rate: props.memoryClockRate,
                     memory_bus_width: props.memoryBusWidth,
                     l2_cache_size: props.l2CacheSize,
                     concurrent_kernels: props.concurrentKernels,
-                    compute_mode: props.computeMode,
                     target: CudaTarget::try_from((props.major, props.minor))?,
                 },
             };
