@@ -25,9 +25,9 @@ use teeny_triton::triton1::{
 
 #[kernel]
 pub fn tensor_add<'a, T: Triton + 'a, D: types::Dtype>(
-    x_ptr: &'a T::Pointer<'a, D>,
-    y_ptr: &'a T::Pointer<'a, D>,
-    output_ptr: &'a T::Pointer<'a, D>,
+    x_ptr: &'a T::Pointer<D>,
+    y_ptr: &'a T::Pointer<D>,
+    output_ptr: &'a T::Pointer<D>,
     n_elements: T::I32,
     BLOCK_SIZE: T::I32, // uppercase implies constexpr
 ) {
@@ -54,7 +54,6 @@ pub fn tensor_add<'a, T: Triton + 'a, D: types::Dtype>(
 }
 
 mod tests {
-    use super::*;
 
     #[test]
     fn test_dummy_triton_tensor_add() {
