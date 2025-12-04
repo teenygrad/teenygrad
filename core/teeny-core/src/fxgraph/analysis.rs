@@ -46,7 +46,11 @@ impl GraphAnalysis {
 impl Analysis<FxGraphLang> for GraphAnalysis {
     type Data = NodeAnalysis;
 
-    fn make(egraph: &mut EGraph<FxGraphLang, Self>, enode: &FxGraphLang) -> Self::Data {
+    fn make(
+        egraph: &mut EGraph<FxGraphLang, Self>,
+        enode: &FxGraphLang,
+        _id: egg::Id,
+    ) -> Self::Data {
         let node_ty = node_ty(egraph, enode);
         if let Err(e) = node_ty {
             // aarghh - egg doesn't support fallible analysis
