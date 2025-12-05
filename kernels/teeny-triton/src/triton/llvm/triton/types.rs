@@ -15,15 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub struct Pointer<D: Dtype> {
-    ptr: *mut D,
-}
+use crate::triton::types as ty;
+pub enum AnyType {}
 
-impl<D: Dtype> Add<Pointer<D>> for Pointer<D> {
-    type Output = Pointer<D>;
+impl ty::AnyType for AnyType {}
+pub enum PointerLike {}
 
-    #[inline(never)]
-    fn add(self, other: Pointer<D>) -> Self::Output {
-        other
-    }
-}
+impl ty::PointerLike for PointerLike {}

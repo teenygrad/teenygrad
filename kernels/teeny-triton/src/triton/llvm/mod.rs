@@ -15,21 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub trait Tensor<D: Dtype> {}
+mod triton;
 
-impl<T: Tensor<i32>> LegacyReceiver for &T {}
-
-pub struct TensorImpl<D: Dtype> {
-    pub x: D,
-}
-
-impl<T: Dtype> Tensor<T> for TensorImpl<T> {}
-
-impl<D: Dtype, T: Tensor<i32>> Add<&T> for &Pointer<D> {
-    type Output = Pointer<D>;
-
-    #[inline(never)]
-    fn add(self, _other: &T) -> Self::Output {
-        loop {}
-    }
-}
+pub static TRITON: &str = concat!(include_str!("core.rs"), include_str!("triton.rs"));

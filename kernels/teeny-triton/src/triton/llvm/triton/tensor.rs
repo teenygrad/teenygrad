@@ -15,11 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use teeny_core::tensor::Tensor;
-
-pub fn arange<T: Tensor<i32>>(_start: i32, _end: i32) -> T {
-    // assert!(util::is_power_of_two(start), "start must be a power of 2");
-    // assert!(util::is_power_of_two(end), "end must be a power of 2");
-
-    todo!()
-}
+pub struct BoolTensor {}

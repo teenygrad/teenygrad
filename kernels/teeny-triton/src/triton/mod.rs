@@ -15,17 +15,76 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod mem;
-pub mod ops;
-pub mod program;
-
-pub use mem::*;
-pub use ops::*;
-pub use program::*;
+pub mod dummy;
+pub mod llvm;
+pub mod types;
 
 #[derive(Debug)]
 pub struct TritonKernel {
     pub name: &'static str,
     pub sig: &'static str,
     pub block_str: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgramAxis {
+    Axis0,
+    Axis1,
+    Axis2,
+}
+
+pub trait Triton {
+    type AnyType: types::AnyType;
+    type IntLike: types::IntLike;
+    type I64Like: types::I64Like;
+    type BoolLike: types::BoolLike;
+    type PointerLike: types::PointerLike;
+
+    type Pointer<D: types::Dtype>: types::Pointer<
+            D,
+            Self::PointerLike,
+            Self::IntLike,
+            Self::BoolLike,
+            Self::AnyType,
+            Self::I64,
+            Self::I32,
+            Self::I1,
+            Self::BoolTensor,
+        >;
+
+    type I1: types::I1<Self::BoolLike, Self::AnyType>;
+    type I32: types::I32<Self::IntLike, Self::AnyType, Self::I64>;
+    type I64: types::I64<Self::IntLike, Self::AnyType>;
+
+    type Tensor<D: types::Dtype>: types::RankedTensor<Self::AnyType, D>;
+    type BoolTensor: types::BoolTensor<Self::BoolLike, Self::AnyType, Self::I1>;
+    type IntTensor<'a, D: types::Dtype>: types::IntTensor<
+            Self::IntLike,
+            Self::BoolLike,
+            Self::AnyType,
+            Self::I64,
+            Self::I32,
+            Self::I1,
+            Self::BoolTensor,
+        >;
+
+    fn program_id(axis: ProgramAxis) -> Self::I32;
+
+    fn num_programs(axis: ProgramAxis) -> Self::I32;
+
+    fn arange<'a, S1, S2>(start: S1, end: S2) -> Self::IntTensor<'a, Self::I32>
+    where
+        S1: Into<Self::I32>,
+        S2: Into<Self::I32>;
+
+    fn load<'a, D: types::Dtype>(
+        ptr: &Self::Pointer<D>,
+        mask: &Option<Self::BoolTensor>,
+    ) -> Self::Pointer<D>;
+
+    fn store<'a, D: types::Dtype>(
+        src: &Self::Pointer<D>,
+        dest: &Self::Pointer<D>,
+        mask: &Option<Self::BoolTensor>,
+    );
 }

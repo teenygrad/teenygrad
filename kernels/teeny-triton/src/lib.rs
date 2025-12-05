@@ -16,6 +16,4 @@
  */
 
 pub mod error;
-pub mod lang;
 pub mod triton;
-pub mod triton1;

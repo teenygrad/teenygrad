@@ -15,17 +15,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProgramAxis {
-    Axis0,
-    Axis1,
-    Axis2,
+use crate::triton::{
+    llvm::triton::{BoolLike, IntLike, PointerLike, types::AnyType},
+    types as ty,
+};
+pub struct Pointer<D: ty::Dtype> {
+    _phantom_1: std::marker::PhantomData<D>,
 }
 
-pub fn program_id(_axis: ProgramAxis) -> i32 {
-    todo!()
-}
-
-pub fn num_programs(_axis: ProgramAxis) -> i32 {
-    todo!()
+impl<D: ty::Dtype> ty::Pointer<D, PointerLike, IntLike, BoolLike, AnyType, I1, I64, I32, BoolTensor>
+    for Pointer<D>
+{
 }

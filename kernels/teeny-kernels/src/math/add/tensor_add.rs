@@ -18,7 +18,7 @@
 #![allow(non_snake_case)]
 
 use teeny_macros::kernel;
-use teeny_triton::triton1::{
+use teeny_triton::triton::{
     types::{Comparison, Pointer},
     *,
 };
