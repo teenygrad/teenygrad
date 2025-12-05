@@ -86,7 +86,7 @@ impl From<I32> for AnyType {
 impl Add<I32> for I32 {
     type Output = I64;
 
-    fn add(self, _other: I32) -> Self::Output {
+    fn add(self, other: I32) -> Self::Output {
         todo!()
     }
 }

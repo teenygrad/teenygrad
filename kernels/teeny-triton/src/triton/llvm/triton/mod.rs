@@ -20,6 +20,7 @@ use crate::triton::types as ty;
 
 pub mod num;
 pub mod pointer;
+pub mod tensor;
 pub mod types;
 
 use num::*;

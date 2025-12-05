@@ -16,14 +16,47 @@
  */
 
 use crate::triton::{
-    llvm::triton::{BoolLike, IntLike, PointerLike, types::AnyType},
+    llvm::triton::{
+        BoolLike, IntLike, PointerLike,
+        num::{I1, I32, I64},
+        tensor::BoolTensor,
+        types::AnyType,
+    },
     types as ty,
 };
 pub struct Pointer<D: ty::Dtype> {
     _phantom_1: std::marker::PhantomData<D>,
 }
 
-impl<D: ty::Dtype> ty::Pointer<D, PointerLike, IntLike, BoolLike, AnyType, I1, I64, I32, BoolTensor>
-    for Pointer<D>
+impl<D: ty::Dtype>
+    ty::Pointer<
+        D,
+        PointerLike,
+        IntLike,
+        BoolLike,
+        AnyType,
+        I1,
+        I64,
+        I32,
+        BoolTensor<BoolLike, AnyType, I1>,
+    > for Pointer<D>
 {
+    fn add(&self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn add_offsets<IT: ty::IntTensor<IntLike, BoolLike, AnyType, I1, I64, I32, BoolTensor>>(
+        &self,
+        other: &IT,
+    ) -> Self {
+        todo!()
+    }
+}
+
+impl<D: ty::Dtype> Add<I32> for Pointer<D> {
+    type Output = Pointer<D>;
+
+    fn add(self, _other: I32) -> Self::Output {
+        todo!()
+    }
 }
