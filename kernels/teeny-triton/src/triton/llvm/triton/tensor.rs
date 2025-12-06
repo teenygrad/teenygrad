@@ -26,6 +26,26 @@ use crate::triton::{
     types::{self as ty, Comparison},
 };
 
+/*--------------------------------- Tensor ---------------------------------*/
+
+pub struct Tensor<D: ty::Dtype> {
+    _phantom_1: std::marker::PhantomData<D>,
+}
+
+impl ty::RankedTensor<AnyType, I32> for Tensor<I32> {}
+
+impl From<Tensor<I32>> for AnyType {
+    fn from(_: Tensor<I32>) -> Self {
+        todo!()
+    }
+}
+
+impl From<Tensor<I32>> for I32 {
+    fn from(_: Tensor<I32>) -> Self {
+        todo!()
+    }
+}
+
 /*--------------------------------- BoolTensor ---------------------------------*/
 
 pub struct BoolTensor<S: ty::BoolLike, T: ty::AnyType, U: ty::I1<S, T>> {
@@ -53,6 +73,7 @@ impl From<BoolTensor<BoolLike, AnyType, I1>> for BoolLike {
 /*--------------------------------- IntTensor ---------------------------------*/
 
 pub struct IntTensor<
+    D: ty::Dtype,
     S: ty::IntLike,
     B: ty::BoolLike,
     T: ty::AnyType,
@@ -61,6 +82,7 @@ pub struct IntTensor<
     U: ty::I1<B, T>,
     BT: ty::BoolTensor<B, T, U>,
 > {
+    _phantom_0: std::marker::PhantomData<D>,
     _phantom_1: std::marker::PhantomData<S>,
     _phantom_2: std::marker::PhantomData<B>,
     _phantom_3: std::marker::PhantomData<T>,
@@ -70,114 +92,135 @@ pub struct IntTensor<
     _phantom_7: std::marker::PhantomData<BT>,
 }
 
-impl ty::IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
-    for IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype>
+    ty::IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
 {
 }
 
-impl ty::RankedTensor<AnyType, I32>
-    for IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype> ty::RankedTensor<AnyType, I32>
+    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
 {
 }
 
-impl From<IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>>
+impl<D: ty::Dtype>
+    From<IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>>
     for AnyType
 {
     fn from(
-        _: IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>,
+        _: IntTensor<
+            D,
+            IntLike,
+            BoolLike,
+            AnyType,
+            I64,
+            I32,
+            I1,
+            BoolTensor<BoolLike, AnyType, I1>,
+        >,
     ) -> Self {
         todo!()
     }
 }
 
-impl From<IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>>
+impl<D: ty::Dtype>
+    From<IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>>
     for IntLike
 {
     fn from(
-        _: IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>,
+        _: IntTensor<
+            D,
+            IntLike,
+            BoolLike,
+            AnyType,
+            I64,
+            I32,
+            I1,
+            BoolTensor<BoolLike, AnyType, I1>,
+        >,
     ) -> Self {
         todo!()
     }
 }
 
-impl Mul<I64>
-    for IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype> Mul<I64>
+    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
 {
     type Output =
-        IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>;
+        IntTensor<I64, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>;
 
-    fn mul(self, other: I64) -> Self::Output {
+    fn mul(self, _other: I64) -> Self::Output {
         todo!()
     }
 }
 
-impl Add<I64>
-    for IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype> Add<I64>
+    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
 {
     type Output =
-        IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>;
+        IntTensor<I64, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>;
 
-    fn add(self, other: I64) -> Self::Output {
+    fn add(self, _other: I64) -> Self::Output {
         todo!()
     }
 }
 
-impl Comparison<I64>
-    for IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype> Comparison<I64>
+    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
 {
     type Output = BoolTensor<BoolLike, AnyType, I1>;
 
-    fn eq(&self, other: I64) -> Self::Output {
+    fn eq(&self, _other: I64) -> Self::Output {
         todo!()
     }
 
-    fn ne(&self, other: I64) -> Self::Output {
+    fn ne(&self, _other: I64) -> Self::Output {
         todo!()
     }
 
-    fn slt(&self, other: I64) -> Self::Output {
+    fn slt(&self, _other: I64) -> Self::Output {
         todo!()
     }
 
-    fn sle(&self, other: I64) -> Self::Output {
+    fn sle(&self, _other: I64) -> Self::Output {
         todo!()
     }
 
-    fn sgt(&self, other: I64) -> Self::Output {
+    fn sgt(&self, _other: I64) -> Self::Output {
         todo!()
     }
 
-    fn sge(&self, other: I64) -> Self::Output {
+    fn sge(&self, _other: I64) -> Self::Output {
         todo!()
     }
 }
 
-impl Comparison<I32>
-    for IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype> Comparison<I32>
+    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
 {
     type Output = BoolTensor<BoolLike, AnyType, I1>;
 
-    fn eq(&self, other: I32) -> Self::Output {
+    fn eq(&self, _other: I32) -> Self::Output {
         todo!()
     }
 
-    fn ne(&self, other: I32) -> Self::Output {
+    fn ne(&self, _other: I32) -> Self::Output {
         todo!()
     }
 
-    fn slt(&self, other: I32) -> Self::Output {
+    fn slt(&self, _other: I32) -> Self::Output {
         todo!()
     }
 
-    fn sle(&self, other: I32) -> Self::Output {
+    fn sle(&self, _other: I32) -> Self::Output {
         todo!()
     }
 
-    fn sgt(&self, other: I32) -> Self::Output {
+    fn sgt(&self, _other: I32) -> Self::Output {
         todo!()
     }
 
-    fn sge(&self, other: I32) -> Self::Output {
+    fn sge(&self, _other: I32) -> Self::Output {
         todo!()
     }
 }

@@ -16,6 +16,8 @@
  */
 
 use crate::triton::Triton;
+use crate::triton::llvm::triton::pointer::Pointer;
+use crate::triton::llvm::triton::tensor::{BoolTensor, IntTensor, Tensor};
 use crate::triton::types as ty;
 
 pub mod num;
@@ -46,7 +48,17 @@ impl Triton for LlvmTriton {
     type BoolLike = BoolLike;
     type PointerLike = PointerLike;
 
-    type Pointer<D: ty::Dtype> = Pointer<D>;
+    type Pointer<D: ty::Dtype> = Pointer<
+        D,
+        PointerLike,
+        IntLike,
+        BoolLike,
+        AnyType,
+        I64,
+        I32,
+        I1,
+        BoolTensor<BoolLike, AnyType, I1>,
+    >;
 
     type I1 = I1;
 
@@ -56,9 +68,10 @@ impl Triton for LlvmTriton {
 
     type Tensor<D: ty::Dtype> = Tensor<D>;
 
-    type BoolTensor = BoolTensor;
+    type BoolTensor = BoolTensor<BoolLike, AnyType, I1>;
 
-    type IntTensor<'a, D: ty::Dtype> = IntTensor<'a, D>;
+    type IntTensor =
+        IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>;
 
     fn program_id(axis: crate::triton::ProgramAxis) -> Self::I32 {
         todo!()
