@@ -38,43 +38,32 @@ pub enum ProgramAxis {
 pub trait Triton {
     type AnyType: ty::AnyType;
     type IntLike: ty::IntLike;
-    type I64Like: ty::I64Like;
     type BoolLike: ty::BoolLike;
-    type PointerLike: ty::PointerLike;
 
-    type Pointer<D: ty::Dtype>: ty::Pointer<
-            D,
-            Self::PointerLike,
-            Self::IntLike,
-            Self::BoolLike,
-            Self::AnyType,
-            Self::I64,
-            Self::I32,
-            Self::I1,
-            Self::BoolTensor,
-        >;
+    type Pointer<D: ty::Dtype>: ty::Pointer<D>;
 
-    type I1: ty::I1<Self::BoolLike, Self::AnyType>;
-    type I32: ty::I32<Self::IntLike, Self::AnyType, Self::I64>;
-    type I64: ty::I64<Self::IntLike, Self::AnyType>;
+    type Bool: ty::Bool<AnyType = Self::AnyType, BoolLike = Self::BoolLike>;
+    type Int: ty::Int<AnyType = Self::AnyType, IntLike = Self::IntLike>;
+    type I1: ty::I1<AnyType = Self::AnyType, IntLike = Self::IntLike, BoolLike = Self::BoolLike>;
+    type I32: ty::I32<AnyType = Self::AnyType, IntLike = Self::IntLike, I64 = Self::I64>;
+    type I64: ty::I64<AnyType = Self::AnyType, IntLike = Self::IntLike>;
 
-    type Tensor<D: ty::Dtype>;
-    type BoolTensor: ty::BoolTensor<Self::BoolLike, Self::AnyType, Self::I1>;
+    // type Tensor<D: ty::Dtype>: ty::Tensor<D, Self::AnyType, Self::IntLike, Self::BoolLike>;
+    type BoolTensor: ty::BoolTensor<Bool = Self::Bool, AnyType = Self::AnyType, BoolLike = Self::BoolLike>;
     type IntTensor: ty::IntTensor<
-            Self::IntLike,
-            Self::BoolLike,
-            Self::AnyType,
-            Self::I64,
-            Self::I32,
-            Self::I1,
-            Self::BoolTensor,
+            Int = Self::Int,
+            IntLike = Self::IntLike,
+            AnyType = Self::AnyType,
+            I32 = Self::I32,
+            I64 = Self::I64,
+            BoolTensor = Self::BoolTensor,
         >;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
     fn num_programs(axis: ProgramAxis) -> Self::I32;
 
-    fn arange<'a, S1, S2>(start: S1, end: S2) -> Self::IntTensor<Self::I32>
+    fn arange<'a, S1, S2>(start: S1, end: S2) -> Self::IntTensor
     where
         S1: Into<Self::I32>,
         S2: Into<Self::I32>;

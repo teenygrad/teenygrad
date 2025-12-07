@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::{Add, Mul};
+
 // Helper trait to express that Add output depends on both Self and the other operand
 pub trait AddWith<O> {
     type Output;
@@ -73,89 +75,64 @@ pub trait BF16: Float {}
 pub trait F32: Float {}
 pub trait F64: Float {}
 
-// // Boolean Type
-// pub trait BoolLike {}
-// pub trait BoolTensor<S: BoolLike, T: AnyType, U: I1<S, T>>:
-//     RankedTensor<T, U> + Into<S> + Into<T>
-// {
-// }
+// Boolean Type
+pub trait BoolLike {}
 
-// // Integer Type
-// pub trait Int: Dtype + Copy {}
+pub trait Bool: Dtype + Copy + Into<Self::BoolLike> + Into<Self::AnyType> {
+    type AnyType: AnyType;
+    type BoolLike: BoolLike;
+}
 
-// pub trait I1<S: BoolLike, T: AnyType>: Int + Into<S> + Into<T> {}
-// pub trait I4<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
-// pub trait I8<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
-// pub trait I16<S: IntLike, T: AnyType>: Int + Into<S> + Into<T> {}
-// pub trait I32:
-//     Int
-//     + Into<Self::IntLike>
-//     + Into<Self::AnyType>
-//     + AddWith<Self::I64>
-//     + MulWith<Self::I64>
-//     + Add<Self::I64, Output = <Self as AddWith<Self::I64>>::Output>
-//     + Mul<Self::I64, Output = <Self as MulWith<Self::I64>>::Output>
-//     + From<isize>
-// {
-//     type IntLike: IntLike;
-//     type AnyType: AnyType;
-//     type I64: I64<IntLike = Self::IntLike, AnyType = Self::AnyType>;
-// }
-// pub trait I64: Dtype + Int + Into<Self::IntLike> + Into<Self::AnyType> {
-//     type IntLike: IntLike;
-//     type AnyType: AnyType;
-// }
+pub trait BoolTensor: RankedTensor<Self::Bool> + Into<Self::BoolLike>
+where
+    <Self as RankedTensor<Self::Bool>>::AnyType: AnyType,
+{
+    type Bool: Bool;
+    type AnyType: AnyType;
+    type BoolLike: BoolLike;
+}
 
-// // Int Tensor
-// pub trait IntTensor<D: Dtype>:
-//     RankedTensor<D, Self::AnyType>
-//     + Into<Self::AnyType>
-//     + Into<Self::IntLike>
-//     + AddWith<Self::I64>
-//     + MulWith<Self::I64>
-//     + Add<Self::I64, Output = <Self as AddWith<Self::I64>>::Output>
-//     + Mul<Self::I64, Output = <Self as MulWith<Self::I64>>::Output>
-//     + Comparison<Self::I64, Output = Self::BoolTensor>
-//     + Comparison<Self::I32, Output = Self::BoolTensor>
-// {
-//     type AnyType: AnyType;
-//     type IntLike: IntLike;
-//     type BoolLike: BoolLike;
+// Integer Type
+pub trait IntLike {}
 
-//     type I64: I64<Self::IntLike, Self::AnyType>;
-//     type I32: I32<Self::IntLike, Self::AnyType, Self::I64>;
-//     type I1: I1<Self::BoolLike, Self::AnyType>;
-//     type BoolTensor: BoolTensor<Self::BoolLike, Self::AnyType, Self::I1>;
-// }
+pub trait Int: Dtype + Copy + Into<Self::IntLike> + Into<Self::AnyType> {
+    type AnyType: AnyType;
+    type IntLike: IntLike;
+}
 
-// pub trait IntLike {}
+pub trait I1: Int + Into<Self::BoolLike> {
+    type BoolLike: BoolLike;
+}
+pub trait I4: Int {}
+pub trait I8: Int {}
+pub trait I16: Int {}
+pub trait I32: Int + AddWith<Self::I64> + MulWith<Self::I64> + From<isize> {
+    type I64: I64;
+}
+pub trait I64: Int {}
 
-// // I32 Type
-// pub trait I32Like {}
-// pub trait I32Tensor<S: IntLike, T: AnyType, U: I64Like, O: I64<S, T>, V: I32<S, T, O>>:
-//     RankedTensor<T, V> + Into<S> + Into<T> + Comparison<V>
-// {
-// }
+// Int Tensor
+pub trait IntTensor:
+    RankedTensor<Self::Int>
+    + Into<Self::IntLike>
+    + AddWith<Self::I64>
+    + MulWith<Self::I64>
+    + Add<Self::I64, Output = <Self as AddWith<Self::I64>>::Output>
+    + Mul<Self::I64, Output = <Self as MulWith<Self::I64>>::Output>
+    + Comparison<Self::I32, Output = Self::BoolTensor>
+    + Comparison<Self::I64, Output = Self::BoolTensor>
+{
+    type Int: Int;
+    type IntLike: IntLike;
 
-// // I64 Type
-// pub trait I64Like {}
+    type I32: I32;
+    type I64: I64;
+    type BoolTensor: BoolTensor;
+}
 
-// // Pointer Type
-// pub trait Pointer<
-//     D: Dtype,
-//     PL: PointerLike,
-//     S: IntLike,
-//     B: BoolLike,
-//     T: AnyType,
-//     O: I64<S, T>,
-//     V: I32<S, T, O>,
-//     U: I1<B, T>,
-//     BT: BoolTensor<B, T, U>,
-// >: Into<PL>
-// {
-//     fn add(&self, other: &Self) -> Self;
+// Pointer Type
+pub trait Pointer<D: Dtype> {
+    fn add(&self, other: &Self) -> Self;
 
-//     fn add_offsets<IT: IntTensor<S, B, T, O, V, U, BT>>(&self, other: &IT) -> Self;
-// }
-
-// pub trait PointerLike {}
+    fn add_offsets<T: IntTensor>(&self, other: &T) -> Self;
+}

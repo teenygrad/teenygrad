@@ -66,7 +66,7 @@ impl Triton for LlvmTriton {
 
     type I64 = I64;
 
-    type Tensor<D: ty::Dtype> = Tensor<D>;
+    // type Tensor<D: ty::Dtype> = Tensor<D>;
 
     type BoolTensor = BoolTensor<BoolLike, AnyType, I1>;
 

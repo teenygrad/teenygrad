@@ -32,29 +32,24 @@ pub struct Tensor<D: ty::Dtype> {
     _phantom_1: std::marker::PhantomData<D>,
 }
 
-impl ty::RankedTensor<AnyType, I32> for Tensor<I32> {}
-
-impl From<Tensor<I32>> for AnyType {
-    fn from(_: Tensor<I32>) -> Self {
-        todo!()
-    }
-}
-
-impl From<Tensor<I32>> for I32 {
-    fn from(_: Tensor<I32>) -> Self {
-        todo!()
-    }
+impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {
+    type AnyType = AnyType;
 }
 
 /*--------------------------------- BoolTensor ---------------------------------*/
 
-pub struct BoolTensor<S: ty::BoolLike, T: ty::AnyType, U: ty::I1<S, T>> {
-    _phantom_1: std::marker::PhantomData<S>,
+type Bool = bool;
+
+pub struct BoolTensor<B: ty::Bool, T: ty::AnyType, BL: ty::BoolLike> {
+    _phantom_1: std::marker::PhantomData<B>,
     _phantom_2: std::marker::PhantomData<T>,
-    _phantom_3: std::marker::PhantomData<U>,
+    _phantom_3: std::marker::PhantomData<BL>,
 }
 
-impl ty::BoolTensor<BoolLike, AnyType, I1> for BoolTensor<BoolLike, AnyType, I1> {}
+impl ty::BoolTensor<Bool = Bool, AnyType = AnyType, BoolLike = BoolLike>
+    for BoolTensor<Bool, AnyType, BoolLike>
+{
+}
 
 impl ty::RankedTensor<AnyType, I1> for BoolTensor<BoolLike, AnyType, I1> {}
 
@@ -72,24 +67,12 @@ impl From<BoolTensor<BoolLike, AnyType, I1>> for BoolLike {
 
 /*--------------------------------- IntTensor ---------------------------------*/
 
-pub struct IntTensor<
-    D: ty::Dtype,
-    S: ty::IntLike,
-    B: ty::BoolLike,
-    T: ty::AnyType,
-    O: ty::I64<S, T>,
-    V: ty::I32<S, T, O>,
-    U: ty::I1<B, T>,
-    BT: ty::BoolTensor<B, T, U>,
-> {
-    _phantom_0: std::marker::PhantomData<D>,
-    _phantom_1: std::marker::PhantomData<S>,
-    _phantom_2: std::marker::PhantomData<B>,
-    _phantom_3: std::marker::PhantomData<T>,
-    _phantom_4: std::marker::PhantomData<O>,
-    _phantom_5: std::marker::PhantomData<V>,
-    _phantom_6: std::marker::PhantomData<U>,
-    _phantom_7: std::marker::PhantomData<BT>,
+pub struct IntTensor<I: ty::Int, IL: ty::IntLike, I32: ty::I32, I64: ty::I64, BT: ty::BoolTensor> {
+    _phantom_0: std::marker::PhantomData<I>,
+    _phantom_1: std::marker::PhantomData<IL>,
+    _phantom_2: std::marker::PhantomData<I32>,
+    _phantom_3: std::marker::PhantomData<I64>,
+    _phantom_4: std::marker::PhantomData<BT>,
 }
 
 impl<D: ty::Dtype>
