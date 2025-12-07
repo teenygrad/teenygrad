@@ -25,20 +25,50 @@ use crate::triton::{
 #[derive(Copy, Clone)]
 pub enum Int {}
 
-impl ty::Int for Int {}
+pub enum IntLike {}
+
+impl ty::Int for Int {
+    type AnyType = AnyType;
+    type IntLike = IntLike;
+}
 
 impl ty::Dtype for Int {}
+
+impl From<Int> for AnyType {
+    fn from(_: Int) -> Self {
+        todo!()
+    }
+}
+
+impl From<Int> for IntLike {
+    fn from(_: Int) -> Self {
+        todo!()
+    }
+}
 
 /*--------------------------------- I1 ---------------------------------*/
 
 #[derive(Copy, Clone)]
 pub struct I1 {}
 
-impl ty::I1<BoolLike, AnyType> for I1 {}
-impl ty::Int for I1 {}
 impl ty::Dtype for I1 {}
 
+impl ty::I1 for I1 {
+    type BoolLike = BoolLike;
+}
+
+impl ty::Int for I1 {
+    type AnyType = AnyType;
+    type IntLike = IntLike;
+}
+
 impl From<I1> for AnyType {
+    fn from(_: I1) -> Self {
+        todo!()
+    }
+}
+
+impl From<I1> for IntLike {
     fn from(_: I1) -> Self {
         todo!()
     }
@@ -55,9 +85,16 @@ impl From<I1> for BoolLike {
 #[derive(Copy, Clone)]
 pub struct I32 {}
 
-impl ty::I32<IntLike, AnyType, I64> for I32 {}
-impl ty::Int for I32 {}
 impl ty::Dtype for I32 {}
+
+impl ty::I32 for I32 {
+    type I64 = I64;
+}
+
+impl ty::Int for I32 {
+    type AnyType = AnyType;
+    type IntLike = IntLike;
+}
 
 impl From<isize> for I32 {
     fn from(_: isize) -> Self {
@@ -71,16 +108,18 @@ impl From<I32> for IntLike {
     }
 }
 
-impl From<I32> for I64 {
+impl From<I32> for AnyType {
     fn from(_: I32) -> Self {
         todo!()
     }
 }
 
-impl From<I32> for AnyType {
-    fn from(_: I32) -> Self {
-        todo!()
-    }
+impl ty::AddWith<I32> for I32 {
+    type Output = I64;
+}
+
+impl ty::MulWith<I32> for I32 {
+    type Output = I64;
 }
 
 impl Add<I32> for I32 {
@@ -104,9 +143,14 @@ impl Mul<I32> for I32 {
 #[derive(Copy, Clone)]
 pub struct I64 {}
 
-impl ty::I64<IntLike, AnyType> for I64 {}
-impl ty::Int for I64 {}
 impl ty::Dtype for I64 {}
+
+impl ty::Int for I64 {
+    type AnyType = AnyType;
+    type IntLike = IntLike;
+}
+
+impl ty::I64 for I64 {}
 
 impl From<I64> for IntLike {
     fn from(_: I64) -> Self {

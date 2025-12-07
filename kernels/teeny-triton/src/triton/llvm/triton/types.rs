@@ -19,6 +19,37 @@ use crate::triton::types as ty;
 pub enum AnyType {}
 
 impl ty::AnyType for AnyType {}
-pub enum PointerLike {}
 
-impl ty::PointerLike for PointerLike {}
+/*--------------------------------- Bool ---------------------------------*/
+
+pub enum BoolLike {}
+
+impl ty::BoolLike for BoolLike {}
+pub struct Bool(bool);
+
+impl ty::Dtype for Bool {}
+
+impl ty::Bool for Bool {
+    type AnyType = AnyType;
+    type BoolLike = BoolLike;
+}
+
+impl Clone for Bool {
+    fn clone(&self) -> Self {
+        Bool(self.0)
+    }
+}
+
+impl Copy for Bool {}
+
+impl From<Bool> for AnyType {
+    fn from(_value: Bool) -> Self {
+        todo!()
+    }
+}
+
+impl From<Bool> for BoolLike {
+    fn from(_value: Bool) -> Self {
+        todo!()
+    }
+}

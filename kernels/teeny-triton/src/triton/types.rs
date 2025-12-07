@@ -103,12 +103,21 @@ pub trait Int: Dtype + Copy + Into<Self::IntLike> + Into<Self::AnyType> {
 pub trait I1: Int + Into<Self::BoolLike> {
     type BoolLike: BoolLike;
 }
+
 pub trait I4: Int {}
 pub trait I8: Int {}
 pub trait I16: Int {}
-pub trait I32: Int + AddWith<Self::I64> + MulWith<Self::I64> + From<isize> {
+pub trait I32:
+    Int
+    + AddWith<Self, Output = Self::I64>
+    + MulWith<Self, Output = Self::I64>
+    + Add<Self, Output = <Self as AddWith<Self>>::Output>
+    + Mul<Self, Output = <Self as MulWith<Self>>::Output>
+    + From<isize>
+{
     type I64: I64;
 }
+
 pub trait I64: Int {}
 
 // Int Tensor

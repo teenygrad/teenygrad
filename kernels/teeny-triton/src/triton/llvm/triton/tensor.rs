@@ -15,15 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::{Add, Mul};
-
 use crate::triton::{
     llvm::triton::{
-        BoolLike, IntLike,
-        num::{I1, I32, I64},
-        types::AnyType,
+        BoolLike,
+        num::{I1, I32, I64, Int, IntLike},
+        types::{AnyType, Bool},
     },
-    types::{self as ty, Comparison},
+    types::{self as ty},
 };
 
 /*--------------------------------- Tensor ---------------------------------*/
@@ -38,35 +36,39 @@ impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {
 
 /*--------------------------------- BoolTensor ---------------------------------*/
 
-type Bool = bool;
-
 pub struct BoolTensor<B: ty::Bool, T: ty::AnyType, BL: ty::BoolLike> {
     _phantom_1: std::marker::PhantomData<B>,
     _phantom_2: std::marker::PhantomData<T>,
     _phantom_3: std::marker::PhantomData<BL>,
 }
 
-impl ty::BoolTensor<Bool = Bool, AnyType = AnyType, BoolLike = BoolLike>
-    for BoolTensor<Bool, AnyType, BoolLike>
-{
+impl ty::BoolTensor for BoolTensor<Bool, AnyType, BoolLike> {
+    type Bool = Bool;
+    type AnyType = AnyType;
+    type BoolLike = BoolLike;
 }
 
-impl ty::RankedTensor<AnyType, I1> for BoolTensor<BoolLike, AnyType, I1> {}
+impl ty::RankedTensor<Bool> for BoolTensor<Bool, AnyType, BoolLike> {
+    type AnyType = AnyType;
+}
 
-impl From<BoolTensor<BoolLike, AnyType, I1>> for AnyType {
-    fn from(_: BoolTensor<BoolLike, AnyType, I1>) -> Self {
+impl From<BoolTensor<Bool, AnyType, BoolLike>> for BoolLike {
+    fn from(_: BoolTensor<Bool, AnyType, BoolLike>) -> Self {
         todo!()
     }
 }
 
-impl From<BoolTensor<BoolLike, AnyType, I1>> for BoolLike {
-    fn from(_: BoolTensor<BoolLike, AnyType, I1>) -> Self {
+impl From<BoolTensor<Bool, AnyType, BoolLike>> for AnyType {
+    fn from(_: BoolTensor<Bool, AnyType, BoolLike>) -> Self {
         todo!()
     }
+}
+
+impl ty::RankedTensor<I1> for BoolTensor<Bool, AnyType, BoolLike> {
+    type AnyType = AnyType;
 }
 
 /*--------------------------------- IntTensor ---------------------------------*/
-
 pub struct IntTensor<I: ty::Int, IL: ty::IntLike, I32: ty::I32, I64: ty::I64, BT: ty::BoolTensor> {
     _phantom_0: std::marker::PhantomData<I>,
     _phantom_1: std::marker::PhantomData<IL>,
@@ -75,10 +77,15 @@ pub struct IntTensor<I: ty::Int, IL: ty::IntLike, I32: ty::I32, I64: ty::I64, BT
     _phantom_4: std::marker::PhantomData<BT>,
 }
 
-impl<D: ty::Dtype>
-    ty::IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
-    for IntTensor<D, IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>
+impl<D: ty::Dtype> ty::IntTensor
+    for IntTensor<Self::Int, Self::IntLike, Self::I32, Self::I64, Self::BoolTensor>
 {
+    type Int = Int;
+    type IntLike = IntLike;
+
+    type I32 = I32;
+    type I64 = I64;
+    type BoolTensor = BoolTensor<Bool, AnyType, BoolLike>;
 }
 
 impl<D: ty::Dtype> ty::RankedTensor<AnyType, I32>

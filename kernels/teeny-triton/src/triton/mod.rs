@@ -42,28 +42,20 @@ pub trait Triton {
 
     type Pointer<D: ty::Dtype>: ty::Pointer<D>;
 
-    type Bool: ty::Bool<AnyType = Self::AnyType, BoolLike = Self::BoolLike>;
-    type Int: ty::Int<AnyType = Self::AnyType, IntLike = Self::IntLike>;
-    type I1: ty::I1<AnyType = Self::AnyType, IntLike = Self::IntLike, BoolLike = Self::BoolLike>;
-    type I32: ty::I32<AnyType = Self::AnyType, IntLike = Self::IntLike, I64 = Self::I64>;
-    type I64: ty::I64<AnyType = Self::AnyType, IntLike = Self::IntLike>;
+    type Bool: ty::Bool;
+    type I1: ty::I1;
+    type I32: ty::I32;
+    type I64: ty::I64;
 
     // type Tensor<D: ty::Dtype>: ty::Tensor<D, Self::AnyType, Self::IntLike, Self::BoolLike>;
-    type BoolTensor: ty::BoolTensor<Bool = Self::Bool, AnyType = Self::AnyType, BoolLike = Self::BoolLike>;
-    type IntTensor: ty::IntTensor<
-            Int = Self::Int,
-            IntLike = Self::IntLike,
-            AnyType = Self::AnyType,
-            I32 = Self::I32,
-            I64 = Self::I64,
-            BoolTensor = Self::BoolTensor,
-        >;
+    type BoolTensor: ty::BoolTensor;
+    type IntTensor: ty::IntTensor;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
     fn num_programs(axis: ProgramAxis) -> Self::I32;
 
-    fn arange<'a, S1, S2>(start: S1, end: S2) -> Self::IntTensor
+    fn arange<S1, S2>(start: S1, end: S2) -> Self::IntTensor
     where
         S1: Into<Self::I32>,
         S2: Into<Self::I32>;

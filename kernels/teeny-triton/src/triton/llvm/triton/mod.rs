@@ -17,7 +17,7 @@
 
 use crate::triton::Triton;
 use crate::triton::llvm::triton::pointer::Pointer;
-use crate::triton::llvm::triton::tensor::{BoolTensor, IntTensor, Tensor};
+use crate::triton::llvm::triton::tensor::BoolTensor;
 use crate::triton::types as ty;
 
 pub mod num;
@@ -28,60 +28,37 @@ pub mod types;
 use num::*;
 use types::*;
 
-pub enum BoolLike {}
-impl ty::BoolLike for BoolLike {}
-
 pub enum IntLike {}
 impl ty::IntLike for IntLike {}
 
-pub enum I64Like {}
-impl ty::I64Like for I64Like {}
-
-pub struct PointerLike {}
-impl ty::PointerLike for PointerLike {}
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
     type AnyType = AnyType;
     type IntLike = IntLike;
-    type I64Like = I64Like;
     type BoolLike = BoolLike;
-    type PointerLike = PointerLike;
 
-    type Pointer<D: ty::Dtype> = Pointer<
-        D,
-        PointerLike,
-        IntLike,
-        BoolLike,
-        AnyType,
-        I64,
-        I32,
-        I1,
-        BoolTensor<BoolLike, AnyType, I1>,
-    >;
+    type Pointer<D: ty::Dtype> = Pointer<D>;
 
+    type Bool = Bool;
     type I1 = I1;
-
     type I32 = I32;
-
     type I64 = I64;
 
     // type Tensor<D: ty::Dtype> = Tensor<D>;
 
-    type BoolTensor = BoolTensor<BoolLike, AnyType, I1>;
+    type BoolTensor = BoolTensor<Self::Bool, Self::AnyType, Self::BoolLike>;
+    type IntTensor = IntTensor;
 
-    type IntTensor =
-        IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>;
-
-    fn program_id(axis: crate::triton::ProgramAxis) -> Self::I32 {
+    fn program_id(_axis: crate::triton::ProgramAxis) -> Self::I32 {
         todo!()
     }
 
-    fn num_programs(axis: crate::triton::ProgramAxis) -> Self::I32 {
+    fn num_programs(_axis: crate::triton::ProgramAxis) -> Self::I32 {
         todo!()
     }
 
-    fn arange<'a, S1, S2>(start: S1, end: S2) -> Self::IntTensor<'a, Self::I32>
+    fn arange<S1, S2>(start: S1, end: S2) -> Self::IntTensor
     where
         S1: Into<Self::I32>,
         S2: Into<Self::I32>,
@@ -90,16 +67,16 @@ impl Triton for LlvmTriton {
     }
 
     fn load<'a, D: ty::Dtype>(
-        ptr: &Self::Pointer<D>,
-        mask: &Option<Self::BoolTensor>,
+        _ptr: &Self::Pointer<D>,
+        _mask: &Option<Self::BoolTensor>,
     ) -> Self::Pointer<D> {
         todo!()
     }
 
     fn store<'a, D: ty::Dtype>(
-        src: &Self::Pointer<D>,
-        dest: &Self::Pointer<D>,
-        mask: &Option<Self::BoolTensor>,
+        _src: &Self::Pointer<D>,
+        _dest: &Self::Pointer<D>,
+        _mask: &Option<Self::BoolTensor>,
     ) {
         todo!()
     }

@@ -15,103 +15,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::{
-    llvm::triton::{
-        BoolLike, IntLike, PointerLike,
-        num::{I1, I32, I64},
-        tensor::BoolTensor,
-        types::AnyType,
-    },
-    types as ty,
-};
-pub struct Pointer<
-    D: ty::Dtype,
-    PL: ty::PointerLike,
-    S: ty::IntLike,
-    B: ty::BoolLike,
-    T: ty::AnyType,
-    O: ty::I64<S, T>,
-    V: ty::I32<S, T, O>,
-    U: ty::I1<B, T>,
-    BT: ty::BoolTensor<B, T, U>,
-> {
+use crate::triton::types::{self as ty, IntTensor};
+pub struct Pointer<D: ty::Dtype> {
     _phantom_1: std::marker::PhantomData<D>,
-    _phantom_2: std::marker::PhantomData<PL>,
-    _phantom_3: std::marker::PhantomData<S>,
-    _phantom_4: std::marker::PhantomData<B>,
-    _phantom_5: std::marker::PhantomData<T>,
-    _phantom_6: std::marker::PhantomData<O>,
-    _phantom_7: std::marker::PhantomData<V>,
-    _phantom_8: std::marker::PhantomData<U>,
-    _phantom_9: std::marker::PhantomData<BT>,
 }
 
-impl<D: ty::Dtype>
-    ty::Pointer<
-        D,
-        PointerLike,
-        IntLike,
-        BoolLike,
-        AnyType,
-        I64,
-        I32,
-        I1,
-        BoolTensor<BoolLike, AnyType, I1>,
-    >
-    for Pointer<
-        D,
-        PointerLike,
-        IntLike,
-        BoolLike,
-        AnyType,
-        I64,
-        I32,
-        I1,
-        BoolTensor<BoolLike, AnyType, I1>,
-    >
-{
+impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
     fn add(&self, _other: &Self) -> Self {
         todo!()
     }
 
-    fn add_offsets<
-        IT: ty::IntTensor<IntLike, BoolLike, AnyType, I64, I32, I1, BoolTensor<BoolLike, AnyType, I1>>,
-    >(
-        &self,
-        _other: &IT,
-    ) -> Self {
-        todo!()
-    }
-}
-
-impl<D: ty::Dtype>
-    From<
-        Pointer<
-            D,
-            PointerLike,
-            IntLike,
-            BoolLike,
-            AnyType,
-            I64,
-            I32,
-            I1,
-            BoolTensor<BoolLike, AnyType, I1>,
-        >,
-    > for PointerLike
-{
-    fn from(
-        _value: Pointer<
-            D,
-            PointerLike,
-            IntLike,
-            BoolLike,
-            AnyType,
-            I64,
-            I32,
-            I1,
-            BoolTensor<BoolLike, AnyType, I1>,
-        >,
-    ) -> Self {
+    fn add_offsets<T: IntTensor>(&self, _other: &T) -> Self {
         todo!()
     }
 }
