@@ -17,4 +17,4 @@
 
 mod triton;
 
-pub static TRITON: &str = concat!(include_str!("core.rs"), include_str!("triton.rs"));
+pub static TRITON: &str = concat!(include_str!("core.rs"));

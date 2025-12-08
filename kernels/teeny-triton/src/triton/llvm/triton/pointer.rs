@@ -15,17 +15,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::types::{self as ty, IntTensor};
+use crate::triton::{
+    StoreOp,
+    llvm::triton::{
+        tensor::{BoolTensor, Tensor},
+        types::Bool,
+    },
+    types::{self as ty},
+};
 pub struct Pointer<D: ty::Dtype> {
     _phantom_1: std::marker::PhantomData<D>,
 }
 
-impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
-    fn add(&self, _other: &Self) -> Self {
-        todo!()
-    }
-
-    fn add_offsets<T: IntTensor>(&self, _other: &T) -> Self {
-        todo!()
-    }
-}
+impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {}

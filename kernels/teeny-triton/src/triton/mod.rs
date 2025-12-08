@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::types as ty;
+use crate::triton::types::{self as ty};
 
 pub mod dummy;
 pub mod llvm;
@@ -35,39 +35,45 @@ pub enum ProgramAxis {
     Axis2,
 }
 
-pub trait Triton {
-    type AnyType: ty::AnyType;
-    type IntLike: ty::IntLike;
-    type BoolLike: ty::BoolLike;
-
-    type Pointer<D: ty::Dtype>: ty::Pointer<D>;
-
-    type Bool: ty::Bool;
-    type I1: ty::I1;
+pub trait ProgramOps {
     type I32: ty::I32;
-    type I64: ty::I64;
-
-    // type Tensor<D: ty::Dtype>: ty::Tensor<D, Self::AnyType, Self::IntLike, Self::BoolLike>;
-    type BoolTensor: ty::BoolTensor;
-    type IntTensor: ty::IntTensor;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
     fn num_programs(axis: ProgramAxis) -> Self::I32;
+}
 
-    fn arange<S1, S2>(start: S1, end: S2) -> Self::IntTensor
-    where
-        S1: Into<Self::I32>,
-        S2: Into<Self::I32>;
+pub trait ArangeOp {
+    type I32: ty::I32;
+    type I32Tensor: ty::I32Tensor<Self::I32>;
 
-    fn load<'a, D: ty::Dtype>(
-        ptr: &Self::Pointer<D>,
-        mask: &Option<Self::BoolTensor>,
-    ) -> Self::Pointer<D>;
+    fn arange(start: Self::I32, end: Self::I32) -> Self::I32Tensor;
+}
 
-    fn store<'a, D: ty::Dtype>(
-        src: &Self::Pointer<D>,
-        dest: &Self::Pointer<D>,
-        mask: &Option<Self::BoolTensor>,
-    );
+pub trait LoadOp<D: ty::Dtype> {
+    type Bool: ty::Bool;
+    type BoolTensor: ty::BoolTensor<Self::Bool>;
+    type Pointer: ty::Pointer<D>;
+
+    fn load(ptr: &Self::Pointer, mask: &Option<Self::BoolTensor>) -> Self::Pointer;
+}
+
+pub trait StoreOp<D: ty::Dtype> {
+    type Bool: ty::Bool;
+    type BoolTensor: ty::BoolTensor<Self::Bool>;
+    type Tensor: ty::Tensor<D>;
+    type Pointer: ty::Pointer<D>;
+
+    fn store(dest: &Self::Pointer, src: &Self::Tensor, mask: &Option<Self::BoolTensor>);
+}
+
+pub trait Triton: ProgramOps + ArangeOp + LoadOp + StoreOp<Self::BF16>
+where
+    <Self as ProgramOps>::I32: ty::I32,
+    <Self as ArangeOp>::I32: ty::I32,
+    <Self as LoadOp<Self::BF16>>::Pointer: ty::Pointer<Self::BF16>,
+    <Self as StoreOp<Self::BF16>>::Pointer: ty::Pointer<Self::BF16>,
+{
+    type I32;
+    type BF16;
 }

@@ -15,69 +15,64 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::Triton;
+use crate::triton::llvm::triton::num::I32;
 use crate::triton::llvm::triton::pointer::Pointer;
-use crate::triton::llvm::triton::tensor::BoolTensor;
-use crate::triton::types as ty;
+use crate::triton::llvm::triton::tensor::{BoolTensor, I32Tensor, Tensor};
+use crate::triton::{ArangeOp, LoadOp, ProgramAxis, ProgramOps, types as ty};
+use crate::triton::{StoreOp, Triton};
 
 pub mod num;
 pub mod pointer;
 pub mod tensor;
 pub mod types;
 
-use num::*;
 use types::*;
-
-pub enum IntLike {}
-impl ty::IntLike for IntLike {}
 
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
-    type AnyType = AnyType;
-    type IntLike = IntLike;
-    type BoolLike = BoolLike;
-
-    type Pointer<D: ty::Dtype> = Pointer<D>;
-
-    type Bool = Bool;
-    type I1 = I1;
     type I32 = I32;
-    type I64 = I64;
+    type BF16 = BF16;
+}
 
-    // type Tensor<D: ty::Dtype> = Tensor<D>;
+impl ProgramOps for LlvmTriton {
+    type I32 = I32;
 
-    type BoolTensor = BoolTensor<Self::Bool, Self::AnyType, Self::BoolLike>;
-    type IntTensor = IntTensor;
-
-    fn program_id(_axis: crate::triton::ProgramAxis) -> Self::I32 {
+    fn program_id(_axis: ProgramAxis) -> Self::I32 {
         todo!()
     }
 
-    fn num_programs(_axis: crate::triton::ProgramAxis) -> Self::I32 {
+    fn num_programs(_axis: ProgramAxis) -> Self::I32 {
         todo!()
     }
+}
 
-    fn arange<S1, S2>(start: S1, end: S2) -> Self::IntTensor
-    where
-        S1: Into<Self::I32>,
-        S2: Into<Self::I32>,
-    {
+impl ArangeOp for LlvmTriton {
+    type I32 = I32;
+    type I32Tensor = I32Tensor;
+
+    fn arange(_start: Self::I32, _end: Self::I32) -> Self::I32Tensor {
         todo!()
     }
+}
 
-    fn load<'a, D: ty::Dtype>(
-        _ptr: &Self::Pointer<D>,
-        _mask: &Option<Self::BoolTensor>,
-    ) -> Self::Pointer<D> {
+impl<D: ty::Dtype> LoadOp<D> for LlvmTriton {
+    type Bool = Bool;
+    type BoolTensor = BoolTensor;
+    type Pointer = Pointer<D>;
+
+    fn load(_ptr: &Self::Pointer, _mask: &Option<Self::BoolTensor>) -> Self::Pointer {
         todo!()
     }
+}
 
-    fn store<'a, D: ty::Dtype>(
-        _src: &Self::Pointer<D>,
-        _dest: &Self::Pointer<D>,
-        _mask: &Option<Self::BoolTensor>,
-    ) {
+impl<D: ty::Dtype> StoreOp<D> for LlvmTriton {
+    type Bool = Bool;
+    type BoolTensor = BoolTensor;
+    type Tensor = Tensor<D>;
+    type Pointer = Pointer<D>;
+
+    fn store(_dest: &Self::Pointer, _src: &Self::Tensor, _mask: &Option<Self::BoolTensor>) {
         todo!()
     }
 }

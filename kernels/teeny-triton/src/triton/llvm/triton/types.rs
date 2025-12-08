@@ -16,40 +16,20 @@
  */
 
 use crate::triton::types as ty;
-pub enum AnyType {}
-
-impl ty::AnyType for AnyType {}
 
 /*--------------------------------- Bool ---------------------------------*/
 
-pub enum BoolLike {}
-
-impl ty::BoolLike for BoolLike {}
+#[derive(Copy, Clone)]
 pub struct Bool(bool);
 
 impl ty::Dtype for Bool {}
+impl ty::Bool for Bool {}
 
-impl ty::Bool for Bool {
-    type AnyType = AnyType;
-    type BoolLike = BoolLike;
-}
+/*--------------------------------- BF16 ---------------------------------*/
 
-impl Clone for Bool {
-    fn clone(&self) -> Self {
-        Bool(self.0)
-    }
-}
+#[derive(Copy, Clone)]
+pub struct BF16;
 
-impl Copy for Bool {}
-
-impl From<Bool> for AnyType {
-    fn from(_value: Bool) -> Self {
-        todo!()
-    }
-}
-
-impl From<Bool> for BoolLike {
-    fn from(_value: Bool) -> Self {
-        todo!()
-    }
-}
+impl ty::Dtype for BF16 {}
+impl ty::Float for BF16 {}
+impl ty::BF16 for BF16 {}
