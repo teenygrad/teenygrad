@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Mul;
+
 // Helper trait to express that Add output depends on both Self and the other operand
 pub trait AddWith<O> {
     type Output;
@@ -64,14 +66,23 @@ pub trait I1: Int {}
 pub trait I4: Int {}
 pub trait I8: Int {}
 pub trait I16: Int {}
-pub trait I32: Int {}
+pub trait I32: Int + From<u32> + From<i32> + MulWith<u32> + Mul<u32>
+where
+    <Self as MulWith<u32>>::Output: I64,
+{
+}
+
 pub trait I64: Int {}
 
 // Int Tensor
 pub trait Tensor<D: Dtype>: RankedTensor<D> {}
 
 pub trait BoolTensor<D: Bool>: Tensor<D> {}
-pub trait I32Tensor<D: I32>: Tensor<D> {}
+pub trait I32Tensor<D: I32>: Tensor<D>
+where
+    <D as MulWith<u32>>::Output: I64,
+{
+}
 
 // Pointer Type
 pub trait Pointer<D: Dtype> {}

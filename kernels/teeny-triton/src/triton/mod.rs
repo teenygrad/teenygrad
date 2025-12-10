@@ -35,45 +35,33 @@ pub enum ProgramAxis {
     Axis2,
 }
 
-pub trait ProgramOps {
+pub trait Triton
+where
+    <Self::I32 as ty::MulWith<u32>>::Output: ty::I64,
+{
+    type Bool: ty::Bool;
     type I32: ty::I32;
+    type BF16: ty::BF16;
+
+    type BoolTensor: ty::BoolTensor<Self::Bool>;
+    type I32Tensor: ty::I32Tensor<Self::I32>;
+    type Tensor<D: ty::Dtype>: ty::Tensor<D>;
+    type Pointer<D: ty::Dtype>: ty::Pointer<D>;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
     fn num_programs(axis: ProgramAxis) -> Self::I32;
-}
 
-pub trait ArangeOp {
-    type I32: ty::I32;
-    type I32Tensor: ty::I32Tensor<Self::I32>;
+    fn arange<T: Into<Self::I32>>(start: T, end: T) -> Self::I32Tensor;
 
-    fn arange(start: Self::I32, end: Self::I32) -> Self::I32Tensor;
-}
+    fn load<D: ty::Dtype>(
+        ptr: &Self::Pointer<D>,
+        mask: &Option<Self::BoolTensor>,
+    ) -> Self::Pointer<D>;
 
-pub trait LoadOp<D: ty::Dtype> {
-    type Bool: ty::Bool;
-    type BoolTensor: ty::BoolTensor<Self::Bool>;
-    type Pointer: ty::Pointer<D>;
-
-    fn load(ptr: &Self::Pointer, mask: &Option<Self::BoolTensor>) -> Self::Pointer;
-}
-
-pub trait StoreOp<D: ty::Dtype> {
-    type Bool: ty::Bool;
-    type BoolTensor: ty::BoolTensor<Self::Bool>;
-    type Tensor: ty::Tensor<D>;
-    type Pointer: ty::Pointer<D>;
-
-    fn store(dest: &Self::Pointer, src: &Self::Tensor, mask: &Option<Self::BoolTensor>);
-}
-
-pub trait Triton: ProgramOps + ArangeOp + LoadOp + StoreOp<Self::BF16>
-where
-    <Self as ProgramOps>::I32: ty::I32,
-    <Self as ArangeOp>::I32: ty::I32,
-    <Self as LoadOp<Self::BF16>>::Pointer: ty::Pointer<Self::BF16>,
-    <Self as StoreOp<Self::BF16>>::Pointer: ty::Pointer<Self::BF16>,
-{
-    type I32;
-    type BF16;
+    fn store<D: ty::Dtype>(
+        dest: &Self::Pointer<D>,
+        src: &Self::Tensor<D>,
+        mask: &Option<Self::BoolTensor>,
+    ) -> Self::Pointer<D>;
 }

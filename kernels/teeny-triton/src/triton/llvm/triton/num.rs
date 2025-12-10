@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Mul;
+
 use crate::triton::types as ty;
 
 /*--------------------------------- I1 ---------------------------------*/
@@ -33,6 +35,30 @@ pub struct I32(i32);
 impl ty::Dtype for I32 {}
 impl ty::Int for I32 {}
 impl ty::I32 for I32 {}
+
+impl ty::MulWith<u32> for I32 {
+    type Output = I64;
+}
+
+impl Mul<u32> for I32 {
+    type Output = I64;
+
+    fn mul(self, rhs: u32) -> Self::Output {
+        I64(self.0 as i64 * rhs as i64)
+    }
+}
+
+impl From<u32> for I32 {
+    fn from(value: u32) -> Self {
+        Self(value as i32)
+    }
+}
+
+impl From<i32> for I32 {
+    fn from(value: i32) -> Self {
+        Self(value as i32)
+    }
+}
 
 /*--------------------------------- I64 ---------------------------------*/
 

@@ -15,14 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::{
-    StoreOp,
-    llvm::triton::{
-        tensor::{BoolTensor, Tensor},
-        types::Bool,
-    },
-    types::{self as ty},
-};
+use crate::triton::types::{self as ty};
 pub struct Pointer<D: ty::Dtype> {
     _phantom_1: std::marker::PhantomData<D>,
 }

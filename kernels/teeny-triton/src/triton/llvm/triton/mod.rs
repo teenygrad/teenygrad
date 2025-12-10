@@ -15,11 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::triton::Triton;
 use crate::triton::llvm::triton::num::I32;
 use crate::triton::llvm::triton::pointer::Pointer;
 use crate::triton::llvm::triton::tensor::{BoolTensor, I32Tensor, Tensor};
-use crate::triton::{ArangeOp, LoadOp, ProgramAxis, ProgramOps, types as ty};
-use crate::triton::{StoreOp, Triton};
+use crate::triton::{ProgramAxis, types as ty};
 
 pub mod num;
 pub mod pointer;
@@ -33,10 +33,12 @@ pub struct LlvmTriton {}
 impl Triton for LlvmTriton {
     type I32 = I32;
     type BF16 = BF16;
-}
 
-impl ProgramOps for LlvmTriton {
-    type I32 = I32;
+    type Bool = Bool;
+    type BoolTensor = BoolTensor;
+    type I32Tensor = I32Tensor;
+    type Tensor<D: ty::Dtype> = Tensor<D>;
+    type Pointer<D: ty::Dtype> = Pointer<D>;
 
     fn program_id(_axis: ProgramAxis) -> Self::I32 {
         todo!()
@@ -45,34 +47,23 @@ impl ProgramOps for LlvmTriton {
     fn num_programs(_axis: ProgramAxis) -> Self::I32 {
         todo!()
     }
-}
 
-impl ArangeOp for LlvmTriton {
-    type I32 = I32;
-    type I32Tensor = I32Tensor;
-
-    fn arange(_start: Self::I32, _end: Self::I32) -> Self::I32Tensor {
+    fn arange<T: Into<Self::I32>>(_start: T, _end: T) -> Self::I32Tensor {
         todo!()
     }
-}
 
-impl<D: ty::Dtype> LoadOp<D> for LlvmTriton {
-    type Bool = Bool;
-    type BoolTensor = BoolTensor;
-    type Pointer = Pointer<D>;
-
-    fn load(_ptr: &Self::Pointer, _mask: &Option<Self::BoolTensor>) -> Self::Pointer {
+    fn load<D: ty::Dtype>(
+        _ptr: &Self::Pointer<D>,
+        _mask: &Option<Self::BoolTensor>,
+    ) -> Self::Pointer<D> {
         todo!()
     }
-}
 
-impl<D: ty::Dtype> StoreOp<D> for LlvmTriton {
-    type Bool = Bool;
-    type BoolTensor = BoolTensor;
-    type Tensor = Tensor<D>;
-    type Pointer = Pointer<D>;
-
-    fn store(_dest: &Self::Pointer, _src: &Self::Tensor, _mask: &Option<Self::BoolTensor>) {
+    fn store<D: ty::Dtype>(
+        _dest: &Self::Pointer<D>,
+        _src: &Self::Tensor<D>,
+        _mask: &Option<Self::BoolTensor>,
+    ) -> Self::Pointer<D> {
         todo!()
     }
 }
