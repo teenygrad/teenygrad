@@ -36,10 +36,6 @@ impl ty::Dtype for I32 {}
 impl ty::Int for I32 {}
 impl ty::I32 for I32 {}
 
-impl ty::MulWith<u32> for I32 {
-    type Output = I64;
-}
-
 impl Mul<u32> for I32 {
     type Output = I64;
 

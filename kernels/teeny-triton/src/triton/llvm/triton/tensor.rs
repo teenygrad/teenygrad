@@ -15,8 +15,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Add;
+
 use crate::triton::{
-    llvm::triton::{num::I32, types::Bool},
+    llvm::triton::{
+        num::{I32, I64},
+        types::Bool,
+    },
     types::{self as ty},
 };
 
@@ -33,4 +38,14 @@ pub type BoolTensor = Tensor<Bool>;
 impl ty::BoolTensor<Bool> for BoolTensor {}
 
 pub type I32Tensor = Tensor<I32>;
-impl ty::I32Tensor<I32> for I32Tensor {}
+impl ty::IntTensor<I32, I64> for I32Tensor {}
+impl ty::I32Tensor<I32, I64> for I32Tensor {}
+
+// Blanket implementation for any type implementing I64, including <I32 as Mul<u32>>::Output
+impl<R: ty::I64> Add<R> for I32Tensor {
+    type Output = I32Tensor;
+
+    fn add(self, _rhs: R) -> Self::Output {
+        todo!()
+    }
+}

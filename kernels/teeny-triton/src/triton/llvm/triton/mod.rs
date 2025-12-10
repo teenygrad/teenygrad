@@ -16,7 +16,7 @@
  */
 
 use crate::triton::Triton;
-use crate::triton::llvm::triton::num::I32;
+use crate::triton::llvm::triton::num::{I32, I64};
 use crate::triton::llvm::triton::pointer::Pointer;
 use crate::triton::llvm::triton::tensor::{BoolTensor, I32Tensor, Tensor};
 use crate::triton::{ProgramAxis, types as ty};
@@ -32,6 +32,7 @@ pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
     type I32 = I32;
+    type I64 = I64;
     type BF16 = BF16;
 
     type Bool = Bool;

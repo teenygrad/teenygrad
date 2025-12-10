@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Mul;
+
 use crate::triton::types::{self as ty};
 
 pub mod dummy;
@@ -37,14 +39,15 @@ pub enum ProgramAxis {
 
 pub trait Triton
 where
-    <Self::I32 as ty::MulWith<u32>>::Output: ty::I64,
+    <Self::I32 as Mul<u32>>::Output: ty::I64,
 {
     type Bool: ty::Bool;
     type I32: ty::I32;
+    type I64: ty::I64;
     type BF16: ty::BF16;
 
     type BoolTensor: ty::BoolTensor<Self::Bool>;
-    type I32Tensor: ty::I32Tensor<Self::I32>;
+    type I32Tensor: ty::I32Tensor<Self::I32, Self::I64>;
     type Tensor<D: ty::Dtype>: ty::Tensor<D>;
     type Pointer<D: ty::Dtype>: ty::Pointer<D>;
 
