@@ -47,7 +47,7 @@ where
     type BF16: ty::BF16;
 
     type BoolTensor: ty::BoolTensor<Self::Bool>;
-    type I32Tensor: ty::I32Tensor<Self::I32, Self::I64>;
+    type I32Tensor: ty::I32Tensor;
     type Tensor<D: ty::Dtype>: ty::Tensor<D>;
     type Pointer<D: ty::Dtype>: ty::Pointer<D>;
 

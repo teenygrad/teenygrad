@@ -32,8 +32,10 @@ pub trait Comparison<T> {
 // Dtype Type
 pub trait Dtype {}
 
-pub trait Float: Dtype + Copy {}
-pub trait Int: Dtype + Copy {}
+pub trait Num: Dtype + Copy {}
+
+pub trait Float: Num {}
+pub trait Int: Num {}
 pub trait Bool: Dtype + Copy {}
 
 // Tensor
@@ -69,12 +71,22 @@ pub trait Tensor<D: Dtype>: RankedTensor<D> {}
 
 pub trait BoolTensor<D: Bool>: Tensor<D> {}
 
-pub trait IntTensor<D: Int, R: I64>: Tensor<D> + Add<R> {}
+pub trait TensorComparison<I: Num> {
+    type B: Bool;
+    type T: BoolTensor<Self::B>;
 
-pub trait I32Tensor<D: I32, R: I64>: IntTensor<D, R> + Add<<D as Mul<u32>>::Output>
+    fn less_than(&self, other: I) -> Self::T;
+}
+
+pub trait IntTensor<D: Int>: Tensor<D> + Add<Self::I64> + TensorComparison<Self::I64> {
+    type I64: I64;
+}
+
+pub trait I32Tensor: IntTensor<Self::I32> + Add<<Self::I32 as Mul<u32>>::Output>
 where
-    <D as Mul<u32>>::Output: I64,
+    <Self::I32 as Mul<u32>>::Output: I64,
 {
+    type I32: I32;
 }
 
 // Pointer Type

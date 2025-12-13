@@ -31,5 +31,6 @@ impl ty::Bool for Bool {}
 pub struct BF16;
 
 impl ty::Dtype for BF16 {}
+impl ty::Num for BF16 {}
 impl ty::Float for BF16 {}
 impl ty::BF16 for BF16 {}

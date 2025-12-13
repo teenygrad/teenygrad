@@ -21,10 +21,10 @@ use teeny_macros::kernel;
 use teeny_triton::triton::*;
 
 #[kernel]
-pub fn tensor_add<'a, T: Triton + 'a, D: types::Dtype, const BLOCK_SIZE: u32>(
-    x_ptr: &'a T::Pointer<D>,
-    y_ptr: &'a T::Pointer<D>,
-    output_ptr: &'a T::Pointer<D>,
+pub fn tensor_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: u32>(
+    x_ptr: &T::Pointer<D>,
+    y_ptr: &T::Pointer<D>,
+    output_ptr: &T::Pointer<D>,
     n_elements: T::I32,
 ) {
     let pid = T::program_id(ProgramAxis::Axis0);
@@ -36,7 +36,7 @@ pub fn tensor_add<'a, T: Triton + 'a, D: types::Dtype, const BLOCK_SIZE: u32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
 
     // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
-    let mask = Some(offsets.slt(n_elements));
+    // let mask = Some(offsets.less_than(n_elements));
 
     // // Load data from global memory with masking
     // let x = T::load(&x_ptr.add_offsets(&offsets), &mask);

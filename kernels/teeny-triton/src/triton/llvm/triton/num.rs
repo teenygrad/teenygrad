@@ -25,6 +25,7 @@ use crate::triton::types as ty;
 pub struct I1(bool);
 
 impl ty::Dtype for I1 {}
+impl ty::Num for I1 {}
 impl ty::Int for I1 {}
 impl ty::I1 for I1 {}
 
@@ -33,6 +34,7 @@ impl ty::I1 for I1 {}
 #[derive(Copy, Clone)]
 pub struct I32(i32);
 impl ty::Dtype for I32 {}
+impl ty::Num for I32 {}
 impl ty::Int for I32 {}
 impl ty::I32 for I32 {}
 
@@ -61,5 +63,6 @@ impl From<i32> for I32 {
 #[derive(Copy, Clone)]
 pub struct I64(i64);
 impl ty::Dtype for I64 {}
+impl ty::Num for I64 {}
 impl ty::Int for I64 {}
 impl ty::I64 for I64 {}

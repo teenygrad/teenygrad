@@ -38,8 +38,22 @@ pub type BoolTensor = Tensor<Bool>;
 impl ty::BoolTensor<Bool> for BoolTensor {}
 
 pub type I32Tensor = Tensor<I32>;
-impl ty::IntTensor<I32, I64> for I32Tensor {}
-impl ty::I32Tensor<I32, I64> for I32Tensor {}
+impl ty::I32Tensor for I32Tensor {
+    type I32 = I32;
+}
+
+impl ty::IntTensor<I32> for I32Tensor {
+    type I64 = I64;
+}
+
+impl ty::TensorComparison<I64> for I32Tensor {
+    type B = Bool;
+    type T = BoolTensor;
+
+    fn less_than(&self, _other: I64) -> Self::T {
+        todo!()
+    }
+}
 
 // Blanket implementation for any type implementing I64, including <I32 as Mul<u32>>::Output
 impl<R: ty::I64> Add<R> for I32Tensor {
