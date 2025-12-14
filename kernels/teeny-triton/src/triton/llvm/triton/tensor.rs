@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Add;
+use std::ops::{Add, Mul};
 
 use crate::triton::{
     llvm::triton::{
@@ -38,12 +38,11 @@ pub type BoolTensor = Tensor<Bool>;
 impl ty::BoolTensor<Bool> for BoolTensor {}
 
 pub type I32Tensor = Tensor<I32>;
+
 impl ty::I32Tensor for I32Tensor {
     type I32 = I32;
-}
-
-impl ty::IntTensor<I32> for I32Tensor {
     type I64 = I64;
+    type I64Tensor = I64Tensor;
 }
 
 impl ty::TensorComparison<I64> for I32Tensor {
@@ -57,9 +56,14 @@ impl ty::TensorComparison<I64> for I32Tensor {
 
 // Blanket implementation for any type implementing I64, including <I32 as Mul<u32>>::Output
 impl<R: ty::I64> Add<R> for I32Tensor {
-    type Output = I32Tensor;
+    type Output = I64Tensor;
 
     fn add(self, _rhs: R) -> Self::Output {
         todo!()
     }
+}
+
+pub type I64Tensor = Tensor<I64>;
+impl ty::I64Tensor for I64Tensor {
+    type I64 = I64;
 }

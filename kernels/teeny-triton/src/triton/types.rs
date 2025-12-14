@@ -77,16 +77,18 @@ pub trait TensorComparison<I: Num> {
 
     fn less_than(&self, other: I) -> Self::T;
 }
-
-pub trait IntTensor<D: Int>: Tensor<D> + Add<Self::I64> + TensorComparison<Self::I64> {
-    type I64: I64;
-}
-
-pub trait I32Tensor: IntTensor<Self::I32> + Add<<Self::I32 as Mul<u32>>::Output>
+pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I64, Output = Self::I64Tensor>
 where
     <Self::I32 as Mul<u32>>::Output: I64,
 {
     type I32: I32;
+    type I64: I64;
+
+    type I64Tensor: I64Tensor;
+}
+
+pub trait I64Tensor: Tensor<Self::I64> {
+    type I64: I64;
 }
 
 // Pointer Type
