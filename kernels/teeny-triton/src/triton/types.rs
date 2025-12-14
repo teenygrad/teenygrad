@@ -17,18 +17,6 @@
 
 use std::ops::{Add, Mul};
 
-// Comparison
-pub trait Comparison<T> {
-    type Output;
-
-    fn eq(&self, other: T) -> Self::Output;
-    fn ne(&self, other: T) -> Self::Output;
-    fn slt(&self, other: T) -> Self::Output;
-    fn sle(&self, other: T) -> Self::Output;
-    fn sgt(&self, other: T) -> Self::Output;
-    fn sge(&self, other: T) -> Self::Output;
-}
-
 // Dtype Type
 pub trait Dtype {}
 
@@ -88,5 +76,14 @@ pub trait I64Tensor: Tensor<Self::I64> + TensorComparison<Self::I32> {
     type I64: I64;
 }
 
+// Offsets trait for adding tensor offsets to pointers
+pub trait AddOffsets<D: Dtype, I: Num, T: Tensor<I>> {
+    fn add_offsets(&self, offsets: &T) -> Self;
+}
+
 // Pointer Type
-pub trait Pointer<D: Dtype> {}
+pub trait Pointer<D: Dtype>: AddOffsets<D, Self::I64, Self::I64Tensor> {
+    type I32: I32<I64 = Self::I64>;
+    type I64: I64;
+    type I64Tensor: I64Tensor<I32 = Self::I32, I64 = Self::I64>;
+}

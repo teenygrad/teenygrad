@@ -15,9 +15,27 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::types::{self as ty};
+use crate::triton::{
+    llvm::triton::{
+        num::{I32, I64},
+        tensor::{I32Tensor, I64Tensor},
+    },
+    types::{self as ty},
+};
+
 pub struct Pointer<D: ty::Dtype> {
     _phantom_1: std::marker::PhantomData<D>,
 }
 
-impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {}
+impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
+    type I32 = I32;
+    type I64 = I64;
+    type I64Tensor = I64Tensor;
+}
+
+// Implement AddOffsets for I64Tensor
+impl<D: ty::Dtype> ty::AddOffsets<D, I64, I64Tensor> for Pointer<D> {
+    fn add_offsets(&self, _offsets: I64Tensor) -> Self {
+        todo!()
+    }
+}
