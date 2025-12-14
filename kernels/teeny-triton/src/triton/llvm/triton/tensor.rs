@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::{Add, Mul};
+use std::ops::Add;
 
 use crate::triton::{
     llvm::triton::{
@@ -35,7 +35,9 @@ impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
 impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {}
 
 pub type BoolTensor = Tensor<Bool>;
-impl ty::BoolTensor<Bool> for BoolTensor {}
+impl ty::BoolTensor for BoolTensor {
+    type B = Bool;
+}
 
 pub type I32Tensor = Tensor<I32>;
 
@@ -46,10 +48,9 @@ impl ty::I32Tensor for I32Tensor {
 }
 
 impl ty::TensorComparison<I64> for I32Tensor {
-    type B = Bool;
-    type T = BoolTensor;
+    type BoolTensor = BoolTensor;
 
-    fn less_than(&self, _other: I64) -> Self::T {
+    fn less_than(&self, _other: I64) -> Self::BoolTensor {
         todo!()
     }
 }
@@ -65,5 +66,14 @@ impl<R: ty::I64> Add<R> for I32Tensor {
 
 pub type I64Tensor = Tensor<I64>;
 impl ty::I64Tensor for I64Tensor {
+    type I32 = I32;
     type I64 = I64;
+}
+
+impl ty::TensorComparison<I32> for I64Tensor {
+    type BoolTensor = BoolTensor;
+
+    fn less_than(&self, _other: I32) -> Self::BoolTensor {
+        todo!()
+    }
 }

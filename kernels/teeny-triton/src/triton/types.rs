@@ -58,10 +58,8 @@ pub trait I1: Int {}
 pub trait I4: Int {}
 pub trait I8: Int {}
 pub trait I16: Int {}
-pub trait I32: Int + From<u32> + From<i32> + Mul<u32>
-where
-    <Self as Mul<u32>>::Output: I64,
-{
+pub trait I32: Int + From<u32> + From<i32> + Mul<u32, Output = Self::I64> {
+    type I64: I64;
 }
 
 pub trait I64: Int {}
@@ -69,25 +67,24 @@ pub trait I64: Int {}
 // Int Tensor
 pub trait Tensor<D: Dtype>: RankedTensor<D> {}
 
-pub trait BoolTensor<D: Bool>: Tensor<D> {}
+pub trait BoolTensor: Tensor<Self::B> {
+    type B: Bool;
+}
 
 pub trait TensorComparison<I: Num> {
-    type B: Bool;
-    type T: BoolTensor<Self::B>;
+    type BoolTensor: BoolTensor;
 
-    fn less_than(&self, other: I) -> Self::T;
+    fn less_than(&self, other: I) -> Self::BoolTensor;
 }
-pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I64, Output = Self::I64Tensor>
-where
-    <Self::I32 as Mul<u32>>::Output: I64,
-{
-    type I32: I32;
+pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I64, Output = Self::I64Tensor> {
+    type I32: I32<I64 = Self::I64>;
     type I64: I64;
 
-    type I64Tensor: I64Tensor;
+    type I64Tensor: I64Tensor<I64 = Self::I64>;
 }
 
-pub trait I64Tensor: Tensor<Self::I64> {
+pub trait I64Tensor: Tensor<Self::I64> + TensorComparison<Self::I32> {
+    type I32: I32<I64 = Self::I64>;
     type I64: I64;
 }
 

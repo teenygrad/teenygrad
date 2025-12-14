@@ -18,7 +18,7 @@
 use crate::triton::Triton;
 use crate::triton::llvm::triton::num::{I32, I64};
 use crate::triton::llvm::triton::pointer::Pointer;
-use crate::triton::llvm::triton::tensor::{BoolTensor, I32Tensor, Tensor};
+use crate::triton::llvm::triton::tensor::{BoolTensor, I32Tensor, I64Tensor, Tensor};
 use crate::triton::{ProgramAxis, types as ty};
 
 pub mod num;
@@ -38,6 +38,7 @@ impl Triton for LlvmTriton {
     type Bool = Bool;
     type BoolTensor = BoolTensor;
     type I32Tensor = I32Tensor;
+    type I64Tensor = I64Tensor;
     type Tensor<D: ty::Dtype> = Tensor<D>;
     type Pointer<D: ty::Dtype> = Pointer<D>;
 
