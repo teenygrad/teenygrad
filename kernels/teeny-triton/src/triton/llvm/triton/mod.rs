@@ -63,7 +63,7 @@ impl Triton for LlvmTriton {
 
     fn store<D: ty::Dtype>(
         _dest: &Self::Pointer<D>,
-        _src: &Self::Tensor<D>,
+        _src: &Self::Pointer<D>,
         _mask: &Option<Self::BoolTensor>,
     ) -> Self::Pointer<D> {
         todo!()

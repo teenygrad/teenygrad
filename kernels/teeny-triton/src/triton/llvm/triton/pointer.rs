@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Add;
+
 use crate::triton::{
     llvm::triton::{
         num::{I32, I64},
@@ -35,7 +37,15 @@ impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
 
 // Implement AddOffsets for I64Tensor
 impl<D: ty::Dtype> ty::AddOffsets<D, I64, I64Tensor> for Pointer<D> {
-    fn add_offsets(&self, _offsets: I64Tensor) -> Self {
+    fn add_offsets(&self, _offsets: &I64Tensor) -> Self {
+        todo!()
+    }
+}
+
+impl<D: ty::Dtype> Add<Pointer<D>> for Pointer<D> {
+    type Output = Self;
+
+    fn add(self, _other: Pointer<D>) -> Self::Output {
         todo!()
     }
 }

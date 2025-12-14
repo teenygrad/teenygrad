@@ -82,7 +82,9 @@ pub trait AddOffsets<D: Dtype, I: Num, T: Tensor<I>> {
 }
 
 // Pointer Type
-pub trait Pointer<D: Dtype>: AddOffsets<D, Self::I64, Self::I64Tensor> {
+pub trait Pointer<D: Dtype>:
+    Sized + AddOffsets<D, Self::I64, Self::I64Tensor> + Add<Self, Output = Self>
+{
     type I32: I32<I64 = Self::I64>;
     type I64: I64;
     type I64Tensor: I64Tensor<I32 = Self::I32, I64 = Self::I64>;

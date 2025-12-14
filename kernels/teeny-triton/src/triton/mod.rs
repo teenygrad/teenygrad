@@ -54,7 +54,7 @@ where
     type I32Tensor: ty::I32Tensor;
     type I64Tensor: ty::I64Tensor;
     type Tensor<D: ty::Dtype>: ty::Tensor<D>;
-    type Pointer<D: ty::Dtype>: ty::Pointer<D>;
+    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I64 = Self::I64, I64Tensor = Self::I64Tensor>;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
@@ -69,7 +69,7 @@ where
 
     fn store<D: ty::Dtype>(
         dest: &Self::Pointer<D>,
-        src: &Self::Tensor<D>,
+        src: &Self::Pointer<D>,
         mask: &Option<Self::BoolTensor>,
     ) -> Self::Pointer<D>;
 }

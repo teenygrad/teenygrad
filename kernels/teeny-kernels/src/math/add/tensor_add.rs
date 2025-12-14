@@ -38,18 +38,18 @@ pub fn tensor_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: u32>(
     // Create offsets for the elements this block will process
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
 
-    // // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
+    // Create a mask to handle cases where n_elements is not divisible by BLOCK_SIZE
     let mask = Some(offsets.less_than(n_elements));
 
-    // // Load data from global memory with masking
+    // Load data from global memory with masking
     let x = T::load(&x_ptr.add_offsets(&offsets), &mask);
     let y = T::load(&y_ptr.add_offsets(&offsets), &mask);
 
-    // // Perform element-wise addition
-    // let output = x.add(&y);
+    // Perform element-wise addition
+    let output = x + y;
 
-    // // Store result back to global memory
-    // T::store(&output_ptr.add_offsets(&offsets), &output, &mask);
+    // Store result back to global memory
+    T::store(&output_ptr.add_offsets(&offsets), &output, &mask);
 }
 
 mod tests {
