@@ -15,8 +15,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Mul;
-
 use crate::triton::types::{self as ty};
 
 pub mod dummy;
@@ -35,6 +33,7 @@ pub enum ProgramAxis {
     Axis0,
     Axis1,
     Axis2,
+    Axis3,
 }
 
 pub trait Triton

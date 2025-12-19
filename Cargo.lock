@@ -4950,6 +4950,7 @@ dependencies = [
 name = "teeny-triton"
 version = "0.1.0"
 dependencies = [
+ "cargo_metadata 0.23.1",
  "teeny-core",
  "thiserror 2.0.17",
 ]

@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
 thiserror.workspace = true
+
+[build-dependencies]
+cargo_metadata.workspace = true
