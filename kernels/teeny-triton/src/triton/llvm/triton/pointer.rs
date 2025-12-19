@@ -17,12 +17,10 @@
 
 use std::ops::Add;
 
-use crate::triton::{
-    llvm::triton::{
-        num::{I32, I64},
-        tensor::{I32Tensor, I64Tensor},
-    },
-    types::{self as ty},
+use super::super::super::types::{self as ty};
+use super::{
+    num::{I32, I64},
+    tensor::{I32Tensor, I64Tensor},
 };
 
 pub struct Pointer<D: ty::Dtype> {

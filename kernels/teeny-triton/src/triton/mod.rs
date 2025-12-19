@@ -15,18 +15,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::types::{self as ty};
+use self::types::{self as ty};
 
-pub mod dummy;
 pub mod llvm;
 pub mod types;
-
-#[derive(Debug)]
-pub struct TritonKernel {
-    pub name: &'static str,
-    pub sig: &'static str,
-    pub block_str: &'static str,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramAxis {

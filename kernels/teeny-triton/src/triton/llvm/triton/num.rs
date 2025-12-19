@@ -17,7 +17,7 @@
 
 use std::ops::Mul;
 
-use crate::triton::types as ty;
+use super::super::super::types as ty;
 
 /*--------------------------------- I1 ---------------------------------*/
 

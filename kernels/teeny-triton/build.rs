@@ -42,7 +42,7 @@ fn main() {
     let mut result = String::new();
 
     // Process the triton module
-    if let Err(e) = process_directory(&triton_path, &triton_path, &mut result) {
+    if let Err(e) = process_module(&triton_path, &triton_path, &mut result) {
         panic!("Failed to process triton module: {}", e);
     }
 
@@ -53,12 +53,25 @@ fn main() {
         .expect("Failed to write output file");
 }
 
-fn process_directory(
+fn process_module(
     base_path: &Path,
     current_path: &Path,
     result: &mut String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = fs::read_dir(current_path)?;
+
+    let module_name = current_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid file name")?;
+
+    process_file(
+        base_path,
+        current_path.join("mod.rs").as_path(),
+        module_name,
+        false,
+        result,
+    )?;
 
     for entry in entries {
         let entry = entry?;
@@ -72,32 +85,49 @@ fn process_directory(
                 continue;
             }
             // Recursively process subdirectories
-            process_directory(base_path, &path, result)?;
+            process_module(base_path, &path, result)?;
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
             let file_name = path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .ok_or("Invalid file name")?;
 
-            let contents = fs::read_to_string(&path)?;
-
-            // Special handling for core.rs - emit at top level
-            if file_name == "core" {
-                let filtered = apply_filter(base_path, file_name, &contents)?;
-                result.push_str(&filtered);
-                result.push('\n');
-            } else {
-                // Apply the filter
-                let filtered = apply_filter(base_path, file_name, &contents)?;
-                let mut module_name = file_name;
-
-                if file_name == "mod" {
-                    module_name = current_path.file_stem().and_then(|s| s.to_str()).unwrap();
-                }
-
-                // Wrap in module
-                result.push_str(&format!("mod {} {{\n{}\n}}\n", module_name, filtered));
+            if file_name == "mod" {
+                // module is handled differently
+                continue;
             }
+
+            process_file(base_path, &path, file_name, true, result)?;
+        }
+    }
+
+    // Add the module suffix
+    result.push_str("}\n");
+
+    Ok(())
+}
+
+fn process_file(
+    base_path: &Path,
+    path: &Path,
+    file_name: &str,
+    add_suffix: bool,
+    result: &mut String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(path)?;
+
+    // Special handling for core.rs - emit at top level
+    if file_name == "core" {
+        let filtered = apply_filter(base_path, file_name, &contents)?;
+        result.insert_str(0, &filtered);
+    } else {
+        // Apply the filter
+        let filtered = apply_filter(base_path, file_name, &contents)?;
+
+        // Wrap in module
+        result.push_str(&format!("mod {} {{\n{}\n", file_name, filtered));
+        if add_suffix {
+            result.push_str("}}\n");
         }
     }
 

@@ -15,6 +15,4 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod triton;
-
-pub static TRITON: &str = concat!(include_str!("core.rs"));
+pub mod triton;

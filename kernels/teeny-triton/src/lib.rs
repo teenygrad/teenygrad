@@ -17,3 +17,10 @@
 
 pub mod error;
 pub mod triton;
+
+#[derive(Debug)]
+pub struct TritonKernel {
+    pub name: &'static str,
+    pub sig: &'static str,
+    pub block_str: &'static str,
+}

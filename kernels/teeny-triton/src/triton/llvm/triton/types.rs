@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::types as ty;
+use super::super::super::types as ty;
 
 /*--------------------------------- Bool ---------------------------------*/
 

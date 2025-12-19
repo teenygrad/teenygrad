@@ -17,12 +17,10 @@
 
 use std::ops::Add;
 
-use crate::triton::{
-    llvm::triton::{
-        num::{I32, I64},
-        types::Bool,
-    },
-    types::{self as ty},
+use super::super::super::types::{self as ty};
+use super::{
+    num::{I32, I64},
+    types::Bool,
 };
 
 /*--------------------------------- Tensor ---------------------------------*/

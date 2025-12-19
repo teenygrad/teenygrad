@@ -15,11 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::triton::Triton;
-use crate::triton::llvm::triton::num::{I32, I64};
-use crate::triton::llvm::triton::pointer::Pointer;
-use crate::triton::llvm::triton::tensor::{BoolTensor, I32Tensor, I64Tensor, Tensor};
-use crate::triton::{ProgramAxis, types as ty};
+use super::super::Triton;
+use super::super::{ProgramAxis, types as ty};
+use num::{I32, I64};
+use pointer::Pointer;
+use tensor::{BoolTensor, I32Tensor, I64Tensor, Tensor};
 
 pub mod num;
 pub mod pointer;

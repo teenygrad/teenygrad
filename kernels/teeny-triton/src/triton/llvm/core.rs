@@ -88,69 +88,73 @@ impl Copy for u16 {}
 impl Copy for u32 {}
 impl Copy for u64 {}
 
-// Arithmetic operation lang items
-#[lang = "mul"]
-pub trait Mul<RHS = Self> {
-    type Output;
-    fn mul(self, rhs: RHS) -> Self::Output;
-}
+pub mod std {
+    pub mod ops {
+        // Arithmetic operation lang items
+        #[lang = "mul"]
+        pub trait Mul<RHS = Self> {
+            type Output;
+            fn mul(self, rhs: RHS) -> Self::Output;
+        }
 
-impl Mul for i32 {
-    type Output = i32;
-    fn mul(self, rhs: i32) -> i32 {
-        loop {}
-    }
-}
+        impl Mul for i32 {
+            type Output = i32;
+            fn mul(self, rhs: i32) -> i32 {
+                loop {}
+            }
+        }
 
-#[lang = "add"]
-pub trait Add<RHS = Self> {
-    type Output;
-    fn add(self, rhs: RHS) -> Self::Output;
-}
+        #[lang = "add"]
+        pub trait Add<RHS = Self> {
+            type Output;
+            fn add(self, rhs: RHS) -> Self::Output;
+        }
 
-impl Add for i32 {
-    type Output = i32;
-    
-    fn add(self, rhs: i32) -> i32 {
-        loop {}
-    }
-}
+        impl Add for i32 {
+            type Output = i32;
 
-#[lang = "sub"]
-pub trait Sub<RHS = Self> {
-    type Output;
-    fn sub(self, rhs: RHS) -> Self::Output;
-}
+            fn add(self, rhs: i32) -> i32 {
+                loop {}
+            }
+        }
 
-impl Sub for i32 {
-    type Output = i32;
-    fn sub(self, rhs: i32) -> i32 {
-        loop {}
-    }
-}
+        #[lang = "sub"]
+        pub trait Sub<RHS = Self> {
+            type Output;
+            fn sub(self, rhs: RHS) -> Self::Output;
+        }
 
-#[lang = "div"]
-pub trait Div<RHS = Self> {
-    type Output;
-    fn div(self, rhs: RHS) -> Self::Output;
-}
+        impl Sub for i32 {
+            type Output = i32;
+            fn sub(self, rhs: i32) -> i32 {
+                loop {}
+            }
+        }
 
-impl Div for i32 {
-    type Output = i32;
-    fn div(self, rhs: i32) -> i32 {
-        loop {}
-    }
-}
+        #[lang = "div"]
+        pub trait Div<RHS = Self> {
+            type Output;
+            fn div(self, rhs: RHS) -> Self::Output;
+        }
 
-#[lang = "rem"]
-pub trait Rem<RHS = Self> {
-    type Output;
-    fn rem(self, rhs: RHS) -> Self::Output;
-}
+        impl Div for i32 {
+            type Output = i32;
+            fn div(self, rhs: i32) -> i32 {
+                loop {}
+            }
+        }
 
-impl Rem for i32 {
-    type Output = i32;
-    fn rem(self, rhs: i32) -> i32 {
-        loop {}
+        #[lang = "rem"]
+        pub trait Rem<RHS = Self> {
+            type Output;
+            fn rem(self, rhs: RHS) -> Self::Output;
+        }
+
+        impl Rem for i32 {
+            type Output = i32;
+            fn rem(self, rhs: i32) -> i32 {
+                loop {}
+            }
+        }
     }
 }
