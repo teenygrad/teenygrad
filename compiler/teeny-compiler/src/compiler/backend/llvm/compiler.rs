@@ -32,11 +32,7 @@ impl LlvmCompiler {
         Self {}
     }
 
-    pub fn compile(
-        &self,
-        kernel: &teeny_triton::triton::TritonKernel,
-        _target: &Target,
-    ) -> Result<()> {
+    pub fn compile(&self, kernel: &teeny_triton::TritonKernel, _target: &Target) -> Result<()> {
         // Create a proper working directory for rustc
         let temp_dir = env::temp_dir();
         let working_dir = temp_dir.join("teenygrad_rustc");
@@ -58,24 +54,29 @@ impl LlvmCompiler {
 
         let user_func = r#"
             pub extern "C" fn entry_point(
-                x_ptr: &Pointer<i32>,
-                y_ptr: &Pointer<i32>, 
-                output_ptr: &Pointer<i32>,
-                n_elements: i32,
-                BLOCK_SIZE: i32) 
+                n_elements: i32) 
             {
-                tensor_add::<i32, TensorImpl<i32>>(x_ptr, y_ptr, output_ptr, n_elements, BLOCK_SIZE);
+                use triton::llvm::triton::num::*;
+                use triton::llvm::triton::pointer::Pointer;
+                
+                let x_ptr = Pointer { data: I32(0i32) };
+                let y_ptr = Pointer { data: I32(0i32) };
+                let output_ptr = Pointer { data: I32(0i32) };
+                let n_elements = I32(n_elements);
+
+                tensor_add::<triton::llvm::triton::LlvmTriton, I32, 128>(&x_ptr, &y_ptr, &output_ptr, n_elements);
             }
         "#;
 
         info!("Writing kernel code to file");
-        file.write_all(teeny_triton::triton::llvm::TRITON.as_bytes())?;
+        file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
         file.write_all(user_func.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;
 
         let mut callbacks = TimePassesCallbacks::default();
         let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
         let output = format!("-o{}", working_dir.join("kernel.ll").display());
+        let build_type = "-Copt-level=3".to_string(); // Use opt-level=3 for release build
         let target = "-tnvptx64-nvidia-cuda".to_string();
         let crate_type = "--crate-type=lib".to_string();
         let emit = "--emit=llvm-ir".to_string();
@@ -101,6 +102,7 @@ impl LlvmCompiler {
             &[
                 exe_name,
                 filename.display().to_string(),
+                build_type,
                 output,
                 target,
                 crate_type,

@@ -21,8 +21,14 @@ use super::super::super::types as ty;
 
 /*--------------------------------- I1 ---------------------------------*/
 
-#[derive(Copy, Clone)]
-pub struct I1(bool);
+pub struct I1(pub bool);
+impl Copy for I1 {}
+impl Clone for I1 {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
 impl ty::Dtype for I1 {}
 impl ty::Num for I1 {}
@@ -31,8 +37,15 @@ impl ty::I1 for I1 {}
 
 /*--------------------------------- I32 ---------------------------------*/
 
-#[derive(Copy, Clone)]
-pub struct I32(i32);
+pub struct I32(pub i32);
+impl Copy for I32 {}
+impl Clone for I32 {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 impl ty::Dtype for I32 {}
 impl ty::Num for I32 {}
 impl ty::Int for I32 {}
@@ -43,28 +56,56 @@ impl ty::I32 for I32 {
 impl Mul<u32> for I32 {
     type Output = I64;
 
+    #[inline(always)]
     fn mul(self, rhs: u32) -> Self::Output {
-        I64(self.0 as i64 * rhs as i64)
+        let lhs = self.0 as i64;
+        let rhs = rhs as i64;
+        I64(lhs * rhs)
     }
 }
 
 impl From<u32> for I32 {
+    #[inline(always)]
     fn from(value: u32) -> Self {
         Self(value as i32)
     }
 }
 
 impl From<i32> for I32 {
+    #[inline(always)]
     fn from(value: i32) -> Self {
-        Self(value as i32)
+        Self(value)
     }
 }
 
 /*--------------------------------- I64 ---------------------------------*/
 
-#[derive(Copy, Clone)]
-pub struct I64(i64);
+pub struct I64(pub i64);
+impl Copy for I64 {}
+impl Clone for I64 {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 impl ty::Dtype for I64 {}
 impl ty::Num for I64 {}
 impl ty::Int for I64 {}
 impl ty::I64 for I64 {}
+
+/*--------------------------------- BF16 ---------------------------------*/
+
+pub struct BF16;
+impl Copy for BF16 {}
+impl Clone for BF16 {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl ty::Dtype for BF16 {}
+impl ty::Num for BF16 {}
+impl ty::Float for BF16 {}
+impl ty::BF16 for BF16 {}

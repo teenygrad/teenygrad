@@ -22,6 +22,7 @@
 #![feature(no_core)]
 #![feature(intrinsics, lang_items)]
 #![feature(arbitrary_self_types)]
+#![feature(const_trait_impl)]
 #![no_core]
 #![no_implicit_prelude]
 
@@ -74,6 +75,11 @@ pub struct PanicLocation {
     pub column: u32,
 }
 
+pub const trait Clone: Sized {
+    #[lang = "clone_fn"]
+    fn clone(&self) -> Self;
+}
+
 // Explicitly implement Copy for usize to satisfy the type checker
 impl Copy for usize {}
 
@@ -87,6 +93,24 @@ impl Copy for u8 {}
 impl Copy for u16 {}
 impl Copy for u32 {}
 impl Copy for u64 {}
+impl Copy for bool {}
+
+pub enum Option<T> {
+    None,
+    Some(T),
+}
+
+use Option::*;
+
+pub const trait Into<T>: Sized {
+    /// Converts this type into the (usually inferred) input type.
+    fn into(self) -> T;
+}
+
+pub const trait From<T>: Sized {
+    /// Converts to this type from the input type.
+    fn from(value: T) -> Self;
+}
 
 pub mod std {
     pub mod ops {
@@ -98,9 +122,9 @@ pub mod std {
         }
 
         impl Mul for i32 {
-            type Output = i32;
-            fn mul(self, rhs: i32) -> i32 {
-                loop {}
+            type Output = i64;
+            fn mul(self, rhs: i32) -> Self::Output {
+                self as i64 * rhs as i64
             }
         }
 
@@ -111,10 +135,10 @@ pub mod std {
         }
 
         impl Add for i32 {
-            type Output = i32;
+            type Output = i64;
 
-            fn add(self, rhs: i32) -> i32 {
-                loop {}
+            fn add(self, rhs: i32) -> i64 {
+                self as i64 + rhs as i64
             }
         }
 
@@ -125,9 +149,9 @@ pub mod std {
         }
 
         impl Sub for i32 {
-            type Output = i32;
-            fn sub(self, rhs: i32) -> i32 {
-                loop {}
+            type Output = i64;
+            fn sub(self, rhs: i32) -> Self::Output {
+                self as i64 - rhs as i64
             }
         }
 
@@ -138,9 +162,9 @@ pub mod std {
         }
 
         impl Div for i32 {
-            type Output = i32;
-            fn div(self, rhs: i32) -> i32 {
-                loop {}
+            type Output = i64;
+            fn div(self, rhs: i32) -> Self::Output {
+                self as i64 / rhs as i64
             }
         }
 
@@ -151,9 +175,9 @@ pub mod std {
         }
 
         impl Rem for i32 {
-            type Output = i32;
-            fn rem(self, rhs: i32) -> i32 {
-                loop {}
+            type Output = i64;
+            fn rem(self, rhs: i32) -> Self::Output {
+                self as i64 % rhs as i64
             }
         }
     }

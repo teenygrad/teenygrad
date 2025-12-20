@@ -42,9 +42,11 @@ fn main() {
     let mut result = String::new();
 
     // Process the triton module
-    if let Err(e) = process_module(&triton_path, &triton_path, &mut result) {
+    if let Err(e) = process_module(&triton_path, &triton_path, 1, &mut result) {
         panic!("Failed to process triton module: {}", e);
     }
+
+    result.push_str("pub use triton::*;\n");
 
     // Write the output file
     let output = format!("pub const TRITON: &str = r#\"{}\"#;", result);
@@ -56,6 +58,7 @@ fn main() {
 fn process_module(
     base_path: &Path,
     current_path: &Path,
+    depth: usize,
     result: &mut String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = fs::read_dir(current_path)?;
@@ -70,6 +73,7 @@ fn process_module(
         current_path.join("mod.rs").as_path(),
         module_name,
         false,
+        depth,
         result,
     )?;
 
@@ -85,7 +89,7 @@ fn process_module(
                 continue;
             }
             // Recursively process subdirectories
-            process_module(base_path, &path, result)?;
+            process_module(base_path, &path, depth + 1, result)?;
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
             let file_name = path
                 .file_stem()
@@ -97,7 +101,7 @@ fn process_module(
                 continue;
             }
 
-            process_file(base_path, &path, file_name, true, result)?;
+            process_file(base_path, &path, file_name, true, depth, result)?;
         }
     }
 
@@ -112,6 +116,7 @@ fn process_file(
     path: &Path,
     file_name: &str,
     add_suffix: bool,
+    depth: usize,
     result: &mut String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(path)?;
@@ -125,9 +130,13 @@ fn process_file(
         let filtered = apply_filter(base_path, file_name, &contents)?;
 
         // Wrap in module
-        result.push_str(&format!("mod {} {{\n{}\n", file_name, filtered));
+        let core = format!("pub use {}*;", "super::".repeat(depth));
+        result.push_str(&format!(
+            "pub mod {} {{\n{}\n{}\n",
+            file_name, core, filtered
+        ));
         if add_suffix {
-            result.push_str("}}\n");
+            result.push_str("}\n");
         }
     }
 
@@ -143,11 +152,12 @@ fn apply_filter(
     // This is a placeholder that just returns the contents as-is
     // Replace this with your actual filtering logic
 
-    // Example filter that just returns the contents:
-    Ok(contents.to_string())
+    let filtered = contents
+        .lines()
+        .filter(|line| !(line.starts_with("pub mod") && line.ends_with(";")))
+        .collect::<Vec<&str>>()
+        .join("\n")
+        .to_string();
 
-    // If you need to use the path and name in your filter:
-    // let _ = module_path;
-    // let _ = module_name;
-    // ... your logic here ...
+    Ok(filtered)
 }

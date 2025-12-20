@@ -20,7 +20,7 @@ use self::types::{self as ty};
 pub mod llvm;
 pub mod types;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub use types::*;
 pub enum ProgramAxis {
     Axis0,
     Axis1,

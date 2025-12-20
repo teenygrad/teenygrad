@@ -17,6 +17,7 @@
 
 pub mod error;
 pub mod triton;
+pub mod triton_lang;
 
 #[derive(Debug)]
 pub struct TritonKernel {

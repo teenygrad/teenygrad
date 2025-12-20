@@ -44,7 +44,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     .to_string();
     let static_stream: TokenStream = quote! (
         #[allow(non_upper_case_globals)]
-        pub static #static_ident: teeny_triton::triton::TritonKernel = teeny_triton::triton::TritonKernel {
+        pub static #static_ident: teeny_triton::TritonKernel = teeny_triton::TritonKernel {
             name: #kernel_name,
             sig: #sig_str,
             block_str: #block_str,

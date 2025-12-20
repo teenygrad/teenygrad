@@ -17,55 +17,55 @@
 
 use super::super::Triton;
 use super::super::{ProgramAxis, types as ty};
-use num::{I32, I64};
-use pointer::Pointer;
-use tensor::{BoolTensor, I32Tensor, I64Tensor, Tensor};
 
 pub mod num;
 pub mod pointer;
 pub mod tensor;
 pub mod types;
 
-use types::*;
-
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
-    type I32 = I32;
-    type I64 = I64;
-    type BF16 = BF16;
+    type I32 = num::I32;
+    type I64 = num::I64;
+    type BF16 = num::BF16;
 
-    type Bool = Bool;
-    type BoolTensor = BoolTensor;
-    type I32Tensor = I32Tensor;
-    type I64Tensor = I64Tensor;
-    type Tensor<D: ty::Dtype> = Tensor<D>;
-    type Pointer<D: ty::Dtype> = Pointer<D>;
+    type Bool = types::Bool;
+    type BoolTensor = tensor::BoolTensor;
+    type I32Tensor = tensor::I32Tensor;
+    type I64Tensor = tensor::I64Tensor;
+    type Tensor<D: ty::Dtype> = tensor::Tensor<D>;
+    type Pointer<D: ty::Dtype> = pointer::Pointer<D>;
 
+    #[inline(never)]
     fn program_id(_axis: ProgramAxis) -> Self::I32 {
-        todo!()
+        loop {}
     }
 
+    #[inline(never)]
     fn num_programs(_axis: ProgramAxis) -> Self::I32 {
-        todo!()
+        loop {}
     }
 
+    #[inline(never)]
     fn arange<T: Into<Self::I32>>(_start: T, _end: T) -> Self::I32Tensor {
-        todo!()
+        loop {}
     }
 
+    #[inline(never)]
     fn load<D: ty::Dtype>(
         _ptr: &Self::Pointer<D>,
         _mask: &Option<Self::BoolTensor>,
     ) -> Self::Pointer<D> {
-        todo!()
+        loop {}
     }
 
+    #[inline(never)]
     fn store<D: ty::Dtype>(
         _dest: &Self::Pointer<D>,
         _src: &Self::Pointer<D>,
         _mask: &Option<Self::BoolTensor>,
     ) -> Self::Pointer<D> {
-        todo!()
+        loop {}
     }
 }

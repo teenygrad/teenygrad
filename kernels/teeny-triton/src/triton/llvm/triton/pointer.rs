@@ -24,7 +24,7 @@ use super::{
 };
 
 pub struct Pointer<D: ty::Dtype> {
-    _phantom_1: std::marker::PhantomData<D>,
+    pub data: D,
 }
 
 impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
@@ -35,15 +35,17 @@ impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
 
 // Implement AddOffsets for I64Tensor
 impl<D: ty::Dtype> ty::AddOffsets<D, I64, I64Tensor> for Pointer<D> {
+    #[inline(never)]
     fn add_offsets(&self, _offsets: &I64Tensor) -> Self {
-        todo!()
+        loop {}
     }
 }
 
 impl<D: ty::Dtype> Add<Pointer<D>> for Pointer<D> {
     type Output = Self;
 
+    #[inline(never)]
     fn add(self, _other: Pointer<D>) -> Self::Output {
-        todo!()
+        loop {}
     }
 }

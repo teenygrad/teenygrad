@@ -19,18 +19,14 @@ use super::super::super::types as ty;
 
 /*--------------------------------- Bool ---------------------------------*/
 
-#[derive(Copy, Clone)]
 pub struct Bool(bool);
+impl Copy for Bool {}
+impl Clone for Bool {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
 impl ty::Dtype for Bool {}
 impl ty::Bool for Bool {}
-
-/*--------------------------------- BF16 ---------------------------------*/
-
-#[derive(Copy, Clone)]
-pub struct BF16;
-
-impl ty::Dtype for BF16 {}
-impl ty::Num for BF16 {}
-impl ty::Float for BF16 {}
-impl ty::BF16 for BF16 {}

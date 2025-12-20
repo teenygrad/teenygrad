@@ -26,7 +26,7 @@ use super::{
 /*--------------------------------- Tensor ---------------------------------*/
 
 pub struct Tensor<D: ty::Dtype> {
-    _phantom_1: std::marker::PhantomData<D>,
+    pub data: D,
 }
 
 impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
@@ -48,8 +48,9 @@ impl ty::I32Tensor for I32Tensor {
 impl ty::TensorComparison<I64> for I32Tensor {
     type BoolTensor = BoolTensor;
 
+    #[inline(never)]
     fn less_than(&self, _other: I64) -> Self::BoolTensor {
-        todo!()
+        loop {}
     }
 }
 
@@ -57,8 +58,9 @@ impl ty::TensorComparison<I64> for I32Tensor {
 impl<R: ty::I64> Add<R> for I32Tensor {
     type Output = I64Tensor;
 
+    #[inline(never)]
     fn add(self, _rhs: R) -> Self::Output {
-        todo!()
+        loop {}
     }
 }
 
@@ -71,7 +73,8 @@ impl ty::I64Tensor for I64Tensor {
 impl ty::TensorComparison<I32> for I64Tensor {
     type BoolTensor = BoolTensor;
 
+    #[inline(never)]
     fn less_than(&self, _other: I32) -> Self::BoolTensor {
-        todo!()
+        loop {}
     }
 }
