@@ -48,12 +48,13 @@ Our goals:
 
 ## Roadmap
 
-### 2025/Q3 - Torch Inductor in Rust
-
-### 2025/Q4 - tLLM: vLLM inference but 2x faster
+### 2026/Q1 - Torch Inductor in Rust
 
 - 2026 and beyond
-  - Q1: Performance optimization
+  - Q3: tLLM: vLLM inference but 2x faster
+  - Q4: Performance optimization
+
+- 2027 and beyond
   - Q2: Embedded Support
   - Q3: Sparsity/Quantization support
   - Q4: Observability/metrics
@@ -70,14 +71,3 @@ Yet, we didn’t want to sacrifice distributed training or other advanced featur
 
 We welcome contributions both from companies and individuals, please see the CONTRIBUTIONG.md file for more information.
 
-### 2. You use MIT/Apache-licensed open-source projects but license your project under GPLv3. Isn’t that contradictory?
-
-Our goal isn’t to simply repackage others’ work. We leverage existing projects as foundations where appropriate but aim to build something fundamentally new and unique.
-
-We embrace open source because it fosters collaboration and learning—not to monetize startups or individuals. To avoid ambiguity (like the WordPress controversy), we’re clarifying upfront:
-
-- Commercial use is allowed, but proprietary solutions require a commercial license.
-
-- Startups and companies with under $3M annual revenue qualify for a free commercial license. Once the project is stable and ready for usage, we will provide a simple web interface for you to get a license.
-
-- Free commercial license holders get a basic level of support, companies on higher tiers get additional support options as well as an SLA.
