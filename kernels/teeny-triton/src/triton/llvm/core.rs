@@ -23,8 +23,12 @@
 #![feature(intrinsics, lang_items)]
 #![feature(arbitrary_self_types)]
 #![feature(const_trait_impl)]
+#![feature(auto_traits)]
 #![no_core]
 #![no_implicit_prelude]
+
+#[lang = "freeze"]
+pub unsafe auto trait Freeze {}
 
 #[lang = "meta_sized"]
 pub trait MetaSized {}
@@ -41,6 +45,13 @@ pub trait Copy {}
 
 #[lang = "legacy_receiver"]
 pub trait LegacyReceiver {}
+
+#[lang = "drop_in_place"]
+#[allow(unconditional_recursion)]
+pub unsafe fn drop_in_place<T: ?Sized>(to_drop: *mut T) {
+    // This function is a shim that the compiler fills in
+    unsafe { drop_in_place(to_drop) }
+}
 
 // Required language items for arithmetic operations
 #[lang = "panic_const_add_overflow"]
@@ -112,6 +123,15 @@ pub const trait From<T>: Sized {
     fn from(value: T) -> Self;
 }
 
+impl<T, U> Into<U> for T
+where
+    U: From<T>,
+{
+    fn into(self) -> U {
+        U::from(self)
+    }
+}
+
 pub mod std {
     pub mod ops {
         // Arithmetic operation lang items
@@ -123,8 +143,9 @@ pub mod std {
 
         impl Mul for i32 {
             type Output = i64;
-            fn mul(self, rhs: i32) -> Self::Output {
-                self as i64 * rhs as i64
+            fn mul(self, _rhs: i32) -> Self::Output {
+                // AXM: TODO self as i64 * rhs as i64
+                loop {}
             }
         }
 
@@ -137,8 +158,9 @@ pub mod std {
         impl Add for i32 {
             type Output = i64;
 
-            fn add(self, rhs: i32) -> i64 {
-                self as i64 + rhs as i64
+            fn add(self, _rhs: i32) -> i64 {
+                // AXM: TODO self as i64 + rhs as i64
+                loop {}
             }
         }
 
@@ -150,8 +172,9 @@ pub mod std {
 
         impl Sub for i32 {
             type Output = i64;
-            fn sub(self, rhs: i32) -> Self::Output {
-                self as i64 - rhs as i64
+            fn sub(self, _rhs: i32) -> Self::Output {
+                // AXM: TODO self as i64 - rhs as i64
+                loop {}
             }
         }
 
@@ -163,8 +186,9 @@ pub mod std {
 
         impl Div for i32 {
             type Output = i64;
-            fn div(self, rhs: i32) -> Self::Output {
-                self as i64 / rhs as i64
+            fn div(self, _rhs: i32) -> Self::Output {
+                // AXM: TODO self as i64 / rhs as i64
+                loop {}
             }
         }
 
@@ -176,8 +200,9 @@ pub mod std {
 
         impl Rem for i32 {
             type Output = i64;
-            fn rem(self, rhs: i32) -> Self::Output {
-                self as i64 % rhs as i64
+            fn rem(self, _rhs: i32) -> Self::Output {
+                // AXM: TODO self as i64 % rhs as i64
+                loop {}
             }
         }
     }

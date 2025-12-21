@@ -57,10 +57,12 @@ impl Mul<u32> for I32 {
     type Output = I64;
 
     #[inline(always)]
-    fn mul(self, rhs: u32) -> Self::Output {
-        let lhs = self.0 as i64;
-        let rhs = rhs as i64;
-        I64(lhs * rhs)
+    fn mul(self, _rhs: u32) -> Self::Output {
+        // AXM: TODO fix this
+        // let lhs = self.0 as i64;
+        // let rhs = rhs as i64;
+        // I64(lhs * rhs)
+        loop {}
     }
 }
 

@@ -48,7 +48,7 @@ impl Triton for LlvmTriton {
     }
 
     #[inline(never)]
-    fn arange<T: Into<Self::I32>>(_start: T, _end: T) -> Self::I32Tensor {
+    fn arange(_start: impl Into<Self::I32>, _end: impl Into<Self::I32>) -> Self::I32Tensor {
         loop {}
     }
 

@@ -51,7 +51,7 @@ where
 
     fn num_programs(axis: ProgramAxis) -> Self::I32;
 
-    fn arange<T: Into<Self::I32>>(start: T, end: T) -> Self::I32Tensor;
+    fn arange(start: impl Into<Self::I32>, end: impl Into<Self::I32>) -> Self::I32Tensor;
 
     fn load<D: ty::Dtype>(
         ptr: &Self::Pointer<D>,
