@@ -142,10 +142,16 @@ pub mod std {
         }
 
         impl Mul for i32 {
+            type Output = i32;
+            fn mul(self, rhs: i32) -> Self::Output {
+                0
+            }
+        }
+
+        impl Mul for i64 {
             type Output = i64;
-            fn mul(self, _rhs: i32) -> Self::Output {
-                // AXM: TODO self as i64 * rhs as i64
-                loop {}
+            fn mul(self, rhs: i64) -> Self::Output {
+                0
             }
         }
 
@@ -155,12 +161,35 @@ pub mod std {
             fn add(self, rhs: RHS) -> Self::Output;
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
         impl Add for i32 {
-            type Output = i64;
+            type Output = i32;
+            fn add(self, rhs: i32) -> Self::Output {
+                0
+            }
+        }
 
-            fn add(self, _rhs: i32) -> i64 {
-                // AXM: TODO self as i64 + rhs as i64
-                loop {}
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Add for u32 {
+            type Output = u32;
+            fn add(self, rhs: u32) -> Self::Output {
+                0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Add for u64 {
+            type Output = u64;
+            fn add(self, rhs: u64) -> Self::Output {
+                0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Add for i64 {
+            type Output = i64;
+            fn add(self, rhs: i64) -> Self::Output {
+                0
             }
         }
 
@@ -170,11 +199,19 @@ pub mod std {
             fn sub(self, rhs: RHS) -> Self::Output;
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
         impl Sub for i32 {
-            type Output = i64;
-            fn sub(self, _rhs: i32) -> Self::Output {
-                // AXM: TODO self as i64 - rhs as i64
-                loop {}
+            type Output = i32;
+            fn sub(self, rhs: i32) -> Self::Output {
+                0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Sub for u32 {
+            type Output = u32;
+            fn sub(self, rhs: u32) -> Self::Output {
+                0
             }
         }
 
@@ -184,11 +221,11 @@ pub mod std {
             fn div(self, rhs: RHS) -> Self::Output;
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
         impl Div for i32 {
-            type Output = i64;
-            fn div(self, _rhs: i32) -> Self::Output {
-                // AXM: TODO self as i64 / rhs as i64
-                loop {}
+            type Output = i32;
+            fn div(self, rhs: i32) -> Self::Output {
+                0
             }
         }
 
@@ -198,11 +235,11 @@ pub mod std {
             fn rem(self, rhs: RHS) -> Self::Output;
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
         impl Rem for i32 {
-            type Output = i64;
-            fn rem(self, _rhs: i32) -> Self::Output {
-                // AXM: TODO self as i64 % rhs as i64
-                loop {}
+            type Output = i32;
+            fn rem(self, rhs: i32) -> Self::Output {
+                0
             }
         }
     }
