@@ -59,9 +59,9 @@ impl LlvmCompiler {
                 use triton::llvm::triton::num::*;
                 use triton::llvm::triton::pointer::Pointer;
                 
-                let x_ptr = Pointer { data: I32(0i32) };
-                let y_ptr = Pointer { data: I32(0i32) };
-                let output_ptr = Pointer { data: I32(0i32) };
+                let x_ptr = Pointer { data: 0 as *mut _ };
+                let y_ptr = Pointer { data: 0 as *mut _ };
+                let output_ptr = Pointer { data: 0 as *mut _ };
                 let n_elements = I32(n_elements);
 
                 tensor_add::<triton::llvm::triton::LlvmTriton, I32, 128>(&x_ptr, &y_ptr, &output_ptr, n_elements);

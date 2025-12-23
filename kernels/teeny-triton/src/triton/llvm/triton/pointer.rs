@@ -24,7 +24,7 @@ use super::{
 };
 
 pub struct Pointer<D: ty::Dtype> {
-    pub data: D,
+    pub data: *mut D,
 }
 
 impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {

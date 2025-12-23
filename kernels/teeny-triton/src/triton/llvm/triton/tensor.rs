@@ -26,7 +26,7 @@ use super::{
 /*--------------------------------- Tensor ---------------------------------*/
 
 pub struct Tensor<D: ty::Dtype> {
-    pub data: D,
+    pub data: *mut D,
 }
 
 impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
