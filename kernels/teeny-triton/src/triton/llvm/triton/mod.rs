@@ -53,19 +53,19 @@ impl Triton for LlvmTriton {
     }
 
     #[inline(never)]
-    fn load<D: ty::Dtype>(
-        _ptr: &Self::Pointer<D>,
-        _mask: &Option<Self::BoolTensor>,
+    fn load_with_mask<D: ty::Dtype>(
+        _ptr: Self::Pointer<D>,
+        _mask: Self::BoolTensor,
     ) -> Self::Pointer<D> {
         loop {}
     }
 
     #[inline(never)]
-    fn store<D: ty::Dtype>(
-        _dest: &Self::Pointer<D>,
-        _src: &Self::Pointer<D>,
-        _mask: &Option<Self::BoolTensor>,
-    ) -> Self::Pointer<D> {
-        loop {}
+    fn store_with_mask<D: ty::Dtype>(
+        _dest: Self::Pointer<D>,
+        _src: Self::Pointer<D>,
+        _mask: Self::BoolTensor,
+    ) {
+        // nop
     }
 }

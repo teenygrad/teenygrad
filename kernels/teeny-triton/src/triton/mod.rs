@@ -53,14 +53,14 @@ where
 
     fn arange(start: impl Into<Self::I32>, end: impl Into<Self::I32>) -> Self::I32Tensor;
 
-    fn load<D: ty::Dtype>(
-        ptr: &Self::Pointer<D>,
-        mask: &Option<Self::BoolTensor>,
+    fn load_with_mask<D: ty::Dtype>(
+        ptr: Self::Pointer<D>,
+        mask: Self::BoolTensor,
     ) -> Self::Pointer<D>;
 
-    fn store<D: ty::Dtype>(
-        dest: &Self::Pointer<D>,
-        src: &Self::Pointer<D>,
-        mask: &Option<Self::BoolTensor>,
-    ) -> Self::Pointer<D>;
+    fn store_with_mask<D: ty::Dtype>(
+        dest: Self::Pointer<D>,
+        src: Self::Pointer<D>,
+        mask: Self::BoolTensor,
+    );
 }

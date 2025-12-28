@@ -40,8 +40,26 @@ pub trait PointeeSized {}
 #[lang = "sized"]
 pub trait Sized: MetaSized + PointeeSized {}
 
+#[lang = "clone"]
+pub trait Clone {
+    fn clone(&self) -> Self;
+}
+
 #[lang = "copy"]
-pub trait Copy {}
+pub trait Copy: Clone {}
+
+impl<T> Copy for *const T {}
+impl<T> Copy for *mut T {}
+impl<T> Clone for *const T {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Clone for *mut T {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
 #[lang = "legacy_receiver"]
 pub trait LegacyReceiver {}
@@ -86,25 +104,67 @@ pub struct PanicLocation {
     pub column: u32,
 }
 
-pub const trait Clone: Sized {
-    #[lang = "clone_fn"]
-    fn clone(&self) -> Self;
-}
-
-// Explicitly implement Copy for usize to satisfy the type checker
-impl Copy for usize {}
-
 // Also implement Copy for other primitive types that might be needed
 impl Copy for i32 {}
+impl Clone for i32 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for f32 {}
+impl Clone for f32 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for i8 {}
+impl Clone for i8 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for i16 {}
+impl Clone for i16 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for i64 {}
+impl Clone for i64 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for u8 {}
+impl Clone for u8 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for u16 {}
+impl Clone for u16 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for u32 {}
+impl Clone for u32 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for u64 {}
+impl Clone for u64 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 impl Copy for bool {}
+impl Clone for bool {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
 pub enum Option<T> {
     None,

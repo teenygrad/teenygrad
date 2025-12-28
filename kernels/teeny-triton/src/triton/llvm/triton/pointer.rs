@@ -20,12 +20,16 @@ use std::ops::Add;
 use super::super::super::types::{self as ty};
 use super::{
     num::{I32, I64},
-    tensor::{I32Tensor, I64Tensor},
+    tensor::I64Tensor,
 };
 
-pub struct Pointer<D: ty::Dtype> {
-    pub data: *mut D,
+pub struct Pointer<D: ty::Dtype>(pub *mut D);
+impl<D: ty::Dtype> Clone for Pointer<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
+impl<D: ty::Dtype> Copy for Pointer<D> {}
 
 impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
     type I32 = I32;
@@ -36,7 +40,7 @@ impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
 // Implement AddOffsets for I64Tensor
 impl<D: ty::Dtype> ty::AddOffsets<D, I64, I64Tensor> for Pointer<D> {
     #[inline(never)]
-    fn add_offsets(&self, _offsets: &I64Tensor) -> Self {
+    fn add_offsets(self, _offsets: I64Tensor) -> Self {
         loop {}
     }
 }

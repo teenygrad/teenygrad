@@ -25,9 +25,13 @@ use super::{
 
 /*--------------------------------- Tensor ---------------------------------*/
 
-pub struct Tensor<D: ty::Dtype> {
-    pub data: *mut D,
+pub struct Tensor<D: ty::Dtype>(pub *mut D);
+impl<D: ty::Dtype> Clone for Tensor<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
+impl<D: ty::Dtype> Copy for Tensor<D> {}
 
 impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
 impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {}

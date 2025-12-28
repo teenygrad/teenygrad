@@ -18,16 +18,16 @@
 use std::ops::{Add, Mul};
 
 // Dtype Type
-pub trait Dtype {}
+pub trait Dtype: Copy + Clone {}
 
-pub trait Num: Dtype + Copy {}
+pub trait Num: Dtype {}
 
 pub trait Float: Num {}
 pub trait Int: Num {}
 pub trait Bool: Dtype + Copy {}
 
 // Tensor
-pub trait RankedTensor<D: Dtype> {}
+pub trait RankedTensor<D: Dtype>: Copy + Clone {}
 
 // Floating-point types
 pub trait F8E4M3FN: Float {}
@@ -78,12 +78,12 @@ pub trait I64Tensor: Tensor<Self::I64> + TensorComparison<Self::I32> {
 
 // Offsets trait for adding tensor offsets to pointers
 pub trait AddOffsets<D: Dtype, I: Num, T: Tensor<I>> {
-    fn add_offsets(&self, offsets: &T) -> Self;
+    fn add_offsets(self, offsets: T) -> Self;
 }
 
 // Pointer Type
 pub trait Pointer<D: Dtype>:
-    Sized + AddOffsets<D, Self::I64, Self::I64Tensor> + Add<Self, Output = Self>
+    Sized + Copy + Clone + AddOffsets<D, Self::I64, Self::I64Tensor> + Add<Self, Output = Self>
 {
     type I32: I32<I64 = Self::I64>;
     type I64: I64;
