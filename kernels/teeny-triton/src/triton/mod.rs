@@ -21,11 +21,12 @@ pub mod llvm;
 pub mod types;
 
 pub use types::*;
+
+#[repr(i32)]
 pub enum ProgramAxis {
-    Axis0,
-    Axis1,
-    Axis2,
-    Axis3,
+    Axis0 = 0,
+    Axis1 = 1,
+    Axis2 = 2,
 }
 
 pub trait Triton

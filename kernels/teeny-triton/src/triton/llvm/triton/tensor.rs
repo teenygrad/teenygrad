@@ -53,8 +53,10 @@ impl ty::TensorComparison<I64> for I32Tensor {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn less_than(&self, _other: I64) -> Self::BoolTensor {
-        loop {}
+        // dummy implementation not used in final output
+        Tensor(0 as *mut Bool)
     }
 }
 
@@ -63,8 +65,10 @@ impl<R: ty::I64> Add<R> for I32Tensor {
     type Output = I64Tensor;
 
     #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn add(self, _rhs: R) -> Self::Output {
-        loop {}
+        // dummy implementation not used in final output
+        Tensor(0 as *mut I64)
     }
 }
 
@@ -78,7 +82,9 @@ impl ty::TensorComparison<I32> for I64Tensor {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn less_than(&self, _other: I32) -> Self::BoolTensor {
-        loop {}
+        // dummy implementation not used in final output
+        Tensor(0 as *mut Bool)
     }
 }

@@ -41,6 +41,7 @@ impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
 impl<D: ty::Dtype> ty::AddOffsets<D, I64, I64Tensor> for Pointer<D> {
     #[inline(never)]
     fn add_offsets(self, _offsets: I64Tensor) -> Self {
+        // dummy implementation not used in final output
         loop {}
     }
 }
@@ -50,6 +51,7 @@ impl<D: ty::Dtype> Add<Pointer<D>> for Pointer<D> {
 
     #[inline(never)]
     fn add(self, _other: Pointer<D>) -> Self::Output {
-        loop {}
+        // dummy implementation not used in final output
+        self
     }
 }
