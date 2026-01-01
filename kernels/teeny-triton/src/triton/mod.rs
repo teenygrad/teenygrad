@@ -35,7 +35,7 @@ where
     Self::I32: ty::I32<I64 = Self::I64>,
     Self::I32Tensor: ty::I32Tensor<I32 = Self::I32, I64 = Self::I64, I64Tensor = Self::I64Tensor>,
     Self::I64Tensor: ty::I64Tensor<I32 = Self::I32, I64 = Self::I64>
-        + ty::TensorComparison<Self::I32, BoolTensor = Self::BoolTensor>,
+        + ty::Comparison<Self::I32, BoolTensor = Self::BoolTensor>,
 {
     type Bool: ty::Bool;
     type I32: ty::I32;

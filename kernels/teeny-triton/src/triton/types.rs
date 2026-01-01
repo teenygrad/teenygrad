@@ -59,7 +59,7 @@ pub trait BoolTensor: Tensor<Self::B> {
     type B: Bool;
 }
 
-pub trait TensorComparison<I: Num> {
+pub trait Comparison<I: Num> {
     type BoolTensor: BoolTensor;
 
     fn less_than(&self, other: I) -> Self::BoolTensor;
@@ -71,7 +71,7 @@ pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I64, Output = Self::I64Tensor
     type I64Tensor: I64Tensor<I64 = Self::I64>;
 }
 
-pub trait I64Tensor: Tensor<Self::I64> + TensorComparison<Self::I32> {
+pub trait I64Tensor: Tensor<Self::I64> + Comparison<Self::I32> {
     type I32: I32<I64 = Self::I64>;
     type I64: I64;
 }

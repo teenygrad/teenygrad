@@ -49,7 +49,7 @@ impl ty::I32Tensor for I32Tensor {
     type I64Tensor = I64Tensor;
 }
 
-impl ty::TensorComparison<I64> for I32Tensor {
+impl ty::Comparison<I64> for I32Tensor {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
@@ -78,7 +78,7 @@ impl ty::I64Tensor for I64Tensor {
     type I64 = I64;
 }
 
-impl ty::TensorComparison<I32> for I64Tensor {
+impl ty::Comparison<I32> for I64Tensor {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]

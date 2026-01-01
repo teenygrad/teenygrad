@@ -19,7 +19,7 @@
 
 use teeny_macros::kernel;
 use teeny_triton::triton::{
-    types::{AddOffsets, TensorComparison},
+    types::{AddOffsets, Comparison},
     *,
 };
 
