@@ -29,24 +29,16 @@ pub enum ProgramAxis {
     Axis2 = 2,
 }
 
-pub trait Triton
-where
-    Self::BoolTensor: ty::BoolTensor<B = Self::Bool>,
-    Self::I32: ty::I32<I64 = Self::I64>,
-    Self::I32Tensor: ty::I32Tensor<I32 = Self::I32, I64 = Self::I64, I64Tensor = Self::I64Tensor>,
-    Self::I64Tensor: ty::I64Tensor<I32 = Self::I32, I64 = Self::I64>
-        + ty::Comparison<Self::I32, BoolTensor = Self::BoolTensor>,
-{
+pub trait Triton {
     type Bool: ty::Bool;
     type I32: ty::I32;
     type I64: ty::I64;
     type BF16: ty::BF16;
 
-    type BoolTensor: ty::BoolTensor;
-    type I32Tensor: ty::I32Tensor;
-    type I64Tensor: ty::I64Tensor;
+    type BoolTensor: ty::BoolTensor<Bool = Self::Bool>;
+    type I32Tensor: ty::I32Tensor<I32 = Self::I32>;
     type Tensor<D: ty::Dtype>: ty::Tensor<D>;
-    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I64 = Self::I64, I64Tensor = Self::I64Tensor>;
+    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I32Tensor = Self::I32Tensor>;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 

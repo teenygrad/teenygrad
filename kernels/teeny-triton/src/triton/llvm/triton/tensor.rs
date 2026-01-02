@@ -38,53 +38,34 @@ impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {}
 
 pub type BoolTensor = Tensor<Bool>;
 impl ty::BoolTensor for BoolTensor {
-    type B = Bool;
+    type Bool = Bool;
 }
 
 pub type I32Tensor = Tensor<I32>;
 
 impl ty::I32Tensor for I32Tensor {
     type I32 = I32;
-    type I64 = I64;
-    type I64Tensor = I64Tensor;
 }
 
-impl ty::Comparison<I64> for I32Tensor {
+impl ty::Comparison<I32> for I32Tensor {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn less_than(&self, _other: I64) -> Self::BoolTensor {
+    fn lt(&self, _other: I32) -> Self::BoolTensor {
         // dummy implementation not used in final output
         Tensor(0 as *mut Bool)
     }
 }
 
 // Blanket implementation for any type implementing I64, including <I32 as Mul<u32>>::Output
-impl<R: ty::I64> Add<R> for I32Tensor {
-    type Output = I64Tensor;
+impl<R: ty::I32> Add<R> for I32Tensor {
+    type Output = I32Tensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn add(self, _rhs: R) -> Self::Output {
         // dummy implementation not used in final output
-        Tensor(0 as *mut I64)
-    }
-}
-
-pub type I64Tensor = Tensor<I64>;
-impl ty::I64Tensor for I64Tensor {
-    type I32 = I32;
-    type I64 = I64;
-}
-
-impl ty::Comparison<I32> for I64Tensor {
-    type BoolTensor = BoolTensor;
-
-    #[inline(never)]
-    #[allow(clippy::zero_ptr)]
-    fn less_than(&self, _other: I32) -> Self::BoolTensor {
-        // dummy implementation not used in final output
-        Tensor(0 as *mut Bool)
+        Tensor(0 as *mut I32)
     }
 }

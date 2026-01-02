@@ -17,11 +17,10 @@
 
 use std::ops::Add;
 
+use crate::triton::llvm::triton::tensor::{I32Tensor, Tensor};
+
 use super::super::super::types::{self as ty};
-use super::{
-    num::{I32, I64},
-    tensor::I64Tensor,
-};
+use super::num::I32;
 
 pub struct Pointer<D: ty::Dtype>(pub *mut D);
 impl<D: ty::Dtype> Clone for Pointer<D> {
@@ -31,16 +30,20 @@ impl<D: ty::Dtype> Clone for Pointer<D> {
 }
 impl<D: ty::Dtype> Copy for Pointer<D> {}
 
+impl<D: ty::Dtype> ty::Dtype for Pointer<D> {}
+
 impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
     type I32 = I32;
-    type I64 = I64;
-    type I64Tensor = I64Tensor;
+    type I32Tensor = I32Tensor;
 }
 
 // Implement AddOffsets for I64Tensor
-impl<D: ty::Dtype> ty::AddOffsets<D, I64, I64Tensor> for Pointer<D> {
+impl<D: ty::Dtype> ty::AddOffsets<D, I32, I32Tensor> for Pointer<D> {
+    type Pointer = Pointer<D>;
+    type Output = Tensor<Self::Pointer>;
+
     #[inline(never)]
-    fn add_offsets(self, _offsets: I64Tensor) -> Self {
+    fn add_offsets(self, _offsets: I32Tensor) -> Self::Output {
         // dummy implementation not used in final output
         loop {}
     }

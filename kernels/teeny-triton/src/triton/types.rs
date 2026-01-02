@@ -46,46 +46,38 @@ pub trait I1: Int {}
 pub trait I4: Int {}
 pub trait I8: Int {}
 pub trait I16: Int {}
-pub trait I32: Int + From<u32> + From<i32> + Mul<u32, Output = Self::I64> {
-    type I64: I64;
-}
+pub trait I32: Int + From<u32> + From<i32> + Mul<u32> {}
 
 pub trait I64: Int {}
 
 // Int Tensor
 pub trait Tensor<D: Dtype>: RankedTensor<D> {}
 
-pub trait BoolTensor: Tensor<Self::B> {
-    type B: Bool;
+pub trait BoolTensor: Tensor<Self::Bool> {
+    type Bool: Bool;
 }
 
 pub trait Comparison<I: Num> {
     type BoolTensor: BoolTensor;
 
-    fn less_than(&self, other: I) -> Self::BoolTensor;
+    fn lt(&self, other: I) -> Self::BoolTensor;
 }
-pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I64, Output = Self::I64Tensor> {
-    type I32: I32<I64 = Self::I64>;
-    type I64: I64;
-
-    type I64Tensor: I64Tensor<I64 = Self::I64>;
-}
-
-pub trait I64Tensor: Tensor<Self::I64> + Comparison<Self::I32> {
-    type I32: I32<I64 = Self::I64>;
-    type I64: I64;
+pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I32> {
+    type I32: I32;
 }
 
 // Offsets trait for adding tensor offsets to pointers
 pub trait AddOffsets<D: Dtype, I: Num, T: Tensor<I>> {
-    fn add_offsets(self, offsets: T) -> Self;
+    type Pointer: Pointer<D>;
+    type Output: Tensor<Self::Pointer>;
+
+    fn add_offsets(self, offsets: T) -> Self::Output;
 }
 
 // Pointer Type
 pub trait Pointer<D: Dtype>:
-    Sized + Copy + Clone + AddOffsets<D, Self::I64, Self::I64Tensor> + Add<Self, Output = Self>
+    Sized + Copy + Clone + Dtype + AddOffsets<D, Self::I32, Self::I32Tensor> + Add<Self>
 {
-    type I32: I32<I64 = Self::I64>;
-    type I64: I64;
-    type I64Tensor: I64Tensor<I32 = Self::I32, I64 = Self::I64>;
+    type I32: I32;
+    type I32Tensor: I32Tensor<I32 = Self::I32>;
 }

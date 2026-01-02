@@ -33,18 +33,19 @@ impl Triton for LlvmTriton {
     type Bool = types::Bool;
     type BoolTensor = tensor::BoolTensor;
     type I32Tensor = tensor::I32Tensor;
-    type I64Tensor = tensor::I64Tensor;
     type Tensor<D: ty::Dtype> = tensor::Tensor<D>;
     type Pointer<D: ty::Dtype> = pointer::Pointer<D>;
 
     #[inline(never)]
     fn program_id(_axis: ProgramAxis) -> Self::I32 {
-        loop {}
+        // dummy implementation not used in final output
+        0.into()
     }
 
     #[inline(never)]
     fn num_programs(_axis: ProgramAxis) -> Self::I32 {
-        loop {}
+        // dummy implementation not used in final output
+        0.into()
     }
 
     #[inline(never)]
@@ -57,7 +58,8 @@ impl Triton for LlvmTriton {
         _ptr: Self::Pointer<D>,
         _mask: Self::BoolTensor,
     ) -> Self::Pointer<D> {
-        loop {}
+        // dummy implementation not used in final output
+        pointer::Pointer(0 as *mut D)
     }
 
     #[inline(never)]

@@ -49,16 +49,14 @@ impl Clone for I32 {
 impl ty::Dtype for I32 {}
 impl ty::Num for I32 {}
 impl ty::Int for I32 {}
-impl ty::I32 for I32 {
-    type I64 = I64;
-}
+impl ty::I32 for I32 {}
 
 impl Mul<u32> for I32 {
-    type Output = I64;
+    type Output = I32;
 
     #[inline(always)]
     fn mul(self, rhs: u32) -> Self::Output {
-        I64(self.0 as i64 * rhs as i64)
+        I32(self.0 * rhs as i32)
     }
 }
 
