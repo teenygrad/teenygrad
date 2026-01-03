@@ -62,12 +62,12 @@ pub trait Comparison<I: Num> {
 
     fn lt(&self, other: I) -> Self::BoolTensor;
 }
-pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I32> {
+pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I32> + Comparison<Self::I32> {
     type I32: I32;
 }
 
 // Offsets trait for adding tensor offsets to pointers
-pub trait AddOffsets<D: Dtype, I: Num, T: Tensor<I>> {
+pub trait AddOffsets<D: Dtype, I: Int, T: Tensor<I>> {
     type Pointer: Pointer<D>;
     type Output: Tensor<Self::Pointer>;
 

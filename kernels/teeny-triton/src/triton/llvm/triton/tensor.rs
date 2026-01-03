@@ -36,6 +36,18 @@ impl<D: ty::Dtype> Copy for Tensor<D> {}
 impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
 impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {}
 
+// Element-wise addition for tensors
+impl<D: ty::Dtype> Add<Tensor<D>> for Tensor<D> {
+    type Output = Tensor<D>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn add(self, _rhs: Tensor<D>) -> Self::Output {
+        // dummy implementation not used in final output
+        Tensor(0 as *mut D)
+    }
+}
+
 pub type BoolTensor = Tensor<Bool>;
 impl ty::BoolTensor for BoolTensor {
     type Bool = Bool;

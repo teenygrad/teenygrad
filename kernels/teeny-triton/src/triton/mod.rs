@@ -15,6 +15,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::{Add, Mul};
+
 use self::types::{self as ty};
 
 pub mod llvm;
@@ -29,7 +31,12 @@ pub enum ProgramAxis {
     Axis2 = 2,
 }
 
-pub trait Triton {
+pub trait Triton
+where
+    Self::I32: Mul<u32, Output = Self::I32>,
+    Self::I32Tensor: Add<Self::I32, Output = Self::I32Tensor>,
+    Self::I32Tensor: Comparison<Self::I32, BoolTensor = Self::BoolTensor>,
+{
     type Bool: ty::Bool;
     type I32: ty::I32;
     type I64: ty::I64;
@@ -37,8 +44,15 @@ pub trait Triton {
 
     type BoolTensor: ty::BoolTensor<Bool = Self::Bool>;
     type I32Tensor: ty::I32Tensor<I32 = Self::I32>;
-    type Tensor<D: ty::Dtype>: ty::Tensor<D>;
-    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I32Tensor = Self::I32Tensor>;
+    type Tensor<D: ty::Dtype>: ty::Tensor<D> + Add<Self::Tensor<D>, Output = Self::Tensor<D>>;
+    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I32Tensor = Self::I32Tensor>
+        + AddOffsets<
+            D,
+            Self::I32,
+            Self::I32Tensor,
+            Pointer = Self::Pointer<D>,
+            Output = Self::Tensor<Self::Pointer<D>>,
+        >;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 
@@ -47,13 +61,13 @@ pub trait Triton {
     fn arange(start: impl Into<Self::I32>, end: impl Into<Self::I32>) -> Self::I32Tensor;
 
     fn load_with_mask<D: ty::Dtype>(
-        ptr: Self::Pointer<D>,
+        ptr: Self::Tensor<Self::Pointer<D>>,
         mask: Self::BoolTensor,
-    ) -> Self::Pointer<D>;
+    ) -> Self::Tensor<D>;
 
     fn store_with_mask<D: ty::Dtype>(
-        dest: Self::Pointer<D>,
-        src: Self::Pointer<D>,
+        dest: Self::Tensor<Self::Pointer<D>>,
+        src: Self::Tensor<D>,
         mask: Self::BoolTensor,
     );
 }
