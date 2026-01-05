@@ -46,13 +46,7 @@ where
     type I32Tensor: ty::I32Tensor<I32 = Self::I32>;
     type Tensor<D: ty::Dtype>: ty::Tensor<D> + Add<Self::Tensor<D>, Output = Self::Tensor<D>>;
     type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I32Tensor = Self::I32Tensor>
-        + AddOffsets<
-            D,
-            Self::I32,
-            Self::I32Tensor,
-            Pointer = Self::Pointer<D>,
-            Output = Self::Tensor<Self::Pointer<D>>,
-        >;
+        + AddOffsets<Self::I32, Self::I32Tensor, Output = Self::Tensor<Self::Pointer<D>>>;
 
     fn program_id(axis: ProgramAxis) -> Self::I32;
 

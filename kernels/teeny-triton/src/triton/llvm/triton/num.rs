@@ -90,6 +90,22 @@ impl ty::Num for I64 {}
 impl ty::Int for I64 {}
 impl ty::I64 for I64 {}
 
+/*--------------------------------- F32 ---------------------------------*/
+
+pub struct F32(pub f32);
+impl ty::Dtype for F32 {}
+impl ty::Num for F32 {}
+impl ty::Float for F32 {}
+impl ty::F32 for F32 {}
+
+impl Copy for F32 {}
+impl Clone for F32 {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 /*--------------------------------- BF16 ---------------------------------*/
 
 pub struct BF16;

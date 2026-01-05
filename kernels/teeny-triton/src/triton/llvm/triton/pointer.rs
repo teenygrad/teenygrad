@@ -38,14 +38,13 @@ impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
 }
 
 // Implement AddOffsets for I64Tensor
-impl<D: ty::Dtype> ty::AddOffsets<D, I32, I32Tensor> for Pointer<D> {
-    type Pointer = Pointer<D>;
-    type Output = Tensor<Self::Pointer>;
+impl<D: ty::Dtype> ty::AddOffsets<I32, I32Tensor> for Pointer<D> {
+    type Output = Tensor<Self>;
 
     #[inline(never)]
     fn add_offsets(self, _offsets: I32Tensor) -> Self::Output {
         // dummy implementation not used in final output
-        loop {}
+        Tensor(self.0 as *mut Self)
     }
 }
 

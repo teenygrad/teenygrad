@@ -67,16 +67,15 @@ pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I32> + Comparison<Self::I32> 
 }
 
 // Offsets trait for adding tensor offsets to pointers
-pub trait AddOffsets<D: Dtype, I: Int, T: Tensor<I>> {
-    type Pointer: Pointer<D>;
-    type Output: Tensor<Self::Pointer>;
+pub trait AddOffsets<I: Int, T: Tensor<I>> {
+    type Output;
 
     fn add_offsets(self, offsets: T) -> Self::Output;
 }
 
 // Pointer Type
 pub trait Pointer<D: Dtype>:
-    Sized + Copy + Clone + Dtype + AddOffsets<D, Self::I32, Self::I32Tensor> + Add<Self>
+    Sized + Copy + Clone + Dtype + AddOffsets<Self::I32, Self::I32Tensor> + Add<Self>
 {
     type I32: I32;
     type I32Tensor: I32Tensor<I32 = Self::I32>;
