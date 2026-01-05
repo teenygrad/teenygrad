@@ -60,12 +60,12 @@ where
 
     fn arange(start: impl Into<Self::I32>, end: impl Into<Self::I32>) -> Self::I32Tensor;
 
-    fn load_with_mask<D: ty::Dtype>(
+    fn load<D: ty::Dtype>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         mask: Self::BoolTensor,
     ) -> Self::Tensor<D>;
 
-    fn store_with_mask<D: ty::Dtype>(
+    fn store<D: ty::Dtype>(
         dest: Self::Tensor<Self::Pointer<D>>,
         src: Self::Tensor<D>,
         mask: Self::BoolTensor,

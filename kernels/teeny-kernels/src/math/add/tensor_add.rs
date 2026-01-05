@@ -42,14 +42,14 @@ pub fn tensor_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: u32>(
     let mask = offsets.lt(n_elements);
 
     // Load data from global memory with masking
-    let x = T::load_with_mask(x_ptr.add_offsets(offsets), mask);
-    let y = T::load_with_mask(y_ptr.add_offsets(offsets), mask);
+    let x = T::load(x_ptr.add_offsets(offsets), mask);
+    let y = T::load(y_ptr.add_offsets(offsets), mask);
 
     // Perform element-wise addition
     let output = x + y;
 
     // Store result back to global memory
-    T::store_with_mask(output_ptr.add_offsets(offsets), output, mask);
+    T::store(output_ptr.add_offsets(offsets), output, mask);
 }
 
 mod tests {
