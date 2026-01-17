@@ -82,6 +82,8 @@ impl LlvmCompiler {
         let emit = "--emit=llvm-ir".to_string();
         let overflow_checks = "-C".to_string();
         let overflow_checks_off = "overflow-checks=off".to_string();
+        let frontend = "--frontend=triton".to_string();
+        let backend = "-Zcodegen-backend=mlir".to_string();
 
         info!("Working directory: {}", working_dir.display());
         info!("Target: {}", target);
@@ -109,6 +111,8 @@ impl LlvmCompiler {
                 emit,
                 overflow_checks,
                 overflow_checks_off,
+                frontend,
+                backend,
             ],
             &mut callbacks,
         );
