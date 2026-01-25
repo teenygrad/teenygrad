@@ -22,6 +22,7 @@ ksuid.workspace = true
 serde.workspace = true
 derive_more.workspace = true
 safetensors.workspace = true
+hashbrown.workspace = true
 ordered-float.workspace = true
 
 ndarray = { workspace = true, optional = true }

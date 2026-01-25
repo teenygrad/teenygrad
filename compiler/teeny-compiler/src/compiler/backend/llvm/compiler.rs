@@ -77,7 +77,7 @@ impl LlvmCompiler {
         let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
         let output = format!("-o{}", working_dir.join("kernel.ll").display());
         let build_type = "-Copt-level=3".to_string(); // Use opt-level=3 for release build
-        let target = "-tnvptx64-nvidia-cuda".to_string();
+        let target = "--target=nvptx64-nvidia-cuda".to_string();
         let crate_type = "--crate-type=lib".to_string();
         let emit = "--emit=llvm-ir".to_string();
         let overflow_checks = "-C".to_string();

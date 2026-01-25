@@ -1,11 +1,16 @@
 [workspace]
 resolver = "3"
-members = [ "core/*", "kernels/*", "macros/*", "models/*", "support/*", "drivers/*", "torch/*", "utilities/*", "apps/*",
-"compiler/teeny-compiler", "compiler/rustx/compiler/*"]
-
-exclude = [
-  "compiler/rustx/compiler/rustc_codegen_cranelift",
-]
+members = [ 
+  "core/*", 
+  "kernels/*", 
+  "macros/*", 
+  "models/*", 
+  "support/*", 
+  "drivers/*", 
+  "torch/*", 
+  "utilities/*", 
+  "apps/*",
+  "compiler/*"]
 
 [workspace.dependencies]
 protobuf = "3.7.2"
@@ -57,6 +62,8 @@ safetensors = "0.7.0"
 memmap2 = "0.9.9"
 flatbuffers = "25.9.23"
 flatc-rust = "0.2.0"
+# Force nightly feature so hashbrown 0.16 builds on nightly (allocator_api). Required by safetensors/indexmap.
+hashbrown = { version = "0.16.1", features = ["nightly"] }
 pyo3 = { version = "0.27.2", features = ["extension-module"] }
 pyo3-build-config = "0.27.2"
 egg = "0.11.0"
