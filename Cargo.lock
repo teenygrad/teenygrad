@@ -374,6 +374,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
+name = "cmake"
+version = "0.1.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2904,6 +2913,78 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc_codegen_llvm"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+ "gimli",
+ "itertools 0.12.1",
+ "libc",
+ "measureme",
+ "object 0.37.3",
+ "rustc-demangle",
+ "rustc_abi",
+ "rustc_ast",
+ "rustc_codegen_ssa",
+ "rustc_data_structures",
+ "rustc_errors",
+ "rustc_fluent_macro",
+ "rustc_fs_util",
+ "rustc_hashes",
+ "rustc_hir",
+ "rustc_index",
+ "rustc_llvm",
+ "rustc_macros",
+ "rustc_metadata",
+ "rustc_middle",
+ "rustc_query_system",
+ "rustc_sanitizers",
+ "rustc_session",
+ "rustc_span",
+ "rustc_symbol_mangling",
+ "rustc_target",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "tracing",
+]
+
+[[package]]
+name = "rustc_codegen_mlir"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+ "gimli",
+ "itertools 0.12.1",
+ "libc",
+ "measureme",
+ "object 0.37.3",
+ "rustc-demangle",
+ "rustc_abi",
+ "rustc_ast",
+ "rustc_codegen_llvm",
+ "rustc_codegen_ssa",
+ "rustc_data_structures",
+ "rustc_errors",
+ "rustc_fluent_macro",
+ "rustc_fs_util",
+ "rustc_hashes",
+ "rustc_hir",
+ "rustc_index",
+ "rustc_llvm",
+ "rustc_macros",
+ "rustc_metadata",
+ "rustc_middle",
+ "rustc_query_system",
+ "rustc_sanitizers",
+ "rustc_session",
+ "rustc_span",
+ "rustc_symbol_mangling",
+ "rustc_target",
+ "tracing",
+]
+
+[[package]]
 name = "rustc_codegen_ssa"
 version = "0.0.0"
 dependencies = [
@@ -3192,6 +3273,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc_helper"
+version = "0.1.0"
+dependencies = [
+ "cmake",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "rustc_hir"
 version = "0.0.0"
 dependencies = [
@@ -3446,6 +3536,16 @@ dependencies = [
  "rustc_serialize",
  "rustc_span",
  "serde",
+]
+
+[[package]]
+name = "rustc_llvm"
+version = "0.0.0"
+dependencies = [
+ "cargo_metadata",
+ "cc",
+ "libc",
+ "rustc_helper",
 ]
 
 [[package]]
@@ -3843,6 +3943,22 @@ dependencies = [
  "smallvec",
  "thin-vec",
  "tracing",
+]
+
+[[package]]
+name = "rustc_sanitizers"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+ "rustc_abi",
+ "rustc_data_structures",
+ "rustc_hir",
+ "rustc_middle",
+ "rustc_span",
+ "rustc_target",
+ "rustc_trait_selection",
+ "tracing",
+ "twox-hash",
 ]
 
 [[package]]
@@ -4571,7 +4687,12 @@ dependencies = [
  "egg",
  "ndarray",
  "proc-macro2",
+ "rustc_codegen_mlir",
+ "rustc_codegen_ssa",
  "rustc_driver",
+ "rustc_interface",
+ "rustc_session",
+ "rustc_target",
  "syn",
  "teeny-core",
  "teeny-cpu",
@@ -5203,6 +5324,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
+ "rand 0.4.6",
  "static_assertions",
 ]
 

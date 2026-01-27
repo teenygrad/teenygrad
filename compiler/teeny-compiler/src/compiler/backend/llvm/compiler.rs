@@ -19,10 +19,29 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 
-use rustc_driver::{TimePassesCallbacks, run_compiler};
+use rustc_driver::{Callbacks, run_compiler};
+use rustc_interface::interface;
+use rustc_session::config;
+use rustc_target::spec::Target as RustcTarget;
 use tracing::{debug, info};
 
 use crate::{compiler::target::Target, error::Result};
+
+/// Custom callbacks that register the MLIR codegen backend programmatically
+struct MlirBackendCallbacks;
+
+impl Callbacks for MlirBackendCallbacks {
+    fn config(&mut self, config: &mut interface::Config) {
+        // Register the MLIR codegen backend programmatically
+        // This closure will be called when rustc needs to create the codegen backend
+        config.make_codegen_backend = Some(Box::new(
+            |_opts: &config::Options, _target: &RustcTarget| {
+                // Create and return the MLIR codegen backend
+                rustc_codegen_mlir::MlirCodegenBackend::new()
+            },
+        ));
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct LlvmCompiler {}
@@ -73,7 +92,8 @@ impl LlvmCompiler {
         file.write_all(user_func.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;
 
-        let mut callbacks = TimePassesCallbacks::default();
+        // Use custom callbacks that register the MLIR backend
+        let mut callbacks = MlirBackendCallbacks;
         let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
         let output = format!("-o{}", working_dir.join("kernel.ll").display());
         let build_type = "-Copt-level=3".to_string(); // Use opt-level=3 for release build
@@ -83,7 +103,6 @@ impl LlvmCompiler {
         let overflow_checks = "-C".to_string();
         let overflow_checks_off = "overflow-checks=off".to_string();
         let frontend = "--frontend=triton".to_string();
-        let backend = "-Zcodegen-backend=mlir".to_string();
 
         info!("Working directory: {}", working_dir.display());
         info!("Target: {}", target);
@@ -100,22 +119,24 @@ impl LlvmCompiler {
         unsafe {
             env::set_var("CFG_VERSION", "tg-1.90.0");
         }
-        run_compiler(
-            &[
-                exe_name,
-                filename.display().to_string(),
-                build_type,
-                output,
-                target,
-                crate_type,
-                emit,
-                overflow_checks,
-                overflow_checks_off,
-                frontend,
-                backend,
-            ],
-            &mut callbacks,
-        );
+
+        // Build the arguments for the compiler
+        // Note: We no longer need -Zcodegen-backend flag since we're registering
+        // the backend programmatically via the callbacks
+        let args = vec![
+            exe_name,
+            filename.display().to_string(),
+            build_type,
+            output,
+            target,
+            crate_type,
+            emit,
+            overflow_checks,
+            overflow_checks_off,
+            frontend,
+        ];
+
+        run_compiler(&args, &mut callbacks);
 
         // Restore original directory
         debug!("Restoring original directory: {}", original_dir.display());
