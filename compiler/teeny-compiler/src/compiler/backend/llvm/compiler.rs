@@ -37,7 +37,7 @@ impl Callbacks for MlirBackendCallbacks {
         config.make_codegen_backend = Some(Box::new(
             |_opts: &config::Options, _target: &RustcTarget| {
                 // Create and return the MLIR codegen backend
-                rustc_codegen_mlir::MlirCodegenBackend::new()
+                rustc_codegen_llvm::mlir::MlirCodegenBackend::new()
             },
         ));
     }

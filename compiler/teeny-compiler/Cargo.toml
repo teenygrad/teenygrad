@@ -14,7 +14,7 @@ teeny-triton = { path = "../../kernels/teeny-triton" }
 teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 rustc_driver = { path = "../../../rust/compiler/rustc_driver" }
-rustc_codegen_mlir = { path = "../../../rust/compiler/rustc_codegen_mlir" }
+rustc_codegen_llvm = { path = "../../../rust/compiler/rustc_codegen_llvm" }
 rustc_interface = { path = "../../../rust/compiler/rustc_interface" }
 rustc_codegen_ssa = { path = "../../../rust/compiler/rustc_codegen_ssa" }
 rustc_session = { path = "../../../rust/compiler/rustc_session" }

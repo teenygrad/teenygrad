@@ -2950,41 +2950,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustc_codegen_mlir"
-version = "0.0.0"
-dependencies = [
- "bitflags",
- "gimli",
- "itertools 0.12.1",
- "libc",
- "measureme",
- "object 0.37.3",
- "rustc-demangle",
- "rustc_abi",
- "rustc_ast",
- "rustc_codegen_llvm",
- "rustc_codegen_ssa",
- "rustc_data_structures",
- "rustc_errors",
- "rustc_fluent_macro",
- "rustc_fs_util",
- "rustc_hashes",
- "rustc_hir",
- "rustc_index",
- "rustc_llvm",
- "rustc_macros",
- "rustc_metadata",
- "rustc_middle",
- "rustc_query_system",
- "rustc_sanitizers",
- "rustc_session",
- "rustc_span",
- "rustc_symbol_mangling",
- "rustc_target",
- "tracing",
-]
-
-[[package]]
 name = "rustc_codegen_ssa"
 version = "0.0.0"
 dependencies = [
@@ -4687,7 +4652,7 @@ dependencies = [
  "egg",
  "ndarray",
  "proc-macro2",
- "rustc_codegen_mlir",
+ "rustc_codegen_llvm",
  "rustc_codegen_ssa",
  "rustc_driver",
  "rustc_interface",
