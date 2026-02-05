@@ -32,10 +32,12 @@ struct MlirBackendCallbacks;
 
 impl Callbacks for MlirBackendCallbacks {
     fn config(&mut self, config: &mut interface::Config) {
+        eprintln!("[DEBUG] MlirBackendCallbacks::config called - registering backend");
         // Register the MLIR codegen backend programmatically
         // This closure will be called when rustc needs to create the codegen backend
         config.make_codegen_backend = Some(Box::new(
             |_opts: &config::Options, _target: &RustcTarget| {
+                eprintln!("[DEBUG] make_codegen_backend closure called - creating MlirCodegenBackend");
                 // Create and return the MLIR codegen backend
                 rustc_codegen_llvm::mlir::MlirCodegenBackend::new()
             },
@@ -99,7 +101,7 @@ impl LlvmCompiler {
         let build_type = "-Copt-level=3".to_string(); // Use opt-level=3 for release build
         let target = "--target=nvptx64-nvidia-cuda".to_string();
         let crate_type = "--crate-type=lib".to_string();
-        let emit = "--emit=llvm-ir".to_string();
+        // let emit = "--emit=llvm-ir".to_string();
         let overflow_checks = "-C".to_string();
         let overflow_checks_off = "overflow-checks=off".to_string();
         let frontend = "--frontend=triton".to_string();
@@ -130,7 +132,7 @@ impl LlvmCompiler {
             output,
             target,
             crate_type,
-            emit,
+            // emit,
             overflow_checks,
             overflow_checks_off,
             frontend,
@@ -149,11 +151,17 @@ impl LlvmCompiler {
 #[cfg(test)]
 mod tests {
     use teeny_cuda::target::{Capability, CudaTarget};
+    use tracing_subscriber::{EnvFilter, fmt};
 
     use super::*;
 
     #[test]
     fn test_compile() {
+        // Initialize logging for the test
+        let _ = fmt()
+            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")))
+            .try_init();
+        
         let compiler = LlvmCompiler::new();
         let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
         let target = Target::Cuda(CudaTarget::new(Capability::Sm89));

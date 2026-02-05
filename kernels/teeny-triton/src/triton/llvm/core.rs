@@ -31,14 +31,14 @@
 pub unsafe auto trait Freeze {}
 
 #[lang = "meta_sized"]
-pub trait MetaSized {}
+pub unsafe auto trait MetaSized {}
 
 #[lang = "pointee_sized"]
-pub trait PointeeSized {}
+pub unsafe auto trait PointeeSized {}
 
 // Required language items for no_core
 #[lang = "sized"]
-pub trait Sized: MetaSized + PointeeSized {}
+pub trait Sized {}
 
 #[lang = "clone"]
 pub trait Clone {
