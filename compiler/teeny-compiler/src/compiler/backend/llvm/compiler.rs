@@ -32,12 +32,12 @@ struct MlirBackendCallbacks;
 
 impl Callbacks for MlirBackendCallbacks {
     fn config(&mut self, config: &mut interface::Config) {
-        eprintln!("[DEBUG] MlirBackendCallbacks::config called - registering backend");
+        debug!("MlirBackendCallbacks::config called - registering backend");
         // Register the MLIR codegen backend programmatically
         // This closure will be called when rustc needs to create the codegen backend
         config.make_codegen_backend = Some(Box::new(
             |_opts: &config::Options, _target: &RustcTarget| {
-                eprintln!("[DEBUG] make_codegen_backend closure called - creating MlirCodegenBackend");
+                debug!("make_codegen_backend closure called - creating MlirCodegenBackend");
                 // Create and return the MLIR codegen backend
                 rustc_codegen_llvm::mlir::MlirCodegenBackend::new()
             },
@@ -157,11 +157,14 @@ mod tests {
 
     #[test]
     fn test_compile() {
-        // Initialize logging for the test
+        // Initialize logging for the test - only show warnings and errors by default
+        // Set RUST_LOG=debug in environment to see debug output
         let _ = fmt()
-            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")))
+            .with_env_filter(
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            )
             .try_init();
-        
+
         let compiler = LlvmCompiler::new();
         let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
         let target = Target::Cuda(CudaTarget::new(Capability::Sm89));
