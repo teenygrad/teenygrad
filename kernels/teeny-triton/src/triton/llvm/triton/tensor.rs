@@ -63,7 +63,7 @@ impl ty::Comparison<I32> for I32Tensor {
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn lt(&self, _other: I32) -> Self::BoolTensor {
+    fn lt(self, _other: I32) -> Self::BoolTensor {
         // dummy implementation not used in final output
         Tensor(0 as *mut Bool)
     }

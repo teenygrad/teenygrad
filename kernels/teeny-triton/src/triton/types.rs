@@ -59,7 +59,7 @@ pub trait BoolTensor: Tensor<Self::Bool> {
 pub trait Comparison<I: Num> {
     type BoolTensor: BoolTensor;
 
-    fn lt(&self, other: I) -> Self::BoolTensor;
+    fn lt(self, other: I) -> Self::BoolTensor;
 }
 pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I32> + Comparison<Self::I32> {
     type I32: I32;

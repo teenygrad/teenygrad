@@ -7,7 +7,6 @@ members = [
   "models/*", 
   "support/*", 
   "drivers/*", 
-  "torch/*", 
   "utilities/*", 
   "apps/*",
   "compiler/*"]

@@ -18,7 +18,7 @@ use super::super::super::types as ty;
 
 /*--------------------------------- Bool ---------------------------------*/
 
-pub struct Bool(bool);
+pub struct Bool(pub bool);
 impl Copy for Bool {}
 impl Clone for Bool {
     #[inline(always)]
