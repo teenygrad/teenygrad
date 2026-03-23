@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use std::ops::{Add, Mul};
+use std::ops::Add;
 
 use self::types::{self as ty};
 
@@ -24,34 +24,29 @@ pub mod types;
 pub use types::*;
 
 #[repr(i32)]
-pub enum ProgramAxis {
-    Axis0 = 0,
-    Axis1 = 1,
-    Axis2 = 2,
+pub enum Axis {
+    X = 0,
+    Y = 1,
+    Z = 2,
 }
 
 pub trait Triton
 where
-    Self::I32: Mul<u32, Output = Self::I32>,
-    Self::I32Tensor: Add<Self::I32, Output = Self::I32Tensor>,
-    Self::I32Tensor: Comparison<Self::I32, BoolTensor = Self::BoolTensor>,
+    Self::I32Tensor: Add<i32, Output = Self::I32Tensor>,
+    Self::I32Tensor: Comparison<i32, BoolTensor = Self::BoolTensor>,
 {
-    type Bool: ty::Bool;
-    type I32: ty::I32;
-    type I64: ty::I64;
     type BF16: ty::BF16;
-
-    type BoolTensor: ty::BoolTensor<Bool = Self::Bool>;
-    type I32Tensor: ty::I32Tensor<I32 = Self::I32>;
+    type BoolTensor: ty::BoolTensor;
+    type I32Tensor: ty::I32Tensor;
     type Tensor<D: ty::Dtype>: ty::Tensor<D> + Add<Self::Tensor<D>, Output = Self::Tensor<D>>;
-    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32 = Self::I32, I32Tensor = Self::I32Tensor>
-        + AddOffsets<Self::I32, Self::I32Tensor, Output = Self::Tensor<Self::Pointer<D>>>;
+    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32Tensor = Self::I32Tensor>
+        + AddOffsets<i32, Self::I32Tensor, Output = Self::Tensor<Self::Pointer<D>>>;
 
-    fn program_id(axis: ProgramAxis) -> Self::I32;
+    fn program_id(axis: Axis) -> i32;
 
-    fn num_programs(axis: ProgramAxis) -> Self::I32;
+    fn num_programs(axis: Axis) -> i32;
 
-    fn arange(start: impl Into<Self::I32>, end: impl Into<Self::I32>) -> Self::I32Tensor;
+    fn arange(start: impl Into<i32>, end: impl Into<i32>) -> Self::I32Tensor;
 
     fn load<D: ty::Dtype>(
         ptr: Self::Tensor<Self::Pointer<D>>,

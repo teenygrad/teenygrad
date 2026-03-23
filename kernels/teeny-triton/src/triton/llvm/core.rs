@@ -116,6 +116,14 @@ impl Clone for f32 {
         *self
     }
 }
+
+impl Copy for f64 {}
+impl Clone for f64 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 impl Copy for i8 {}
 impl Clone for i8 {
     fn clone(&self) -> Self {
@@ -180,6 +188,12 @@ pub const trait Into<T>: Sized {
 pub const trait From<T>: Sized {
     /// Converts to this type from the input type.
     fn from(value: T) -> Self;
+}
+
+impl<T> From<T> for T {
+    fn from(value: T) -> Self {
+        value
+    }
 }
 
 impl<T, U> Into<U> for T

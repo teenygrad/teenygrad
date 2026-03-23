@@ -13,19 +13,3 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-use super::super::super::types as ty;
-
-/*--------------------------------- Bool ---------------------------------*/
-
-pub struct Bool(pub bool);
-impl Copy for Bool {}
-impl Clone for Bool {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl ty::Dtype for Bool {}
-impl ty::Bool for Bool {}

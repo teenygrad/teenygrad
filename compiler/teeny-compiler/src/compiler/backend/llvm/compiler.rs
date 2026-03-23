@@ -73,18 +73,19 @@ impl LlvmCompiler {
         let mut file = File::create(&filename)?;
 
         let user_func = r#"
-            pub extern "C" fn entry_point(
-                n_elements: i32) 
-            {
-                use triton::llvm::triton::num::*;
-                use triton::llvm::triton::pointer::Pointer;
-                
-                let x_ptr = Pointer(0 as *mut _ );
-                let y_ptr = Pointer(0 as *mut _ );
-                let output_ptr = Pointer(0 as *mut _ );
-                let n_elements = I32(n_elements);
+            use triton::llvm::triton::num::*;
+            use triton::llvm::triton::pointer::Pointer;
 
-                tensor_add::<triton::llvm::triton::LlvmTriton, F32, 128>(x_ptr, y_ptr, output_ptr, n_elements);
+            type LlvmTriton = triton::llvm::triton::LlvmTriton;
+
+            #[no_mangle]
+            pub extern "C" fn entry_point(x_ptr: *mut f32, y_ptr: *mut f32, output_ptr: *mut f32, n_elements: i32) 
+            {    
+                let x_ptr = Pointer(x_ptr as *mut _ );
+                let y_ptr = Pointer(y_ptr as *mut _ );
+                let output_ptr = Pointer(output_ptr as *mut _ );
+
+                tensor_add::<LlvmTriton, f32, 128>(x_ptr, y_ptr, output_ptr, n_elements);
             }
         "#;
 

@@ -17,10 +17,6 @@
 use std::ops::Add;
 
 use super::super::super::types::{self as ty};
-use super::{
-    num::{I32, I64},
-    types::Bool,
-};
 
 /*--------------------------------- Tensor ---------------------------------*/
 
@@ -47,36 +43,32 @@ impl<D: ty::Dtype> Add<Tensor<D>> for Tensor<D> {
     }
 }
 
-pub type BoolTensor = Tensor<Bool>;
-impl ty::BoolTensor for BoolTensor {
-    type Bool = Bool;
-}
+pub type BoolTensor = Tensor<bool>;
+impl ty::BoolTensor for BoolTensor {}
 
-pub type I32Tensor = Tensor<I32>;
+pub type I32Tensor = Tensor<i32>;
 
-impl ty::I32Tensor for I32Tensor {
-    type I32 = I32;
-}
+impl ty::I32Tensor for I32Tensor {}
 
-impl ty::Comparison<I32> for I32Tensor {
+impl ty::Comparison<i32> for I32Tensor {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn lt(self, _other: I32) -> Self::BoolTensor {
+    fn lt(self, _other: i32) -> Self::BoolTensor {
         // dummy implementation not used in final output
-        Tensor(0 as *mut Bool)
+        Tensor(0 as *mut bool)
     }
 }
 
 // Blanket implementation for any type implementing I64, including <I32 as Mul<u32>>::Output
-impl<R: ty::I32> Add<R> for I32Tensor {
+impl Add<i32> for I32Tensor {
     type Output = I32Tensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn add(self, _rhs: R) -> Self::Output {
+    fn add(self, _rhs: i32) -> Self::Output {
         // dummy implementation not used in final output
-        Tensor(0 as *mut I32)
+        Tensor(0 as *mut i32)
     }
 }

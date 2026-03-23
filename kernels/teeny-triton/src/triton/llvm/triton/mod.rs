@@ -15,7 +15,7 @@
  */
 
 use super::super::Triton;
-use super::super::{ProgramAxis, types as ty};
+use super::super::{Axis, types as ty};
 
 pub mod num;
 pub mod pointer;
@@ -25,31 +25,29 @@ pub mod types;
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
-    type I32 = num::I32;
-    type I64 = num::I64;
     type BF16 = num::BF16;
 
-    type Bool = types::Bool;
     type BoolTensor = tensor::BoolTensor;
     type I32Tensor = tensor::I32Tensor;
     type Tensor<D: ty::Dtype> = tensor::Tensor<D>;
     type Pointer<D: ty::Dtype> = pointer::Pointer<D>;
 
     #[inline(never)]
-    fn program_id(_axis: ProgramAxis) -> Self::I32 {
+    fn program_id(_axis: Axis) -> i32 {
         // dummy implementation not used in final output
-        0.into()
+        0
     }
 
     #[inline(never)]
-    fn num_programs(_axis: ProgramAxis) -> Self::I32 {
+    fn num_programs(_axis: Axis) -> i32 {
         // dummy implementation not used in final output
-        0.into()
+        0
     }
 
     #[inline(never)]
-    fn arange(_start: impl Into<Self::I32>, _end: impl Into<Self::I32>) -> Self::I32Tensor {
-        loop {}
+    fn arange(_start: impl Into<i32>, _end: impl Into<i32>) -> Self::I32Tensor {
+        // dummy implementation not used in final output
+        tensor::Tensor(0 as *mut i32)
     }
 
     #[inline(never)]

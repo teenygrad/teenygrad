@@ -34,36 +34,63 @@ pub trait F8E4M3FNUZ: Float {}
 pub trait F8E5M2: Float {}
 pub trait F8E5M2FNUZ: Float {}
 
-pub trait F16: Float {}
 pub trait BF16: Float {}
-pub trait F32: Float {}
-pub trait F64: Float {}
-
-// Supported integer types
-pub trait I1: Int {}
 
 pub trait I4: Int {}
-pub trait I8: Int {}
-pub trait I16: Int {}
-pub trait I32: Int + From<u32> + From<i32> + Mul<u32> {}
 
-pub trait I64: Int {}
+impl Dtype for bool {}
+
+impl Dtype for i8 {}
+impl Num for i8 {}
+impl Int for i8 {}
+
+impl Dtype for i16 {}
+impl Num for i16 {}
+impl Int for i16 {}
+
+impl Dtype for i32 {}
+impl Num for i32 {}
+impl Int for i32 {}
+
+impl Dtype for i64 {}
+impl Num for i64 {}
+impl Int for i64 {}
+
+impl Dtype for u8 {}
+impl Num for u8 {}
+impl Int for u8 {}
+
+impl Dtype for u16 {}
+impl Num for u16 {}
+impl Int for u16 {}
+
+impl Dtype for u32 {}
+impl Num for u32 {}
+impl Int for u32 {}
+
+impl Dtype for u64 {}
+impl Num for u64 {}
+impl Int for u64 {}
+
+impl Dtype for f32 {}
+impl Num for f32 {}
+impl Float for f32 {}
+
+impl Dtype for f64 {}
+impl Num for f64 {}
+impl Float for f64 {}
 
 // Int Tensor
 pub trait Tensor<D: Dtype>: RankedTensor<D> {}
 
-pub trait BoolTensor: Tensor<Self::Bool> {
-    type Bool: Bool;
-}
+pub trait BoolTensor: Tensor<bool> {}
 
 pub trait Comparison<I: Num> {
     type BoolTensor: BoolTensor;
 
     fn lt(self, other: I) -> Self::BoolTensor;
 }
-pub trait I32Tensor: Tensor<Self::I32> + Add<Self::I32> + Comparison<Self::I32> {
-    type I32: I32;
-}
+pub trait I32Tensor: Tensor<i32> + Add<i32> + Comparison<i32> {}
 
 // Offsets trait for adding tensor offsets to pointers
 pub trait AddOffsets<I: Int, T: Tensor<I>> {
@@ -74,8 +101,7 @@ pub trait AddOffsets<I: Int, T: Tensor<I>> {
 
 // Pointer Type
 pub trait Pointer<D: Dtype>:
-    Sized + Copy + Clone + Dtype + AddOffsets<Self::I32, Self::I32Tensor> + Add<Self>
+    Sized + Copy + Clone + Dtype + AddOffsets<i32, Self::I32Tensor> + Add<Self>
 {
-    type I32: I32;
-    type I32Tensor: I32Tensor<I32 = Self::I32>;
+    type I32Tensor: I32Tensor;
 }

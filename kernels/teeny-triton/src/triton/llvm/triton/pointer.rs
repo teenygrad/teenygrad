@@ -19,7 +19,6 @@ use std::ops::Add;
 use crate::triton::llvm::triton::tensor::{I32Tensor, Tensor};
 
 use super::super::super::types::{self as ty};
-use super::num::I32;
 
 pub struct Pointer<D: ty::Dtype>(pub *mut D);
 impl<D: ty::Dtype> Clone for Pointer<D> {
@@ -32,12 +31,11 @@ impl<D: ty::Dtype> Copy for Pointer<D> {}
 impl<D: ty::Dtype> ty::Dtype for Pointer<D> {}
 
 impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
-    type I32 = I32;
     type I32Tensor = I32Tensor;
 }
 
 // Implement AddOffsets for I64Tensor
-impl<D: ty::Dtype> ty::AddOffsets<I32, I32Tensor> for Pointer<D> {
+impl<D: ty::Dtype> ty::AddOffsets<i32, I32Tensor> for Pointer<D> {
     type Output = Tensor<Self>;
 
     #[inline(never)]
