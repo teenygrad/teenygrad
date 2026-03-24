@@ -14,16 +14,18 @@
  * limitations under the License.
  */
 
-use std::env;
 use std::fs::File;
 use std::io::Write;
+use std::{env, path::Path};
 
 use rustc_driver::{Callbacks, run_compiler};
 use rustc_interface::interface;
 use rustc_session::config;
 use rustc_target::spec::Target as RustcTarget;
+use teeny_triton::TritonKernel;
 use tracing::{debug, info};
 
+use crate::compiler::Compiler;
 use crate::{compiler::target::Target, error::Result};
 
 /// Custom callbacks that register the MLIR codegen backend programmatically
@@ -51,8 +53,10 @@ impl LlvmCompiler {
     pub fn new() -> Self {
         Self {}
     }
+}
 
-    pub fn compile(&self, kernel: &teeny_triton::TritonKernel, _target: &Target) -> Result<()> {
+impl Compiler for LlvmCompiler {
+    fn compile(&self, kernel: &TritonKernel, _target: &Target, output: &Path) -> Result<()> {
         // Create a proper working directory for rustc
         let temp_dir = env::temp_dir();
         let working_dir = temp_dir.join("teenygrad_rustc");
@@ -97,7 +101,7 @@ impl LlvmCompiler {
         // Use custom callbacks that register the MLIR backend
         let mut callbacks = MlirBackendCallbacks;
         let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
-        let output = format!("-o{}", working_dir.join("kernel.ll").display());
+        let output = format!("-o{}", output.display());
         let build_type = "-Copt-level=3".to_string(); // Use opt-level=3 for release build
         let target = "--target=nvptx64-nvidia-cuda".to_string();
         let crate_type = "--crate-type=lib".to_string();
@@ -145,30 +149,5 @@ impl LlvmCompiler {
         env::set_current_dir(original_dir)?;
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use teeny_cuda::target::{Capability, CudaTarget};
-    use tracing_subscriber::{EnvFilter, fmt};
-
-    use super::*;
-
-    #[test]
-    fn test_compile() {
-        // Initialize logging for the test - only show warnings and errors by default
-        // Set RUST_LOG=debug in environment to see debug output
-        let _ = fmt()
-            .with_env_filter(
-                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-            )
-            .try_init();
-
-        let compiler = LlvmCompiler::new();
-        let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
-        let target = Target::Cuda(CudaTarget::new(Capability::Sm89));
-        let result = compiler.compile(tensor_add, &target);
-        assert!(result.is_ok());
     }
 }

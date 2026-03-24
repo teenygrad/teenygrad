@@ -40,6 +40,8 @@ pub enum Capability {
     Sm89,
     #[display("sm_90")]
     Sm90,
+    #[display("sm_120")]
+    Sm120,
 }
 
 #[derive(Debug, Clone)]

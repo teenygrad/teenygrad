@@ -14,10 +14,9 @@
  * limitations under the License.
  */
 
+pub mod compiler;
 pub mod error;
 pub mod fxgraph;
-
-mod compiler;
 
 /// Initialize logging for the teeny-compiler
 pub fn init_logging() {

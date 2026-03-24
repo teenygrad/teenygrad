@@ -14,46 +14,16 @@
  * limitations under the License.
  */
 
+use std::path::Path;
+
+use teeny_triton::TritonKernel;
+
 use crate::compiler::target::Target;
 use crate::error::Result;
 
-mod backend;
-mod target;
+pub mod backend;
+pub mod target;
 
-pub struct Compiler {
-    pub src: syn::File,
-    pub target: Target,
-}
-
-impl Compiler {
-    pub fn new(src: &str, target: Target) -> Result<Self> {
-        let src = syn::parse_str(src)?;
-
-        Ok(Self { src, target })
-    }
-
-    pub fn compile(&self) -> Result<()> {
-        todo!()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[cfg(feature = "cuda")]
-    fn test_compile_vector_add() {
-        use teeny_cuda::target::{Capability, CudaTarget};
-
-        let target = Target::Cuda(CudaTarget::new(Capability::Sm89));
-        let kernel = &teeny_kernels::math::add::tensor_add_kernel;
-        let compiler = Compiler::new(kernel.block_str, target).unwrap();
-
-        println!("kernel: {:?}", kernel);
-        let result = compiler.compile();
-
-        assert!(result.is_ok());
-        println!("result: {:?}", result);
-    }
+pub trait Compiler {
+    fn compile(&self, kernel: &TritonKernel, target: &Target, output: &Path) -> Result<()>;
 }

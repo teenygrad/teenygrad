@@ -32,3 +32,4 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
+insta = "1.46"
