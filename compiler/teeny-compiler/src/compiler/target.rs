@@ -24,17 +24,8 @@ use teeny_cuda::target::CudaTarget;
 
 #[derive(Debug, Clone)]
 pub enum Target {
-    #[cfg(feature = "cpu")]
-    Cpu(CpuTarget),
-
     #[cfg(feature = "cuda")]
     Cuda(CudaTarget),
-}
-
-impl From<CpuTarget> for Target {
-    fn from(target: CpuTarget) -> Self {
-        Target::Cpu(target)
-    }
 }
 
 impl From<CudaTarget> for Target {
@@ -46,7 +37,6 @@ impl From<CudaTarget> for Target {
 impl Display for Target {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Target::Cpu(target) => write!(f, "{}", target),
             Target::Cuda(target) => write!(f, "nvidia-{}", target),
         }
     }

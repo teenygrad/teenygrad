@@ -4,14 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["cpu", "ndarray", "cuda"]
-cpu = ["teeny-cpu"]
+default = ["ndarray", "cuda"]
 cuda = ["teeny-cuda"]
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../../kernels/teeny-triton" }
-teeny-cpu = { path = "../../drivers/teeny-cpu", optional = true }
 teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 rustc_driver = { path = "../../../rust/compiler/rustc_driver" }
 rustc_codegen_llvm = { path = "../../../rust/compiler/rustc_codegen_llvm" }

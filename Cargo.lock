@@ -505,15 +505,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cpuid"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c4b055219ace68cabfbb8071c4aad068565d11b67e092e151b17b9fd3bdba9"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4784,12 +4775,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ac9aa371f599d22256307c24a9d748c041e548cbf599f35d890f9d365361790"
 
 [[package]]
-name = "target-triple"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "591ef38edfb78ca4771ee32cf494cb8771944bee237a9b91fc9c1424ac4b777b"
-
-[[package]]
 name = "tblgen"
 version = "0.7.2"
 dependencies = [
@@ -4823,7 +4808,6 @@ dependencies = [
  "rustc_target",
  "syn",
  "teeny-core",
- "teeny-cpu",
  "teeny-cuda",
  "teeny-kernels",
  "teeny-triton",
@@ -4854,18 +4838,6 @@ dependencies = [
  "thiserror 2.0.18",
  "uuid",
  "z3",
-]
-
-[[package]]
-name = "teeny-cpu"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cpuid",
- "derive_more",
- "target-triple 1.0.0",
- "teeny-core",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4983,7 +4955,6 @@ dependencies = [
  "once_cell",
  "teeny-compiler",
  "teeny-core",
- "teeny-cpu",
  "teeny-cuda",
  "thiserror 2.0.18",
 ]
@@ -5016,10 +4987,6 @@ dependencies = [
 
 [[package]]
 name = "teeny-vision"
-version = "0.1.0"
-
-[[package]]
-name = "teeny-vulkan"
 version = "0.1.0"
 
 [[package]]
@@ -5426,7 +5393,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "target-triple 0.1.4",
+ "target-triple",
  "termcolor",
  "toml",
 ]
