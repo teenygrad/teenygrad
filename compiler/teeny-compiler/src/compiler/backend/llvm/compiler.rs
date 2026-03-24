@@ -16,42 +16,26 @@
 
 use std::fs::File;
 use std::io::Write;
-use std::{env, path::Path};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::{env};
 
-use rustc_driver::{Callbacks, run_compiler};
-use rustc_interface::interface;
-use rustc_session::config;
-use rustc_target::spec::Target as RustcTarget;
 use teeny_triton::TritonKernel;
 use tracing::{debug, info};
 
 use crate::compiler::Compiler;
 use crate::{compiler::target::Target, error::Result};
 
-/// Custom callbacks that register the MLIR codegen backend programmatically
-struct MlirBackendCallbacks;
-
-impl Callbacks for MlirBackendCallbacks {
-    fn config(&mut self, config: &mut interface::Config) {
-        debug!("MlirBackendCallbacks::config called - registering backend");
-        // Register the MLIR codegen backend programmatically
-        // This closure will be called when rustc needs to create the codegen backend
-        config.make_codegen_backend = Some(Box::new(
-            |_opts: &config::Options, _target: &RustcTarget| {
-                debug!("make_codegen_backend closure called - creating MlirCodegenBackend");
-                // Create and return the MLIR codegen backend
-                rustc_codegen_llvm::mlir::MlirCodegenBackend::new()
-            },
-        ));
-    }
+#[derive(Debug, Clone)]
+pub struct LlvmCompiler {
+    rustc_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct LlvmCompiler {}
-
 impl LlvmCompiler {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(rustc_path: impl Into<PathBuf>) -> Self {
+        Self {
+            rustc_path: rustc_path.into(),
+        }
     }
 }
 
@@ -62,15 +46,6 @@ impl Compiler for LlvmCompiler {
         let working_dir = temp_dir.join("teenygrad_rustc");
         debug!("Creating working directory: {}", working_dir.display());
         std::fs::create_dir_all(&working_dir)?;
-
-        // Change to the working directory to avoid path issues
-        let original_dir = env::current_dir()?;
-        debug!(
-            "Changing directory from {} to {}",
-            original_dir.display(),
-            working_dir.display()
-        );
-        env::set_current_dir(&working_dir)?;
 
         let filename = working_dir.join("kernel.txt");
         debug!("Creating kernel file: {}", filename.display());
@@ -83,8 +58,8 @@ impl Compiler for LlvmCompiler {
             type LlvmTriton = triton::llvm::triton::LlvmTriton;
 
             #[no_mangle]
-            pub extern "C" fn entry_point(x_ptr: *mut f32, y_ptr: *mut f32, output_ptr: *mut f32, n_elements: i32) 
-            {    
+            pub extern "C" fn entry_point(x_ptr: *mut f32, y_ptr: *mut f32, output_ptr: *mut f32, n_elements: i32)
+            {
                 let x_ptr = Pointer(x_ptr as *mut _ );
                 let y_ptr = Pointer(y_ptr as *mut _ );
                 let output_ptr = Pointer(output_ptr as *mut _ );
@@ -98,55 +73,34 @@ impl Compiler for LlvmCompiler {
         file.write_all(user_func.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;
 
-        // Use custom callbacks that register the MLIR backend
-        let mut callbacks = MlirBackendCallbacks;
-        let exe_name = "/home/arshadm/.cargo/bin/rustc".to_string(); // AXM FIXME: remove this once API changes
-        let output = format!("-o{}", output.display());
-        let build_type = "-Copt-level=3".to_string(); // Use opt-level=3 for release build
-        let target = "--target=nvptx64-nvidia-cuda".to_string();
-        let crate_type = "--crate-type=lib".to_string();
-        // let emit = "--emit=llvm-ir".to_string();
-        let overflow_checks = "-C".to_string();
-        let overflow_checks_off = "overflow-checks=off".to_string();
-        let frontend = "--frontend=triton".to_string();
+        let output_str = output.display().to_string();
 
         info!("Working directory: {}", working_dir.display());
-        info!("Target: {}", target);
-        info!("Output: {}", output);
+        info!("Target: nvptx64-nvidia-cuda");
+        info!("Output: {}", output_str);
         debug!(
-            "Rustc command: {} {} {} {} {}",
-            exe_name,
+            "Rustc command: {} {} -o{} --target=nvptx64-nvidia-cuda --crate-type=lib",
+            self.rustc_path.display(),
             filename.display(),
-            output,
-            target,
-            crate_type
+            output_str,
         );
 
-        unsafe {
-            env::set_var("CFG_VERSION", "tg-1.90.0");
+        let status = Command::new(&self.rustc_path)
+            .env("CFG_VERSION", "tg-1.90.0")
+            .arg(&filename)
+            .arg("-Copt-level=3")
+            .arg(format!("-o{}", output_str))
+            .arg("--target=nvptx64-nvidia-cuda")
+            .arg("--crate-type=lib")
+            .arg("-C")
+            .arg("overflow-checks=off")
+            .arg("--frontend=triton")
+            .current_dir(&working_dir)
+            .status()?;
+
+        if !status.success() {
+            anyhow::bail!("rustc exited with status {}", status);
         }
-
-        // Build the arguments for the compiler
-        // Note: We no longer need -Zcodegen-backend flag since we're registering
-        // the backend programmatically via the callbacks
-        let args = vec![
-            exe_name,
-            filename.display().to_string(),
-            build_type,
-            output,
-            target,
-            crate_type,
-            // emit,
-            overflow_checks,
-            overflow_checks_off,
-            frontend,
-        ];
-
-        run_compiler(&args, &mut callbacks);
-
-        // Restore original directory
-        debug!("Restoring original directory: {}", original_dir.display());
-        env::set_current_dir(original_dir)?;
 
         Ok(())
     }

@@ -31,7 +31,7 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         )
         .try_init();
 
-    let compiler = LlvmCompiler::new();
+    let compiler = LlvmCompiler::new("/home/arshadm/.cargo/bin/rustc");
     let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
     let target = Target::Cuda(CudaTarget::new(Capability::Sm120));
     compiler.compile(tensor_add, &target, Path::new("/tmp/tensor_add.ptx"))?;
