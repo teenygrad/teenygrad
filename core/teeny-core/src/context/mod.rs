@@ -14,9 +14,16 @@
  * limitations under the License.
  */
 
-#![no_std]
-extern crate alloc;
+use crate::{context::device::Device, errors::Error};
 
-pub mod context;
-pub mod dtype;
-pub mod errors;
+pub mod buffer;
+pub mod device;
+pub mod program;
+
+pub trait Context<'a> {
+    type Device: Device<'a>;
+
+    fn new() -> Self;
+
+    fn device(&self, idx: usize) -> Result<Self::Device, Error>;
+}

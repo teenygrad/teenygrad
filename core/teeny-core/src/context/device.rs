@@ -14,9 +14,20 @@
  * limitations under the License.
  */
 
-#![no_std]
-extern crate alloc;
+use crate::{
+    context::{
+        buffer::Buffer,
+        program::{Kernel, Program},
+    },
+    dtype::Dtype,
+    errors::Error,
+};
 
-pub mod context;
-pub mod dtype;
-pub mod errors;
+pub trait Device<'a>: Sized {
+    type Buffer<D: Dtype>: Buffer<'a, D>;
+    type Program<K: Kernel>: Program<'a, K>;
+
+    fn buffer<D: Dtype>(&self, dtype: D, size: &[usize]) -> Result<Self::Buffer<D>, Error>;
+
+    fn program<K: Kernel>(&self, data: &[u8]) -> Result<Self::Program<K>, Error>;
+}

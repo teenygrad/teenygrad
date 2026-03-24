@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#![no_std]
-extern crate alloc;
-
-pub mod context;
-pub mod dtype;
-pub mod errors;
+pub trait Dtype: Sized {
+    const BITS: u8;
+}

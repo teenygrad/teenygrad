@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#![no_std]
-extern crate alloc;
+use alloc::string::String;
 
-pub mod context;
-pub mod dtype;
-pub mod errors;
+#[derive(Debug)]
+pub enum Error {
+    ContextError(String),
+}
