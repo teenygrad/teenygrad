@@ -4868,6 +4868,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-fxgraph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "derive_builder",
+ "egg",
+ "ordered-float",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "teeny-hf"
 version = "0.1.0"
 dependencies = [
@@ -4973,6 +4984,7 @@ dependencies = [
  "regex",
  "teeny-compiler",
  "teeny-core",
+ "teeny-fxgraph",
  "thiserror 2.0.18",
 ]
 

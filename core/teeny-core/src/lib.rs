@@ -25,6 +25,3 @@ pub mod tensor;
 pub mod types;
 pub mod util;
 pub mod value;
-
-#[cfg(feature = "compiler")]
-pub mod fxgraph;

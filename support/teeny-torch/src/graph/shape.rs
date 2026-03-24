@@ -14,16 +14,19 @@
  * limitations under the License.
  */
 
-use pyo3::prelude::*;
+use crate::{error::Error, torch::Shape};
 
-mod atlas;
-mod error;
-mod graph;
-mod torch;
+impl<'a> TryFrom<Shape<'a>> for teeny_fxgraph::fxgraph::shape::Shape {
+    type Error = Error;
 
-use crate::atlas::atlas_compile;
+    fn try_from(shape: Shape) -> Result<Self, Self::Error> {
+        let shape = shape
+            .dims()
+            .ok_or_else(|| Error::InvalidBuffer(format!("{shape:?}")))?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
-#[pymodule]
-fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(atlas_compile, m)?)
+        Ok(teeny_fxgraph::fxgraph::shape::Shape { shape })
+    }
 }

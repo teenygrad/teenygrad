@@ -14,16 +14,24 @@
  * limitations under the License.
  */
 
-use pyo3::prelude::*;
+use egg::{EGraph, Id};
 
-mod atlas;
-mod error;
-mod graph;
-mod torch;
+use crate::{
+    errors::Error,
+    fxgraph::{
+        analysis::GraphAnalysis,
+        lang::FxGraphLang,
+        types::{Type, TypeInfo},
+    },
+};
 
-use crate::atlas::atlas_compile;
-
-#[pymodule]
-fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(atlas_compile, m)?)
+pub fn output_ty(
+    egraph: &mut EGraph<FxGraphLang, GraphAnalysis>,
+    args: &[Id],
+) -> Result<Type, Error> {
+    Ok(Type::Tuple(
+        args.iter()
+            .map(|arg| arg.ty(egraph))
+            .collect::<Result<Vec<Type>, Error>>()?,
+    ))
 }

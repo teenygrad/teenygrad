@@ -14,16 +14,17 @@
  * limitations under the License.
  */
 
-use pyo3::prelude::*;
+use crate::{error::Error, torch::DType};
 
-mod atlas;
-mod error;
-mod graph;
-mod torch;
+impl TryFrom<DType> for teeny_fxgraph::fxgraph::dtype::DType {
+    type Error = Error;
 
-use crate::atlas::atlas_compile;
-
-#[pymodule]
-fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(atlas_compile, m)?)
+    fn try_from(dtype: DType) -> Result<Self, Self::Error> {
+        match dtype {
+            DType::FLOAT32 => Ok(teeny_fxgraph::fxgraph::dtype::DType::F32),
+            DType::BFLOAT16 => Ok(teeny_fxgraph::fxgraph::dtype::DType::BF16),
+            DType::BOOL => Ok(teeny_fxgraph::fxgraph::dtype::DType::Bool),
+            _ => Err(Error::UnsupportedDtype(dtype)),
+        }
+    }
 }

@@ -14,16 +14,5 @@
  * limitations under the License.
  */
 
-use pyo3::prelude::*;
-
-mod atlas;
-mod error;
-mod graph;
-mod torch;
-
-use crate::atlas::atlas_compile;
-
-#[pymodule]
-fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(atlas_compile, m)?)
-}
+pub mod errors;
+pub mod fxgraph;

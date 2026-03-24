@@ -14,16 +14,32 @@
  * limitations under the License.
  */
 
-use pyo3::prelude::*;
+use egg::EGraph;
 
-mod atlas;
-mod error;
-mod graph;
-mod torch;
+use crate::{
+    errors::Error,
+    fxgraph::{
+        analysis::GraphAnalysis,
+        lang::FxGraphLang,
+        types::{ty_kwargs::TyKwArgs, ty_tensor::TyTensor},
+    },
+};
 
-use crate::atlas::atlas_compile;
+pub mod ty_kwargs;
+pub mod ty_tensor;
 
-#[pymodule]
-fn teenygrad(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(atlas_compile, m)?)
+pub trait TypeInfo {
+    fn ty(&self, egraph: &mut EGraph<FxGraphLang, GraphAnalysis>) -> Result<Type, Error>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Type {
+    F32,
+    BF16,
+    Bool,
+    Tensor(TyTensor),
+    SymInt,
+    List(Vec<Type>),
+    Tuple(Vec<Type>),
+    KwArgs(TyKwArgs),
 }
