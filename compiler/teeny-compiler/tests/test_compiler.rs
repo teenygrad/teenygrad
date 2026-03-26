@@ -16,6 +16,7 @@
 
 use std::{error::Error, path::Path};
 
+use dotenv::dotenv;
 use insta::assert_snapshot;
 use teeny_compiler::compiler::{Compiler, backend::llvm::compiler::LlvmCompiler, target::Target};
 use teeny_cuda::target::{Capability, CudaTarget};
@@ -23,6 +24,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 #[test]
 fn test_compile() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
+
     // Initialize logging for the test - only show warnings and errors by default
     // Set RUST_LOG=debug in environment to see debug output
     let _ = fmt()
@@ -31,14 +34,15 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         )
         .try_init();
 
-    let compiler = LlvmCompiler::new("/home/arshadm/.cargo/bin/rustc");
+    let rustc_path = std::env::var("RUSTC_PATH")?;
+    println!("RUSTC_PATH: {}", rustc_path);
+    let compiler = LlvmCompiler::new(&rustc_path);
     let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
     let target = Target::Cuda(CudaTarget::new(Capability::Sm120));
     compiler.compile(tensor_add, &target, Path::new("/tmp/tensor_add.ptx"))?;
+
     // Use insta snapshot testing to compare the generated PTX to a reference file
     let generated_ptx = std::fs::read_to_string("/tmp/tensor_add.ptx")?;
-
-    // insta works best with snapshot macros, but for direct comparison we can use assert_display_snapshot
     assert_snapshot!("tensor_add_sm120", generated_ptx.trim());
 
     Ok(())

@@ -534,6 +534,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
+
+[[package]]
 name = "egg"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -652,9 +658,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.1.5"
+version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe33edd8e85a12a67454e37f8c75e730830d83e313556ab9ebf9ee7fbeb3bfb"
+checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
@@ -2436,6 +2442,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_more",
+ "dotenv",
  "egg",
  "insta",
  "ndarray",
@@ -2571,18 +2578,6 @@ dependencies = [
  "protobuf",
  "protobuf-codegen",
  "protoc-bin-vendored",
-]
-
-[[package]]
-name = "teeny-runtime"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "once_cell",
- "teeny-compiler",
- "teeny-core",
- "teeny-cuda",
- "thiserror 2.0.18",
 ]
 
 [[package]]

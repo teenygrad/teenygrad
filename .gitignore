@@ -4,3 +4,4 @@ axm.out
 scratch/
 todo.md
 kernel.py
+.env

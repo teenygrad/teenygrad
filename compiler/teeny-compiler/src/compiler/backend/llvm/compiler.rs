@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
+use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::{env};
+use std::process::{Command, Stdio};
 
 use teeny_triton::TritonKernel;
 use tracing::{debug, info};
@@ -73,23 +73,21 @@ impl Compiler for LlvmCompiler {
         file.write_all(user_func.as_bytes())?;
         file.write_all(kernel.block_str.as_bytes())?;
 
-        let output_str = output.display().to_string();
-
         info!("Working directory: {}", working_dir.display());
         info!("Target: nvptx64-nvidia-cuda");
-        info!("Output: {}", output_str);
-        debug!(
-            "Rustc command: {} {} -o{} --target=nvptx64-nvidia-cuda --crate-type=lib",
-            self.rustc_path.display(),
-            filename.display(),
-            output_str,
-        );
+        info!("Output: {}", output.display());
 
-        let status = Command::new(&self.rustc_path)
-            .env("CFG_VERSION", "tg-1.90.0")
+        let mut ld_library_path = "/home/arshadm/.rustup/toolchains/nightly-2025-12-05-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib".to_string();
+        ld_library_path.push_str(&format!(":{}", self.rustc_path.display()));
+
+        let status = Command::new(self.rustc_path.join("rustc"))
+            .env("CFG_VERSION", "tg-1.93.0")
+            // .env("LD_LIBRARY_PATH", ld_library_path)
             .arg(&filename)
             .arg("-Copt-level=3")
-            .arg(format!("-o{}", output_str))
+            .arg("-Zcodegen-backend=mlir")
+            .arg("--emit=obj")
+            .arg(format!("-o{}", output.display()))
             .arg("--target=nvptx64-nvidia-cuda")
             .arg("--crate-type=lib")
             .arg("-C")

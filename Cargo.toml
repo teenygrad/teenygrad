@@ -56,7 +56,7 @@ cpuid = "0.1.1"
 num-traits = "0.2.19"
 derive_more = { version = "2.1.0", features = ["full"] }
 ksuid = "0.2.0"
-insta = "1.44.3"
+insta = "1.46.3"
 indicatif = "0.18.3"
 safetensors = "0.7.0"
 memmap2 = "0.9.9"
@@ -67,6 +67,8 @@ flatc-rust = "0.2.0"
 pyo3 = { version = "0.27.2", features = ["extension-module"] }
 pyo3-build-config = "0.27.2"
 egg = "0.11.0"
-flate2 = "1.1.5"
+flate2 = "1.1.9"
 ordered-float = "5.1.0"
 z3 = { path = "../z3.rs/z3" }
+dotenv = "0.15.0"
+
