@@ -29,7 +29,6 @@ pub enum Error {
 
     #[error("Failed to parse value: {0}")]
     ParseValueError(String),
-
-    #[error("SafeTensors error: {0}")]
-    SafeTensorsError(teeny_core::safetensors::SafeTensorsError),
+    // #[error("SafeTensors error: {0}")]
+    // SafeTensorsError(teeny_core::safetensors::SafeTensorsError),
 }
