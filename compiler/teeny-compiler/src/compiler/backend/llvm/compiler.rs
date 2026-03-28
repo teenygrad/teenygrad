@@ -14,69 +14,63 @@
  * limitations under the License.
  */
 
-use std::env;
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
+use std::process::Command;
 
+use teeny_core::compiler::{Compiler, Target};
 use teeny_core::context::program::Kernel;
-use teeny_triton::TritonKernel;
-use tracing::{debug, info};
+use tracing::info;
 
-use crate::compiler::Compiler;
-use crate::{compiler::target::Target, error::Result};
+use crate::error::Result;
 
 #[derive(Debug, Clone)]
 pub struct LlvmCompiler {
     rustc_path: PathBuf,
+    cache_dir: PathBuf,
 }
 
 impl LlvmCompiler {
-    pub fn new(rustc_path: impl Into<PathBuf>) -> Self {
+    pub fn new(rustc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Self {
         Self {
             rustc_path: rustc_path.into(),
+            cache_dir: cache_dir.into(),
         }
     }
 }
 
 impl Compiler for LlvmCompiler {
-    fn compile(&self, kernel: &impl Kernel, _target: &Target, output: &Path) -> Result<()> {
-        // Create a proper working directory for rustc
-        let temp_dir = env::temp_dir();
-        let working_dir = temp_dir.join("teenygrad_rustc");
-        debug!("Creating working directory: {}", working_dir.display());
-        std::fs::create_dir_all(&working_dir)?;
+    fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<()> {
+        let id_hex: String = kernel.id().iter().map(|b| format!("{:02x}", b)).collect();
+        let kernel_file_name = format!("{}_{}", kernel.name(), id_hex);
+        let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
+        let output_file = self.cache_dir.join(kernel_file_name).with_extension("o");
 
-        let filename = working_dir.join("kernel.txt");
-        debug!("Creating kernel file: {}", filename.display());
-        let mut file = File::create(&filename)?;
+        if !output_file.exists() || force {
+            let mut file = File::create(&kernel_file)?;
 
-        info!("Writing kernel code to file");
-        file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
-        file.write_all(kernel.source().as_bytes())?;
+            info!("Writing kernel code to file");
+            file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
+            file.write_all(kernel.source().as_bytes())?;
 
-        info!("Working directory: {}", working_dir.display());
-        info!("Target: nvptx64-nvidia-cuda");
-        info!("Output: {}", output.display());
+            let status = Command::new(self.rustc_path.join("rustc"))
+                .arg(&kernel_file)
+                .arg("-Copt-level=3")
+                .arg("-Zcodegen-backend=mlir")
+                .arg("--emit=obj")
+                .arg(format!("-o{}", output_file.display()))
+                .arg("--target=nvptx64-nvidia-cuda")
+                .arg("--crate-type=lib")
+                .arg("-C")
+                .arg("overflow-checks=off")
+                .arg("--frontend=triton")
+                .current_dir(&self.cache_dir)
+                .status()?;
 
-        let status = Command::new(self.rustc_path.join("rustc"))
-            // .env("CFG_VERSION", "tg-1.93.0")
-            .arg(&filename)
-            .arg("-Copt-level=3")
-            .arg("-Zcodegen-backend=mlir")
-            .arg("--emit=obj")
-            .arg(format!("-o{}", output.display()))
-            .arg("--target=nvptx64-nvidia-cuda")
-            .arg("--crate-type=lib")
-            .arg("-C")
-            .arg("overflow-checks=off")
-            .arg("--frontend=triton")
-            .current_dir(&working_dir)
-            .status()?;
-
-        if !status.success() {
-            anyhow::bail!("rustc exited with status {}", status);
+            if !status.success() {
+                anyhow::bail!("rustc exited with status {}", status);
+            }
         }
 
         Ok(())

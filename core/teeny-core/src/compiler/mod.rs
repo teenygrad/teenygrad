@@ -20,5 +20,5 @@ use crate::errors::Result;
 pub trait Target: Sized {}
 
 pub trait Compiler {
-    fn compile<T: Target>(&self, kernel: &impl Kernel, target: &T) -> Result<()>;
+    fn compile(&self, kernel: &impl Kernel, target: &impl Target, force: bool) -> Result<()>;
 }
