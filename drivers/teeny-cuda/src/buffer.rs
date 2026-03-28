@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
-pub mod buffer;
-pub mod context;
-pub mod device;
-pub mod errors;
-pub mod program;
-pub mod target;
+use std::marker::PhantomData;
 
-mod cuda;
+use teeny_core::{context::buffer::Buffer, dtype::Dtype};
+
+pub struct CudaBuffer<'a, D: Dtype> {
+    _data: PhantomData<D>,
+    _unused: PhantomData<&'a ()>,
+}
+
+impl<'a, D: Dtype> Buffer<'a, D> for CudaBuffer<'a, D> {}

@@ -12,3 +12,6 @@ license = "GPL v3"
 teeny-macros = { path = "../../macros/teeny-macros" }
 teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../teeny-triton" }
+
+[dev-dependencies]
+insta.workspace = true

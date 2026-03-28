@@ -16,7 +16,10 @@
 
 use alloc::string::String;
 
-#[derive(Debug)]
+pub type Result<T> = anyhow::Result<T>;
+
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("Context error: {0}")]
     ContextError(String),
 }

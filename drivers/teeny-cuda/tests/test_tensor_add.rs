@@ -14,28 +14,20 @@
  * limitations under the License.
  */
 
-use std::ops::Add;
+use teeny_core::context::Context;
+use teeny_cuda::context::Cuda;
+use teeny_cuda::errors::Result;
 
-#[cfg(feature = "ndarray")]
-use ndarray::IxDyn;
-use teeny_core::dtype;
+#[test]
+fn test_tensor_add() -> Result<()> {
+    let cuda_available = Cuda::is_available()?;
+    assert!(cuda_available, "CUDA is not available");
 
-#[derive(Debug)]
-pub struct CudaTensor<T: dtype::Dtype> {
-    _marker: std::marker::PhantomData<T>,
-}
+    let cuda = Cuda::try_new()?;
+    let devices = cuda.list_devices()?;
+    assert!(!devices.is_empty(), "No CUDA devices found");
 
-impl<N: dtype::Dtype> Add<CudaTensor<N>> for CudaTensor<N> {
-    type Output = CudaTensor<N>;
+    let _device = cuda.device(&devices[0].id)?;
 
-    fn add(self, _other: CudaTensor<N>) -> Self::Output {
-        todo!()
-    }
-}
-
-#[cfg(feature = "ndarray")]
-impl<T: dtype::Dtype> From<ndarray::Array<T, IxDyn>> for CudaTensor<T> {
-    fn from(_data: ndarray::Array<T, IxDyn>) -> Self {
-        unimplemented!()
-    }
+    Ok(())
 }

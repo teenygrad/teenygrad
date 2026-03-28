@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use derive_more::Display;
 
-use crate::error::Error;
+use crate::errors::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Capability {
@@ -40,6 +40,8 @@ pub enum Capability {
     Sm89,
     #[display("sm_90")]
     Sm90,
+    #[display("sm_100")]
+    Sm100,
     #[display("sm_120")]
     Sm120,
 }
@@ -62,9 +64,9 @@ impl CudaTarget {
 }
 
 impl TryFrom<(i32, i32)> for CudaTarget {
-    type Error = Error;
+    type Error = anyhow::Error;
 
-    fn try_from((major, minor): (i32, i32)) -> std::result::Result<Self, Self::Error> {
+    fn try_from((major, minor): (i32, i32)) -> Result<Self> {
         let capabilities: HashMap<i32, Capability> = vec![
             (60, Capability::Sm60),
             (61, Capability::Sm61),
@@ -75,17 +77,18 @@ impl TryFrom<(i32, i32)> for CudaTarget {
             (86, Capability::Sm86),
             (89, Capability::Sm89),
             (90, Capability::Sm90),
+            (100, Capability::Sm100),
+            (120, Capability::Sm120),
         ]
         .into_iter()
         .collect();
-        let capability = capabilities.get(&(major * 10 + minor)).cloned();
+        let capability = capabilities
+            .get(&(major * 10 + minor))
+            .cloned()
+            .ok_or_else(|| {
+                Error::UnknownCapability(format!("Capability not found: {major}.{minor}"))
+            })?;
 
-        if let Some(capability) = capability {
-            return Ok(Self { capability });
-        }
-
-        Err(Error::UnknownCapability(format!(
-            "Capability not found: {major}.{minor}"
-        )))
+        Ok(Self { capability })
     }
 }

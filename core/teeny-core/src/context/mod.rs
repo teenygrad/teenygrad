@@ -14,16 +14,26 @@
  * limitations under the License.
  */
 
-use crate::{context::device::Device, errors::Error};
+use alloc::vec::Vec;
+
+use crate::{context::device::Device, errors::Result};
 
 pub mod buffer;
 pub mod device;
 pub mod program;
 
+pub trait DeviceInfo: Sized {
+    type Id;
+
+    fn id(&self) -> Self::Id;
+    fn name(&self) -> &str;
+}
+
 pub trait Context<'a> {
     type Device: Device<'a>;
+    type DeviceInfo: DeviceInfo;
 
-    fn new() -> Self;
+    fn list_devices(&self) -> Result<Vec<Self::DeviceInfo>>;
 
-    fn device(&self, idx: usize) -> Result<Self::Device, Error>;
+    fn device(&self, id: &<Self::DeviceInfo as DeviceInfo>::Id) -> Result<Self::Device>;
 }

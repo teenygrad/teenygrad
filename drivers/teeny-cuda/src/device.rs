@@ -14,10 +14,25 @@
  * limitations under the License.
  */
 
-use crate::target::CudaTarget;
+use std::marker::PhantomData;
+
+use teeny_core::{
+    context::{DeviceInfo, device::Device},
+    dtype::Dtype,
+};
+
+use crate::{
+    buffer::CudaBuffer,
+    cuda,
+    errors::{Error, Result},
+    program::CudaProgram,
+    target::CudaTarget,
+};
 
 #[derive(Debug, Clone)]
-pub struct DeviceProperties {
+pub struct CudaDeviceInfo {
+    pub id: i32,
+    pub name: String,
     pub major: i32,
     pub minor: i32,
     pub multi_processor_count: i32,
@@ -36,9 +51,72 @@ pub struct DeviceProperties {
     pub target: CudaTarget,
 }
 
+impl DeviceInfo for CudaDeviceInfo {
+    type Id = i32;
+
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct CudaDevice {
-    pub id: String,
-    pub name: String,
-    pub properties: DeviceProperties,
+pub struct CudaDevice<'a> {
+    device: cuda::CUdevice,
+    context: cuda::CUcontext,
+    _unused: PhantomData<&'a ()>,
+}
+
+impl<'a> CudaDevice<'a> {
+    pub fn try_new(id: i32) -> Result<Self> {
+        let device_id = id;
+        let mut device = cuda::CUdevice::default();
+        let status = unsafe { cuda::cuDeviceGet(&mut device, device_id) };
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::CudaError(status).into());
+        }
+
+        let mut context = cuda::CUcontext::default();
+        let mut params = cuda::CUctxCreateParams::default();
+        let flags = 0;
+        let status = unsafe { cuda::cuCtxCreate_v4(&mut context, &mut params, flags, device) };
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::CudaError(status).into());
+        }
+
+        Ok(Self {
+            device,
+            context,
+            _unused: PhantomData,
+        })
+    }
+}
+
+impl<'a> Drop for CudaDevice<'a> {
+    fn drop(&mut self) {
+        let result = unsafe { cuda::cuCtxDestroy_v2(self.context) };
+        if result != cuda::cudaError_enum_CUDA_SUCCESS {
+            // just log, we can't do anything about it
+            eprintln!("Failed to destroy CUDA context: {}", result);
+        }
+    }
+}
+
+impl<'a> Device<'a> for CudaDevice<'a> {
+    type Buffer<D: Dtype> = CudaBuffer<'a, D>;
+    type Program<K: teeny_core::context::program::Kernel> = CudaProgram<'a, K>;
+
+    fn buffer<D: Dtype>(&self, _size: &[usize]) -> teeny_core::errors::Result<Self::Buffer<D>> {
+        todo!()
+    }
+
+    fn compile<K: teeny_core::context::program::Kernel>(
+        &self,
+        _kernel: &K,
+    ) -> teeny_core::errors::Result<Self::Program<K>> {
+        todo!()
+    }
 }

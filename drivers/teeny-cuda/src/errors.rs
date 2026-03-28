@@ -14,11 +14,18 @@
  * limitations under the License.
  */
 
-pub mod buffer;
-pub mod context;
-pub mod device;
-pub mod errors;
-pub mod program;
-pub mod target;
+use crate::cuda;
 
-mod cuda;
+pub type Result<T> = anyhow::Result<T>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("CUDA not available")]
+    CudaNotAvailable,
+
+    #[error("CUDA error: {0}")]
+    CudaError(cuda::cudaError_enum),
+
+    #[error("Unknown capability: {0}")]
+    UnknownCapability(String),
+}

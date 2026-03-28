@@ -20,14 +20,14 @@ use crate::{
         program::{Kernel, Program},
     },
     dtype::Dtype,
-    errors::Error,
+    errors::Result,
 };
 
 pub trait Device<'a>: Sized {
     type Buffer<D: Dtype>: Buffer<'a, D>;
     type Program<K: Kernel>: Program<'a, K>;
 
-    fn buffer<D: Dtype>(&self, dtype: D, size: &[usize]) -> Result<Self::Buffer<D>, Error>;
+    fn buffer<D: Dtype>(&self, size: &[usize]) -> Result<Self::Buffer<D>>;
 
-    fn program<K: Kernel>(&self, data: &[u8]) -> Result<Self::Program<K>, Error>;
+    fn compile<K: Kernel>(&self, kernel: &K) -> Result<Self::Program<K>>;
 }

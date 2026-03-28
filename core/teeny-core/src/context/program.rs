@@ -14,33 +14,21 @@
  * limitations under the License.
  */
 
-use crate::errors::Error;
+use crate::errors::Result;
 
-/// Grid/workgroup launch configuration for a kernel program.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LaunchConfig {
-    pub grid: [u32; 3],
-    pub block: [u32; 3],
-    pub cluster: [u32; 3],
-}
-
-impl LaunchConfig {
-    #[must_use]
-    pub const fn new(grid: [u32; 3], block: [u32; 3], cluster: [u32; 3]) -> Self {
-        Self {
-            grid,
-            block,
-            cluster,
-        }
-    }
-}
+pub trait LaunchConfig: Sized {}
 
 pub trait Kernel {
     type Args<'a>;
+
+    fn source(&self) -> &str;
 }
 
 pub trait Program<'a, K: Kernel>: Sized {
-    fn launch<'b>(&self, cfg: LaunchConfig, args: K::Args<'b>) -> Result<(), Error>
+    type LaunchConfig: LaunchConfig;
+    type Result;
+
+    fn launch<'b>(&self, _cfg: &Self::LaunchConfig, _args: K::Args<'b>) -> Result<Self::Result>
     where
         'a: 'b;
 }

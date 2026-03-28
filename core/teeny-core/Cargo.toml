@@ -8,3 +8,5 @@ default = []
 training = []
 
 [dependencies]
+thiserror.workspace = true
+anyhow.workspace = true

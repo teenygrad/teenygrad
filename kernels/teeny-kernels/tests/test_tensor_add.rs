@@ -14,15 +14,12 @@
  * limitations under the License.
  */
 
-use crate::cuda;
+use insta::assert_debug_snapshot;
+use teeny_core::context::program::Kernel;
 
-pub type Result<T> = anyhow::Result<T>;
+#[test]
+fn test_tensor_add() {
+    let kernel = teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("CUDA error: {0}")]
-    CudaError(cuda::cudaError_enum),
-
-    #[error("Unknown capability: {0}")]
-    UnknownCapability(String),
+    assert_debug_snapshot!(kernel.source());
 }
