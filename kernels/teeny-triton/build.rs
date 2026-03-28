@@ -38,10 +38,28 @@ fn main() {
     println!("cargo:rerun-if-changed={}", triton_path.display());
     println!("cargo:rerun-if-changed=build.rs");
 
+    // Load teeny-core's dtype/mod.rs and transform it for the no_core DSL context.
+    // In the DSL, core.rs defines a fake `std::ops`, but `core::ops` doesn't exist.
+    // We replace `core::ops` with `std::ops` so the generated DSL string compiles.
+    let core_pkg = metadata
+        .packages
+        .iter()
+        .find(|p| p.name.as_str() == "teeny-core")
+        .unwrap();
+    let dtype_path = core_pkg
+        .manifest_path
+        .parent()
+        .unwrap()
+        .join("src/dtype/mod.rs");
+    println!("cargo:rerun-if-changed={}", dtype_path);
+
+    let dtype_for_dsl = fs::read_to_string(&dtype_path)
+        .unwrap_or_else(|e| panic!("Failed to read teeny-core dtype: {}", e));
+
     let mut result = String::new();
 
     // Process the triton module
-    if let Err(e) = process_module(&triton_path, &triton_path, 1, &mut result) {
+    if let Err(e) = process_module(&triton_path, &triton_path, 1, &mut result, &dtype_for_dsl) {
         panic!("Failed to process triton module: {}", e);
     }
 
@@ -59,6 +77,7 @@ fn process_module(
     current_path: &Path,
     depth: usize,
     result: &mut String,
+    dtype_for_dsl: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = fs::read_dir(current_path)?;
 
@@ -74,6 +93,7 @@ fn process_module(
         false,
         depth,
         result,
+        dtype_for_dsl,
     )?;
 
     for entry in entries {
@@ -88,7 +108,7 @@ fn process_module(
                 continue;
             }
             // Recursively process subdirectories
-            process_module(base_path, &path, depth + 1, result)?;
+            process_module(base_path, &path, depth + 1, result, dtype_for_dsl)?;
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
             let file_name = path
                 .file_stem()
@@ -100,7 +120,7 @@ fn process_module(
                 continue;
             }
 
-            process_file(base_path, &path, file_name, true, depth, result)?;
+            process_file(base_path, &path, file_name, true, depth, result, dtype_for_dsl)?;
         }
     }
 
@@ -117,8 +137,15 @@ fn process_file(
     add_suffix: bool,
     depth: usize,
     result: &mut String,
+    dtype_for_dsl: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let contents = fs::read_to_string(path)?;
+    // For the `types` module, use the transformed teeny-core dtype content
+    // instead of the file's actual content (which is a re-export, unusable in no_core).
+    let contents = if file_name == "types" {
+        dtype_for_dsl.to_string()
+    } else {
+        fs::read_to_string(path)?
+    };
 
     // Special handling for core.rs - emit at top level
     if file_name == "core" {

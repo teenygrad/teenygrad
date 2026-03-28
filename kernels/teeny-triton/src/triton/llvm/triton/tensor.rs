@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use std::ops::Add;
+use core::ops::Add;
 
 use super::super::super::types::{self as ty};
 

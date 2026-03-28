@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
 pub mod context;

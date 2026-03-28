@@ -37,7 +37,7 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
     let rustc_path = std::env::var("RUSTC_PATH")?;
     println!("RUSTC_PATH: {}", rustc_path);
     let compiler = LlvmCompiler::new(&rustc_path);
-    let tensor_add = &teeny_kernels::math::add::tensor_add_kernel;
+    let tensor_add = &teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
     let target = Target::Cuda(CudaTarget::new(Capability::Sm120));
     compiler.compile(tensor_add, &target, Path::new("/tmp/tensor_add.ptx"))?;
 

@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use teeny_triton::TritonKernel;
+use teeny_core::context::program::Kernel;
 
 use crate::compiler::target::Target;
 use crate::error::Result;
@@ -25,5 +25,5 @@ pub mod backend;
 pub mod target;
 
 pub trait Compiler {
-    fn compile(&self, kernel: &TritonKernel, target: &Target, output: &Path) -> Result<()>;
+    fn compile(&self, kernel: &impl Kernel, target: &Target, output: &Path) -> Result<()>;
 }

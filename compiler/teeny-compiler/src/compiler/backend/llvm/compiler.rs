@@ -20,6 +20,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use teeny_core::context::program::Kernel;
 use teeny_triton::TritonKernel;
 use tracing::{debug, info};
 
@@ -40,7 +41,7 @@ impl LlvmCompiler {
 }
 
 impl Compiler for LlvmCompiler {
-    fn compile(&self, kernel: &TritonKernel, _target: &Target, output: &Path) -> Result<()> {
+    fn compile(&self, kernel: &impl Kernel, _target: &Target, output: &Path) -> Result<()> {
         // Create a proper working directory for rustc
         let temp_dir = env::temp_dir();
         let working_dir = temp_dir.join("teenygrad_rustc");
@@ -51,38 +52,16 @@ impl Compiler for LlvmCompiler {
         debug!("Creating kernel file: {}", filename.display());
         let mut file = File::create(&filename)?;
 
-        let user_func = r#"
-            use triton::llvm::triton::num::*;
-            use triton::llvm::triton::pointer::Pointer;
-
-            type LlvmTriton = triton::llvm::triton::LlvmTriton;
-
-            #[no_mangle]
-            pub extern "C" fn entry_point(x_ptr: *mut f32, y_ptr: *mut f32, output_ptr: *mut f32, n_elements: i32)
-            {
-                let x_ptr = Pointer(x_ptr as *mut _ );
-                let y_ptr = Pointer(y_ptr as *mut _ );
-                let output_ptr = Pointer(output_ptr as *mut _ );
-
-                tensor_add::<LlvmTriton, f32, 128>(x_ptr, y_ptr, output_ptr, n_elements);
-            }
-        "#;
-
         info!("Writing kernel code to file");
         file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
-        file.write_all(user_func.as_bytes())?;
-        file.write_all(kernel.block_str.as_bytes())?;
+        file.write_all(kernel.source().as_bytes())?;
 
         info!("Working directory: {}", working_dir.display());
         info!("Target: nvptx64-nvidia-cuda");
         info!("Output: {}", output.display());
 
-        let mut ld_library_path = "/home/arshadm/.rustup/toolchains/nightly-2025-12-05-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib".to_string();
-        ld_library_path.push_str(&format!(":{}", self.rustc_path.display()));
-
         let status = Command::new(self.rustc_path.join("rustc"))
-            .env("CFG_VERSION", "tg-1.93.0")
-            // .env("LD_LIBRARY_PATH", ld_library_path)
+            // .env("CFG_VERSION", "tg-1.93.0")
             .arg(&filename)
             .arg("-Copt-level=3")
             .arg("-Zcodegen-backend=mlir")

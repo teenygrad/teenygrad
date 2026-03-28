@@ -205,7 +205,7 @@ where
     }
 }
 
-pub mod std {
+pub mod core {
     pub mod ops {
         // Arithmetic operation lang items
         #[lang = "mul"]

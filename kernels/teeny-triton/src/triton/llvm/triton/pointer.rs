@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use std::ops::Add;
+use core::ops::Add;
 
 use crate::triton::llvm::triton::tensor::{I32Tensor, Tensor};
 
