@@ -23,29 +23,54 @@ expression: generated_ptx.trim()
 )
 .reqntid 128
 {
-	.reg .pred 	%p<2>;
-	.reg .b32 	%r<12>;
-	.reg .b64 	%rd<3>;
+	.reg .pred 	%p<3>;
+	.reg .b32 	%r<30>;
+	.reg .b64 	%rd<5>;
 $L__func_begin0:
 
 	.loc	1 0 0
-	mov.u32 	%r3, %ctaid.x;
-	shl.b32 	%r4, %r3, 7;
-	ld.param.b32 	%r5, [entry_point_param_3];
-	mov.u32 	%r6, %tid.x;
-	and.b32 	%r7, %r6, 127;
-	and.b32 	%r8, %r6, 96;
-	sub.s32 	%r9, %r7, %r8;
-	or.b32 	%r10, %r9, %r8;
-	or.b32 	%r11, %r10, %r4;
-	setp.lt.s32 	%p1, %r11, %r5;
+	mov.u32 	%r17, %ctaid.x;
+	shl.b32 	%r18, %r17, 10;
+	ld.param.b32 	%r19, [entry_point_param_3];
+	mov.u32 	%r20, %tid.x;
+	and.b32 	%r21, %r20, 127;
+	and.b32 	%r22, %r20, 96;
+	sub.s32 	%r23, %r21, %r22;
+	shl.b32 	%r24, %r23, 2;
+	shl.b32 	%r25, %r20, 2;
+	and.b32 	%r26, %r25, 384;
+	or.b32 	%r27, %r26, %r24;
+	or.b32 	%r28, %r18, %r27;
+	or.b32 	%r29, %r28, 512;
+	setp.lt.s32 	%p1, %r28, %r19;
+	setp.lt.s32 	%p2, %r29, %r19;
 	// begin inline asm
 	mov.u32 %r1, 0x0;
-	@%p1 ld.global.b32 { %r1 }, [ %rd1 + 0 ];
+	mov.u32 %r2, 0x0;
+	mov.u32 %r3, 0x0;
+	mov.u32 %r4, 0x0;
+	@%p1 ld.global.v4.b32 { %r1, %r2, %r3, %r4 }, [ %rd1 + 0 ];
 	// end inline asm
-	add.rn.f32 	%r2, %r1, %r1;
 	// begin inline asm
-	@%p1 st.global.b32 [ %rd2 + 0 ], { %r2 };
+	mov.u32 %r5, 0x0;
+	mov.u32 %r6, 0x0;
+	mov.u32 %r7, 0x0;
+	mov.u32 %r8, 0x0;
+	@%p2 ld.global.v4.b32 { %r5, %r6, %r7, %r8 }, [ %rd2 + 0 ];
+	// end inline asm
+	add.rn.f32 	%r9, %r1, %r1;
+	add.rn.f32 	%r10, %r2, %r2;
+	add.rn.f32 	%r11, %r3, %r3;
+	add.rn.f32 	%r12, %r4, %r4;
+	add.rn.f32 	%r13, %r5, %r5;
+	add.rn.f32 	%r14, %r6, %r6;
+	add.rn.f32 	%r15, %r7, %r7;
+	add.rn.f32 	%r16, %r8, %r8;
+	// begin inline asm
+	@%p1 st.global.v4.b32 [ %rd3 + 0 ], { %r9, %r10, %r11, %r12 };
+	// end inline asm
+	// begin inline asm
+	@%p2 st.global.v4.b32 [ %rd4 + 0 ], { %r13, %r14, %r15, %r16 };
 	// end inline asm
 	ret;
 $L__func_end0:
