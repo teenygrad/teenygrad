@@ -16,44 +16,31 @@
 
 use std::marker::PhantomData;
 
-use crate::errors::Result;
-use teeny_core::context::program::{Kernel, LaunchConfig, Program};
-
-pub struct CudaLaunchConfig {
-    pub grid: [u32; 3],
-    pub block: [u32; 3],
-    pub cluster: [u32; 3],
-}
-
-impl CudaLaunchConfig {
-    pub fn new(grid: [u32; 3], block: [u32; 3], cluster: [u32; 3]) -> Self {
-        Self {
-            grid,
-            block,
-            cluster,
-        }
-    }
-}
-
-impl LaunchConfig for CudaLaunchConfig {}
-
+use crate::{
+    errors::Result,
+    target::{Capability, CudaTarget},
+};
+use teeny_core::{
+    compiler::Compiler,
+    context::program::{Kernel, Program},
+};
 pub struct CudaProgram<'a, K: Kernel> {
     _unused: PhantomData<&'a ()>,
     _kernel: PhantomData<K>,
 }
 
-impl<'a, K: Kernel> Program<'a, K> for CudaProgram<'a, K> {
-    type LaunchConfig = CudaLaunchConfig;
-    type Result = ();
-
-    fn launch<'b>(
-        &self,
-        _cfg: &Self::LaunchConfig,
-        _args: <K as Kernel>::Args<'b>,
-    ) -> teeny_core::errors::Result<Self::Result>
-    where
-        'a: 'b,
-    {
-        todo!()
+impl<'a, K: Kernel> CudaProgram<'a, K> {
+    pub fn try_new(
+        _compiler: &impl Compiler,
+        _kernel: &impl Kernel,
+        _target: &CudaTarget,
+        _capability: Capability,
+    ) -> Result<Self> {
+        Ok(Self {
+            _unused: PhantomData,
+            _kernel: PhantomData,
+        })
     }
 }
+
+impl<'a, K: Kernel> Program<'a, K> for CudaProgram<'a, K> {}

@@ -23,7 +23,3 @@ use crate::error::Result;
 
 pub mod backend;
 pub mod target;
-
-pub trait Compiler {
-    fn compile(&self, kernel: &impl Kernel, target: &Target, output: &Path) -> Result<()>;
-}

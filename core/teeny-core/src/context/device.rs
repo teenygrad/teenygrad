@@ -23,11 +23,19 @@ use crate::{
     errors::Result,
 };
 
+pub trait LaunchConfig: Sized {}
+
 pub trait Device<'a>: Sized {
     type Buffer<D: Dtype>: Buffer<'a, D>;
     type Program<K: Kernel>: Program<'a, K>;
+    type LaunchConfig: LaunchConfig;
 
     fn buffer<D: Dtype>(&self, size: &[usize]) -> Result<Self::Buffer<D>>;
 
-    fn compile<K: Kernel>(&self, kernel: &K) -> Result<Self::Program<K>>;
+    fn launch<K: Kernel>(
+        &self,
+        program: &Self::Program<K>,
+        cfg: &Self::LaunchConfig,
+        args: K::Args<'a>,
+    ) -> Result<()>;
 }

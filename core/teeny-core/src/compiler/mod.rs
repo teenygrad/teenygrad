@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+use crate::context::program::Kernel;
+use crate::errors::Result;
 
-pub mod compiler;
-pub mod context;
-pub mod dtype;
-pub mod errors;
+pub trait Target: Sized {}
+
+pub trait Compiler {
+    fn compile<T: Target>(&self, kernel: &impl Kernel, target: &T) -> Result<()>;
+}

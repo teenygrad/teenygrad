@@ -14,21 +14,21 @@
  * limitations under the License.
  */
 
-use crate::errors::Result;
-
-pub trait LaunchConfig: Sized {}
+use sha2::Digest;
+use sha2::Sha256;
 
 pub trait Kernel {
     type Args<'a>;
 
+    fn id(&self) -> [u8; 32] {
+        let mut hasher = Sha256::default();
+        hasher.update(self.source().as_bytes());
+        hasher.finalize().into()
+    }
+
+    fn name(&self) -> &str;
+
     fn source(&self) -> &str;
 }
 
-pub trait Program<'a, K: Kernel>: Sized {
-    type LaunchConfig: LaunchConfig;
-    type Result;
-
-    fn launch<'b>(&self, _cfg: &Self::LaunchConfig, _args: K::Args<'b>) -> Result<Self::Result>
-    where
-        'a: 'b;
-}
+pub trait Program<'a, K: Kernel>: Sized {}

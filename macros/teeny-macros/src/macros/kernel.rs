@@ -309,6 +309,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
 
     let struct_stream: TokenStream2 = quote! {
         pub struct #struct_ident #struct_generics_def {
+            pub name: &'static str,
             pub source: ::std::string::String,
             #phantom_field
         }
@@ -367,6 +368,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                 );
 
                 Self {
+                    name: #fn_name_str,
                     source: format!("{}\n\n{}", __original_source, __entry_point),
                     #phantom_init
                 }
@@ -377,6 +379,10 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
             for #struct_ident #struct_generics_use
         {
             type Args<'__a> = ( #(#args_types,)* );
+
+            fn name(&self) -> &str {
+                self.name
+            }
 
             fn source(&self) -> &str {
                 &self.source

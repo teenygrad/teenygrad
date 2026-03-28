@@ -17,7 +17,11 @@
 use std::marker::PhantomData;
 
 use teeny_core::{
-    context::{DeviceInfo, device::Device},
+    context::{
+        DeviceInfo,
+        device::{Device, LaunchConfig},
+        program::Kernel,
+    },
     dtype::Dtype,
 };
 
@@ -28,6 +32,14 @@ use crate::{
     program::CudaProgram,
     target::CudaTarget,
 };
+
+pub struct CudaLaunchConfig {
+    pub grid: [u32; 3],
+    pub block: [u32; 3],
+    pub cluster: [u32; 3],
+}
+
+impl LaunchConfig for CudaLaunchConfig {}
 
 #[derive(Debug, Clone)]
 pub struct CudaDeviceInfo {
@@ -108,15 +120,18 @@ impl<'a> Drop for CudaDevice<'a> {
 impl<'a> Device<'a> for CudaDevice<'a> {
     type Buffer<D: Dtype> = CudaBuffer<'a, D>;
     type Program<K: teeny_core::context::program::Kernel> = CudaProgram<'a, K>;
+    type LaunchConfig = CudaLaunchConfig;
 
     fn buffer<D: Dtype>(&self, _size: &[usize]) -> teeny_core::errors::Result<Self::Buffer<D>> {
         todo!()
     }
 
-    fn compile<K: teeny_core::context::program::Kernel>(
+    fn launch<K: Kernel>(
         &self,
-        _kernel: &K,
-    ) -> teeny_core::errors::Result<Self::Program<K>> {
+        _program: &Self::Program<K>,
+        _cfg: &Self::LaunchConfig,
+        _args: K::Args<'a>,
+    ) -> teeny_core::errors::Result<()> {
         todo!()
     }
 }
