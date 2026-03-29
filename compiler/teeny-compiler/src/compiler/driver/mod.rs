@@ -14,6 +14,4 @@
  * limitations under the License.
  */
 
-pub mod backend;
-pub mod driver;
-pub mod target;
+pub mod cuda;

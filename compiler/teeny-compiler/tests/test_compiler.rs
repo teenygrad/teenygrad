@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-use std::{error::Error, path::Path};
+use std::error::Error;
 
 use dotenv::dotenv;
 use insta::assert_snapshot;
-use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
-use teeny_core::compiler::Compiler;
+use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_cuda::target::Capability;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -35,12 +34,9 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         )
         .try_init();
 
-    let rustc_path = std::env::var("RUSTC_PATH")?;
-    println!("RUSTC_PATH: {}", rustc_path);
-    let compiler = LlvmCompiler::new(&rustc_path, Path::new("/tmp/teenygrad_rustc"))?;
     let tensor_add = &teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
     let target = Target::new(Capability::Sm120);
-    let output_file = compiler.compile(tensor_add, &target, true)?;
+    let output_file = compile_kernel(tensor_add, &target, true)?;
 
     let generated_ptx = std::fs::read_to_string(output_file)?;
     assert_snapshot!("tensor_add_sm120", generated_ptx.trim());

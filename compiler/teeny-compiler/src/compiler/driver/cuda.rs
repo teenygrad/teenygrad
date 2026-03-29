@@ -14,6 +14,18 @@
  * limitations under the License.
  */
 
-pub mod backend;
-pub mod driver;
-pub mod target;
+use teeny_core::compiler::Compiler;
+use teeny_core::context::program::Kernel;
+
+use crate::compiler::backend::llvm::compiler::LlvmCompiler;
+use crate::compiler::target::cuda::Target;
+use crate::errors::Result;
+
+pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
+    let rustc_path = std::env::var("TEENY_RUSTC_PATH")?;
+    let cache_dir =
+        std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+
+    let compiler = LlvmCompiler::new(rustc_path, cache_dir)?;
+    compiler.compile(kernel, target, force)
+}
