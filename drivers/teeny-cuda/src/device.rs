@@ -30,7 +30,6 @@ use crate::{
     cuda,
     errors::{Error, Result},
     program::CudaProgram,
-    target::CudaTarget,
 };
 
 pub struct CudaLaunchConfig {
@@ -60,7 +59,6 @@ pub struct CudaDeviceInfo {
     pub memory_bus_width: i32,
     pub l2_cache_size: i32,
     pub concurrent_kernels: i32,
-    pub target: CudaTarget,
 }
 
 impl DeviceInfo for CudaDeviceInfo {

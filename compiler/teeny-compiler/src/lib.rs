@@ -15,7 +15,7 @@
  */
 
 pub mod compiler;
-pub mod error;
+pub mod errors;
 pub mod fxgraph;
 
 /// Initialize logging for the teeny-compiler

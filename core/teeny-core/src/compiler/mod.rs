@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
+use alloc::string::String;
+
 use crate::context::program::Kernel;
 use crate::errors::Result;
 
 pub trait Target: Sized {}
 
 pub trait Compiler {
-    fn compile(&self, kernel: &impl Kernel, target: &impl Target, force: bool) -> Result<()>;
+    fn compile(&self, kernel: &impl Kernel, target: &impl Target, force: bool) -> Result<String>;
 }

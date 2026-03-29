@@ -18,8 +18,9 @@ use std::{error::Error, path::Path};
 
 use dotenv::dotenv;
 use insta::assert_snapshot;
-use teeny_compiler::compiler::{Compiler, backend::llvm::compiler::LlvmCompiler, target::Target};
-use teeny_cuda::target::{Capability, CudaTarget};
+use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
+use teeny_core::compiler::Compiler;
+use teeny_cuda::target::Capability;
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[test]
@@ -36,13 +37,12 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
 
     let rustc_path = std::env::var("RUSTC_PATH")?;
     println!("RUSTC_PATH: {}", rustc_path);
-    let compiler = LlvmCompiler::new(&rustc_path);
+    let compiler = LlvmCompiler::new(&rustc_path, Path::new("/tmp/teenygrad_rustc"))?;
     let tensor_add = &teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
-    let target = Target::Cuda(CudaTarget::new(Capability::Sm120));
-    compiler.compile(tensor_add, &target, Path::new("/tmp/tensor_add.ptx"))?;
+    let target = Target::new(Capability::Sm120);
+    let output_file = compiler.compile(tensor_add, &target, true)?;
 
-    // Use insta snapshot testing to compare the generated PTX to a reference file
-    let generated_ptx = std::fs::read_to_string("/tmp/tensor_add.ptx")?;
+    let generated_ptx = std::fs::read_to_string(output_file)?;
     assert_snapshot!("tensor_add_sm120", generated_ptx.trim());
 
     Ok(())

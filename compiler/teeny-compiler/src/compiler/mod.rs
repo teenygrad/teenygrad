@@ -14,12 +14,5 @@
  * limitations under the License.
  */
 
-use std::path::Path;
-
-use teeny_core::context::program::Kernel;
-
-use crate::compiler::target::Target;
-use crate::error::Result;
-
 pub mod backend;
 pub mod target;

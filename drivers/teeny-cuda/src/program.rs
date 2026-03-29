@@ -16,31 +16,10 @@
 
 use std::marker::PhantomData;
 
-use crate::{
-    errors::Result,
-    target::{Capability, CudaTarget},
-};
-use teeny_core::{
-    compiler::Compiler,
-    context::program::{Kernel, Program},
-};
+use teeny_core::context::program::{Kernel, Program};
 pub struct CudaProgram<'a, K: Kernel> {
     _unused: PhantomData<&'a ()>,
     _kernel: PhantomData<K>,
-}
-
-impl<'a, K: Kernel> CudaProgram<'a, K> {
-    pub fn try_new(
-        _compiler: &impl Compiler,
-        _kernel: &impl Kernel,
-        _target: &CudaTarget,
-        _capability: Capability,
-    ) -> Result<Self> {
-        Ok(Self {
-            _unused: PhantomData,
-            _kernel: PhantomData,
-        })
-    }
 }
 
 impl<'a, K: Kernel> Program<'a, K> for CudaProgram<'a, K> {}

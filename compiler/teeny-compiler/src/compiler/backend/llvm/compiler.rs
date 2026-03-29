@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,7 +23,7 @@ use teeny_core::compiler::{Compiler, Target};
 use teeny_core::context::program::Kernel;
 use tracing::info;
 
-use crate::error::Result;
+use crate::errors::Result;
 
 #[derive(Debug, Clone)]
 pub struct LlvmCompiler {
@@ -32,16 +32,27 @@ pub struct LlvmCompiler {
 }
 
 impl LlvmCompiler {
-    pub fn new(rustc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Self {
-        Self {
-            rustc_path: rustc_path.into(),
-            cache_dir: cache_dir.into(),
+    pub fn new(rustc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
+        let rustc_path = rustc_path.into();
+        let cache_dir = cache_dir.into();
+
+        if !rustc_path.exists() {
+            anyhow::bail!("rustc path does not exist: {}", rustc_path.display());
         }
+
+        if !cache_dir.exists() {
+            create_dir_all(&cache_dir)?;
+        }
+
+        Ok(Self {
+            rustc_path,
+            cache_dir,
+        })
     }
 }
 
 impl Compiler for LlvmCompiler {
-    fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<()> {
+    fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
         let id_hex: String = kernel.id().iter().map(|b| format!("{:02x}", b)).collect();
         let kernel_file_name = format!("{}_{}", kernel.name(), id_hex);
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
@@ -73,6 +84,6 @@ impl Compiler for LlvmCompiler {
             }
         }
 
-        Ok(())
+        Ok(output_file.to_string_lossy().to_string())
     }
 }

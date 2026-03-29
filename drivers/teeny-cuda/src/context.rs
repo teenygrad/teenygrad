@@ -22,7 +22,6 @@ use crate::{
     cuda,
     device::{CudaDevice, CudaDeviceInfo},
     errors::{Error, Result},
-    target::CudaTarget,
 };
 
 pub struct Cuda<'a> {
@@ -99,7 +98,6 @@ impl<'a> Context<'a> for Cuda<'a> {
                 memory_bus_width: props.memoryBusWidth,
                 l2_cache_size: props.l2CacheSize,
                 concurrent_kernels: props.concurrentKernels,
-                target: CudaTarget::try_from((props.major, props.minor))?,
             };
             devices.push(device_info);
         }

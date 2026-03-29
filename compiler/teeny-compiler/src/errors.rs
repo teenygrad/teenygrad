@@ -14,30 +14,12 @@
  * limitations under the License.
  */
 
-use std::fmt::Display;
+use thiserror::Error;
 
-#[cfg(feature = "cpu")]
-use teeny_cpu::target::CpuTarget;
+pub type Result<T> = anyhow::Result<T>;
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::target::CudaTarget;
-
-#[derive(Debug, Clone)]
-pub enum Target {
-    #[cfg(feature = "cuda")]
-    Cuda(CudaTarget),
-}
-
-impl From<CudaTarget> for Target {
-    fn from(target: CudaTarget) -> Self {
-        Target::Cuda(target)
-    }
-}
-
-impl Display for Target {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Target::Cuda(target) => write!(f, "nvidia-{}", target),
-        }
-    }
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Unknown capability: {0}")]
+    UnknownCapability(String),
 }
