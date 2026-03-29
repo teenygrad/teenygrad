@@ -13,6 +13,11 @@ teeny-core = { path = "../../core/teeny-core" }
 thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true
+derive_builder.workspace = true
+
+[dev-dependencies]
+teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-kernels = { path = "../../kernels/teeny-kernels" }
 
 [build-dependencies]
 bindgen.workspace = true

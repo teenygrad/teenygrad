@@ -17,6 +17,7 @@ fn main() {
     println!("cargo:rustc-link-lib=cuda");
     println!("cargo:rustc-link-lib=cudart");
     println!("cargo:rustc-link-lib=nvrtc");
+    println!("cargo:rustc-link-lib=nvptxcompiler_static");
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");

@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
+use teeny_compiler::compiler::driver::cuda::compile_kernel;
+use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::context::Context;
 use teeny_cuda::context::Cuda;
 use teeny_cuda::errors::Result;
+use teeny_cuda::target::Capability;
 
 #[test]
 fn test_tensor_add() -> Result<()> {
@@ -28,6 +31,11 @@ fn test_tensor_add() -> Result<()> {
     assert!(!devices.is_empty(), "No CUDA devices found");
 
     let _device = cuda.device(&devices[0].id)?;
+
+    let tensor_add = &teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
+    let target = Target::new(Capability::Sm120);
+    let output_file = compile_kernel(tensor_add, &target, true)?;
+    let generated_ptx = std::fs::read_to_string(output_file)?;
 
     Ok(())
 }

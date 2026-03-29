@@ -61,6 +61,32 @@ pub struct CudaDeviceInfo {
     pub concurrent_kernels: i32,
 }
 
+impl CudaDeviceInfo {
+    pub fn new(id: i32, props: cuda::cudaDeviceProp) -> Self {
+        let name = unsafe { std::ffi::CStr::from_ptr(props.name.as_ptr()) };
+        let name = name.to_string_lossy().to_string();
+
+        CudaDeviceInfo {
+            id,
+            name,
+            major: props.major,
+            minor: props.minor,
+            multi_processor_count: props.multiProcessorCount,
+            total_global_mem: props.totalGlobalMem,
+            shared_mem_per_block: props.sharedMemPerBlock,
+            regs_per_block: props.regsPerBlock,
+            warp_size: props.warpSize,
+            max_threads_per_block: props.maxThreadsPerBlock,
+            max_threads_per_multi_processor: props.maxThreadsPerMultiProcessor,
+            max_blocks_per_multi_processor: props.maxBlocksPerMultiProcessor,
+            max_threads_dim: props.maxThreadsDim,
+            max_grid_size: props.maxGridSize,
+            memory_bus_width: props.memoryBusWidth,
+            l2_cache_size: props.l2CacheSize,
+            concurrent_kernels: props.concurrentKernels,
+        }
+    }
+}
 impl DeviceInfo for CudaDeviceInfo {
     type Id = i32;
 
@@ -75,6 +101,7 @@ impl DeviceInfo for CudaDeviceInfo {
 
 #[derive(Debug, Clone)]
 pub struct CudaDevice<'a> {
+    pub info: CudaDeviceInfo,
     device: cuda::CUdevice,
     context: cuda::CUcontext,
     _unused: PhantomData<&'a ()>,
@@ -89,6 +116,14 @@ impl<'a> CudaDevice<'a> {
             return Err(Error::CudaError(status).into());
         }
 
+        let mut props = cuda::cudaDeviceProp::default();
+        let status = unsafe { cuda::cudaGetDeviceProperties(&mut props, device_id) };
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::CudaError(status).into());
+        }
+
+        let info = CudaDeviceInfo::new(device_id, props);
+
         let mut context = cuda::CUcontext::default();
         let mut params = cuda::CUctxCreateParams::default();
         let flags = 0;
@@ -100,8 +135,13 @@ impl<'a> CudaDevice<'a> {
         Ok(Self {
             device,
             context,
+            info,
             _unused: PhantomData,
         })
+    }
+
+    pub fn info(&self) -> &CudaDeviceInfo {
+        &self.info
     }
 }
 

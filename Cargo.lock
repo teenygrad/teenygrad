@@ -2163,8 +2163,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bindgen",
+ "derive_builder",
  "derive_more",
+ "teeny-compiler",
  "teeny-core",
+ "teeny-kernels",
  "thiserror 2.0.18",
 ]
 

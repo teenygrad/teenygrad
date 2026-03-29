@@ -77,28 +77,7 @@ impl<'a> Context<'a> for Cuda<'a> {
                 return Err(Error::CudaError(err).into());
             }
 
-            let name = unsafe { std::ffi::CStr::from_ptr(props.name.as_ptr()) };
-            let name = name.to_string_lossy().to_string();
-
-            let device_info = CudaDeviceInfo {
-                id,
-                name,
-                major: props.major,
-                minor: props.minor,
-                multi_processor_count: props.multiProcessorCount,
-                total_global_mem: props.totalGlobalMem,
-                shared_mem_per_block: props.sharedMemPerBlock,
-                regs_per_block: props.regsPerBlock,
-                warp_size: props.warpSize,
-                max_threads_per_block: props.maxThreadsPerBlock,
-                max_threads_per_multi_processor: props.maxThreadsPerMultiProcessor,
-                max_blocks_per_multi_processor: props.maxBlocksPerMultiProcessor,
-                max_threads_dim: props.maxThreadsDim,
-                max_grid_size: props.maxGridSize,
-                memory_bus_width: props.memoryBusWidth,
-                l2_cache_size: props.l2CacheSize,
-                concurrent_kernels: props.concurrentKernels,
-            };
+            let device_info = CudaDeviceInfo::new(id, props);
             devices.push(device_info);
         }
 

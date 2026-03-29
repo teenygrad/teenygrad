@@ -28,4 +28,10 @@ pub enum Error {
 
     #[error("Unknown capability: {0}")]
     UnknownCapability(String),
+
+    #[error("CString error: {0}")]
+    CStringError(std::ffi::NulError),
+
+    #[error("NVPTX Compile error: {0}")]
+    NvptxCompileError(cuda::nvPTXCompileResult),
 }
