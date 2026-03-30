@@ -18,6 +18,7 @@ derive_builder.workspace = true
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
+dotenv.workspace = true
 
 [build-dependencies]
 bindgen.workspace = true

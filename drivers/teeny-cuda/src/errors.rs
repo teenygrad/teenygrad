@@ -23,8 +23,11 @@ pub enum Error {
     #[error("CUDA not available")]
     CudaNotAvailable,
 
-    #[error("CUDA error: {0}")]
-    CudaError(cuda::cudaError_enum),
+    #[error("CUDA error: {code} ({message})")]
+    CudaError {
+        code: cuda::cudaError_enum,
+        message: String,
+    },
 
     #[error("Unknown capability: {0}")]
     UnknownCapability(String),
@@ -32,6 +35,34 @@ pub enum Error {
     #[error("CString error: {0}")]
     CStringError(std::ffi::NulError),
 
-    #[error("NVPTX Compile error: {0}")]
-    NvptxCompileError(cuda::nvPTXCompileResult),
+    #[error("NVPTX Compile error {code}: {log}")]
+    NvptxCompileError {
+        code: cuda::nvPTXCompileResult,
+        log: String,
+    },
+
+    #[error("buffer overflow: source has {src} elements but buffer holds {buf}")]
+    BufferOverflow { src: usize, buf: usize },
+}
+
+impl Error {
+    pub fn from_cuda_error(code: cuda::cudaError_enum) -> Self {
+        // SAFETY: cudaGetErrorString returns a valid C string for any cudaError_enum value.
+        let err_str = unsafe {
+            let ptr = cuda::cudaGetErrorString(code);
+            if ptr.is_null() {
+                "<unknown CUDA error>"
+            } else {
+                std::ffi::CStr::from_ptr(ptr)
+                    .to_str()
+                    .unwrap_or("<invalid utf8 CUDA error>")
+            }
+        }
+        .to_owned();
+
+        Error::CudaError {
+            code,
+            message: err_str,
+        }
+    }
 }

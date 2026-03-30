@@ -20,9 +20,9 @@ use teeny_core::{
     context::{
         DeviceInfo,
         device::{Device, LaunchConfig},
-        program::Kernel,
+        program::{ArgVisitor, Kernel, KernelArgs},
     },
-    dtype::Dtype,
+    dtype::Num,
 };
 
 use crate::{
@@ -31,6 +31,53 @@ use crate::{
     errors::{Error, Result},
     program::CudaProgram,
 };
+
+/// Packs kernel arguments into the `void**` array expected by `cuLaunchKernel`.
+///
+/// Each argument's value is stored as raw bytes in `values`. After visiting all
+/// args, `as_ptrs()` returns a mutable slice of `*mut c_void` pointing into
+/// those buffers — the slice lifetime is tied to `self`.
+struct CudaArgPacker {
+    values: Vec<Vec<u8>>,
+}
+
+impl CudaArgPacker {
+    fn new() -> Self {
+        Self { values: Vec::new() }
+    }
+
+    fn push_bytes(&mut self, bytes: &[u8]) {
+        self.values.push(bytes.to_vec());
+    }
+
+    /// Returns a `Vec` of `*mut c_void` pointers, one per argument, each
+    /// pointing at the argument's value buffer. The caller must not outlive
+    /// `self`.
+    fn as_ptrs(&mut self) -> Vec<*mut core::ffi::c_void> {
+        self.values
+            .iter_mut()
+            .map(|v| v.as_mut_ptr().cast())
+            .collect()
+    }
+}
+
+impl ArgVisitor for CudaArgPacker {
+    fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void) {
+        self.push_bytes(&(ptr as usize).to_ne_bytes());
+    }
+
+    fn visit_i32(&mut self, val: i32) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+
+    fn visit_u32(&mut self, val: u32) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+
+    fn visit_f32(&mut self, val: f32) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+}
 
 pub struct CudaLaunchConfig {
     pub grid: [u32; 3],
@@ -113,13 +160,13 @@ impl<'a> CudaDevice<'a> {
         let mut device = cuda::CUdevice::default();
         let status = unsafe { cuda::cuDeviceGet(&mut device, device_id) };
         if status != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::CudaError(status).into());
+            return Err(Error::from_cuda_error(status).into());
         }
 
         let mut props = cuda::cudaDeviceProp::default();
         let status = unsafe { cuda::cudaGetDeviceProperties(&mut props, device_id) };
         if status != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::CudaError(status).into());
+            return Err(Error::from_cuda_error(status).into());
         }
 
         let info = CudaDeviceInfo::new(device_id, props);
@@ -129,7 +176,7 @@ impl<'a> CudaDevice<'a> {
         let flags = 0;
         let status = unsafe { cuda::cuCtxCreate_v4(&mut context, &mut params, flags, device) };
         if status != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::CudaError(status).into());
+            return Err(Error::from_cuda_error(status).into());
         }
 
         Ok(Self {
@@ -156,20 +203,58 @@ impl<'a> Drop for CudaDevice<'a> {
 }
 
 impl<'a> Device<'a> for CudaDevice<'a> {
-    type Buffer<D: Dtype> = CudaBuffer<'a, D>;
+    type Buffer<N: Num> = CudaBuffer<'a, N>;
     type Program<K: teeny_core::context::program::Kernel> = CudaProgram<'a, K>;
     type LaunchConfig = CudaLaunchConfig;
 
-    fn buffer<D: Dtype>(&self, _size: &[usize]) -> teeny_core::errors::Result<Self::Buffer<D>> {
-        todo!()
+    fn buffer<N: Num>(&self, count: usize) -> teeny_core::errors::Result<Self::Buffer<N>> {
+        Ok(CudaBuffer::try_new(count)?)
     }
 
     fn launch<K: Kernel>(
         &self,
-        _program: &Self::Program<K>,
-        _cfg: &Self::LaunchConfig,
-        _args: K::Args<'a>,
+        program: &Self::Program<K>,
+        cfg: &Self::LaunchConfig,
+        args: K::Args<'a>,
     ) -> teeny_core::errors::Result<()> {
-        todo!()
+        let mut packer = CudaArgPacker::new();
+        args.visit_args(&mut packer);
+        // Build the pointer array while `packer` is still alive — both must
+        // remain live for the entire duration of `cuLaunchKernel`.
+        let mut ptrs = packer.as_ptrs();
+
+        let status = unsafe {
+            cuda::cuLaunchKernel(
+                program.function,
+                cfg.grid[0],
+                cfg.grid[1],
+                cfg.grid[2],
+                cfg.block[0],
+                cfg.block[1],
+                cfg.block[2],
+                0,                    // sharedMemBytes
+                std::ptr::null_mut(), // hStream (default/null stream)
+                ptrs.as_mut_ptr(),
+                std::ptr::null_mut(), // extra
+            )
+        };
+
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(status).into());
+        }
+
+        // `cuLaunchKernel` returns immediately; the kernel runs asynchronously.
+        // Synchronize here so that any GPU-side fault (bad pointer, out-of-bounds
+        // access) surfaces as a CUDA error code rather than a later SIGSEGV.
+        let sync_status = unsafe { cuda::cuCtxSynchronize() };
+
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(status).into());
+        }
+        if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(sync_status).into());
+        }
+
+        Ok(())
     }
 }

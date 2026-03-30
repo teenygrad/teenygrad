@@ -17,8 +17,82 @@
 use sha2::Digest;
 use sha2::Sha256;
 
+/// Receives each argument of a kernel in order. Implement this on a backend-
+/// specific "packer" struct (e.g. a CUDA arg-pointer array builder).
+pub trait ArgVisitor {
+    fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void);
+    fn visit_i32(&mut self, val: i32);
+    fn visit_u32(&mut self, val: u32);
+    fn visit_f32(&mut self, val: f32);
+}
+
+/// Implemented by each concrete argument type; dispatches to the right
+/// `ArgVisitor` method.
+pub trait KernelArg {
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V);
+}
+
+impl<T> KernelArg for *mut T {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
+        visitor.visit_ptr(*self as *mut core::ffi::c_void);
+    }
+}
+
+impl KernelArg for i32 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
+        visitor.visit_i32(*self);
+    }
+}
+
+impl KernelArg for u32 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
+        visitor.visit_u32(*self);
+    }
+}
+
+impl KernelArg for f32 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
+        visitor.visit_f32(*self);
+    }
+}
+
+/// Implemented for tuples of `KernelArg`s; visits each element in order.
+/// The proc macro generates `type Args<'a> = (A, B, C, ...)` and the blanket
+/// tuple impls below make that satisfy this bound automatically.
+pub trait KernelArgs {
+    fn visit_args<V: ArgVisitor>(&self, visitor: &mut V);
+}
+
+macro_rules! impl_kernel_args {
+    ($( $T:ident : $idx:tt ),+) => {
+        impl<$($T: KernelArg),+> KernelArgs for ($($T,)+) {
+            #[inline]
+            fn visit_args<V: ArgVisitor>(&self, visitor: &mut V) {
+                $( self.$idx.visit(visitor); )+
+            }
+        }
+    };
+}
+
+impl_kernel_args!(A:0);
+impl_kernel_args!(A:0, B:1);
+impl_kernel_args!(A:0, B:1, C:2);
+impl_kernel_args!(A:0, B:1, C:2, D:3);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
+impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
+
 pub trait Kernel {
-    type Args<'a>;
+    type Args<'a>: KernelArgs;
 
     fn id(&self) -> [u8; 32] {
         let mut hasher = Sha256::default();

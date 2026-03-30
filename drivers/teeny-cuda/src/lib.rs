@@ -19,6 +19,7 @@ pub mod compiler;
 pub mod context;
 pub mod device;
 pub mod errors;
+pub mod mem;
 pub mod program;
 pub mod target;
 

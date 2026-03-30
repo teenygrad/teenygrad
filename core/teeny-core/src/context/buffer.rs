@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
-use crate::dtype::Dtype;
+use crate::{dtype::Num, errors::Result};
 
-pub trait Buffer<'a, D: Dtype>: Sized {}
+pub trait Buffer<'a, N: Num>: Sized {
+    /// Copy elements from a host slice into this device buffer.
+    /// The slice length must not exceed the buffer's allocated element count.
+    fn to_device(&mut self, src: &[N]) -> Result<()>;
+
+    /// Copy elements from this device buffer into a host slice.
+    /// The slice length must not exceed the buffer's allocated element count.
+    fn to_host(&self, dst: &mut [N]) -> Result<()>;
+}

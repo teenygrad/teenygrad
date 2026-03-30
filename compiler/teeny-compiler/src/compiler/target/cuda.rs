@@ -46,7 +46,7 @@ impl TryFrom<(i32, i32)> for Target {
             (89, Capability::Sm89),
             (90, Capability::Sm90),
             (100, Capability::Sm100),
-            (120, Capability::Sm120),
+            (120, Capability::Sm120a),
         ]
         .into_iter()
         .collect();

@@ -19,18 +19,18 @@ use crate::{
         buffer::Buffer,
         program::{Kernel, Program},
     },
-    dtype::Dtype,
+    dtype::Num,
     errors::Result,
 };
 
 pub trait LaunchConfig: Sized {}
 
 pub trait Device<'a>: Sized {
-    type Buffer<D: Dtype>: Buffer<'a, D>;
+    type Buffer<N: Num>: Buffer<'a, N>;
     type Program<K: Kernel>: Program<'a, K>;
     type LaunchConfig: LaunchConfig;
 
-    fn buffer<D: Dtype>(&self, size: &[usize]) -> Result<Self::Buffer<D>>;
+    fn buffer<N: Num>(&self, count: usize) -> Result<Self::Buffer<N>>;
 
     fn launch<K: Kernel>(
         &self,

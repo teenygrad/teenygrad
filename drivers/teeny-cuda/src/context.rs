@@ -38,7 +38,7 @@ impl<'a> Cuda<'a> {
             let flags = 0;
             let status = unsafe { cuda::cuInit(flags) };
             if status != cuda::cudaError_enum_CUDA_SUCCESS {
-                return Err(Error::CudaError(status).into());
+                return Err(Error::from_cuda_error(status).into());
             }
 
             Ok(Self {
@@ -51,7 +51,7 @@ impl<'a> Cuda<'a> {
         let mut device_count = 0;
         let err = unsafe { cuda::cudaGetDeviceCount(&mut device_count) };
         if err != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::CudaError(err).into());
+            return Err(Error::from_cuda_error(err).into());
         }
 
         Ok(device_count > 0)
@@ -67,14 +67,14 @@ impl<'a> Context<'a> for Cuda<'a> {
         let mut device_count = 0;
         let err = unsafe { cuda::cudaGetDeviceCount(&mut device_count) };
         if err != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::CudaError(err).into());
+            return Err(Error::from_cuda_error(err).into());
         }
 
         for id in 0..device_count {
             let mut props = cuda::cudaDeviceProp::default();
             let err = unsafe { cuda::cudaGetDeviceProperties(&mut props, id) };
             if err != cuda::cudaError_enum_CUDA_SUCCESS {
-                return Err(Error::CudaError(err).into());
+                return Err(Error::from_cuda_error(err).into());
             }
 
             let device_info = CudaDeviceInfo::new(id, props);

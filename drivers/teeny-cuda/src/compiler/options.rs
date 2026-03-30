@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-use std::fmt;
-
 use derive_builder::Builder;
 use derive_more::Display;
 
@@ -59,8 +57,8 @@ pub struct Options {
     #[builder(default = "false")]
     pub device_debug: bool,
 
-    #[builder]
-    pub device_function_maxrregcount: Option<i32>,
+    #[builder(default = "None")]
+    pub device_function_maxrregcount: Option<u32>,
 
     #[builder(default = "false")]
     pub disable_optimizer_constants: bool,
@@ -71,13 +69,13 @@ pub struct Options {
     #[builder(default = "false")]
     pub dont_merge_basicblocks: bool,
 
-    #[builder(default = "String::from(\"entry\")")]
+    #[builder(default = "String::from(\"entry_point\")")]
     pub entry: String,
 
     #[builder(default = "false")]
     pub extensible_whole_program: bool,
 
-    #[builder(default = "true")]
+    #[builder(default = "false")]
     pub fmad: bool,
 
     #[builder(default = "false")]
@@ -92,13 +90,13 @@ pub struct Options {
     #[builder]
     pub gpu_name: Capability,
 
-    #[builder]
-    pub maxrregcount: Option<i32>,
+    #[builder(default = "None")]
+    pub maxrregcount: Option<u32>,
 
-    #[builder]
+    #[builder(default = "None")]
     pub opt_level: Option<OptLevel>,
 
-    #[builder(default = "true")]
+    #[builder(default = "false")]
     pub position_independent_code: bool,
 
     #[builder(default = "false")]
@@ -107,7 +105,7 @@ pub struct Options {
     #[builder(default = "false")]
     pub return_at_end: bool,
 
-    #[builder]
+    #[builder(default = "None")]
     pub sanitize: Option<Sanitizer>,
 
     #[builder(default = "false")]
@@ -125,17 +123,17 @@ pub struct Options {
     #[builder(default = "false")]
     pub warn_on_local_memory_usage: bool,
 
-    #[builder(default = "true")]
+    #[builder(default = "false")]
     pub warn_on_spills: bool,
 
     #[builder(default = "false")]
     pub warning_as_error: bool,
 
-    #[builder]
-    pub maxntid: Option<i32>,
+    #[builder(default = "None")]
+    pub maxntid: Option<u32>,
 
-    #[builder]
-    pub minnctapersm: Option<i32>,
+    #[builder(default = "None")]
+    pub minnctapersm: Option<u32>,
 
     #[builder(default = "false")]
     pub override_directive_values: bool,
@@ -143,8 +141,8 @@ pub struct Options {
     #[builder(default = "false")]
     pub make_errors_visible_at_exit: bool,
 
-    #[builder]
-    pub ofast_compile: Option<i32>,
+    #[builder(default = "None")]
+    pub ofast_compile: Option<u32>,
 
     #[builder(default = "false")]
     pub device_stack_protector: bool,
@@ -155,8 +153,8 @@ pub struct Options {
     #[builder(default = "false")]
     pub gno_tensor_memory_access_check: bool,
 
-    #[builder]
-    pub split_compile: Option<i32>,
+    #[builder(default = "None")]
+    pub split_compile: Option<u32>,
 }
 
 impl Options {
@@ -189,7 +187,7 @@ impl Options {
 
         if let Some(device_function_maxrregcount) = self.device_function_maxrregcount {
             args.push(format!(
-                "--device-function-maxrregcount {}",
+                "--device-function-maxrregcount={}",
                 device_function_maxrregcount
             ));
         }
@@ -206,7 +204,7 @@ impl Options {
             args.push(String::from("--dont-merge-basicblocks"));
         }
 
-        args.push(format!("--entry {}", self.entry));
+        args.push(format!("--entry={}", self.entry));
 
         if self.extensible_whole_program {
             args.push(String::from("--extensible-whole-program"));
@@ -228,14 +226,14 @@ impl Options {
             args.push(String::from("--generate-line-info"));
         }
 
-        args.push(format!("--gpu-name {}", self.gpu_name));
+        args.push(format!("--gpu-name={}", self.gpu_name));
 
         if let Some(maxrregcount) = self.maxrregcount {
-            args.push(format!("--maxrregcount {}", maxrregcount));
+            args.push(format!("--maxrregcount={}", maxrregcount));
         }
 
         if let Some(opt_level) = self.opt_level {
-            args.push(format!("--opt-level {}", opt_level));
+            args.push(format!("--opt-level={}", opt_level));
         }
 
         if self.position_independent_code {
@@ -251,7 +249,7 @@ impl Options {
         }
 
         if let Some(sanitize) = self.sanitize {
-            args.push(format!("--sanitize {}", sanitize));
+            args.push(format!("--sanitize={}", sanitize));
         }
 
         if self.suppress_async_bulk_multicast_advisory_warning {
@@ -285,11 +283,11 @@ impl Options {
         }
 
         if let Some(maxntid) = self.maxntid {
-            args.push(format!("--maxntid {}", maxntid));
+            args.push(format!("--maxntid={}", maxntid));
         }
 
         if let Some(minnctapersm) = self.minnctapersm {
-            args.push(format!("--minnctapersm {}", minnctapersm));
+            args.push(format!("--minnctapersm={}", minnctapersm));
         }
 
         if self.override_directive_values {
@@ -301,7 +299,7 @@ impl Options {
         }
 
         if let Some(ofast_compile) = self.ofast_compile {
-            args.push(format!("--oFast-compile {}", ofast_compile));
+            args.push(format!("--oFast-compile={}", ofast_compile));
         }
 
         if self.device_stack_protector {
@@ -317,7 +315,7 @@ impl Options {
         }
 
         if let Some(split_compile) = self.split_compile {
-            args.push(format!("--split-compile {}", split_compile));
+            args.push(format!("--split-compile={}", split_compile));
         }
 
         args

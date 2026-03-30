@@ -2165,6 +2165,7 @@ dependencies = [
  "bindgen",
  "derive_builder",
  "derive_more",
+ "dotenv",
  "teeny-compiler",
  "teeny-core",
  "teeny-kernels",

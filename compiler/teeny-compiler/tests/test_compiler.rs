@@ -24,7 +24,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 #[test]
 fn test_compile() -> Result<(), Box<dyn Error>> {
-    dotenv().ok();
+    dotenv()?;
 
     // Initialize logging for the test - only show warnings and errors by default
     // Set RUST_LOG=debug in environment to see debug output
@@ -35,7 +35,7 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     let tensor_add = &teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
-    let target = Target::new(Capability::Sm120);
+    let target = Target::new(Capability::Sm120a);
     let output_file = compile_kernel(tensor_add, &target, true)?;
 
     let generated_ptx = std::fs::read_to_string(output_file)?;

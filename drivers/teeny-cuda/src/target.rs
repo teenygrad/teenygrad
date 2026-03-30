@@ -14,10 +14,9 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
-
 use derive_more::Display;
 
+use crate::device::CudaDeviceInfo;
 use crate::errors::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
@@ -42,6 +41,25 @@ pub enum Capability {
     Sm90,
     #[display("sm_100")]
     Sm100,
-    #[display("sm_120")]
-    Sm120,
+    #[display("sm_120a")]
+    Sm120a,
+}
+
+impl Capability {
+    pub fn from_device_info(info: &CudaDeviceInfo) -> Result<Self> {
+        match (info.major, info.minor) {
+            (6, 0) => Ok(Self::Sm60),
+            (6, 1) => Ok(Self::Sm61),
+            (7, 0) => Ok(Self::Sm70),
+            (7, 2) => Ok(Self::Sm72),
+            (7, 5) => Ok(Self::Sm75),
+            (8, 0) => Ok(Self::Sm80),
+            (8, 6) => Ok(Self::Sm86),
+            (8, 9) => Ok(Self::Sm89),
+            (9, 0) => Ok(Self::Sm90),
+            (10, 0) => Ok(Self::Sm100),
+            (12, 0) => Ok(Self::Sm120a),
+            (major, minor) => Err(Error::UnknownCapability(format!("sm_{major}{minor}")).into()),
+        }
+    }
 }
