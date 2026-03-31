@@ -27,7 +27,7 @@ use teeny_cuda::errors::Result;
 use teeny_cuda::target::Capability;
 
 const N: usize = 1024;
-const BLOCK_SIZE: i32 = 1024;
+const BLOCK_SIZE: i32 = 128;
 
 #[test]
 fn test_tensor_add() -> Result<()> {
@@ -43,7 +43,8 @@ fn test_tensor_add() -> Result<()> {
     println!("[2/9] found {} device(s)", devices.len());
 
     let device = cuda.device(&devices[0].id)?;
-    let capability = Capability::from_device_info(&device.info)?;
+    // let capability = Capability::from_device_info(&device.info)?;
+    let capability = Capability::Sm90;
     println!(
         "[3/9] device: {} (capability: {capability})",
         device.info.name

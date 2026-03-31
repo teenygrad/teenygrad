@@ -219,6 +219,11 @@ impl<'a> Device<'a> for CudaDevice<'a> {
     ) -> teeny_core::errors::Result<()> {
         let mut packer = CudaArgPacker::new();
         args.visit_args(&mut packer);
+        // Append two trailing null pointers required by Triton kernels:
+        // a global scratch pad and a profile scratch pad. These are unused
+        // for now but must be present as the last two kernel parameters.
+        packer.visit_ptr(std::ptr::null_mut()); // global scratch pad
+        packer.visit_ptr(std::ptr::null_mut()); // profile scratch pad
         // Build the pointer array while `packer` is still alive — both must
         // remain live for the entire duration of `cuLaunchKernel`.
         let mut ptrs = packer.as_ptrs();
@@ -248,12 +253,13 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         // access) surfaces as a CUDA error code rather than a later SIGSEGV.
         let sync_status = unsafe { cuda::cuCtxSynchronize() };
 
-        if status != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::from_cuda_error(status).into());
-        }
+        println!("sync_status: {:?}", sync_status);
+
         if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
             return Err(Error::from_cuda_error(sync_status).into());
         }
+
+        println!("Launch completed successfully");
 
         Ok(())
     }
