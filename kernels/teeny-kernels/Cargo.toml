@@ -14,4 +14,7 @@ teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../teeny-triton" }
 
 [dev-dependencies]
+teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-cuda = { path = "../../drivers/teeny-cuda" }
+dotenv.workspace = true
 insta.workspace = true

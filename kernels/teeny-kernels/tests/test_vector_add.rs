@@ -14,12 +14,24 @@
  * limitations under the License.
  */
 
+use dotenv::dotenv;
 use insta::assert_debug_snapshot;
+use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::context::program::Kernel;
+use teeny_cuda::errors::Result;
+use teeny_cuda::target::Capability;
 
 #[test]
-fn test_tensor_add() {
-    let kernel = teeny_kernels::math::add::VectorAdd::<f32, 1024>::new();
+fn test_tensor_add() -> Result<()> {
+    dotenv()?;
 
-    assert_debug_snapshot!(kernel.source());
+    let kernel = teeny_kernels::math::add::VectorAdd::<f32, 1024>::new();
+    let target = Target::new(Capability::Sm90);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx = std::fs::read_to_string(&ptx_path)?;
+
+    assert_debug_snapshot!("vector_add_source", kernel.source());
+    assert_debug_snapshot!("vector_add_sm90", ptx.trim());
+
+    Ok(())
 }
