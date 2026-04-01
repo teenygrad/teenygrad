@@ -48,6 +48,10 @@ where
 
     fn arange(start: impl Into<i32>, end: impl Into<i32>) -> Self::I32Tensor;
 
+    fn zeroes_like<D: ty::Dtype>(offsets: Self::Tensor<D>) -> Self::Tensor<D>;
+
+    fn maximum<D: ty::Dtype>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::Tensor<D>;
+
     fn load<D: ty::Dtype>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         mask: Self::BoolTensor,

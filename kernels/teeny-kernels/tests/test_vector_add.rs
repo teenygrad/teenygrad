@@ -19,7 +19,7 @@ use teeny_core::context::program::Kernel;
 
 #[test]
 fn test_tensor_add() {
-    let kernel = teeny_kernels::math::add::TensorAdd::<f32, 1024>::new();
+    let kernel = teeny_kernels::math::add::VectorAdd::<f32, 1024>::new();
 
     assert_debug_snapshot!(kernel.source());
 }

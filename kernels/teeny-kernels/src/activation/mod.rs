@@ -14,6 +14,4 @@
  * limitations under the License.
  */
 
-mod vector_add;
-
-pub use vector_add::*;
+pub mod relu;

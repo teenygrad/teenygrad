@@ -50,12 +50,12 @@ pub type I32Tensor = Tensor<i32>;
 
 impl ty::I32Tensor for I32Tensor {}
 
-impl ty::Comparison<i32> for I32Tensor {
+impl<D: ty::Num> ty::Comparison<D> for Tensor<D> {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn lt(self, _other: i32) -> Self::BoolTensor {
+    fn lt(self, _other: D) -> Self::BoolTensor {
         // dummy implementation not used in final output
         Tensor(0 as *mut bool)
     }

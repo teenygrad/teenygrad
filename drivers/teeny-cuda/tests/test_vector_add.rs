@@ -71,7 +71,7 @@ fn test_tensor_add() -> Result<()> {
     println!("[5/9] copied input data to device");
 
     // ── Compile PTX → cubin → CudaProgram ─────────────────────────────────
-    let kernel = teeny_kernels::math::add::TensorAdd::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::math::add::VectorAdd::<f32, BLOCK_SIZE>::new();
     let target = Target::new(capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
@@ -84,7 +84,7 @@ fn test_tensor_add() -> Result<()> {
 
     println!("      loading PTX directly via driver JIT...");
     let program = teeny_cuda::program::CudaProgram::<
-        teeny_kernels::math::add::TensorAdd<f32, BLOCK_SIZE>,
+        teeny_kernels::math::add::VectorAdd<f32, BLOCK_SIZE>,
     >::try_from_ptx(&ptx, "entry_point")?;
     println!(
         "[7/9] loaded cubin: module={:#x} function={:#x}",

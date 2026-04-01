@@ -23,7 +23,7 @@ use teeny_triton::triton::{
 };
 
 #[kernel]
-pub fn tensor_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: i32>(
+pub fn vector_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: i32>(
     x_ptr: T::Pointer<D>,
     y_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,

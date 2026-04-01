@@ -45,12 +45,28 @@ impl Triton for LlvmTriton {
     }
 
     #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn arange(_start: impl Into<i32>, _end: impl Into<i32>) -> Self::I32Tensor {
         // dummy implementation not used in final output
         tensor::Tensor(0 as *mut i32)
     }
 
     #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn zeroes_like<D: ty::Dtype>(_offsets: Self::Tensor<D>) -> Self::Tensor<D> {
+        // dummy implementation not used in final output
+        tensor::Tensor(0 as *mut D)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn maximum<D: ty::Dtype>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::Tensor<D> {
+        // dummy implementation not used in final output
+        tensor::Tensor(0 as *mut D)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn load<D: ty::Dtype>(
         _ptr: Self::Tensor<Self::Pointer<D>>,
         _mask: Self::BoolTensor,
