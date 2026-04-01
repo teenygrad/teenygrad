@@ -24,16 +24,16 @@ use teeny_cuda::errors::Result;
 use teeny_cuda::target::Capability;
 
 #[test]
-fn test_tensor_add() -> Result<()> {
+fn test_relu() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::math::add::VectorAdd::<f32, 1024>::new();
+    let kernel = teeny_kernels::activation::relu::Relu::<f32, 1024>::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("vector_add_source", kernel.source());
-    assert_debug_snapshot!("vector_add_mlir", mlir.trim());
+    assert_debug_snapshot!("relu_source", kernel.source());
+    assert_debug_snapshot!("relu_mlir", mlir.trim());
 
     Ok(())
 }

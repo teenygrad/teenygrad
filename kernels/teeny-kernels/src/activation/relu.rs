@@ -16,8 +16,6 @@
 
 #![allow(non_snake_case)]
 
-use core::ops::{BitAnd, Not};
-
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -25,14 +23,12 @@ use teeny_triton::triton::{
 };
 
 #[kernel]
-pub fn relu<T: Triton, D: types::Num + From<u8>, const BLOCK_SIZE: i32>(
+pub fn relu<T: Triton, D: types::Num, const BLOCK_SIZE: i32>(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::Tensor<D>: Comparison<D, BoolTensor = T::BoolTensor>,
-    T::BoolTensor: Not<Output = T::BoolTensor>,
-    T::BoolTensor: BitAnd<T::BoolTensor, Output = T::BoolTensor>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
