@@ -41,14 +41,14 @@ pub fn vector_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: i32>(
     let mask = offsets.lt(n_elements);
 
     // Load data from global memory with masking
-    let x = T::load(x_ptr.add_offsets(offsets), mask);
-    let y = T::load(y_ptr.add_offsets(offsets), mask);
+    let x = T::load(x_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
+    let y = T::load(y_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
 
     // Perform element-wise addition
     let output = x + y;
 
     // Store result back to global memory
-    T::store(output_ptr.add_offsets(offsets), output, mask);
+    T::store(output_ptr.add_offsets(offsets), output, Some(mask), &[], None, None);
 }
 
 mod tests {

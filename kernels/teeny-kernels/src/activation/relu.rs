@@ -35,10 +35,26 @@ pub fn relu<T: Triton, D: types::Num, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x = T::load(input_ptr.add_offsets(offsets), in_bounds);
-    let y = T::zeroes_like(x);
+    let x = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::zeros_like(x);
     let relu = T::maximum(x, y);
 
     // Masked loads in Triton return 0 for masked-off lanes, which gives ReLU.
-    T::store(output_ptr.add_offsets(offsets), relu, in_bounds);
+    T::store(
+        output_ptr.add_offsets(offsets),
+        relu,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }

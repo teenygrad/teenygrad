@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use core::ops::Add;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::super::super::types::{self as ty};
 
@@ -31,14 +31,52 @@ impl<D: ty::Dtype> Copy for Tensor<D> {}
 impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
 impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {}
 
-// Element-wise addition for tensors
 impl<D: ty::Dtype> Add<Tensor<D>> for Tensor<D> {
     type Output = Tensor<D>;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn add(self, _rhs: Tensor<D>) -> Self::Output {
-        // dummy implementation not used in final output
+        Tensor(0 as *mut D)
+    }
+}
+
+impl<D: ty::Dtype> Sub<Tensor<D>> for Tensor<D> {
+    type Output = Tensor<D>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn sub(self, _rhs: Tensor<D>) -> Self::Output {
+        Tensor(0 as *mut D)
+    }
+}
+
+impl<D: ty::Dtype> Mul<Tensor<D>> for Tensor<D> {
+    type Output = Tensor<D>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn mul(self, _rhs: Tensor<D>) -> Self::Output {
+        Tensor(0 as *mut D)
+    }
+}
+
+impl<D: ty::Dtype> Div<Tensor<D>> for Tensor<D> {
+    type Output = Tensor<D>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn div(self, _rhs: Tensor<D>) -> Self::Output {
+        Tensor(0 as *mut D)
+    }
+}
+
+impl<D: ty::Dtype> Neg for Tensor<D> {
+    type Output = Tensor<D>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn neg(self) -> Self::Output {
         Tensor(0 as *mut D)
     }
 }
@@ -56,19 +94,36 @@ impl<D: ty::Num> ty::Comparison<D> for Tensor<D> {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn lt(self, _other: D) -> Self::BoolTensor {
-        // dummy implementation not used in final output
         Tensor(0 as *mut bool)
     }
 }
 
-// Blanket implementation for any type implementing I64, including <I32 as Mul<u32>>::Output
 impl Add<i32> for I32Tensor {
     type Output = I32Tensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn add(self, _rhs: i32) -> Self::Output {
-        // dummy implementation not used in final output
+        Tensor(0 as *mut i32)
+    }
+}
+
+impl Sub<i32> for I32Tensor {
+    type Output = I32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn sub(self, _rhs: i32) -> Self::Output {
+        Tensor(0 as *mut i32)
+    }
+}
+
+impl Mul<i32> for I32Tensor {
+    type Output = I32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn mul(self, _rhs: i32) -> Self::Output {
         Tensor(0 as *mut i32)
     }
 }
