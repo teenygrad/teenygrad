@@ -15,15 +15,16 @@
  */
 
 pub mod activation;
+pub mod graph;
 pub mod linear;
 
-pub trait Node<I> {
+pub trait Layer<I> {
     type Output;
 
     fn call(&self, input: I) -> Self::Output;
 }
 
-impl<F, I, O> Node<I> for F
+impl<F, I, O> Layer<I> for F
 where
     F: Fn(I) -> O,
 {
@@ -37,9 +38,9 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        dtype::{Dtype, RankedTensor, Tensor},
+        dtype::{Dtype, EagerTensor, RankedTensor, Tensor},
         nn::{
-            Node,
+            Layer,
             activation::{relu::Relu, softmax::Softmax},
             linear::Linear,
         },
@@ -56,6 +57,7 @@ mod tests {
     }
 
     impl<D: Dtype, const RANK: usize> Tensor<D, RANK> for DummyTensor {}
+    impl EagerTensor for DummyTensor {}
 
     /// A 2-layer MLP: Linear(784→128) → ReLU → Linear(128→10) → Softmax
     ///

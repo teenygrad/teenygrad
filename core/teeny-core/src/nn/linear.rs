@@ -17,8 +17,8 @@
 use core::marker::PhantomData;
 
 use crate::{
-    dtype::{Dtype, Tensor},
-    nn::Node,
+    dtype::{Dtype, EagerTensor, Tensor},
+    nn::Layer,
 };
 
 /// Fully-connected linear layer: `output = input × Wᵀ [+ b]`
@@ -28,19 +28,20 @@ use crate::{
 ///
 /// Type parameters:
 /// - `D`    — element dtype
-/// - `IT`   — concrete input tensor type  (any rank, last dim = `in_features`)
-/// - `OT`   — concrete output tensor type (same rank, last dim = `out_features`)
+/// - `IT`   — input tensor type  (any rank, last dim = `in_features`)
+/// - `OT`   — output tensor type (same rank, last dim = `out_features`)
 /// - `RANK` — tensor rank (1 = unbatched, 2 = batched, etc.)
-pub struct Linear<D: Dtype, IT: Tensor<D, RANK>, OT: Tensor<D, RANK>, const RANK: usize> {
+///
+/// Tensor bounds are on impls, not the struct, so `SymTensor` can have its
+/// own `Layer` impl without a coherence conflict.
+pub struct Linear<D: Dtype, IT, OT, const RANK: usize> {
     pub in_features: usize,
     pub out_features: usize,
     pub has_bias: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK>, OT: Tensor<D, RANK>, const RANK: usize>
-    Linear<D, IT, OT, RANK>
-{
+impl<D: Dtype, IT, OT, const RANK: usize> Linear<D, IT, OT, RANK> {
     pub fn new(in_features: usize, out_features: usize, has_bias: bool) -> Self {
         Self {
             in_features,
@@ -51,8 +52,8 @@ impl<D: Dtype, IT: Tensor<D, RANK>, OT: Tensor<D, RANK>, const RANK: usize>
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK>, OT: Tensor<D, RANK>, const RANK: usize>
-    Node<IT> for Linear<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
+    Layer<IT> for Linear<D, IT, OT, RANK>
 {
     type Output = OT;
 

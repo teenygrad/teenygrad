@@ -17,27 +17,27 @@
 use core::marker::PhantomData;
 
 use crate::{
-    dtype::{Dtype, Tensor},
-    nn::Node,
+    dtype::{Dtype, EagerTensor, Tensor},
+    nn::Layer,
 };
 
-pub struct Relu<D: Dtype, T: Tensor<D, RANK>, const RANK: usize> {
+pub struct Relu<D: Dtype, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
 
-impl<D: Dtype, T: Tensor<D, RANK>, const RANK: usize> Default for Relu<D, T, RANK> {
+impl<D: Dtype, T, const RANK: usize> Default for Relu<D, T, RANK> {
     fn default() -> Self {
         Self { _pd: PhantomData }
     }
 }
 
-impl<D: Dtype, T: Tensor<D, RANK>, const RANK: usize> Relu<D, T, RANK> {
+impl<D: Dtype, T, const RANK: usize> Relu<D, T, RANK> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<D: Dtype, T: Tensor<D, RANK>, const RANK: usize> Node<T> for Relu<D, T, RANK> {
+impl<D: Dtype, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Relu<D, T, RANK> {
     type Output = T;
 
     fn call(&self, _input: T) -> Self::Output {

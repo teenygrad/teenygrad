@@ -102,11 +102,18 @@ impl Num for f64 {
 impl Float for f64 {}
 
 // Tensor
-pub trait RankedTensor<D: Dtype, const RANK: usize>: Copy + Clone {
+pub trait RankedTensor<D: Dtype, const RANK: usize>: Clone {
     const SHAPE: [usize; RANK];
 }
 
 pub trait Tensor<D: Dtype, const RANK: usize>: RankedTensor<D, RANK> {}
+
+/// Marker trait for eager (non-symbolic) tensors.
+///
+/// Implement this on any tensor type that computes eagerly. The generic
+/// `Layer<T>` impls (Relu, Linear, Softmax, …) are gated on this marker so
+/// that the specific `Layer<SymTensor>` impls in `nn::graph` don't conflict.
+pub trait EagerTensor {}
 
 pub trait BoolTensor<const RANK: usize>: Tensor<bool, RANK> {}
 

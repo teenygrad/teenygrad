@@ -17,16 +17,16 @@
 use core::marker::PhantomData;
 
 use crate::{
-    dtype::{Float, Tensor},
-    nn::Node,
+    dtype::{EagerTensor, Float, Tensor},
+    nn::Layer,
 };
 
-pub struct Softmax<D: Float, T: Tensor<D, RANK>, const RANK: usize> {
+pub struct Softmax<D: Float, T, const RANK: usize> {
     pub dim: usize,
     _pd: PhantomData<(D, T)>,
 }
 
-impl<D: Float, T: Tensor<D, RANK>, const RANK: usize> Softmax<D, T, RANK> {
+impl<D: Float, T, const RANK: usize> Softmax<D, T, RANK> {
     pub fn new(dim: usize) -> Self {
         Self {
             dim,
@@ -35,7 +35,7 @@ impl<D: Float, T: Tensor<D, RANK>, const RANK: usize> Softmax<D, T, RANK> {
     }
 }
 
-impl<D: Float, T: Tensor<D, RANK>, const RANK: usize> Node<T> for Softmax<D, T, RANK> {
+impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Softmax<D, T, RANK> {
     type Output = T;
 
     fn call(&self, _input: T) -> Self::Output {
