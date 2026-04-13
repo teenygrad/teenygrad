@@ -2151,6 +2151,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-demos"
+version = "0.1.0"
+dependencies = [
+ "teeny-core",
+]
+
+[[package]]
 name = "teeny-fxgraph"
 version = "0.1.0"
 dependencies = [
