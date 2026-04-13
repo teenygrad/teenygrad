@@ -15,6 +15,7 @@
  */
 
 pub mod activation;
+pub mod conv2d;
 pub mod graph;
 pub mod linear;
 

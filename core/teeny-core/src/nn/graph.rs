@@ -22,6 +22,7 @@ use crate::{
     nn::{
         Layer,
         activation::{relu::Relu, softmax::Softmax},
+        conv2d::Conv2d,
         linear::Linear,
     },
 };
@@ -47,6 +48,17 @@ pub enum Op {
     /// Model input placeholder.
     Input,
     Linear { in_features: usize, out_features: usize, has_bias: bool },
+    Conv2d {
+        in_channels: usize,
+        out_channels: usize,
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+        padding_h: usize,
+        padding_w: usize,
+        has_bias: bool,
+    },
     Relu,
     Softmax { dim: usize },
 }
@@ -171,6 +183,23 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Linear<D, SymTensor, SymT
     }
 }
 
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv2d<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::Conv2d {
+            in_channels: self.in_channels,
+            out_channels: self.out_channels,
+            kernel_h: self.kernel_h,
+            kernel_w: self.kernel_w,
+            stride_h: self.stride_h,
+            stride_w: self.stride_w,
+            padding_h: self.padding_h,
+            padding_w: self.padding_w,
+            has_bias: self.has_bias,
+        })
+    }
+}
+
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Relu<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
@@ -193,7 +222,7 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RAN
 mod tests {
     use super::*;
     use crate::{
-        nn::{activation::{relu::Relu, softmax::Softmax}, linear::Linear},
+        nn::{activation::{relu::Relu, softmax::Softmax}, conv2d::Conv2d, linear::Linear},
         sequential,
     };
 
@@ -266,5 +295,41 @@ mod tests {
         // Both the main and skip linear ops take node 0 (Input) as their input
         assert_eq!(g.nodes[1].inputs, vec![0]); // main branch
         assert_eq!(g.nodes[3].inputs, vec![0]); // skip branch
+    }
+
+    #[test]
+    fn test_conv2d_graph_extraction() {
+        // Input: rank-4 tensor [N, C, H, W]
+        let (input, graph) = SymTensor::input(DtypeRepr::F32, 4);
+
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(
+            3,           // in_channels
+            64,          // out_channels
+            (3, 3),      // kernel_size
+            (1, 1),      // stride
+            (1, 1),      // padding
+            true,        // has_bias
+        );
+        let _out = Layer::call(&conv, input);
+
+        let g = graph.borrow();
+        assert_eq!(g.nodes.len(), 2);
+        assert!(matches!(g.nodes[0].op, Op::Input));
+        assert!(matches!(
+            g.nodes[1].op,
+            Op::Conv2d {
+                in_channels: 3,
+                out_channels: 64,
+                kernel_h: 3,
+                kernel_w: 3,
+                stride_h: 1,
+                stride_w: 1,
+                padding_h: 1,
+                padding_w: 1,
+                has_bias: true,
+            }
+        ));
+        assert_eq!(g.nodes[1].inputs, vec![0]);
+        assert_eq!(g.nodes[1].rank, 4);
     }
 }
