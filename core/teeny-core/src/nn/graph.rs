@@ -23,7 +23,9 @@ use crate::{
         Layer,
         activation::{relu::Relu, softmax::Softmax},
         conv2d::Conv2d,
+        flatten::Flatten,
         linear::Linear,
+        pool::AvgPool2d,
     },
 };
 
@@ -59,6 +61,9 @@ pub enum Op {
         padding_w: usize,
         has_bias: bool,
     },
+    AvgPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
+    /// Collapse spatial dims `[N, C, H, W]` → `[N, C*H*W]`.
+    Flatten,
     Relu,
     Softmax { dim: usize },
 }
@@ -152,13 +157,18 @@ impl SymTensor {
     }
 
     fn record(&self, op: Op) -> Self {
+        self.record_with_rank(op, self.rank)
+    }
+
+    /// Like `record`, but the output node carries a different rank (e.g. after Flatten).
+    fn record_with_rank(&self, op: Op, rank: usize) -> Self {
         let node_id = self.graph.borrow_mut().add_node(
             op,
             vec![self.node_id],
             self.dtype,
-            self.rank,
+            rank,
         );
-        Self { node_id, graph: self.graph.clone(), dtype: self.dtype, rank: self.rank }
+        Self { node_id, graph: self.graph.clone(), dtype: self.dtype, rank }
     }
 }
 
@@ -200,6 +210,25 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv2d<D, SymTensor, SymT
     }
 }
 
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool2d<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::AvgPool2d {
+            kernel_h: self.kernel_h,
+            kernel_w: self.kernel_w,
+            stride_h: self.stride_h,
+            stride_w: self.stride_w,
+        })
+    }
+}
+
+impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record_with_rank(Op::Flatten, 2)
+    }
+}
+
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Relu<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
@@ -222,7 +251,11 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RAN
 mod tests {
     use super::*;
     use crate::{
-        nn::{activation::{relu::Relu, softmax::Softmax}, conv2d::Conv2d, linear::Linear},
+        nn::{
+            activation::{relu::Relu, softmax::Softmax},
+            conv2d::Conv2d,
+            linear::Linear,
+        },
         sequential,
     };
 

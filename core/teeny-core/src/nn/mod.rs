@@ -16,8 +16,10 @@
 
 pub mod activation;
 pub mod conv2d;
+pub mod flatten;
 pub mod graph;
 pub mod linear;
+pub mod pool;
 
 pub trait Layer<I> {
     type Output;
