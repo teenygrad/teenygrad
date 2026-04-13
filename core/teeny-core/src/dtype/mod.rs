@@ -102,30 +102,32 @@ impl Num for f64 {
 impl Float for f64 {}
 
 // Tensor
-pub trait RankedTensor<D: Dtype>: Copy + Clone {}
+pub trait RankedTensor<D: Dtype, const RANK: usize>: Copy + Clone {
+    const SHAPE: [usize; RANK];
+}
 
-pub trait Tensor<D: Dtype>: RankedTensor<D> {}
+pub trait Tensor<D: Dtype, const RANK: usize>: RankedTensor<D, RANK> {}
 
-pub trait BoolTensor: Tensor<bool> {}
+pub trait BoolTensor<const RANK: usize>: Tensor<bool, RANK> {}
 
-pub trait Comparison<I: Num> {
-    type BoolTensor: BoolTensor;
+pub trait Comparison<I: Num, const RANK: usize> {
+    type BoolTensor: BoolTensor<RANK>;
 
     fn lt(self, other: I) -> Self::BoolTensor;
 }
 
-pub trait I32Tensor: Tensor<i32> + Add<i32> + Comparison<i32> {}
+pub trait I32Tensor<const RANK: usize>: Tensor<i32, RANK> + Add<i32> + Comparison<i32, RANK> {}
 
 // Offsets trait for adding tensor offsets to pointers
-pub trait AddOffsets<I: Int, T: Tensor<I>> {
+pub trait AddOffsets<I: Int, const RANK: usize, T: Tensor<I, RANK>> {
     type Output;
 
     fn add_offsets(self, offsets: T) -> Self::Output;
 }
 
 // Pointer — Dtype itself (can be stored in tensors), no BITS needed
-pub trait Pointer<D: Dtype>:
-    Sized + Copy + Clone + Dtype + AddOffsets<i32, Self::I32Tensor> + Add<Self>
+pub trait Pointer<D: Dtype, const RANK: usize>:
+    Sized + Copy + Clone + Dtype + AddOffsets<i32, RANK, Self::I32Tensor> + Add<Self>
 {
-    type I32Tensor: I32Tensor;
+    type I32Tensor: I32Tensor<RANK>;
 }

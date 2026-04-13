@@ -28,7 +28,11 @@ pub fn vector_add<T: Triton, D: types::Dtype, const BLOCK_SIZE: i32>(
     y_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
     n_elements: i32,
-) {
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, 1, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
     let pid = T::program_id(Axis::X);
 
     // Calculate the starting offset for this block

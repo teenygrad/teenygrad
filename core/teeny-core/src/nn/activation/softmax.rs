@@ -14,12 +14,31 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+use core::marker::PhantomData;
 
-pub mod compiler;
-pub mod context;
-pub mod dtype;
-pub mod errors;
-pub mod macros;
-pub mod nn;
+use crate::{
+    dtype::{Float, Tensor},
+    nn::Node,
+};
+
+pub struct Softmax<D: Float, T: Tensor<D, RANK>, const RANK: usize> {
+    pub dim: usize,
+    _pd: PhantomData<(D, T)>,
+}
+
+impl<D: Float, T: Tensor<D, RANK>, const RANK: usize> Softmax<D, T, RANK> {
+    pub fn new(dim: usize) -> Self {
+        Self {
+            dim,
+            _pd: PhantomData,
+        }
+    }
+}
+
+impl<D: Float, T: Tensor<D, RANK>, const RANK: usize> Node<T> for Softmax<D, T, RANK> {
+    type Output = T;
+
+    fn call(&self, _input: T) -> Self::Output {
+        todo!()
+    }
+}

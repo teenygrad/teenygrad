@@ -28,7 +28,9 @@ pub fn relu<T: Triton, D: types::Num, const BLOCK_SIZE: i32>(
     output_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
-    T::Tensor<D>: Comparison<D, BoolTensor = T::BoolTensor>,
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, 1, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;

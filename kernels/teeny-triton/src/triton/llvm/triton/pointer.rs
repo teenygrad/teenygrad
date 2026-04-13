@@ -30,12 +30,12 @@ impl<D: ty::Dtype> Copy for Pointer<D> {}
 
 impl<D: ty::Dtype> ty::Dtype for Pointer<D> {}
 
-impl<D: ty::Dtype> ty::Pointer<D> for Pointer<D> {
+impl<D: ty::Dtype, const RANK: usize> ty::Pointer<D, RANK> for Pointer<D> {
     type I32Tensor = I32Tensor;
 }
 
-// Implement AddOffsets for I64Tensor
-impl<D: ty::Dtype> ty::AddOffsets<i32, I32Tensor> for Pointer<D> {
+// Implement AddOffsets for Pointer
+impl<D: ty::Dtype, const RANK: usize> ty::AddOffsets<i32, RANK, I32Tensor> for Pointer<D> {
     type Output = Tensor<Self>;
 
     #[inline(never)]

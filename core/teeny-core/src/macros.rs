@@ -14,12 +14,20 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+#[macro_export]
+macro_rules! sequential {
+    // Accepts: sequential![a, b, c, ...]
+    ( $first:expr $(, $rest:expr )* ) => {
+        {
+            move |input| {
+                let out0 = $first.call(input);
+                $(
+                    let out = $rest.call(out0);
+                    let out0 = out;
+                )*
+                out0
+            }
 
-pub mod compiler;
-pub mod context;
-pub mod dtype;
-pub mod errors;
-pub mod macros;
-pub mod nn;
+        }
+    };
+}

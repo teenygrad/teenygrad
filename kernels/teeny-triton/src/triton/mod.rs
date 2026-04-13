@@ -116,19 +116,17 @@ where
     Self::I32Tensor: Add<i32, Output = Self::I32Tensor>,
     Self::I32Tensor: Sub<i32, Output = Self::I32Tensor>,
     Self::I32Tensor: Mul<i32, Output = Self::I32Tensor>,
-    Self::I32Tensor: Comparison<i32, BoolTensor = Self::BoolTensor>,
 {
     type BF16: ty::BF16;
-    type BoolTensor: ty::BoolTensor;
-    type I32Tensor: ty::I32Tensor;
-    type Tensor<D: ty::Dtype>: ty::Tensor<D>
+    type BoolTensor: Copy + Clone;
+    type I32Tensor: Copy + Clone;
+    type Tensor<D: ty::Dtype>: Copy + Clone
         + Add<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Sub<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Mul<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Div<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Neg<Output = Self::Tensor<D>>;
-    type Pointer<D: ty::Dtype>: ty::Pointer<D, I32Tensor = Self::I32Tensor>
-        + AddOffsets<i32, Self::I32Tensor, Output = Self::Tensor<Self::Pointer<D>>>;
+    type Pointer<D: ty::Dtype>: Copy + Clone + ty::Dtype + Add<Self::Pointer<D>, Output = Self::Pointer<D>>;
 
     /*------------------------------ Programming Model ------------------------------*/
 

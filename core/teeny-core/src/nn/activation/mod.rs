@@ -14,12 +14,5 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
-
-pub mod compiler;
-pub mod context;
-pub mod dtype;
-pub mod errors;
-pub mod macros;
-pub mod nn;
+pub mod relu;
+pub mod softmax;

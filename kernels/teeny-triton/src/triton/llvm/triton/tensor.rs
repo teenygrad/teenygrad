@@ -28,8 +28,10 @@ impl<D: ty::Dtype> Clone for Tensor<D> {
 }
 impl<D: ty::Dtype> Copy for Tensor<D> {}
 
-impl<D: ty::Dtype> ty::Tensor<D> for Tensor<D> {}
-impl<D: ty::Dtype> ty::RankedTensor<D> for Tensor<D> {}
+impl<D: ty::Dtype, const RANK: usize> ty::RankedTensor<D, RANK> for Tensor<D> {
+    const SHAPE: [usize; RANK] = [0; RANK];
+}
+impl<D: ty::Dtype, const RANK: usize> ty::Tensor<D, RANK> for Tensor<D> {}
 
 impl<D: ty::Dtype> Add<Tensor<D>> for Tensor<D> {
     type Output = Tensor<D>;
@@ -82,13 +84,13 @@ impl<D: ty::Dtype> Neg for Tensor<D> {
 }
 
 pub type BoolTensor = Tensor<bool>;
-impl ty::BoolTensor for BoolTensor {}
+impl<const RANK: usize> ty::BoolTensor<RANK> for BoolTensor {}
 
 pub type I32Tensor = Tensor<i32>;
 
-impl ty::I32Tensor for I32Tensor {}
+impl<const RANK: usize> ty::I32Tensor<RANK> for I32Tensor {}
 
-impl<D: ty::Num> ty::Comparison<D> for Tensor<D> {
+impl<D: ty::Num, const RANK: usize> ty::Comparison<D, RANK> for Tensor<D> {
     type BoolTensor = BoolTensor;
 
     #[inline(never)]
