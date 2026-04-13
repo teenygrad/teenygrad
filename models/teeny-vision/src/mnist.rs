@@ -42,6 +42,7 @@
 //! computation graph, and prints every node in topological order.
 
 use teeny_core::{
+    dtype::Float,
     nn::{
         Layer,
         activation::{relu::Relu, softmax::Softmax},
@@ -54,7 +55,7 @@ use teeny_core::{
     sequential,
 };
 
-pub fn mnist() -> impl Fn(SymTensor) -> SymTensor {
+pub fn mnist<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
     // -----------------------------------------------------------------------
     // Build the LeNet-5 model as a sequential pipeline.
     // Every layer is parameterised by its IO tensor type (SymTensor here) so
@@ -63,7 +64,7 @@ pub fn mnist() -> impl Fn(SymTensor) -> SymTensor {
     // -----------------------------------------------------------------------
     sequential![
         // Block 1 — C1/S2
-        Conv2d::<f32, SymTensor, SymTensor, 4>::new(
+        Conv2d::<D, _, _, 4>::new(
             1,      // in_channels  (grayscale)
             6,      // out_channels
             (5, 5), // kernel_size
@@ -71,10 +72,10 @@ pub fn mnist() -> impl Fn(SymTensor) -> SymTensor {
             (2, 2), // padding=2 keeps the 28×28 spatial size
             true,   // has_bias
         ),
-        Relu::<f32, SymTensor, 4>::new(),
-        AvgPool2d::<f32, SymTensor, SymTensor, 4>::new((2, 2), (2, 2)),
+        Relu::<D, _, 4>::new(),
+        AvgPool2d::<D, _, _, 4>::new((2, 2), (2, 2)),
         // Block 2 — C3/S4
-        Conv2d::<f32, SymTensor, SymTensor, 4>::new(
+        Conv2d::<D, _, _, 4>::new(
             6,      // in_channels
             16,     // out_channels
             (5, 5), // kernel_size
@@ -82,16 +83,16 @@ pub fn mnist() -> impl Fn(SymTensor) -> SymTensor {
             (0, 0), // no padding → 14×14 → 10×10
             true,
         ),
-        Relu::<f32, SymTensor, 4>::new(),
-        AvgPool2d::<f32, SymTensor, SymTensor, 4>::new((2, 2), (2, 2)),
+        Relu::<D, _, 4>::new(),
+        AvgPool2d::<D, _, _, 4>::new((2, 2), (2, 2)),
         // Flatten 16×5×5 = 400
-        Flatten::<f32, SymTensor, SymTensor>::new(),
+        Flatten::<D, _, _>::new(),
         // Classifier — C5/F6/Output
-        Linear::<f32, SymTensor, SymTensor, 2>::new(400, 120, true),
-        Relu::<f32, SymTensor, 2>::new(),
-        Linear::<f32, SymTensor, SymTensor, 2>::new(120, 84, true),
-        Relu::<f32, SymTensor, 2>::new(),
-        Linear::<f32, SymTensor, SymTensor, 2>::new(84, 10, true),
-        Softmax::<f32, SymTensor, 2>::new(1)
+        Linear::<D, _, _, 2>::new(400, 120, true),
+        Relu::<D, _, 2>::new(),
+        Linear::<D, _, _, 2>::new(120, 84, true),
+        Relu::<D, _, 2>::new(),
+        Linear::<D, _, _, 2>::new(84, 10, true),
+        Softmax::<D, _, 2>::new(1)
     ]
 }
