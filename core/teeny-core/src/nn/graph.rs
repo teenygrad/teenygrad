@@ -81,6 +81,37 @@ impl Graph {
         self.nodes.push(GraphNode { op, inputs, dtype, rank });
         id
     }
+
+    /// Returns node indices in topological order (producers before consumers)
+    /// using Kahn's algorithm. Panics if the graph contains a cycle.
+    pub fn topological_sort(&self) -> Vec<usize> {
+        let n = self.nodes.len();
+        let mut in_degree = vec![0usize; n];
+        let mut dependents: Vec<Vec<usize>> = vec![vec![]; n];
+
+        for (id, node) in self.nodes.iter().enumerate() {
+            for &input in &node.inputs {
+                in_degree[id] += 1;
+                dependents[input].push(id);
+            }
+        }
+
+        let mut queue: Vec<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+        let mut order = Vec::with_capacity(n);
+
+        while let Some(id) = queue.pop() {
+            order.push(id);
+            for &dep in &dependents[id] {
+                in_degree[dep] -= 1;
+                if in_degree[dep] == 0 {
+                    queue.push(dep);
+                }
+            }
+        }
+
+        assert_eq!(order.len(), n, "graph contains a cycle");
+        order
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +217,31 @@ mod tests {
         assert!(matches!(g.nodes[2].op, Op::Relu));
         assert!(matches!(g.nodes[3].op, Op::Linear { in_features: 128, out_features: 10, .. }));
         assert!(matches!(g.nodes[4].op, Op::Softmax { dim: 1 }));
+    }
+
+    #[test]
+    fn test_topological_sort_linear_chain() {
+        let (input, graph) = SymTensor::input(DtypeRepr::F32, 2);
+
+        let model = sequential![
+            Linear::<f32, SymTensor, SymTensor, 2>::new(784, 128, true),
+            Relu::<f32, SymTensor, 2>::new(),
+            Linear::<f32, SymTensor, SymTensor, 2>::new(128, 10, true),
+            Softmax::<f32, SymTensor, 2>::new(1)
+        ];
+
+        let _out = Layer::call(&model, input);
+
+        let g = graph.borrow();
+        let order = g.topological_sort();
+        // For a linear chain every node must appear before any node that consumes it.
+        assert_eq!(order.len(), g.nodes.len());
+        for (pos, &id) in order.iter().enumerate() {
+            for &input_id in &g.nodes[id].inputs {
+                let input_pos = order.iter().position(|&x| x == input_id).unwrap();
+                assert!(input_pos < pos, "producer {input_id} must come before consumer {id}");
+            }
+        }
     }
 
     /// Residual connection: two branches from the same input converge at an add.
