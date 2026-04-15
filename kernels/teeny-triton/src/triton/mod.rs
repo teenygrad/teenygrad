@@ -284,11 +284,11 @@ where
     /// - `cache_modifier`: L1/L2 cache behaviour (default `None`).
     /// - `eviction_policy`: eviction priority hint (default `None`).
     /// - `volatile`: always fetch fresh from memory (default `false`).
-    fn load<D: ty::Dtype>(
+    fn load<D: ty::Dtype, const N: usize>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         mask: Option<Self::BoolTensor>,
         other: Option<Self::Tensor<D>>,
-        boundary_check: &[i32],
+        boundary_check: &[i32; N],
         padding_option: Option<PaddingOption>,
         cache_modifier: Option<CacheModifier>,
         eviction_policy: Option<EvictionPolicy>,
@@ -301,11 +301,11 @@ where
     /// - `boundary_check`: dimensions to check for out-of-bounds (block-pointer mode only, default `&[]`).
     /// - `cache_modifier`: L1/L2 cache behaviour (default `None`).
     /// - `eviction_policy`: eviction priority hint (default `None`).
-    fn store<D: ty::Dtype>(
+    fn store<D: ty::Dtype, const N: usize>(
         dest: Self::Tensor<Self::Pointer<D>>,
         src: Self::Tensor<D>,
         mask: Option<Self::BoolTensor>,
-        boundary_check: &[i32],
+        boundary_check: &[i32; N],
         cache_modifier: Option<CacheModifier>,
         eviction_policy: Option<EvictionPolicy>,
     );

@@ -251,11 +251,11 @@ impl Triton for LlvmTriton {
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn load<D: ty::Dtype>(
+    fn load<D: ty::Dtype, const N: usize>(
         _ptr: Self::Tensor<Self::Pointer<D>>,
         _mask: Option<Self::BoolTensor>,
         _other: Option<Self::Tensor<D>>,
-        _boundary_check: &[i32],
+        _boundary_check: &[i32; N],
         _padding_option: Option<PaddingOption>,
         _cache_modifier: Option<CacheModifier>,
         _eviction_policy: Option<EvictionPolicy>,
@@ -265,11 +265,11 @@ impl Triton for LlvmTriton {
     }
 
     #[inline(never)]
-    fn store<D: ty::Dtype>(
+    fn store<D: ty::Dtype, const N: usize>(
         _dest: Self::Tensor<Self::Pointer<D>>,
         _src: Self::Tensor<D>,
         _mask: Option<Self::BoolTensor>,
-        _boundary_check: &[i32],
+        _boundary_check: &[i32; N],
         _cache_modifier: Option<CacheModifier>,
         _eviction_policy: Option<EvictionPolicy>,
     ) {

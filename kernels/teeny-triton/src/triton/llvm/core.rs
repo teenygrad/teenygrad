@@ -39,6 +39,7 @@ pub unsafe auto trait PointeeSized {}
 #[lang = "sized"]
 pub trait Sized {}
 
+
 #[lang = "clone"]
 pub trait Clone {
     fn clone(&self) -> Self;
@@ -162,6 +163,12 @@ impl Clone for u32 {
 }
 impl Copy for u64 {}
 impl Clone for u64 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl Copy for usize {}
+impl Clone for usize {
     fn clone(&self) -> Self {
         *self
     }
@@ -313,6 +320,36 @@ pub mod core {
             type Output = i32;
             fn rem(self, rhs: i32) -> Self::Output {
                 0
+            }
+        }
+
+        #[lang = "neg"]
+        pub trait Neg {
+            type Output;
+            fn neg(self) -> Self::Output;
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Neg for i32 {
+            type Output = i32;
+            fn neg(self) -> Self::Output {
+                0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Neg for f32 {
+            type Output = f32;
+            fn neg(self) -> Self::Output {
+                0.0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Neg for f64 {
+            type Output = f64;
+            fn neg(self) -> Self::Output {
+                0.0
             }
         }
     }
