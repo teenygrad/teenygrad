@@ -43,12 +43,12 @@
 
 use teeny_core::{
     dtype::Float,
+    graph::SymTensor,
     nn::{
         Layer,
         activation::{relu::Relu, softmax::Softmax},
         conv2d::Conv2d,
         flatten::Flatten,
-        graph::SymTensor,
         linear::Linear,
         pool::AvgPool2d,
     },

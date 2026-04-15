@@ -94,40 +94,47 @@ FXGraph (traced computation) → Compiler → Backends (LLVM/ndarray/Triton)
 ## Rust Best Practices
 
 ### Ownership and Borrowing
+
 - Pass complex types by reference (`&T` or `&mut T`) to avoid unnecessary cloning
 - Use `&[T]` slices instead of `&Vec<T>` for function parameters to accept both arrays and vectors
 - Use `&str` instead of `&String` for string parameters
 - Prefer borrowing over cloning; only clone when ownership transfer is required
 
 ### Error Handling
+
 - Use `thiserror` for library error types, `anyhow` for application error handling
 - Error messages must be specific, actionable, and include relevant values
 - Avoid `.unwrap()` in library code; use `?` operator or explicit error handling
 - Use early returns for validation checks to reduce nesting
 
 ### Performance
+
 - Avoid heap allocations in hot paths; prefer stack-allocated arrays or `SmallVec` for small collections
 - Use `#[inline]` judiciously for small, frequently-called functions
 - Prefer iterators over indexed loops for better optimization
 - Mark functions that cannot panic as `#[inline]` candidates
 
 ### Async Code
+
 - Use `tokio` as the primary async runtime (workspace standard)
 - Prefer `async`/`await` over manual `Future` implementations
 - Use `rayon` for CPU-parallel data processing, `tokio` for I/O-bound async
 
 ### API Design
+
 - Use enums instead of bool parameters when the meaning isn't clear at call sites
 - Initialize all struct fields explicitly; derive `Default` when zero-initialization is appropriate
 - Use the builder pattern (via `derive_builder`) for structs with many optional fields
 - Prefer `impl Into<T>` or `impl AsRef<T>` for flexible parameter types
 
 ### Module Organization
+
 - Keep implementations in the same file as type definitions (unlike C++ header/source split)
 - Use `pub(crate)` for internal APIs that shouldn't be exposed publicly
 - Avoid `use` statements that pull entire namespaces into scope in library code
 
 ### Concurrency
+
 - Avoid global mutable state; if necessary, use `once_cell::sync::Lazy` or `std::sync::OnceLock`
 - Prefer message passing (channels) over shared state when possible
 - Use `Arc<T>` for shared ownership across threads, `Rc<T>` only in single-threaded contexts
@@ -145,3 +152,8 @@ Contributions require a signed CLA. All contributions need an issue and a pull r
 ## Git Commits
 
 Do not add "Co-Authored-By: Claude" or any Claude attribution lines to commit messages.
+
+## Key reference material
+
+- This code uses a pre-installed version of the rust compiler (the source code can be found in ../rust)/
+- During development you can compile and install the compiler using the rust bootstrap script `../rust/x.py install`. The installation will be into a directory that this project is aware of (via environment variables).

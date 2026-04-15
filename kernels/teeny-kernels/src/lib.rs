@@ -15,7 +15,5 @@
  */
 
 pub mod activation;
-pub mod attention;
-pub mod blocksparse;
-pub mod cross_entropy;
 pub mod math;
+pub mod mlp;
