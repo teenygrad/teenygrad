@@ -53,8 +53,7 @@ impl LlvmCompiler {
 
 impl Compiler for LlvmCompiler {
     fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
-        let id_hex: String = kernel.id().iter().map(|b| format!("{:02x}", b)).collect();
-        let kernel_file_name = format!("{}_{}", kernel.name(), id_hex);
+        let kernel_file_name = format!("{}_{}", kernel.name(), kernel.id());
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
         let output_file = self.cache_dir.join(kernel_file_name).with_extension("o");
 

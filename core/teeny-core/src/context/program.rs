@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-use sha2::Digest;
-use sha2::Sha256;
+use alloc::{format, string::String};
+use sha2::{Digest, Sha256};
 
 /// Receives each argument of a kernel in order. Implement this on a backend-
 /// specific "packer" struct (e.g. a CUDA arg-pointer array builder).
@@ -94,15 +94,19 @@ impl_kernel_args!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
 pub trait Kernel {
     type Args<'a>: KernelArgs;
 
-    fn id(&self) -> [u8; 32] {
-        let mut hasher = Sha256::default();
+    fn id(&self) -> String {
+        let mut hasher = Sha256::new();
         hasher.update(self.source().as_bytes());
-        hasher.finalize().into()
+        hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
     }
 
     fn name(&self) -> &str;
 
     fn source(&self) -> &str;
+
+    fn kernel_source(&self) -> &str;
+
+    fn entry_point(&self) -> &str;
 }
 
 pub trait Program<'a, K: Kernel>: Sized {}

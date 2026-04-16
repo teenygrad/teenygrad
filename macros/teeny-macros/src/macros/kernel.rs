@@ -310,6 +310,11 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     let struct_stream: TokenStream2 = quote! {
         pub struct #struct_ident #struct_generics_def {
             pub name: &'static str,
+            /// The original kernel function source.
+            pub kernel_source: ::std::string::String,
+            /// The generated entry-point wrapper source.
+            pub entry_point: ::std::string::String,
+            /// Combined source (`kernel_source + "\n\n" + entry_point`); used by the `Kernel` trait.
             pub source: ::std::string::String,
             #phantom_field
         }
@@ -367,9 +372,13 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                     body = __body,
                 );
 
+                let __kernel_source = ::std::string::String::from(__original_source);
+                let __source = format!("{}\n\n{}", __kernel_source, __entry_point);
                 Self {
                     name: #fn_name_str,
-                    source: format!("{}\n\n{}", __original_source, __entry_point),
+                    kernel_source: __kernel_source,
+                    entry_point: __entry_point,
+                    source: __source,
                     #phantom_init
                 }
             }
@@ -386,6 +395,14 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
 
             fn source(&self) -> &str {
                 &self.source
+            }
+
+            fn kernel_source(&self) -> &str {
+                &self.kernel_source
+            }
+
+            fn entry_point(&self) -> &str {
+                &self.entry_point
             }
         }
     };
