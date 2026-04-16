@@ -1,0 +1,5 @@
+---
+source: kernels/teeny-kernels/tests/test_relu.rs
+expression: mlir.trim()
+---
+"module {\n  tt.func private @_RINvCseAE9AFxDLEf_69relu_4e16b3a55d8fc3897a3f4cf0cce50bac14de934f63ac054b5481483a2a5b5b7b4reluNtNtNtNtB2_6triton4llvm6triton10LlvmTritonfKl400_EB2_(%arg0: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg1: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg2: i32 {tt.divisibility = 16 : i32}) {\n    tt.return\n  }\n  tt.func public @entry_point(%arg0: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg1: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg2: i32 {tt.divisibility = 16 : i32}) {\n    tt.call @_RINvCseAE9AFxDLEf_69relu_4e16b3a55d8fc3897a3f4cf0cce50bac14de934f63ac054b5481483a2a5b5b7b4reluNtNtNtNtB2_6triton4llvm6triton10LlvmTritonfKl400_EB2_(%arg0, %arg1, %arg2) {arg_attrs = [{}, {}, {}], res_attrs = []} : (!tt.ptr<f32>, !tt.ptr<f32>, i32) -> ()\n    tt.return\n  }\n}"

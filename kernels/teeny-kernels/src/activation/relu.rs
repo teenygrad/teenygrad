@@ -16,6 +16,7 @@
 
 #![allow(non_snake_case)]
 
+use teeny_core::dtype::Float;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -23,7 +24,7 @@ use teeny_triton::triton::{
 };
 
 #[kernel]
-pub fn relu<T: Triton, D: types::Num, const BLOCK_SIZE: i32>(
+pub fn relu<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
     n_elements: i32,

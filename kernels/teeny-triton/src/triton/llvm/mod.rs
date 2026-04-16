@@ -14,4 +14,4 @@
  * limitations under the License.
  */
 
-pub mod triton;
+mod triton;

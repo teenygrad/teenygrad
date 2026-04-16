@@ -61,7 +61,7 @@ insta = "1.46.3"
 indicatif = "0.18.3"
 safetensors = "0.7.0"
 memmap2 = "0.9.9"
-flatbuffers = "25.9.23"
+flatbuffers = "25.12.19"
 flatc-rust = "0.2.0"
 # Force nightly feature so hashbrown 0.16 builds on nightly (allocator_api). Required by safetensors/indexmap.
 # hashbrown = { version = "0.16.1", features = ["nightly"] }
