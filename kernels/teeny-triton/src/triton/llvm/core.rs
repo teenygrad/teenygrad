@@ -39,7 +39,6 @@ pub unsafe auto trait PointeeSized {}
 #[lang = "sized"]
 pub trait Sized {}
 
-
 #[lang = "clone"]
 pub trait Clone {
     fn clone(&self) -> Self;
@@ -63,6 +62,17 @@ impl<T> Clone for *mut T {
 
 #[lang = "legacy_receiver"]
 pub trait LegacyReceiver {}
+
+#[lang = "unsize"]
+pub trait Unsize<T: ?Sized> {}
+
+#[lang = "coerce_unsized"]
+pub trait CoerceUnsized<T: ?Sized> {}
+
+// Enable &[T; N] → &[T] coercions without unsafe slice_from_raw_parts.
+// The compiler automatically implements Unsize<[T]> for [T; N]; this impl
+// wires up the syntactic coercion for shared references.
+impl<'a, 'b: 'a, T: ?Sized + Unsize<U>, U: ?Sized> CoerceUnsized<&'a U> for &'b T {}
 
 #[lang = "drop_in_place"]
 #[allow(unconditional_recursion)]

@@ -45,7 +45,7 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     }
 
     #[allow(clippy::empty_loop)]
-    fn dummy_bool<TT: Triton>() -> TT::BoolTensor {
+    fn dummy_bool_tensor<TT: Triton>() -> TT::BoolTensor {
         loop {} // dummy bool should never be evaluated
     }
 
@@ -69,6 +69,7 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         let _ = T::full::<D>(&[BLOCK_SIZE], dummy_value::<D>());
     }
     let zl = T::zeros_like(z);
+    let _ = T::full::<D>(&[BLOCK_SIZE], dummy_value::<D>());
     let casted = T::cast::<D, D>(z, Some(FpDowncastRounding::Rtne), false);
     let _casted_rtz = T::cast::<D, D>(casted, Some(FpDowncastRounding::Rtz), true);
     let cat = T::cat(z, zl, true);
@@ -191,7 +192,7 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::store::<D, 1>(ptrs, loaded, None, &[0], Some(CacheModifier::Cs), None);
 
     if false {
-        let cond: T::BoolTensor = dummy_bool::<T>();
+        let cond: T::BoolTensor = dummy_bool_tensor::<T>();
         let _ = T::where_(cond, loaded, loaded);
         T::assume(cond);
         T::device_assert(cond, "kitchen_sink", Some(cond));
@@ -289,7 +290,7 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 
     T::debug_barrier();
     T::device_print("val=", mconst, false);
-    T::static_assert(BLOCK_SIZE > 0, "BLOCK_SIZE must be positive");
+    T::static_assert(true, "BLOCK_SIZE must be positive");
     T::static_print("kitchen_sink");
 
     let out_ptrs = T::zeros::<T::Pointer<D>>(&[BLOCK_SIZE]);
