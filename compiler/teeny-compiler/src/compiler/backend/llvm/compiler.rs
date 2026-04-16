@@ -65,7 +65,7 @@ impl Compiler for LlvmCompiler {
             file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
             file.write_all(kernel.source().as_bytes())?;
 
-            let status = Command::new(self.rustc_path.join("rustc"))
+            let status = Command::new(&self.rustc_path)
                 .arg(&kernel_file)
                 .arg("-Copt-level=3")
                 .arg("-Zcodegen-backend=mlir")

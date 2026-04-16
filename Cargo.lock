@@ -2241,8 +2241,14 @@ dependencies = [
 name = "teeny-triton"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cargo_metadata",
+ "dotenv",
+ "insta",
+ "teeny-compiler",
  "teeny-core",
+ "teeny-cuda",
+ "teeny-macros",
  "thiserror 2.0.18",
 ]
 
