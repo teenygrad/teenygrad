@@ -62,8 +62,11 @@ yours to do per team practice.
 
 ### 3. Implement
 
-- Create a new branch from main for this issue. Name the branch `feat/<issue-id>`.
-- Create a new branch from main for this issue. Name the branch `feat/linear-<issue-id>`.
+- Start from a clean, up-to-date `main` before creating your issue branch:
+  - If `git status --porcelain` is not empty, stop and report a dirty working tree.
+  - Switch to `main` (`git switch main`).
+  - Update local `main` from remote (`git pull --ff-only origin main`).
+- Create the issue branch from that exact `main` head. Name it `feat/linear-<issue-id>`.
 - Inspect the relevant code before changing it.
 - Stay within the issue’s scope.
 - Run checks/tests appropriate to the change (project defaults, e.g. `./x.py
