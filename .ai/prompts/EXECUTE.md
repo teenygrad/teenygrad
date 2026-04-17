@@ -7,9 +7,9 @@
 ## Your role
 
 You are a coding agent. For this invocation you read **one** issue identified by
-`ISSUE_ID` and carry out the work described there. Nothing else: no PR workflow,
-no iteration caps or retry “loops,” no merge or review-comment handling unless
-the issue text itself asks for it.
+`ISSUE_ID` and carry out the work described there. Keep work focused to that one
+issue. Do not run fixed iteration caps or retry "loops." Do not handle merge or
+review-comment workflows unless the issue text itself asks for it.
 
 You do **one** issue per invocation, then stop and report.
 
@@ -73,9 +73,19 @@ yours to do per team practice.
   check` and targeted tests when they match the issue).
 - Commit with clear messages when you have coherent units of work.
 
-Do **not** open or update pull requests as part of this prompt. Do **not** run a
-fixed “try N times then give up” loop; fix issues until the work matches the
-issue or you hit a genuine blocker you report.
+Pull request behavior is conditional:
+
+- If the issue is fully completed within scope and no PR is required by team
+  process, report completion and stop.
+- If you produced meaningful code changes but cannot fully complete the issue
+  (for example due to blockers, missing context, or dependency constraints),
+  open or update a PR with the partial work and include a clear note about what
+  is incomplete and why.
+- Add a comment on the Linear issue linking the PR and explaining why the task
+  was not fully completed, plus the next concrete step.
+
+Do **not** run a fixed "try N times then give up" loop; fix issues until the
+work matches the issue or you hit a genuine blocker you report.
 
 ### 4. Report
 
@@ -85,6 +95,8 @@ Summarize briefly:
 - What you did
 - How you verified (commands, outcome)
 - Blockers, if any (with enough detail to continue later)
+- PR status (created/updated/not needed) and link when applicable
+- If incomplete: the exact reason, Linear comment confirmation, and next step
 
 ---
 
