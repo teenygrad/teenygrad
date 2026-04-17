@@ -16,41 +16,41 @@
 
 use core::ops::Add;
 
-use crate::triton::llvm::triton::tensor::{I32Tensor, Tensor};
+use crate::triton::llvm::triton::tensor::{LlvmI32Tensor, LlvmTensor};
 
 use super::super::super::types::{self as ty};
 
-pub struct Pointer<D: ty::Dtype>(pub *mut D);
-impl<D: ty::Dtype> Clone for Pointer<D> {
+pub struct LlvmPointer<D: ty::Dtype>(pub *mut D);
+impl<D: ty::Dtype> Clone for LlvmPointer<D> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<D: ty::Dtype> Copy for Pointer<D> {}
+impl<D: ty::Dtype> Copy for LlvmPointer<D> {}
 
-impl<D: ty::Dtype> ty::Dtype for Pointer<D> {}
+impl<D: ty::Dtype> ty::Dtype for LlvmPointer<D> {}
 
-impl<D: ty::Dtype, const RANK: usize> ty::Pointer<D, RANK> for Pointer<D> {
-    type I32Tensor = I32Tensor;
+impl<D: ty::Dtype, const RANK: usize> ty::Pointer<D, RANK> for LlvmPointer<D> {
+    type I32Tensor = LlvmI32Tensor;
 }
 
 // Implement AddOffsets for Pointer
-impl<D: ty::Dtype, const RANK: usize> ty::AddOffsets<i32, RANK, I32Tensor> for Pointer<D> {
-    type Output = Tensor<Self>;
+impl<D: ty::Dtype, const RANK: usize> ty::AddOffsets<i32, RANK, LlvmI32Tensor> for LlvmPointer<D> {
+    type Output = LlvmTensor<Self>;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn add_offsets(self, _offsets: I32Tensor) -> Self::Output {
+    fn add_offsets(self, _offsets: LlvmI32Tensor) -> Self::Output {
         // dummy implementation not used in final output
-        Tensor(0 as *mut Self)
+        LlvmTensor(0 as *mut Self)
     }
 }
 
-impl<D: ty::Dtype> Add<Pointer<D>> for Pointer<D> {
+impl<D: ty::Dtype> Add<LlvmPointer<D>> for LlvmPointer<D> {
     type Output = Self;
 
     #[inline(never)]
-    fn add(self, _other: Pointer<D>) -> Self::Output {
+    fn add(self, _other: LlvmPointer<D>) -> Self::Output {
         // dummy implementation not used in final output
         self
     }

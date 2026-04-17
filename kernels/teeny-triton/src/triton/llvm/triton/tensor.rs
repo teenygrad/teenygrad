@@ -20,112 +20,112 @@ use super::super::super::types::{self as ty};
 
 /*--------------------------------- Tensor ---------------------------------*/
 
-pub struct Tensor<D: ty::Dtype>(pub *mut D);
-impl<D: ty::Dtype> Clone for Tensor<D> {
+pub struct LlvmTensor<D: ty::Dtype>(pub *mut D);
+impl<D: ty::Dtype> Clone for LlvmTensor<D> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<D: ty::Dtype> Copy for Tensor<D> {}
+impl<D: ty::Dtype> Copy for LlvmTensor<D> {}
 
-impl<D: ty::Dtype, const RANK: usize> ty::RankedTensor<D, RANK> for Tensor<D> {
+impl<D: ty::Dtype, const RANK: usize> ty::RankedTensor<D, RANK> for LlvmTensor<D> {
     const SHAPE: [usize; RANK] = [0; RANK];
 }
-impl<D: ty::Dtype, const RANK: usize> ty::Tensor<D, RANK> for Tensor<D> {}
+impl<D: ty::Dtype, const RANK: usize> ty::Tensor<D, RANK> for LlvmTensor<D> {}
 
-impl<D: ty::Dtype> Add<Tensor<D>> for Tensor<D> {
-    type Output = Tensor<D>;
-
-    #[inline(never)]
-    #[allow(clippy::zero_ptr)]
-    fn add(self, _rhs: Tensor<D>) -> Self::Output {
-        Tensor(0 as *mut D)
-    }
-}
-
-impl<D: ty::Dtype> Sub<Tensor<D>> for Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: ty::Dtype> Add<LlvmTensor<D>> for LlvmTensor<D> {
+    type Output = LlvmTensor<D>;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn sub(self, _rhs: Tensor<D>) -> Self::Output {
-        Tensor(0 as *mut D)
+    fn add(self, _rhs: LlvmTensor<D>) -> Self::Output {
+        LlvmTensor(0 as *mut D)
     }
 }
 
-impl<D: ty::Dtype> Mul<Tensor<D>> for Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: ty::Dtype> Sub<LlvmTensor<D>> for LlvmTensor<D> {
+    type Output = LlvmTensor<D>;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn mul(self, _rhs: Tensor<D>) -> Self::Output {
-        Tensor(0 as *mut D)
+    fn sub(self, _rhs: LlvmTensor<D>) -> Self::Output {
+        LlvmTensor(0 as *mut D)
     }
 }
 
-impl<D: ty::Dtype> Div<Tensor<D>> for Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: ty::Dtype> Mul<LlvmTensor<D>> for LlvmTensor<D> {
+    type Output = LlvmTensor<D>;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn div(self, _rhs: Tensor<D>) -> Self::Output {
-        Tensor(0 as *mut D)
+    fn mul(self, _rhs: LlvmTensor<D>) -> Self::Output {
+        LlvmTensor(0 as *mut D)
     }
 }
 
-impl<D: ty::Dtype> Neg for Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: ty::Dtype> Div<LlvmTensor<D>> for LlvmTensor<D> {
+    type Output = LlvmTensor<D>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn div(self, _rhs: LlvmTensor<D>) -> Self::Output {
+        LlvmTensor(0 as *mut D)
+    }
+}
+
+impl<D: ty::Dtype> Neg for LlvmTensor<D> {
+    type Output = LlvmTensor<D>;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn neg(self) -> Self::Output {
-        Tensor(0 as *mut D)
+        LlvmTensor(0 as *mut D)
     }
 }
 
-pub type BoolTensor = Tensor<bool>;
-impl<const RANK: usize> ty::BoolTensor<RANK> for BoolTensor {}
+pub type LlvmBoolTensor = LlvmTensor<bool>;
+impl<const RANK: usize> ty::BoolTensor<RANK> for LlvmBoolTensor {}
 
-pub type I32Tensor = Tensor<i32>;
+pub type LlvmI32Tensor = LlvmTensor<i32>;
 
-impl<const RANK: usize> ty::I32Tensor<RANK> for I32Tensor {}
+impl<const RANK: usize> ty::I32Tensor<RANK> for LlvmI32Tensor {}
 
-impl<D: ty::Num, const RANK: usize> ty::Comparison<D, RANK> for Tensor<D> {
-    type BoolTensor = BoolTensor;
+impl<D: ty::Num, const RANK: usize> ty::Comparison<D, RANK> for LlvmTensor<D> {
+    type BoolTensor = LlvmBoolTensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn lt(self, _other: D) -> Self::BoolTensor {
-        Tensor(0 as *mut bool)
+        LlvmTensor(0 as *mut bool)
     }
 }
 
-impl Add<i32> for I32Tensor {
-    type Output = I32Tensor;
+impl Add<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn add(self, _rhs: i32) -> Self::Output {
-        Tensor(0 as *mut i32)
+        LlvmTensor(0 as *mut i32)
     }
 }
 
-impl Sub<i32> for I32Tensor {
-    type Output = I32Tensor;
+impl Sub<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn sub(self, _rhs: i32) -> Self::Output {
-        Tensor(0 as *mut i32)
+        LlvmTensor(0 as *mut i32)
     }
 }
 
-impl Mul<i32> for I32Tensor {
-    type Output = I32Tensor;
+impl Mul<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn mul(self, _rhs: i32) -> Self::Output {
-        Tensor(0 as *mut i32)
+        LlvmTensor(0 as *mut i32)
     }
 }

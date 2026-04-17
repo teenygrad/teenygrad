@@ -110,7 +110,11 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                         false
                     }
                 });
-                if is_hw { Some(tp.ident.clone()) } else { None }
+                if is_hw {
+                    Some(tp.ident.clone())
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -164,8 +168,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         .filter_map(|p| {
             if let GenericParam::Type(tp) = p {
                 if tp.ident != hw_ident {
-                    let var =
-                        format_ident!("__type_name_{}", tp.ident.to_string().to_lowercase());
+                    let var = format_ident!("__type_name_{}", tp.ident.to_string().to_lowercase());
                     return Some((tp.ident.clone(), var));
                 }
             }
@@ -192,7 +195,11 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         .inputs
         .iter()
         .filter_map(|a| {
-            if let FnArg::Typed(pt) = a { Some(pt) } else { None }
+            if let FnArg::Typed(pt) = a {
+                Some(pt)
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -246,7 +253,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         .filter(|pt| extract_pointer_inner(&pt.ty, &hw_ident).is_some())
         .map(|pt| {
             let name = pat_to_str(&pt.pat);
-            let line = format!("let {name} = Pointer({name} as *mut _);");
+            let line = format!("let {name} = LlvmPointer({name} as *mut _);");
             quote! { ::std::string::String::from(#line) }
         })
         .collect();
@@ -360,7 +367,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                 let __entry_point = format!(
                     concat!(
                         "use triton::llvm::triton::num::*;\n",
-                        "use triton::llvm::triton::pointer::Pointer;\n",
+                        "use triton::llvm::triton::pointer::LlvmPointer;\n",
                         "type LlvmTriton = triton::llvm::triton::LlvmTriton;\n",
                         "\n",
                         "#[no_mangle]\n",

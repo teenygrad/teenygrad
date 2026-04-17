@@ -28,11 +28,11 @@ pub mod types;
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
-    type BF16 = num::BF16;
-    type BoolTensor = tensor::BoolTensor;
-    type I32Tensor = tensor::I32Tensor;
-    type Tensor<D: ty::Dtype> = tensor::Tensor<D>;
-    type Pointer<D: ty::Dtype> = pointer::Pointer<D>;
+    type BF16 = num::LlvmBF16;
+    type BoolTensor = tensor::LlvmBoolTensor;
+    type I32Tensor = tensor::LlvmI32Tensor;
+    type Tensor<D: ty::Dtype> = tensor::LlvmTensor<D>;
+    type Pointer<D: ty::Dtype> = pointer::LlvmPointer<D>;
 
     /*------------------------------ Programming Model ------------------------------*/
 
@@ -51,25 +51,25 @@ impl Triton for LlvmTriton {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn arange(_start: impl Into<i32>, _end: impl Into<i32>) -> Self::I32Tensor {
-        tensor::Tensor(0 as *mut i32)
+        tensor::LlvmTensor(0 as *mut i32)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn zeros<D: ty::Dtype>(_shape: &[i32]) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn zeros_like<D: ty::Dtype>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn full<D: ty::Dtype>(_shape: &[i32], _value: D) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -79,7 +79,7 @@ impl Triton for LlvmTriton {
         _fp_downcast_rounding: Option<FpDowncastRounding>,
         _bitcast: bool,
     ) -> Self::Tensor<Dst> {
-        tensor::Tensor(0 as *mut Dst)
+        tensor::LlvmTensor(0 as *mut Dst)
     }
 
     #[inline(never)]
@@ -89,7 +89,7 @@ impl Triton for LlvmTriton {
         _b: Self::Tensor<D>,
         _can_reorder: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Shape Manipulation Ops ------------------------------*/
@@ -100,26 +100,26 @@ impl Triton for LlvmTriton {
         _a: Self::Tensor<D>,
         _b: Self::Tensor<D>,
     ) -> (Self::Tensor<D>, Self::Tensor<D>) {
-        let t = tensor::Tensor(0 as *mut D);
+        let t = tensor::LlvmTensor(0 as *mut D);
         (t, t)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn broadcast_to<D: ty::Dtype>(_x: Self::Tensor<D>, _shape: &[i32]) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn expand_dims<D: ty::Dtype>(_x: Self::Tensor<D>, _axis: i32) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn permute<D: ty::Dtype>(_x: Self::Tensor<D>, _dims: &[i32]) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -129,43 +129,43 @@ impl Triton for LlvmTriton {
         _shape: &[i32],
         _can_reorder: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn trans<D: ty::Dtype>(_x: Self::Tensor<D>, _dims: &[i32]) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn ravel<D: ty::Dtype>(_x: Self::Tensor<D>, _can_reorder: bool) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn view<D: ty::Dtype>(_x: Self::Tensor<D>, _shape: &[i32]) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn join<D: ty::Dtype>(_a: Self::Tensor<D>, _b: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn interleave<D: ty::Dtype>(_a: Self::Tensor<D>, _b: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn split<D: ty::Dtype>(_x: Self::Tensor<D>) -> (Self::Tensor<D>, Self::Tensor<D>) {
-        let t = tensor::Tensor(0 as *mut D);
+        let t = tensor::LlvmTensor(0 as *mut D);
         (t, t)
     }
 
@@ -183,7 +183,7 @@ impl Triton for LlvmTriton {
         _acc: Option<Self::Tensor<O>>,
         _fast_math: bool,
     ) -> Self::Tensor<O> {
-        tensor::Tensor(0 as *mut O)
+        tensor::LlvmTensor(0 as *mut O)
     }
 
     #[inline(never)]
@@ -195,7 +195,7 @@ impl Triton for LlvmTriton {
         _input_precision: Option<InputPrecision>,
         _max_num_imprecise_acc: Option<i32>,
     ) -> Self::Tensor<O> {
-        tensor::Tensor(0 as *mut O)
+        tensor::LlvmTensor(0 as *mut O)
     }
 
     /*------------------------------ Memory / Pointer Ops ------------------------------*/
@@ -210,13 +210,13 @@ impl Triton for LlvmTriton {
         _block_shape: &[i32],
         _order: &[i32],
     ) -> Self::Pointer<D> {
-        pointer::Pointer(0 as *mut D)
+        pointer::LlvmPointer(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn advance<D: ty::Dtype>(_ptr: Self::Pointer<D>, _offsets: &[i32]) -> Self::Pointer<D> {
-        pointer::Pointer(0 as *mut D)
+        pointer::LlvmPointer(0 as *mut D)
     }
 
     #[inline(never)]
@@ -228,7 +228,7 @@ impl Triton for LlvmTriton {
         _block_shape: &[i32],
         _padding_option: Option<PaddingOption>,
     ) -> Self::Pointer<D> {
-        pointer::Pointer(0 as *mut D)
+        pointer::LlvmPointer(0 as *mut D)
     }
 
     #[inline(never)]
@@ -237,7 +237,7 @@ impl Triton for LlvmTriton {
         _desc: Self::Pointer<D>,
         _offsets: &[i32],
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -261,7 +261,7 @@ impl Triton for LlvmTriton {
         _eviction_policy: Option<EvictionPolicy>,
         _volatile: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -285,13 +285,13 @@ impl Triton for LlvmTriton {
         _x: Self::Tensor<D>,
         _y: Self::Tensor<D>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn flip<D: ty::Dtype>(_x: Self::Tensor<D>, _dim: Option<i32>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -301,7 +301,7 @@ impl Triton for LlvmTriton {
         _index: Self::I32Tensor,
         _axis: i32,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Math Ops — Unary (floating-point) ------------------------------*/
@@ -309,85 +309,85 @@ impl Triton for LlvmTriton {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn abs<D: ty::Dtype>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn ceil<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn floor<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn cos<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn sin<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn exp<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn exp2<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn log<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn log2<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn rsqrt<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn sigmoid<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn sqrt<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn sqrt_rn<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn erf<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -398,7 +398,7 @@ impl Triton for LlvmTriton {
         _keep_dims: bool,
         _ieee_rounding: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Math Ops — Binary ------------------------------*/
@@ -406,13 +406,13 @@ impl Triton for LlvmTriton {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn maximum<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn minimum<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -422,7 +422,7 @@ impl Triton for LlvmTriton {
         _lo: Self::Tensor<D>,
         _hi: Self::Tensor<D>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -432,7 +432,7 @@ impl Triton for LlvmTriton {
         _y: Self::Tensor<D>,
         _z: Self::Tensor<D>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -442,19 +442,19 @@ impl Triton for LlvmTriton {
         _y: Self::Tensor<D>,
         _ieee_rounding: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn div_rn<D: ty::Float>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn umulhi(_x: Self::Tensor<u32>, _y: Self::Tensor<u32>) -> Self::Tensor<u32> {
-        tensor::Tensor(0 as *mut u32)
+        tensor::LlvmTensor(0 as *mut u32)
     }
 
     #[inline(never)]
@@ -476,7 +476,7 @@ impl Triton for LlvmTriton {
         _axis: Option<i32>,
         _keep_dims: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -486,7 +486,7 @@ impl Triton for LlvmTriton {
         _axis: Option<i32>,
         _keep_dims: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -497,7 +497,10 @@ impl Triton for LlvmTriton {
         _tie_break_left: bool,
         _keep_dims: bool,
     ) -> (Self::Tensor<D>, Self::I32Tensor) {
-        (tensor::Tensor(0 as *mut D), tensor::Tensor(0 as *mut i32))
+        (
+            tensor::LlvmTensor(0 as *mut D),
+            tensor::LlvmTensor(0 as *mut i32),
+        )
     }
 
     #[inline(never)]
@@ -507,7 +510,7 @@ impl Triton for LlvmTriton {
         _axis: Option<i32>,
         _keep_dims: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -518,7 +521,10 @@ impl Triton for LlvmTriton {
         _tie_break_left: bool,
         _keep_dims: bool,
     ) -> (Self::Tensor<D>, Self::I32Tensor) {
-        (tensor::Tensor(0 as *mut D), tensor::Tensor(0 as *mut i32))
+        (
+            tensor::LlvmTensor(0 as *mut D),
+            tensor::LlvmTensor(0 as *mut i32),
+        )
     }
 
     #[inline(never)]
@@ -529,7 +535,7 @@ impl Triton for LlvmTriton {
         _tie_break_left: bool,
         _keep_dims: bool,
     ) -> Self::I32Tensor {
-        tensor::Tensor(0 as *mut i32)
+        tensor::LlvmTensor(0 as *mut i32)
     }
 
     #[inline(never)]
@@ -540,7 +546,7 @@ impl Triton for LlvmTriton {
         _tie_break_left: bool,
         _keep_dims: bool,
     ) -> Self::I32Tensor {
-        tensor::Tensor(0 as *mut i32)
+        tensor::LlvmTensor(0 as *mut i32)
     }
 
     #[inline(never)]
@@ -550,7 +556,7 @@ impl Triton for LlvmTriton {
         _axis: Option<i32>,
         _keep_dims: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Scan / Sort Ops ------------------------------*/
@@ -558,13 +564,13 @@ impl Triton for LlvmTriton {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn cumsum<D: ty::Num>(_x: Self::Tensor<D>, _axis: i32, _reverse: bool) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn cumprod<D: ty::Num>(_x: Self::Tensor<D>, _axis: i32, _reverse: bool) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -574,7 +580,7 @@ impl Triton for LlvmTriton {
         _dim: Option<i32>,
         _descending: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -584,7 +590,7 @@ impl Triton for LlvmTriton {
         _num_bins: i32,
         _mask: Option<Self::BoolTensor>,
     ) -> Self::I32Tensor {
-        tensor::Tensor(0 as *mut i32)
+        tensor::LlvmTensor(0 as *mut i32)
     }
 
     #[inline(never)]
@@ -595,7 +601,7 @@ impl Triton for LlvmTriton {
         _combine_fn: fn(Self::Tensor<O>, Self::Tensor<O>) -> Self::Tensor<O>,
         _keep_dims: bool,
     ) -> Self::Tensor<O> {
-        tensor::Tensor(0 as *mut O)
+        tensor::LlvmTensor(0 as *mut O)
     }
 
     #[inline(never)]
@@ -606,7 +612,7 @@ impl Triton for LlvmTriton {
         _combine_fn: fn(Self::Tensor<D>, Self::Tensor<D>) -> Self::Tensor<D>,
         _reverse: bool,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Atomic Ops ------------------------------*/
@@ -620,7 +626,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -632,7 +638,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -644,7 +650,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -656,7 +662,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -668,7 +674,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -680,7 +686,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -692,7 +698,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     #[inline(never)]
@@ -704,7 +710,7 @@ impl Triton for LlvmTriton {
         _sem: Option<MemSem>,
         _scope: Option<MemScope>,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Random Number Generation ------------------------------*/
@@ -712,19 +718,19 @@ impl Triton for LlvmTriton {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn rand(_seed: u32, _offsets: Self::I32Tensor, _n_rounds: i32) -> Self::Tensor<f32> {
-        tensor::Tensor(0 as *mut f32)
+        tensor::LlvmTensor(0 as *mut f32)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn randn(_seed: u32, _offsets: Self::I32Tensor, _n_rounds: i32) -> Self::Tensor<f32> {
-        tensor::Tensor(0 as *mut f32)
+        tensor::LlvmTensor(0 as *mut f32)
     }
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn randint(_seed: u32, _offsets: Self::I32Tensor, _n_rounds: i32) -> Self::I32Tensor {
-        tensor::Tensor(0 as *mut i32)
+        tensor::LlvmTensor(0 as *mut i32)
     }
 
     #[inline(never)]
@@ -739,7 +745,7 @@ impl Triton for LlvmTriton {
         Self::I32Tensor,
         Self::I32Tensor,
     ) {
-        let t = tensor::Tensor(0 as *mut i32);
+        let t = tensor::LlvmTensor(0 as *mut i32);
         (t, t, t, t)
     }
 
@@ -770,7 +776,7 @@ impl Triton for LlvmTriton {
         _is_pure: bool,
         _pack: i32,
     ) -> Self::Tensor<D> {
-        tensor::Tensor(0 as *mut D)
+        tensor::LlvmTensor(0 as *mut D)
     }
 
     /*------------------------------ Compiler Hint Ops ------------------------------*/
