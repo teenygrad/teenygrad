@@ -22,5 +22,6 @@ pub mod errors;
 pub mod mem;
 pub mod program;
 pub mod target;
+pub mod testing;
 
 mod cuda;

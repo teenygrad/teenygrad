@@ -22,14 +22,12 @@ use ndarray::Array1;
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
-use teeny_core::context::Context;
 use teeny_core::context::buffer::Buffer;
 use teeny_core::context::device::Device;
 use teeny_core::context::program::Kernel;
-use teeny_cuda::context::Cuda;
-use teeny_cuda::device::CudaLaunchConfig;
 use teeny_cuda::errors::Result;
 use teeny_cuda::target::Capability;
+use teeny_cuda::testing;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -53,22 +51,8 @@ fn test_relu() -> Result<()> {
 #[cfg(feature = "cuda")]
 fn test_relu_gpu_execution() -> Result<()> {
     dotenv()?;
-
-    let cuda_available = Cuda::is_available()?;
-    assert!(cuda_available, "CUDA is not available");
-    println!("[1/9] CUDA available");
-
-    let cuda = Cuda::try_new()?;
-    let devices = cuda.list_devices()?;
-    assert!(!devices.is_empty(), "No CUDA devices found");
-    println!("[2/9] found {} device(s)", devices.len());
-
-    let device = cuda.device(&devices[0].id)?;
-    let capability = Capability::Sm90;
-    println!(
-        "[3/9] device: {} (capability: {capability})",
-        device.info.name
-    );
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
 
     // ── Host data: random values in [-5, 5] to exercise both negative and positive inputs ──
     let input_arr = Array1::<f32>::random(N, Uniform::new(-5.0f32, 5.0f32).unwrap());
@@ -92,26 +76,18 @@ fn test_relu_gpu_execution() -> Result<()> {
 
     // ── Compile PTX ────────────────────────────────────────────────────────
     let kernel = teeny_kernels::activation::relu::Relu::<f32, BLOCK_SIZE>::new();
-    let target = Target::new(capability);
+    let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
-    let program = teeny_cuda::program::CudaProgram::<
-        teeny_kernels::activation::relu::Relu<f32, BLOCK_SIZE>,
-    >::try_from_ptx(&ptx, "entry_point")?;
-    println!(
-        "[7/9] loaded PTX: module={:#x} function={:#x}",
-        program.module_ptr(),
-        program.function_ptr(),
-    );
+    let program =
+        testing::load_program_from_ptx::<teeny_kernels::activation::relu::Relu<f32, BLOCK_SIZE>>(
+            &ptx,
+        )?;
 
     // ── Launch ─────────────────────────────────────────────────────────────
-    let cfg = CudaLaunchConfig {
-        grid: [(N as u32).div_ceil(BLOCK_SIZE as u32), 1, 1],
-        block: [BLOCK_SIZE as u32, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = testing::launch_config(N, BLOCK_SIZE);
     println!(
         "[8/9] launching: grid={:?} block={:?} n_elements={N}",
         cfg.grid, cfg.block,
