@@ -53,12 +53,14 @@ linear issue comment add "$ISSUE_ID" --body "Need clarification on <specific poi
 
 ### 2. Claim (optional but recommended)
 
+Prefer a non-blocking claim attempt with your team key (`ART`):
+
 ```bash
-linear issue start "$ISSUE_ID"
+set -euo pipefail
+linear issue start "$ISSUE_ID" --team ART || echo "Could not start issue; continuing."
 ```
 
-If claim fails, note it and either stop or continue only if the issue is clearly
-yours to do per team practice.
+Do not fail the task solely because claiming failed.
 
 ### 3. Implement
 
@@ -73,16 +75,13 @@ yours to do per team practice.
   check` and targeted tests when they match the issue).
 - Commit with clear messages when you have coherent units of work.
 
-Pull request behavior is conditional:
+Pull request behavior:
 
-- If the issue is fully completed within scope and no PR is required by team
-  process, report completion and stop.
-- If you produced meaningful code changes but cannot fully complete the issue
-  (for example due to blockers, missing context, or dependency constraints),
-  open or update a PR with the partial work and include a clear note about what
-  is incomplete and why.
-- Add a comment on the Linear issue linking the PR and explaining why the task
-  was not fully completed, plus the next concrete step.
+- If you made code changes, you must open or update a PR for this issue.
+- If fully complete, PR description should state complete scope and verification.
+- If partially complete, PR description must clearly list what is incomplete and why.
+- Add a Linear comment linking the PR. If partial, include the next concrete step.
+- If no code changes were needed (for example duplicate/already fixed), do not open a PR and explain why in the report and a Linear comment.
 
 Do **not** run a fixed "try N times then give up" loop; fix issues until the
 work matches the issue or you hit a genuine blocker you report.
