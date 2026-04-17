@@ -53,7 +53,8 @@ linear issue comment add "$ISSUE_ID" --body "Need clarification on <specific poi
 
 ### 2. Claim (optional but recommended)
 
-Prefer a non-blocking claim attempt with your team key (`ART`):
+Prefer a non-blocking claim attempt with your team key (`ART`).
+If your workspace uses a different key, replace `ART` in the command below.
 
 ```bash
 set -euo pipefail
