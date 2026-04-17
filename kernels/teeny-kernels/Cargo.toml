@@ -8,14 +8,18 @@ license = "GPL v3"
 
 [lib]
 
+[features]
+default = ["cuda"]
+cuda = ["dep:teeny-cuda"]
+
 [dependencies]
 teeny-macros = { path = "../../macros/teeny-macros" }
 teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../teeny-triton" }
+teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
-teeny-cuda = { path = "../../drivers/teeny-cuda" }
 dotenv.workspace = true
 insta.workspace = true
 ndarray.workspace = true

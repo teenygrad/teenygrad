@@ -50,6 +50,7 @@ fn test_relu() -> Result<()> {
 }
 
 #[test]
+#[cfg(feature = "cuda")]
 fn test_relu_gpu_execution() -> Result<()> {
     dotenv()?;
 
