@@ -18,3 +18,6 @@ teeny-compiler = { path = "../../compiler/teeny-compiler" }
 teeny-cuda = { path = "../../drivers/teeny-cuda" }
 dotenv.workspace = true
 insta.workspace = true
+ndarray.workspace = true
+ndarray-rand.workspace = true
+rand.workspace = true
