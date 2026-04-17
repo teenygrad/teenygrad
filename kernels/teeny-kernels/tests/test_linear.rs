@@ -15,17 +15,51 @@
  */
 
 use dotenv::dotenv;
+use insta::assert_debug_snapshot;
 use ndarray::Array1;
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
+use std::path::PathBuf;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::context::buffer::Buffer;
 use teeny_core::context::device::Device;
+use teeny_core::context::program::Kernel;
 use teeny_cuda::errors::Result;
+use teeny_cuda::target::Capability;
 use teeny_cuda::testing;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
+
+#[test]
+fn test_linear_mlir_without_bias_output() -> Result<()> {
+    dotenv()?;
+
+    let kernel = teeny_kernels::mlp::linear::Linear::<f32, false, 1024>::new();
+    let target = Target::new(Capability::Sm90);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+
+    assert_debug_snapshot!("linear_source", kernel.source());
+    assert_debug_snapshot!("linear_mlir", mlir.trim());
+
+    Ok(())
+}
+
+#[test]
+fn test_linear_mlir_with_bias_output() -> Result<()> {
+    dotenv()?;
+
+    let kernel = teeny_kernels::mlp::linear::Linear::<f32, true, 1024>::new();
+    let target = Target::new(Capability::Sm90);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+
+    assert_debug_snapshot!("linear_with_bias_source", kernel.source());
+    assert_debug_snapshot!("linear_with_bias_mlir", mlir.trim());
+
+    Ok(())
+}
 
 #[test]
 #[cfg(feature = "cuda")]
