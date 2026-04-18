@@ -276,6 +276,80 @@ impl Triton for LlvmTriton {
         // nop
     }
 
+    /*------------------------------ Comparison Ops ------------------------------*/
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn lt<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn le<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn gt<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn ge<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn eq<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn ne<D: ty::Num>(_x: Self::Tensor<D>, _y: Self::Tensor<D>) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn lt_scalar<D: ty::Num>(_x: Self::Tensor<D>, _y: D) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn le_scalar<D: ty::Num>(_x: Self::Tensor<D>, _y: D) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn gt_scalar<D: ty::Num>(_x: Self::Tensor<D>, _y: D) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn ge_scalar<D: ty::Num>(_x: Self::Tensor<D>, _y: D) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn eq_scalar<D: ty::Num>(_x: Self::Tensor<D>, _y: D) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn ne_scalar<D: ty::Num>(_x: Self::Tensor<D>, _y: D) -> Self::BoolTensor {
+        tensor::LlvmTensor(0 as *mut bool)
+    }
+
     /*------------------------------ Indexing Ops ------------------------------*/
 
     #[inline(never)]

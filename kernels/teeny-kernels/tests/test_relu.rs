@@ -36,7 +36,7 @@ const BLOCK_SIZE: i32 = 128;
 fn test_relu() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::activation::relu::Relu::<f32, 1024>::new();
+    let kernel = teeny_kernels::activation::relu::ReluForward::<f32, 1024>::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -49,7 +49,7 @@ fn test_relu() -> Result<()> {
 
 #[test]
 #[cfg(feature = "cuda")]
-fn test_relu_gpu_execution() -> Result<()> {
+fn test_relu_forward_gpu() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
     let device = env.device;
@@ -75,16 +75,15 @@ fn test_relu_gpu_execution() -> Result<()> {
     println!("[5/9] copied input data to device");
 
     // ── Compile PTX ────────────────────────────────────────────────────────
-    let kernel = teeny_kernels::activation::relu::Relu::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::relu::ReluForward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::activation::relu::Relu<f32, BLOCK_SIZE>>(
-            &ptx,
-        )?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::activation::relu::ReluForward<f32, BLOCK_SIZE>,
+    >(&ptx)?;
 
     // ── Launch ─────────────────────────────────────────────────────────────
     let cfg = testing::launch_config(N, BLOCK_SIZE);
@@ -116,6 +115,73 @@ fn test_relu_gpu_execution() -> Result<()> {
             output_host[i], expected[i],
             "relu mismatch at index {i}: input={}, gpu={}, expected={}",
             input_host[i], output_host[i], expected[i]
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_relu_backward_gpu() -> Result<()> {
+    dotenv()?;
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    // ── Host data ─────────────────────────────────────────────────────────────
+    // y is relu output (non-negative); mix of zeros and positives to exercise both branches.
+    let y_arr = Array1::<f32>::random(N, Uniform::new(0.0f32, 5.0f32).unwrap())
+        .mapv(|v| if v < 1.0 { 0.0 } else { v });
+    let dy_arr = Array1::<f32>::random(N, Uniform::new(-5.0f32, 5.0f32).unwrap());
+
+    let y_host: Vec<f32> = y_arr.to_vec();
+    let dy_host: Vec<f32> = dy_arr.to_vec();
+    let mut dx_host = vec![0.0f32; N];
+
+    // ── Reference: pass gradient through where y > 0 ──────────────────────────
+    let expected: Vec<f32> = y_arr
+        .iter()
+        .zip(dy_arr.iter())
+        .map(|(&y, &dy)| if y > 0.0 { dy } else { 0.0 })
+        .collect();
+
+    // ── Device buffers ─────────────────────────────────────────────────────────
+    let mut dy_buf = device.buffer::<f32>(N)?;
+    let mut y_buf = device.buffer::<f32>(N)?;
+    let dx_buf = device.buffer::<f32>(N)?;
+
+    dy_buf.to_device(&dy_host)?;
+    y_buf.to_device(&y_host)?;
+
+    // ── Compile PTX ────────────────────────────────────────────────────────────
+    let kernel = teeny_kernels::activation::relu::ReluBackward::<f32, BLOCK_SIZE>::new();
+    let target = Target::new(env.capability);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx = std::fs::read(&ptx_path)?;
+
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::activation::relu::ReluBackward<f32, BLOCK_SIZE>,
+    >(&ptx)?;
+
+    // ── Launch ─────────────────────────────────────────────────────────────────
+    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        y_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
+
+    device.launch(&program, &cfg, args)?;
+
+    // ── Verify ─────────────────────────────────────────────────────────────────
+    dx_buf.to_host(&mut dx_host)?;
+
+    for i in 0..N {
+        assert_eq!(
+            dx_host[i], expected[i],
+            "relu_backward mismatch at index {i}: y={}, dy={}, gpu={}, expected={}",
+            y_host[i], dy_host[i], dx_host[i], expected[i]
         );
     }
 

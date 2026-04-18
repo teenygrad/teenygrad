@@ -117,13 +117,21 @@ pub trait EagerTensor {}
 
 pub trait BoolTensor<const RANK: usize>: Tensor<bool, RANK> {}
 
-pub trait Comparison<I: Num, const RANK: usize> {
-    type BoolTensor: BoolTensor<RANK>;
+pub trait Comparison<Rhs = Self> {
+    type BoolTensor;
 
-    fn lt(self, other: I) -> Self::BoolTensor;
+    fn lt(self, other: Rhs) -> Self::BoolTensor;
+    fn le(self, other: Rhs) -> Self::BoolTensor;
+    fn gt(self, other: Rhs) -> Self::BoolTensor;
+    fn ge(self, other: Rhs) -> Self::BoolTensor;
+    fn eq(self, other: Rhs) -> Self::BoolTensor;
+    fn ne(self, other: Rhs) -> Self::BoolTensor;
 }
 
-pub trait I32Tensor<const RANK: usize>: Tensor<i32, RANK> + Add<i32> + Comparison<i32, RANK> {}
+pub trait I32Tensor<const RANK: usize>:
+    Tensor<i32, RANK> + Add<i32> + Comparison<i32>
+{
+}
 
 // Offsets trait for adding tensor offsets to pointers
 pub trait AddOffsets<I: Int, const RANK: usize, T: Tensor<I, RANK>> {

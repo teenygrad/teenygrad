@@ -310,6 +310,34 @@ where
         eviction_policy: Option<EvictionPolicy>,
     );
 
+    /*------------------------------ Comparison Ops ------------------------------*/
+
+    /// Element-wise less-than between two tensors.
+    fn lt<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::BoolTensor;
+    /// Element-wise less-than-or-equal between two tensors.
+    fn le<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::BoolTensor;
+    /// Element-wise greater-than between two tensors.
+    fn gt<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::BoolTensor;
+    /// Element-wise greater-than-or-equal between two tensors.
+    fn ge<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::BoolTensor;
+    /// Element-wise equality between two tensors.
+    fn eq<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::BoolTensor;
+    /// Element-wise inequality between two tensors.
+    fn ne<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::BoolTensor;
+
+    /// Element-wise less-than against a scalar.
+    fn lt_scalar<D: ty::Num>(x: Self::Tensor<D>, y: D) -> Self::BoolTensor;
+    /// Element-wise less-than-or-equal against a scalar.
+    fn le_scalar<D: ty::Num>(x: Self::Tensor<D>, y: D) -> Self::BoolTensor;
+    /// Element-wise greater-than against a scalar.
+    fn gt_scalar<D: ty::Num>(x: Self::Tensor<D>, y: D) -> Self::BoolTensor;
+    /// Element-wise greater-than-or-equal against a scalar.
+    fn ge_scalar<D: ty::Num>(x: Self::Tensor<D>, y: D) -> Self::BoolTensor;
+    /// Element-wise equality against a scalar.
+    fn eq_scalar<D: ty::Num>(x: Self::Tensor<D>, y: D) -> Self::BoolTensor;
+    /// Element-wise inequality against a scalar.
+    fn ne_scalar<D: ty::Num>(x: Self::Tensor<D>, y: D) -> Self::BoolTensor;
+
     /*------------------------------ Indexing Ops ------------------------------*/
 
     /// Conditional element selection — corresponds to `tl.where`.

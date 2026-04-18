@@ -24,13 +24,13 @@ use teeny_triton::triton::{
 };
 
 #[kernel]
-pub fn relu<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+pub fn relu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
-    T::I32Tensor: Comparison<i32, 1, BoolTensor = T::BoolTensor>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -39,7 +39,7 @@ pub fn relu<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
 
     let x = T::load(
-        input_ptr.add_offsets(offsets),
+        x_ptr.add_offsets(offsets),
         Some(in_bounds),
         None,
         &[],
@@ -53,8 +53,61 @@ pub fn relu<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 
     // Masked loads in Triton return 0 for masked-off lanes, which gives ReLU.
     T::store(
-        output_ptr.add_offsets(offsets),
+        y_ptr.add_offsets(offsets),
         relu,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+}
+
+#[kernel]
+pub fn relu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
+    n_elements: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let block_start = pid * BLOCK_SIZE;
+    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
+    let in_bounds = offsets.lt(n_elements);
+
+    let grad_y = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+
+    // where(y > 0, grad_y, 0) compiles to a predicated select; avoids an fp mul.
+    let zeros = T::zeros_like(grad_y);
+    let y_gt_zero = T::gt(y, T::zeros_like(y));
+    let grad_x = T::where_(y_gt_zero, grad_y, zeros);
+
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        grad_x,
         Some(in_bounds),
         &[],
         None,

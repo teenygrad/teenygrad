@@ -27,7 +27,7 @@ pub fn linear<T: Triton, D: Float, const USE_BIAS: bool, const BLOCK_SIZE: i32>(
     n_elements: i32,
 ) where
     T::I32Tensor: Tensor<i32, 1>,
-    T::I32Tensor: Comparison<i32, 1, BoolTensor = T::BoolTensor>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
