@@ -14,5 +14,7 @@
  * limitations under the License.
  */
 
+pub mod avgpool2d;
+pub mod conv2d;
 pub mod flatten;
 pub mod linear;
