@@ -217,13 +217,28 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         cfg: &Self::LaunchConfig,
         args: K::Args<'a>,
     ) -> teeny_core::errors::Result<()> {
+        // Allocate global scratch memory for TMA descriptors if the kernel requires it.
+        // The kernel uses per-CTA scratch = global_scratch_bytes_per_cta * num_ctas bytes.
+        let num_ctas = (cfg.grid[0] * cfg.grid[1] * cfg.grid[2]) as u64;
+        let scratch_total = program.global_scratch_bytes_per_cta * num_ctas;
+        let mut scratch_ptr: cuda::CUdeviceptr = 0;
+        if scratch_total > 0 {
+            // cuMemAlloc_v2 guarantees 256-byte alignment, which satisfies Triton's
+            // scratch alignment requirement (typically 128 bytes).
+            let alloc_status = unsafe { cuda::cuMemAlloc_v2(&mut scratch_ptr, scratch_total as usize) };
+            if alloc_status != cuda::cudaError_enum_CUDA_SUCCESS {
+                return Err(Error::from_cuda_error(alloc_status).into());
+            }
+            // Zero-initialize the scratch pad so TMA descriptors start in a clean state.
+            unsafe { cuda::cuMemsetD8_v2(scratch_ptr, 0, scratch_total as usize) };
+            eprintln!("[LAUNCH] allocated {} bytes global scratch", scratch_total);
+        }
+
         let mut packer = CudaArgPacker::new();
         args.visit_args(&mut packer);
-        // Append two trailing null pointers required by Triton kernels:
-        // a global scratch pad and a profile scratch pad. These are unused
-        // for now but must be present as the last two kernel parameters.
-        packer.visit_ptr(std::ptr::null_mut()); // global scratch pad
-        packer.visit_ptr(std::ptr::null_mut()); // profile scratch pad
+        // Trailing Triton kernel parameters: global scratch pad + profile scratch pad.
+        packer.visit_ptr(scratch_ptr as *mut std::ffi::c_void); // global scratch pad
+        packer.visit_ptr(std::ptr::null_mut()); // profile scratch pad (unused)
         // Build the pointer array while `packer` is still alive — both must
         // remain live for the entire duration of `cuLaunchKernel`.
         let mut ptrs = packer.as_ptrs();
@@ -237,7 +252,7 @@ impl<'a> Device<'a> for CudaDevice<'a> {
                 cfg.block[0],
                 cfg.block[1],
                 cfg.block[2],
-                0,                    // sharedMemBytes
+                program.shared_mem_bytes, // dynamic shared memory required by Triton kernel
                 std::ptr::null_mut(), // hStream (default/null stream)
                 ptrs.as_mut_ptr(),
                 std::ptr::null_mut(), // extra
@@ -256,7 +271,14 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         println!("sync_status: {:?}", sync_status);
 
         if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
+            if scratch_ptr != 0 {
+                unsafe { cuda::cuMemFree_v2(scratch_ptr) };
+            }
             return Err(Error::from_cuda_error(sync_status).into());
+        }
+
+        if scratch_ptr != 0 {
+            unsafe { cuda::cuMemFree_v2(scratch_ptr) };
         }
 
         println!("Launch completed successfully");

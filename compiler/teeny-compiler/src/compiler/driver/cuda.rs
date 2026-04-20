@@ -26,6 +26,7 @@ pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Res
     let cache_dir =
         std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
 
-    let compiler = LlvmCompiler::new(rustc_path, cache_dir)?;
+    let compiler = LlvmCompiler::new(rustc_path, cache_dir)?
+        .with_target_cpu(target.capability.to_string());
     compiler.compile(kernel, target, force)
 }

@@ -28,15 +28,10 @@ use teeny_triton::triton::{
 /// Grid: one flat 1-D pid per (b, c, oh, ow-tile) combination:
 ///   pid = ((b * C + c) * OH + oh) * num_ow_tiles + ow_tile
 ///
-/// Each CTA accumulates a BLOCK_OW-wide strip of output columns for a single
-/// (batch, channel, output-row) using an explicit KH×KW kernel loop. Padding
-/// is NOT applied: the valid input range is [0, H) × [0, W). This means
-/// OH and OW must satisfy:
-///   OH = (H - KH) / STRIDE_H + 1
-///   OW = (W - KW) / STRIDE_W + 1
+/// Each CTA accumulates a BLOCK_OW-wide strip of output columns via a flat
+/// loop over all KH×KW kernel positions (avoids nested scf.for).
 ///
-/// The mean is computed as sum / (KH * KW) regardless of boundary effects.
-/// To support padding, extend the mask logic in the inner loop.
+/// **Constraints**: no padding; `OH = (H - KH) / STRIDE_H + 1`, `OW = (W - KW) / STRIDE_W + 1`.
 #[kernel]
 pub fn avgpool2d_forward<
     T: Triton,
@@ -73,40 +68,38 @@ pub fn avgpool2d_forward<
 
     let ow_start = ow_tile * BLOCK_OW;
     let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    // Mask for output-column boundary (last tile may extend past OW).
     let ow_mask = ow_range.lt(OW);
 
-    // Base linear offsets for this (b, c) slice.
     let in_bc_base = (b * C + c) * H * W;
     let out_bc_base = (b * C + c) * OH * OW;
 
     let mut acc = T::zeros::<D>(&[BLOCK_OW]);
 
-    for kh in 0..KH {
+    // Flat loop over KH * KW kernel positions to avoid nested scf.for.
+    let loop_bound = KH * KW;
+    for idx in 0..loop_bound {
+        let kw = idx % KW;
+        let kh = idx / KW;
         let ih = oh * STRIDE_H + kh;
-        if ih < H {
-            for kw in 0..KW {
-                // iw_range[i] = (ow_start + i) * STRIDE_W + kw, always >= 0 (no padding).
-                let iw_range = ow_range * STRIDE_W + kw;
-                let in_offsets = iw_range + (in_bc_base + ih * W);
-                let tile = T::load(
-                    input_ptr.add_offsets(in_offsets),
-                    Some(ow_mask),
-                    Some(T::zeros::<D>(&[BLOCK_OW])),
-                    &[],
-                    None,
-                    None,
-                    None,
-                    false,
-                );
-                acc = acc + tile;
-            }
-        }
+        let iw_range = ow_range * STRIDE_W + kw;
+        let in_offsets = iw_range + (in_bc_base + ih * W);
+        let tile = T::load(
+            input_ptr.add_offsets(in_offsets),
+            Some(ow_mask),
+            Some(T::zeros::<D>(&[BLOCK_OW])),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        acc = acc + tile;
     }
 
-    // Scale accumulator by 1/(KH*KW) using integer denominator to avoid f32 division
-    // in the no_core kernel context.
-    let ksize = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_OW], KH * KW), None, false);
+    // Scale by 1/(KH*KW): build [1] i32 tensor from arange then broadcast.
+    let ksize_1 = T::full::<i32>(&[1], KH * KW);
+    let ksize_f_1 = T::cast::<i32, D>(ksize_1, None, false);
+    let ksize = T::broadcast_to(ksize_f_1, &[BLOCK_OW]);
     let result = acc / ksize;
 
     let out_offsets = ow_range + (out_bc_base + oh * OW);
@@ -127,9 +120,8 @@ pub fn avgpool2d_forward<
 /// spread uniformly across the KH×KW input window via `atomic_add` so that
 /// overlapping pooling windows (stride < kernel size) are handled correctly.
 ///
-/// For non-overlapping pooling (stride_h ≥ KH and stride_w ≥ KW) the atomics
-/// degenerate to ordinary stores; use the forward-pass grid for dx initialise
-/// to zero before launching.
+/// **Constraints**: `dx` must be zero-initialised before launch; same spatial
+/// constraints as `avgpool2d_forward`.
 #[kernel]
 pub fn avgpool2d_backward<
     T: Triton,
@@ -182,24 +174,25 @@ pub fn avgpool2d_backward<
         None,
         false,
     );
-    let ksize = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_OW], KH * KW), None, false);
+    let ksize_1 = T::full::<i32>(&[1], KH * KW);
+    let ksize_f_1 = T::cast::<i32, D>(ksize_1, None, false);
+    let ksize = T::broadcast_to(ksize_f_1, &[BLOCK_OW]);
     let grad = dy_tile / ksize;
 
-    // Scatter scaled gradient to the KH×KW input window.
-    for kh in 0..KH {
+    // Scatter scaled gradient to the KH×KW input window via flat loop.
+    let loop_bound = KH * KW;
+    for idx in 0..loop_bound {
+        let kw = idx % KW;
+        let kh = idx / KW;
         let ih = oh * STRIDE_H + kh;
-        if ih < H {
-            for kw in 0..KW {
-                let iw_range = ow_range * STRIDE_W + kw;
-                let dx_offsets = iw_range + (dx_bc_base + ih * W);
-                T::atomic_add(
-                    dx_ptr.add_offsets(dx_offsets),
-                    grad,
-                    Some(ow_mask),
-                    None,
-                    None,
-                );
-            }
-        }
+        let iw_range = ow_range * STRIDE_W + kw;
+        let dx_offsets = iw_range + (dx_bc_base + ih * W);
+        T::atomic_add(
+            dx_ptr.add_offsets(dx_offsets),
+            grad,
+            Some(ow_mask),
+            None,
+            None,
+        );
     }
 }

@@ -40,7 +40,7 @@ pub fn setup_cuda_env() -> Result<CudaTestEnv> {
     println!("[2/9] found {} device(s)", devices.len());
 
     let device = cuda.device(&devices[0].id())?;
-    let capability = Capability::Sm90;
+    let capability = Capability::from_device_info(&device.info)?;
     println!(
         "[3/9] device: {} (capability: {capability})",
         device.info.name

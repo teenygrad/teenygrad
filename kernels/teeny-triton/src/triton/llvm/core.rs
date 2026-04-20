@@ -102,8 +102,18 @@ pub fn panic_const_div_overflow() -> ! {
     loop {}
 }
 
+#[lang = "panic_const_div_by_zero"]
+pub fn panic_const_div_by_zero() -> ! {
+    loop {}
+}
+
 #[lang = "panic_const_rem_overflow"]
 pub fn panic_const_rem_overflow() -> ! {
+    loop {}
+}
+
+#[lang = "panic_const_rem_by_zero"]
+pub fn panic_const_rem_by_zero() -> ! {
     loop {}
 }
 
@@ -190,8 +200,38 @@ impl Clone for bool {
     }
 }
 
+
+#[lang = "eq"]
+pub trait PartialEq<Rhs: ?Sized = Self> {
+    fn eq(&self, other: &Rhs) -> bool;
+    fn ne(&self, other: &Rhs) -> bool;
+}
+
+impl PartialEq for i32 {
+    fn eq(&self, other: &i32) -> bool { false }
+    fn ne(&self, other: &i32) -> bool { false }
+}
+
+#[lang = "partial_ord"]
+pub trait PartialOrd<Rhs: ?Sized = Self> {
+    fn lt(&self, other: &Rhs) -> bool;
+    fn gt(&self, other: &Rhs) -> bool;
+    fn le(&self, other: &Rhs) -> bool;
+    fn ge(&self, other: &Rhs) -> bool;
+}
+
+impl PartialOrd for i32 {
+    fn lt(&self, _other: &i32) -> bool { false }
+    fn gt(&self, _other: &i32) -> bool { false }
+    fn le(&self, _other: &i32) -> bool { false }
+    fn ge(&self, _other: &i32) -> bool { false }
+}
+
+#[lang = "Option"]
 pub enum Option<T> {
+    #[lang = "None"]
     None,
+    #[lang = "Some"]
     Some(T),
 }
 
@@ -222,8 +262,57 @@ where
     }
 }
 
+pub mod iter {
+    use super::PartialOrd;
+
+    #[lang = "iterator"]
+    pub trait Iterator {
+        type Item;
+
+        #[lang = "next"]
+        fn next(&mut self) -> super::Option<Self::Item>;
+    }
+
+    pub trait IntoIterator {
+        type Item;
+        type IntoIter: Iterator<Item = Self::Item>;
+
+        #[lang = "into_iter"]
+        fn into_iter(self) -> Self::IntoIter;
+    }
+
+    impl Iterator for super::core::ops::Range<i32> {
+        type Item = i32;
+
+        fn next(&mut self) -> super::Option<Self::Item> {
+            if self.start < self.end {
+                let v = self.start;
+                self.start = v + 1;
+                super::Option::Some(v)
+            } else {
+                super::Option::None
+            }
+        }
+    }
+
+    impl IntoIterator for super::core::ops::Range<i32> {
+        type Item = i32;
+        type IntoIter = super::core::ops::Range<i32>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self
+        }
+    }
+}
+
 pub mod core {
     pub mod ops {
+        #[lang = "Range"]
+        pub struct Range<Idx> {
+            pub start: Idx,
+            pub end: Idx,
+        }
+
         // Arithmetic operation lang items
         #[lang = "mul"]
         pub trait Mul<RHS = Self> {

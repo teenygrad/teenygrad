@@ -29,6 +29,7 @@ use crate::errors::Result;
 pub struct LlvmCompiler {
     rustc_path: PathBuf,
     cache_dir: PathBuf,
+    target_cpu: Option<String>,
 }
 
 impl LlvmCompiler {
@@ -47,7 +48,13 @@ impl LlvmCompiler {
         Ok(Self {
             rustc_path,
             cache_dir,
+            target_cpu: None,
         })
+    }
+
+    pub fn with_target_cpu(mut self, cpu: impl Into<String>) -> Self {
+        self.target_cpu = Some(cpu.into());
+        self
     }
 }
 
@@ -64,8 +71,8 @@ impl Compiler for LlvmCompiler {
             file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
             file.write_all(kernel.source().as_bytes())?;
 
-            let status = Command::new(&self.rustc_path)
-                .arg(&kernel_file)
+            let mut cmd = Command::new(&self.rustc_path);
+            cmd.arg(&kernel_file)
                 .arg("-Copt-level=3")
                 .arg("-Zcodegen-backend=mlir")
                 .arg("--emit=obj")
@@ -75,8 +82,11 @@ impl Compiler for LlvmCompiler {
                 .arg("-C")
                 .arg("overflow-checks=off")
                 .arg("--frontend=triton")
-                .current_dir(&self.cache_dir)
-                .status()?;
+                .current_dir(&self.cache_dir);
+            if let Some(cpu) = &self.target_cpu {
+                cmd.arg(format!("-Ctarget-cpu={cpu}"));
+            }
+            let status = cmd.status()?;
 
             if !status.success() {
                 anyhow::bail!("rustc exited with status {}", status);

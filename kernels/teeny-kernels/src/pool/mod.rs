@@ -14,8 +14,4 @@
  * limitations under the License.
  */
 
-pub mod activation;
-pub mod conv;
-pub mod math;
-pub mod mlp;
-pub mod pool;
+pub mod avgpool2d;

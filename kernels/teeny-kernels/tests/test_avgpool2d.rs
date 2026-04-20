@@ -54,7 +54,7 @@ const PTX_LAUNCH_THREADS_X: u32 = 128;
 fn test_avgpool2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::mlp::avgpool2d::Avgpool2dForward::<
+    let kernel = teeny_kernels::pool::avgpool2d::Avgpool2dForward::<
         f32,
         KH,
         KW,
@@ -76,7 +76,7 @@ fn test_avgpool2d_forward_mlir_output() -> Result<()> {
 fn test_avgpool2d_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::mlp::avgpool2d::Avgpool2dBackward::<
+    let kernel = teeny_kernels::pool::avgpool2d::Avgpool2dBackward::<
         f32,
         KH,
         KW,
@@ -126,8 +126,7 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
                             sum += input_arr[[b, c, ih, iw]];
                         }
                     }
-                    expected[b * C * OH * OW + c * OH * OW + oh * OW + ow] =
-                        sum / (KH * KW) as f32;
+                    expected[b * C * OH * OW + c * OH * OW + oh * OW + ow] = sum / (KH * KW) as f32;
                 }
             }
         }
@@ -139,7 +138,7 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
 
     input_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::mlp::avgpool2d::Avgpool2dForward::<
+    let kernel = teeny_kernels::pool::avgpool2d::Avgpool2dForward::<
         f32,
         KH,
         KW,
@@ -153,14 +152,7 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::mlp::avgpool2d::Avgpool2dForward<
-            f32,
-            KH,
-            KW,
-            STRIDE_H,
-            STRIDE_W,
-            BLOCK_OW,
-        >,
+        teeny_kernels::pool::avgpool2d::Avgpool2dForward<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
     >(&ptx)?;
 
     // Grid: B * C * OH * ceil(OW / BLOCK_OW).
@@ -241,7 +233,7 @@ fn test_avgpool2d_backward_cuda() -> Result<()> {
     let mut dx_zero_buf = device.buffer::<f32>(B * C * H * W)?;
     dx_zero_buf.to_device(&zeros)?;
 
-    let kernel = teeny_kernels::mlp::avgpool2d::Avgpool2dBackward::<
+    let kernel = teeny_kernels::pool::avgpool2d::Avgpool2dBackward::<
         f32,
         KH,
         KW,
@@ -255,7 +247,7 @@ fn test_avgpool2d_backward_cuda() -> Result<()> {
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::mlp::avgpool2d::Avgpool2dBackward<
+        teeny_kernels::pool::avgpool2d::Avgpool2dBackward<
             f32,
             KH,
             KW,
