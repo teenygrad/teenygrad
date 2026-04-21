@@ -23,14 +23,16 @@ use teeny_core::{
     context::program::Kernel,
     dtype::{Dtype, Float},
 };
-use teeny_cuda::target::Capability;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     Axis, CacheModifier, DotFormat, EvictionPolicy, FpDowncastRounding, InputPrecision, MemScope,
-    MemSem, PaddingOption, Triton, llvm::triton::LlvmTriton,
+    MemSem, PaddingOption, Triton,
 };
 
+use teeny_cuda::compiler::target::Capability;
+
 #[kernel]
+#[allow(unused)]
 fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     x_ptr: T::Pointer<D>,
     y_ptr: T::Pointer<D>,

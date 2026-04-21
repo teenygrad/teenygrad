@@ -26,11 +26,16 @@ use teeny_core::{
 };
 
 use crate::{
-    buffer::CudaBuffer,
     cuda,
+    device::buffer::CudaBuffer,
+    device::program::CudaProgram,
     errors::{Error, Result},
-    program::CudaProgram,
 };
+
+pub mod buffer;
+pub mod context;
+pub mod mem;
+pub mod program;
 
 /// Packs kernel arguments into the `void**` array expected by `cuLaunchKernel`.
 ///
@@ -225,7 +230,8 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         if scratch_total > 0 {
             // cuMemAlloc_v2 guarantees 256-byte alignment, which satisfies Triton's
             // scratch alignment requirement (typically 128 bytes).
-            let alloc_status = unsafe { cuda::cuMemAlloc_v2(&mut scratch_ptr, scratch_total as usize) };
+            let alloc_status =
+                unsafe { cuda::cuMemAlloc_v2(&mut scratch_ptr, scratch_total as usize) };
             if alloc_status != cuda::cudaError_enum_CUDA_SUCCESS {
                 return Err(Error::from_cuda_error(alloc_status).into());
             }
@@ -253,7 +259,7 @@ impl<'a> Device<'a> for CudaDevice<'a> {
                 cfg.block[1],
                 cfg.block[2],
                 program.shared_mem_bytes, // dynamic shared memory required by Triton kernel
-                std::ptr::null_mut(), // hStream (default/null stream)
+                std::ptr::null_mut(),     // hStream (default/null stream)
                 ptrs.as_mut_ptr(),
                 std::ptr::null_mut(), // extra
             )

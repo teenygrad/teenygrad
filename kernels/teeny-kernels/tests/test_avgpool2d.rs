@@ -24,11 +24,9 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::context::buffer::Buffer;
 use teeny_core::context::device::Device;
 use teeny_core::context::program::Kernel;
+
 #[cfg(feature = "cuda")]
-use teeny_cuda::device::CudaLaunchConfig;
-use teeny_cuda::errors::Result;
-use teeny_cuda::target::Capability;
-use teeny_cuda::testing;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
 // Spatial dimensions: 2×2 non-overlapping pool on a 8×8 feature map → 4×4 output.
 const B: usize = 2;

@@ -25,9 +25,9 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::context::buffer::Buffer;
 use teeny_core::context::device::Device;
 use teeny_core::context::program::Kernel;
-use teeny_cuda::errors::Result;
-use teeny_cuda::target::Capability;
-use teeny_cuda::testing;
+
+#[cfg(feature = "cuda")]
+use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;

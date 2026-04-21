@@ -23,4 +23,5 @@ pub mod dtype;
 pub mod errors;
 pub mod graph;
 pub mod macros;
+pub mod model;
 pub mod nn;

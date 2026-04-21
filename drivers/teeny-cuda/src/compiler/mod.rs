@@ -21,10 +21,11 @@ use teeny_core::context::program::Kernel;
 
 use crate::compiler::options::Options;
 use crate::cuda;
+use crate::device::program::CudaProgram;
 use crate::errors::{Error, Result};
-use crate::program::CudaProgram;
 
 pub mod options;
+pub mod target;
 
 pub struct PtxCompiler {
     compiler: cuda::nvPTXCompilerHandle,
@@ -40,7 +41,11 @@ impl PtxCompiler {
         };
 
         if result != cuda::nvPTXCompileResult_NVPTXCOMPILE_SUCCESS {
-            return Err(Error::NvptxCompileError { code: result, log: String::new() }.into());
+            return Err(Error::NvptxCompileError {
+                code: result,
+                log: String::new(),
+            }
+            .into());
         }
         Ok(PtxCompiler { compiler })
     }
@@ -70,7 +75,11 @@ impl PtxCompiler {
         let result =
             unsafe { cuda::nvPTXCompilerGetCompiledProgramSize(self.compiler, &mut binary_size) };
         if result != cuda::nvPTXCompileResult_NVPTXCOMPILE_SUCCESS {
-            return Err(Error::NvptxCompileError { code: result, log: String::new() }.into());
+            return Err(Error::NvptxCompileError {
+                code: result,
+                log: String::new(),
+            }
+            .into());
         }
 
         let mut binary = vec![0u8; binary_size];
@@ -81,7 +90,11 @@ impl PtxCompiler {
             )
         };
         if result != cuda::nvPTXCompileResult_NVPTXCOMPILE_SUCCESS {
-            return Err(Error::NvptxCompileError { code: result, log: String::new() }.into());
+            return Err(Error::NvptxCompileError {
+                code: result,
+                log: String::new(),
+            }
+            .into());
         }
 
         Ok(binary)
@@ -89,9 +102,7 @@ impl PtxCompiler {
 
     fn error_log(&self) -> String {
         let mut log_size = 0usize;
-        let result = unsafe {
-            cuda::nvPTXCompilerGetErrorLogSize(self.compiler, &mut log_size)
-        };
+        let result = unsafe { cuda::nvPTXCompilerGetErrorLogSize(self.compiler, &mut log_size) };
         if result != cuda::nvPTXCompileResult_NVPTXCOMPILE_SUCCESS || log_size == 0 {
             return String::new();
         }
@@ -102,7 +113,9 @@ impl PtxCompiler {
         if result != cuda::nvPTXCompileResult_NVPTXCOMPILE_SUCCESS {
             return String::new();
         }
-        String::from_utf8_lossy(&buf).trim_end_matches('\0').to_string()
+        String::from_utf8_lossy(&buf)
+            .trim_end_matches('\0')
+            .to_string()
     }
 
     /// Compile the PTX to a cubin and load it into the current CUDA context,

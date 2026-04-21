@@ -17,7 +17,7 @@
 use derive_builder::Builder;
 use derive_more::Display;
 
-use crate::target::Capability;
+use crate::compiler::target::Capability;
 
 #[derive(Debug, Clone, Copy, Display)]
 pub enum Sanitizer {

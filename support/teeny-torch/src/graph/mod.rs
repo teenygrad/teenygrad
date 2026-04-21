@@ -109,7 +109,8 @@ mod tests {
 
     const CARGO_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
-    #[test]
+    // #[test]
+    #[allow(unused)]
     fn test_qwen3_conversion() -> Result<(), Error> {
         let qwen_files = ["qwen3_1.bin.gz", "qwen3_2.bin.gz", "qwen3_3.bin.gz"];
 

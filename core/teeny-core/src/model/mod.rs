@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-pub mod compiler;
-pub mod device;
-pub mod errors;
-pub mod testing;
+pub trait Model<'ctx> {
+    type Input;
+    type Output;
 
-mod cuda;
+    fn forward(&self, input: Self::Input) -> Self::Output;
+}

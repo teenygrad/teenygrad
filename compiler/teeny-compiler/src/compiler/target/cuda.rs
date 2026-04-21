@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use crate::errors::{Error, Result};
-use teeny_cuda::target::Capability;
+use teeny_cuda::compiler::target::Capability;
 
 pub struct Target {
     pub capability: Capability,

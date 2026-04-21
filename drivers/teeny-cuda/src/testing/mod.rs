@@ -17,11 +17,11 @@
 use teeny_core::context::{Context, DeviceInfo, program::Kernel};
 
 use crate::{
-    context::Cuda,
+    compiler::target::Capability,
+    device::context::Cuda,
+    device::program::CudaProgram,
     device::{CudaDevice, CudaLaunchConfig},
     errors::Result,
-    program::CudaProgram,
-    target::Capability,
 };
 
 pub struct CudaTestEnv {

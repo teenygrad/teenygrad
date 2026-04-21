@@ -18,8 +18,8 @@ use std::marker::PhantomData;
 
 use teeny_core::{context::buffer::Buffer, dtype::Num};
 
+use crate::device::mem::{self, DevicePtr};
 use crate::errors::{Error, Result};
-use crate::mem::{self, DevicePtr};
 
 /// A device-side buffer holding `count` elements of type `N`.
 ///

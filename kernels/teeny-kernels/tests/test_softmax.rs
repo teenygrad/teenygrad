@@ -24,11 +24,9 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::context::buffer::Buffer;
 use teeny_core::context::device::Device;
 use teeny_core::context::program::Kernel;
+
 #[cfg(feature = "cuda")]
-use teeny_cuda::device::CudaLaunchConfig;
-use teeny_cuda::errors::Result;
-use teeny_cuda::target::Capability;
-use teeny_cuda::testing;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
 // 64 rows, 128 columns — BLOCK_SIZE == N_COLS (no masking required).
 const N_ROWS: usize = 64;
@@ -56,12 +54,7 @@ fn cpu_softmax(input: &Array2<f32>) -> Array2<f32> {
 /// Softmax backward: `dx_i = y_i * (dy_i - sum_j(y_j * dy_j))`.
 fn cpu_softmax_backward(y: &Array2<f32>, dy: &Array2<f32>) -> Array2<f32> {
     let mut dx = Array2::zeros(y.raw_dim());
-    for (((y_row, dy_row), mut dx_row)) in y
-        .rows()
-        .into_iter()
-        .zip(dy.rows())
-        .zip(dx.rows_mut())
-    {
+    for (((y_row, dy_row), mut dx_row)) in y.rows().into_iter().zip(dy.rows()).zip(dx.rows_mut()) {
         let dot: f32 = y_row.iter().zip(dy_row.iter()).map(|(&a, &b)| a * b).sum();
         for ((&yi, &dyi), dxi) in y_row.iter().zip(dy_row.iter()).zip(dx_row.iter_mut()) {
             *dxi = yi * (dyi - dot);
@@ -78,8 +71,7 @@ fn cpu_softmax_backward(y: &Array2<f32>, dy: &Array2<f32>) -> Array2<f32> {
 fn test_softmax_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel =
-        teeny_kernels::activation::softmax::SoftmaxForward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::softmax::SoftmaxForward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -94,8 +86,7 @@ fn test_softmax_forward_mlir_output() -> Result<()> {
 fn test_softmax_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel =
-        teeny_kernels::activation::softmax::SoftmaxBackward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::softmax::SoftmaxBackward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -118,8 +109,7 @@ fn test_softmax_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_arr =
-        Array2::<f32>::random((N_ROWS, N_COLS), Uniform::new(-5.0f32, 5.0f32).unwrap());
+    let input_arr = Array2::<f32>::random((N_ROWS, N_COLS), Uniform::new(-5.0f32, 5.0f32).unwrap());
     let input_host: Vec<f32> = input_arr.iter().copied().collect();
     let expected_arr = cpu_softmax(&input_arr);
     let expected: Vec<f32> = expected_arr.iter().copied().collect();
@@ -130,8 +120,7 @@ fn test_softmax_forward_cuda() -> Result<()> {
 
     x_buf.to_device(&input_host)?;
 
-    let kernel =
-        teeny_kernels::activation::softmax::SoftmaxForward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::softmax::SoftmaxForward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[softmax_forward] compiled PTX: {ptx_path}");
@@ -188,11 +177,9 @@ fn test_softmax_backward_cuda() -> Result<()> {
     let device = env.device;
 
     // y must be a valid softmax output (all positive, rows sum to 1).
-    let x_arr =
-        Array2::<f32>::random((N_ROWS, N_COLS), Uniform::new(-3.0f32, 3.0f32).unwrap());
+    let x_arr = Array2::<f32>::random((N_ROWS, N_COLS), Uniform::new(-3.0f32, 3.0f32).unwrap());
     let y_arr = cpu_softmax(&x_arr);
-    let dy_arr =
-        Array2::<f32>::random((N_ROWS, N_COLS), Uniform::new(-1.0f32, 1.0f32).unwrap());
+    let dy_arr = Array2::<f32>::random((N_ROWS, N_COLS), Uniform::new(-1.0f32, 1.0f32).unwrap());
 
     let y_host: Vec<f32> = y_arr.iter().copied().collect();
     let dy_host: Vec<f32> = dy_arr.iter().copied().collect();
@@ -207,8 +194,7 @@ fn test_softmax_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel =
-        teeny_kernels::activation::softmax::SoftmaxBackward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::softmax::SoftmaxBackward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[softmax_backward] compiled PTX: {ptx_path}");

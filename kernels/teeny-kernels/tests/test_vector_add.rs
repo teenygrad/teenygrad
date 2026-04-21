@@ -25,9 +25,9 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::context::buffer::Buffer;
 use teeny_core::context::device::Device;
 use teeny_core::context::program::Kernel;
-use teeny_cuda::errors::Result;
-use teeny_cuda::testing;
-use teeny_cuda::target::Capability;
+
+#[cfg(feature = "cuda")]
+use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -83,10 +83,9 @@ fn test_tensor_add_gpu_execution() -> Result<()> {
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::math::add::VectorAdd<f32, BLOCK_SIZE>>(
-            &ptx,
-        )?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::math::add::VectorAdd<f32, BLOCK_SIZE>,
+    >(&ptx)?;
 
     let cfg = testing::launch_config(N, BLOCK_SIZE);
     println!(
