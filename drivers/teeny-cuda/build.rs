@@ -32,6 +32,9 @@ fn main() {
         .header("wrapper.h")
         // derive default trait whenever possible
         .derive_default(true)
+        // CUDA headers use Doxygen @code blocks which Markdown treats as
+        // indented code, causing rustdoc to compile them as Rust doctests.
+        .generate_comments(false)
         // filter functions which make use of u128 due to FFI ABI issues
         .blocklist_function("strtold")
         .blocklist_function("qecvt")
