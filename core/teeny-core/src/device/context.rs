@@ -16,11 +16,7 @@
 
 use alloc::vec::Vec;
 
-use crate::{context::device::Device, errors::Result};
-
-pub mod buffer;
-pub mod device;
-pub mod program;
+use crate::{device::Device, errors::Result};
 
 pub trait DeviceInfo: Sized {
     type Id;

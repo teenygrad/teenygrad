@@ -391,7 +391,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl #struct_generics_def teeny_core::context::program::Kernel
+        impl #struct_generics_def teeny_core::device::program::Kernel
             for #struct_ident #struct_generics_use
         {
             type Args<'__a> = ( #(#args_types,)* );

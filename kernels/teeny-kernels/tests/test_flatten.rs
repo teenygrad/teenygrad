@@ -21,9 +21,9 @@ use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use std::path::PathBuf;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
-use teeny_core::context::buffer::Buffer;
-use teeny_core::context::device::Device;
-use teeny_core::context::program::Kernel;
+use teeny_core::device::Device;
+use teeny_core::device::buffer::Buffer;
+use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};

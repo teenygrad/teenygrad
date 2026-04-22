@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+pub type Result<T> = anyhow::Result<T>;
 
-pub mod compiler;
-pub mod device;
-pub mod dtype;
-pub mod errors;
-pub mod graph;
-pub mod macros;
-pub mod model;
-pub mod nn;
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+}

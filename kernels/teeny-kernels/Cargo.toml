@@ -13,6 +13,8 @@ default = ["cuda"]
 cuda = ["dep:teeny-cuda"]
 
 [dependencies]
+thiserror.workspace = true
+anyhow.workspace = true
 teeny-macros = { path = "../../macros/teeny-macros" }
 teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../teeny-triton" }

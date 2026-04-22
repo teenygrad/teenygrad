@@ -2401,6 +2401,7 @@ dependencies = [
 name = "teeny-kernels"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "dotenv",
  "insta",
  "ndarray",
@@ -2411,6 +2412,7 @@ dependencies = [
  "teeny-cuda",
  "teeny-macros",
  "teeny-triton",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

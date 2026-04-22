@@ -16,7 +16,7 @@
 
 use std::marker::PhantomData;
 
-use teeny_core::context::{Context, DeviceInfo};
+use teeny_core::device::context::{Context, DeviceInfo};
 
 use crate::{
     cuda,

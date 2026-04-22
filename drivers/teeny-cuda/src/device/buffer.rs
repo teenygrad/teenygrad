@@ -16,7 +16,7 @@
 
 use std::marker::PhantomData;
 
-use teeny_core::{context::buffer::Buffer, dtype::Num};
+use teeny_core::{device::buffer::Buffer, dtype::Num};
 
 use crate::device::mem::{self, DevicePtr};
 use crate::errors::{Error, Result};

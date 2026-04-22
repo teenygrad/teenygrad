@@ -20,7 +20,7 @@ use insta::assert_debug_snapshot;
 use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
 use teeny_core::{
     compiler::Compiler,
-    context::program::Kernel,
+    device::program::Kernel,
     dtype::{Dtype, Float},
 };
 use teeny_macros::kernel;

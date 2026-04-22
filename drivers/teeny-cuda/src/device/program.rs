@@ -17,7 +17,7 @@
 use std::ffi::CString;
 use std::marker::PhantomData;
 
-use teeny_core::context::program::{Kernel, Program};
+use teeny_core::device::program::{Kernel, Program};
 
 use crate::cuda;
 use crate::errors::{Error, Result};
@@ -107,19 +107,17 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
                 .and_then(|pos| {
                     let rest = &ptx[pos + key.len()..];
                     let end = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
-                    std::str::from_utf8(&rest[..end]).ok()
+                    std::str::from_utf8(&rest[..end])
+                        .ok()
                         .and_then(|s| s.trim().parse::<u64>().ok())
                 })
                 .unwrap_or(0)
         }
 
-        let shared_mem_bytes =
-            parse_ptx_meta(ptx, b"// TRITON_SHARED_MEM_BYTES: ") as u32;
+        let shared_mem_bytes = parse_ptx_meta(ptx, b"// TRITON_SHARED_MEM_BYTES: ") as u32;
         let global_scratch_bytes_per_cta =
             parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA: ");
-        let global_scratch_align =
-            parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_ALIGN: ")
-                .max(1);
+        let global_scratch_align = parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_ALIGN: ").max(1);
         eprintln!(
             "[CUDA-JIT] dynamic shared mem = {} bytes, global scratch = {} bytes/CTA (align {})",
             shared_mem_bytes, global_scratch_bytes_per_cta, global_scratch_align
@@ -155,9 +153,9 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
         #[allow(clippy::cast_ptr_alignment)]
         let mut option_values: [*mut std::ffi::c_void; 4] = [
             error_log.as_mut_ptr().cast(),
-            LOG_SIZE as *mut std::ffi::c_void,  // size value, not a pointer
+            LOG_SIZE as *mut std::ffi::c_void, // size value, not a pointer
             info_log.as_mut_ptr().cast(),
-            LOG_SIZE as *mut std::ffi::c_void,  // size value, not a pointer
+            LOG_SIZE as *mut std::ffi::c_void, // size value, not a pointer
         ];
 
         let mut module = cuda::CUmodule::default();
@@ -172,23 +170,33 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
         };
         if status != cuda::cudaError_enum_CUDA_SUCCESS {
             let err_len = error_log.iter().position(|&b| b == 0).unwrap_or(LOG_SIZE);
-            let error_str = std::str::from_utf8(&error_log[..err_len])
-                .unwrap_or("<invalid utf8>");
+            let error_str = std::str::from_utf8(&error_log[..err_len]).unwrap_or("<invalid utf8>");
             eprintln!("[CUDA-JIT] error log: {}", error_str);
             return Err(Error::from_cuda_error(status).into());
         }
 
         let info_len = info_log.iter().position(|&b| b == 0).unwrap_or(0);
         if info_len > 0 {
-            let info_str = std::str::from_utf8(&info_log[..info_len])
-                .unwrap_or("<invalid utf8>");
+            let info_str = std::str::from_utf8(&info_log[..info_len]).unwrap_or("<invalid utf8>");
             eprintln!("[CUDA-JIT] info: {}", info_str);
         }
 
-        Self::resolve_function(module, entry_point, shared_mem_bytes, global_scratch_bytes_per_cta, global_scratch_align)
+        Self::resolve_function(
+            module,
+            entry_point,
+            shared_mem_bytes,
+            global_scratch_bytes_per_cta,
+            global_scratch_align,
+        )
     }
 
-    fn resolve_function(module: cuda::CUmodule, entry_point: &str, shared_mem_bytes: u32, global_scratch_bytes_per_cta: u64, global_scratch_align: u64) -> Result<Self> {
+    fn resolve_function(
+        module: cuda::CUmodule,
+        entry_point: &str,
+        shared_mem_bytes: u32,
+        global_scratch_bytes_per_cta: u64,
+        global_scratch_align: u64,
+    ) -> Result<Self> {
         let name = CString::new(entry_point).map_err(Error::CStringError)?;
         let mut function = cuda::CUfunction::default();
         let status = unsafe { cuda::cuModuleGetFunction(&mut function, module, name.as_ptr()) };

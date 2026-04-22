@@ -16,6 +16,7 @@
 
 #![allow(non_snake_case)]
 
+use core::marker::PhantomData;
 use teeny_core::dtype::Float;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
@@ -113,4 +114,10 @@ pub fn relu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         None,
         None,
     );
+}
+
+pub struct ReluOp<'a, T: Float, const BLOCK_SIZE: i32> {
+    pub forward: ReluForward<T, BLOCK_SIZE>,
+    pub backward: ReluBackward<T, BLOCK_SIZE>,
+    _marker: PhantomData<&'a ()>,
 }

@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
-use teeny_core::context::{Context, DeviceInfo, program::Kernel};
+use teeny_core::device::{
+    context::{Context, DeviceInfo},
+    program::Kernel,
+};
 
 use crate::{
     compiler::target::Capability,

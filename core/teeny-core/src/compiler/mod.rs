@@ -16,7 +16,7 @@
 
 use alloc::string::String;
 
-use crate::context::program::Kernel;
+use crate::device::program::Kernel;
 use crate::errors::Result;
 
 pub trait Target: Sized {}

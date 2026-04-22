@@ -17,10 +17,10 @@
 use std::marker::PhantomData;
 
 use teeny_core::{
-    context::{
-        DeviceInfo,
-        device::{Device, LaunchConfig},
+    device::{
+        context::DeviceInfo,
         program::{ArgVisitor, Kernel, KernelArgs},
+        {Device, LaunchConfig},
     },
     dtype::Num,
 };
@@ -209,7 +209,7 @@ impl<'a> Drop for CudaDevice<'a> {
 
 impl<'a> Device<'a> for CudaDevice<'a> {
     type Buffer<N: Num> = CudaBuffer<'a, N>;
-    type Program<K: teeny_core::context::program::Kernel> = CudaProgram<'a, K>;
+    type Program<K: teeny_core::device::program::Kernel> = CudaProgram<'a, K>;
     type LaunchConfig = CudaLaunchConfig;
 
     fn buffer<N: Num>(&self, count: usize) -> teeny_core::errors::Result<Self::Buffer<N>> {

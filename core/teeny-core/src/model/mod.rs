@@ -14,9 +14,23 @@
  * limitations under the License.
  */
 
-pub trait Model<'ctx> {
+use crate::{device::Device, errors::Result};
+
+pub trait RuntimeContext<'a> {}
+
+pub trait ExecutableOp<'a> {
+    type Device: Device<'a>;
+    type RuntimeContext: RuntimeContext<'a>;
+
+    fn forward(&self, device: &Self::Device, rt: &mut Self::RuntimeContext) -> Result<()>;
+
+    fn backward(&self, device: &Self::Device, rt: &mut Self::RuntimeContext) -> Result<()>;
+}
+
+pub trait Model<'a> {
+    type Device: Device<'a>;
     type Input;
     type Output;
 
-    fn forward(&self, input: Self::Input) -> Self::Output;
+    fn forward(&self, device: &Self::Device, input: Self::Input) -> Result<Self::Output>;
 }

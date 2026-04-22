@@ -17,7 +17,7 @@
 use std::ffi::{c_char, c_void};
 use std::ptr;
 
-use teeny_core::context::program::Kernel;
+use teeny_core::device::program::Kernel;
 
 use crate::compiler::options::Options;
 use crate::cuda;

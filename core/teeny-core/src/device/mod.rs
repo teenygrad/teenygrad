@@ -15,13 +15,17 @@
  */
 
 use crate::{
-    context::{
+    device::{
         buffer::Buffer,
         program::{Kernel, Program},
     },
     dtype::Num,
     errors::Result,
 };
+
+pub mod buffer;
+pub mod context;
+pub mod program;
 
 pub trait LaunchConfig: Sized {}
 

@@ -17,8 +17,8 @@
 use dotenv::dotenv;
 use teeny_compiler::compiler::driver::cuda::compile_kernel;
 use teeny_compiler::compiler::target::cuda::Target;
-use teeny_core::context::buffer::Buffer;
-use teeny_core::context::device::Device;
+use teeny_core::device::Device;
+use teeny_core::device::buffer::Buffer;
 use teeny_cuda::errors::Result;
 use teeny_cuda::testing;
 
@@ -63,10 +63,9 @@ fn test_tensor_add() -> Result<()> {
         String::from_utf8_lossy(&ptx)
     );
 
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::math::add::VectorAdd<f32, BLOCK_SIZE>>(
-            &ptx,
-        )?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::math::add::VectorAdd<f32, BLOCK_SIZE>,
+    >(&ptx)?;
 
     // ── Launch ─────────────────────────────────────────────────────────────
     let cfg = testing::launch_config(N, BLOCK_SIZE);

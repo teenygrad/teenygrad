@@ -29,12 +29,7 @@ use teeny_triton::triton::{Axis, PaddingOption, Triton};
 ///
 /// Grid: one flat 1D pid that encodes (pid_b, pid_n) = (pid / num_pid_n, pid % num_pid_n).
 #[kernel]
-pub fn flatten_forward<
-    T: Triton,
-    D: Float,
-    const BLOCK_B: i32,
-    const BLOCK_N: i32,
->(
+pub fn flatten_forward<T: Triton, D: Float, const BLOCK_B: i32, const BLOCK_N: i32>(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
     B: i32,
@@ -77,12 +72,7 @@ pub fn flatten_forward<
 /// this is again a simple memcpy; when the forward input used a different layout the kernel
 /// performs the inverse reordering.
 #[kernel]
-pub fn flatten_backward<
-    T: Triton,
-    D: Float,
-    const BLOCK_B: i32,
-    const BLOCK_N: i32,
->(
+pub fn flatten_backward<T: Triton, D: Float, const BLOCK_B: i32, const BLOCK_N: i32>(
     dy_ptr: T::Pointer<D>,
     dx_ptr: T::Pointer<D>,
     B: i32,

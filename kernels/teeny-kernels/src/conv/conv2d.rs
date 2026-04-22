@@ -103,14 +103,30 @@ pub fn conv2d_forward<
         // Load scalar weight and broadcast to [BLOCK_OW].
         let w_idx = ((c_out * C_IN + c_in) * KH + kh) * KW + kw;
         let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(w_ptr.add_offsets(w_off), None, None, &[], None, None, None, false);
+        let w_1 = T::load(
+            w_ptr.add_offsets(w_off),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
 
         acc = acc + x_tile * w_tile;
     }
 
     let out_offsets = ow_range + (out_bc_base + oh * OW);
-    T::store(y_ptr.add_offsets(out_offsets), acc, Some(ow_mask), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(out_offsets),
+        acc,
+        Some(ow_mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// 2-D convolution backward pass — gradient with respect to input (`dx`).
@@ -184,7 +200,16 @@ pub fn conv2d_backward_dx<
 
         let w_idx = ((c_out * C_IN + c_in) * KH + kh) * KW + kw;
         let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(w_ptr.add_offsets(w_off), None, None, &[], None, None, None, false);
+        let w_1 = T::load(
+            w_ptr.add_offsets(w_off),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
 
         let grad_tile = dy_tile * w_tile;
@@ -192,7 +217,13 @@ pub fn conv2d_backward_dx<
         let ih = oh * STRIDE_H + kh;
         let iw_range = ow_range * STRIDE_W + kw;
         let dx_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
-        T::atomic_add(dx_ptr.add_offsets(dx_offsets), grad_tile, Some(ow_mask), None, None);
+        T::atomic_add(
+            dx_ptr.add_offsets(dx_offsets),
+            grad_tile,
+            Some(ow_mask),
+            None,
+            None,
+        );
     }
 }
 

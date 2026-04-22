@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use teeny_core::compiler::{Compiler, Target};
-use teeny_core::context::program::Kernel;
+use teeny_core::device::program::Kernel;
 use tracing::info;
 
 use crate::errors::Result;
