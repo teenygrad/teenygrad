@@ -18,9 +18,6 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use ndarray::Array1;
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
@@ -31,6 +28,20 @@ use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
+
+fn load_fixture(rel: &str) -> Vec<f32> {
+    let path = format!(
+        "{}/tests/fixtures/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        rel
+    );
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
 
 #[test]
 fn test_relu() -> Result<()> {
@@ -54,15 +65,10 @@ fn test_relu_forward_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    // ── Host data: random values in [-5, 5] to exercise both negative and positive inputs ──
-    let input_arr = Array1::<f32>::random(N, Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let input_host: Vec<f32> = input_arr.to_vec();
+    let input_host = load_fixture("relu/x.bin");
+    let expected = load_fixture("relu/expected_forward.bin");
     let mut output_host = vec![0.0f32; N];
 
-    // ── Reference: ndarray relu ────────────────────────────────────────────
-    let expected: Vec<f32> = input_arr.mapv(|x| x.max(0.0)).to_vec();
-
-    // ── Device buffers ─────────────────────────────────────────────────────
     let mut in_buf = device.buffer::<f32>(N)?;
     let out_buf = device.buffer::<f32>(N)?;
     println!(
@@ -74,7 +80,6 @@ fn test_relu_forward_gpu() -> Result<()> {
     in_buf.to_device(&input_host)?;
     println!("[5/9] copied input data to device");
 
-    // ── Compile PTX ────────────────────────────────────────────────────────
     let kernel = teeny_kernels::activation::relu::ReluForward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
@@ -85,7 +90,6 @@ fn test_relu_forward_gpu() -> Result<()> {
         teeny_kernels::activation::relu::ReluForward<f32, BLOCK_SIZE>,
     >(&ptx)?;
 
-    // ── Launch ─────────────────────────────────────────────────────────────
     let cfg = testing::launch_config(N, BLOCK_SIZE);
     println!(
         "[8/9] launching: grid={:?} block={:?} n_elements={N}",
@@ -101,7 +105,6 @@ fn test_relu_forward_gpu() -> Result<()> {
     device.launch(&program, &cfg, args)?;
     println!("      kernel completed (synchronized)");
 
-    // ── Copy results back and verify ───────────────────────────────────────
     out_buf.to_host(&mut output_host)?;
     println!(
         "[9/9] copied results back: output[0]={} output[{}]={}",
@@ -128,24 +131,11 @@ fn test_relu_backward_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    // ── Host data ─────────────────────────────────────────────────────────────
-    // y is relu output (non-negative); mix of zeros and positives to exercise both branches.
-    let y_arr = Array1::<f32>::random(N, Uniform::new(0.0f32, 5.0f32).unwrap())
-        .mapv(|v| if v < 1.0 { 0.0 } else { v });
-    let dy_arr = Array1::<f32>::random(N, Uniform::new(-5.0f32, 5.0f32).unwrap());
-
-    let y_host: Vec<f32> = y_arr.to_vec();
-    let dy_host: Vec<f32> = dy_arr.to_vec();
+    let y_host = load_fixture("relu/y_backward.bin");
+    let dy_host = load_fixture("relu/dy_backward.bin");
+    let expected = load_fixture("relu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    // ── Reference: pass gradient through where y > 0 ──────────────────────────
-    let expected: Vec<f32> = y_arr
-        .iter()
-        .zip(dy_arr.iter())
-        .map(|(&y, &dy)| if y > 0.0 { dy } else { 0.0 })
-        .collect();
-
-    // ── Device buffers ─────────────────────────────────────────────────────────
     let mut dy_buf = device.buffer::<f32>(N)?;
     let mut y_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
@@ -153,7 +143,6 @@ fn test_relu_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     y_buf.to_device(&y_host)?;
 
-    // ── Compile PTX ────────────────────────────────────────────────────────────
     let kernel = teeny_kernels::activation::relu::ReluBackward::<f32, BLOCK_SIZE>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
@@ -163,7 +152,6 @@ fn test_relu_backward_gpu() -> Result<()> {
         teeny_kernels::activation::relu::ReluBackward<f32, BLOCK_SIZE>,
     >(&ptx)?;
 
-    // ── Launch ─────────────────────────────────────────────────────────────────
     let cfg = testing::launch_config(N, BLOCK_SIZE);
     let args = (
         dy_buf.as_device_ptr() as *mut f32,
@@ -174,7 +162,6 @@ fn test_relu_backward_gpu() -> Result<()> {
 
     device.launch(&program, &cfg, args)?;
 
-    // ── Verify ─────────────────────────────────────────────────────────────────
     dx_buf.to_host(&mut dx_host)?;
 
     for i in 0..N {

@@ -16,9 +16,6 @@
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use ndarray::Array2;
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
 use std::path::PathBuf;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
@@ -28,18 +25,30 @@ use teeny_core::device::program::Kernel;
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
-// Tensor shape: B rows (batch), N columns (features).
 const B: usize = 64;
 const N: usize = 96;
 const BLOCK_B: i32 = 32;
 const BLOCK_N: i32 = 32;
 
-// Number of rows in the overallocated buffer used by the strided-row tests.
-// Every other row is selected (stride_ib = 2*N).
+// Over-allocated buffer: every other row is selected (stride_ib = 2*N).
 const PAD_ROWS: usize = 2 * B;
 
 /// Must match `.reqntid` in the generated PTX.
 const PTX_LAUNCH_THREADS_X: u32 = 128;
+
+fn load_fixture(rel: &str) -> Vec<f32> {
+    let path = format!(
+        "{}/tests/fixtures/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        rel
+    );
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
 
 // ---------------------------------------------------------------------------
 // MLIR snapshot tests
@@ -94,21 +103,13 @@ fn test_flatten_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    // Allocate a PAD_ROWS x N buffer; we will sample every other row.
-    let padded = Array2::<f32>::random((PAD_ROWS, N), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let padded_host: Vec<f32> = padded.iter().copied().collect();
-
-    // Expected output: even-indexed rows, row-major.
-    let mut expected = vec![0.0f32; B * N];
-    for b in 0..B {
-        for n in 0..N {
-            expected[b * N + n] = padded[[2 * b, n]];
-        }
-    }
+    // padded is [PAD_ROWS, N]; expected_forward is [B, N] = even-indexed rows.
+    let padded_host = load_fixture("flatten/padded.bin");
+    let expected = load_fixture("flatten/expected_forward.bin");
+    let mut output_host = vec![0.0f32; B * N];
 
     let mut input_buf = device.buffer::<f32>(PAD_ROWS * N)?;
     let output_buf = device.buffer::<f32>(B * N)?;
-    let mut output_host = vec![0.0f32; B * N];
 
     input_buf.to_device(&padded_host)?;
 
@@ -167,10 +168,9 @@ fn test_flatten_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_arr = Array2::<f32>::random((B, N), Uniform::new(-2.0f32, 2.0f32).unwrap());
-    let dy_host: Vec<f32> = dy_arr.iter().copied().collect();
-
-    // dx buffer is PAD_ROWS x N, zero-initialised so odd rows stay zero.
+    // dy is [B, N]; expected_backward is [PAD_ROWS, N] with even rows = dy, odd = 0.
+    let dy_host = load_fixture("flatten/dy.bin");
+    let expected = load_fixture("flatten/expected_backward.bin");
     let dx_init = vec![0.0f32; PAD_ROWS * N];
 
     let mut dy_buf = device.buffer::<f32>(B * N)?;
@@ -210,27 +210,13 @@ fn test_flatten_backward_cuda() -> Result<()> {
     device.launch(&program, &cfg, args)?;
     dx_buf.to_host(&mut dx_host)?;
 
-    // Even rows must match dy; odd rows must remain zero.
-    for b in 0..B {
-        for n in 0..N {
-            let gpu_even = dx_host[2 * b * N + n];
-            let exp = dy_arr[[b, n]];
-            assert!(
-                (gpu_even - exp).abs() < 1e-5,
-                "flatten_backward even-row mismatch at (b={b}, n={n}): gpu={gpu_even}, expected={exp}"
-            );
-
-            if b + 1 < B || n < N {
-                let odd_row = 2 * b + 1;
-                if odd_row < PAD_ROWS {
-                    let gpu_odd = dx_host[odd_row * N + n];
-                    assert!(
-                        gpu_odd == 0.0,
-                        "flatten_backward odd row {odd_row} should be zero at n={n}, got {gpu_odd}"
-                    );
-                }
-            }
-        }
+    for i in 0..(PAD_ROWS * N) {
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-5,
+            "flatten_backward mismatch at flat index {i}: gpu={}, expected={}",
+            dx_host[i],
+            expected[i]
+        );
     }
 
     Ok(())

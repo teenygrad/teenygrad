@@ -16,9 +16,6 @@
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use ndarray::Array2;
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
 use std::path::PathBuf;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
@@ -36,8 +33,22 @@ const BLOCK_N: i32 = 32;
 const BLOCK_K: i32 = 32;
 const GROUP_M: i32 = 8;
 
-/// Must match `.reqntid` in the generated PTX (see e.g. `/tmp/teenygrad_rustc/linear_*.o`).
+/// Must match `.reqntid` in the generated PTX.
 const PTX_LAUNCH_THREADS_X: u32 = 128;
+
+fn load_fixture(rel: &str) -> Vec<f32> {
+    let path = format!(
+        "{}/tests/fixtures/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        rel
+    );
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
 
 #[test]
 fn test_linear_mlir_without_bias_output() -> Result<()> {
@@ -122,25 +133,11 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_arr = Array2::<f32>::random((M, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let weight_arr = Array2::<f32>::random((N, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let bias_arr = vec![0.0f32; N];
-
-    let input_host = input_arr.iter().copied().collect::<Vec<_>>();
-    let weight_host = weight_arr.iter().copied().collect::<Vec<_>>();
-    let bias_host = bias_arr;
+    let input_host = load_fixture("linear/input.bin");
+    let weight_host = load_fixture("linear/weight.bin");
+    let bias_host = vec![0.0f32; N];   // no-bias kernel ignores the pointer value
+    let expected = load_fixture("linear/expected_no_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
-
-    let mut expected = vec![0.0f32; M * N];
-    for m in 0..M {
-        for n in 0..N {
-            let mut acc = 0.0f32;
-            for k in 0..K {
-                acc += input_arr[[m, k]] * weight_arr[[n, k]];
-            }
-            expected[m * N + n] = acc;
-        }
-    }
 
     let mut in_buf = device.buffer::<f32>(M * K)?;
     let mut w_buf = device.buffer::<f32>(N * K)?;
@@ -219,25 +216,11 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_arr = Array2::<f32>::random((M, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let weight_arr = Array2::<f32>::random((N, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let bias_arr = Array2::<f32>::random((1, N), Uniform::new(-2.0f32, 2.0f32).unwrap());
-
-    let input_host = input_arr.iter().copied().collect::<Vec<_>>();
-    let weight_host = weight_arr.iter().copied().collect::<Vec<_>>();
-    let bias_host = bias_arr.iter().copied().collect::<Vec<_>>();
+    let input_host = load_fixture("linear/input.bin");
+    let weight_host = load_fixture("linear/weight.bin");
+    let bias_host = load_fixture("linear/bias.bin");
+    let expected = load_fixture("linear/expected_with_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
-
-    let mut expected = vec![0.0f32; M * N];
-    for m in 0..M {
-        for n in 0..N {
-            let mut acc = 0.0f32;
-            for k in 0..K {
-                acc += input_arr[[m, k]] * weight_arr[[n, k]];
-            }
-            expected[m * N + n] = acc + bias_host[n];
-        }
-    }
 
     let mut in_buf = device.buffer::<f32>(M * K)?;
     let mut w_buf = device.buffer::<f32>(N * K)?;
@@ -316,13 +299,11 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_arr = Array2::<f32>::random((M, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let weight_arr = Array2::<f32>::random((N, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let dy_arr = Array2::<f32>::random((M, N), Uniform::new(-1.0f32, 1.0f32).unwrap());
-
-    let input_host = input_arr.iter().copied().collect::<Vec<_>>();
-    let weight_host = weight_arr.iter().copied().collect::<Vec<_>>();
-    let dy_host: Vec<f32> = dy_arr.iter().copied().collect();
+    let input_host = load_fixture("linear/input.bin");
+    let weight_host = load_fixture("linear/weight.bin");
+    let dy_host = load_fixture("linear/dy.bin");
+    let expected_dx = load_fixture("linear/expected_dx.bin");
+    let expected_dw = load_fixture("linear/expected_dw.bin");
 
     let mut dx_host = vec![0.0f32; M * K];
     let mut dw_host = vec![0.0f32; N * K];
@@ -355,7 +336,6 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
         teeny_kernels::mlp::linear::LinearBackward<f32, false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>,
     >(&ptx)?;
 
-    // 3D grid: ceil(M/BLOCK_M) * ceil(N/BLOCK_N) * ceil(K/BLOCK_K)
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32)
         * (N as u32).div_ceil(BLOCK_N as u32)
         * (K as u32).div_ceil(BLOCK_K as u32);
@@ -365,7 +345,6 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
         cluster: [1, 1, 1],
     };
 
-    // Strides match row-major [M,K], [N,K], [M,N], etc.; see `linear_backward` parameter order.
     let args = (
         x_buf.as_device_ptr() as *mut f32,
         w_buf.as_device_ptr() as *mut f32,
@@ -393,43 +372,21 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
     dx_buf.to_host(&mut dx_host)?;
     dw_buf.to_host(&mut dw_host)?;
 
-    let mut dx_expected = vec![0f32; M * K];
-    let mut dw_expected = vec![0f32; N * K];
-
-    for m in 0..M {
-        for k in 0..K {
-            let mut acc = 0f32;
-            for n in 0..N {
-                acc += dy_host[m * N + n] * weight_host[n * K + k];
-            }
-            dx_expected[m * K + k] = acc;
-        }
-    }
-    for n in 0..N {
-        for k in 0..K {
-            let mut acc = 0f32;
-            for m in 0..M {
-                acc += dy_host[m * N + n] * input_host[m * K + k];
-            }
-            dw_expected[n * K + k] = acc;
-        }
-    }
-
     for i in 0..(M * K) {
         assert!(
-            (dx_host[i] - dx_expected[i]).abs() < 5e-3,
+            (dx_host[i] - expected_dx[i]).abs() < 5e-3,
             "linear_backward (dx, no bias) mismatch at index {i}: gpu={}, expected={}",
             dx_host[i],
-            dx_expected[i]
+            expected_dx[i]
         );
     }
 
     for i in 0..(N * K) {
         assert!(
-            (dw_host[i] - dw_expected[i]).abs() < 5e-3,
+            (dw_host[i] - expected_dw[i]).abs() < 5e-3,
             "linear_backward (dw, no bias) mismatch at index {i}: gpu={}, expected={}",
             dw_host[i],
-            dw_expected[i]
+            expected_dw[i]
         );
     }
 
@@ -443,13 +400,12 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_arr = Array2::<f32>::random((M, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let weight_arr = Array2::<f32>::random((N, K), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let dy_arr = Array2::<f32>::random((M, N), Uniform::new(-1.0f32, 1.0f32).unwrap());
-
-    let input_host = input_arr.iter().copied().collect::<Vec<_>>();
-    let weight_host = weight_arr.iter().copied().collect::<Vec<_>>();
-    let dy_host: Vec<f32> = dy_arr.iter().copied().collect();
+    let input_host = load_fixture("linear/input.bin");
+    let weight_host = load_fixture("linear/weight.bin");
+    let dy_host = load_fixture("linear/dy.bin");
+    let expected_dx = load_fixture("linear/expected_dx.bin");
+    let expected_dw = load_fixture("linear/expected_dw.bin");
+    let expected_db = load_fixture("linear/expected_db.bin");
 
     let mut dx_host = vec![0.0f32; M * K];
     let mut dw_host = vec![0.0f32; N * K];
@@ -520,60 +476,30 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
     dw_buf.to_host(&mut dw_host)?;
     db_buf.to_host(&mut db_host)?;
 
-    let mut dx_expected = vec![0f32; M * K];
-    let mut dw_expected = vec![0f32; N * K];
-    let mut db_expected = vec![0f32; N];
-
-    for m in 0..M {
-        for k in 0..K {
-            let mut acc = 0f32;
-            for n in 0..N {
-                acc += dy_host[m * N + n] * weight_host[n * K + k];
-            }
-            dx_expected[m * K + k] = acc;
-        }
-    }
-    for n in 0..N {
-        for k in 0..K {
-            let mut acc = 0f32;
-            for m in 0..M {
-                acc += dy_host[m * N + n] * input_host[m * K + k];
-            }
-            dw_expected[n * K + k] = acc;
-        }
-    }
-    for n in 0..N {
-        let mut acc = 0f32;
-        for m in 0..M {
-            acc += dy_host[m * N + n];
-        }
-        db_expected[n] = acc;
-    }
-
     for i in 0..(M * K) {
         assert!(
-            (dx_host[i] - dx_expected[i]).abs() < 5e-3,
+            (dx_host[i] - expected_dx[i]).abs() < 5e-3,
             "linear_backward (dx, with bias) mismatch at index {i}: gpu={}, expected={}",
             dx_host[i],
-            dx_expected[i]
+            expected_dx[i]
         );
     }
 
     for i in 0..(N * K) {
         assert!(
-            (dw_host[i] - dw_expected[i]).abs() < 5e-3,
+            (dw_host[i] - expected_dw[i]).abs() < 5e-3,
             "linear_backward (dw, with bias) mismatch at index {i}: gpu={}, expected={}",
             dw_host[i],
-            dw_expected[i]
+            expected_dw[i]
         );
     }
 
     for i in 0..N {
         assert!(
-            (db_host[i] - db_expected[i]).abs() < 5e-3,
+            (db_host[i] - expected_db[i]).abs() < 5e-3,
             "linear_backward (db) mismatch at index {i}: gpu={}, expected={}",
             db_host[i],
-            db_expected[i]
+            expected_db[i]
         );
     }
 

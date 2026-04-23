@@ -16,9 +16,6 @@
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use ndarray::Array4;
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
 use std::path::PathBuf;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
@@ -28,7 +25,6 @@ use teeny_core::device::program::Kernel;
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
-// Spatial dimensions: 2×2 non-overlapping pool on a 8×8 feature map → 4×4 output.
 const B: usize = 2;
 const C: usize = 4;
 const H: usize = 8;
@@ -43,6 +39,20 @@ const BLOCK_OW: i32 = 4;
 
 /// Must match `.reqntid` in the generated PTX.
 const PTX_LAUNCH_THREADS_X: u32 = 128;
+
+fn load_fixture(rel: &str) -> Vec<f32> {
+    let path = format!(
+        "{}/tests/fixtures/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        rel
+    );
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
 
 // ---------------------------------------------------------------------------
 // MLIR snapshot tests
@@ -96,10 +106,6 @@ fn test_avgpool2d_backward_mlir_output() -> Result<()> {
 // CUDA integration tests
 // ---------------------------------------------------------------------------
 
-/// Forward: verify GPU output matches CPU reference for 2×2 avgpool with stride 2.
-///
-/// For each output (b, c, oh, ow):
-///   output[b,c,oh,ow] = mean( input[b, c, oh*2:oh*2+2, ow*2:ow*2+2] )
 #[test]
 #[cfg(feature = "cuda")]
 fn test_avgpool2d_forward_cuda() -> Result<()> {
@@ -107,32 +113,12 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_arr = Array4::<f32>::random((B, C, H, W), Uniform::new(-5.0f32, 5.0f32).unwrap());
-    let input_host: Vec<f32> = input_arr.iter().copied().collect();
-
-    // CPU reference.
-    let mut expected = vec![0.0f32; B * C * OH * OW];
-    for b in 0..B {
-        for c in 0..C {
-            for oh in 0..OH {
-                for ow in 0..OW {
-                    let mut sum = 0.0f32;
-                    for kh in 0..KH as usize {
-                        for kw in 0..KW as usize {
-                            let ih = oh * STRIDE_H as usize + kh;
-                            let iw = ow * STRIDE_W as usize + kw;
-                            sum += input_arr[[b, c, ih, iw]];
-                        }
-                    }
-                    expected[b * C * OH * OW + c * OH * OW + oh * OW + ow] = sum / (KH * KW) as f32;
-                }
-            }
-        }
-    }
+    let input_host = load_fixture("avgpool2d/x.bin");
+    let expected = load_fixture("avgpool2d/expected_forward.bin");
+    let mut output_host = vec![0.0f32; B * C * OH * OW];
 
     let mut input_buf = device.buffer::<f32>(B * C * H * W)?;
     let output_buf = device.buffer::<f32>(B * C * OH * OW)?;
-    let mut output_host = vec![0.0f32; B * C * OH * OW];
 
     input_buf.to_device(&input_host)?;
 
@@ -153,7 +139,6 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
         teeny_kernels::pool::avgpool2d::Avgpool2dForward<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
     >(&ptx)?;
 
-    // Grid: B * C * OH * ceil(OW / BLOCK_OW).
     let num_ow_tiles = (OW as u32).div_ceil(BLOCK_OW as u32);
     let grid_x = (B * C * OH) as u32 * num_ow_tiles;
     let cfg = CudaLaunchConfig {
@@ -188,11 +173,6 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
     Ok(())
 }
 
-/// Backward: verify GPU dx matches CPU reference for 2×2 avgpool with stride 2.
-///
-/// Since STRIDE = KH = KW = 2 (non-overlapping), each input element maps to
-/// exactly one output, so:
-///   dx[b,c,ih,iw] = dy[b,c,ih/2,iw/2] / (KH*KW)
 #[test]
 #[cfg(feature = "cuda")]
 fn test_avgpool2d_backward_cuda() -> Result<()> {
@@ -200,35 +180,16 @@ fn test_avgpool2d_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_arr = Array4::<f32>::random((B, C, OH, OW), Uniform::new(-2.0f32, 2.0f32).unwrap());
-    let dy_host: Vec<f32> = dy_arr.iter().copied().collect();
-
-    // CPU reference: uniform scatter.
-    let mut expected = vec![0.0f32; B * C * H * W];
-    for b in 0..B {
-        for c in 0..C {
-            for oh in 0..OH {
-                for ow in 0..OW {
-                    let grad = dy_arr[[b, c, oh, ow]] / (KH * KW) as f32;
-                    for kh in 0..KH as usize {
-                        for kw in 0..KW as usize {
-                            let ih = oh * STRIDE_H as usize + kh;
-                            let iw = ow * STRIDE_W as usize + kw;
-                            expected[b * C * H * W + c * H * W + ih * W + iw] += grad;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let dy_host = load_fixture("avgpool2d/dy.bin");
+    let expected = load_fixture("avgpool2d/expected_backward.bin");
+    let zeros = vec![0.0f32; B * C * H * W];
+    let mut dx_host = vec![0.0f32; B * C * H * W];
 
     let mut dy_buf = device.buffer::<f32>(B * C * OH * OW)?;
-    let mut dx_host = vec![0.0f32; B * C * H * W];
-    let zeros = vec![0.0f32; B * C * H * W];
-
-    dy_buf.to_device(&dy_host)?;
     // dx must be zero-initialised before launching (atomics accumulate).
     let mut dx_zero_buf = device.buffer::<f32>(B * C * H * W)?;
+
+    dy_buf.to_device(&dy_host)?;
     dx_zero_buf.to_device(&zeros)?;
 
     let kernel = teeny_kernels::pool::avgpool2d::Avgpool2dBackward::<

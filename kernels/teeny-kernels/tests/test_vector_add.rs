@@ -18,9 +18,6 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use ndarray::Array1;
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
 use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
@@ -31,6 +28,20 @@ use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
+
+fn load_fixture(rel: &str) -> Vec<f32> {
+    let path = format!(
+        "{}/tests/fixtures/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        rel
+    );
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
 
 #[test]
 fn test_tensor_add() -> Result<()> {
@@ -55,13 +66,10 @@ fn test_tensor_add_gpu_execution() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_arr = Array1::<f32>::random(N, Uniform::new(-10.0f32, 10.0f32).unwrap());
-    let y_arr = Array1::<f32>::random(N, Uniform::new(-10.0f32, 10.0f32).unwrap());
-    let x_host = x_arr.to_vec();
-    let y_host = y_arr.to_vec();
+    let x_host = load_fixture("vector_add/x.bin");
+    let y_host = load_fixture("vector_add/y.bin");
+    let expected = load_fixture("vector_add/expected.bin");
     let mut output_host = vec![0.0f32; N];
-
-    let expected: Vec<f32> = x_arr.iter().zip(y_arr.iter()).map(|(x, y)| x + y).collect();
 
     let mut x_buf = device.buffer::<f32>(N)?;
     let mut y_buf = device.buffer::<f32>(N)?;
