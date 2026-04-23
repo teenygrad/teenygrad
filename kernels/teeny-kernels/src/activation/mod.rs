@@ -14,5 +14,11 @@
  * limitations under the License.
  */
 
+pub mod elu;
+pub mod gelu;
+pub mod hard;
+pub mod misc;
 pub mod relu;
+pub mod sigmoid;
 pub mod softmax;
+pub mod tanh;

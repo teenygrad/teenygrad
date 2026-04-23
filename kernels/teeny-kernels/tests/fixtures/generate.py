@@ -155,4 +155,96 @@ save(f"{d}/expected_forward.bin", expected_fwd_fl)
 save(f"{d}/dy.bin",               dy_fl)
 save(f"{d}/expected_backward.bin", expected_bwd_fl)
 
+import math
+
+N_ACT = 1024  # element count for all element-wise activation fixtures
+
+def act_fixture(name, fwd_fn, bwd_fn, x_range=(-5, 5), dy_range=(-2, 2)):
+    """Generate forward+backward fixtures for a pointwise activation."""
+    print(name)
+    d = os.path.join(BASE, name)
+    x = torch.empty(N_ACT).uniform_(*x_range)
+    dy = torch.empty(N_ACT).uniform_(*dy_range)
+
+    x_r = x.clone().requires_grad_(True)
+    y = fwd_fn(x_r)
+    y.backward(dy)
+    dx = x_r.grad.detach()
+
+    save(f"{d}/x.bin",                x)
+    save(f"{d}/dy.bin",               dy)
+    save(f"{d}/expected_forward.bin", y.detach())
+    save(f"{d}/expected_backward.bin", dx)
+
+# ── Sigmoid ────────────────────────────────────────────────────────────────────
+act_fixture("sigmoid", torch.sigmoid, None)
+
+# ── SiLU ──────────────────────────────────────────────────────────────────────
+act_fixture("silu", F.silu, None)
+
+# ── LogSigmoid ────────────────────────────────────────────────────────────────
+act_fixture("logsigmoid", F.logsigmoid, None)
+
+# ── Tanh ──────────────────────────────────────────────────────────────────────
+act_fixture("tanh", torch.tanh, None)
+
+# ── Tanhshrink ────────────────────────────────────────────────────────────────
+act_fixture("tanhshrink", F.tanhshrink, None)
+
+# ── GELU (tanh approximation) ─────────────────────────────────────────────────
+act_fixture("gelu", lambda x: F.gelu(x, approximate='tanh'), None)
+
+# ── Mish ──────────────────────────────────────────────────────────────────────
+act_fixture("mish", F.mish, None)
+
+# ── Hardtanh (min=-1, max=1) ──────────────────────────────────────────────────
+act_fixture("hardtanh", lambda x: F.hardtanh(x, min_val=-1.0, max_val=1.0), None)
+
+# ── ReLU6 ─────────────────────────────────────────────────────────────────────
+act_fixture("relu6", F.relu6, None)
+
+# ── Hardsigmoid ───────────────────────────────────────────────────────────────
+act_fixture("hardsigmoid", F.hardsigmoid, None)
+
+# ── Hardswish ─────────────────────────────────────────────────────────────────
+act_fixture("hardswish", F.hardswish, None)
+
+# ── Hardshrink (lambda=0.5) ───────────────────────────────────────────────────
+act_fixture("hardshrink", lambda x: F.hardshrink(x, lambd=0.5), None)
+
+# ── ELU (alpha=1.0) ───────────────────────────────────────────────────────────
+act_fixture("elu", lambda x: F.elu(x, alpha=1.0), None)
+
+# ── SELU ──────────────────────────────────────────────────────────────────────
+act_fixture("selu", F.selu, None)
+
+# ── CELU (alpha=1.0) ──────────────────────────────────────────────────────────
+act_fixture("celu", lambda x: F.celu(x, alpha=1.0), None)
+
+# ── LeakyReLU (negative_slope=0.01) ───────────────────────────────────────────
+act_fixture("leaky_relu", lambda x: F.leaky_relu(x, negative_slope=0.01), None)
+
+# ── Threshold (threshold=0.5, value=0.0) ──────────────────────────────────────
+# Use x.clone().requires_grad_(True) separately since threshold is non-differentiable at boundary
+print("threshold")
+d_thr = os.path.join(BASE, "threshold")
+x_thr = torch.empty(N_ACT).uniform_(-5, 5)
+dy_thr = torch.empty(N_ACT).uniform_(-2, 2)
+x_thr_r = x_thr.clone().requires_grad_(True)
+y_thr = F.threshold(x_thr_r, threshold=0.5, value=0.0)
+y_thr.backward(dy_thr)
+save(f"{d_thr}/x.bin",                 x_thr)
+save(f"{d_thr}/dy.bin",                dy_thr)
+save(f"{d_thr}/expected_forward.bin",  y_thr.detach())
+save(f"{d_thr}/expected_backward.bin", x_thr_r.grad.detach())
+
+# ── Softsign ──────────────────────────────────────────────────────────────────
+act_fixture("softsign", F.softsign, None)
+
+# ── Softshrink (lambda=0.5) ───────────────────────────────────────────────────
+act_fixture("softshrink", lambda x: F.softshrink(x, lambd=0.5), None)
+
+# ── Softplus (beta=1, threshold=20) ───────────────────────────────────────────
+act_fixture("softplus", lambda x: F.softplus(x, beta=1, threshold=20), None)
+
 print("\nDone — all fixtures generated.")

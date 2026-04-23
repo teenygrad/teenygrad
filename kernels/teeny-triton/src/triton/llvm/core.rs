@@ -334,6 +334,22 @@ pub mod core {
             }
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Mul for f32 {
+            type Output = f32;
+            fn mul(self, rhs: f32) -> Self::Output {
+                0.0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Mul for f64 {
+            type Output = f64;
+            fn mul(self, rhs: f64) -> Self::Output {
+                0.0
+            }
+        }
+
         #[lang = "add"]
         pub trait Add<RHS = Self> {
             type Output;
@@ -372,6 +388,22 @@ pub mod core {
             }
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Add for f32 {
+            type Output = f32;
+            fn add(self, rhs: f32) -> Self::Output {
+                0.0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Add for f64 {
+            type Output = f64;
+            fn add(self, rhs: f64) -> Self::Output {
+                0.0
+            }
+        }
+
         #[lang = "sub"]
         pub trait Sub<RHS = Self> {
             type Output;
@@ -394,6 +426,22 @@ pub mod core {
             }
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Sub for f32 {
+            type Output = f32;
+            fn sub(self, rhs: f32) -> Self::Output {
+                0.0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Sub for f64 {
+            type Output = f64;
+            fn sub(self, rhs: f64) -> Self::Output {
+                0.0
+            }
+        }
+
         #[lang = "div"]
         pub trait Div<RHS = Self> {
             type Output;
@@ -405,6 +453,22 @@ pub mod core {
             type Output = i32;
             fn div(self, rhs: i32) -> Self::Output {
                 0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Div for f32 {
+            type Output = f32;
+            fn div(self, rhs: f32) -> Self::Output {
+                0.0
+            }
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Div for f64 {
+            type Output = f64;
+            fn div(self, rhs: f64) -> Self::Output {
+                0.0
             }
         }
 
