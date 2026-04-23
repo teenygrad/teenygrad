@@ -2270,6 +2270,7 @@ dependencies = [
  "insta",
  "ndarray",
  "proc-macro2",
+ "sha2",
  "syn",
  "teeny-core",
  "teeny-cuda",

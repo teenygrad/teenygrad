@@ -19,6 +19,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
+use sha2::{Digest, Sha256};
 use teeny_core::compiler::{Compiler, Target};
 use teeny_core::device::program::Kernel;
 use tracing::info;
@@ -60,7 +61,18 @@ impl LlvmCompiler {
 
 impl Compiler for LlvmCompiler {
     fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
-        let kernel_file_name = format!("{}_{}", kernel.name(), kernel.id());
+        // Re-hash the kernel id with the target cpu so different targets get
+        // separate cache entries and parallel test runs don't race on the same file.
+        let effective_id = match &self.target_cpu {
+            Some(cpu) => {
+                let mut h = Sha256::new();
+                h.update(kernel.id().as_bytes());
+                h.update(cpu.as_bytes());
+                h.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
+            }
+            None => kernel.id(),
+        };
+        let kernel_file_name = format!("{}_{}", kernel.name(), effective_id);
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
         let output_file = self.cache_dir.join(kernel_file_name).with_extension("o");
 
