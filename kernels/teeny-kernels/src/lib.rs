@@ -17,6 +17,7 @@
 pub mod activation;
 pub mod conv;
 pub mod errors;
+pub mod graph;
 pub mod math;
 pub mod mlp;
 pub mod pool;

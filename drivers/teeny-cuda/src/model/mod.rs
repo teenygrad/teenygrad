@@ -17,7 +17,7 @@
 use std::{collections::HashMap, marker::PhantomData};
 
 use anyhow::anyhow;
-use teeny_core::graph::Graph;
+use teeny_core::{graph::Graph, model::Model};
 
 use crate::{device::CudaDevice, errors::Result};
 
@@ -91,6 +91,16 @@ pub struct CudaModel<'a> {
     ops: Vec<Box<dyn ExecutableOp<'a> + 'a>>,
     output_id: NodeId,
     _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> Model<'a> for CudaModel<'a> {
+    type Device = CudaDevice<'a>;
+    type Input = LaunchRequest;
+    type Output = LaunchResult;
+
+    fn forward(&self, device: &Self::Device, input: Self::Input) -> Result<Self::Output> {
+        self.forward(device, input)
+    }
 }
 
 impl<'a> CudaModel<'a> {

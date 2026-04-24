@@ -24,6 +24,7 @@ use crate::cuda;
 use crate::device::program::CudaProgram;
 use crate::errors::{Error, Result};
 
+pub mod graph;
 pub mod options;
 pub mod target;
 

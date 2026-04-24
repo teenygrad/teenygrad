@@ -29,6 +29,8 @@ use crate::{
     },
 };
 
+pub mod compiler;
+
 // ---------------------------------------------------------------------------
 // Shape — dynamic tensor shape used throughout the graph IR
 // ---------------------------------------------------------------------------
@@ -118,7 +120,13 @@ impl Graph {
         Self::default()
     }
 
-    pub fn add_node(&mut self, op: Op, inputs: Vec<usize>, dtype: DtypeRepr, shape: Shape) -> usize {
+    pub fn add_node(
+        &mut self,
+        op: Op,
+        inputs: Vec<usize>,
+        dtype: DtypeRepr,
+        shape: Shape,
+    ) -> usize {
         let id = self.nodes.len();
         self.nodes.push(GraphNode {
             op,
@@ -249,7 +257,9 @@ impl SymTensor {
     /// ```
     pub fn input(dtype: DtypeRepr, shape: Shape) -> (Self, Rc<RefCell<Graph>>) {
         let graph = Rc::new(RefCell::new(Graph::new()));
-        let node_id = graph.borrow_mut().add_node(Op::Input, vec![], dtype, shape.clone());
+        let node_id = graph
+            .borrow_mut()
+            .add_node(Op::Input, vec![], dtype, shape.clone());
         let tensor = Self {
             node_id,
             graph: graph.clone(),
@@ -270,10 +280,10 @@ impl SymTensor {
     }
 
     fn record_with_shape(&self, op: Op, shape: Shape) -> Self {
-        let node_id = self
-            .graph
-            .borrow_mut()
-            .add_node(op, vec![self.node_id], self.dtype, shape.clone());
+        let node_id =
+            self.graph
+                .borrow_mut()
+                .add_node(op, vec![self.node_id], self.dtype, shape.clone());
         Self {
             node_id,
             graph: self.graph.clone(),

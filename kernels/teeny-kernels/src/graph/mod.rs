@@ -14,15 +14,27 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+use crate::errors::Result;
+use teeny_core::{
+    graph::{Graph, Op},
+    model::{ExecutableOp, Lowering},
+    utils::dag::Dag,
+};
 
-pub mod compiler;
-pub mod device;
-pub mod dtype;
-pub mod errors;
-pub mod graph;
-pub mod macros;
-pub mod model;
-pub mod nn;
-pub mod utils;
+pub struct TritonLowering {}
+
+impl<'a> Lowering<'a> for TritonLowering {
+    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp<'a>>>> {
+        let node_indexes = graph.topological_sort();
+        let mut dag = Dag::new();
+
+        for node_index in node_indexes {
+            let node = &graph.nodes[node_index];
+            match node.op {
+                _ => todo!("not implemented"),
+            }
+        }
+
+        Ok(dag)
+    }
+}

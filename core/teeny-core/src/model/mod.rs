@@ -14,17 +14,20 @@
  * limitations under the License.
  */
 
-use crate::{device::Device, errors::Result};
+use alloc::{boxed::Box, vec::Vec};
+
+use crate::{device::Device, errors::Result, graph::Graph, utils::dag::Dag};
+
+pub type NodeId = usize;
 
 pub trait RuntimeContext<'a> {}
 
 pub trait ExecutableOp<'a> {
-    type Device: Device<'a>;
-    type RuntimeContext: RuntimeContext<'a>;
+    fn forward(&self, inputs: &[NodeId]) -> Result<Vec<NodeId>>;
+}
 
-    fn forward(&self, device: &Self::Device, rt: &mut Self::RuntimeContext) -> Result<()>;
-
-    fn backward(&self, device: &Self::Device, rt: &mut Self::RuntimeContext) -> Result<()>;
+pub trait Lowering<'a> {
+    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp<'a>>>>;
 }
 
 pub trait Model<'a> {

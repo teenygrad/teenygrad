@@ -14,15 +14,4 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
-
-pub mod compiler;
-pub mod device;
-pub mod dtype;
-pub mod errors;
-pub mod graph;
-pub mod macros;
-pub mod model;
-pub mod nn;
-pub mod utils;
+pub mod dag;
