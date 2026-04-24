@@ -21,17 +21,12 @@ use teeny_core::{
     model::{Lowering, Model},
 };
 
-use crate::compiler::PtxCompiler;
-
-pub struct CudaGraphCompiler {
-    pub ptx_compiler: PtxCompiler,
-}
+#[derive(Debug, Default)]
+pub struct CudaGraphCompiler {}
 
 impl CudaGraphCompiler {
-    pub fn new(compiler: PtxCompiler) -> Self {
-        Self {
-            ptx_compiler: compiler,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

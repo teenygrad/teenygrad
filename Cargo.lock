@@ -2428,7 +2428,15 @@ dependencies = [
 name = "teeny-vision"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "indicatif",
+ "reqwest",
+ "teeny-compiler",
  "teeny-core",
+ "teeny-cuda",
+ "teeny-kernels",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

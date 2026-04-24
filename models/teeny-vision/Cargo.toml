@@ -4,4 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+thiserror.workspace = true
+anyhow.workspace = true
 teeny-core = { path = "../../core/teeny-core" }
+
+[dev-dependencies]
+tokio.workspace = true
+reqwest.workspace = true
+indicatif.workspace = true
+teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-cuda = { path = "../../drivers/teeny-cuda" }
+teeny-compiler = { path = "../../compiler/teeny-compiler" }

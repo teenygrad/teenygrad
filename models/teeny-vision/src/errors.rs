@@ -14,5 +14,10 @@
  * limitations under the License.
  */
 
-pub mod errors;
-pub mod mnist;
+pub type Result<T> = anyhow::Result<T>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Unknown error: {0}")]
+    UnknownError(String),
+}

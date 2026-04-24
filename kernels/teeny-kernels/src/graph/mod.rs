@@ -21,7 +21,14 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
+#[derive(Debug, Default)]
 pub struct TritonLowering {}
+
+impl TritonLowering {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 impl<'a> Lowering<'a> for TritonLowering {
     fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp<'a>>>> {
