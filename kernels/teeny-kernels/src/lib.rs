@@ -20,4 +20,5 @@ pub mod errors;
 pub mod graph;
 pub mod math;
 pub mod mlp;
+pub mod pad;
 pub mod pool;

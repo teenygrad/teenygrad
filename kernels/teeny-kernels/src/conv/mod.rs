@@ -14,4 +14,6 @@
  * limitations under the License.
  */
 
+pub mod conv1d;
 pub mod conv2d;
+pub mod conv3d;

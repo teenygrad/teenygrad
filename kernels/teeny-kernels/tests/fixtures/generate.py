@@ -322,6 +322,115 @@ save(f"{d}/expected_forward.bin", expected_fwd_fl)
 save(f"{d}/dy.bin",               dy_fl)
 save(f"{d}/expected_backward.bin", expected_bwd_fl)
 
+# ── padding layers ─────────────────────────────────────────────────────────────
+# Shared dims for 1-D pads: B=2, C=4, L=8, pad=(2,3)
+B_P1, C_P1, L_P1 = 2, 4, 8
+PAD_LEFT_1, PAD_RIGHT_1 = 2, 3
+OL_P1 = L_P1 + PAD_LEFT_1 + PAD_RIGHT_1  # 13
+
+# Shared dims for 2-D pads: B=2, C=4, H=6, W=8, pad=(1,2,2,3)
+B_P2, C_P2, H_P2, W_P2 = 2, 4, 6, 8
+PT_P2, PB_P2, PL_P2, PR_P2 = 1, 2, 2, 3
+OH_P2 = H_P2 + PT_P2 + PB_P2  # 9
+OW_P2 = W_P2 + PL_P2 + PR_P2  # 13
+
+# Shared dims for 3-D pads: B=2, C=2, D=4, H=4, W=6, pad=(1,1,1,2,2,2)
+B_P3, C_P3, DV_P3, H_P3, W_P3 = 2, 2, 4, 4, 6
+PD1_P3, PD2_P3 = 1, 1
+PH1_P3, PH2_P3 = 1, 2
+PW1_P3, PW2_P3 = 2, 2
+OD_P3 = DV_P3 + PD1_P3 + PD2_P3  # 6
+OH_P3 = H_P3  + PH1_P3 + PH2_P3  # 7
+OW_P3 = W_P3  + PW1_P3 + PW2_P3  # 10
+
+VALUE = 1.5
+
+def pad_fixture(name, fwd_fn, bwd_fn, x_shape, out_shape):
+    print(name)
+    d = os.path.join(BASE, name)
+    x = torch.empty(*x_shape).uniform_(-5, 5)
+    x_r = x.clone().requires_grad_(True)
+    y = fwd_fn(x_r)
+    dy = torch.empty(*out_shape).uniform_(-2, 2)
+    y.backward(dy)
+    dx = x_r.grad.detach()
+    save(f"{d}/x.bin",                x)
+    save(f"{d}/dy.bin",               dy)
+    save(f"{d}/expected_forward.bin",  y.detach())
+    save(f"{d}/expected_backward.bin", dx)
+
+# ── constant_pad1d ────────────────────────────────────────────────────────────
+pad_fixture("constant_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='constant', value=VALUE),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── constant_pad2d ────────────────────────────────────────────────────────────
+pad_fixture("constant_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='constant', value=VALUE),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── constant_pad3d ────────────────────────────────────────────────────────────
+pad_fixture("constant_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='constant', value=VALUE),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
+# ── reflection_pad1d ──────────────────────────────────────────────────────────
+pad_fixture("reflection_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='reflect'),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── reflection_pad2d ──────────────────────────────────────────────────────────
+pad_fixture("reflection_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='reflect'),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── reflection_pad3d ──────────────────────────────────────────────────────────
+pad_fixture("reflection_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='reflect'),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
+# ── replication_pad1d ─────────────────────────────────────────────────────────
+pad_fixture("replication_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='replicate'),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── replication_pad2d ─────────────────────────────────────────────────────────
+pad_fixture("replication_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='replicate'),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── replication_pad3d ─────────────────────────────────────────────────────────
+pad_fixture("replication_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='replicate'),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
+# ── circular_pad1d ────────────────────────────────────────────────────────────
+pad_fixture("circular_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='circular'),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── circular_pad2d ────────────────────────────────────────────────────────────
+pad_fixture("circular_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='circular'),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── circular_pad3d ────────────────────────────────────────────────────────────
+pad_fixture("circular_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='circular'),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
 import math
 
 N_ACT = 1024  # element count for all element-wise activation fixtures

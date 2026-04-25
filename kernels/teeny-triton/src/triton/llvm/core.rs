@@ -515,5 +515,31 @@ pub mod core {
                 0.0
             }
         }
+
+        #[lang = "bitand"]
+        pub trait BitAnd<RHS = Self> {
+            type Output;
+            fn bitand(self, rhs: RHS) -> Self::Output;
+        }
+
+        impl BitAnd for bool {
+            type Output = bool;
+            fn bitand(self, rhs: bool) -> Self::Output {
+                false
+            }
+        }
+
+        #[lang = "bitor"]
+        pub trait BitOr<RHS = Self> {
+            type Output;
+            fn bitor(self, rhs: RHS) -> Self::Output;
+        }
+
+        impl BitOr for bool {
+            type Output = bool;
+            fn bitor(self, rhs: bool) -> Self::Output {
+                false
+            }
+        }
     }
 }
