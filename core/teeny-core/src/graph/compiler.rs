@@ -20,10 +20,10 @@ use crate::graph::Graph;
 use crate::model::{Lowering, Model};
 
 pub trait GraphCompiler {
-    fn compile<'a, L: Lowering<'a>, T: Target, M: Model<'a>>(
+    fn compile<'a, L: Lowering<'a>, T: Target>(
         &self,
         graph: &Graph,
         lowering: &L,
         target: &T,
-    ) -> Result<M>;
+    ) -> Result<impl Model<'a>>;
 }

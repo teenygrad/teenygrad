@@ -45,8 +45,8 @@ async fn main() -> Result<()> {
     let lowering = TritonLowering::new();
     let graph_compiler = CudaGraphCompiler::new();
     let target = Target::new(Capability::Sm90);
-    let _model =
-        graph_compiler.compile::<_, _, CudaModel<'static>>(&graph.borrow(), &lowering, &target)?;
+    // let _model =
+    //     graph_compiler.compile::<_, _, CudaModel<'static>>(&graph.borrow(), &lowering, &target)?;
 
     println!("Hello, world!: {:?}", graph.borrow().nodes);
 

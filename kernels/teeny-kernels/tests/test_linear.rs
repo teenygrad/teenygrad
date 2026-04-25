@@ -37,13 +37,8 @@ const GROUP_M: i32 = 8;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -54,8 +49,14 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_linear_mlir_without_bias_output() -> Result<()> {
     dotenv()?;
 
-    let kernel =
-        teeny_kernels::mlp::linear::Linear::<f32, false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>::new();
+    let kernel = teeny_kernels::mlp::linear::LinearForward::<
+        f32,
+        false,
+        BLOCK_M,
+        BLOCK_N,
+        BLOCK_K,
+        GROUP_M,
+    >::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -70,8 +71,14 @@ fn test_linear_mlir_without_bias_output() -> Result<()> {
 fn test_linear_mlir_with_bias_output() -> Result<()> {
     dotenv()?;
 
-    let kernel =
-        teeny_kernels::mlp::linear::Linear::<f32, true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>::new();
+    let kernel = teeny_kernels::mlp::linear::LinearForward::<
+        f32,
+        true,
+        BLOCK_M,
+        BLOCK_N,
+        BLOCK_K,
+        GROUP_M,
+    >::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -135,7 +142,7 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
 
     let input_host = load_fixture("linear/input.bin");
     let weight_host = load_fixture("linear/weight.bin");
-    let bias_host = vec![0.0f32; N];   // no-bias kernel ignores the pointer value
+    let bias_host = vec![0.0f32; N]; // no-bias kernel ignores the pointer value
     let expected = load_fixture("linear/expected_no_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
 
@@ -148,15 +155,21 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
     w_buf.to_device(&weight_host)?;
     bias_buf.to_device(&bias_host)?;
 
-    let kernel =
-        teeny_kernels::mlp::linear::Linear::<f32, false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>::new();
+    let kernel = teeny_kernels::mlp::linear::LinearForward::<
+        f32,
+        false,
+        BLOCK_M,
+        BLOCK_N,
+        BLOCK_K,
+        GROUP_M,
+    >::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::mlp::linear::Linear<f32, false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>,
+        teeny_kernels::mlp::linear::LinearForward<f32, false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>,
     >(&ptx)?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32) * (N as u32).div_ceil(BLOCK_N as u32);
@@ -231,15 +244,21 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
     w_buf.to_device(&weight_host)?;
     bias_buf.to_device(&bias_host)?;
 
-    let kernel =
-        teeny_kernels::mlp::linear::Linear::<f32, true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>::new();
+    let kernel = teeny_kernels::mlp::linear::LinearForward::<
+        f32,
+        true,
+        BLOCK_M,
+        BLOCK_N,
+        BLOCK_K,
+        GROUP_M,
+    >::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::mlp::linear::Linear<f32, true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>,
+        teeny_kernels::mlp::linear::LinearForward<f32, true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M>,
     >(&ptx)?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32) * (N as u32).div_ceil(BLOCK_N as u32);

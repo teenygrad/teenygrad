@@ -17,7 +17,10 @@
 use std::{collections::HashMap, marker::PhantomData};
 
 use anyhow::anyhow;
-use teeny_core::{graph::Graph, model::Model};
+use teeny_core::{
+    model::{ExecutableOp, Model},
+    utils::dag::Dag,
+};
 
 use crate::{device::CudaDevice, errors::Result};
 
@@ -70,15 +73,6 @@ impl RuntimeCtx {
     }
 }
 
-/// Type-erased executable operator in the model chain.
-///
-/// Concrete implementations can keep kernel-specific generic types internally
-/// while exposing a uniform runtime API for model execution.
-pub trait ExecutableOp<'a> {
-    fn forward(&self, device: &CudaDevice<'a>, rt: &mut RuntimeCtx) -> Result<()>;
-    fn backward(&self, device: &CudaDevice<'a>, rt: &mut RuntimeCtx) -> Result<()>;
-}
-
 pub struct LaunchRequest {
     pub inputs: HashMap<NodeId, TensorRef>,
 }
@@ -87,47 +81,63 @@ pub struct LaunchResult {
     pub output: TensorRef,
 }
 
+pub struct IdGenerator {
+    next_id: usize,
+}
+
+impl IdGenerator {
+    pub fn new() -> Self {
+        Self { next_id: 0 }
+    }
+
+    pub fn next(&mut self) -> NodeId {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+}
+
+pub struct Node {
+    id: NodeId,
+    pub op: Box<dyn ExecutableOp>,
+    pub inputs: Vec<NodeId>,
+}
+
+impl Node {
+    pub fn new(id: usize, op: Box<dyn ExecutableOp>, inputs: Vec<NodeId>) -> Self {
+        Self { id, op, inputs }
+    }
+}
+
 pub struct CudaModel<'a> {
-    ops: Vec<Box<dyn ExecutableOp<'a> + 'a>>,
-    output_id: NodeId,
+    pub dag: Dag<Box<&'static dyn ExecutableOp>>,
+    pub nodes: Vec<Node>,
     _marker: PhantomData<&'a ()>,
 }
 
 impl<'a> Model<'a> for CudaModel<'a> {
-    type Device = CudaDevice<'a>;
     type Input = LaunchRequest;
     type Output = LaunchResult;
 
-    fn forward(&self, device: &Self::Device, input: Self::Input) -> Result<Self::Output> {
-        self.forward(device, input)
+    fn forward(&self, _input: Self::Input) -> Result<Self::Output> {
+        todo!();
     }
 }
 
 impl<'a> CudaModel<'a> {
-    pub fn from_graph(_graph: &Graph, _device: &CudaDevice<'a>) -> Self {
-        Self {
-            ops: Vec::new(),
-            output_id: 0,
+    pub fn new(dag: Dag<Box<&'static dyn ExecutableOp>>) -> Result<Self> {
+        Ok(Self {
+            dag,
+            nodes: Vec::new(),
             _marker: PhantomData,
-        }
+        })
     }
 
-    pub fn with_ops(mut self, ops: Vec<Box<dyn ExecutableOp<'a> + 'a>>) -> Self {
-        self.ops = ops;
-        self
-    }
-
-    pub fn with_output_id(mut self, output_id: NodeId) -> Self {
-        self.output_id = output_id;
-        self
-    }
-
-    pub fn forward(&self, device: &CudaDevice<'a>, request: LaunchRequest) -> Result<LaunchResult> {
-        let mut rt = RuntimeCtx::new(request.inputs);
-        for op in &self.ops {
-            op.forward(device, &mut rt)?;
-        }
-        let output = rt.take(self.output_id)?;
-        Ok(LaunchResult { output })
+    pub fn forward(
+        &self,
+        _device: &CudaDevice<'a>,
+        _request: LaunchRequest,
+    ) -> Result<LaunchResult> {
+        todo!();
     }
 }

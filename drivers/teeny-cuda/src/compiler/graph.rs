@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-use crate::errors::Result;
+use anyhow::anyhow;
+
+use crate::{errors::Result, model::CudaModel};
 use teeny_core::{
     compiler::Target,
     graph::{Graph, compiler::GraphCompiler},
@@ -31,12 +33,15 @@ impl CudaGraphCompiler {
 }
 
 impl GraphCompiler for CudaGraphCompiler {
-    fn compile<'a, L: Lowering<'a>, T: Target, M: Model<'a>>(
+    fn compile<'a, L: Lowering<'a>, T: Target>(
         &self,
-        _graph: &Graph,
-        _lowering: &L,
+        graph: &Graph,
+        lowering: &L,
         _target: &T,
-    ) -> Result<M> {
-        todo!()
+    ) -> Result<impl Model<'a>> {
+        let dag = lowering.lower(graph)?;
+        let model = CudaModel::<'a>::new(dag)?;
+
+        Ok(model)
     }
 }

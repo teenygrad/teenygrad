@@ -19,7 +19,7 @@ use teeny_macros::kernel;
 use teeny_triton::triton::{Axis, PaddingOption, Triton};
 
 #[kernel]
-pub fn linear<
+pub fn linear_forward<
     T: Triton,
     D: Float,
     const USE_BIAS: bool,

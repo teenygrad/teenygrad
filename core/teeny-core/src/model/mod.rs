@@ -22,18 +22,17 @@ pub type NodeId = usize;
 
 pub trait RuntimeContext<'a> {}
 
-pub trait ExecutableOp<'a> {
-    fn forward(&self, inputs: &[NodeId]) -> Result<Vec<NodeId>>;
+pub trait ExecutableOp {
+    fn forward(&self, inputs: &[NodeId]) -> Result<NodeId>;
 }
 
 pub trait Lowering<'a> {
-    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp<'a>>>>;
+    fn lower(&self, graph: &Graph) -> Result<Dag<Box<&'static dyn ExecutableOp>>>;
 }
 
 pub trait Model<'a> {
-    type Device: Device<'a>;
     type Input;
     type Output;
 
-    fn forward(&self, device: &Self::Device, input: Self::Input) -> Result<Self::Output>;
+    fn forward(&self, input: Self::Input) -> Result<Self::Output>;
 }

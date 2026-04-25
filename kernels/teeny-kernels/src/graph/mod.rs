@@ -31,14 +31,39 @@ impl TritonLowering {
 }
 
 impl<'a> Lowering<'a> for TritonLowering {
-    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp<'a>>>> {
+    fn lower(&self, graph: &Graph) -> Result<Dag<Box<&'static dyn ExecutableOp>>> {
         let node_indexes = graph.topological_sort();
         let mut dag = Dag::new();
 
         for node_index in node_indexes {
             let node = &graph.nodes[node_index];
             match node.op {
-                _ => todo!("not implemented"),
+                Op::Input => todo!(),
+                Op::Linear {
+                    in_features,
+                    out_features,
+                    has_bias,
+                } => todo!(),
+                Op::Conv2d {
+                    in_channels,
+                    out_channels,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                    has_bias,
+                } => todo!(),
+                Op::AvgPool2d {
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                } => todo!(),
+                Op::Flatten => todo!(),
+                Op::Relu => todo!(),
+                Op::Softmax { dim } => todo!(),
             }
         }
 
