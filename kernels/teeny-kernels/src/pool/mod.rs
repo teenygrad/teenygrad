@@ -14,4 +14,12 @@
  * limitations under the License.
  */
 
+pub mod avgpool1d;
 pub mod avgpool2d;
+pub mod avgpool3d;
+pub mod lppool1d;
+pub mod lppool2d;
+pub mod lppool3d;
+pub mod maxpool1d;
+pub mod maxpool2d;
+pub mod maxpool3d;
