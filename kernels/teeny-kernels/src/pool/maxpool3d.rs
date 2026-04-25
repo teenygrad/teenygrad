@@ -16,7 +16,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_core::dtype::Float;
+use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
@@ -33,7 +33,7 @@ use teeny_triton::triton::{
 #[kernel]
 pub fn maxpool3d_forward<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -120,7 +120,7 @@ pub fn maxpool3d_forward<
 #[kernel]
 pub fn maxpool3d_backward<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -220,7 +220,7 @@ pub fn maxpool3d_backward<
     }
 }
 
-pub struct Maxpool3dOp<'a, T: Float> {
+pub struct Maxpool3dOp<'a, T: Num> {
     pub forward: Maxpool3dForward<T>,
     pub backward: Maxpool3dBackward<T>,
     _marker: core::marker::PhantomData<&'a ()>,

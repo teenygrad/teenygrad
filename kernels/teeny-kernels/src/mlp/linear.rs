@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
+use teeny_core::dtype::{AddOffsets, Comparison, Num, Tensor};
 use teeny_macros::kernel;
 use teeny_triton::triton::{Axis, PaddingOption, Triton};
 
 #[kernel]
 pub fn linear_forward<
     T: Triton,
-    D: Float,
+    D: Num,
     const USE_BIAS: bool,
     const BLOCK_M: i32,
     const BLOCK_N: i32,
@@ -118,7 +118,7 @@ pub fn linear_forward<
 #[kernel]
 pub fn linear_backward<
     T: Triton,
-    D: Float,
+    D: Num,
     const USE_BIAS: bool,
     const BLOCK_M: i32,
     const BLOCK_N: i32,
@@ -250,7 +250,7 @@ pub fn linear_backward<
     }
 }
 
-pub struct LinearOp<'a, T: Float> {
+pub struct LinearOp<'a, T: Num> {
     pub forward: LinearForward<T>,
     pub backward: LinearBackward<T>,
     _marker: core::marker::PhantomData<&'a ()>,

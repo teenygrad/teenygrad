@@ -16,7 +16,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_core::dtype::Float;
+use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
@@ -37,7 +37,7 @@ use teeny_triton::triton::{
 #[kernel]
 pub fn conv3d_forward<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -145,7 +145,7 @@ pub fn conv3d_forward<
 #[kernel]
 pub fn conv3d_backward_dx<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -248,7 +248,7 @@ pub fn conv3d_backward_dx<
 #[kernel]
 pub fn conv3d_backward_dw<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -337,7 +337,7 @@ pub fn conv3d_backward_dw<
     }
 }
 
-pub struct Conv3dOp<'a, T: Float> {
+pub struct Conv3dOp<'a, T: Num> {
     pub forward: Conv3dForward<T>,
     pub backward_dx: Conv3dBackwardDx<T>,
     pub backward_dw: Conv3dBackwardDw<T>,

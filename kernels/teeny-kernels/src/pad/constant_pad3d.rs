@@ -18,7 +18,7 @@
 
 use core::ops::{BitAnd, BitOr};
 
-use teeny_core::dtype::Float;
+use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
@@ -33,7 +33,7 @@ use teeny_triton::triton::{
 #[kernel]
 pub fn constant_pad3d_forward<
     T: Triton,
-    D: Float,
+    D: Num,
     const PD1: i32,
     const PD2: i32,
     const PH1: i32,
@@ -124,7 +124,7 @@ pub fn constant_pad3d_forward<
 #[kernel]
 pub fn constant_pad3d_backward<
     T: Triton,
-    D: Float,
+    D: Num,
     const PD1: i32,
     const PD2: i32,
     const PH1: i32,
@@ -205,7 +205,7 @@ pub fn constant_pad3d_backward<
     );
 }
 
-pub struct ConstantPad3dOp<'a, T: Float> {
+pub struct ConstantPad3dOp<'a, T: Num> {
     pub forward: ConstantPad3dForward<T>,
     pub backward: ConstantPad3dBackward<T>,
     _marker: core::marker::PhantomData<&'a ()>,

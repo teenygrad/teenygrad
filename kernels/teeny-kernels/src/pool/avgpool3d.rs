@@ -16,7 +16,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_core::dtype::Float;
+use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
@@ -33,7 +33,7 @@ use teeny_triton::triton::{
 #[kernel]
 pub fn avgpool3d_forward<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -126,7 +126,7 @@ pub fn avgpool3d_forward<
 #[kernel]
 pub fn avgpool3d_backward<
     T: Triton,
-    D: Float,
+    D: Num,
     const KD: i32,
     const KH: i32,
     const KW: i32,
@@ -206,7 +206,7 @@ pub fn avgpool3d_backward<
     }
 }
 
-pub struct Avgpool3dOp<'a, T: Float> {
+pub struct Avgpool3dOp<'a, T: Num> {
     pub forward: Avgpool3dForward<T>,
     pub backward: Avgpool3dBackward<T>,
     _marker: core::marker::PhantomData<&'a ()>,
