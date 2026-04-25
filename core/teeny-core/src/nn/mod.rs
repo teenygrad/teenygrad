@@ -15,9 +15,12 @@
  */
 
 pub mod activation;
+pub mod conv1d;
 pub mod conv2d;
+pub mod conv3d;
 pub mod flatten;
 pub mod linear;
+pub mod pad;
 pub mod pool;
 
 pub trait Layer<I> {

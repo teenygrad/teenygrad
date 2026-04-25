@@ -39,31 +39,64 @@ impl<'a> Lowering<'a> for TritonLowering {
             let node = &graph.nodes[node_index];
             match node.op {
                 Op::Input => todo!(),
-                Op::Linear {
-                    in_features,
-                    out_features,
-                    has_bias,
-                } => todo!(),
-                Op::Conv2d {
-                    in_channels,
-                    out_channels,
-                    kernel_h,
-                    kernel_w,
-                    stride_h,
-                    stride_w,
-                    padding_h,
-                    padding_w,
-                    has_bias,
-                } => todo!(),
-                Op::AvgPool2d {
-                    kernel_h,
-                    kernel_w,
-                    stride_h,
-                    stride_w,
-                } => todo!(),
+
+                // Linear / MLP
+                Op::Linear { .. } => todo!(),
                 Op::Flatten => todo!(),
+
+                // Convolution
+                Op::Conv1d { .. } => todo!(),
+                Op::Conv2d { .. } => todo!(),
+                Op::Conv3d { .. } => todo!(),
+
+                // Pooling
+                Op::AvgPool1d { .. } => todo!(),
+                Op::AvgPool2d { .. } => todo!(),
+                Op::AvgPool3d { .. } => todo!(),
+                Op::MaxPool1d { .. } => todo!(),
+                Op::MaxPool2d { .. } => todo!(),
+                Op::MaxPool3d { .. } => todo!(),
+                Op::LpPool1d { .. } => todo!(),
+                Op::LpPool2d { .. } => todo!(),
+                Op::LpPool3d { .. } => todo!(),
+
+                // Padding
+                Op::ConstantPad1d { .. } => todo!(),
+                Op::ConstantPad2d { .. } => todo!(),
+                Op::ConstantPad3d { .. } => todo!(),
+                Op::ReflectionPad1d { .. } => todo!(),
+                Op::ReflectionPad2d { .. } => todo!(),
+                Op::ReflectionPad3d { .. } => todo!(),
+                Op::ReplicationPad1d { .. } => todo!(),
+                Op::ReplicationPad2d { .. } => todo!(),
+                Op::ReplicationPad3d { .. } => todo!(),
+                Op::CircularPad1d { .. } => todo!(),
+                Op::CircularPad2d { .. } => todo!(),
+                Op::CircularPad3d { .. } => todo!(),
+
+                // Activation
                 Op::Relu => todo!(),
-                Op::Softmax { dim } => todo!(),
+                Op::Elu { .. } => todo!(),
+                Op::Selu => todo!(),
+                Op::Celu { .. } => todo!(),
+                Op::Gelu => todo!(),
+                Op::Mish => todo!(),
+                Op::Hardtanh { .. } => todo!(),
+                Op::Relu6 => todo!(),
+                Op::Hardsigmoid => todo!(),
+                Op::Hardswish => todo!(),
+                Op::Hardshrink { .. } => todo!(),
+                Op::LeakyRelu { .. } => todo!(),
+                Op::Threshold { .. } => todo!(),
+                Op::Softsign => todo!(),
+                Op::Softshrink { .. } => todo!(),
+                Op::Softplus { .. } => todo!(),
+                Op::Sigmoid => todo!(),
+                Op::Silu => todo!(),
+                Op::Logsigmoid => todo!(),
+                Op::Tanh => todo!(),
+                Op::Tanhshrink => todo!(),
+                Op::Softmax { .. } => todo!(),
             }
         }
 
