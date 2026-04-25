@@ -1,5 +1,5 @@
 ---
-source: kernels/teeny-triton/tests/test_kitche_sink.rs
+source: kernels/teeny-triton/tests/test_kitchen_sink.rs
 expression: mlir.trim()
 ---
 "module {\n  tt.func private @_RINvCsetlmc934Moa_36kitchen_sink_kitchen_sink__f32__102412kitchen_sinkNtNtNtNtB2_6triton4llvm6triton10LlvmTritonfKl400_EB2_(%arg0: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg1: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg2: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg3: i32 {tt.divisibility = 16 : i32}) {\n    cf.br ^bb1\n  ^bb1:  // 2 preds: ^bb0, ^bb1\n    cf.br ^bb1\n  }\n  tt.func public @entry_point(%arg0: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg1: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg2: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg3: i32 {tt.divisibility = 16 : i32}) {\n    tt.call @_RINvCsetlmc934Moa_36kitchen_sink_kitchen_sink__f32__102412kitchen_sinkNtNtNtNtB2_6triton4llvm6triton10LlvmTritonfKl400_EB2_(%arg0, %arg1, %arg2, %arg3) {arg_attrs = [{}, {}, {}, {}], res_attrs = []} : (!tt.ptr<f32>, !tt.ptr<f32>, !tt.ptr<f32>, i32) -> ()\n    tt.return\n  }\n}"
