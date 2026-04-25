@@ -14,20 +14,27 @@
  * limitations under the License.
  */
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 
-use crate::{device::Device, errors::Result, graph::Graph, utils::dag::Dag};
+use crate::{errors::Result, graph::{DtypeRepr, Graph, Shape}, utils::dag::Dag};
 
 pub type NodeId = usize;
 
 pub trait RuntimeContext<'a> {}
 
+/// An op that has been lowered to a compilable kernel representation.
+///
+/// Holds enough information for a caller (who has access to `teeny-compiler`)
+/// to compile the kernel for a given target. Dispatch/execution is deferred.
 pub trait ExecutableOp {
-    fn forward(&self, inputs: &[NodeId]) -> Result<NodeId>;
+    fn kernel_source(&self) -> &str;
+    fn kernel_entry_point(&self) -> &str;
+    fn output_shape(&self) -> &Shape;
+    fn output_dtype(&self) -> DtypeRepr;
 }
 
 pub trait Lowering<'a> {
-    fn lower(&self, graph: &Graph) -> Result<Dag<Box<&'static dyn ExecutableOp>>>;
+    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp>>>;
 }
 
 pub trait Model<'a> {

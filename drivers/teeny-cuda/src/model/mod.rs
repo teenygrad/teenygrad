@@ -110,7 +110,7 @@ impl Node {
 }
 
 pub struct CudaModel<'a> {
-    pub dag: Dag<Box<&'static dyn ExecutableOp>>,
+    pub dag: Dag<Box<dyn ExecutableOp>>,
     pub nodes: Vec<Node>,
     _marker: PhantomData<&'a ()>,
 }
@@ -125,7 +125,7 @@ impl<'a> Model<'a> for CudaModel<'a> {
 }
 
 impl<'a> CudaModel<'a> {
-    pub fn new(dag: Dag<Box<&'static dyn ExecutableOp>>) -> Result<Self> {
+    pub fn new(dag: Dag<Box<dyn ExecutableOp>>) -> Result<Self> {
         Ok(Self {
             dag,
             nodes: Vec::new(),
