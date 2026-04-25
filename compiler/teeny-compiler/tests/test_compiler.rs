@@ -34,7 +34,7 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         )
         .try_init();
 
-    let tensor_add = &teeny_kernels::math::add::VectorAdd::<f32, 1024>::new();
+    let tensor_add = &teeny_kernels::math::add::VectorAdd::<f32>::new(1024);
     let target = Target::new(Capability::Sm90);
     let output_file = compile_kernel(tensor_add, &target, true)?;
 
