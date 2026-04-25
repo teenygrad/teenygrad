@@ -24,47 +24,104 @@ use crate::{
     activation::{
         elu::{CeluForward, EluForward, SeluForward},
         gelu::{GeluForward, MishForward},
-        hard::{HardshrinkForward, HardsigmoidForward, HardswishForward, HardtanhForward, Relu6Forward},
-        misc::{LeakyReluForward, SoftplusForward, SoftshrinkForward, SoftsignForward, ThresholdForward},
+        hard::{
+            HardshrinkForward, HardsigmoidForward, HardswishForward, HardtanhForward, Relu6Forward,
+        },
+        misc::{
+            LeakyReluForward, SoftplusForward, SoftshrinkForward, SoftsignForward, ThresholdForward,
+        },
         relu::ReluForward,
         sigmoid::{LogsigmoidForward, SigmoidForward, SiluForward},
         softmax::SoftmaxForward,
         tanh::{TanhForward, TanhshrinkForward},
     },
-    conv::{
-        conv1d::Conv1dForward,
-        conv2d::Conv2dForward,
-        conv3d::Conv3dForward,
-    },
+    conv::{conv1d::Conv1dForward, conv2d::Conv2dForward, conv3d::Conv3dForward},
     mlp::{flatten::FlattenForward, linear::LinearForward},
     pad::{
-        circular_pad1d::CircularPad1dForward,
-        circular_pad2d::CircularPad2dForward,
-        circular_pad3d::CircularPad3dForward,
-        constant_pad1d::ConstantPad1dForward,
-        constant_pad2d::ConstantPad2dForward,
-        constant_pad3d::ConstantPad3dForward,
-        reflection_pad1d::ReflectionPad1dForward,
-        reflection_pad2d::ReflectionPad2dForward,
-        reflection_pad3d::ReflectionPad3dForward,
-        replication_pad1d::ReplicationPad1dForward,
-        replication_pad2d::ReplicationPad2dForward,
-        replication_pad3d::ReplicationPad3dForward,
+        circular_pad1d::CircularPad1dForward, circular_pad2d::CircularPad2dForward,
+        circular_pad3d::CircularPad3dForward, constant_pad1d::ConstantPad1dForward,
+        constant_pad2d::ConstantPad2dForward, constant_pad3d::ConstantPad3dForward,
+        reflection_pad1d::ReflectionPad1dForward, reflection_pad2d::ReflectionPad2dForward,
+        reflection_pad3d::ReflectionPad3dForward, replication_pad1d::ReplicationPad1dForward,
+        replication_pad2d::ReplicationPad2dForward, replication_pad3d::ReplicationPad3dForward,
     },
     pool::{
-        avgpool1d::Avgpool1dForward,
-        avgpool2d::Avgpool2dForward,
-        avgpool3d::Avgpool3dForward,
-        lppool1d::Lppool1dForward,
-        lppool2d::Lppool2dForward,
-        lppool3d::Lppool3dForward,
-        maxpool1d::Maxpool1dForward,
-        maxpool2d::Maxpool2dForward,
-        maxpool3d::Maxpool3dForward,
+        avgpool1d::Avgpool1dForward, avgpool2d::Avgpool2dForward, avgpool3d::Avgpool3dForward,
+        lppool1d::Lppool1dForward, lppool2d::Lppool2dForward, lppool3d::Lppool3dForward,
+        maxpool1d::Maxpool1dForward, maxpool2d::Maxpool2dForward, maxpool3d::Maxpool3dForward,
     },
 };
 
 use crate::errors::Result;
+
+// ---------------------------------------------------------------------------
+// Dtype dispatch macros
+//
+// Each macro matches a DtypeRepr at runtime, instantiates the kernel struct
+// with the corresponding concrete Rust type, and builds a KernelExecutable.
+//
+// make_num_kernel!  — for kernels with D: Num (int + float)
+// make_float_kernel! — for kernels with D: Float (float only)
+// make_untyped_kernel! — for kernels without a D type parameter
+// ---------------------------------------------------------------------------
+
+/// Dispatch to a D: Num kernel based on `$node.dtype`.
+/// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
+macro_rules! make_num_kernel {
+    ($K:ident ($($arg:expr),*), $node:expr) => {{
+        let (ks, ep) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  (k.kernel_source, k.entry_point) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  (k.kernel_source, k.entry_point) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
+        };
+        Box::new(KernelExecutable {
+            kernel_source: ks,
+            entry_point: ep,
+            shape: $node.shape.clone(),
+            dtype: $node.dtype,
+        })
+    }};
+}
+
+/// Dispatch to a D: Float kernel based on `$node.dtype`.
+/// Usage: `make_float_kernel!(KernelType(arg1, arg2, ...), node)`
+macro_rules! make_float_kernel {
+    ($K:ident ($($arg:expr),*), $node:expr) => {{
+        let (ks, ep) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.kernel_source, k.entry_point) }
+            other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
+        };
+        Box::new(KernelExecutable {
+            kernel_source: ks,
+            entry_point: ep,
+            shape: $node.shape.clone(),
+            dtype: $node.dtype,
+        })
+    }};
+}
+
+/// Build a KernelExecutable for kernels without a D type parameter (hardcoded f32).
+/// Usage: `make_untyped_kernel!(KernelType(arg1, arg2, ...), node)`
+macro_rules! make_untyped_kernel {
+    ($K:ident ($($arg:expr),*), $node:expr) => {{
+        let k = $K::new($($arg),*);
+        Box::new(KernelExecutable {
+            kernel_source: k.kernel_source,
+            entry_point: k.entry_point,
+            shape: $node.shape.clone(),
+            dtype: $node.dtype,
+        })
+    }};
+}
 
 // ---------------------------------------------------------------------------
 // KernelExecutable — compilable unit produced by TritonLowering
@@ -132,493 +189,163 @@ impl<'a> Lowering<'a> for TritonLowering {
 
                 // --- Linear / MLP ---
                 Op::Linear { has_bias, .. } => {
-                    let k = LinearForward::<f32>::new(*has_bias, 32, 64, 32, 8);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(LinearForward(*has_bias, 32, 64, 32, 8), node)
                 }
-                Op::Flatten => {
-                    let k = FlattenForward::<f32>::new(32, 256);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
+                Op::Flatten => make_num_kernel!(FlattenForward(32, 256), node),
 
                 // --- Convolution ---
                 Op::Conv1d { kernel_l, stride, .. } => {
-                    let k = Conv1dForward::<f32>::new(*kernel_l as i32, *stride as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(Conv1dForward(*kernel_l as i32, *stride as i32, 32), node)
                 }
                 Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, .. } => {
-                    let k = Conv2dForward::<f32>::new(
-                        *kernel_h as i32, *kernel_w as i32,
-                        *stride_h as i32, *stride_w as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, 16),
+                        node
+                    )
                 }
                 Op::Conv3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, .. } => {
-                    let k = Conv3dForward::<f32>::new(
-                        *kernel_d as i32, *kernel_h as i32, *kernel_w as i32,
-                        *stride_d as i32, *stride_h as i32, *stride_w as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        Conv3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, 8),
+                        node
+                    )
                 }
 
                 // --- Pooling ---
                 Op::AvgPool1d { kernel_l, stride } => {
-                    let k = Avgpool1dForward::<f32>::new(*kernel_l as i32, *stride as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(Avgpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
                 }
                 Op::AvgPool2d { kernel_h, kernel_w, stride_h, stride_w } => {
-                    let k = Avgpool2dForward::<f32>::new(
-                        *kernel_h as i32, *kernel_w as i32,
-                        *stride_h as i32, *stride_w as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        Avgpool2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, 16),
+                        node
+                    )
                 }
                 Op::AvgPool3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w } => {
-                    let k = Avgpool3dForward::<f32>::new(
-                        *kernel_d as i32, *kernel_h as i32, *kernel_w as i32,
-                        *stride_d as i32, *stride_h as i32, *stride_w as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        Avgpool3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, 8),
+                        node
+                    )
                 }
                 Op::MaxPool1d { kernel_l, stride } => {
-                    let k = Maxpool1dForward::<f32>::new(*kernel_l as i32, *stride as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(Maxpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
                 }
                 Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w } => {
-                    let k = Maxpool2dForward::<f32>::new(
-                        *kernel_h as i32, *kernel_w as i32,
-                        *stride_h as i32, *stride_w as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        Maxpool2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, 16),
+                        node
+                    )
                 }
                 Op::MaxPool3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w } => {
-                    let k = Maxpool3dForward::<f32>::new(
-                        *kernel_d as i32, *kernel_h as i32, *kernel_w as i32,
-                        *stride_d as i32, *stride_h as i32, *stride_w as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        Maxpool3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, 8),
+                        node
+                    )
                 }
                 Op::LpPool1d { kernel_l, stride, .. } => {
-                    let k = Lppool1dForward::<f32>::new(*kernel_l as i32, *stride as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_float_kernel!(Lppool1dForward(*kernel_l as i32, *stride as i32, 32), node)
                 }
                 Op::LpPool2d { kernel_h, kernel_w, stride_h, stride_w, .. } => {
-                    let k = Lppool2dForward::<f32>::new(
-                        *kernel_h as i32, *kernel_w as i32,
-                        *stride_h as i32, *stride_w as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_float_kernel!(
+                        Lppool2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, 16),
+                        node
+                    )
                 }
                 Op::LpPool3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, .. } => {
-                    let k = Lppool3dForward::<f32>::new(
-                        *kernel_d as i32, *kernel_h as i32, *kernel_w as i32,
-                        *stride_d as i32, *stride_h as i32, *stride_w as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_float_kernel!(
+                        Lppool3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, 8),
+                        node
+                    )
                 }
 
                 // --- Padding ---
                 Op::ConstantPad1d { pad_left, pad_right, .. } => {
-                    let k = ConstantPad1dForward::<f32>::new(*pad_left as i32, *pad_right as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(ConstantPad1dForward(*pad_left as i32, *pad_right as i32, 32), node)
                 }
                 Op::ConstantPad2d { pad_l, pad_r, pad_t, pad_b, .. } => {
-                    let k = ConstantPad2dForward::<f32>::new(
-                        *pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        ConstantPad2dForward(*pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16),
+                        node
+                    )
                 }
                 Op::ConstantPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2, .. } => {
-                    let k = ConstantPad3dForward::<f32>::new(
-                        *pad_d1 as i32, *pad_d2 as i32,
-                        *pad_h1 as i32, *pad_h2 as i32,
-                        *pad_w1 as i32, *pad_w2 as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        ConstantPad3dForward(*pad_d1 as i32, *pad_d2 as i32, *pad_h1 as i32, *pad_h2 as i32, *pad_w1 as i32, *pad_w2 as i32, 8),
+                        node
+                    )
                 }
                 Op::ReflectionPad1d { pad_left, pad_right } => {
-                    let k = ReflectionPad1dForward::<f32>::new(*pad_left as i32, *pad_right as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(ReflectionPad1dForward(*pad_left as i32, *pad_right as i32, 32), node)
                 }
                 Op::ReflectionPad2d { pad_l, pad_r, pad_t, pad_b } => {
-                    let k = ReflectionPad2dForward::<f32>::new(
-                        *pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        ReflectionPad2dForward(*pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16),
+                        node
+                    )
                 }
                 Op::ReflectionPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2 } => {
-                    let k = ReflectionPad3dForward::<f32>::new(
-                        *pad_d1 as i32, *pad_d2 as i32,
-                        *pad_h1 as i32, *pad_h2 as i32,
-                        *pad_w1 as i32, *pad_w2 as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        ReflectionPad3dForward(*pad_d1 as i32, *pad_d2 as i32, *pad_h1 as i32, *pad_h2 as i32, *pad_w1 as i32, *pad_w2 as i32, 8),
+                        node
+                    )
                 }
                 Op::ReplicationPad1d { pad_left, pad_right } => {
-                    let k = ReplicationPad1dForward::<f32>::new(*pad_left as i32, *pad_right as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(ReplicationPad1dForward(*pad_left as i32, *pad_right as i32, 32), node)
                 }
                 Op::ReplicationPad2d { pad_l, pad_r, pad_t, pad_b } => {
-                    let k = ReplicationPad2dForward::<f32>::new(
-                        *pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        ReplicationPad2dForward(*pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16),
+                        node
+                    )
                 }
                 Op::ReplicationPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2 } => {
-                    let k = ReplicationPad3dForward::<f32>::new(
-                        *pad_d1 as i32, *pad_d2 as i32,
-                        *pad_h1 as i32, *pad_h2 as i32,
-                        *pad_w1 as i32, *pad_w2 as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        ReplicationPad3dForward(*pad_d1 as i32, *pad_d2 as i32, *pad_h1 as i32, *pad_h2 as i32, *pad_w1 as i32, *pad_w2 as i32, 8),
+                        node
+                    )
                 }
                 Op::CircularPad1d { pad_left, pad_right } => {
-                    let k = CircularPad1dForward::<f32>::new(*pad_left as i32, *pad_right as i32, 32);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(CircularPad1dForward(*pad_left as i32, *pad_right as i32, 32), node)
                 }
                 Op::CircularPad2d { pad_l, pad_r, pad_t, pad_b } => {
-                    let k = CircularPad2dForward::<f32>::new(
-                        *pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        CircularPad2dForward(*pad_t as i32, *pad_b as i32, *pad_l as i32, *pad_r as i32, 16),
+                        node
+                    )
                 }
                 Op::CircularPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2 } => {
-                    let k = CircularPad3dForward::<f32>::new(
-                        *pad_d1 as i32, *pad_d2 as i32,
-                        *pad_h1 as i32, *pad_h2 as i32,
-                        *pad_w1 as i32, *pad_w2 as i32, 8,
-                    );
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
+                    make_num_kernel!(
+                        CircularPad3dForward(*pad_d1 as i32, *pad_d2 as i32, *pad_h1 as i32, *pad_h2 as i32, *pad_w1 as i32, *pad_w2 as i32, 8),
+                        node
+                    )
                 }
 
-                // --- Activation ---
-                Op::Relu => {
-                    let k = ReluForward::<f32>::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Elu { .. } => {
-                    let k = EluForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Selu => {
-                    let k = SeluForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Celu { .. } => {
-                    let k = CeluForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Gelu => {
-                    let k = GeluForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Mish => {
-                    let k = MishForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Hardtanh { .. } => {
-                    let k = HardtanhForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Relu6 => {
-                    let k = Relu6Forward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Hardsigmoid => {
-                    let k = HardsigmoidForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Hardswish => {
-                    let k = HardswishForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Hardshrink { .. } => {
-                    let k = HardshrinkForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::LeakyRelu { .. } => {
-                    let k = LeakyReluForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Threshold { .. } => {
-                    let k = ThresholdForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Softsign => {
-                    let k = SoftsignForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Softshrink { .. } => {
-                    let k = SoftshrinkForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Softplus { .. } => {
-                    let k = SoftplusForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Sigmoid => {
-                    let k = SigmoidForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Silu => {
-                    let k = SiluForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Logsigmoid => {
-                    let k = LogsigmoidForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Tanh => {
-                    let k = TanhForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Tanhshrink => {
-                    let k = TanhshrinkForward::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
-                Op::Softmax { .. } => {
-                    let k = SoftmaxForward::<f32>::new(1024);
-                    Box::new(KernelExecutable {
-                        kernel_source: k.kernel_source,
-                        entry_point: k.entry_point,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                    })
-                }
+                // --- Activation (D: Num) ---
+                Op::Relu => make_num_kernel!(ReluForward(1024), node),
+
+                // --- Activation (hardcoded f32 — no D type parameter) ---
+                Op::Elu { .. }       => make_untyped_kernel!(EluForward(1024), node),
+                Op::Selu             => make_untyped_kernel!(SeluForward(1024), node),
+                Op::Celu { .. }      => make_untyped_kernel!(CeluForward(1024), node),
+                Op::Gelu             => make_untyped_kernel!(GeluForward(1024), node),
+                Op::Mish             => make_untyped_kernel!(MishForward(1024), node),
+                Op::Hardtanh { .. }  => make_untyped_kernel!(HardtanhForward(1024), node),
+                Op::Relu6            => make_untyped_kernel!(Relu6Forward(1024), node),
+                Op::Hardsigmoid      => make_untyped_kernel!(HardsigmoidForward(1024), node),
+                Op::Hardswish        => make_untyped_kernel!(HardswishForward(1024), node),
+                Op::Hardshrink { .. }  => make_untyped_kernel!(HardshrinkForward(1024), node),
+                Op::LeakyRelu { .. }   => make_untyped_kernel!(LeakyReluForward(1024), node),
+                Op::Threshold { .. }   => make_untyped_kernel!(ThresholdForward(1024), node),
+                Op::Softsign           => make_untyped_kernel!(SoftsignForward(1024), node),
+                Op::Softshrink { .. }  => make_untyped_kernel!(SoftshrinkForward(1024), node),
+                Op::Softplus { .. }    => make_untyped_kernel!(SoftplusForward(1024), node),
+                Op::Sigmoid            => make_untyped_kernel!(SigmoidForward(1024), node),
+                Op::Silu               => make_untyped_kernel!(SiluForward(1024), node),
+                Op::Logsigmoid         => make_untyped_kernel!(LogsigmoidForward(1024), node),
+                Op::Tanh               => make_untyped_kernel!(TanhForward(1024), node),
+                Op::Tanhshrink         => make_untyped_kernel!(TanhshrinkForward(1024), node),
+
+                // --- Activation (D: Float) ---
+                Op::Softmax { .. } => make_float_kernel!(SoftmaxForward(1024), node),
             };
 
             let dag_idx = dag.add_node(executable);
