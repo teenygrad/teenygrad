@@ -22,7 +22,7 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
-use crate::{device::CudaDevice, errors::Result};
+use crate::{errors::Result, device::CudaDevice};
 
 pub type NodeId = usize;
 

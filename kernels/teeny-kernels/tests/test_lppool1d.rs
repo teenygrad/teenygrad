@@ -23,7 +23,9 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_cuda::{
+    compiler::target::Capability, errors::Result, testing, device::CudaLaunchConfig,
+};
 
 const B: usize = 2;
 const C: usize = 4;
@@ -37,13 +39,8 @@ const P: f32 = 2.0_f32;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -58,12 +55,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_lppool1d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::pool::lppool1d::Lppool1dForward::<
-        f32,
-        KL,
-        STRIDE,
-        BLOCK_OL,
-    >::new();
+    let kernel = teeny_kernels::pool::lppool1d::Lppool1dForward::<f32, KL, STRIDE, BLOCK_OL>::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -78,12 +70,8 @@ fn test_lppool1d_forward_mlir_output() -> Result<()> {
 fn test_lppool1d_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::pool::lppool1d::Lppool1dBackward::<
-        f32,
-        KL,
-        STRIDE,
-        BLOCK_OL,
-    >::new();
+    let kernel =
+        teeny_kernels::pool::lppool1d::Lppool1dBackward::<f32, KL, STRIDE, BLOCK_OL>::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -114,12 +102,7 @@ fn test_lppool1d_forward_cuda() -> Result<()> {
 
     input_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::pool::lppool1d::Lppool1dForward::<
-        f32,
-        KL,
-        STRIDE,
-        BLOCK_OL,
-    >::new();
+    let kernel = teeny_kernels::pool::lppool1d::Lppool1dForward::<f32, KL, STRIDE, BLOCK_OL>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[lppool1d_forward] compiled PTX: {ptx_path}");
@@ -186,12 +169,8 @@ fn test_lppool1d_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     dx_buf.to_device(&zeros)?;
 
-    let kernel = teeny_kernels::pool::lppool1d::Lppool1dBackward::<
-        f32,
-        KL,
-        STRIDE,
-        BLOCK_OL,
-    >::new();
+    let kernel =
+        teeny_kernels::pool::lppool1d::Lppool1dBackward::<f32, KL, STRIDE, BLOCK_OL>::new();
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[lppool1d_backward] compiled PTX: {ptx_path}");

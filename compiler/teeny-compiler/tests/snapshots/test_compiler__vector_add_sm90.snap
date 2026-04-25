@@ -29,20 +29,20 @@ expression: generated_ptx.trim()
 	.reg .pred 	%p<3>;
 	.reg .b32 	%r<38>;
 	.reg .b64 	%rd<12>;
-	.loc	1 2696 0
+	.loc	1 2743 0
 $L__func_begin0:
-	.loc	1 2696 0
+	.loc	1 2743 0
 
 	ld.param.b64 	%rd7, [entry_point_param_0];
 	ld.param.b64 	%rd8, [entry_point_param_1];
 $L__tmp0:
-	.loc	1 2680 15
+	.loc	1 2727 15
 	mov.u32 	%r25, %ctaid.x;
-	.loc	1 2680 61
+	.loc	1 2727 61
 	shl.b32 	%r26, %r25, 10;
 	ld.param.b64 	%rd9, [entry_point_param_2];
 	ld.param.b32 	%r27, [entry_point_param_3];
-	.loc	1 2681 19
+	.loc	1 2728 19
 	mov.u32 	%r28, %tid.x;
 	and.b32 	%r29, %r28, 127;
 	and.b32 	%r30, %r28, 96;
@@ -53,15 +53,15 @@ $L__tmp0:
 	or.b32 	%r35, %r34, %r32;
 	or.b32 	%r36, %r26, %r35;
 	or.b32 	%r37, %r36, 512;
-	.loc	1 2682 13
+	.loc	1 2729 13
 	setp.lt.s32 	%p1, %r36, %r27;
 	setp.lt.s32 	%p2, %r37, %r27;
-	.loc	1 2683 16
+	.loc	1 2730 16
 	mul.wide.s32 	%rd10, %r36, 4;
 	add.s64 	%rd1, %rd7, %rd10;
 	mul.wide.s32 	%rd11, %r37, 4;
 	add.s64 	%rd2, %rd7, %rd11;
-	.loc	1 2682 37
+	.loc	1 2729 37
 	// begin inline asm
 	mov.u32 %r1, 0x0;
 	mov.u32 %r2, 0x0;
@@ -76,10 +76,10 @@ $L__tmp0:
 	mov.u32 %r8, 0x0;
 	@%p2 ld.global.v4.b32 { %r5, %r6, %r7, %r8 }, [ %rd2 + 0 ];
 	// end inline asm
-	.loc	1 2685 16
+	.loc	1 2732 16
 	add.s64 	%rd3, %rd8, %rd10;
 	add.s64 	%rd4, %rd8, %rd11;
-	.loc	1 2684 22
+	.loc	1 2731 22
 	// begin inline asm
 	mov.u32 %r9, 0x0;
 	mov.u32 %r10, 0x0;
@@ -94,7 +94,7 @@ $L__tmp0:
 	mov.u32 %r16, 0x0;
 	@%p2 ld.global.v4.b32 { %r13, %r14, %r15, %r16 }, [ %rd4 + 0 ];
 	// end inline asm
-	.loc	1 2686 27
+	.loc	1 2733 27
 	add.rn.f32 	%r17, %r1, %r9;
 	add.rn.f32 	%r18, %r2, %r10;
 	add.rn.f32 	%r19, %r3, %r11;
@@ -103,10 +103,10 @@ $L__tmp0:
 	add.rn.f32 	%r22, %r6, %r14;
 	add.rn.f32 	%r23, %r7, %r15;
 	add.rn.f32 	%r24, %r8, %r16;
-	.loc	1 2687 22
+	.loc	1 2734 22
 	add.s64 	%rd5, %rd9, %rd10;
 	add.s64 	%rd6, %rd9, %rd11;
-	.loc	1 2686 34
+	.loc	1 2733 34
 	// begin inline asm
 	@%p1 st.global.v4.b32 [ %rd5 + 0 ], { %r17, %r18, %r19, %r20 };
 	// end inline asm
@@ -114,7 +114,7 @@ $L__tmp0:
 	@%p2 st.global.v4.b32 [ %rd6 + 0 ], { %r21, %r22, %r23, %r24 };
 	// end inline asm
 $L__tmp1:
-	.loc	1 2701 2
+	.loc	1 2748 2
 	ret;
 $L__tmp2:
 $L__func_end0:
@@ -318,7 +318,7 @@ $L__func_end0:
 .b64 $L__tmp0
 .b64 $L__tmp1
 .b8 1
-.b8 140
+.b8 187
 .b8 10
 .b8 5
 .b8 0
