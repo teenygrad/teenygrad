@@ -52,8 +52,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
         .collect()
 }
 
-// AXM TODO Fix this test
-// #[test]
+#[test]
 fn test_replication_pad3d_forward_mlir_output()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
@@ -66,8 +65,7 @@ fn test_replication_pad3d_forward_mlir_output()
     Ok(())
 }
 
-// AXM TODO Fix this test
-// #[test]
+#[test]
 fn test_replication_pad3d_backward_mlir_output()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
@@ -80,8 +78,7 @@ fn test_replication_pad3d_backward_mlir_output()
     Ok(())
 }
 
-// AXM TODO Fix this test
-// #[test]
+#[test]
 #[cfg(feature = "cuda")]
 fn test_replication_pad3d_forward_cuda() -> Result<()> {
     dotenv()?;
@@ -137,8 +134,7 @@ fn test_replication_pad3d_forward_cuda() -> Result<()> {
     Ok(())
 }
 
-// AXM TODO Fix this test
-// #[test]
+#[test]
 #[cfg(feature = "cuda")]
 fn test_replication_pad3d_backward_cuda() -> Result<()> {
     dotenv()?;

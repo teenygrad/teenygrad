@@ -69,7 +69,7 @@ pub fn replication_pad2d_forward<
 
     // Clamp height index
     let ih_raw = oh - PT;
-    let ih = if ih_raw < 0 { 0 } else if ih_raw >= H { H - 1 } else { ih_raw + 0 };
+    let ih = if ih_raw < 0 { 0 } else if ih_raw >= H { H - 1 } else { ih_raw };
 
     let in_bc_base = (b * C + c) * H * W + ih * W;
     let out_bc_base = ((b * C + c) * OH + oh) * OW;
@@ -168,7 +168,7 @@ pub fn replication_pad2d_backward<
     let ow_mask = ow_range.lt(OW);
 
     let ih_raw = oh - PT;
-    let ih = if ih_raw < 0 { 0 } else if ih_raw >= H { H - 1 } else { ih_raw + 0 };
+    let ih = if ih_raw < 0 { 0 } else if ih_raw >= H { H - 1 } else { ih_raw };
 
     let dy_bc_base = ((b * C + c) * OH + oh) * OW;
     let dx_bc_base = (b * C + c) * H * W + ih * W;
