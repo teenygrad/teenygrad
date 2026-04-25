@@ -59,14 +59,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_conv2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::conv::conv2d::Conv2dForward::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::conv::conv2d::Conv2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -81,14 +74,7 @@ fn test_conv2d_forward_mlir_output() -> Result<()> {
 fn test_conv2d_backward_dx_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDx::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDx::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -103,14 +89,7 @@ fn test_conv2d_backward_dx_mlir_output() -> Result<()> {
 fn test_conv2d_backward_dw_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDw::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDw::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -144,21 +123,14 @@ fn test_conv2d_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::conv::conv2d::Conv2dForward::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::conv::conv2d::Conv2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[conv2d_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::conv::conv2d::Conv2dForward<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
+        teeny_kernels::conv::conv2d::Conv2dForward<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
@@ -216,20 +188,13 @@ fn test_conv2d_backward_dx_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDx::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDx::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::conv::conv2d::Conv2dBackwardDx<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
+        teeny_kernels::conv::conv2d::Conv2dBackwardDx<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
@@ -287,20 +252,13 @@ fn test_conv2d_backward_dw_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     dy_buf.to_device(&dy_host)?;
 
-    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDw::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::conv::conv2d::Conv2dBackwardDw::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::conv::conv2d::Conv2dBackwardDw<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
+        teeny_kernels::conv::conv2d::Conv2dBackwardDw<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);

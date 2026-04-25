@@ -116,8 +116,8 @@ pub fn relu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
 }
 
-pub struct ReluOp<'a, T: Float, const BLOCK_SIZE: i32> {
-    pub forward: ReluForward<T, BLOCK_SIZE>,
-    pub backward: ReluBackward<T, BLOCK_SIZE>,
+pub struct ReluOp<'a, T: Float> {
+    pub forward: ReluForward<T>,
+    pub backward: ReluBackward<T>,
     _marker: PhantomData<&'a ()>,
 }

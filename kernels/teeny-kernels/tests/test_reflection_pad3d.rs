@@ -57,16 +57,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_reflection_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
     dotenv()?;
-    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dForward::<
-        f32,
-        PD1,
-        PD2,
-        PH1,
-        PH2,
-        PW1,
-        PW2,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dForward::<f32>::new(PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -80,16 +71,7 @@ fn test_reflection_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dy
 fn test_reflection_pad3d_backward_mlir_output()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
-    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dBackward::<
-        f32,
-        PD1,
-        PD2,
-        PH1,
-        PH2,
-        PW1,
-        PW2,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dBackward::<f32>::new(PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -114,30 +96,12 @@ fn test_reflection_pad3d_forward_cuda() -> Result<()> {
     let output_buf = device.buffer::<f32>(B * C * OD * OH * OW)?;
     input_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dForward::<
-        f32,
-        PD1,
-        PD2,
-        PH1,
-        PH2,
-        PW1,
-        PW2,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dForward::<f32>::new(PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::pad::reflection_pad3d::ReflectionPad3dForward<
-            f32,
-            PD1,
-            PD2,
-            PH1,
-            PH2,
-            PW1,
-            PW2,
-            BLOCK_OW,
-        >,
+        teeny_kernels::pad::reflection_pad3d::ReflectionPad3dForward<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
@@ -191,30 +155,12 @@ fn test_reflection_pad3d_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     dx_buf.to_device(&zeros)?;
 
-    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dBackward::<
-        f32,
-        PD1,
-        PD2,
-        PH1,
-        PH2,
-        PW1,
-        PW2,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pad::reflection_pad3d::ReflectionPad3dBackward::<f32>::new(PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::pad::reflection_pad3d::ReflectionPad3dBackward<
-            f32,
-            PD1,
-            PD2,
-            PH1,
-            PH2,
-            PW1,
-            PW2,
-            BLOCK_OW,
-        >,
+        teeny_kernels::pad::reflection_pad3d::ReflectionPad3dBackward<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);

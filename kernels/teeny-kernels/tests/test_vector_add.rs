@@ -47,7 +47,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_tensor_add() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::math::add::VectorAdd::<f32, 1024>::new();
+    let kernel = teeny_kernels::math::add::VectorAdd::<f32>::new(1024);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -85,14 +85,14 @@ fn test_tensor_add_gpu_execution() -> Result<()> {
     y_buf.to_device(&y_host)?;
     println!("[5/9] copied input data to device");
 
-    let kernel = teeny_kernels::math::add::VectorAdd::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::math::add::VectorAdd::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::math::add::VectorAdd<f32, BLOCK_SIZE>,
+        teeny_kernels::math::add::VectorAdd<f32>,
     >(&ptx)?;
 
     let cfg = testing::launch_config(N, BLOCK_SIZE);

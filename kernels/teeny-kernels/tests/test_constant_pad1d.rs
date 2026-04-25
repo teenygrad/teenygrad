@@ -51,12 +51,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_constant_pad1d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
     dotenv()?;
-    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dForward::<
-        f32,
-        PAD_LEFT,
-        PAD_RIGHT,
-        BLOCK_OL,
-    >::new();
+    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dForward::<f32>::new(PAD_LEFT, PAD_RIGHT, BLOCK_OL);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -69,12 +64,7 @@ fn test_constant_pad1d_forward_mlir_output() -> std::result::Result<(), Box<dyn 
 fn test_constant_pad1d_backward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
     dotenv()?;
-    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dBackward::<
-        f32,
-        PAD_LEFT,
-        PAD_RIGHT,
-        BLOCK_OL,
-    >::new();
+    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dBackward::<f32>::new(PAD_LEFT, PAD_RIGHT, BLOCK_OL);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -98,22 +88,12 @@ fn test_constant_pad1d_forward_cuda() -> Result<()> {
     let output_buf = device.buffer::<f32>(B * C * OL)?;
     input_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dForward::<
-        f32,
-        PAD_LEFT,
-        PAD_RIGHT,
-        BLOCK_OL,
-    >::new();
+    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dForward::<f32>::new(PAD_LEFT, PAD_RIGHT, BLOCK_OL);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::pad::constant_pad1d::ConstantPad1dForward<
-            f32,
-            PAD_LEFT,
-            PAD_RIGHT,
-            BLOCK_OL,
-        >,
+        teeny_kernels::pad::constant_pad1d::ConstantPad1dForward<f32>,
     >(&ptx)?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);
@@ -163,22 +143,12 @@ fn test_constant_pad1d_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     dx_buf.to_device(&zeros)?;
 
-    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dBackward::<
-        f32,
-        PAD_LEFT,
-        PAD_RIGHT,
-        BLOCK_OL,
-    >::new();
+    let kernel = teeny_kernels::pad::constant_pad1d::ConstantPad1dBackward::<f32>::new(PAD_LEFT, PAD_RIGHT, BLOCK_OL);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::pad::constant_pad1d::ConstantPad1dBackward<
-            f32,
-            PAD_LEFT,
-            PAD_RIGHT,
-            BLOCK_OL,
-        >,
+        teeny_kernels::pad::constant_pad1d::ConstantPad1dBackward<f32>,
     >(&ptx)?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);

@@ -59,14 +59,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_lppool2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::pool::lppool2d::Lppool2dForward::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pool::lppool2d::Lppool2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -81,14 +74,7 @@ fn test_lppool2d_forward_mlir_output() -> Result<()> {
 fn test_lppool2d_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::pool::lppool2d::Lppool2dBackward::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pool::lppool2d::Lppool2dBackward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -119,21 +105,14 @@ fn test_lppool2d_forward_cuda() -> Result<()> {
 
     input_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::pool::lppool2d::Lppool2dForward::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pool::lppool2d::Lppool2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[lppool2d_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::pool::lppool2d::Lppool2dForward<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
+        teeny_kernels::pool::lppool2d::Lppool2dForward<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
@@ -195,21 +174,14 @@ fn test_lppool2d_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     dx_buf.to_device(&zeros)?;
 
-    let kernel = teeny_kernels::pool::lppool2d::Lppool2dBackward::<
-        f32,
-        KH,
-        KW,
-        STRIDE_H,
-        STRIDE_W,
-        BLOCK_OW,
-    >::new();
+    let kernel = teeny_kernels::pool::lppool2d::Lppool2dBackward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[lppool2d_backward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::pool::lppool2d::Lppool2dBackward<f32, KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW>,
+        teeny_kernels::pool::lppool2d::Lppool2dBackward<f32>,
     >(&ptx)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);

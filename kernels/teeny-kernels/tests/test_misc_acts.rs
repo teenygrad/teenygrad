@@ -40,7 +40,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 #[test]
 fn test_leaky_relu_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::activation::misc::LeakyReluForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::LeakyReluForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -52,7 +52,7 @@ fn test_leaky_relu_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_softsign_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::activation::misc::SoftsignForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftsignForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -64,7 +64,7 @@ fn test_softsign_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_softplus_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::activation::misc::SoftplusForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftplusForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -88,10 +88,10 @@ fn test_leaky_relu_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::LeakyReluForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::LeakyReluForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::LeakyReluForward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::LeakyReluForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.01_f32))?;
@@ -119,10 +119,10 @@ fn test_leaky_relu_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::LeakyReluBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::LeakyReluBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::LeakyReluBackward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::LeakyReluBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
@@ -151,10 +151,10 @@ fn test_threshold_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::ThresholdForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::ThresholdForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::ThresholdForward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::ThresholdForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32, 0.0_f32))?;
@@ -182,10 +182,10 @@ fn test_threshold_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::ThresholdBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::ThresholdBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::ThresholdBackward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::ThresholdBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
@@ -214,10 +214,10 @@ fn test_softsign_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::SoftsignForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftsignForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::SoftsignForward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::SoftsignForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
@@ -245,10 +245,10 @@ fn test_softsign_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::SoftsignBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftsignBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::SoftsignBackward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::SoftsignBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
@@ -277,10 +277,10 @@ fn test_softshrink_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::SoftshrinkForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftshrinkForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::SoftshrinkForward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::SoftshrinkForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32))?;
@@ -308,10 +308,10 @@ fn test_softshrink_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::SoftshrinkBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftshrinkBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::SoftshrinkBackward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::SoftshrinkBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
@@ -340,10 +340,10 @@ fn test_softplus_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::SoftplusForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftplusForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::SoftplusForward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::SoftplusForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32, 20.0_f32))?;
@@ -371,10 +371,10 @@ fn test_softplus_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::misc::SoftplusBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::activation::misc::SoftplusBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::misc::SoftplusBackward<BLOCK_SIZE>
+        teeny_kernels::activation::misc::SoftplusBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,

@@ -55,7 +55,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_flatten_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::mlp::flatten::FlattenForward::<f32, BLOCK_B, BLOCK_N>::new();
+    let kernel = teeny_kernels::mlp::flatten::FlattenForward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -70,7 +70,7 @@ fn test_flatten_forward_mlir_output() -> Result<()> {
 fn test_flatten_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::mlp::flatten::FlattenBackward::<f32, BLOCK_B, BLOCK_N>::new();
+    let kernel = teeny_kernels::mlp::flatten::FlattenBackward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -110,14 +110,14 @@ fn test_flatten_forward_cuda() -> Result<()> {
 
     input_buf.to_device(&padded_host)?;
 
-    let kernel = teeny_kernels::mlp::flatten::FlattenForward::<f32, BLOCK_B, BLOCK_N>::new();
+    let kernel = teeny_kernels::mlp::flatten::FlattenForward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[flatten_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::mlp::flatten::FlattenForward<f32, BLOCK_B, BLOCK_N>,
+        teeny_kernels::mlp::flatten::FlattenForward<f32>,
     >(&ptx)?;
 
     let grid_x = (B as u32).div_ceil(BLOCK_B as u32) * (N as u32).div_ceil(BLOCK_N as u32);
@@ -177,14 +177,14 @@ fn test_flatten_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     dx_buf.to_device(&dx_init)?;
 
-    let kernel = teeny_kernels::mlp::flatten::FlattenBackward::<f32, BLOCK_B, BLOCK_N>::new();
+    let kernel = teeny_kernels::mlp::flatten::FlattenBackward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[flatten_backward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::mlp::flatten::FlattenBackward<f32, BLOCK_B, BLOCK_N>,
+        teeny_kernels::mlp::flatten::FlattenBackward<f32>,
     >(&ptx)?;
 
     let grid_x = (B as u32).div_ceil(BLOCK_B as u32) * (N as u32).div_ceil(BLOCK_N as u32);

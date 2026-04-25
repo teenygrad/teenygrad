@@ -121,13 +121,39 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .expect("#[kernel] requires a type parameter with a `Triton` bound");
 
-    // 3. Collect non-hw generic params for the struct definition/usage.
+    // 3a. Collect const generic params — these become struct fields, not type params.
+    let const_params: Vec<syn::ConstParam> = input
+        .sig
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| {
+            if let GenericParam::Const(cp) = p {
+                Some(cp.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Lowercased field idents for each const param (idiomatic Rust field naming).
+    let const_field_idents: Vec<Ident> = const_params
+        .iter()
+        .map(|cp| format_ident!("{}", cp.ident.to_string().to_lowercase()))
+        .collect();
+
+    // 3b. Collect non-hw, non-const type params for the struct definition/usage.
+    //     Const params are excluded: they become runtime fields instead.
     let struct_gen_params: Vec<&GenericParam> = input
         .sig
         .generics
         .params
         .iter()
-        .filter(|p| !matches!(p, GenericParam::Type(tp) if tp.ident == hw_ident))
+        .filter(|p| match p {
+            GenericParam::Type(tp) => tp.ident != hw_ident,
+            GenericParam::Const(_) => false,
+            GenericParam::Lifetime(_) => true,
+        })
         .collect();
 
     let struct_gen_args: Vec<TokenStream2> = struct_gen_params
@@ -137,14 +163,11 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                 let i = &tp.ident;
                 quote!(#i)
             }
-            GenericParam::Const(cp) => {
-                let i = &cp.ident;
-                quote!(#i)
-            }
             GenericParam::Lifetime(lp) => {
                 let l = &lp.lifetime;
                 quote!(#l)
             }
+            GenericParam::Const(_) => unreachable!("const params are filtered above"),
         })
         .collect();
 
@@ -265,7 +288,9 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Call type-arg expressions, one per original generic (hw → "LlvmTriton").
+    // Call type-arg expressions, one per original generic.
+    // HW type → "LlvmTriton", dtype type params → runtime type name,
+    // const params → the runtime field value (constructor argument).
     let call_type_arg_exprs: Vec<TokenStream2> = input
         .sig
         .generics
@@ -285,8 +310,13 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
             GenericParam::Const(cp) => {
-                let id = &cp.ident;
-                quote! { (#id).to_string() }
+                // Look up the lowercased field ident for this const param.
+                let pos = const_params
+                    .iter()
+                    .position(|c| c.ident == cp.ident)
+                    .expect("const param must exist in const_params");
+                let field_ident = &const_field_idents[pos];
+                quote! { (#field_ident).to_string() }
             }
             GenericParam::Lifetime(_) => quote! { ::std::string::String::new() },
         })
@@ -298,8 +328,39 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     // Struct ident (PascalCase of the function name).
     let struct_ident = Ident::new(&to_pascal_case(&fn_name_str), fn_ident.span());
 
-    // 6. Generate the struct, its constructor, and the Kernel impl.
-    // PhantomData to satisfy the "type parameter never used" requirement.
+    // 6. Const field definitions for the struct, and constructor parameter list.
+    let const_field_defs: Vec<TokenStream2> = const_params
+        .iter()
+        .zip(const_field_idents.iter())
+        .map(|(cp, field_name)| {
+            let ty = &cp.ty;
+            quote! { pub #field_name: #ty, }
+        })
+        .collect();
+
+    let const_constructor_args: Vec<TokenStream2> = const_params
+        .iter()
+        .zip(const_field_idents.iter())
+        .map(|(cp, field_name)| {
+            let ty = &cp.ty;
+            quote! { #field_name: #ty }
+        })
+        .collect();
+
+    // 7. ID parts: fn_name + runtime dtype names + const field values.
+    //    Produces a human-readable string like "vector_add__f32__1024".
+    let id_part_exprs: Vec<TokenStream2> = {
+        let mut parts = vec![quote! { ::std::string::String::from(#fn_name_str) }];
+        for (_, var) in &type_param_vars {
+            parts.push(quote! { ::std::string::String::from(#var) });
+        }
+        for field_ident in &const_field_idents {
+            parts.push(quote! { (#field_ident).to_string() });
+        }
+        parts
+    };
+
+    // 8. PhantomData to satisfy the "type parameter never used" requirement.
     let phantom_type_params: Vec<&Ident> = type_param_vars.iter().map(|(i, _)| i).collect();
     let phantom_field = if phantom_type_params.is_empty() {
         quote! {}
@@ -317,6 +378,9 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     let struct_stream: TokenStream2 = quote! {
         pub struct #struct_ident #struct_generics_def {
             pub name: &'static str,
+            /// Unique kernel identifier: fn_name + dtype(s) + const values joined by "__".
+            pub id: ::std::string::String,
+            #(#const_field_defs)*
             /// The original kernel function source.
             pub kernel_source: ::std::string::String,
             /// The generated entry-point wrapper source.
@@ -327,7 +391,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl #struct_generics_def #struct_ident #struct_generics_use {
-            pub fn new() -> Self {
+            pub fn new( #(#const_constructor_args,)* ) -> Self {
                 // Declare runtime type-name variables for each type generic.
                 #(#type_name_decls)*
 
@@ -379,10 +443,18 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                     body = __body,
                 );
 
+                let __id = {
+                    let __id_parts: ::std::vec::Vec<::std::string::String> =
+                        vec![ #(#id_part_exprs),* ];
+                    __id_parts.join("__")
+                };
+
                 let __kernel_source = ::std::string::String::from(__original_source);
                 let __source = format!("{}\n\n{}", __kernel_source, __entry_point);
                 Self {
                     name: #fn_name_str,
+                    id: __id,
+                    #(#const_field_idents,)*
                     kernel_source: __kernel_source,
                     entry_point: __entry_point,
                     source: __source,
@@ -395,6 +467,10 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
             for #struct_ident #struct_generics_use
         {
             type Args<'__a> = ( #(#args_types,)* );
+
+            fn id(&self) -> ::std::string::String {
+                self.id.clone()
+            }
 
             fn name(&self) -> &str {
                 self.name
