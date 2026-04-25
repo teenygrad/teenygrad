@@ -128,3 +128,9 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 
     T::store(dx_ptr.add_offsets(offsets), dx, None, &[], None, None);
 }
+
+pub struct SoftmaxOp<'a, T: Float> {
+    pub forward: SoftmaxForward<T>,
+    pub backward: SoftmaxBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

@@ -207,3 +207,9 @@ pub fn circular_pad1d_backward<
         None,
     );
 }
+
+pub struct CircularPad1dOp<'a, T: Float> {
+    pub forward: CircularPad1dForward<T>,
+    pub backward: CircularPad1dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

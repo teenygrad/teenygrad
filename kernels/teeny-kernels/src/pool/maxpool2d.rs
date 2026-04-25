@@ -197,3 +197,9 @@ pub fn maxpool2d_backward<
         );
     }
 }
+
+pub struct Maxpool2dOp<'a, T: Float> {
+    pub forward: Maxpool2dForward<T>,
+    pub backward: Maxpool2dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

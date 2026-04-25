@@ -249,3 +249,9 @@ pub fn linear_backward<
         }
     }
 }
+
+pub struct LinearOp<'a, T: Float> {
+    pub forward: LinearForward<T>,
+    pub backward: LinearBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

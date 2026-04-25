@@ -181,3 +181,19 @@ pub fn logsigmoid_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dx  = dy / (one + T::exp(x));
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
+
+
+pub struct SigmoidOp {
+    pub forward: SigmoidForward,
+    pub backward: SigmoidBackward,
+}
+
+pub struct SiluOp {
+    pub forward: SiluForward,
+    pub backward: SiluBackward,
+}
+
+pub struct LogsigmoidOp {
+    pub forward: LogsigmoidForward,
+    pub backward: LogsigmoidBackward,
+}

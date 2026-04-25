@@ -232,3 +232,9 @@ pub fn reflection_pad3d_backward<
         None,
     );
 }
+
+pub struct ReflectionPad3dOp<'a, T: Float> {
+    pub forward: ReflectionPad3dForward<T>,
+    pub backward: ReflectionPad3dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

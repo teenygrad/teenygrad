@@ -233,3 +233,9 @@ pub fn lppool2d_backward<
         );
     }
 }
+
+pub struct Lppool2dOp<'a, T: Float> {
+    pub forward: Lppool2dForward<T>,
+    pub backward: Lppool2dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

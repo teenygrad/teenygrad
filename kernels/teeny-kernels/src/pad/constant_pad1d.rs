@@ -163,3 +163,9 @@ pub fn constant_pad1d_backward<
         None,
     );
 }
+
+pub struct ConstantPad1dOp<'a, T: Float> {
+    pub forward: ConstantPad1dForward<T>,
+    pub backward: ConstantPad1dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

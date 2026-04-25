@@ -322,3 +322,10 @@ pub fn conv2d_backward_dw<
         T::atomic_add(dw_ptr.add_offsets(dw_off), partial_1, None, None, None);
     }
 }
+
+pub struct Conv2dOp<'a, T: Float> {
+    pub forward: Conv2dForward<T>,
+    pub backward_dx: Conv2dBackwardDx<T>,
+    pub backward_dw: Conv2dBackwardDw<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

@@ -183,3 +183,9 @@ pub fn maxpool1d_backward<
         );
     }
 }
+
+pub struct Maxpool1dOp<'a, T: Float> {
+    pub forward: Maxpool1dForward<T>,
+    pub backward: Maxpool1dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

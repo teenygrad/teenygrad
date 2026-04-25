@@ -232,3 +232,9 @@ pub fn circular_pad3d_backward<
         None,
     );
 }
+
+pub struct CircularPad3dOp<'a, T: Float> {
+    pub forward: CircularPad3dForward<T>,
+    pub backward: CircularPad3dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

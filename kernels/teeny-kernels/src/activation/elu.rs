@@ -188,3 +188,19 @@ pub fn celu_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dx        = T::where_(x_ge_zero, dy, dy * T::exp(x * inv_alpha));
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
+
+
+pub struct EluOp {
+    pub forward: EluForward,
+    pub backward: EluBackward,
+}
+
+pub struct SeluOp {
+    pub forward: SeluForward,
+    pub backward: SeluBackward,
+}
+
+pub struct CeluOp {
+    pub forward: CeluForward,
+    pub backward: CeluBackward,
+}

@@ -302,3 +302,29 @@ pub fn softplus_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dx        = T::where_(above_thr, dy, dx_safe);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
+
+
+pub struct LeakyReluOp {
+    pub forward: LeakyReluForward,
+    pub backward: LeakyReluBackward,
+}
+
+pub struct ThresholdOp {
+    pub forward: ThresholdForward,
+    pub backward: ThresholdBackward,
+}
+
+pub struct SoftsignOp {
+    pub forward: SoftsignForward,
+    pub backward: SoftsignBackward,
+}
+
+pub struct SoftshrinkOp {
+    pub forward: SoftshrinkForward,
+    pub backward: SoftshrinkBackward,
+}
+
+pub struct SoftplusOp {
+    pub forward: SoftplusForward,
+    pub backward: SoftplusBackward,
+}

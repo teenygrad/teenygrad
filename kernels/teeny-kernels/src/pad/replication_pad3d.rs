@@ -232,3 +232,9 @@ pub fn replication_pad3d_backward<
         None,
     );
 }
+
+pub struct ReplicationPad3dOp<'a, T: Float> {
+    pub forward: ReplicationPad3dForward<T>,
+    pub backward: ReplicationPad3dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

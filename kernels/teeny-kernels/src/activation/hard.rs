@@ -302,3 +302,29 @@ pub fn hardshrink_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dx      = T::where_(outside, dy, T::zeros_like(dy));
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
+
+
+pub struct HardtanhOp {
+    pub forward: HardtanhForward,
+    pub backward: HardtanhBackward,
+}
+
+pub struct Relu6Op {
+    pub forward: Relu6Forward,
+    pub backward: Relu6Backward,
+}
+
+pub struct HardsigmoidOp {
+    pub forward: HardsigmoidForward,
+    pub backward: HardsigmoidBackward,
+}
+
+pub struct HardswishOp {
+    pub forward: HardswishForward,
+    pub backward: HardswishBackward,
+}
+
+pub struct HardshrinkOp {
+    pub forward: HardshrinkForward,
+    pub backward: HardshrinkBackward,
+}

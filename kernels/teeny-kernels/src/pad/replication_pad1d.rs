@@ -203,3 +203,9 @@ pub fn replication_pad1d_backward<
         None,
     );
 }
+
+pub struct ReplicationPad1dOp<'a, T: Float> {
+    pub forward: ReplicationPad1dForward<T>,
+    pub backward: ReplicationPad1dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

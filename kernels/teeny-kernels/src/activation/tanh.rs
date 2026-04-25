@@ -128,3 +128,14 @@ pub fn tanhshrink_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dx     = dy * tanh_x * tanh_x;
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
+
+
+pub struct TanhOp {
+    pub forward: TanhForward,
+    pub backward: TanhBackward,
+}
+
+pub struct TanhshrinkOp {
+    pub forward: TanhshrinkForward,
+    pub backward: TanhshrinkBackward,
+}

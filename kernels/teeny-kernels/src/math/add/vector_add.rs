@@ -80,3 +80,8 @@ pub fn vector_add<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         None,
     );
 }
+
+pub struct VectorAddOp<'a, T: Float> {
+    pub forward: VectorAdd<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

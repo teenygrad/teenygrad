@@ -238,3 +238,14 @@ pub fn mish_backward<T: Triton, const BLOCK_SIZE: i32>(
         None,
     );
 }
+
+
+pub struct GeluOp {
+    pub forward: GeluForward,
+    pub backward: GeluBackward,
+}
+
+pub struct MishOp {
+    pub forward: MishForward,
+    pub backward: MishBackward,
+}

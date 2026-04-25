@@ -105,3 +105,9 @@ pub fn flatten_backward<T: Triton, D: Float, const BLOCK_B: i32, const BLOCK_N: 
     let tile = T::load_tensor_descriptor(dy_desc, &[b_off, n_off]);
     T::store_tensor_descriptor(dx_desc, &[b_off, n_off], tile);
 }
+
+pub struct FlattenOp<'a, T: Float> {
+    pub forward: FlattenForward<T>,
+    pub backward: FlattenBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}

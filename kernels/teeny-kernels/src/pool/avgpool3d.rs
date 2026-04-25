@@ -205,3 +205,9 @@ pub fn avgpool3d_backward<
         );
     }
 }
+
+pub struct Avgpool3dOp<'a, T: Float> {
+    pub forward: Avgpool3dForward<T>,
+    pub backward: Avgpool3dBackward<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
+}
