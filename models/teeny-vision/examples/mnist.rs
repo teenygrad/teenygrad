@@ -22,12 +22,12 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::graph::compiler::GraphCompiler;
 use teeny_core::graph::{DtypeRepr, SymTensor};
 use teeny_cuda::compiler::graph::CudaGraphCompiler;
 use teeny_cuda::compiler::target::Capability;
-use teeny_cuda::model::CudaModel;
 use teeny_kernels::graph::TritonLowering;
 use teeny_vision::mnist;
 use tokio::io::AsyncWriteExt;
@@ -43,10 +43,13 @@ async fn main() -> Result<()> {
         SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(1), Some(28), Some(28)]);
     let _model = mnist::mnist::<f32>()(input);
     let lowering = TritonLowering::new();
-    let graph_compiler = CudaGraphCompiler::new();
+    let rustc_path = env::var("TEENY_RUSTC_PATH").unwrap_or_default();
+    let cache_dir = env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+    let compiler = LlvmCompiler::new(rustc_path, cache_dir)?;
+    let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(Capability::Sm90);
     // let _model =
-    //     graph_compiler.compile::<_, _, CudaModel<'static>>(&graph.borrow(), &lowering, &target)?;
+    //     graph_compiler.compile(&graph.borrow(), &lowering, &target, false)?;
 
     println!("Hello, world!: {:?}", graph.borrow().nodes);
 

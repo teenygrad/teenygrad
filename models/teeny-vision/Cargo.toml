@@ -12,6 +12,7 @@ teeny-core = { path = "../../core/teeny-core" }
 tokio.workspace = true
 reqwest.workspace = true
 indicatif.workspace = true
+dotenv.workspace = true
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
 teeny-cuda = { path = "../../drivers/teeny-cuda" }
 teeny-compiler = { path = "../../compiler/teeny-compiler" }

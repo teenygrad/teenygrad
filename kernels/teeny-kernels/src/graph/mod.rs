@@ -69,22 +69,23 @@ use crate::errors::Result;
 /// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_num_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (ks, ep) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  (k.kernel_source, k.entry_point) }
-            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  (k.kernel_source, k.entry_point) }
-            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); (k.kernel_source, k.entry_point) }
+        let (name, ks) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  (k.name.to_string(), k.source) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  (k.name.to_string(), k.source) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); (k.name.to_string(), k.source) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
+            name,
             kernel_source: ks,
-            entry_point: ep,
+            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
         })
@@ -95,14 +96,15 @@ macro_rules! make_num_kernel {
 /// Usage: `make_float_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_float_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (ks, ep) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.kernel_source, k.entry_point) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.kernel_source, k.entry_point) }
+        let (name, ks) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.name.to_string(), k.source) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.name.to_string(), k.source) }
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
+            name,
             kernel_source: ks,
-            entry_point: ep,
+            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
         })
@@ -115,8 +117,9 @@ macro_rules! make_untyped_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
         let k = $K::new($($arg),*);
         Box::new(KernelExecutable {
-            kernel_source: k.kernel_source,
-            entry_point: k.entry_point,
+            name: k.name.to_string(),
+            kernel_source: k.source,
+            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
         })
@@ -132,6 +135,7 @@ macro_rules! make_untyped_kernel {
 /// Callers that have `teeny-compiler` as a dependency can pass `kernel_source`
 /// and `kernel_entry_point` to `compile_kernel` along with a chosen `Target`.
 pub struct KernelExecutable {
+    pub name: String,
     pub kernel_source: String,
     pub entry_point: String,
     pub shape: Shape,
@@ -139,11 +143,19 @@ pub struct KernelExecutable {
 }
 
 impl ExecutableOp for KernelExecutable {
-    fn kernel_source(&self) -> &str {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn is_input(&self) -> bool {
+        self.name == "input"
+    }
+
+    fn forward_kernel_source(&self) -> &str {
         &self.kernel_source
     }
 
-    fn kernel_entry_point(&self) -> &str {
+    fn forward_kernel_entry_point(&self) -> &str {
         &self.entry_point
     }
 
@@ -181,6 +193,7 @@ impl<'a> Lowering<'a> for TritonLowering {
 
             let executable: Box<dyn ExecutableOp> = match &node.op {
                 Op::Input => Box::new(KernelExecutable {
+                    name: "input".to_string(),
                     kernel_source: String::new(),
                     entry_point: String::new(),
                     shape: node.shape.clone(),

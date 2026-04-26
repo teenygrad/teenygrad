@@ -18,7 +18,8 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use anyhow::anyhow;
 use teeny_core::{
-    model::{ExecutableOp, Model},
+    graph::{DtypeRepr, Shape},
+    model::Model,
     utils::dag::Dag,
 };
 
@@ -81,37 +82,20 @@ pub struct LaunchResult {
     pub output: TensorRef,
 }
 
-pub struct IdGenerator {
-    next_id: usize,
-}
-
-impl IdGenerator {
-    pub fn new() -> Self {
-        Self { next_id: 0 }
-    }
-
-    pub fn next(&mut self) -> NodeId {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-}
-
-pub struct Node {
-    id: NodeId,
-    pub op: Box<dyn ExecutableOp>,
-    pub inputs: Vec<NodeId>,
-}
-
-impl Node {
-    pub fn new(id: usize, op: Box<dyn ExecutableOp>, inputs: Vec<NodeId>) -> Self {
-        Self { id, op, inputs }
-    }
+/// A compiled DAG node: the kernel has been compiled to a PTX object file on
+/// disk. The runtime reads this file and loads it via `CudaProgram::try_from_ptx`
+/// when the model is executed.
+pub struct CompiledNode {
+    /// Path to the compiled PTX `.o` file produced by `LlvmCompiler`. Empty for
+    /// `Input` placeholder nodes, which have no kernel.
+    pub ptx_path: String,
+    pub entry_point: String,
+    pub output_shape: Shape,
+    pub output_dtype: DtypeRepr,
 }
 
 pub struct CudaModel<'a> {
-    pub dag: Dag<Box<dyn ExecutableOp>>,
-    pub nodes: Vec<Node>,
+    pub dag: Dag<CompiledNode>,
     _marker: PhantomData<&'a ()>,
 }
 
@@ -125,10 +109,9 @@ impl<'a> Model<'a> for CudaModel<'a> {
 }
 
 impl<'a> CudaModel<'a> {
-    pub fn new(dag: Dag<Box<dyn ExecutableOp>>) -> Result<Self> {
+    pub fn new(dag: Dag<CompiledNode>) -> Result<Self> {
         Ok(Self {
             dag,
-            nodes: Vec::new(),
             _marker: PhantomData,
         })
     }

@@ -25,5 +25,6 @@ pub trait GraphCompiler {
         graph: &Graph,
         lowering: &L,
         target: &T,
+        force: bool,
     ) -> Result<impl Model<'a>>;
 }

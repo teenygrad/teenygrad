@@ -67,6 +67,11 @@ pub trait KernelArgs {
     fn visit_args<V: ArgVisitor>(&self, visitor: &mut V);
 }
 
+impl KernelArgs for () {
+    #[inline]
+    fn visit_args<V: ArgVisitor>(&self, _visitor: &mut V) {}
+}
+
 macro_rules! impl_kernel_args {
     ($( $T:ident : $idx:tt ),+) => {
         impl<$($T: KernelArg),+> KernelArgs for ($($T,)+) {

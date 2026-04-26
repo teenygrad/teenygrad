@@ -27,8 +27,13 @@ pub trait RuntimeContext<'a> {}
 /// Holds enough information for a caller (who has access to `teeny-compiler`)
 /// to compile the kernel for a given target. Dispatch/execution is deferred.
 pub trait ExecutableOp {
-    fn kernel_source(&self) -> &str;
-    fn kernel_entry_point(&self) -> &str;
+    fn name(&self) -> &str;
+    /// Returns `true` for `Input` placeholder nodes, which carry no kernel.
+    fn is_input(&self) -> bool {
+        false
+    }
+    fn forward_kernel_source(&self) -> &str;
+    fn forward_kernel_entry_point(&self) -> &str;
     fn output_shape(&self) -> &Shape;
     fn output_dtype(&self) -> DtypeRepr;
 }
