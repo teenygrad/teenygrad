@@ -18,6 +18,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::anyhow;
 use teeny_core::{
+    device::program::ArgVisitor,
     graph::{DtypeRepr, Shape},
     model::{Model, RuntimeOp},
     utils::dag::Dag,
@@ -81,6 +82,12 @@ pub struct CompiledNode {
     pub output_dtype: DtypeRepr,
     /// Runtime dispatch: arg-packing + grid computation. `None` for Input nodes.
     pub runtime_op: Option<Arc<dyn RuntimeOp>>,
+    /// Path to compiled backward PTX. `None` if no backward kernel for this op.
+    #[cfg(feature = "training")]
+    pub backward_ptx_path: Option<String>,
+    /// Entry point name for the backward kernel.
+    #[cfg(feature = "training")]
+    pub backward_entry_point: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +163,39 @@ impl<'a> CudaModel<'a> {
                 .map_err(|e| anyhow!("failed to read PTX for node {idx}: {e}"))?;
             let program = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx, &cn.entry_point)?;
 
+            #[cfg(feature = "training")]
+            let backward_program = if let Some(ref bwd_path) = cn.backward_ptx_path {
+                let bwd_ptx = std::fs::read(bwd_path)
+                    .map_err(|e| anyhow!("failed to read backward PTX for node {idx}: {e}"))?;
+                Some(CudaProgram::<ErasedKernel>::try_from_ptx(&bwd_ptx, &cn.backward_entry_point)?)
+            } else {
+                None
+            };
+
+            // Allocate zero-initialised gradient + optimizer state buffers per param.
+            #[cfg(feature = "training")]
+            let (grad_param_bufs, optim_m_bufs, optim_v_bufs) = {
+                let mut grads = Vec::with_capacity(p_shapes.len());
+                let mut ms    = Vec::with_capacity(p_shapes.len());
+                let mut vs    = Vec::with_capacity(p_shapes.len());
+                for ps in &p_shapes {
+                    let n_elems: usize = ps.iter().product();
+                    let byte_size = n_elems * dtype_bytes(cn.output_dtype);
+                    let gp = mem::alloc(byte_size)?;
+                    let mp = mem::alloc(byte_size)?;
+                    let vp = mem::alloc(byte_size)?;
+                    unsafe {
+                        cuda::cuMemsetD8_v2(gp, 0, byte_size);
+                        cuda::cuMemsetD8_v2(mp, 0, byte_size);
+                        cuda::cuMemsetD8_v2(vp, 0, byte_size);
+                    }
+                    grads.push(gp);
+                    ms.push(mp);
+                    vs.push(vp);
+                }
+                (grads, ms, vs)
+            };
+
             loaded_nodes[idx] = Some(LoadedNode {
                 program,
                 output_shape: cn.output_shape.clone(),
@@ -163,10 +203,23 @@ impl<'a> CudaModel<'a> {
                 runtime_op: Arc::clone(rop),
                 param_bufs,
                 param_shapes: p_shapes,
+                #[cfg(feature = "training")]
+                backward_program,
+                #[cfg(feature = "training")]
+                grad_param_bufs,
+                #[cfg(feature = "training")]
+                optim_m_bufs,
+                #[cfg(feature = "training")]
+                optim_v_bufs,
             });
         }
 
-        Ok(LoadedModel { nodes: loaded_nodes, parents })
+        Ok(LoadedModel {
+            nodes: loaded_nodes,
+            parents,
+            #[cfg(feature = "training")]
+            optim_step: 0,
+        })
     }
 }
 
@@ -183,6 +236,18 @@ struct LoadedNode {
     param_bufs: Vec<DevicePtr>,
     /// Concrete shape of each param buffer — stored so callers can initialise weights.
     param_shapes: Vec<Vec<usize>>,
+    /// Compiled backward kernel. `None` if this op has no backward.
+    #[cfg(feature = "training")]
+    backward_program: Option<CudaProgram<'static, ErasedKernel>>,
+    /// Per-parameter gradient buffers (dW, db …), same shapes as `param_bufs`.
+    #[cfg(feature = "training")]
+    grad_param_bufs: Vec<DevicePtr>,
+    /// AdamW first-moment (exp_avg) per parameter, same shapes as `param_bufs`.
+    #[cfg(feature = "training")]
+    optim_m_bufs: Vec<DevicePtr>,
+    /// AdamW second-moment (exp_avg_sq) per parameter, same shapes as `param_bufs`.
+    #[cfg(feature = "training")]
+    optim_v_bufs: Vec<DevicePtr>,
 }
 
 impl Drop for LoadedNode {
@@ -190,6 +255,24 @@ impl Drop for LoadedNode {
         for &ptr in &self.param_bufs {
             if let Err(e) = mem::free(ptr) {
                 eprintln!("LoadedNode: failed to free param buffer: {e}");
+            }
+        }
+        #[cfg(feature = "training")]
+        for &ptr in &self.grad_param_bufs {
+            if let Err(e) = mem::free(ptr) {
+                eprintln!("LoadedNode: failed to free grad param buffer: {e}");
+            }
+        }
+        #[cfg(feature = "training")]
+        for &ptr in &self.optim_m_bufs {
+            if let Err(e) = mem::free(ptr) {
+                eprintln!("LoadedNode: failed to free optim m buffer: {e}");
+            }
+        }
+        #[cfg(feature = "training")]
+        for &ptr in &self.optim_v_bufs {
+            if let Err(e) = mem::free(ptr) {
+                eprintln!("LoadedNode: failed to free optim v buffer: {e}");
             }
         }
     }
@@ -204,6 +287,9 @@ pub struct LoadedModel {
     nodes: Vec<Option<LoadedNode>>,
     /// Parent node indices per node (same topology as the compiled DAG).
     parents: Vec<Vec<usize>>,
+    /// AdamW step counter for bias correction (incremented each `adamw_step` call).
+    #[cfg(feature = "training")]
+    optim_step: u32,
 }
 
 impl LoadedModel {
@@ -253,27 +339,7 @@ impl LoadedModel {
         inputs: &[TensorRef],
     ) -> Result<TensorRef> {
         let n = self.nodes.len();
-
-        // Rebuild topological order from parent lists.
-        let topo = {
-            let mut in_deg: Vec<usize> = (0..n).map(|i| self.parents[i].len()).collect();
-            let mut dependents: Vec<Vec<usize>> = vec![vec![]; n];
-            for i in 0..n {
-                for &p in &self.parents[i] {
-                    dependents[p].push(i);
-                }
-            }
-            let mut stack: Vec<usize> = (0..n).filter(|&i| in_deg[i] == 0).collect();
-            let mut order = Vec::with_capacity(n);
-            while let Some(id) = stack.pop() {
-                order.push(id);
-                for &dep in &dependents[id] {
-                    in_deg[dep] -= 1;
-                    if in_deg[dep] == 0 { stack.push(dep); }
-                }
-            }
-            order
-        };
+        let topo = self.topo_sort();
 
         // ctx[i] = TensorRef for node i once it has been computed.
         let mut ctx: Vec<Option<TensorRef>> = vec![None; n];
@@ -350,5 +416,319 @@ impl LoadedModel {
         }
 
         Ok(result)
+    }
+
+    // ── Training-only methods ────────────────────────────────────────────────
+
+    /// Run a forward pass and retain ALL intermediate activation buffers.
+    ///
+    /// Returns `(final_output, activation_cache)` where `activation_cache[i]`
+    /// is the output tensor of node `i`. Call `drop(cache)` after `backward`
+    /// to release the device buffers.
+    #[cfg(feature = "training")]
+    pub fn forward_train(
+        &self,
+        device: &CudaDevice<'_>,
+        batch_size: usize,
+        inputs: &[TensorRef],
+    ) -> Result<(TensorRef, ActivationCache)> {
+        let n = self.nodes.len();
+        let topo = self.topo_sort();
+
+        let mut ctx: Vec<Option<TensorRef>> = vec![None; n];
+        let mut input_cursor = 0usize;
+
+        for &idx in &topo {
+            if self.nodes[idx].is_none() {
+                let tr = inputs.get(input_cursor)
+                    .ok_or_else(|| anyhow!("too few inputs: needed >{input_cursor}"))?
+                    .clone();
+                ctx[idx] = Some(tr);
+                input_cursor += 1;
+                continue;
+            }
+
+            let loaded = self.nodes[idx].as_ref().unwrap();
+            let output_shape = resolve_shape(&loaded.output_shape, batch_size);
+            let n_elems: usize = output_shape.iter().product();
+            let byte_size = n_elems * dtype_bytes(loaded.output_dtype);
+            let out_ptr = mem::alloc(byte_size)?;
+
+            let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
+                .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
+                .collect();
+            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs.iter()
+                .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
+                .collect();
+            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
+                .map(|&p| p as *mut core::ffi::c_void)
+                .collect();
+
+            let mut packer = CudaArgPacker::new();
+            loaded.runtime_op.pack_args(
+                &act_inputs,
+                &param_ptrs,
+                out_ptr as *mut core::ffi::c_void,
+                &output_shape,
+                &mut packer,
+            );
+            let grid = loaded.runtime_op.grid(&output_shape);
+            let block = loaded.runtime_op.block();
+            device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)?;
+
+            ctx[idx] = Some(TensorRef::new(out_ptr, output_shape));
+        }
+
+        let last_idx = *topo.last().ok_or_else(|| anyhow!("empty model"))?;
+        let output = ctx[last_idx].clone()
+            .ok_or_else(|| anyhow!("last node produced no output"))?;
+
+        Ok((output, ActivationCache { tensors: ctx }))
+    }
+
+    /// Run the backward pass, accumulating parameter gradients into each node's
+    /// `grad_param_bufs`.  Call `zero_grad` before each training step to reset
+    /// those buffers.
+    ///
+    /// `grad_output` — dL/d(model_output), provided by the loss backward.
+    /// `cache`       — the activation cache returned by `forward_train`.
+    #[cfg(feature = "training")]
+    pub fn backward(
+        &mut self,
+        device: &CudaDevice<'_>,
+        batch_size: usize,
+        grad_output: TensorRef,
+        cache: &ActivationCache,
+    ) -> Result<()> {
+        let n = self.nodes.len();
+        let topo = self.topo_sort();
+
+        // grad_ctx[i]: gradient of the loss w.r.t. node i's output (device ptr).
+        let mut grad_ctx: Vec<Option<DevicePtr>> = vec![None; n];
+        // All intermediate gradient buffers we allocated (freed after backward).
+        let mut owned_grad_ptrs: Vec<DevicePtr> = Vec::new();
+
+        let last_idx = *topo.last().ok_or_else(|| anyhow!("empty model"))?;
+        grad_ctx[last_idx] = Some(grad_output.ptr);
+
+        for &idx in topo.iter().rev() {
+            let grad_in_ptr = match grad_ctx[idx] {
+                Some(p) => p,
+                None => continue,
+            };
+
+            // Clone parent indices early to avoid split borrows.
+            let parent_indices: Vec<usize> = self.parents[idx].clone();
+
+            {
+                let loaded = match self.nodes[idx].as_ref() {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let bwd_prog = match loaded.backward_program.as_ref() {
+                    Some(p) => p,
+                    None => continue,
+                };
+
+                let output_shape = resolve_shape(&loaded.output_shape, batch_size);
+                let node_out_ptr = cache.tensors[idx].as_ref()
+                    .ok_or_else(|| anyhow!("activation cache missing for node {idx}"))?
+                    .ptr;
+
+                // Gather parent activation refs from cache.
+                let parent_trs: Vec<&TensorRef> = parent_indices.iter()
+                    .map(|&p| cache.tensors[p].as_ref()
+                        .expect("activation cache must have parent activation"))
+                    .collect();
+
+                let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_trs.iter()
+                    .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
+                    .collect();
+                let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
+                    .map(|&p| p as *mut core::ffi::c_void)
+                    .collect();
+                let grad_param_rawptrs: Vec<teeny_core::model::RawPtr> = loaded.grad_param_bufs.iter()
+                    .map(|&p| p as *mut core::ffi::c_void)
+                    .collect();
+
+                // Allocate gradient buffers for each activation parent.
+                let mut grad_input_ptrs: Vec<DevicePtr> = Vec::with_capacity(parent_trs.len());
+                for tr in &parent_trs {
+                    let n_elems: usize = tr.shape.iter().product();
+                    let byte_size = n_elems * dtype_bytes(loaded.output_dtype);
+                    let gptr = mem::alloc(byte_size)?;
+                    unsafe { cuda::cuMemsetD8_v2(gptr, 0, byte_size); }
+                    grad_input_ptrs.push(gptr);
+                    owned_grad_ptrs.push(gptr);
+                }
+
+                let grad_input_rawptrs: Vec<teeny_core::model::RawPtr> = grad_input_ptrs.iter()
+                    .map(|&p| p as *mut core::ffi::c_void)
+                    .collect();
+
+                let input_shapes: Vec<&[usize]> = parent_trs.iter()
+                    .map(|tr| tr.shape.as_slice())
+                    .collect();
+
+                let mut packer = CudaArgPacker::new();
+                loaded.runtime_op.pack_backward_args(
+                    &act_inputs,
+                    &param_ptrs,
+                    node_out_ptr as teeny_core::model::RawPtr,
+                    &output_shape,
+                    grad_in_ptr as teeny_core::model::RawPtr,
+                    &grad_input_rawptrs,
+                    &grad_param_rawptrs,
+                    &mut packer,
+                );
+
+                let grid = loaded.runtime_op.backward_grid(&input_shapes, &output_shape);
+                let block = loaded.runtime_op.backward_block();
+                device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)?;
+
+                // Propagate gradients to parent nodes.
+                for (i, &pidx) in parent_indices.iter().enumerate() {
+                    if grad_ctx[pidx].is_some() {
+                        return Err(anyhow!(
+                            "gradient accumulation not yet supported (node {pidx} has multiple consumers)"
+                        ));
+                    }
+                    grad_ctx[pidx] = Some(grad_input_ptrs[i]);
+                }
+            }
+        }
+
+        // Free all intermediate gradient buffers.
+        for ptr in owned_grad_ptrs {
+            let _ = mem::free(ptr).map_err(|e| {
+                eprintln!("LoadedModel::backward: failed to free grad buffer: {e}");
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Zero all parameter gradient buffers. Call before each backward pass.
+    #[cfg(feature = "training")]
+    pub fn zero_grad(&mut self) {
+        for node in self.nodes.iter().flatten() {
+            for (&gp, ps) in node.grad_param_bufs.iter().zip(node.param_shapes.iter()) {
+                let byte_size = ps.iter().product::<usize>() * dtype_bytes(node.output_dtype);
+                unsafe { cuda::cuMemsetD8_v2(gp, 0, byte_size); }
+            }
+        }
+    }
+
+    /// Apply an AdamW update to all parameters using the accumulated gradient buffers.
+    ///
+    /// `kernel` — pre-compiled `adamw_step` PTX (compile with `AdamwStep::new(1024)` from
+    ///            `teeny_kernels::nn::optim::adam`).
+    #[cfg(feature = "training")]
+    pub fn adamw_step(
+        &mut self,
+        device: &CudaDevice<'_>,
+        kernel: &AdamwKernel,
+        lr: f32,
+        beta1: f32,
+        beta2: f32,
+        eps: f32,
+        weight_decay: f32,
+    ) -> Result<()> {
+        self.optim_step += 1;
+        let t = self.optim_step as f32;
+        let bias_correction1 = 1.0_f32 - beta1.powi(self.optim_step as i32);
+        let bias_correction2 = 1.0_f32 - beta2.powi(self.optim_step as i32);
+        let step_size = lr / bias_correction1;
+        let bias_corr2_sqrt = bias_correction2.sqrt();
+
+        for node in self.nodes.iter().flatten() {
+            if node.param_bufs.is_empty() { continue; }
+            for i in 0..node.param_bufs.len() {
+                let n_elems: usize = node.param_shapes[i].iter().product();
+                let mut packer = CudaArgPacker::new();
+                packer.visit_ptr(node.param_bufs[i] as *mut core::ffi::c_void);      // params_ptr
+                packer.visit_ptr(node.grad_param_bufs[i] as *mut core::ffi::c_void); // grad_ptr
+                packer.visit_ptr(node.optim_m_bufs[i] as *mut core::ffi::c_void);    // exp_avg_ptr
+                packer.visit_ptr(node.optim_v_bufs[i] as *mut core::ffi::c_void);    // exp_avg_sq_ptr
+                packer.visit_i32(n_elems as i32);   // n_elements
+                packer.visit_f32(step_size);         // step_size
+                packer.visit_f32(bias_corr2_sqrt);   // bias_corr2_sqrt
+                packer.visit_f32(beta1);             // beta1
+                packer.visit_f32(beta2);             // beta2
+                packer.visit_f32(eps);               // eps
+                packer.visit_f32(weight_decay);      // weight_decay
+                packer.visit_f32(lr);                // lr
+
+                let grid = [n_elems.div_ceil(kernel.block_size as usize) as u32, 1, 1];
+                let block = [kernel.block_size, 1, 1];
+                device.launch_with_packer(
+                    &kernel.program,
+                    &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] },
+                    &mut packer,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn topo_sort(&self) -> Vec<usize> {
+        let n = self.nodes.len();
+        let mut in_deg: Vec<usize> = (0..n).map(|i| self.parents[i].len()).collect();
+        let mut dependents: Vec<Vec<usize>> = vec![vec![]; n];
+        for i in 0..n {
+            for &p in &self.parents[i] {
+                dependents[p].push(i);
+            }
+        }
+        let mut stack: Vec<usize> = (0..n).filter(|&i| in_deg[i] == 0).collect();
+        let mut order = Vec::with_capacity(n);
+        while let Some(id) = stack.pop() {
+            order.push(id);
+            for &dep in &dependents[id] {
+                in_deg[dep] -= 1;
+                if in_deg[dep] == 0 { stack.push(dep); }
+            }
+        }
+        order
+    }
+}
+
+/// Activation buffers retained from a `forward_train` call.
+///
+/// Implements `Drop` so device buffers are freed automatically.
+#[cfg(feature = "training")]
+pub struct ActivationCache {
+    pub tensors: Vec<Option<TensorRef>>,
+}
+
+#[cfg(feature = "training")]
+impl Drop for ActivationCache {
+    fn drop(&mut self) {
+        for tr in self.tensors.iter().flatten() {
+            if let Err(e) = mem::free(tr.ptr) {
+                eprintln!("ActivationCache: failed to free buffer: {e}");
+            }
+        }
+    }
+}
+
+/// A pre-compiled `adamw_step` kernel ready for use in `LoadedModel::adamw_step`.
+///
+/// Create via:
+/// ```ignore
+/// let ptx = std::fs::read(compile_kernel(&AdamwStep::new(1024), &target, true)?)?;
+/// let kernel = AdamwKernel::from_ptx(&ptx, 1024)?;
+/// ```
+#[cfg(feature = "training")]
+pub struct AdamwKernel {
+    pub(crate) program: CudaProgram<'static, ErasedKernel>,
+    pub(crate) block_size: u32,
+}
+
+#[cfg(feature = "training")]
+impl AdamwKernel {
+    pub fn from_ptx(ptx: &[u8], block_size: u32) -> Result<Self> {
+        let program = CudaProgram::<ErasedKernel>::try_from_ptx(ptx, "entry_point")?;
+        Ok(Self { program, block_size })
     }
 }

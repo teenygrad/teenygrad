@@ -143,6 +143,39 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    // relu_backward(dy_ptr, y_ptr, dx_ptr, n_elements)
+    // dy_ptr = incoming gradient, y_ptr = forward output (activation), dx_ptr = outgoing gradient
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        _inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        _grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(grad_output);      // dy_ptr
+        visitor.visit_ptr(output);           // y_ptr (forward output as activation mask)
+        visitor.visit_ptr(grad_inputs[0]);   // dx_ptr
+        visitor.visit_i32(n as i32);         // n_elements
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
 }
 
 pub struct ReluOp<'a, T: Num> {

@@ -31,13 +31,13 @@ use crate::nn::{
         misc::{
             LeakyReluForward, SoftplusForward, SoftshrinkForward, SoftsignForward, ThresholdForward,
         },
-        relu::ReluForward,
+        relu::{ReluBackward, ReluForward},
         sigmoid::{LogsigmoidForward, SigmoidForward, SiluForward},
         softmax::SoftmaxForward,
         tanh::{TanhForward, TanhshrinkForward},
     },
     conv::{conv1d::Conv1dForward, conv2d::Conv2dForward, conv3d::Conv3dForward},
-    mlp::{flatten::FlattenForward, linear::LinearForward},
+    mlp::{flatten::FlattenForward, linear::{LinearBackward, LinearForward}},
     pad::{
         circular_pad1d::CircularPad1dForward, circular_pad2d::CircularPad2dForward,
         circular_pad3d::CircularPad3dForward, constant_pad1d::ConstantPad1dForward,
@@ -89,6 +89,52 @@ macro_rules! make_num_kernel {
             entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
+            #[cfg(feature = "training")]
+            backward_kernel_source: String::new(),
+            #[cfg(feature = "training")]
+            backward_entry_point: "entry_point".to_string(),
+            runtime_op: rop,
+        })
+    }};
+    // Variant with explicit backward kernel type (for ops that have backward support)
+    ($K:ident ($($arg:expr),*), $Bwd:ident ($($barg:expr),*), $node:expr) => {{
+        let (name, ks, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
+        };
+        #[cfg(feature = "training")]
+        let bwd_ks = match $node.dtype {
+            DtypeRepr::F32 => $Bwd::<f32>::new($($barg),*).source.clone(),
+            DtypeRepr::F64 => $Bwd::<f64>::new($($barg),*).source.clone(),
+            DtypeRepr::I8  => $Bwd::<i8>::new($($barg),*).source.clone(),
+            DtypeRepr::I16 => $Bwd::<i16>::new($($barg),*).source.clone(),
+            DtypeRepr::I32 => $Bwd::<i32>::new($($barg),*).source.clone(),
+            DtypeRepr::I64 => $Bwd::<i64>::new($($barg),*).source.clone(),
+            DtypeRepr::U8  => $Bwd::<u8>::new($($barg),*).source.clone(),
+            DtypeRepr::U16 => $Bwd::<u16>::new($($barg),*).source.clone(),
+            DtypeRepr::U32 => $Bwd::<u32>::new($($barg),*).source.clone(),
+            DtypeRepr::U64 => $Bwd::<u64>::new($($barg),*).source.clone(),
+            other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($Bwd))),
+        };
+        Box::new(KernelExecutable {
+            name,
+            kernel_source: ks,
+            entry_point: "entry_point".to_string(),
+            shape: $node.shape.clone(),
+            dtype: $node.dtype,
+            #[cfg(feature = "training")]
+            backward_kernel_source: bwd_ks,
+            #[cfg(feature = "training")]
+            backward_entry_point: "entry_point".to_string(),
             runtime_op: rop,
         })
     }};
@@ -109,6 +155,10 @@ macro_rules! make_float_kernel {
             entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
+            #[cfg(feature = "training")]
+            backward_kernel_source: String::new(),
+            #[cfg(feature = "training")]
+            backward_entry_point: "entry_point".to_string(),
             runtime_op: rop,
         })
     }};
@@ -128,6 +178,10 @@ macro_rules! make_untyped_kernel {
             entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
+            #[cfg(feature = "training")]
+            backward_kernel_source: String::new(),
+            #[cfg(feature = "training")]
+            backward_entry_point: "entry_point".to_string(),
             runtime_op: rop,
         })
     }};
@@ -150,6 +204,12 @@ pub struct KernelExecutable {
     /// Runtime dispatch object: how to pack args and compute the launch grid.
     /// `Input` nodes carry a no-op implementation.
     pub runtime_op: Arc<dyn RuntimeOp>,
+    /// Backward kernel source. Empty if this op has no backward.
+    #[cfg(feature = "training")]
+    pub backward_kernel_source: String,
+    /// Backward kernel entry point name.
+    #[cfg(feature = "training")]
+    pub backward_entry_point: String,
 }
 
 impl ExecutableOp for KernelExecutable {
@@ -183,6 +243,16 @@ impl ExecutableOp for KernelExecutable {
         } else {
             Some(Arc::clone(&self.runtime_op))
         }
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_kernel_source(&self) -> &str {
+        &self.backward_kernel_source
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_kernel_entry_point(&self) -> &str {
+        &self.backward_entry_point
     }
 }
 
@@ -321,12 +391,16 @@ impl<'a> Lowering<'a> for TritonLowering {
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
+                    #[cfg(feature = "training")]
+                    backward_kernel_source: String::new(),
+                    #[cfg(feature = "training")]
+                    backward_entry_point: "entry_point".to_string(),
                     runtime_op: Arc::new(InputRuntimeOp),
                 }),
 
                 // --- Linear / MLP ---
                 Op::Linear { has_bias, .. } => {
-                    make_num_kernel!(LinearForward(*has_bias, 32, 64, 32, 8), node)
+                    make_num_kernel!(LinearForward(*has_bias, 32, 64, 32, 8), LinearBackward(*has_bias, 32, 64, 32, 8), node)
                 }
                 Op::Flatten => make_num_kernel!(FlattenForward(32, 256), node),
 
@@ -457,7 +531,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                 }
 
                 // --- Activation (D: Num) ---
-                Op::Relu => make_num_kernel!(ReluForward(1024), node),
+                Op::Relu => make_num_kernel!(ReluForward(1024), ReluBackward(1024), node),
 
                 // --- Activation (hardcoded f32 — no D type parameter) ---
                 Op::Elu { .. }       => make_untyped_kernel!(EluForward(1024), node),

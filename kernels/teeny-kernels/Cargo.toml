@@ -9,8 +9,9 @@ license = "GPL v3"
 [lib]
 
 [features]
-default = ["cuda"]
+default = ["cuda", "training"]
 cuda = ["dep:teeny-cuda"]
+training = ["teeny-core/training"]
 
 [dependencies]
 thiserror.workspace = true

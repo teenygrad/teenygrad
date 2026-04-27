@@ -60,6 +60,48 @@ pub trait RuntimeOp: Send + Sync {
 
     /// Number of CTAs to launch (x, y, z), given the concrete output shape.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3];
+
+    /// Returns true if this op has a backward (gradient) kernel.
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { false }
+
+    /// Pack backward kernel arguments.
+    ///
+    /// - `inputs`       — (ptr, shape) per forward activation input (from cache)
+    /// - `params`       — raw ptrs to forward param buffers (weights, biases)
+    /// - `output`       — forward output buffer (activation cache)
+    /// - `output_shape` — concrete forward output shape
+    /// - `grad_output`  — incoming gradient dL/dy from the consumer node
+    /// - `grad_inputs`  — output gradient buffers: dL/dx per activation parent
+    /// - `grad_params`  — output gradient buffers: dL/dw, dL/db, etc.
+    #[cfg(feature = "training")]
+    #[allow(clippy::too_many_arguments)]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(RawPtr, &[usize])],
+        params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        grad_output: RawPtr,
+        grad_inputs: &[RawPtr],
+        grad_params: &[RawPtr],
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        let _ = (inputs, params, output, output_shape, grad_output, grad_inputs, grad_params, visitor);
+    }
+
+    /// Threads-per-CTA for the backward kernel.
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    /// Number of CTAs for the backward kernel.
+    ///
+    /// `input_shapes[i]` is the concrete shape of the i-th activation input.
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let _ = (input_shapes, output_shape);
+        [0, 0, 0]
+    }
 }
 
 /// An op that has been lowered to a compilable kernel representation.
@@ -80,6 +122,14 @@ pub trait ExecutableOp {
     fn runtime_op(&self) -> Option<Arc<dyn RuntimeOp>> {
         None
     }
+
+    /// Returns the backward kernel source, or `""` if no backward is available.
+    #[cfg(feature = "training")]
+    fn backward_kernel_source(&self) -> &str { "" }
+
+    /// Returns the backward kernel entry point name.
+    #[cfg(feature = "training")]
+    fn backward_kernel_entry_point(&self) -> &str { "entry_point" }
 }
 
 pub trait Lowering<'a> {

@@ -32,6 +32,10 @@ use crate::{
 /// can compile the forward kernel without knowing the concrete argument types.
 struct ForwardKernelAdapter<'a>(&'a dyn ExecutableOp);
 
+/// Adapts a `&dyn ExecutableOp` backward kernel source to the `Kernel` trait.
+#[cfg(feature = "training")]
+struct BackwardKernelAdapter<'a>(&'a dyn ExecutableOp);
+
 impl<'a> Kernel for ForwardKernelAdapter<'a> {
     /// Argument types are not needed at compile time; `()` satisfies the bound.
     type Args<'b> = ();
@@ -50,6 +54,27 @@ impl<'a> Kernel for ForwardKernelAdapter<'a> {
 
     fn entry_point(&self) -> &str {
         self.0.forward_kernel_entry_point()
+    }
+}
+
+#[cfg(feature = "training")]
+impl<'a> Kernel for BackwardKernelAdapter<'a> {
+    type Args<'b> = ();
+
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    fn source(&self) -> &str {
+        self.0.backward_kernel_source()
+    }
+
+    fn kernel_source(&self) -> &str {
+        self.0.backward_kernel_source()
+    }
+
+    fn entry_point(&self) -> &str {
+        self.0.backward_kernel_entry_point()
     }
 }
 
@@ -105,12 +130,24 @@ impl CudaGraphCompiler {
                 compiler.compile(&adapter, target, force)?
             };
 
+            #[cfg(feature = "training")]
+            let backward_ptx_path = if op.is_input() || op.backward_kernel_source().is_empty() {
+                None
+            } else {
+                let adapter = BackwardKernelAdapter(op);
+                Some(compiler.compile(&adapter, target, force)?)
+            };
+
             compiled_dag.add_node(CompiledNode {
                 ptx_path,
                 entry_point: op.forward_kernel_entry_point().to_string(),
                 output_shape: op.output_shape().clone(),
                 output_dtype: op.output_dtype(),
                 runtime_op: op.runtime_op(),
+                #[cfg(feature = "training")]
+                backward_ptx_path,
+                #[cfg(feature = "training")]
+                backward_entry_point: op.backward_kernel_entry_point().to_string(),
             });
         }
 

@@ -302,6 +302,66 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         let pn = output_shape[1].div_ceil(self.block_n as usize);
         [(pm * pn) as u32, 1, 1]
     }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    // linear_backward(x_ptr, w_ptr, dy_ptr, dx_ptr, dw_ptr, db_ptr,
+    //                 M, N, K,
+    //                 stride_xm, stride_xk, stride_wk, stride_wn,
+    //                 stride_dym, stride_dyn, stride_dxm, stride_dxk,
+    //                 stride_dwk, stride_dwn, stride_dbn)
+    #[cfg(feature = "training")]
+    #[allow(clippy::too_many_arguments)]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        _output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let m = output_shape[0] as i32;
+        let n = output_shape[1] as i32;
+        let k = inputs[0].1[1] as i32;
+        let db_ptr = if self.use_bias { grad_params[1] } else { core::ptr::null_mut() };
+
+        visitor.visit_ptr(inputs[0].0);    // x_ptr
+        visitor.visit_ptr(params[0]);      // w_ptr
+        visitor.visit_ptr(grad_output);    // dy_ptr
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_ptr(grad_params[0]); // dw_ptr
+        visitor.visit_ptr(db_ptr);         // db_ptr (null if no bias)
+        visitor.visit_i32(m);              // M
+        visitor.visit_i32(n);              // N
+        visitor.visit_i32(k);              // K
+        visitor.visit_i32(k);              // stride_xm = K (x is [M,K] row-major)
+        visitor.visit_i32(1);              // stride_xk = 1
+        visitor.visit_i32(1);              // stride_wk = 1
+        visitor.visit_i32(k);              // stride_wn = K (w is [N,K])
+        visitor.visit_i32(n);              // stride_dym = N (dy is [M,N] row-major)
+        visitor.visit_i32(1);              // stride_dyn = 1
+        visitor.visit_i32(k);              // stride_dxm = K
+        visitor.visit_i32(1);             // stride_dxk = 1
+        visitor.visit_i32(1);              // stride_dwk = 1
+        visitor.visit_i32(k);              // stride_dwn = K
+        visitor.visit_i32(1);              // stride_dbn = 1
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    // Grid: ceil(M/BM) * ceil(N/BN) * ceil(K/BK) CTAs
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let m = output_shape[0].div_ceil(self.block_m as usize);
+        let n = output_shape[1].div_ceil(self.block_n as usize);
+        let k = input_shapes[0][1].div_ceil(self.block_k as usize);
+        [(m * n * k) as u32, 1, 1]
+    }
 }
 
 pub struct LinearOp<'a, T: Num> {
