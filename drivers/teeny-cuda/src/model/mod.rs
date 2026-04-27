@@ -659,7 +659,7 @@ impl LoadedModel {
                 packer.visit_f32(lr);                // lr
 
                 let grid = [n_elems.div_ceil(kernel.block_size as usize) as u32, 1, 1];
-                let block = [kernel.block_size, 1, 1];
+                let block = [kernel.program.threads_per_block, 1, 1];
                 device.launch_with_packer(
                     &kernel.program,
                     &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] },

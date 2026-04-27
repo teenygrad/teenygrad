@@ -237,7 +237,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
             }
             // Zero-initialize the scratch pad so TMA descriptors start in a clean state.
             unsafe { cuda::cuMemsetD8_v2(scratch_ptr, 0, scratch_total as usize) };
-            eprintln!("[LAUNCH] allocated {} bytes global scratch", scratch_total);
         }
 
         let mut packer = CudaArgPacker::new();
@@ -274,8 +273,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         // access) surfaces as a CUDA error code rather than a later SIGSEGV.
         let sync_status = unsafe { cuda::cuCtxSynchronize() };
 
-        println!("sync_status: {:?}", sync_status);
-
         if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
             if scratch_ptr != 0 {
                 unsafe { cuda::cuMemFree_v2(scratch_ptr) };
@@ -286,8 +283,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         if scratch_ptr != 0 {
             unsafe { cuda::cuMemFree_v2(scratch_ptr) };
         }
-
-        println!("Launch completed successfully");
 
         Ok(())
     }
