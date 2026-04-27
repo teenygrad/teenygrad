@@ -339,6 +339,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         params: &[teeny_core::model::RawPtr],
         output: teeny_core::model::RawPtr,
         output_shape: &[usize],
+        _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         // kernel args: x_ptr, w_ptr, y_ptr, B, C_IN, C_OUT, H, W, OH, OW

@@ -41,17 +41,28 @@ pub trait RuntimeOp: Send + Sync {
     /// `input_shapes` / `output_shape` are concrete (batch dim resolved).
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>>;
 
+    /// Returns the required row stride (in elements) for the output buffer of
+    /// this op's forward kernel.  The default is the natural row-major stride
+    /// (`output_shape[-1]`).  Kernels using TMA must round up to satisfy the
+    /// 16-byte alignment constraint (e.g. 4 elements for f32).
+    fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        output_shape.last().copied().unwrap_or(1)
+    }
+
     /// Pack all kernel arguments into `visitor` in the correct order.
-    /// - `inputs`       — (ptr, concrete_shape) per activation input
-    /// - `params`       — raw pointers to pre-allocated param buffers (weights, biases)
-    /// - `output`       — raw pointer to the output buffer for this node
-    /// - `output_shape` — concrete output shape (batch dim resolved)
+    /// - `inputs`            — (ptr, concrete_shape) per activation input
+    /// - `params`            — raw pointers to pre-allocated param buffers
+    /// - `output`            — raw pointer to the output buffer for this node
+    /// - `output_shape`      — concrete output shape (batch dim resolved)
+    /// - `output_row_stride` — actual memory row stride (elements) of the
+    ///                         output buffer (may be padded for TMA alignment)
     fn pack_args(
         &self,
         inputs: &[(RawPtr, &[usize])],
         params: &[RawPtr],
         output: RawPtr,
         output_shape: &[usize],
+        output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     );
 
@@ -65,6 +76,15 @@ pub trait RuntimeOp: Send + Sync {
     #[cfg(feature = "training")]
     fn has_backward(&self) -> bool { false }
 
+    /// Returns the required row stride (in elements) for the grad_output buffer
+    /// passed to `pack_backward_args`. The default is the natural row-major
+    /// stride (`output_shape[-1]`). Kernels using TMA must round up to satisfy
+    /// the 16-byte alignment constraint (e.g. 4 elements for f32).
+    #[cfg(feature = "training")]
+    fn backward_grad_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        output_shape.last().copied().unwrap_or(1)
+    }
+
     /// Pack backward kernel arguments.
     ///
     /// - `inputs`       — (ptr, shape) per forward activation input (from cache)
@@ -72,6 +92,8 @@ pub trait RuntimeOp: Send + Sync {
     /// - `output`       — forward output buffer (activation cache)
     /// - `output_shape` — concrete forward output shape
     /// - `grad_output`  — incoming gradient dL/dy from the consumer node
+    /// - `grad_output_row_stride` — actual memory row stride (elements) of the
+    ///                              grad_output buffer (may be padded for TMA alignment)
     /// - `grad_inputs`  — output gradient buffers: dL/dx per activation parent
     /// - `grad_params`  — output gradient buffers: dL/dw, dL/db, etc.
     #[cfg(feature = "training")]
@@ -83,11 +105,12 @@ pub trait RuntimeOp: Send + Sync {
         output: RawPtr,
         output_shape: &[usize],
         grad_output: RawPtr,
+        grad_output_row_stride: i32,
         grad_inputs: &[RawPtr],
         grad_params: &[RawPtr],
         visitor: &mut dyn ArgVisitor,
     ) {
-        let _ = (inputs, params, output, output_shape, grad_output, grad_inputs, grad_params, visitor);
+        let _ = (inputs, params, output, output_shape, grad_output, grad_output_row_stride, grad_inputs, grad_params, visitor);
     }
 
     /// Threads-per-CTA for the backward kernel.

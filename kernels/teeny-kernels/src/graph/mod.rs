@@ -267,7 +267,7 @@ macro_rules! impl_stub_runtime_op_num {
         impl<D: teeny_core::dtype::Num + Send + Sync + 'static> RuntimeOp for $T<D> {
             fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
             fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
-            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
+            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: i32, _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
             fn block(&self) -> [u32; 3] { unimplemented!() }
             fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
         }
@@ -279,7 +279,7 @@ macro_rules! impl_stub_runtime_op_float {
         impl<D: teeny_core::dtype::Float + Send + Sync + 'static> RuntimeOp for $T<D> {
             fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
             fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
-            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
+            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: i32, _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
             fn block(&self) -> [u32; 3] { unimplemented!() }
             fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
         }
@@ -291,7 +291,7 @@ macro_rules! impl_stub_runtime_op_untyped {
         impl RuntimeOp for $T {
             fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
             fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
-            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
+            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: i32, _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
             fn block(&self) -> [u32; 3] { unimplemented!() }
             fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
         }
@@ -356,7 +356,7 @@ struct InputRuntimeOp;
 impl RuntimeOp for InputRuntimeOp {
     fn n_activation_inputs(&self) -> usize { 0 }
     fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
-    fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) {}
+    fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: i32, _: &mut dyn teeny_core::device::program::ArgVisitor) {}
     fn block(&self) -> [u32; 3] { [1, 1, 1] }
     fn grid(&self, _: &[usize]) -> [u32; 3] { [0, 0, 0] }
 }

@@ -323,6 +323,21 @@ impl LoadedModel {
         unsafe { mem::copy_h_to_d(ptr, data.as_ptr(), data.len()) }
     }
 
+    /// Copy the accumulated parameter gradient (dL/dParam) back to host as `f32`.
+    ///
+    /// Call after `backward` and before `zero_grad`.
+    #[cfg(feature = "training")]
+    pub fn read_param_grad_f32(&self, node_idx: usize, param_idx: usize) -> Result<Vec<f32>> {
+        let node = self.nodes[node_idx].as_ref()
+            .ok_or_else(|| anyhow!("node {node_idx} is an Input placeholder"))?;
+        let &ptr = node.grad_param_bufs.get(param_idx)
+            .ok_or_else(|| anyhow!("node {node_idx} has no grad param at index {param_idx}"))?;
+        let n_elems: usize = node.param_shapes[param_idx].iter().product();
+        let mut out = vec![0.0_f32; n_elems];
+        unsafe { mem::copy_d_to_h(out.as_mut_ptr(), ptr, n_elems) }?;
+        Ok(out)
+    }
+
     /// Run a single forward pass through the loaded model.
     ///
     /// `device`     — the CUDA device context.
@@ -366,11 +381,27 @@ impl LoadedModel {
                 .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
                 .collect();
 
-            // Allocate output buffer.
+            // Allocate tight output buffer.
             let n_elems: usize = output_shape.iter().product();
-            let byte_size = n_elems * dtype_bytes(loaded.output_dtype);
+            let elem_bytes = dtype_bytes(loaded.output_dtype);
+            let byte_size = n_elems * elem_bytes;
             let out_ptr = mem::alloc(byte_size)?;
             intermediate_ptrs.push(out_ptr);
+
+            // Some ops (e.g. linear_forward) use TMA and require a row stride that
+            // is a multiple of 16 bytes.  Allocate a padded output buffer when needed.
+            let natural_stride = output_shape.last().copied().unwrap_or(1);
+            let required_stride = loaded.runtime_op.forward_output_row_stride(&output_shape);
+            let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
+
+            let (kernel_out_ptr, padded_out) = if required_stride > natural_stride {
+                let padded_bytes = n_rows * required_stride * elem_bytes;
+                let padded = mem::alloc(padded_bytes)?;
+                unsafe { cuda::cuMemsetD8_v2(padded, 0, padded_bytes); }
+                (padded, Some(padded))
+            } else {
+                (out_ptr, None)
+            };
 
             // Build arg inputs: (raw ptr, concrete shape slice).
             let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs.iter()
@@ -386,8 +417,9 @@ impl LoadedModel {
             loaded.runtime_op.pack_args(
                 &act_inputs,
                 &param_ptrs,
-                out_ptr as *mut core::ffi::c_void,
+                kernel_out_ptr as *mut core::ffi::c_void,
                 &output_shape,
+                required_stride as i32,
                 &mut packer,
             );
 
@@ -396,7 +428,21 @@ impl LoadedModel {
             let block = loaded.runtime_op.block();
             let cfg = CudaLaunchConfig { grid, block, cluster: [1, 1, 1] };
 
-            device.launch_with_packer(&loaded.program, &cfg, &mut packer)?;
+            let launch_result = device.launch_with_packer(&loaded.program, &cfg, &mut packer);
+
+            // Copy valid rows from padded output back to tight buffer, then free padded.
+            if let Some(padded) = padded_out {
+                if launch_result.is_ok() {
+                    mem::copy_rows_d_to_d(
+                        out_ptr, natural_stride * elem_bytes,
+                        padded, required_stride * elem_bytes,
+                        natural_stride * elem_bytes,
+                        n_rows,
+                    )?;
+                }
+                mem::free(padded).ok();
+            }
+            launch_result?;
 
             ctx[idx] = Some(TensorRef::new(out_ptr, output_shape));
         }
@@ -451,8 +497,23 @@ impl LoadedModel {
             let loaded = self.nodes[idx].as_ref().unwrap();
             let output_shape = resolve_shape(&loaded.output_shape, batch_size);
             let n_elems: usize = output_shape.iter().product();
-            let byte_size = n_elems * dtype_bytes(loaded.output_dtype);
+            let elem_bytes = dtype_bytes(loaded.output_dtype);
+            let byte_size = n_elems * elem_bytes;
             let out_ptr = mem::alloc(byte_size)?;
+
+            // TMA alignment: allocate a padded output buffer when the op requires it.
+            let natural_stride = output_shape.last().copied().unwrap_or(1);
+            let required_stride = loaded.runtime_op.forward_output_row_stride(&output_shape);
+            let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
+
+            let (kernel_out_ptr, padded_out) = if required_stride > natural_stride {
+                let padded_bytes = n_rows * required_stride * elem_bytes;
+                let padded = mem::alloc(padded_bytes)?;
+                unsafe { cuda::cuMemsetD8_v2(padded, 0, padded_bytes); }
+                (padded, Some(padded))
+            } else {
+                (out_ptr, None)
+            };
 
             let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
                 .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
@@ -468,13 +529,27 @@ impl LoadedModel {
             loaded.runtime_op.pack_args(
                 &act_inputs,
                 &param_ptrs,
-                out_ptr as *mut core::ffi::c_void,
+                kernel_out_ptr as *mut core::ffi::c_void,
                 &output_shape,
+                required_stride as i32,
                 &mut packer,
             );
             let grid = loaded.runtime_op.grid(&output_shape);
             let block = loaded.runtime_op.block();
-            device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)?;
+            let launch_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer);
+
+            if let Some(padded) = padded_out {
+                if launch_result.is_ok() {
+                    mem::copy_rows_d_to_d(
+                        out_ptr, natural_stride * elem_bytes,
+                        padded, required_stride * elem_bytes,
+                        natural_stride * elem_bytes,
+                        n_rows,
+                    )?;
+                }
+                mem::free(padded).ok();
+            }
+            launch_result?;
 
             ctx[idx] = Some(TensorRef::new(out_ptr, output_shape));
         }
@@ -570,13 +645,37 @@ impl LoadedModel {
                     .map(|tr| tr.shape.as_slice())
                     .collect();
 
+                // Some kernels (e.g. linear_backward) use TMA, which requires
+                // 16-byte aligned row strides.  If the natural stride is too
+                // small, allocate a zero-padded copy and use the padded stride.
+                let natural_stride = output_shape.last().copied().unwrap_or(1);
+                let required_stride = loaded.runtime_op.backward_grad_output_row_stride(&output_shape);
+                let elem_bytes = dtype_bytes(loaded.output_dtype);
+                let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
+
+                let (dy_ptr, padded_dy) = if required_stride > natural_stride {
+                    let padded_bytes = n_rows * required_stride * elem_bytes;
+                    let padded = mem::alloc(padded_bytes)?;
+                    unsafe { cuda::cuMemsetD8_v2(padded, 0, padded_bytes); }
+                    mem::copy_rows_d_to_d(
+                        padded, required_stride * elem_bytes,
+                        grad_in_ptr, natural_stride * elem_bytes,
+                        natural_stride * elem_bytes,
+                        n_rows,
+                    )?;
+                    (padded, Some(padded))
+                } else {
+                    (grad_in_ptr, None)
+                };
+
                 let mut packer = CudaArgPacker::new();
                 loaded.runtime_op.pack_backward_args(
                     &act_inputs,
                     &param_ptrs,
                     node_out_ptr as teeny_core::model::RawPtr,
                     &output_shape,
-                    grad_in_ptr as teeny_core::model::RawPtr,
+                    dy_ptr as teeny_core::model::RawPtr,
+                    required_stride as i32,
                     &grad_input_rawptrs,
                     &grad_param_rawptrs,
                     &mut packer,
@@ -584,7 +683,14 @@ impl LoadedModel {
 
                 let grid = loaded.runtime_op.backward_grid(&input_shapes, &output_shape);
                 let block = loaded.runtime_op.backward_block();
-                device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)?;
+                let launch_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer);
+
+                // Free the padded dy buffer after the (synchronous) launch completes.
+                if let Some(padded) = padded_dy {
+                    mem::free(padded).ok();
+                }
+
+                launch_result?;
 
                 // Propagate gradients to parent nodes.
                 for (i, &pidx) in parent_indices.iter().enumerate() {

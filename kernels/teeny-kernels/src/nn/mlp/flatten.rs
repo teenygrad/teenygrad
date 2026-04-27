@@ -119,6 +119,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for FlattenFor
         _params: &[teeny_core::model::RawPtr],
         output: teeny_core::model::RawPtr,
         output_shape: &[usize],
+        _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         // kernel args: input_ptr, output_ptr, B, N, stride_ib, stride_in

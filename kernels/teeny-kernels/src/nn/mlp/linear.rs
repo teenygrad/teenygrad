@@ -265,12 +265,20 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         }
     }
 
+    // TMA requires 16-byte aligned row strides for the Y output descriptor.
+    fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        let n = output_shape.last().copied().unwrap_or(1);
+        let align = 16 / core::mem::size_of::<D>();
+        n.next_multiple_of(align)
+    }
+
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
         params: &[teeny_core::model::RawPtr],
         output: teeny_core::model::RawPtr,
         output_shape: &[usize],
+        output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         // kernel args: x_ptr, w_ptr, b_ptr, y_ptr, M, N, K,
@@ -290,7 +298,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         visitor.visit_i32(1);             // stride_xk = 1
         visitor.visit_i32(k);             // stride_wn = K (w is [N,K])
         visitor.visit_i32(1);             // stride_wk = 1
-        visitor.visit_i32(n);             // stride_ym = N
+        visitor.visit_i32(output_row_stride); // stride_ym (may be padded for TMA alignment)
         visitor.visit_i32(1);             // stride_yn = 1
     }
 
@@ -306,6 +314,15 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
     #[cfg(feature = "training")]
     fn has_backward(&self) -> bool { true }
 
+    // TMA requires 16-byte aligned row strides. Round N up to the nearest
+    // multiple of (16 / sizeof(D)) elements so the dy tensor descriptor is valid.
+    #[cfg(feature = "training")]
+    fn backward_grad_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        let n = output_shape[output_shape.len() - 1];
+        let align = 16 / core::mem::size_of::<D>();
+        n.next_multiple_of(align)
+    }
+
     // linear_backward(x_ptr, w_ptr, dy_ptr, dx_ptr, dw_ptr, db_ptr,
     //                 M, N, K,
     //                 stride_xm, stride_xk, stride_wk, stride_wn,
@@ -320,6 +337,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         _output: teeny_core::model::RawPtr,
         output_shape: &[usize],
         grad_output: teeny_core::model::RawPtr,
+        grad_output_row_stride: i32,
         grad_inputs: &[teeny_core::model::RawPtr],
         grad_params: &[teeny_core::model::RawPtr],
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
@@ -342,10 +360,10 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         visitor.visit_i32(1);              // stride_xk = 1
         visitor.visit_i32(1);              // stride_wk = 1
         visitor.visit_i32(k);              // stride_wn = K (w is [N,K])
-        visitor.visit_i32(n);              // stride_dym = N (dy is [M,N] row-major)
+        visitor.visit_i32(grad_output_row_stride);  // stride_dym (may be padded for TMA alignment)
         visitor.visit_i32(1);              // stride_dyn = 1
         visitor.visit_i32(k);              // stride_dxm = K
-        visitor.visit_i32(1);             // stride_dxk = 1
+        visitor.visit_i32(1);              // stride_dxk = 1
         visitor.visit_i32(1);              // stride_dwk = 1
         visitor.visit_i32(k);              // stride_dwn = K
         visitor.visit_i32(1);              // stride_dbn = 1

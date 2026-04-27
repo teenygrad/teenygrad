@@ -129,6 +129,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
         _params: &[teeny_core::model::RawPtr],
         output: teeny_core::model::RawPtr,
         output_shape: &[usize],
+        _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let n: usize = output_shape.iter().product();
@@ -157,6 +158,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
         output: teeny_core::model::RawPtr,
         output_shape: &[usize],
         grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
         grad_inputs: &[teeny_core::model::RawPtr],
         _grad_params: &[teeny_core::model::RawPtr],
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
