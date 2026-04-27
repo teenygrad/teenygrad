@@ -4,19 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = []
+default = ["training"]
+training = ["teeny-core/training"]
 
 [lib]
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
+teeny-compiler = { path = "../../compiler/teeny-compiler" }
 thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true
 derive_builder.workspace = true
 
 [dev-dependencies]
-teeny-compiler = { path = "../../compiler/teeny-compiler" }
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
 dotenv.workspace = true
 

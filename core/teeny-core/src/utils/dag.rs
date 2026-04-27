@@ -27,10 +27,16 @@ pub struct Dag<V> {
     nodes: Vec<Node<V>>,
 }
 
+impl<V> Default for Dag<V> {
+    fn default() -> Self {
+        Self { nodes: Vec::new() }
+    }
+}
+
 impl<V> Dag<V> {
     /// Create an empty DAG.
     pub fn new() -> Self {
-        Self { nodes: Vec::new() }
+        Self::default()
     }
 
     /// Adds a node to the graph, returns index of the node.
@@ -85,9 +91,9 @@ impl<V> Dag<V> {
 
     /// Perform a topological sort. Returns a list of node indices.
     /// Panics if the graph contains a cycle.
-    pub fn topo_sort(&self) -> Vec<usize> {
+    pub fn topological_sort(&self) -> Vec<usize> {
         let mut in_degree = alloc::vec![0; self.nodes.len()];
-        for (_idx, node) in self.nodes.iter().enumerate() {
+        for node in &self.nodes {
             for &child in &node.children {
                 in_degree[child] += 1;
             }
@@ -121,6 +127,15 @@ impl<V> Dag<V> {
     }
 }
 
+impl<V> IntoIterator for Dag<V> {
+    type Item = Node<V>;
+    type IntoIter = alloc::vec::IntoIter<Node<V>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::vec;
@@ -132,7 +147,7 @@ mod tests {
         let dag: Dag<i32> = Dag { nodes: Vec::new() };
         assert_eq!(dag.len(), 0);
         assert!(dag.is_empty());
-        assert_eq!(dag.topo_sort(), Vec::<usize>::new());
+        assert_eq!(dag.topological_sort(), Vec::<usize>::new());
     }
 
     #[test]
@@ -145,7 +160,7 @@ mod tests {
         let dag = Dag { nodes: vec![node] };
         assert_eq!(dag.len(), 1);
         assert!(!dag.is_empty());
-        assert_eq!(dag.topo_sort(), vec![0]);
+        assert_eq!(dag.topological_sort(), vec![0]);
     }
 
     #[test]
@@ -169,7 +184,7 @@ mod tests {
         let dag = Dag {
             nodes: vec![n0, n1, n2],
         };
-        let order = dag.topo_sort();
+        let order = dag.topological_sort();
         // The only valid topo order is [0,1,2]
         assert_eq!(order, vec![0, 1, 2]);
     }
@@ -204,7 +219,7 @@ mod tests {
         let dag = Dag {
             nodes: vec![n0, n1, n2, n3],
         };
-        let order = dag.topo_sort();
+        let order = dag.topological_sort();
         // 0 before 1 and 2, 1/2 before 3
         let pos = |n| order.iter().position(|&x| x == n).unwrap();
         assert!(pos(0) < pos(1) && pos(0) < pos(2));
@@ -234,6 +249,6 @@ mod tests {
         let dag = Dag {
             nodes: vec![n0, n1, n2],
         };
-        let _ = dag.topo_sort(); // Should panic
+        let _ = dag.topological_sort(); // Should panic
     }
 }

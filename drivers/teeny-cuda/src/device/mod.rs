@@ -42,12 +42,12 @@ pub mod program;
 /// Each argument's value is stored as raw bytes in `values`. After visiting all
 /// args, `as_ptrs()` returns a mutable slice of `*mut c_void` pointing into
 /// those buffers — the slice lifetime is tied to `self`.
-struct CudaArgPacker {
+pub struct CudaArgPacker {
     values: Vec<Vec<u8>>,
 }
 
 impl CudaArgPacker {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { values: Vec::new() }
     }
 
@@ -237,7 +237,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
             }
             // Zero-initialize the scratch pad so TMA descriptors start in a clean state.
             unsafe { cuda::cuMemsetD8_v2(scratch_ptr, 0, scratch_total as usize) };
-            eprintln!("[LAUNCH] allocated {} bytes global scratch", scratch_total);
         }
 
         let mut packer = CudaArgPacker::new();
@@ -274,8 +273,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         // access) surfaces as a CUDA error code rather than a later SIGSEGV.
         let sync_status = unsafe { cuda::cuCtxSynchronize() };
 
-        println!("sync_status: {:?}", sync_status);
-
         if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
             if scratch_ptr != 0 {
                 unsafe { cuda::cuMemFree_v2(scratch_ptr) };
@@ -287,8 +284,62 @@ impl<'a> Device<'a> for CudaDevice<'a> {
             unsafe { cuda::cuMemFree_v2(scratch_ptr) };
         }
 
-        println!("Launch completed successfully");
+        Ok(())
+    }
 
+}
+
+impl<'a> CudaDevice<'a> {
+    /// Launch a pre-loaded kernel using a dynamically-built arg list.
+    ///
+    /// Use this instead of `launch` when the kernel type is erased (e.g. in
+    /// `LoadedModel::forward`) and arguments are packed by `CudaArgPacker`
+    /// via a `RuntimeOp` rather than a static `Kernel::Args` tuple.
+    pub fn launch_with_packer<K: Kernel>(
+        &self,
+        program: &CudaProgram<'_, K>,
+        cfg: &CudaLaunchConfig,
+        packer: &mut CudaArgPacker,
+    ) -> Result<()> {
+        let num_ctas = (cfg.grid[0] * cfg.grid[1] * cfg.grid[2]) as u64;
+        let scratch_total = program.global_scratch_bytes_per_cta * num_ctas;
+        let mut scratch_ptr: cuda::CUdeviceptr = 0;
+        if scratch_total > 0 {
+            let alloc_status =
+                unsafe { cuda::cuMemAlloc_v2(&mut scratch_ptr, scratch_total as usize) };
+            if alloc_status != cuda::cudaError_enum_CUDA_SUCCESS {
+                return Err(Error::from_cuda_error(alloc_status).into());
+            }
+            unsafe { cuda::cuMemsetD8_v2(scratch_ptr, 0, scratch_total as usize) };
+        }
+
+        packer.visit_ptr(scratch_ptr as *mut std::ffi::c_void);
+        packer.visit_ptr(std::ptr::null_mut());
+        let mut ptrs = packer.as_ptrs();
+
+        let status = unsafe {
+            cuda::cuLaunchKernel(
+                program.function,
+                cfg.grid[0], cfg.grid[1], cfg.grid[2],
+                cfg.block[0], cfg.block[1], cfg.block[2],
+                program.shared_mem_bytes,
+                std::ptr::null_mut(),
+                ptrs.as_mut_ptr(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            if scratch_ptr != 0 { unsafe { cuda::cuMemFree_v2(scratch_ptr) }; }
+            return Err(Error::from_cuda_error(status).into());
+        }
+
+        let sync_status = unsafe { cuda::cuCtxSynchronize() };
+        if scratch_ptr != 0 { unsafe { cuda::cuMemFree_v2(scratch_ptr) }; }
+
+        if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(sync_status).into());
+        }
         Ok(())
     }
 }

@@ -23,7 +23,9 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_cuda::{
+    compiler::target::Capability, errors::Result, testing, device::CudaLaunchConfig,
+};
 
 const N_ROWS: usize = 64;
 const N_COLS: usize = 128;
@@ -33,13 +35,8 @@ const BLOCK_SIZE: i32 = 128;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -54,7 +51,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_softmax_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::activation::softmax::SoftmaxForward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::softmax::SoftmaxForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -69,7 +66,7 @@ fn test_softmax_forward_mlir_output() -> Result<()> {
 fn test_softmax_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::activation::softmax::SoftmaxBackward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::softmax::SoftmaxBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -101,14 +98,14 @@ fn test_softmax_forward_cuda() -> Result<()> {
 
     x_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::activation::softmax::SoftmaxForward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::softmax::SoftmaxForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[softmax_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::softmax::SoftmaxForward<f32, BLOCK_SIZE>,
+        teeny_kernels::nn::activation::softmax::SoftmaxForward<f32>,
     >(&ptx)?;
 
     let cfg = CudaLaunchConfig {
@@ -168,14 +165,14 @@ fn test_softmax_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::activation::softmax::SoftmaxBackward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::softmax::SoftmaxBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[softmax_backward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::softmax::SoftmaxBackward<f32, BLOCK_SIZE>,
+        teeny_kernels::nn::activation::softmax::SoftmaxBackward<f32>,
     >(&ptx)?;
 
     let cfg = CudaLaunchConfig {

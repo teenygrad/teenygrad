@@ -68,3 +68,25 @@ pub unsafe fn copy_d_to_h<T>(dst: *mut T, src: DevicePtr, count: usize) -> Resul
     }
     Ok(())
 }
+
+/// Copy `num_rows` rows of `row_bytes` bytes from a device buffer with
+/// `src_stride_bytes` row stride to a device buffer with `dst_stride_bytes`
+/// row stride.  Used to create TMA-aligned (padded) copies of tensors.
+pub fn copy_rows_d_to_d(
+    dst: DevicePtr,
+    dst_stride_bytes: usize,
+    src: DevicePtr,
+    src_stride_bytes: usize,
+    row_bytes: usize,
+    num_rows: usize,
+) -> Result<()> {
+    for i in 0..num_rows {
+        let src_off = (i * src_stride_bytes) as u64;
+        let dst_off = (i * dst_stride_bytes) as u64;
+        let status = unsafe { cuda::cuMemcpyDtoD_v2(dst + dst_off, src + src_off, row_bytes) };
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(status).into());
+        }
+    }
+    Ok(())
+}

@@ -47,7 +47,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_relu() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::activation::relu::ReluForward::<f32, 1024>::new();
+    let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(1024);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -80,14 +80,14 @@ fn test_relu_forward_gpu() -> Result<()> {
     in_buf.to_device(&input_host)?;
     println!("[5/9] copied input data to device");
 
-    let kernel = teeny_kernels::activation::relu::ReluForward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::relu::ReluForward<f32, BLOCK_SIZE>,
+        teeny_kernels::nn::activation::relu::ReluForward<f32>,
     >(&ptx)?;
 
     let cfg = testing::launch_config(N, BLOCK_SIZE);
@@ -143,13 +143,13 @@ fn test_relu_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::activation::relu::ReluBackward::<f32, BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::relu::ReluBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::relu::ReluBackward<f32, BLOCK_SIZE>,
+        teeny_kernels::nn::activation::relu::ReluBackward<f32>,
     >(&ptx)?;
 
     let cfg = testing::launch_config(N, BLOCK_SIZE);

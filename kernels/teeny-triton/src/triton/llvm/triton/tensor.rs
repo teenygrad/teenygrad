@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use core::ops::{Add, Div, Mul, Neg, Sub};
+use core::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Sub};
 
 use super::super::super::types::{self as ty};
 
@@ -85,6 +85,24 @@ impl<D: ty::Dtype> Neg for LlvmTensor<D> {
 
 pub type LlvmBoolTensor = LlvmTensor<bool>;
 impl<const RANK: usize> ty::BoolTensor<RANK> for LlvmBoolTensor {}
+
+impl BitAnd for LlvmBoolTensor {
+    type Output = LlvmBoolTensor;
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitand(self, _rhs: LlvmBoolTensor) -> Self::Output {
+        LlvmTensor(0 as *mut bool)
+    }
+}
+
+impl BitOr for LlvmBoolTensor {
+    type Output = LlvmBoolTensor;
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitor(self, _rhs: LlvmBoolTensor) -> Self::Output {
+        LlvmTensor(0 as *mut bool)
+    }
+}
 
 pub type LlvmI32Tensor = LlvmTensor<i32>;
 

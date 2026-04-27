@@ -4,13 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["ndarray", "cuda"]
-cuda = ["teeny-cuda"]
+default = ["ndarray"]
 
 [dependencies]
 teeny-core = { path = "../../core/teeny-core" }
 teeny-triton = { path = "../../kernels/teeny-triton" }
-teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
 ndarray = { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true
@@ -24,5 +22,6 @@ sha2.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-cuda = { path = "../../drivers/teeny-cuda" }
 insta.workspace = true
 dotenv.workspace = true

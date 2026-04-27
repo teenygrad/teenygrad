@@ -70,6 +70,8 @@ pub struct CudaProgram<'a, K: Kernel> {
     pub(crate) global_scratch_bytes_per_cta: u64,
     /// Alignment for global scratch buffer (TRITON_GLOBAL_SCRATCH_ALIGN).
     pub(crate) global_scratch_align: u64,
+    /// Required threads per CTA, from PTX `.reqntid` directive (default 128).
+    pub(crate) threads_per_block: u32,
     _unused: PhantomData<&'a ()>,
     _kernel: PhantomData<K>,
 }
@@ -90,7 +92,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
             return Err(Error::from_cuda_error(status).into());
         }
 
-        Self::resolve_function(module, entry_point, 0, 0, 1)
+        Self::resolve_function(module, entry_point, 0, 0, 1, 128)
     }
 
     /// JIT-compile PTX source via the CUDA driver and resolve `entry_point`.
@@ -118,10 +120,19 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
         let global_scratch_bytes_per_cta =
             parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA: ");
         let global_scratch_align = parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_ALIGN: ").max(1);
-        eprintln!(
-            "[CUDA-JIT] dynamic shared mem = {} bytes, global scratch = {} bytes/CTA (align {})",
-            shared_mem_bytes, global_scratch_bytes_per_cta, global_scratch_align
-        );
+        // Parse `.reqntid X` directive — the number of threads per CTA mandated by the kernel.
+        let threads_per_block = {
+            let key = b".reqntid ";
+            ptx.windows(key.len())
+                .position(|w| w == key)
+                .and_then(|pos| {
+                    let rest = &ptx[pos + key.len()..];
+                    let end = rest.iter().position(|&b| b == b'\n' || b == b'\r' || b == b',').unwrap_or(rest.len());
+                    std::str::from_utf8(&rest[..end]).ok()
+                        .and_then(|s| s.trim().parse::<u32>().ok())
+                })
+                .unwrap_or(128)
+        };
 
         // Strip DWARF debug sections — they contain relocations (.b32 .debug_abbrev)
         // that are only valid in linked PTX object files, not for driver JIT.
@@ -187,6 +198,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
             shared_mem_bytes,
             global_scratch_bytes_per_cta,
             global_scratch_align,
+            threads_per_block,
         )
     }
 
@@ -196,6 +208,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
         shared_mem_bytes: u32,
         global_scratch_bytes_per_cta: u64,
         global_scratch_align: u64,
+        threads_per_block: u32,
     ) -> Result<Self> {
         let name = CString::new(entry_point).map_err(Error::CStringError)?;
         let mut function = cuda::CUfunction::default();
@@ -211,6 +224,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
             shared_mem_bytes,
             global_scratch_bytes_per_cta,
             global_scratch_align,
+            threads_per_block,
             _unused: PhantomData,
             _kernel: PhantomData,
         })
@@ -227,3 +241,15 @@ impl<'a, K: Kernel> Drop for CudaProgram<'a, K> {
 }
 
 impl<'a, K: Kernel> Program<'a, K> for CudaProgram<'a, K> {}
+
+/// A dummy `Kernel` marker used to load PTX without a concrete kernel type.
+/// Enables `CudaProgram<ErasedKernel>` for type-erased model execution.
+pub struct ErasedKernel;
+
+impl Kernel for ErasedKernel {
+    type Args<'a> = ();
+    fn name(&self) -> &str { "" }
+    fn source(&self) -> &str { "" }
+    fn kernel_source(&self) -> &str { "" }
+    fn entry_point(&self) -> &str { "" }
+}

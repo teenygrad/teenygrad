@@ -40,7 +40,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 #[test]
 fn test_gelu_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::activation::gelu::GeluForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::gelu::GeluForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -52,7 +52,7 @@ fn test_gelu_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_mish_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::activation::gelu::MishForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::gelu::MishForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -76,10 +76,10 @@ fn test_gelu_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::gelu::GeluForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::gelu::GeluForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::gelu::GeluForward<BLOCK_SIZE>
+        teeny_kernels::nn::activation::gelu::GeluForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
@@ -108,10 +108,10 @@ fn test_gelu_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::gelu::GeluBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::gelu::GeluBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::gelu::GeluBackward<BLOCK_SIZE>
+        teeny_kernels::nn::activation::gelu::GeluBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32,
@@ -143,10 +143,10 @@ fn test_mish_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::gelu::MishForward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::gelu::MishForward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::gelu::MishForward<BLOCK_SIZE>
+        teeny_kernels::nn::activation::gelu::MishForward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
@@ -175,10 +175,10 @@ fn test_mish_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::activation::gelu::MishBackward::<BLOCK_SIZE>::new();
+    let kernel = teeny_kernels::nn::activation::gelu::MishBackward::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::activation::gelu::MishBackward<BLOCK_SIZE>
+        teeny_kernels::nn::activation::gelu::MishBackward
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
         dy_buf.as_device_ptr() as *mut f32,

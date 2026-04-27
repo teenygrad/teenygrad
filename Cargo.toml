@@ -72,4 +72,7 @@ flate2 = "1.1.9"
 ordered-float = "5.3.0"
 z3 = { path = "../z3.rs/z3" }
 dotenv = "0.15.0"
+parquet = { version = "54", features = ["arrow"] }
+arrow-array = "54"
+image = { version = "0.25", default-features = false, features = ["png"] }
 

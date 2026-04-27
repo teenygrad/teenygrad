@@ -120,6 +120,173 @@ save(f"{d}/expected_forward.bin", y_c_out.detach())
 save(f"{d}/expected_dx.bin",     x_r.grad)
 save(f"{d}/expected_dw.bin",     w_r.grad)
 
+# ── avgpool1d ─────────────────────────────────────────────────────────────────
+print("avgpool1d")
+d = os.path.join(BASE, "avgpool1d")
+os.makedirs(d, exist_ok=True)
+B_AP1, C_AP1, L_AP1, KL_AP1, S_AP1 = 2, 4, 16, 4, 4
+# OL = (16-4)/4+1 = 4
+x_ap1  = torch.empty(B_AP1, C_AP1, L_AP1).uniform_(-5, 5)
+dy_ap1 = torch.empty(B_AP1, C_AP1, 4).uniform_(-2, 2)
+x_r_ap1 = x_ap1.clone().requires_grad_(True)
+y_ap1 = F.avg_pool1d(x_r_ap1, kernel_size=KL_AP1, stride=S_AP1)
+y_ap1.backward(dy_ap1)
+save(f"{d}/x.bin",                x_ap1)
+save(f"{d}/dy.bin",               dy_ap1)
+save(f"{d}/expected_forward.bin", y_ap1.detach())
+save(f"{d}/expected_backward.bin", x_r_ap1.grad)
+
+# ── avgpool3d ─────────────────────────────────────────────────────────────────
+print("avgpool3d")
+d = os.path.join(BASE, "avgpool3d")
+os.makedirs(d, exist_ok=True)
+# OD=OH=OW=4; kernel=2, stride=2
+x_ap3  = torch.empty(1, 2, 8, 8, 8).uniform_(-5, 5)
+dy_ap3 = torch.empty(1, 2, 4, 4, 4).uniform_(-2, 2)
+x_r_ap3 = x_ap3.clone().requires_grad_(True)
+y_ap3 = F.avg_pool3d(x_r_ap3, kernel_size=(2, 2, 2), stride=(2, 2, 2))
+y_ap3.backward(dy_ap3)
+save(f"{d}/x.bin",                x_ap3)
+save(f"{d}/dy.bin",               dy_ap3)
+save(f"{d}/expected_forward.bin", y_ap3.detach())
+save(f"{d}/expected_backward.bin", x_r_ap3.grad)
+
+# ── maxpool1d ─────────────────────────────────────────────────────────────────
+print("maxpool1d")
+d = os.path.join(BASE, "maxpool1d")
+os.makedirs(d, exist_ok=True)
+# OL = (16-4)/4+1 = 4 (non-overlapping so backward has unique max)
+x_mp1  = torch.empty(2, 4, 16).uniform_(-5, 5)
+dy_mp1 = torch.empty(2, 4, 4).uniform_(-2, 2)
+x_r_mp1 = x_mp1.clone().requires_grad_(True)
+y_mp1, idx_mp1 = F.max_pool1d(x_r_mp1, kernel_size=4, stride=4, return_indices=True)
+y_mp1.backward(dy_mp1)
+save(f"{d}/x.bin",                x_mp1)
+save(f"{d}/dy.bin",               dy_mp1)
+save(f"{d}/expected_forward.bin", y_mp1.detach())
+save(f"{d}/expected_backward.bin", x_r_mp1.grad)
+
+# ── maxpool2d ─────────────────────────────────────────────────────────────────
+print("maxpool2d")
+d = os.path.join(BASE, "maxpool2d")
+os.makedirs(d, exist_ok=True)
+# Non-overlapping: OH=OW=4
+x_mp2  = torch.empty(1, 2, 8, 8).uniform_(-5, 5)
+dy_mp2 = torch.empty(1, 2, 4, 4).uniform_(-2, 2)
+x_r_mp2 = x_mp2.clone().requires_grad_(True)
+y_mp2, idx_mp2 = F.max_pool2d(x_r_mp2, kernel_size=(2, 2), stride=(2, 2), return_indices=True)
+y_mp2.backward(dy_mp2)
+save(f"{d}/x.bin",                x_mp2)
+save(f"{d}/dy.bin",               dy_mp2)
+save(f"{d}/expected_forward.bin", y_mp2.detach())
+save(f"{d}/expected_backward.bin", x_r_mp2.grad)
+
+# ── maxpool3d ─────────────────────────────────────────────────────────────────
+print("maxpool3d")
+d = os.path.join(BASE, "maxpool3d")
+os.makedirs(d, exist_ok=True)
+# Non-overlapping: OD=OH=OW=4
+x_mp3  = torch.empty(1, 2, 8, 8, 8).uniform_(-5, 5)
+dy_mp3 = torch.empty(1, 2, 4, 4, 4).uniform_(-2, 2)
+x_r_mp3 = x_mp3.clone().requires_grad_(True)
+y_mp3, idx_mp3 = F.max_pool3d(x_r_mp3, kernel_size=(2, 2, 2), stride=(2, 2, 2), return_indices=True)
+y_mp3.backward(dy_mp3)
+save(f"{d}/x.bin",                x_mp3)
+save(f"{d}/dy.bin",               dy_mp3)
+save(f"{d}/expected_forward.bin", y_mp3.detach())
+save(f"{d}/expected_backward.bin", x_r_mp3.grad)
+
+# ── lppool1d ──────────────────────────────────────────────────────────────────
+print("lppool1d")
+d = os.path.join(BASE, "lppool1d")
+os.makedirs(d, exist_ok=True)
+# OL=(16-4)/4+1=4, p=2
+x_lp1  = torch.empty(2, 4, 16).uniform_(0.5, 5)   # positive to keep grad stable
+dy_lp1 = torch.empty(2, 4, 4).uniform_(-1, 1)
+x_r_lp1 = x_lp1.clone().requires_grad_(True)
+y_lp1 = F.lp_pool1d(x_r_lp1, norm_type=2, kernel_size=4, stride=4)
+y_lp1.backward(dy_lp1)
+save(f"{d}/x.bin",                x_lp1)
+save(f"{d}/dy.bin",               dy_lp1)
+save(f"{d}/expected_forward.bin", y_lp1.detach())
+save(f"{d}/expected_backward.bin", x_r_lp1.grad)
+
+# ── lppool2d ──────────────────────────────────────────────────────────────────
+print("lppool2d")
+d = os.path.join(BASE, "lppool2d")
+os.makedirs(d, exist_ok=True)
+# OH=OW=4, p=2
+x_lp2  = torch.empty(1, 2, 8, 8).uniform_(0.5, 5)
+dy_lp2 = torch.empty(1, 2, 4, 4).uniform_(-1, 1)
+x_r_lp2 = x_lp2.clone().requires_grad_(True)
+y_lp2 = F.lp_pool2d(x_r_lp2, norm_type=2, kernel_size=(2, 2), stride=(2, 2))
+y_lp2.backward(dy_lp2)
+save(f"{d}/x.bin",                x_lp2)
+save(f"{d}/dy.bin",               dy_lp2)
+save(f"{d}/expected_forward.bin", y_lp2.detach())
+save(f"{d}/expected_backward.bin", x_r_lp2.grad)
+
+# ── lppool3d ──────────────────────────────────────────────────────────────────
+print("lppool3d")
+d = os.path.join(BASE, "lppool3d")
+os.makedirs(d, exist_ok=True)
+# OD=OH=OW=4, p=2
+x_lp3  = torch.empty(1, 2, 8, 8, 8).uniform_(0.5, 5)
+dy_lp3 = torch.empty(1, 2, 4, 4, 4).uniform_(-1, 1)
+x_r_lp3 = x_lp3.clone().requires_grad_(True)
+y_lp3 = F.lp_pool3d(x_r_lp3, norm_type=2, kernel_size=(2, 2, 2), stride=(2, 2, 2))
+y_lp3.backward(dy_lp3)
+save(f"{d}/x.bin",                x_lp3)
+save(f"{d}/dy.bin",               dy_lp3)
+save(f"{d}/expected_forward.bin", y_lp3.detach())
+save(f"{d}/expected_backward.bin", x_r_lp3.grad)
+
+# ── conv1d ─────────────────────────────────────────────────────────────────────
+print("conv1d")
+d = os.path.join(BASE, "conv1d")
+os.makedirs(d, exist_ok=True)
+B_1, C_IN_1, C_OUT_1, L_1, KL_1 = 1, 2, 4, 16, 3
+# OL = (16 - 3) / 1 + 1 = 14
+x_1  = torch.empty(B_1, C_IN_1, L_1).uniform_(-1, 1)
+w_1  = torch.empty(C_OUT_1, C_IN_1, KL_1).uniform_(-0.5, 0.5)
+dy_1 = torch.empty(B_1, C_OUT_1, 14).uniform_(-1, 1)
+
+x_r1 = x_1.clone().requires_grad_(True)
+w_r1 = w_1.clone().requires_grad_(True)
+y_1_out = F.conv1d(x_r1, w_r1, stride=1)
+y_1_out.backward(dy_1)
+
+save(f"{d}/x.bin",               x_1)
+save(f"{d}/w.bin",               w_1)
+save(f"{d}/dy.bin",              dy_1)
+save(f"{d}/expected_forward.bin", y_1_out.detach())
+save(f"{d}/expected_dx.bin",     x_r1.grad)
+save(f"{d}/expected_dw.bin",     w_r1.grad)
+
+# ── conv3d ─────────────────────────────────────────────────────────────────────
+print("conv3d")
+d = os.path.join(BASE, "conv3d")
+os.makedirs(d, exist_ok=True)
+B_3, C_IN_3, C_OUT_3 = 1, 2, 4
+D_3, H_3, W_3 = 4, 4, 8
+KD_3, KH_3, KW_3 = 2, 2, 3
+# OD = (4-2)/1+1=3, OH = (4-2)/1+1=3, OW = (8-3)/1+1=6
+x_3  = torch.empty(B_3, C_IN_3, D_3, H_3, W_3).uniform_(-1, 1)
+w_3  = torch.empty(C_OUT_3, C_IN_3, KD_3, KH_3, KW_3).uniform_(-0.5, 0.5)
+dy_3 = torch.empty(B_3, C_OUT_3, 3, 3, 6).uniform_(-1, 1)
+
+x_r3 = x_3.clone().requires_grad_(True)
+w_r3 = w_3.clone().requires_grad_(True)
+y_3_out = F.conv3d(x_r3, w_r3, stride=1)
+y_3_out.backward(dy_3)
+
+save(f"{d}/x.bin",               x_3)
+save(f"{d}/w.bin",               w_3)
+save(f"{d}/dy.bin",              dy_3)
+save(f"{d}/expected_forward.bin", y_3_out.detach())
+save(f"{d}/expected_dx.bin",     x_r3.grad)
+save(f"{d}/expected_dw.bin",     w_r3.grad)
+
 # ── avgpool2d ──────────────────────────────────────────────────────────────────
 print("avgpool2d")
 d = os.path.join(BASE, "avgpool2d")
@@ -154,6 +321,115 @@ save(f"{d}/padded.bin",           padded)
 save(f"{d}/expected_forward.bin", expected_fwd_fl)
 save(f"{d}/dy.bin",               dy_fl)
 save(f"{d}/expected_backward.bin", expected_bwd_fl)
+
+# ── padding layers ─────────────────────────────────────────────────────────────
+# Shared dims for 1-D pads: B=2, C=4, L=8, pad=(2,3)
+B_P1, C_P1, L_P1 = 2, 4, 8
+PAD_LEFT_1, PAD_RIGHT_1 = 2, 3
+OL_P1 = L_P1 + PAD_LEFT_1 + PAD_RIGHT_1  # 13
+
+# Shared dims for 2-D pads: B=2, C=4, H=6, W=8, pad=(1,2,2,3)
+B_P2, C_P2, H_P2, W_P2 = 2, 4, 6, 8
+PT_P2, PB_P2, PL_P2, PR_P2 = 1, 2, 2, 3
+OH_P2 = H_P2 + PT_P2 + PB_P2  # 9
+OW_P2 = W_P2 + PL_P2 + PR_P2  # 13
+
+# Shared dims for 3-D pads: B=2, C=2, D=4, H=4, W=6, pad=(1,1,1,2,2,2)
+B_P3, C_P3, DV_P3, H_P3, W_P3 = 2, 2, 4, 4, 6
+PD1_P3, PD2_P3 = 1, 1
+PH1_P3, PH2_P3 = 1, 2
+PW1_P3, PW2_P3 = 2, 2
+OD_P3 = DV_P3 + PD1_P3 + PD2_P3  # 6
+OH_P3 = H_P3  + PH1_P3 + PH2_P3  # 7
+OW_P3 = W_P3  + PW1_P3 + PW2_P3  # 10
+
+VALUE = 1.5
+
+def pad_fixture(name, fwd_fn, bwd_fn, x_shape, out_shape):
+    print(name)
+    d = os.path.join(BASE, name)
+    x = torch.empty(*x_shape).uniform_(-5, 5)
+    x_r = x.clone().requires_grad_(True)
+    y = fwd_fn(x_r)
+    dy = torch.empty(*out_shape).uniform_(-2, 2)
+    y.backward(dy)
+    dx = x_r.grad.detach()
+    save(f"{d}/x.bin",                x)
+    save(f"{d}/dy.bin",               dy)
+    save(f"{d}/expected_forward.bin",  y.detach())
+    save(f"{d}/expected_backward.bin", dx)
+
+# ── constant_pad1d ────────────────────────────────────────────────────────────
+pad_fixture("constant_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='constant', value=VALUE),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── constant_pad2d ────────────────────────────────────────────────────────────
+pad_fixture("constant_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='constant', value=VALUE),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── constant_pad3d ────────────────────────────────────────────────────────────
+pad_fixture("constant_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='constant', value=VALUE),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
+# ── reflection_pad1d ──────────────────────────────────────────────────────────
+pad_fixture("reflection_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='reflect'),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── reflection_pad2d ──────────────────────────────────────────────────────────
+pad_fixture("reflection_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='reflect'),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── reflection_pad3d ──────────────────────────────────────────────────────────
+pad_fixture("reflection_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='reflect'),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
+# ── replication_pad1d ─────────────────────────────────────────────────────────
+pad_fixture("replication_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='replicate'),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── replication_pad2d ─────────────────────────────────────────────────────────
+pad_fixture("replication_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='replicate'),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── replication_pad3d ─────────────────────────────────────────────────────────
+pad_fixture("replication_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='replicate'),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
+
+# ── circular_pad1d ────────────────────────────────────────────────────────────
+pad_fixture("circular_pad1d",
+    lambda x: F.pad(x, (PAD_LEFT_1, PAD_RIGHT_1), mode='circular'),
+    None,
+    (B_P1, C_P1, L_P1), (B_P1, C_P1, OL_P1))
+
+# ── circular_pad2d ────────────────────────────────────────────────────────────
+pad_fixture("circular_pad2d",
+    lambda x: F.pad(x, (PL_P2, PR_P2, PT_P2, PB_P2), mode='circular'),
+    None,
+    (B_P2, C_P2, H_P2, W_P2), (B_P2, C_P2, OH_P2, OW_P2))
+
+# ── circular_pad3d ────────────────────────────────────────────────────────────
+pad_fixture("circular_pad3d",
+    lambda x: F.pad(x, (PW1_P3, PW2_P3, PH1_P3, PH2_P3, PD1_P3, PD2_P3), mode='circular'),
+    None,
+    (B_P3, C_P3, DV_P3, H_P3, W_P3), (B_P3, C_P3, OD_P3, OH_P3, OW_P3))
 
 import math
 

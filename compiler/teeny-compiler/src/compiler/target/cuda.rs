@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use crate::errors::{Error, Result};
-use teeny_cuda::compiler::target::Capability;
+use teeny_core::compiler::Capability;
 
 pub struct Target {
     pub capability: Capability,
@@ -29,7 +29,11 @@ impl Target {
     }
 }
 
-impl teeny_core::compiler::Target for Target {}
+impl teeny_core::compiler::Target for Target {
+    fn target_cpu(&self) -> Option<String> {
+        Some(self.capability.to_string())
+    }
+}
 
 impl TryFrom<(i32, i32)> for Target {
     type Error = anyhow::Error;

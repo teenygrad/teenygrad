@@ -25,4 +25,5 @@ pub mod graph;
 pub mod macros;
 pub mod model;
 pub mod nn;
+pub mod runtime;
 pub mod utils;

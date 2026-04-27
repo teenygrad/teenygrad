@@ -21,53 +21,200 @@ use crate::{
     nn::Layer,
 };
 
-/// 2-D average pooling layer.
-///
-/// Input shape:  `[N, C, H_in,  W_in ]`
-/// Output shape: `[N, C, H_out, W_out]`
-///
-/// where:
-///   `H_out = (H_in - kernel_h) / stride_h + 1`
-///   `W_out = (W_in - kernel_w) / stride_w + 1`
-///
-/// Type parameters:
-/// - `D`    — element dtype
-/// - `IT`   — input tensor type  (rank 4)
-/// - `OT`   — output tensor type (rank 4)
-/// - `RANK` — tensor rank; must be 4 for a valid 2-D pooling operation
-///
-/// Tensor bounds are on impls, not the struct, so `SymTensor` can have its
-/// own `Layer` impl without a coherence conflict.
-pub struct AvgPool2d<D: Dtype, IT, OT, const RANK: usize> {
+// ---------------------------------------------------------------------------
+// Macro — reduces boilerplate for the nine pool variants
+// ---------------------------------------------------------------------------
+
+macro_rules! pool_layer_1d {
+    ($name:ident) => {
+        pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
+            pub kernel_l: usize,
+            pub stride: usize,
+            _pd: PhantomData<(D, IT, OT)>,
+        }
+
+        impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            pub fn new(kernel_size: usize, stride: usize) -> Self {
+                Self { kernel_l: kernel_size, stride, _pd: PhantomData }
+            }
+        }
+
+        impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
+            Layer<IT> for $name<D, IT, OT, RANK>
+        {
+            type Output = OT;
+            fn call(&self, _input: IT) -> Self::Output { todo!() }
+        }
+    };
+}
+
+macro_rules! pool_layer_2d {
+    ($name:ident) => {
+        pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
+            pub kernel_h: usize,
+            pub kernel_w: usize,
+            pub stride_h: usize,
+            pub stride_w: usize,
+            _pd: PhantomData<(D, IT, OT)>,
+        }
+
+        impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            pub fn new(kernel_size: (usize, usize), stride: (usize, usize)) -> Self {
+                Self {
+                    kernel_h: kernel_size.0,
+                    kernel_w: kernel_size.1,
+                    stride_h: stride.0,
+                    stride_w: stride.1,
+                    _pd: PhantomData,
+                }
+            }
+        }
+
+        impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
+            Layer<IT> for $name<D, IT, OT, RANK>
+        {
+            type Output = OT;
+            fn call(&self, _input: IT) -> Self::Output { todo!() }
+        }
+    };
+}
+
+macro_rules! pool_layer_3d {
+    ($name:ident) => {
+        pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
+            pub kernel_d: usize,
+            pub kernel_h: usize,
+            pub kernel_w: usize,
+            pub stride_d: usize,
+            pub stride_h: usize,
+            pub stride_w: usize,
+            _pd: PhantomData<(D, IT, OT)>,
+        }
+
+        impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            pub fn new(
+                kernel_size: (usize, usize, usize),
+                stride: (usize, usize, usize),
+            ) -> Self {
+                Self {
+                    kernel_d: kernel_size.0,
+                    kernel_h: kernel_size.1,
+                    kernel_w: kernel_size.2,
+                    stride_d: stride.0,
+                    stride_h: stride.1,
+                    stride_w: stride.2,
+                    _pd: PhantomData,
+                }
+            }
+        }
+
+        impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
+            Layer<IT> for $name<D, IT, OT, RANK>
+        {
+            type Output = OT;
+            fn call(&self, _input: IT) -> Self::Output { todo!() }
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
+// AvgPool
+// ---------------------------------------------------------------------------
+
+pool_layer_1d!(AvgPool1d);
+pool_layer_2d!(AvgPool2d);
+pool_layer_3d!(AvgPool3d);
+
+// ---------------------------------------------------------------------------
+// MaxPool
+// ---------------------------------------------------------------------------
+
+pool_layer_1d!(MaxPool1d);
+pool_layer_2d!(MaxPool2d);
+pool_layer_3d!(MaxPool3d);
+
+// ---------------------------------------------------------------------------
+// LpPool — like AvgPool but with a configurable p-norm
+// ---------------------------------------------------------------------------
+
+pub struct LpPool1d<D: Dtype, IT, OT, const RANK: usize> {
+    pub kernel_l: usize,
+    pub stride: usize,
+    pub p: f64,
+    _pd: PhantomData<(D, IT, OT)>,
+}
+
+impl<D: Dtype, IT, OT, const RANK: usize> LpPool1d<D, IT, OT, RANK> {
+    pub fn new(kernel_size: usize, stride: usize, p: f64) -> Self {
+        Self { kernel_l: kernel_size, stride, p, _pd: PhantomData }
+    }
+}
+
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
+    Layer<IT> for LpPool1d<D, IT, OT, RANK>
+{
+    type Output = OT;
+    fn call(&self, _input: IT) -> Self::Output { todo!() }
+}
+
+pub struct LpPool2d<D: Dtype, IT, OT, const RANK: usize> {
     pub kernel_h: usize,
     pub kernel_w: usize,
     pub stride_h: usize,
     pub stride_w: usize,
+    pub p: f64,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
-impl<D: Dtype, IT, OT, const RANK: usize> AvgPool2d<D, IT, OT, RANK> {
-    /// Create a new AvgPool2d layer.
-    ///
-    /// - `kernel_size` — `(height, width)` of the pooling window
-    /// - `stride`      — `(height, width)` step between pooling windows
-    pub fn new(kernel_size: (usize, usize), stride: (usize, usize)) -> Self {
+impl<D: Dtype, IT, OT, const RANK: usize> LpPool2d<D, IT, OT, RANK> {
+    pub fn new(kernel_size: (usize, usize), stride: (usize, usize), p: f64) -> Self {
         Self {
             kernel_h: kernel_size.0,
             kernel_w: kernel_size.1,
             stride_h: stride.0,
             stride_w: stride.1,
+            p,
             _pd: PhantomData,
         }
     }
 }
 
 impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for AvgPool2d<D, IT, OT, RANK>
+    Layer<IT> for LpPool2d<D, IT, OT, RANK>
 {
     type Output = OT;
+    fn call(&self, _input: IT) -> Self::Output { todo!() }
+}
 
-    fn call(&self, _input: IT) -> Self::Output {
-        todo!()
+pub struct LpPool3d<D: Dtype, IT, OT, const RANK: usize> {
+    pub kernel_d: usize,
+    pub kernel_h: usize,
+    pub kernel_w: usize,
+    pub stride_d: usize,
+    pub stride_h: usize,
+    pub stride_w: usize,
+    pub p: f64,
+    _pd: PhantomData<(D, IT, OT)>,
+}
+
+impl<D: Dtype, IT, OT, const RANK: usize> LpPool3d<D, IT, OT, RANK> {
+    pub fn new(kernel_size: (usize, usize, usize), stride: (usize, usize, usize), p: f64) -> Self {
+        Self {
+            kernel_d: kernel_size.0,
+            kernel_h: kernel_size.1,
+            kernel_w: kernel_size.2,
+            stride_d: stride.0,
+            stride_h: stride.1,
+            stride_w: stride.2,
+            p,
+            _pd: PhantomData,
+        }
     }
+}
+
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
+    Layer<IT> for LpPool3d<D, IT, OT, RANK>
+{
+    type Output = OT;
+    fn call(&self, _input: IT) -> Self::Output { todo!() }
 }

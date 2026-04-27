@@ -16,7 +16,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_core::dtype::Float;
+use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -24,7 +24,7 @@ use teeny_triton::triton::{
 };
 
 #[kernel]
-pub fn vector_add<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+pub fn vector_add<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     x_ptr: T::Pointer<D>,
     y_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
@@ -79,4 +79,9 @@ pub fn vector_add<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         None,
         None,
     );
+}
+
+pub struct VectorAddOp<'a, T: Num> {
+    pub forward: VectorAdd<T>,
+    _marker: core::marker::PhantomData<&'a ()>,
 }
