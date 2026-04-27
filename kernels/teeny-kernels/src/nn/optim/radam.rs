@@ -77,8 +77,7 @@ pub fn radam_adaptive_step<T: Triton, const BLOCK_SIZE: i32>(
     let exp_avg_new    = beta1_t * exp_avg    + one_m_beta1 * g_eff;
     let exp_avg_sq_new = beta2_t * exp_avg_sq + one_m_beta2 * g_eff * g_eff;
 
-    let half = T::full(&[BLOCK_SIZE], 0.5_f32);
-    let denom = T::exp(half * T::log(exp_avg_sq_new)) / bc2sqrt_t + eps_t;
+    let denom = T::sqrt_rn(exp_avg_sq_new) / bc2sqrt_t + eps_t;
     let p_new = p - step_t * exp_avg_new / denom;
 
     T::store(params_ptr.add_offsets(offsets),     p_new,          Some(mask), &[], None, None);

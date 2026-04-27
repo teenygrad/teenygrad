@@ -57,10 +57,9 @@ pub fn adagrad_step<T: Triton, const BLOCK_SIZE: i32>(
     let eps_t = T::full(&[BLOCK_SIZE], eps);
     let wd_t  = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let half = T::full(&[BLOCK_SIZE], 0.5_f32);
     let g_eff   = g + wd_t * p;
     let sum_new = sum + g_eff * g_eff;
-    let p_new   = p - lr_t * g_eff / (T::exp(half * T::log(sum_new)) + eps_t);
+    let p_new   = p - lr_t * g_eff / (T::sqrt_rn(sum_new) + eps_t);
 
     T::store(params_ptr.add_offsets(offsets), p_new,   Some(mask), &[], None, None);
     T::store(sum_ptr.add_offsets(offsets),    sum_new, Some(mask), &[], None, None);
@@ -108,11 +107,10 @@ pub fn adadelta_step<T: Triton, const BLOCK_SIZE: i32>(
     let eps_t       = T::full(&[BLOCK_SIZE], eps);
     let wd_t        = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let half = T::full(&[BLOCK_SIZE], 0.5_f32);
     let g_eff          = g + wd_t * p;
     let square_avg_new = rho_t * square_avg + one_m_rho * g_eff * g_eff;
-    let std            = T::exp(half * T::log(square_avg_new + eps_t));
-    let delta          = T::exp(half * T::log(acc_delta + eps_t)) / std * g_eff;
+    let std            = T::sqrt_rn(square_avg_new + eps_t);
+    let delta          = T::sqrt_rn(acc_delta + eps_t) / std * g_eff;
     let p_new          = p - lr_t * delta;
     let acc_delta_new  = rho_t * acc_delta + one_m_rho * delta * delta;
 
