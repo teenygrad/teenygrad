@@ -33,9 +33,6 @@ use teeny_triton::triton::{
 /// ```
 ///
 /// Grid: `[n_rows, 1, 1]`.  `BLOCK_SIZE` must equal `next_power_of_two(n_dim)`.
-///
-/// Norms computed as `exp(0.5 * log(sq))` to avoid device-library calls from
-/// `math.rsqrt`/`math.sqrt` on scalar f32 values.
 #[kernel]
 pub fn cosine_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     x1_ptr: T::Pointer<f32>,
@@ -65,16 +62,12 @@ pub fn cosine_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let sq1_raw = T::sum(x1 * x1, Some(0), true);
     let sq2_raw = T::sum(x2 * x2, Some(0), true);
 
-    // Force scalars to tensor<1xf32> so math ops lower to vectorized PTX instructions
-    // rather than calling device library functions (__nv_rsqrtf etc.)
     let dot_t = T::zeros::<f32>(&[1]) + dot_raw;
     let sq1_t = T::zeros::<f32>(&[1]) + sq1_raw;
     let sq2_t = T::zeros::<f32>(&[1]) + sq2_raw;
 
-    // sqrt(sq) = exp(0.5 * log(sq)) — uses only native log/exp PTX approximations
-    let half = T::full::<f32>(&[1], 0.5_f32);
-    let norm1 = T::exp(half * T::log(sq1_t));
-    let norm2 = T::exp(half * T::log(sq2_t));
+    let norm1 = T::sqrt_rn(sq1_t);
+    let norm2 = T::sqrt_rn(sq2_t);
     let cos_sim = dot_t / (norm1 * norm2);
 
     // Load y[pid] → tensor<1xf32>
@@ -141,11 +134,9 @@ pub fn cosine_embedding_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let sq1_t  = T::zeros::<f32>(&[1]) + T::sum(x1 * x1, Some(0), true);
     let sq2_t  = T::zeros::<f32>(&[1]) + T::sum(x2 * x2, Some(0), true);
 
-    let neg_half = T::full::<f32>(&[1], -0.5_f32);
-
-    // inv_normN = 1/||xN|| = exp(-0.5 * log(sq)) — avoids rsqrt device function
-    let inv_norm1 = T::exp(neg_half * T::log(sq1_t));
-    let inv_norm2 = T::exp(neg_half * T::log(sq2_t));
+    let one = T::full::<f32>(&[1], 1.0_f32);
+    let inv_norm1 = one / T::sqrt_rn(sq1_t);
+    let inv_norm2 = one / T::sqrt_rn(sq2_t);
     let cos_sim = dot_t * inv_norm1 * inv_norm2;
 
     // Load dy, y → tensor<1xf32>
@@ -228,10 +219,8 @@ pub fn triplet_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let sq_ap = T::sum(diff_ap * diff_ap, Some(0), true) + eps_t;
     let sq_an = T::sum(diff_an * diff_an, Some(0), true) + eps_t;
 
-    // sqrt(sq) = exp(0.5 * log(sq)) — avoids device library rsqrt/sqrt calls
-    let half = T::full::<f32>(&[1], 0.5_f32);
-    let d_ap = T::exp(half * T::log(sq_ap));
-    let d_an = T::exp(half * T::log(sq_an));
+    let d_ap = T::sqrt_rn(sq_ap);
+    let d_an = T::sqrt_rn(sq_an);
 
     let margin_t = T::full::<f32>(&[1], margin);
     let zeros1 = T::zeros::<f32>(&[1]);
@@ -283,18 +272,15 @@ pub fn triplet_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let diff_ap = a - p;
     let diff_an = a - n;
 
-    // sq + eps → tensor<1xf32>; sqrt = exp(0.5*log), inv_sqrt = exp(-0.5*log)
     let eps_t    = T::full::<f32>(&[1], eps);
     let sq_ap    = T::sum(diff_ap * diff_ap, Some(0), true) + eps_t;
     let sq_an    = T::sum(diff_an * diff_an, Some(0), true) + eps_t;
 
-    let half     = T::full::<f32>(&[1],  0.5_f32);
-    let neg_half = T::full::<f32>(&[1], -0.5_f32);
-
-    let d_ap     = T::exp(half     * T::log(sq_ap));  // tensor<1xf32>
-    let d_an     = T::exp(half     * T::log(sq_an));  // tensor<1xf32>
-    let inv_d_ap = T::exp(neg_half * T::log(sq_ap));  // tensor<1xf32>
-    let inv_d_an = T::exp(neg_half * T::log(sq_an));  // tensor<1xf32>
+    let one      = T::full::<f32>(&[1], 1.0_f32);
+    let d_ap     = T::sqrt_rn(sq_ap);
+    let d_an     = T::sqrt_rn(sq_an);
+    let inv_d_ap = one / d_ap;
+    let inv_d_an = one / d_an;
 
     let margin_t = T::full::<f32>(&[1], margin);
     let zeros1   = T::zeros::<f32>(&[1]);
