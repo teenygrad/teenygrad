@@ -71,7 +71,7 @@ fn row_launch_cfg() -> CudaLaunchConfig {
 #[test]
 fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -83,7 +83,7 @@ fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -95,7 +95,7 @@ fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_multi_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
+    let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -127,10 +127,10 @@ fn test_margin_ranking_loss_forward_cuda() -> Result<()> {
     x2_buf.to_device(&x2_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::ranking::MarginRankingLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::ranking::MarginRankingLossForward>(&ptx)?;
 
     let args = (x1_buf.as_device_ptr() as *mut f32, x2_buf.as_device_ptr() as *mut f32,
                 y_buf.as_device_ptr() as *mut f32, out_buf.as_device_ptr() as *mut f32,
@@ -175,10 +175,10 @@ fn test_margin_ranking_loss_backward_cuda() -> Result<()> {
     x2_buf.to_device(&x2_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::loss::ranking::MarginRankingLossBackward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::ranking::MarginRankingLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::ranking::MarginRankingLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, x1_buf.as_device_ptr() as *mut f32,
                 x2_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32,
@@ -219,10 +219,10 @@ fn test_hinge_embedding_loss_forward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::ranking::HingeEmbeddingLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward>(&ptx)?;
 
     let args = (inp_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32,
                 out_buf.as_device_ptr() as *mut f32, N as i32, MARGIN);
@@ -260,10 +260,10 @@ fn test_hinge_embedding_loss_backward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::loss::ranking::HingeEmbeddingLossBackward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::ranking::HingeEmbeddingLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::ranking::HingeEmbeddingLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
                 y_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32,
@@ -299,10 +299,10 @@ fn test_multi_margin_loss_forward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     tgt_buf.to_device(&tgt_host)?;
 
-    let kernel = teeny_kernels::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
+    let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::ranking::MultiMarginLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::ranking::MultiMarginLossForward>(&ptx)?;
 
     let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut i32,
                 out_buf.as_device_ptr() as *mut f32, N_ROWS as i32, N_COLS as i32, MARGIN);
@@ -341,10 +341,10 @@ fn test_multi_margin_loss_backward_cuda() -> Result<()> {
     tgt_buf.to_device(&tgt_host)?;
     dx_buf.to_device(&vec![0.0f32; N_ROWS * N_COLS])?;
 
-    let kernel = teeny_kernels::loss::ranking::MultiMarginLossBackward::new(BLOCK_SIZE_MM);
+    let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossBackward::new(BLOCK_SIZE_MM);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::ranking::MultiMarginLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::ranking::MultiMarginLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
                 tgt_buf.as_device_ptr() as *mut i32, dx_buf.as_device_ptr() as *mut f32,

@@ -70,7 +70,7 @@ fn mlsm_launch_cfg() -> CudaLaunchConfig {
 #[test]
 fn test_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::nll::NllLossForward::new();
+    let kernel = teeny_kernels::nn::loss::nll::NllLossForward::new();
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -82,7 +82,7 @@ fn test_nll_loss_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
+    let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -94,7 +94,7 @@ fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
+    let kernel = teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -123,10 +123,10 @@ fn test_nll_loss_forward_cuda() -> Result<()> {
     lp_buf.to_device(&lp_host)?;
     tgt_buf.to_device(&tgt_host)?;
 
-    let kernel = teeny_kernels::loss::nll::NllLossForward::new();
+    let kernel = teeny_kernels::nn::loss::nll::NllLossForward::new();
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::nll::NllLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::NllLossForward>(&ptx)?;
 
     let args = (lp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut i32,
                 out_buf.as_device_ptr() as *mut f32, N_ROWS as i32, N_COLS as i32);
@@ -162,10 +162,10 @@ fn test_nll_loss_backward_cuda() -> Result<()> {
     tgt_buf.to_device(&tgt_host)?;
     dx_buf.to_device(&vec![0.0f32; N_ROWS * N_COLS])?; // kernel only writes target column
 
-    let kernel = teeny_kernels::loss::nll::NllLossBackward::new();
+    let kernel = teeny_kernels::nn::loss::nll::NllLossBackward::new();
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::nll::NllLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::NllLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut i32,
                 dx_buf.as_device_ptr() as *mut f32, N_ROWS as i32, N_COLS as i32);
@@ -200,10 +200,10 @@ fn test_cross_entropy_loss_forward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     tgt_buf.to_device(&tgt_host)?;
 
-    let kernel = teeny_kernels::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
+    let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::nll::CrossEntropyLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::CrossEntropyLossForward>(&ptx)?;
 
     let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut i32,
                 out_buf.as_device_ptr() as *mut f32, N_ROWS as i32, N_COLS as i32);
@@ -241,10 +241,10 @@ fn test_cross_entropy_loss_backward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     tgt_buf.to_device(&tgt_host)?;
 
-    let kernel = teeny_kernels::loss::nll::CrossEntropyLossBackward::new(BLOCK_SIZE_CE);
+    let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossBackward::new(BLOCK_SIZE_CE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::nll::CrossEntropyLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::CrossEntropyLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
                 tgt_buf.as_device_ptr() as *mut i32, dx_buf.as_device_ptr() as *mut f32,
@@ -280,10 +280,10 @@ fn test_multilabel_soft_margin_loss_forward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     tgt_buf.to_device(&tgt_host)?;
 
-    let kernel = teeny_kernels::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
+    let kernel = teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::nll::MultilabelSoftMarginLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward>(&ptx)?;
 
     let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
                 out_buf.as_device_ptr() as *mut f32, N_MLSM as i32);
@@ -321,10 +321,10 @@ fn test_multilabel_soft_margin_loss_backward_cuda() -> Result<()> {
     inp_buf.to_device(&inp_host)?;
     tgt_buf.to_device(&tgt_host)?;
 
-    let kernel = teeny_kernels::loss::nll::MultilabelSoftMarginLossBackward::new(BLOCK_SIZE_MLSM);
+    let kernel = teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossBackward::new(BLOCK_SIZE_MLSM);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::nll::MultilabelSoftMarginLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
                 tgt_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32,

@@ -53,7 +53,7 @@ fn row_launch_cfg() -> CudaLaunchConfig {
 #[test]
 fn test_cosine_embedding_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::embedding::CosineEmbeddingLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::embedding::CosineEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -65,7 +65,7 @@ fn test_cosine_embedding_loss_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_triplet_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::loss::embedding::TripletMarginLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::embedding::TripletMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -97,10 +97,10 @@ fn test_cosine_embedding_loss_forward_cuda() -> Result<()> {
     x2_buf.to_device(&x2_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::loss::embedding::CosineEmbeddingLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::embedding::CosineEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::embedding::CosineEmbeddingLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::embedding::CosineEmbeddingLossForward>(&ptx)?;
 
     let args = (x1_buf.as_device_ptr() as *mut f32, x2_buf.as_device_ptr() as *mut f32,
                 y_buf.as_device_ptr() as *mut f32, out_buf.as_device_ptr() as *mut f32,
@@ -145,10 +145,10 @@ fn test_cosine_embedding_loss_backward_cuda() -> Result<()> {
     x2_buf.to_device(&x2_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::loss::embedding::CosineEmbeddingLossBackward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::embedding::CosineEmbeddingLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::embedding::CosineEmbeddingLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::embedding::CosineEmbeddingLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, x1_buf.as_device_ptr() as *mut f32,
                 x2_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32,
@@ -192,10 +192,10 @@ fn test_triplet_margin_loss_forward_cuda() -> Result<()> {
     p_buf.to_device(&p_host)?;
     n_buf.to_device(&n_host)?;
 
-    let kernel = teeny_kernels::loss::embedding::TripletMarginLossForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::embedding::TripletMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::embedding::TripletMarginLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::embedding::TripletMarginLossForward>(&ptx)?;
 
     let args = (a_buf.as_device_ptr() as *mut f32, p_buf.as_device_ptr() as *mut f32,
                 n_buf.as_device_ptr() as *mut f32, out_buf.as_device_ptr() as *mut f32,
@@ -243,10 +243,10 @@ fn test_triplet_margin_loss_backward_cuda() -> Result<()> {
     p_buf.to_device(&p_host)?;
     n_buf.to_device(&n_host)?;
 
-    let kernel = teeny_kernels::loss::embedding::TripletMarginLossBackward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::loss::embedding::TripletMarginLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::loss::embedding::TripletMarginLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::embedding::TripletMarginLossBackward>(&ptx)?;
 
     let args = (dy_buf.as_device_ptr() as *mut f32, a_buf.as_device_ptr() as *mut f32,
                 p_buf.as_device_ptr() as *mut f32, n_buf.as_device_ptr() as *mut f32,
