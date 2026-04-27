@@ -635,7 +635,6 @@ impl LoadedModel {
         weight_decay: f32,
     ) -> Result<()> {
         self.optim_step += 1;
-        let t = self.optim_step as f32;
         let bias_correction1 = 1.0_f32 - beta1.powi(self.optim_step as i32);
         let bias_correction2 = 1.0_f32 - beta2.powi(self.optim_step as i32);
         let step_size = lr / bias_correction1;

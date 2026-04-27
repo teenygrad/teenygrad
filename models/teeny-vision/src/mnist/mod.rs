@@ -95,6 +95,28 @@ pub fn mnist_valid<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
     ]
 }
 
+/// Fully-connected MLP for MNIST — no conv layers, suitable for end-to-end training.
+///
+/// ```text
+/// Input         [N,  1, 28, 28]
+/// Flatten       →  [N, 784]
+/// Linear(784→256, no bias)
+/// ReLU
+/// Linear(256→64, no bias)
+/// ReLU
+/// Linear(64→10,  no bias)   →  [N, 10]  raw logits (no softmax)
+/// ```
+pub fn mnist_mlp<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
+    sequential![
+        Flatten::<D, _, _>::new(),
+        Linear::<D, _, _, 2>::new(784, 256, false),
+        Relu::<D, _, 2>::new(),
+        Linear::<D, _, _, 2>::new(256, 64, false),
+        Relu::<D, _, 2>::new(),
+        Linear::<D, _, _, 2>::new(64, 10, false)
+    ]
+}
+
 pub fn mnist<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
     // -----------------------------------------------------------------------
     // Build the LeNet-5 model as a sequential pipeline.
