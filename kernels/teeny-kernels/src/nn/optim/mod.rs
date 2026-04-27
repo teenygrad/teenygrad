@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-pub mod activation;
-pub mod conv;
-pub mod loss;
-pub mod mlp;
-pub mod optim;
-pub mod pad;
-pub mod pool;
+pub mod adam;
+pub mod adagrad;
+pub mod adamax;
+pub mod asgd;
+pub mod nadam;
+pub mod radam;
+pub mod rmsprop;
+pub mod rprop;
+pub mod sgd;
