@@ -14,13 +14,8 @@
  * limitations under the License.
  */
 
-pub mod activation;
-pub mod conv;
-pub mod errors;
-pub mod graph;
-pub mod loss;
-pub mod math;
-pub mod mlp;
-pub mod nn;
-pub mod pad;
-pub mod pool;
+pub mod bce;
+pub mod elementwise;
+pub mod embedding;
+pub mod nll;
+pub mod ranking;
