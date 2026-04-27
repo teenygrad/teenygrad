@@ -21,7 +21,7 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
-use crate::{
+use crate::nn::{
     activation::{
         elu::{CeluForward, EluForward, SeluForward},
         gelu::{GeluForward, MishForward},

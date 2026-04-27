@@ -14,4 +14,9 @@
  * limitations under the License.
  */
 
+pub mod activation;
+pub mod conv;
 pub mod loss;
+pub mod mlp;
+pub mod pad;
+pub mod pool;
