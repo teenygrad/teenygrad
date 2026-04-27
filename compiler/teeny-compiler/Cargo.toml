@@ -22,5 +22,6 @@ sha2.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-cuda = { path = "../../drivers/teeny-cuda" }
 insta.workspace = true
 dotenv.workspace = true
