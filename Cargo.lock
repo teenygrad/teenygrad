@@ -2813,6 +2813,7 @@ dependencies = [
  "sha2",
  "syn",
  "teeny-core",
+ "teeny-cuda",
  "teeny-kernels",
  "teeny-triton",
  "thiserror 2.0.18",
