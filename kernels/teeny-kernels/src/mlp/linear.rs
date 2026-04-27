@@ -250,6 +250,60 @@ pub fn linear_backward<
     }
 }
 
+impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForward<D> {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
+        // input_shapes[0] = [M, K], output_shape = [M, N]
+        let k = input_shapes[0][1];
+        let n = output_shape[1];
+        // weight: [N, K]; optional bias: [N]
+        if self.use_bias {
+            vec![vec![n, k], vec![n]]
+        } else {
+            vec![vec![n, k]]
+        }
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        // kernel args: x_ptr, w_ptr, b_ptr, y_ptr, M, N, K,
+        //              stride_xm, stride_xk, stride_wn, stride_wk, stride_ym, stride_yn
+        let m = output_shape[0] as i32;
+        let n = output_shape[1] as i32;
+        let k = inputs[0].1[1] as i32;
+        let b_ptr = if self.use_bias { params[1] } else { core::ptr::null_mut() };
+        visitor.visit_ptr(inputs[0].0);   // x_ptr
+        visitor.visit_ptr(params[0]);     // w_ptr
+        visitor.visit_ptr(b_ptr);         // b_ptr
+        visitor.visit_ptr(output);        // y_ptr
+        visitor.visit_i32(m);             // M
+        visitor.visit_i32(n);             // N
+        visitor.visit_i32(k);             // K
+        visitor.visit_i32(k);             // stride_xm = K (row-major)
+        visitor.visit_i32(1);             // stride_xk = 1
+        visitor.visit_i32(k);             // stride_wn = K (w is [N,K])
+        visitor.visit_i32(1);             // stride_wk = 1
+        visitor.visit_i32(n);             // stride_ym = N
+        visitor.visit_i32(1);             // stride_yn = 1
+    }
+
+    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        // pid encodes (pid_m, pid_n) grouped by GROUP_M
+        let pm = output_shape[0].div_ceil(self.block_m as usize);
+        let pn = output_shape[1].div_ceil(self.block_n as usize);
+        [(pm * pn) as u32, 1, 1]
+    }
+}
+
 pub struct LinearOp<'a, T: Num> {
     pub forward: LinearForward<T>,
     pub backward: LinearBackward<T>,

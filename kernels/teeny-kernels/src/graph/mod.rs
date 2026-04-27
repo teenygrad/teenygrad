@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
 use teeny_core::{
     graph::{DtypeRepr, Graph, Op, Shape},
-    model::{ExecutableOp, Lowering},
+    model::{ExecutableOp, Lowering, RuntimeOp},
     utils::dag::Dag,
 };
 
@@ -69,17 +70,17 @@ use crate::errors::Result;
 /// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_num_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (name, ks) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  (k.name.to_string(), k.source) }
-            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  (k.name.to_string(), k.source) }
-            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); (k.name.to_string(), k.source) }
+        let (name, ks, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
@@ -88,6 +89,7 @@ macro_rules! make_num_kernel {
             entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
+            runtime_op: rop,
         })
     }};
 }
@@ -96,9 +98,9 @@ macro_rules! make_num_kernel {
 /// Usage: `make_float_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_float_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (name, ks) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); (k.name.to_string(), k.source) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); (k.name.to_string(), k.source) }
+        let (name, ks, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
@@ -107,6 +109,7 @@ macro_rules! make_float_kernel {
             entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
+            runtime_op: rop,
         })
     }};
 }
@@ -116,12 +119,16 @@ macro_rules! make_float_kernel {
 macro_rules! make_untyped_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
         let k = $K::new($($arg),*);
+        let nm = k.name.to_string();
+        let src = k.source.clone();
+        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
         Box::new(KernelExecutable {
-            name: k.name.to_string(),
-            kernel_source: k.source,
+            name: nm,
+            kernel_source: src,
             entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
+            runtime_op: rop,
         })
     }};
 }
@@ -140,6 +147,9 @@ pub struct KernelExecutable {
     pub entry_point: String,
     pub shape: Shape,
     pub dtype: DtypeRepr,
+    /// Runtime dispatch object: how to pack args and compute the launch grid.
+    /// `Input` nodes carry a no-op implementation.
+    pub runtime_op: Arc<dyn RuntimeOp>,
 }
 
 impl ExecutableOp for KernelExecutable {
@@ -166,6 +176,119 @@ impl ExecutableOp for KernelExecutable {
     fn output_dtype(&self) -> DtypeRepr {
         self.dtype
     }
+
+    fn runtime_op(&self) -> Option<Arc<dyn RuntimeOp>> {
+        if self.is_input() {
+            None
+        } else {
+            Some(Arc::clone(&self.runtime_op))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stub RuntimeOp impls for kernels not yet fully supported at runtime.
+// These satisfy the Arc<dyn RuntimeOp> bound in the dispatch macros but
+// panic if ever called through a LoadedModel.
+// ---------------------------------------------------------------------------
+
+macro_rules! impl_stub_runtime_op_num {
+    ($T:ident) => {
+        impl<D: teeny_core::dtype::Num + Send + Sync + 'static> RuntimeOp for $T<D> {
+            fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
+            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
+            fn block(&self) -> [u32; 3] { unimplemented!() }
+            fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
+        }
+    };
+}
+
+macro_rules! impl_stub_runtime_op_float {
+    ($T:ident) => {
+        impl<D: teeny_core::dtype::Float + Send + Sync + 'static> RuntimeOp for $T<D> {
+            fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
+            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
+            fn block(&self) -> [u32; 3] { unimplemented!() }
+            fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
+        }
+    };
+}
+
+macro_rules! impl_stub_runtime_op_untyped {
+    ($T:ident) => {
+        impl RuntimeOp for $T {
+            fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
+            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
+            fn block(&self) -> [u32; 3] { unimplemented!() }
+            fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
+        }
+    };
+}
+
+// Convolution
+impl_stub_runtime_op_num!(Conv3dForward);
+
+// Pooling
+impl_stub_runtime_op_num!(Avgpool1dForward);
+impl_stub_runtime_op_num!(Avgpool3dForward);
+impl_stub_runtime_op_num!(Maxpool1dForward);
+impl_stub_runtime_op_num!(Maxpool2dForward);
+impl_stub_runtime_op_num!(Maxpool3dForward);
+impl_stub_runtime_op_float!(Lppool1dForward);
+impl_stub_runtime_op_float!(Lppool2dForward);
+impl_stub_runtime_op_float!(Lppool3dForward);
+
+// Padding
+impl_stub_runtime_op_num!(ConstantPad1dForward);
+impl_stub_runtime_op_num!(ConstantPad2dForward);
+impl_stub_runtime_op_num!(ConstantPad3dForward);
+impl_stub_runtime_op_num!(ReflectionPad1dForward);
+impl_stub_runtime_op_num!(ReflectionPad2dForward);
+impl_stub_runtime_op_num!(ReflectionPad3dForward);
+impl_stub_runtime_op_num!(ReplicationPad1dForward);
+impl_stub_runtime_op_num!(ReplicationPad2dForward);
+impl_stub_runtime_op_num!(ReplicationPad3dForward);
+impl_stub_runtime_op_num!(CircularPad1dForward);
+impl_stub_runtime_op_num!(CircularPad2dForward);
+impl_stub_runtime_op_num!(CircularPad3dForward);
+
+// Activation — untyped (no D type parameter; hardcoded f32)
+impl_stub_runtime_op_untyped!(EluForward);
+impl_stub_runtime_op_untyped!(SeluForward);
+impl_stub_runtime_op_untyped!(CeluForward);
+impl_stub_runtime_op_untyped!(GeluForward);
+impl_stub_runtime_op_untyped!(MishForward);
+impl_stub_runtime_op_untyped!(HardtanhForward);
+impl_stub_runtime_op_untyped!(Relu6Forward);
+impl_stub_runtime_op_untyped!(HardsigmoidForward);
+impl_stub_runtime_op_untyped!(HardswishForward);
+impl_stub_runtime_op_untyped!(HardshrinkForward);
+impl_stub_runtime_op_untyped!(LeakyReluForward);
+impl_stub_runtime_op_untyped!(ThresholdForward);
+impl_stub_runtime_op_untyped!(SoftsignForward);
+impl_stub_runtime_op_untyped!(SoftshrinkForward);
+impl_stub_runtime_op_untyped!(SoftplusForward);
+impl_stub_runtime_op_untyped!(SigmoidForward);
+impl_stub_runtime_op_untyped!(SiluForward);
+impl_stub_runtime_op_untyped!(LogsigmoidForward);
+impl_stub_runtime_op_untyped!(TanhForward);
+impl_stub_runtime_op_untyped!(TanhshrinkForward);
+
+// ---------------------------------------------------------------------------
+// No-op RuntimeOp for Input placeholder nodes
+// ---------------------------------------------------------------------------
+
+struct InputRuntimeOp;
+
+impl RuntimeOp for InputRuntimeOp {
+    fn n_activation_inputs(&self) -> usize { 0 }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+    fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: &mut dyn teeny_core::device::program::ArgVisitor) {}
+    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+    fn grid(&self, _: &[usize]) -> [u32; 3] { [0, 0, 0] }
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +321,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
+                    runtime_op: Arc::new(InputRuntimeOp),
                 }),
 
                 // --- Linear / MLP ---
@@ -358,7 +482,12 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::Tanhshrink         => make_untyped_kernel!(TanhshrinkForward(1024), node),
 
                 // --- Activation (D: Float) ---
-                Op::Softmax { .. } => make_float_kernel!(SoftmaxForward(1024), node),
+                Op::Softmax { .. } => {
+                    // BLOCK_SIZE must be >= n_cols (the last dim), rounded up to next power of 2.
+                    let n_cols = node.shape.last().and_then(|d| *d).unwrap_or(1024);
+                    let block_size = n_cols.next_power_of_two() as i32;
+                    make_float_kernel!(SoftmaxForward(block_size), node)
+                }
             };
 
             let dag_idx = dag.add_node(executable);

@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+use crate::{dtype::Dtype, errors::Result, model::Model};
 
-pub mod compiler;
-pub mod device;
-pub mod dtype;
-pub mod errors;
-pub mod graph;
-pub mod macros;
-pub mod model;
-pub mod nn;
-pub mod runtime;
-pub mod utils;
+pub trait Runtime<'a> {
+    type Model: Model<'a>;
+    type Input;
+    type Output;
+
+    fn forward<D: Dtype, const RANK: usize>(
+        &self,
+        model: &Self::Model,
+        input: &Self::Input,
+    ) -> Result<Self::Output>;
+}

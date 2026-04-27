@@ -18,6 +18,7 @@ pub mod compiler;
 pub mod device;
 pub mod errors;
 pub mod model;
+pub mod runtime;
 pub mod testing;
 
 mod cuda;

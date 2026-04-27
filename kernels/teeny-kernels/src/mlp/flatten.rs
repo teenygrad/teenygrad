@@ -106,6 +106,44 @@ pub fn flatten_backward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i3
     T::store_tensor_descriptor(dx_desc, &[b_off, n_off], tile);
 }
 
+impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for FlattenForward<D> {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        // kernel args: input_ptr, output_ptr, B, N, stride_ib, stride_in
+        // output_shape = [B, N] where N = product of all non-batch input dims
+        let b = output_shape[0] as i32;
+        let n = output_shape[1] as i32;
+        // Input is row-major contiguous: stride_ib = N, stride_in = 1
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(b);
+        visitor.visit_i32(n);
+        visitor.visit_i32(n);  // stride_ib = N
+        visitor.visit_i32(1);  // stride_in = 1
+    }
+
+    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        // pid encodes (pid_b, pid_n) = (pid / num_pid_n, pid % num_pid_n)
+        let pb = output_shape[0].div_ceil(self.block_b as usize);
+        let pn = output_shape[1].div_ceil(self.block_n as usize);
+        [(pb * pn) as u32, 1, 1]
+    }
+}
+
 pub struct FlattenOp<'a, T: Num> {
     pub forward: FlattenForward<T>,
     pub backward: FlattenBackward<T>,

@@ -129,6 +129,38 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::store(dx_ptr.add_offsets(offsets), dx, None, &[], None, None);
 }
 
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxForward<D> {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        // kernel args: x_ptr, y_ptr, n_rows, n_cols
+        let n_rows = output_shape[0] as i32;
+        let n_cols = output_shape[1] as i32;
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(n_rows);
+        visitor.visit_i32(n_cols);
+    }
+
+    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    // One CTA per row.
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        [output_shape[0] as u32, 1, 1]
+    }
+}
+
 pub struct SoftmaxOp<'a, T: Float> {
     pub forward: SoftmaxForward<T>,
     pub backward: SoftmaxBackward<T>,

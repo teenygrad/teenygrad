@@ -275,6 +275,44 @@ pub fn conv1d_backward_dw<
     }
 }
 
+impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv1dForward<D> {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
+        // input_shapes[0] = [B, C_IN, L], output_shape = [B, C_OUT, OL]
+        let c_in = input_shapes[0][1];
+        let c_out = output_shape[1];
+        vec![vec![c_out, c_in, self.kl as usize]]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        // kernel args: x_ptr, w_ptr, y_ptr, B, C_IN, C_OUT, L, OL
+        let input_shape = inputs[0].1;
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(input_shape[0] as i32); // B
+        visitor.visit_i32(input_shape[1] as i32); // C_IN
+        visitor.visit_i32(output_shape[1] as i32); // C_OUT
+        visitor.visit_i32(input_shape[2] as i32); // L
+        visitor.visit_i32(output_shape[2] as i32); // OL
+    }
+
+    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let num_ol_tiles = output_shape[2].div_ceil(self.block_ol as usize);
+        [(output_shape[0] * output_shape[1] * num_ol_tiles) as u32, 1, 1]
+    }
+}
+
 pub struct Conv1dOp<'a, T: Num> {
     pub forward: Conv1dForward<T>,
     pub backward_dx: Conv1dBackwardDx<T>,

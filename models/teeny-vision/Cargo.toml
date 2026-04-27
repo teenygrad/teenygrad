@@ -7,12 +7,16 @@ edition = "2024"
 thiserror.workspace = true
 anyhow.workspace = true
 teeny-core = { path = "../../core/teeny-core" }
+parquet.workspace = true
+arrow-array.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
 reqwest.workspace = true
 indicatif.workspace = true
 dotenv.workspace = true
+rand.workspace = true
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
 teeny-cuda = { path = "../../drivers/teeny-cuda" }
 teeny-compiler = { path = "../../compiler/teeny-compiler" }

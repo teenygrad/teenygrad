@@ -110,6 +110,7 @@ impl CudaGraphCompiler {
                 entry_point: op.forward_kernel_entry_point().to_string(),
                 output_shape: op.output_shape().clone(),
                 output_dtype: op.output_dtype(),
+                runtime_op: op.runtime_op(),
             });
         }
 

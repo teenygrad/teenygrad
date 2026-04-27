@@ -227,3 +227,15 @@ impl<'a, K: Kernel> Drop for CudaProgram<'a, K> {
 }
 
 impl<'a, K: Kernel> Program<'a, K> for CudaProgram<'a, K> {}
+
+/// A dummy `Kernel` marker used to load PTX without a concrete kernel type.
+/// Enables `CudaProgram<ErasedKernel>` for type-erased model execution.
+pub struct ErasedKernel;
+
+impl Kernel for ErasedKernel {
+    type Args<'a> = ();
+    fn name(&self) -> &str { "" }
+    fn source(&self) -> &str { "" }
+    fn kernel_source(&self) -> &str { "" }
+    fn entry_point(&self) -> &str { "" }
+}

@@ -14,16 +14,27 @@
  * limitations under the License.
  */
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+use teeny_core::runtime::Runtime;
 
-pub mod compiler;
-pub mod device;
-pub mod dtype;
-pub mod errors;
-pub mod graph;
-pub mod macros;
-pub mod model;
-pub mod nn;
-pub mod runtime;
-pub mod utils;
+use crate::{
+    device::CudaDevice,
+    model::{CudaModel, TensorRef},
+};
+
+pub struct CudaRuntime<'a> {
+    pub device: CudaDevice<'a>,
+}
+
+impl<'a> Runtime<'a> for CudaRuntime<'a> {
+    type Model = CudaModel<'a>;
+    type Input = TensorRef;
+    type Output = TensorRef;
+
+    fn forward<D: teeny_core::dtype::Dtype, const RANK: usize>(
+        &self,
+        _model: &Self::Model,
+        _input: &Self::Input,
+    ) -> teeny_core::errors::Result<Self::Output> {
+        todo!()
+    }
+}
