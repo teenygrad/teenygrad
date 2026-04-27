@@ -18,6 +18,7 @@ pub mod adam;
 pub mod adagrad;
 pub mod adamax;
 pub mod asgd;
+pub mod muon;
 pub mod nadam;
 pub mod radam;
 pub mod rmsprop;
