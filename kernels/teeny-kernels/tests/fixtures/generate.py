@@ -523,4 +523,67 @@ act_fixture("softshrink", lambda x: F.softshrink(x, lambd=0.5), None)
 # ── Softplus (beta=1, threshold=20) ───────────────────────────────────────────
 act_fixture("softplus", lambda x: F.softplus(x, beta=1, threshold=20), None)
 
+# ── layernorm ─────────────────────────────────────────────────────────────────
+print("layernorm")
+d = os.path.join(BASE, "layernorm")
+os.makedirs(d, exist_ok=True)
+M_LN, N_LN = 16, 128
+x_ln = torch.empty(M_LN, N_LN).uniform_(-2, 2)
+weight_ln = torch.empty(N_LN).uniform_(0.5, 1.5)
+bias_ln = torch.empty(N_LN).uniform_(-0.5, 0.5)
+eps_ln = 1e-5
+y_ln = F.layer_norm(x_ln, [N_LN], weight_ln, bias_ln, eps=eps_ln)
+save(f"{d}/x.bin", x_ln)
+save(f"{d}/weight.bin", weight_ln)
+save(f"{d}/bias.bin", bias_ln)
+save(f"{d}/expected_forward.bin", y_ln)
+
+# ── rmsnorm ───────────────────────────────────────────────────────────────────
+print("rmsnorm")
+d = os.path.join(BASE, "rmsnorm")
+os.makedirs(d, exist_ok=True)
+M_RMS, N_RMS = 16, 128
+x_rms = torch.empty(M_RMS, N_RMS).uniform_(-2, 2)
+weight_rms = torch.empty(N_RMS).uniform_(0.5, 1.5)
+eps_rms = 1e-8
+# RMSNorm: rrms = 1/sqrt(mean(x^2) + eps), y = x * rrms * weight
+rms_sq_mean = x_rms.pow(2).mean(dim=-1, keepdim=True) + eps_rms
+rrms_rms = 1.0 / rms_sq_mean.sqrt()  # [M, 1]
+y_rms = x_rms * rrms_rms * weight_rms
+save(f"{d}/x.bin", x_rms)
+save(f"{d}/weight.bin", weight_rms)
+save(f"{d}/expected_forward.bin", y_rms)
+save(f"{d}/expected_rrms.bin", rrms_rms.squeeze(-1))
+
+# ── groupnorm ─────────────────────────────────────────────────────────────────
+print("groupnorm")
+d = os.path.join(BASE, "groupnorm")
+os.makedirs(d, exist_ok=True)
+N_GN, C_GN, L_GN, G_GN = 4, 8, 16, 4
+x_gn = torch.empty(N_GN, C_GN, L_GN).uniform_(-2, 2)
+weight_gn = torch.empty(C_GN).uniform_(0.5, 1.5)
+bias_gn = torch.empty(C_GN).uniform_(-0.5, 0.5)
+eps_gn = 1e-5
+y_gn = F.group_norm(x_gn, G_GN, weight_gn, bias_gn, eps=eps_gn)
+save(f"{d}/x.bin", x_gn)
+save(f"{d}/weight.bin", weight_gn)
+save(f"{d}/bias.bin", bias_gn)
+save(f"{d}/expected_forward.bin", y_gn)
+
+# ── instancenorm ──────────────────────────────────────────────────────────────
+print("instancenorm")
+d = os.path.join(BASE, "instancenorm")
+os.makedirs(d, exist_ok=True)
+N_INS, C_INS, L_INS = 4, 8, 16
+x_ins = torch.empty(N_INS, C_INS, L_INS).uniform_(-2, 2)
+weight_ins = torch.empty(C_INS).uniform_(0.5, 1.5)
+bias_ins = torch.empty(C_INS).uniform_(-0.5, 0.5)
+eps_ins = 1e-5
+# instance_norm with use_input_stats=True (compute per-instance stats)
+y_ins = F.instance_norm(x_ins, weight=weight_ins, bias=bias_ins, eps=eps_ins)
+save(f"{d}/x.bin", x_ins)
+save(f"{d}/weight.bin", weight_ins)
+save(f"{d}/bias.bin", bias_ins)
+save(f"{d}/expected_forward.bin", y_ins)
+
 print("\nDone — all fixtures generated.")

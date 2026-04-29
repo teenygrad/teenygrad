@@ -22,6 +22,7 @@ use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
     graph::{DtypeRepr, SymTensor},
+    model::LoweringMode,
     nn::Layer,
 };
 use teeny_cuda::compiler::graph::CudaGraphCompiler;
@@ -59,7 +60,7 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
 
     // ── Compile ───────────────────────────────────────────────────────────────
     let lowering = TritonLowering::new();
-    let model = graph_compiler.compile_model(&graph, &lowering, &target, false)?;
+    let model = graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
     println!("[3/3] compiled all kernels");
 
     // ── Verify compiled DAG ───────────────────────────────────────────────────

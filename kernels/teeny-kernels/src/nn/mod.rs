@@ -18,6 +18,7 @@ pub mod activation;
 pub mod conv;
 pub mod loss;
 pub mod mlp;
+pub mod norm;
 pub mod optim;
 pub mod pad;
 pub mod pool;

@@ -183,3 +183,13 @@ impl Mul<i32> for LlvmI32Tensor {
         LlvmTensor(0 as *mut i32)
     }
 }
+
+impl Div<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn div(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}

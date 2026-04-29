@@ -61,16 +61,15 @@ impl LlvmCompiler {
 
 impl Compiler for LlvmCompiler {
     fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
-        // Re-hash the kernel id with the target cpu so different targets get
-        // separate cache entries and parallel test runs don't race on the same file.
-        let effective_id = match &self.target_cpu {
-            Some(cpu) => {
-                let mut h = Sha256::new();
-                h.update(kernel.id().as_bytes());
+        // Hash the kernel id together with target cpu so that different targets
+        // each get their own cache entry.
+        let effective_id = {
+            let mut h = Sha256::new();
+            h.update(kernel.id().as_bytes());
+            if let Some(cpu) = &self.target_cpu {
                 h.update(cpu.as_bytes());
-                h.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
             }
-            None => kernel.id(),
+            h.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
         };
         let kernel_file_name = format!("{}_{}", kernel.name(), effective_id);
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
@@ -98,10 +97,11 @@ impl Compiler for LlvmCompiler {
             if let Some(cpu) = &self.target_cpu {
                 cmd.arg(format!("-Ctarget-cpu={cpu}"));
             }
-            let status = cmd.status()?;
+            let output = cmd.output()?;
 
-            if !status.success() {
-                anyhow::bail!("rustc exited with status {}", status);
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("rustc exited with status {}\n{}", output.status, stderr);
             }
         }
 

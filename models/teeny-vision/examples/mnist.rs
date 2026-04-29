@@ -48,6 +48,7 @@ use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
     device::{context::Context as DeviceContext, program::ArgVisitor},
     graph::{DtypeRepr, SymTensor},
+    model::LoweringMode,
     nn::Layer,
 };
 use teeny_cuda::{
@@ -141,7 +142,7 @@ async fn main() -> Result<()> {
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(capability);
     let lowering = TritonLowering::new();
-    let cuda_model = graph_compiler.compile_model(&graph, &lowering, &target, false)?;
+    let cuda_model = graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
     println!("      compiled {} DAG nodes", cuda_model.dag.len());
 
     // ── 5. Load model + initialise weights ───────────────────────────────────

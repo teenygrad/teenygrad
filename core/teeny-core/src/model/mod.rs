@@ -155,8 +155,15 @@ pub trait ExecutableOp {
     fn backward_kernel_entry_point(&self) -> &str { "entry_point" }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LoweringMode {
+    #[default]
+    Inference,
+    Training,
+}
+
 pub trait Lowering<'a> {
-    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp>>>;
+    fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>>;
 }
 
 pub trait Model<'a> {

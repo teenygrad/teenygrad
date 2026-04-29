@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use teeny_core::{
     graph::{DtypeRepr, Graph, Op, Shape},
-    model::{ExecutableOp, Lowering, RuntimeOp},
+    model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
 };
 
@@ -38,6 +38,13 @@ use crate::nn::{
     },
     conv::{conv1d::Conv1dForward, conv2d::Conv2dForward, conv3d::Conv3dForward},
     mlp::{flatten::FlattenForward, linear::{LinearBackward, LinearForward}},
+    norm::{
+        batchnorm::BatchNormForwardInference,
+        groupnorm::GroupNormForwardInference,
+        instancenorm::InstanceNormForwardInference,
+        layernorm::LayerNormForwardInference,
+        rmsnorm::RmsNormForward,
+    },
     pad::{
         circular_pad1d::CircularPad1dForward, circular_pad2d::CircularPad2dForward,
         circular_pad3d::CircularPad3dForward, constant_pad1d::ConstantPad1dForward,
@@ -298,6 +305,13 @@ macro_rules! impl_stub_runtime_op_untyped {
     };
 }
 
+// Normalisation
+impl_stub_runtime_op_float!(BatchNormForwardInference);
+impl_stub_runtime_op_float!(LayerNormForwardInference);
+impl_stub_runtime_op_float!(RmsNormForward);
+impl_stub_runtime_op_float!(GroupNormForwardInference);
+impl_stub_runtime_op_float!(InstanceNormForwardInference);
+
 // Convolution
 impl_stub_runtime_op_num!(Conv3dForward);
 
@@ -375,7 +389,7 @@ impl TritonLowering {
 }
 
 impl<'a> Lowering<'a> for TritonLowering {
-    fn lower(&self, graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp>>> {
+    fn lower(&self, graph: &Graph, _mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>> {
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         // Maps graph node index → DAG node index (one-to-one since we add every node)
@@ -403,6 +417,23 @@ impl<'a> Lowering<'a> for TritonLowering {
                     make_num_kernel!(LinearForward(*has_bias, 32, 64, 32, 8), LinearBackward(*has_bias, 32, 64, 32, 8), node)
                 }
                 Op::Flatten => make_num_kernel!(FlattenForward(32, 256), node),
+
+                // --- Normalisation ---
+                Op::BatchNorm1d { .. } | Op::BatchNorm2d { .. } | Op::BatchNorm3d { .. } => {
+                    make_float_kernel!(BatchNormForwardInference(64), node)
+                }
+                Op::LayerNorm { .. } => {
+                    make_float_kernel!(LayerNormForwardInference(1024), node)
+                }
+                Op::RmsNorm { .. } => {
+                    make_float_kernel!(RmsNormForward(1024), node)
+                }
+                Op::GroupNorm { .. } => {
+                    make_float_kernel!(GroupNormForwardInference(256), node)
+                }
+                Op::InstanceNorm1d { .. } | Op::InstanceNorm2d { .. } | Op::InstanceNorm3d { .. } => {
+                    make_float_kernel!(InstanceNormForwardInference(256), node)
+                }
 
                 // --- Convolution ---
                 Op::Conv1d { kernel_l, stride, .. } => {

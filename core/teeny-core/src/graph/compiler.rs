@@ -17,7 +17,7 @@
 use crate::compiler::Target;
 use crate::errors::Result;
 use crate::graph::Graph;
-use crate::model::{Lowering, Model};
+use crate::model::{Lowering, LoweringMode, Model};
 
 pub trait GraphCompiler {
     fn compile<'a, L: Lowering<'a>, T: Target>(
@@ -25,6 +25,7 @@ pub trait GraphCompiler {
         graph: &Graph,
         lowering: &L,
         target: &T,
+        mode: LoweringMode,
         force: bool,
     ) -> Result<impl Model<'a>>;
 }

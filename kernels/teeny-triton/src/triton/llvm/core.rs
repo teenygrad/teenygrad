@@ -350,6 +350,24 @@ pub mod core {
             }
         }
 
+        #[lang = "mul_assign"]
+        pub trait MulAssign<RHS = Self> {
+            fn mul_assign(&mut self, rhs: RHS);
+        }
+
+        impl MulAssign for i32 {
+            fn mul_assign(&mut self, rhs: i32) {}
+        }
+        impl MulAssign for i64 {
+            fn mul_assign(&mut self, rhs: i64) {}
+        }
+        impl MulAssign for f32 {
+            fn mul_assign(&mut self, rhs: f32) {}
+        }
+        impl MulAssign for f64 {
+            fn mul_assign(&mut self, rhs: f64) {}
+        }
+
         #[lang = "add"]
         pub trait Add<RHS = Self> {
             type Output;
@@ -404,6 +422,30 @@ pub mod core {
             }
         }
 
+        #[lang = "add_assign"]
+        pub trait AddAssign<RHS = Self> {
+            fn add_assign(&mut self, rhs: RHS);
+        }
+
+        impl AddAssign for i32 {
+            fn add_assign(&mut self, rhs: i32) {}
+        }
+        impl AddAssign for u32 {
+            fn add_assign(&mut self, rhs: u32) {}
+        }
+        impl AddAssign for u64 {
+            fn add_assign(&mut self, rhs: u64) {}
+        }
+        impl AddAssign for i64 {
+            fn add_assign(&mut self, rhs: i64) {}
+        }
+        impl AddAssign for f32 {
+            fn add_assign(&mut self, rhs: f32) {}
+        }
+        impl AddAssign for f64 {
+            fn add_assign(&mut self, rhs: f64) {}
+        }
+
         #[lang = "sub"]
         pub trait Sub<RHS = Self> {
             type Output;
@@ -442,6 +484,27 @@ pub mod core {
             }
         }
 
+        #[lang = "sub_assign"]
+        pub trait SubAssign<RHS = Self> {
+            fn sub_assign(&mut self, rhs: RHS);
+        }
+
+        impl SubAssign for i32 {
+            fn sub_assign(&mut self, rhs: i32) {}
+        }
+        impl SubAssign for u32 {
+            fn sub_assign(&mut self, rhs: u32) {}
+        }
+        impl SubAssign for i64 {
+            fn sub_assign(&mut self, rhs: i64) {}
+        }
+        impl SubAssign for f32 {
+            fn sub_assign(&mut self, rhs: f32) {}
+        }
+        impl SubAssign for f64 {
+            fn sub_assign(&mut self, rhs: f64) {}
+        }
+
         #[lang = "div"]
         pub trait Div<RHS = Self> {
             type Output;
@@ -470,6 +533,24 @@ pub mod core {
             fn div(self, rhs: f64) -> Self::Output {
                 0.0
             }
+        }
+
+        #[lang = "div_assign"]
+        pub trait DivAssign<RHS = Self> {
+            fn div_assign(&mut self, rhs: RHS);
+        }
+
+        impl DivAssign for i32 {
+            fn div_assign(&mut self, rhs: i32) {}
+        }
+        impl DivAssign for i64 {
+            fn div_assign(&mut self, rhs: i64) {}
+        }
+        impl DivAssign for f32 {
+            fn div_assign(&mut self, rhs: f32) {}
+        }
+        impl DivAssign for f64 {
+            fn div_assign(&mut self, rhs: f64) {}
         }
 
         #[lang = "rem"]

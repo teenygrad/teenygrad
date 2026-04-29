@@ -31,7 +31,12 @@ use crate::{
             softmax::Softmax,
             tanh::{Tanh, Tanhshrink},
         },
+        batchnorm::{BatchNorm1d, BatchNorm2d, BatchNorm3d},
         conv1d::Conv1d,
+        groupnorm::GroupNorm,
+        instancenorm::{InstanceNorm1d, InstanceNorm2d, InstanceNorm3d},
+        layernorm::LayerNorm,
+        rmsnorm::RmsNorm,
         conv2d::Conv2d,
         conv3d::Conv3d,
         flatten::Flatten,
@@ -96,6 +101,66 @@ pub enum Op {
         has_bias: bool,
     },
     Flatten,
+
+    // --- Normalisation ---
+    BatchNorm1d {
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+        track_running_stats: bool,
+    },
+    BatchNorm2d {
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+        track_running_stats: bool,
+    },
+    BatchNorm3d {
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+        track_running_stats: bool,
+    },
+    LayerNorm {
+        normalized_shape: alloc::vec::Vec<usize>,
+        eps: f64,
+        affine: bool,
+    },
+    RmsNorm {
+        normalized_shape: alloc::vec::Vec<usize>,
+        eps: f64,
+        affine: bool,
+    },
+    GroupNorm {
+        num_groups: usize,
+        num_channels: usize,
+        eps: f64,
+        affine: bool,
+    },
+    InstanceNorm1d {
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+        track_running_stats: bool,
+    },
+    InstanceNorm2d {
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+        track_running_stats: bool,
+    },
+    InstanceNorm3d {
+        num_features: usize,
+        eps: f64,
+        momentum: f64,
+        affine: bool,
+        track_running_stats: bool,
+    },
 
     // --- Convolution ---
     Conv1d {
@@ -255,7 +320,7 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
     match op {
         Op::Input => input.clone(),
 
-        // Element-wise — shape is unchanged
+        // Element-wise / shape-preserving — output shape = input shape
         Op::Relu
         | Op::Elu { .. }
         | Op::Selu
@@ -277,7 +342,16 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
         | Op::Logsigmoid
         | Op::Tanh
         | Op::Tanhshrink
-        | Op::Softmax { .. } => input.clone(),
+        | Op::Softmax { .. }
+        | Op::BatchNorm1d { .. }
+        | Op::BatchNorm2d { .. }
+        | Op::BatchNorm3d { .. }
+        | Op::LayerNorm { .. }
+        | Op::RmsNorm { .. }
+        | Op::GroupNorm { .. }
+        | Op::InstanceNorm1d { .. }
+        | Op::InstanceNorm2d { .. }
+        | Op::InstanceNorm3d { .. } => input.clone(),
 
         Op::Linear { out_features, .. } => {
             // [..., in_features] → [..., out_features]
@@ -470,6 +544,126 @@ impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
         input.record(Op::Flatten)
+    }
+}
+
+// --- Normalisation ---
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm1d<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::BatchNorm1d {
+            num_features: self.num_features,
+            eps: self.eps,
+            momentum: self.momentum,
+            affine: self.affine,
+            track_running_stats: self.track_running_stats,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm2d<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::BatchNorm2d {
+            num_features: self.num_features,
+            eps: self.eps,
+            momentum: self.momentum,
+            affine: self.affine,
+            track_running_stats: self.track_running_stats,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm3d<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::BatchNorm3d {
+            num_features: self.num_features,
+            eps: self.eps,
+            momentum: self.momentum,
+            affine: self.affine,
+            track_running_stats: self.track_running_stats,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LayerNorm<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::LayerNorm {
+            normalized_shape: self.normalized_shape.clone(),
+            eps: self.eps,
+            affine: self.affine,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for RmsNorm<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::RmsNorm {
+            normalized_shape: self.normalized_shape.clone(),
+            eps: self.eps,
+            affine: self.affine,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor> for GroupNorm<D, SymTensor, SymTensor, RANK> {
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::GroupNorm {
+            num_groups: self.num_groups,
+            num_channels: self.num_channels,
+            eps: self.eps,
+            affine: self.affine,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor>
+    for InstanceNorm1d<D, SymTensor, SymTensor, RANK>
+{
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::InstanceNorm1d {
+            num_features: self.num_features,
+            eps: self.eps,
+            momentum: self.momentum,
+            affine: self.affine,
+            track_running_stats: self.track_running_stats,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor>
+    for InstanceNorm2d<D, SymTensor, SymTensor, RANK>
+{
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::InstanceNorm2d {
+            num_features: self.num_features,
+            eps: self.eps,
+            momentum: self.momentum,
+            affine: self.affine,
+            track_running_stats: self.track_running_stats,
+        })
+    }
+}
+
+impl<D: Dtype, const RANK: usize> Layer<SymTensor>
+    for InstanceNorm3d<D, SymTensor, SymTensor, RANK>
+{
+    type Output = SymTensor;
+    fn call(&self, input: SymTensor) -> SymTensor {
+        input.record(Op::InstanceNorm3d {
+            num_features: self.num_features,
+            eps: self.eps,
+            momentum: self.momentum,
+            affine: self.affine,
+            track_running_stats: self.track_running_stats,
+        })
     }
 }
 

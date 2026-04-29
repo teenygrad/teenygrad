@@ -15,13 +15,18 @@
  */
 
 pub mod activation;
+pub mod batchnorm;
 pub mod conv1d;
 pub mod conv2d;
 pub mod conv3d;
 pub mod flatten;
+pub mod groupnorm;
+pub mod instancenorm;
+pub mod layernorm;
 pub mod linear;
 pub mod pad;
 pub mod pool;
+pub mod rmsnorm;
 
 pub trait Layer<I> {
     type Output;

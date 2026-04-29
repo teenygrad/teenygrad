@@ -117,6 +117,7 @@ where
     Self::I32Tensor: Add<i32, Output = Self::I32Tensor>,
     Self::I32Tensor: Sub<i32, Output = Self::I32Tensor>,
     Self::I32Tensor: Mul<i32, Output = Self::I32Tensor>,
+    Self::I32Tensor: Div<i32, Output = Self::I32Tensor>,
     Self::BoolTensor: BitAnd<Output = Self::BoolTensor>,
     Self::BoolTensor: BitOr<Output = Self::BoolTensor>,
 {

@@ -19,7 +19,7 @@ use teeny_core::{
     compiler::{Compiler, Target},
     device::program::Kernel,
     graph::{Graph, compiler::GraphCompiler},
-    model::{ExecutableOp, Lowering, Model},
+    model::{ExecutableOp, Lowering, LoweringMode, Model},
     utils::dag::Dag,
 };
 
@@ -95,9 +95,10 @@ impl CudaGraphCompiler {
         graph: &Graph,
         lowering: &L,
         target: &T,
+        mode: LoweringMode,
         force: bool,
     ) -> Result<CudaModel<'a>> {
-        self.compile_inner(graph, lowering, target, force)
+        self.compile_inner(graph, lowering, target, mode, force)
     }
 
     fn compile_inner<'a, L: Lowering<'a>, T: Target>(
@@ -105,9 +106,10 @@ impl CudaGraphCompiler {
         graph: &Graph,
         lowering: &L,
         target: &T,
+        mode: LoweringMode,
         force: bool,
     ) -> Result<CudaModel<'a>> {
-        let op_dag: Dag<Box<dyn ExecutableOp>> = lowering.lower(graph)?;
+        let op_dag: Dag<Box<dyn ExecutableOp>> = lowering.lower(graph, mode)?;
 
         let compiler = match target.target_cpu() {
             Some(cpu) => self.compiler.clone().with_target_cpu(cpu),
@@ -167,8 +169,9 @@ impl GraphCompiler for CudaGraphCompiler {
         graph: &Graph,
         lowering: &L,
         target: &T,
+        mode: LoweringMode,
         force: bool,
     ) -> Result<impl Model<'a>> {
-        self.compile_inner(graph, lowering, target, force)
+        self.compile_inner(graph, lowering, target, mode, force)
     }
 }
