@@ -222,6 +222,131 @@ pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     }
 }
 
+// ─── Training RuntimeOp implementations ──────────────────────────────────────
+
+/// RuntimeOp for the stats kernel node in a training BatchNorm graph.
+///
+/// Stores `eps` and `momentum` (not in the macro-generated struct) and handles
+/// the packed `[2*C]` output layout: first C elements = mean, last C = rstd.
+#[cfg(feature = "training")]
+pub struct BatchNormStatsRuntimeOp<D: teeny_core::dtype::Float + Send + Sync + 'static> {
+    pub block_n: i32,
+    pub eps: f32,
+    pub momentum: f32,
+    _phantom: core::marker::PhantomData<D>,
+}
+
+#[cfg(feature = "training")]
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> BatchNormStatsRuntimeOp<D> {
+    pub fn new(block_n: i32, eps: f32, momentum: f32) -> Self {
+        Self { block_n, eps, momentum, _phantom: core::marker::PhantomData }
+    }
+}
+
+#[cfg(feature = "training")]
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
+    for BatchNormStatsRuntimeOp<D>
+{
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        let c = input_shapes[0][1];
+        vec![vec![c], vec![c]]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let c = output_shape[0] / 2;
+        let n_total: usize = inputs[0].1.iter().product();
+        let n = (n_total / c) as i32;
+        let mean_ptr = output;
+        let rstd_ptr = unsafe { (output as *mut D).add(c) } as teeny_core::model::RawPtr;
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(mean_ptr);
+        visitor.visit_ptr(rstd_ptr);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(params[1]);
+        visitor.visit_i32(n);
+        visitor.visit_i32(c as i32);
+        visitor.visit_f32(self.eps);
+        visitor.visit_f32(self.momentum);
+    }
+
+    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let c = output_shape[0] / 2;
+        [c as u32, 1, 1]
+    }
+}
+
+/// RuntimeOp for the normalize kernel node in a training BatchNorm graph.
+///
+/// Expects two activation inputs: `inputs[0]` = x, `inputs[1]` = packed stats
+/// `[2*C]` from the stats node (first C = mean, last C = rstd).
+#[cfg(feature = "training")]
+pub struct BatchNormNormalizeRuntimeOp<D: teeny_core::dtype::Float + Send + Sync + 'static> {
+    pub block_n: i32,
+    _phantom: core::marker::PhantomData<D>,
+}
+
+#[cfg(feature = "training")]
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> BatchNormNormalizeRuntimeOp<D> {
+    pub fn new(block_n: i32) -> Self {
+        Self { block_n, _phantom: core::marker::PhantomData }
+    }
+}
+
+#[cfg(feature = "training")]
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
+    for BatchNormNormalizeRuntimeOp<D>
+{
+    fn n_activation_inputs(&self) -> usize { 2 }
+
+    fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        let c = input_shapes[1][0] / 2;
+        vec![vec![c], vec![c]]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        _output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let c = inputs[1].1[0] / 2;
+        let n_total: usize = inputs[0].1.iter().product();
+        let n = (n_total / c) as i32;
+        let mean_ptr = inputs[1].0;
+        let rstd_ptr = unsafe { (inputs[1].0 as *mut D).add(c) } as teeny_core::model::RawPtr;
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(params[1]);
+        visitor.visit_ptr(mean_ptr);
+        visitor.visit_ptr(rstd_ptr);
+        visitor.visit_i32(n);
+        visitor.visit_i32(c as i32);
+    }
+
+    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let c = output_shape.get(1).copied().unwrap_or(output_shape[0]);
+        [c as u32, 1, 1]
+    }
+}
+
 // ─── Training: backward pass ──────────────────────────────────────────────────
 
 /// Computes gradients for BatchNorm.

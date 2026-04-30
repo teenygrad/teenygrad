@@ -24,6 +24,18 @@ use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
+#[cfg(all(feature = "cuda", feature = "training"))]
+use {
+    teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler,
+    teeny_core::{
+        graph::{DtypeRepr, SymTensor},
+        model::LoweringMode,
+        nn::{batchnorm::BatchNorm1d, Layer},
+    },
+    teeny_cuda::{compiler::graph::CudaGraphCompiler, device::mem},
+    teeny_kernels::graph::TritonLowering,
+};
+
 const N: usize = 64;     // batch size
 const C: usize = 32;     // channels
 const EPS: f32 = 1e-5;
@@ -386,5 +398,93 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
             db_out[ch], ref_dbias[ch]
         );
     }
+    Ok(())
+}
+
+// ─── Graph-compiler training test ─────────────────────────────────────────────
+
+/// Verifies that the graph compiler emits two sequential DAG nodes for
+/// BatchNorm1d under `LoweringMode::Training` (stats + normalize), and that
+/// running both kernels through `LoadedModel::forward` produces the correct
+/// normalized output.
+#[test]
+#[cfg(all(feature = "cuda", feature = "training"))]
+fn test_batch_norm_training_graph() -> anyhow::Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    // Trace graph: Input([None, C]) → BatchNorm1d.
+    let (input, graph) =
+        SymTensor::input(DtypeRepr::F32, vec![None, Some(C)]);
+    let _output = Layer::call(
+        &BatchNorm1d::<f32, SymTensor, SymTensor, 2>::new(C)
+            .with_eps(EPS as f64)
+            .with_momentum(MOMENTUM as f64),
+        input,
+    );
+    let graph = graph.borrow();
+
+    // Compile with LoweringMode::Training — should produce 3 DAG nodes:
+    // Input, BatchNormStats, BatchNormNormalize.
+    let rustc_path = std::env::var("TEENY_RUSTC_PATH")
+        .expect("TEENY_RUSTC_PATH must be set");
+    let cache_dir =
+        std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+    let compiler = LlvmCompiler::new(rustc_path, cache_dir)?;
+    let graph_compiler = CudaGraphCompiler::new(compiler);
+    let lowering = TritonLowering::new();
+    let model = graph_compiler.compile_model(
+        &graph, &lowering, &target, LoweringMode::Training, false,
+    )?;
+
+    // Graph has 2 nodes (Input + BatchNorm1d); training lowering expands to 3.
+    assert_eq!(model.dag.len(), 3, "expected Input + Stats + Normalize nodes");
+
+    // Load the model.
+    let mut loaded = model.load(&env.device, N)?;
+
+    // Upload parameters.
+    // Node 0 = Input (no params), Node 1 = Stats (running_mean, running_var),
+    // Node 2 = Normalize (weight, bias).
+    let running_mean = vec![0.0f32; C];
+    let running_var  = vec![1.0f32; C];
+    let weight: Vec<f32> = (0..C).map(|i| 1.0 + i as f32 * 0.01).collect();
+    let bias:   Vec<f32> = (0..C).map(|i| i as f32 * 0.005).collect();
+
+    loaded.load_param_f32(1, 0, &running_mean)?;  // stats: running_mean
+    loaded.load_param_f32(1, 1, &running_var)?;   // stats: running_var
+    loaded.load_param_f32(2, 0, &weight)?;         // normalize: weight
+    loaded.load_param_f32(2, 1, &bias)?;           // normalize: bias
+
+    // Input data.
+    let x: Vec<f32> = (0..N * C).map(|i| (i as f32 * 0.07 - 2.0) % 4.0).collect();
+
+    // Reference: compute stats then normalize.
+    let (ref_mean, ref_rstd) = ref_batch_norm_stats(&x, N, C);
+    let ref_y = ref_batch_norm_normalize(&x, &weight, &bias, &ref_mean, &ref_rstd, N, C);
+
+    // Allocate input on device.
+    let x_ptr = mem::alloc(N * C * std::mem::size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N * C) }?;
+    let x_tensor = teeny_cuda::model::TensorRef::new(x_ptr, vec![N, C]);
+
+    // Run forward.
+    let output = loaded.forward(&env.device, N, &[x_tensor])?;
+
+    // Copy result back to host.
+    let mut y_out = vec![0.0f32; N * C];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, N * C) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    for i in 0..N * C {
+        assert!(
+            (y_out[i] - ref_y[i]).abs() < TOL,
+            "graph training mismatch at i={i}: gpu={} ref={}",
+            y_out[i], ref_y[i]
+        );
+    }
+
     Ok(())
 }
