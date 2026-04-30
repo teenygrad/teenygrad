@@ -586,4 +586,53 @@ save(f"{d}/weight.bin", weight_ins)
 save(f"{d}/bias.bin", bias_ins)
 save(f"{d}/expected_forward.bin", y_ins)
 
+# ── batchnorm ─────────────────────────────────────────────────────────────────
+print("batchnorm")
+d = os.path.join(BASE, "batchnorm")
+os.makedirs(d, exist_ok=True)
+N_BN, C_BN = 64, 32
+EPS_BN = 1e-5
+MOMENTUM_BN = 0.1
+
+x_bn = torch.empty(N_BN, C_BN).uniform_(-3, 3)
+weight_bn = torch.empty(C_BN).uniform_(0.5, 1.5)
+bias_bn = torch.empty(C_BN).uniform_(-0.5, 0.5)
+running_mean_bn = torch.zeros(C_BN)
+running_var_bn = torch.ones(C_BN)
+dy_bn = torch.empty(N_BN, C_BN).uniform_(-2, 2)
+
+save(f"{d}/x.bin", x_bn)
+save(f"{d}/weight.bin", weight_bn)
+save(f"{d}/bias.bin", bias_bn)
+save(f"{d}/running_mean.bin", running_mean_bn)
+save(f"{d}/running_var.bin", running_var_bn)
+save(f"{d}/dy.bin", dy_bn)
+
+# Inference: uses frozen running stats (training=False)
+y_inf_bn = F.batch_norm(x_bn, running_mean_bn.clone(), running_var_bn.clone(),
+                        weight=weight_bn, bias=bias_bn, training=False, eps=EPS_BN)
+save(f"{d}/expected_forward_inference.bin", y_inf_bn)
+
+# Training forward: biased batch statistics (divide by N, not N-1)
+mean_bn = x_bn.mean(dim=0)                           # [C]
+var_bn = ((x_bn - mean_bn) ** 2).mean(dim=0)         # biased [C]
+rstd_bn = 1.0 / (var_bn + EPS_BN).sqrt()             # [C]
+save(f"{d}/expected_mean.bin", mean_bn)
+save(f"{d}/expected_rstd.bin", rstd_bn)
+
+# Training forward output via autograd (consistent with biased stats)
+x_r_bn = x_bn.clone().requires_grad_(True)
+w_r_bn = weight_bn.clone().requires_grad_(True)
+b_r_bn = bias_bn.clone().requires_grad_(True)
+y_train_bn = F.batch_norm(x_r_bn, running_mean_bn.clone(), running_var_bn.clone(),
+                          weight=w_r_bn, bias=b_r_bn,
+                          training=True, momentum=MOMENTUM_BN, eps=EPS_BN)
+save(f"{d}/expected_forward_training.bin", y_train_bn.detach())
+
+# Training backward
+y_train_bn.backward(dy_bn)
+save(f"{d}/expected_dx.bin", x_r_bn.grad.detach())
+save(f"{d}/expected_dweight.bin", w_r_bn.grad.detach())
+save(f"{d}/expected_dbias.bin", b_r_bn.grad.detach())
+
 print("\nDone — all fixtures generated.")
