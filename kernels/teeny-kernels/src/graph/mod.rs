@@ -698,6 +698,10 @@ impl<'a> Lowering<'a> for TritonLowering {
                     let block_size = n_cols.next_power_of_two() as i32;
                     make_float_kernel!(SoftmaxForward(block_size), node)
                 }
+
+                Op::Add | Op::ChannelChunk { .. } | Op::ChannelCat { .. } => {
+                    return Err(anyhow::anyhow!("kernel lowering for {:?} is not yet implemented", node.op));
+                }
             };
 
             let dag_idx = dag.add_node(executable);

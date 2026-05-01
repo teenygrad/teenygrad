@@ -245,6 +245,22 @@ pub enum Op {
     Tanh,
     Tanhshrink,
     Softmax { dim: usize },
+
+    // --- Tensor structural ops ---
+    /// Element-wise addition of two tensors with identical shapes.
+    Add,
+    /// Extract one contiguous channel slice from a 4-D NCHW tensor.
+    /// Output shape: `[N, chunk_c, H, W]`.
+    ChannelChunk {
+        c_total: usize,
+        chunk_c: usize,
+        chunk_offset: usize,
+    },
+    /// Concatenate N 4-D NCHW tensors along the channel dimension.
+    /// Output shape: `[N, c_total, H, W]`.
+    ChannelCat {
+        c_total: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -459,6 +475,18 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
             let h_out = input[3].map(|h| h + pad_h1 + pad_h2);
             let w_out = input[4].map(|w| w + pad_w1 + pad_w2);
             vec![input[0], input[1], d_out, h_out, w_out]
+        }
+
+        Op::Add => input.clone(),
+
+        Op::ChannelChunk { chunk_c, .. } => {
+            // [N, c_total, H, W] → [N, chunk_c, H, W]
+            vec![input[0], Some(*chunk_c), input[2], input[3]]
+        }
+
+        Op::ChannelCat { c_total } => {
+            // multi-input; c_total encodes the output channel count
+            vec![input[0], Some(*c_total), input[2], input[3]]
         }
     }
 }

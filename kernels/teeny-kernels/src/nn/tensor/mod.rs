@@ -14,12 +14,5 @@
  * limitations under the License.
  */
 
-pub mod activation;
-pub mod conv;
-pub mod loss;
-pub mod mlp;
-pub mod norm;
-pub mod optim;
-pub mod pad;
-pub mod pool;
-pub mod tensor;
+pub mod channel_cat;
+pub mod channel_chunk;
