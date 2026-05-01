@@ -82,11 +82,12 @@ pub fn constant_pad3d_forward<
 
     let value_vec = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], value), None, false);
 
-    // Convert scalar id, ih into uniform tensors for branchless depth/height bounds checks.
-    // `ow_range * 0` zeroes the range; adding the scalar makes all lanes equal to it.
-    // in_bc_base uses the raw (possibly out-of-range) id/ih, but combined_mask is
-    // all-false when either is out of bounds, so no actual OOB access occurs.
+    // `ow_range * 0` is the only way to splat a scalar into an I32Tensor (no broadcast API).
+    // A compound `if id < 0 || ...` with 4 conditions triggers a compiler phi-node bug
+    // (cond_br: phi local not in ssa_values), so keep the branchless mask approach here.
+    #[allow(clippy::erasing_op)]
     let id_t = ow_range * 0 + id;
+    #[allow(clippy::erasing_op)]
     let ih_t = ow_range * 0 + ih;
     let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
     let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
@@ -110,14 +111,7 @@ pub fn constant_pad3d_forward<
     let result = T::where_(combined_mask, tile, value_vec);
 
     let out_offsets = ow_range + out_bc_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    T::store(output_ptr.add_offsets(out_offsets), result, Some(ow_mask), &[], None, None);
 }
 
 /// 3-D constant padding backward pass.
@@ -170,8 +164,9 @@ pub fn constant_pad3d_backward<
     let ih = oh - PH1;
     let iw_range = ow_range - PW1;
 
-    // Convert scalar id, ih into uniform tensors for branchless depth/height bounds checks.
+    #[allow(clippy::erasing_op)]
     let id_t = ow_range * 0 + id;
+    #[allow(clippy::erasing_op)]
     let ih_t = ow_range * 0 + ih;
     let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
     let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);

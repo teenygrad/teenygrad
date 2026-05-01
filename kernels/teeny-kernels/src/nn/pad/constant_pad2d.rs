@@ -72,22 +72,18 @@ pub fn constant_pad2d_forward<
     let ow_mask = ow_range.lt(OW);
 
     let ih = oh - PT;
-    let iw_range = ow_range - PL;
-
     let value_vec = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], value), None, false);
+    let out_offsets = ow_range + ((b * C + c) * OH + oh) * OW;
 
-    // Convert scalar ih into a uniform tensor for branchless height bounds check.
-    // `ow_range * 0` zeroes the range; adding ih makes all lanes equal to ih.
-    let ih_t = ow_range * 0 + ih;
-    let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+    if ih < 0 || ih >= H {
+        T::store(output_ptr.add_offsets(out_offsets), value_vec, Some(ow_mask), &[], None, None);
+        return;
+    }
+
+    let iw_range = ow_range - PL;
     let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-
-    // in_bc_base uses the raw (possibly out-of-range) ih, but combined_mask
-    // is all-false when ih is out of bounds, so no actual OOB access occurs.
+    let combined_mask = ow_mask & w_in_bounds;
     let in_bc_base = (b * C + c) * H * W + ih * W;
-    let out_bc_base = ((b * C + c) * OH + oh) * OW;
-
-    let combined_mask = ow_mask & h_in_bounds & w_in_bounds;
 
     let tile = T::load(
         input_ptr.add_offsets(iw_range + in_bc_base),
@@ -100,16 +96,7 @@ pub fn constant_pad2d_forward<
         false,
     );
     let result = T::where_(combined_mask, tile, value_vec);
-
-    let out_offsets = ow_range + out_bc_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    T::store(output_ptr.add_offsets(out_offsets), result, Some(ow_mask), &[], None, None);
 }
 
 /// 2-D constant padding backward pass.
@@ -153,17 +140,15 @@ pub fn constant_pad2d_backward<
     let ow_mask = ow_range.lt(OW);
 
     let ih = oh - PT;
+    if ih < 0 || ih >= H { return; }
     let iw_range = ow_range - PL;
 
-    // Convert scalar ih into a uniform tensor for branchless height bounds check.
-    let ih_t = ow_range * 0 + ih;
-    let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
     let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
 
     let dy_bc_base = ((b * C + c) * OH + oh) * OW;
     let dx_bc_base = (b * C + c) * H * W + ih * W;
 
-    let store_mask = ow_mask & h_in_bounds & w_in_bounds;
+    let store_mask = ow_mask & w_in_bounds;
 
     let dy_offsets = ow_range + dy_bc_base;
     let dy_tile = T::load(

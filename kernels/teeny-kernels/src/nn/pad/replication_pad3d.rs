@@ -87,7 +87,9 @@ pub fn replication_pad3d_forward<
     let cond_right = iw_raw.ge(W);
     let in_bounds = iw_raw.ge(0) & iw_raw.lt(W);
 
+    #[allow(clippy::erasing_op)]
     let zero_iw = iw_raw * 0;
+    #[allow(clippy::erasing_op)]
     let wm1_iw = iw_raw * 0 + (W - 1);
 
     let zeros = T::zeros::<D>(&[BLOCK_OW]);
@@ -207,7 +209,9 @@ pub fn replication_pad3d_backward<
     let cond_right = iw_raw.ge(W);
     let in_bounds = iw_raw.ge(0) & iw_raw.lt(W);
 
+    #[allow(clippy::erasing_op)]
     let zero_iw = iw_raw * 0;
+    #[allow(clippy::erasing_op)]
     let wm1_iw = iw_raw * 0 + (W - 1);
 
     T::atomic_add(

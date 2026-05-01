@@ -71,9 +71,10 @@ pub fn replication_pad1d_forward<
     let cond_right = ip_raw.ge(L);
     let in_bounds = ip_raw.ge(0) & ip_raw.lt(L);
 
-    // `ip_raw * 0` produces an I32Tensor of zeros (index 0 = left boundary).
-    // `ip_raw * 0 + (L - 1)` produces an I32Tensor of (L-1) (right boundary).
+    // `ip_raw * 0` is the only way to splat a scalar into an I32Tensor (no broadcast API).
+    #[allow(clippy::erasing_op)]
     let zero_ip = ip_raw * 0;
+    #[allow(clippy::erasing_op)]
     let lm1_ip = ip_raw * 0 + (L - 1);
 
     let zeros = T::zeros::<D>(&[BLOCK_OL]);
@@ -178,7 +179,9 @@ pub fn replication_pad1d_backward<
     let cond_right = ip_raw.ge(L);
     let in_bounds = ip_raw.ge(0) & ip_raw.lt(L);
 
+    #[allow(clippy::erasing_op)]
     let zero_ip = ip_raw * 0;
+    #[allow(clippy::erasing_op)]
     let lm1_ip = ip_raw * 0 + (L - 1);
 
     T::atomic_add(

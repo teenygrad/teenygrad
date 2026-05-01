@@ -91,11 +91,13 @@ pub fn conv2d_forward<
         let kh = kh_cin % KH;
         let c_in = kh_cin / KH;
 
-        // Compute padded input coordinates; OOB positions map to zero via mask.
+        // Compute padded input coordinates; OOB height rows contribute zero via mask.
         let ih = oh * STRIDE_H + kh - PAD_H;
         let iw_range = ow_range * STRIDE_W + kw - PAD_W;
 
-        // Convert scalar ih to uniform tensor for branchless bounds check.
+        // `ow_range * 0` is the only way to splat scalar ih into an I32Tensor.
+        // A scalar `if`/`continue` here triggers a compiler phi-node bug.
+        #[allow(clippy::erasing_op)]
         let ih_t = ow_range * 0 + ih;
         let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
         let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
@@ -234,6 +236,7 @@ pub fn conv2d_backward_dx<
         let ih = oh * STRIDE_H + kh - PAD_H;
         let iw_range = ow_range * STRIDE_W + kw - PAD_W;
 
+        #[allow(clippy::erasing_op)]
         let ih_t = ow_range * 0 + ih;
         let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
         let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
@@ -326,6 +329,7 @@ pub fn conv2d_backward_dw<
         let ih = ih_base + kh - PAD_H;
         let iw_range = ow_range * STRIDE_W + kw - PAD_W;
 
+        #[allow(clippy::erasing_op)]
         let ih_t = ow_range * 0 + ih;
         let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
         let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
