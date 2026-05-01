@@ -16,6 +16,8 @@
 
 #![allow(non_snake_case)]
 
+use core::ops::BitAnd;
+
 use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
@@ -31,9 +33,8 @@ use teeny_triton::triton::{
 /// Each CTA computes a BLOCK_OW-wide strip of output width positions by
 /// iterating over all `C_IN * KD * KH * KW` combinations.
 ///
-/// **Constraints**: no padding;
-/// `OD = (D - KD) / STRIDE_D + 1`, `OH = (H - KH) / STRIDE_H + 1`,
-/// `OW = (W - KW) / STRIDE_W + 1`.
+/// Zero-padding of `PAD_D`/`PAD_H`/`PAD_W` elements is applied on each side.
+/// `OD = (D + 2*PAD_D - KD) / STRIDE_D + 1`, etc.
 #[kernel]
 pub fn conv3d_forward<
     T: Triton,
@@ -44,6 +45,9 @@ pub fn conv3d_forward<
     const STRIDE_D: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_D: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     x_ptr: T::Pointer<D>,
@@ -61,6 +65,7 @@ pub fn conv3d_forward<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -93,14 +98,24 @@ pub fn conv3d_forward<
         let kd = tmp2 % KD;
         let c_in = tmp2 / KD;
 
-        let id = od * STRIDE_D + kd;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        // Compute padded input coordinates; OOB positions map to zero via mask.
+        let id = od * STRIDE_D + kd - PAD_D;
+        let ih = oh * STRIDE_H + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        // Convert scalar id/ih to uniform tensors for branchless bounds checks.
+        let id_t = ow_range * 0 + id;
+        let ih_t = ow_range * 0 + ih;
+        let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+        let load_mask = ow_mask & d_in_bounds & h_in_bounds & w_in_bounds;
+
         let x_offsets =
             iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
-            Some(ow_mask),
+            Some(load_mask),
             Some(T::zeros::<D>(&[BLOCK_OW])),
             &[],
             None,
@@ -142,6 +157,7 @@ pub fn conv3d_forward<
 /// Grid: `pid = (((b * C_OUT + c_out) * OD + od) * OH + oh) * num_ow_tiles + ow_tile`
 ///
 /// Scatters gradient via `atomic_add` to handle overlapping receptive fields.
+/// Padding positions are skipped.
 #[kernel]
 pub fn conv3d_backward_dx<
     T: Triton,
@@ -152,6 +168,9 @@ pub fn conv3d_backward_dx<
     const STRIDE_D: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_D: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -169,6 +188,7 @@ pub fn conv3d_backward_dx<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -225,15 +245,22 @@ pub fn conv3d_backward_dx<
 
         let grad_tile = dy_tile * w_tile;
 
-        let id = od * STRIDE_D + kd;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        let id = od * STRIDE_D + kd - PAD_D;
+        let ih = oh * STRIDE_H + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        let id_t = ow_range * 0 + id;
+        let ih_t = ow_range * 0 + ih;
+        let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+
         let dx_offsets =
             iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
         T::atomic_add(
             dx_ptr.add_offsets(dx_offsets),
             grad_tile,
-            Some(ow_mask),
+            Some(ow_mask & d_in_bounds & h_in_bounds & w_in_bounds),
             None,
             None,
         );
@@ -255,6 +282,9 @@ pub fn conv3d_backward_dw<
     const STRIDE_D: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_D: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -272,6 +302,7 @@ pub fn conv3d_backward_dw<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -303,6 +334,9 @@ pub fn conv3d_backward_dw<
         false,
     );
 
+    let id_base = od * STRIDE_D;
+    let ih_base = oh * STRIDE_H;
+
     let loop_bound = C_IN * KD * KH * KW;
     for idx in 0..loop_bound {
         let kw = idx % KW;
@@ -312,14 +346,22 @@ pub fn conv3d_backward_dw<
         let kd = tmp2 % KD;
         let c_in = tmp2 / KD;
 
-        let id = od * STRIDE_D + kd;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        let id = id_base + kd - PAD_D;
+        let ih = ih_base + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        let id_t = ow_range * 0 + id;
+        let ih_t = ow_range * 0 + ih;
+        let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+        let load_mask = ow_mask & d_in_bounds & h_in_bounds & w_in_bounds;
+
         let x_offsets =
             iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
-            Some(ow_mask),
+            Some(load_mask),
             Some(T::zeros::<D>(&[BLOCK_OW])),
             &[],
             None,

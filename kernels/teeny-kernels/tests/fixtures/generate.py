@@ -635,4 +635,67 @@ save(f"{d}/expected_dx.bin", x_r_bn.grad.detach())
 save(f"{d}/expected_dweight.bin", w_r_bn.grad.detach())
 save(f"{d}/expected_dbias.bin", b_r_bn.grad.detach())
 
+# ── conv1d_padded (PAD=1) ──────────────────────────────────────────────────────
+print("conv1d_padded")
+d = os.path.join(BASE, "conv1d_padded")
+os.makedirs(d, exist_ok=True)
+# OL = (16 + 2*1 - 3) / 1 + 1 = 16
+x_1p  = torch.empty(B_1, C_IN_1, L_1).uniform_(-1, 1)
+w_1p  = torch.empty(C_OUT_1, C_IN_1, KL_1).uniform_(-0.5, 0.5)
+dy_1p = torch.empty(B_1, C_OUT_1, 16).uniform_(-1, 1)
+
+x_r1p = x_1p.clone().requires_grad_(True)
+w_r1p = w_1p.clone().requires_grad_(True)
+y_1p_out = F.conv1d(x_r1p, w_r1p, stride=1, padding=1)
+y_1p_out.backward(dy_1p)
+
+save(f"{d}/x.bin",               x_1p)
+save(f"{d}/w.bin",               w_1p)
+save(f"{d}/dy.bin",              dy_1p)
+save(f"{d}/expected_forward.bin", y_1p_out.detach())
+save(f"{d}/expected_dx.bin",     x_r1p.grad)
+save(f"{d}/expected_dw.bin",     w_r1p.grad)
+
+# ── conv2d_padded (PAD_H=PAD_W=1) ─────────────────────────────────────────────
+print("conv2d_padded")
+d = os.path.join(BASE, "conv2d_padded")
+os.makedirs(d, exist_ok=True)
+# OH = (8 + 2*1 - 3) / 1 + 1 = 8, OW = 8
+x_cp  = torch.empty(B_C, C_IN, H_C, W_C).uniform_(-1, 1)
+w_cp  = torch.empty(C_OUT, C_IN, KH_C, KW_C).uniform_(-0.5, 0.5)
+dy_cp = torch.empty(B_C, C_OUT, 8, 8).uniform_(-1, 1)
+
+x_rcp = x_cp.clone().requires_grad_(True)
+w_rcp = w_cp.clone().requires_grad_(True)
+y_cp_out = F.conv2d(x_rcp, w_rcp, stride=1, padding=1)
+y_cp_out.backward(dy_cp)
+
+save(f"{d}/x.bin",               x_cp)
+save(f"{d}/w.bin",               w_cp)
+save(f"{d}/dy.bin",              dy_cp)
+save(f"{d}/expected_forward.bin", y_cp_out.detach())
+save(f"{d}/expected_dx.bin",     x_rcp.grad)
+save(f"{d}/expected_dw.bin",     w_rcp.grad)
+
+# ── conv3d_padded (PAD_D=PAD_H=PAD_W=1) ───────────────────────────────────────
+print("conv3d_padded")
+d = os.path.join(BASE, "conv3d_padded")
+os.makedirs(d, exist_ok=True)
+# OD = (4+2-2)/1+1=5, OH = (4+2-2)/1+1=5, OW = (8+2-3)/1+1=8
+x_3p  = torch.empty(B_3, C_IN_3, D_3, H_3, W_3).uniform_(-1, 1)
+w_3p  = torch.empty(C_OUT_3, C_IN_3, KD_3, KH_3, KW_3).uniform_(-0.5, 0.5)
+dy_3p = torch.empty(B_3, C_OUT_3, 5, 5, 8).uniform_(-1, 1)
+
+x_r3p = x_3p.clone().requires_grad_(True)
+w_r3p = w_3p.clone().requires_grad_(True)
+y_3p_out = F.conv3d(x_r3p, w_r3p, stride=1, padding=1)
+y_3p_out.backward(dy_3p)
+
+save(f"{d}/x.bin",               x_3p)
+save(f"{d}/w.bin",               w_3p)
+save(f"{d}/dy.bin",              dy_3p)
+save(f"{d}/expected_forward.bin", y_3p_out.detach())
+save(f"{d}/expected_dx.bin",     x_r3p.grad)
+save(f"{d}/expected_dw.bin",     w_r3p.grad)
+
 print("\nDone — all fixtures generated.")

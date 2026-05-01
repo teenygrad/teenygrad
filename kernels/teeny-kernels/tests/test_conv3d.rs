@@ -27,6 +27,7 @@ use teeny_cuda::{
     compiler::target::Capability, errors::Result, testing, device::CudaLaunchConfig,
 };
 
+// ── No-padding constants ─────────────────────────────────────────────────────
 const B: usize = 1;
 const C_IN: usize = 2;
 const C_OUT: usize = 4;
@@ -39,10 +40,21 @@ const KW: i32 = 3;
 const STRIDE_D: i32 = 1;
 const STRIDE_H: i32 = 1;
 const STRIDE_W: i32 = 1;
-const OD: usize = (DV - KD as usize) / STRIDE_D as usize + 1; // 3
-const OH: usize = (H - KH as usize) / STRIDE_H as usize + 1; // 3
-const OW: usize = (W - KW as usize) / STRIDE_W as usize + 1; // 6
+const PAD_D: i32 = 0;
+const PAD_H: i32 = 0;
+const PAD_W: i32 = 0;
+const OD: usize = (DV + 2 * PAD_D as usize - KD as usize) / STRIDE_D as usize + 1; // 3
+const OH: usize = (H + 2 * PAD_H as usize - KH as usize) / STRIDE_H as usize + 1; // 3
+const OW: usize = (W + 2 * PAD_W as usize - KW as usize) / STRIDE_W as usize + 1; // 6
 const BLOCK_OW: i32 = 8;
+
+// ── Padded constants (PAD_D=PAD_H=PAD_W=1) ───────────────────────────────────
+const PAD_D_P: i32 = 1;
+const PAD_H_P: i32 = 1;
+const PAD_W_P: i32 = 1;
+const OD_P: usize = (DV + 2 * PAD_D_P as usize - KD as usize) / STRIDE_D as usize + 1; // 5
+const OH_P: usize = (H + 2 * PAD_H_P as usize - KH as usize) / STRIDE_H as usize + 1; // 5
+const OW_P: usize = (W + 2 * PAD_W_P as usize - KW as usize) / STRIDE_W as usize + 1; // 8
 
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
@@ -63,7 +75,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_conv3d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -78,7 +90,7 @@ fn test_conv3d_forward_mlir_output() -> Result<()> {
 fn test_conv3d_backward_dx_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -93,7 +105,7 @@ fn test_conv3d_backward_dx_mlir_output() -> Result<()> {
 fn test_conv3d_backward_dw_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
     let target = Target::new(Capability::Sm90);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -105,7 +117,7 @@ fn test_conv3d_backward_dw_mlir_output() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// CUDA integration tests
+// CUDA integration tests — no padding (PAD=0)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -127,7 +139,7 @@ fn test_conv3d_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[conv3d_forward] compiled PTX: {ptx_path}");
@@ -194,7 +206,7 @@ fn test_conv3d_backward_dx_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
@@ -260,7 +272,7 @@ fn test_conv3d_backward_dw_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     dy_buf.to_device(&dy_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
@@ -299,6 +311,209 @@ fn test_conv3d_backward_dw_cuda() -> Result<()> {
         assert!(
             (dw_host[i] - expected[i]).abs() < 1e-3,
             "conv3d_backward_dw mismatch at {i}: gpu={}, expected={}",
+            dw_host[i],
+            expected[i]
+        );
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// CUDA integration tests — padded (PAD_D=PAD_H=PAD_W=1)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_conv3d_padded_forward_cuda() -> Result<()> {
+    dotenv()?;
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    let x_host = load_fixture("conv3d_padded/x.bin");
+    let w_host = load_fixture("conv3d_padded/w.bin");
+    let expected = load_fixture("conv3d_padded/expected_forward.bin");
+    let mut y_host = vec![0.0f32; B * C_OUT * OD_P * OH_P * OW_P];
+
+    let mut x_buf = device.buffer::<f32>(B * C_IN * DV * H * W)?;
+    let mut w_buf = device.buffer::<f32>(C_OUT * C_IN * KD as usize * KH as usize * KW as usize)?;
+    let y_buf = device.buffer::<f32>(B * C_OUT * OD_P * OH_P * OW_P)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&w_host)?;
+
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D_P, PAD_H_P, PAD_W_P, BLOCK_OW);
+    let target = Target::new(env.capability);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    println!("[conv3d_padded_forward] compiled PTX: {ptx_path}");
+    let ptx = std::fs::read(&ptx_path)?;
+
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::conv::conv3d::Conv3dForward<f32>,
+    >(&ptx)?;
+
+    let num_ow_tiles = OW_P.div_ceil(BLOCK_OW as usize);
+    let grid_size = B * C_OUT * OD_P * OH_P * num_ow_tiles;
+    let cfg = CudaLaunchConfig {
+        grid: [grid_size as u32, 1, 1],
+        block: [PTX_LAUNCH_THREADS_X, 1, 1],
+        cluster: [1, 1, 1],
+    };
+
+    let args = (
+        x_buf.as_device_ptr() as *mut f32,
+        w_buf.as_device_ptr() as *mut f32,
+        y_buf.as_device_ptr() as *mut f32,
+        B as i32,
+        C_IN as i32,
+        C_OUT as i32,
+        DV as i32,
+        H as i32,
+        W as i32,
+        OD_P as i32,
+        OH_P as i32,
+        OW_P as i32,
+    );
+
+    device.launch(&program, &cfg, args)?;
+    y_buf.to_host(&mut y_host)?;
+
+    for i in 0..(B * C_OUT * OD_P * OH_P * OW_P) {
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-4,
+            "conv3d_padded_forward mismatch at {i}: gpu={}, expected={}",
+            y_host[i],
+            expected[i]
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_conv3d_padded_backward_dx_cuda() -> Result<()> {
+    dotenv()?;
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    let dy_host = load_fixture("conv3d_padded/dy.bin");
+    let w_host = load_fixture("conv3d_padded/w.bin");
+    let expected = load_fixture("conv3d_padded/expected_dx.bin");
+    let mut dx_host = vec![0.0f32; B * C_IN * DV * H * W];
+
+    let mut dy_buf = device.buffer::<f32>(B * C_OUT * OD_P * OH_P * OW_P)?;
+    let mut w_buf = device.buffer::<f32>(C_OUT * C_IN * KD as usize * KH as usize * KW as usize)?;
+    let dx_buf = device.buffer::<f32>(B * C_IN * DV * H * W)?;
+
+    dy_buf.to_device(&dy_host)?;
+    w_buf.to_device(&w_host)?;
+
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D_P, PAD_H_P, PAD_W_P, BLOCK_OW);
+    let target = Target::new(env.capability);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx = std::fs::read(&ptx_path)?;
+
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx<f32>,
+    >(&ptx)?;
+
+    let num_ow_tiles = OW_P.div_ceil(BLOCK_OW as usize);
+    let grid_size = B * C_OUT * OD_P * OH_P * num_ow_tiles;
+    let cfg = CudaLaunchConfig {
+        grid: [grid_size as u32, 1, 1],
+        block: [PTX_LAUNCH_THREADS_X, 1, 1],
+        cluster: [1, 1, 1],
+    };
+
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        w_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        B as i32,
+        C_IN as i32,
+        C_OUT as i32,
+        DV as i32,
+        H as i32,
+        W as i32,
+        OD_P as i32,
+        OH_P as i32,
+        OW_P as i32,
+    );
+
+    device.launch(&program, &cfg, args)?;
+    dx_buf.to_host(&mut dx_host)?;
+
+    for i in 0..(B * C_IN * DV * H * W) {
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-4,
+            "conv3d_padded_backward_dx mismatch at {i}: gpu={}, expected={}",
+            dx_host[i],
+            expected[i]
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_conv3d_padded_backward_dw_cuda() -> Result<()> {
+    dotenv()?;
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    let x_host = load_fixture("conv3d_padded/x.bin");
+    let dy_host = load_fixture("conv3d_padded/dy.bin");
+    let expected = load_fixture("conv3d_padded/expected_dw.bin");
+    let mut dw_host = vec![0.0f32; C_OUT * C_IN * KD as usize * KH as usize * KW as usize];
+
+    let mut x_buf = device.buffer::<f32>(B * C_IN * DV * H * W)?;
+    let mut dy_buf = device.buffer::<f32>(B * C_OUT * OD_P * OH_P * OW_P)?;
+    let dw_buf = device.buffer::<f32>(C_OUT * C_IN * KD as usize * KH as usize * KW as usize)?;
+
+    x_buf.to_device(&x_host)?;
+    dy_buf.to_device(&dy_host)?;
+
+    let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D_P, PAD_H_P, PAD_W_P, BLOCK_OW);
+    let target = Target::new(env.capability);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx = std::fs::read(&ptx_path)?;
+
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw<f32>,
+    >(&ptx)?;
+
+    let num_ow_tiles = OW_P.div_ceil(BLOCK_OW as usize);
+    let grid_size = B * C_OUT * OD_P * OH_P * num_ow_tiles;
+    let cfg = CudaLaunchConfig {
+        grid: [grid_size as u32, 1, 1],
+        block: [PTX_LAUNCH_THREADS_X, 1, 1],
+        cluster: [1, 1, 1],
+    };
+
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr() as *mut f32,
+        dw_buf.as_device_ptr() as *mut f32,
+        B as i32,
+        C_IN as i32,
+        C_OUT as i32,
+        DV as i32,
+        H as i32,
+        W as i32,
+        OD_P as i32,
+        OH_P as i32,
+        OW_P as i32,
+    );
+
+    device.launch(&program, &cfg, args)?;
+    dw_buf.to_host(&mut dw_host)?;
+
+    for i in 0..(C_OUT * C_IN * KD as usize * KH as usize * KW as usize) {
+        assert!(
+            (dw_host[i] - expected[i]).abs() < 1e-3,
+            "conv3d_padded_backward_dw mismatch at {i}: gpu={}, expected={}",
             dw_host[i],
             expected[i]
         );

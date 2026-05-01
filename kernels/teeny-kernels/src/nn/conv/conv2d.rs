@@ -16,6 +16,8 @@
 
 #![allow(non_snake_case)]
 
+use core::ops::BitAnd;
+
 use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
@@ -32,7 +34,8 @@ use teeny_triton::triton::{
 /// all `C_IN * KH * KW` combinations in a flat loop.  The weight for each
 /// `(c_in, kh, kw)` is loaded as a [1] tensor and broadcast to `[BLOCK_OW]`.
 ///
-/// **Constraints**: no padding; `OH = (H - KH) / STRIDE_H + 1`, `OW = (W - KW) / STRIDE_W + 1`.
+/// Zero-padding of `PAD_H` / `PAD_W` elements is applied on each spatial side.
+/// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
 #[kernel]
 pub fn conv2d_forward<
     T: Triton,
@@ -41,6 +44,8 @@ pub fn conv2d_forward<
     const KW: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     x_ptr: T::Pointer<D>,
@@ -56,6 +61,7 @@ pub fn conv2d_forward<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -85,13 +91,20 @@ pub fn conv2d_forward<
         let kh = kh_cin % KH;
         let c_in = kh_cin / KH;
 
-        // Load BLOCK_OW input elements.
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        // Compute padded input coordinates; OOB positions map to zero via mask.
+        let ih = oh * STRIDE_H + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        // Convert scalar ih to uniform tensor for branchless bounds check.
+        let ih_t = ow_range * 0 + ih;
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+        let load_mask = ow_mask & h_in_bounds & w_in_bounds;
+
         let x_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
-            Some(ow_mask),
+            Some(load_mask),
             Some(T::zeros::<D>(&[BLOCK_OW])),
             &[],
             None,
@@ -137,7 +150,8 @@ pub fn conv2d_forward<
 ///
 /// Grid: `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
 ///
-/// **Constraints**: same as `conv2d_forward`.
+/// Padding positions (those that correspond to out-of-bounds input locations)
+/// are skipped.
 #[kernel]
 pub fn conv2d_backward_dx<
     T: Triton,
@@ -146,6 +160,8 @@ pub fn conv2d_backward_dx<
     const KW: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -161,6 +177,7 @@ pub fn conv2d_backward_dx<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -214,13 +231,18 @@ pub fn conv2d_backward_dx<
 
         let grad_tile = dy_tile * w_tile;
 
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        let ih = oh * STRIDE_H + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        let ih_t = ow_range * 0 + ih;
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+
         let dx_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
         T::atomic_add(
             dx_ptr.add_offsets(dx_offsets),
             grad_tile,
-            Some(ow_mask),
+            Some(ow_mask & h_in_bounds & w_in_bounds),
             None,
             None,
         );
@@ -235,8 +257,7 @@ pub fn conv2d_backward_dx<
 ///
 /// Grid: `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
 ///
-/// **Constraints**: `dw` must be zero-initialised before launch; same spatial
-/// constraints as `conv2d_forward`.
+/// `dw` must be zero-initialised before launch.
 #[kernel]
 pub fn conv2d_backward_dw<
     T: Triton,
@@ -245,6 +266,8 @@ pub fn conv2d_backward_dw<
     const KW: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -260,6 +283,7 @@ pub fn conv2d_backward_dw<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -299,12 +323,18 @@ pub fn conv2d_backward_dw<
         let kh = kh_cin % KH;
         let c_in = kh_cin / KH;
 
-        let ih = ih_base + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        let ih = ih_base + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        let ih_t = ow_range * 0 + ih;
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+        let load_mask = ow_mask & h_in_bounds & w_in_bounds;
+
         let x_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
-            Some(ow_mask),
+            Some(load_mask),
             Some(T::zeros::<D>(&[BLOCK_OW])),
             &[],
             None,

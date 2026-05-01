@@ -541,18 +541,18 @@ impl<'a> Lowering<'a> for TritonLowering {
                 }
 
                 // --- Convolution ---
-                Op::Conv1d { kernel_l, stride, .. } => {
-                    make_num_kernel!(Conv1dForward(*kernel_l as i32, *stride as i32, 32), node)
+                Op::Conv1d { kernel_l, stride, padding, .. } => {
+                    make_num_kernel!(Conv1dForward(*kernel_l as i32, *stride as i32, *padding as i32, 32), node)
                 }
-                Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, .. } => {
+                Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. } => {
                     make_num_kernel!(
-                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, 16),
+                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, 16),
                         node
                     )
                 }
-                Op::Conv3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, .. } => {
+                Op::Conv3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, padding_d, padding_h, padding_w, .. } => {
                     make_num_kernel!(
-                        Conv3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, 8),
+                        Conv3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, *padding_d as i32, *padding_h as i32, *padding_w as i32, 8),
                         node
                     )
                 }

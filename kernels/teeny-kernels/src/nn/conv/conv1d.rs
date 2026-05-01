@@ -16,6 +16,8 @@
 
 #![allow(non_snake_case)]
 
+use core::ops::BitAnd;
+
 use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
@@ -31,13 +33,15 @@ use teeny_triton::triton::{
 /// Each CTA computes a BLOCK_OL-wide strip of output positions by iterating
 /// over all `C_IN * KL` combinations.
 ///
-/// **Constraints**: no padding; `OL = (L - KL) / STRIDE + 1`.
+/// Zero-padding of `PAD` elements is applied on each side of the input.
+/// `OL = (L + 2*PAD - KL) / STRIDE + 1`.
 #[kernel]
 pub fn conv1d_forward<
     T: Triton,
     D: Num,
     const KL: i32,
     const STRIDE: i32,
+    const PAD: i32,
     const BLOCK_OL: i32,
 >(
     x_ptr: T::Pointer<D>,
@@ -51,6 +55,7 @@ pub fn conv1d_forward<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -74,11 +79,14 @@ pub fn conv1d_forward<
         let kl = idx % KL;
         let c_in = idx / KL;
 
-        let il_range = ol_range * STRIDE + kl;
+        let il_range = ol_range * STRIDE + kl - PAD;
+        let in_bounds = il_range.ge(0) & il_range.lt(L);
+        let load_mask = ol_mask & in_bounds;
+
         let x_offsets = il_range + (b * C_IN + c_in) * L;
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
-            Some(ol_mask),
+            Some(load_mask),
             Some(T::zeros::<D>(&[BLOCK_OL])),
             &[],
             None,
@@ -120,12 +128,15 @@ pub fn conv1d_forward<
 /// Grid: `pid = (b * C_OUT + c_out) * num_ol_tiles + ol_tile`
 ///
 /// Scatters gradient back via `atomic_add` to handle overlapping receptive fields.
+/// Padding positions (those that correspond to out-of-bounds input locations)
+/// are skipped.
 #[kernel]
 pub fn conv1d_backward_dx<
     T: Triton,
     D: Num,
     const KL: i32,
     const STRIDE: i32,
+    const PAD: i32,
     const BLOCK_OL: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -139,6 +150,7 @@ pub fn conv1d_backward_dx<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -186,12 +198,13 @@ pub fn conv1d_backward_dx<
 
         let grad_tile = dy_tile * w_tile;
 
-        let il_range = ol_range * STRIDE + kl;
+        let il_range = ol_range * STRIDE + kl - PAD;
+        let in_bounds = il_range.ge(0) & il_range.lt(L);
         let dx_offsets = il_range + (b * C_IN + c_in) * L;
         T::atomic_add(
             dx_ptr.add_offsets(dx_offsets),
             grad_tile,
-            Some(ol_mask),
+            Some(ol_mask & in_bounds),
             None,
             None,
         );
@@ -209,6 +222,7 @@ pub fn conv1d_backward_dw<
     D: Num,
     const KL: i32,
     const STRIDE: i32,
+    const PAD: i32,
     const BLOCK_OL: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -222,6 +236,7 @@ pub fn conv1d_backward_dw<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
@@ -253,11 +268,14 @@ pub fn conv1d_backward_dw<
         let kl = idx % KL;
         let c_in = idx / KL;
 
-        let il_range = ol_range * STRIDE + kl;
+        let il_range = ol_range * STRIDE + kl - PAD;
+        let in_bounds = il_range.ge(0) & il_range.lt(L);
+        let load_mask = ol_mask & in_bounds;
+
         let x_offsets = il_range + (b * C_IN + c_in) * L;
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
-            Some(ol_mask),
+            Some(load_mask),
             Some(T::zeros::<D>(&[BLOCK_OL])),
             &[],
             None,
