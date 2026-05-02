@@ -55,6 +55,8 @@ macro_rules! pool_layer_2d {
             pub kernel_w: usize,
             pub stride_h: usize,
             pub stride_w: usize,
+            pub padding_h: usize,
+            pub padding_w: usize,
             _pd: PhantomData<(D, IT, OT)>,
         }
 
@@ -65,6 +67,20 @@ macro_rules! pool_layer_2d {
                     kernel_w: kernel_size.1,
                     stride_h: stride.0,
                     stride_w: stride.1,
+                    padding_h: 0,
+                    padding_w: 0,
+                    _pd: PhantomData,
+                }
+            }
+
+            pub fn with_padding(kernel_size: (usize, usize), stride: (usize, usize), padding: (usize, usize)) -> Self {
+                Self {
+                    kernel_h: kernel_size.0,
+                    kernel_w: kernel_size.1,
+                    stride_h: stride.0,
+                    stride_w: stride.1,
+                    padding_h: padding.0,
+                    padding_w: padding.1,
                     _pd: PhantomData,
                 }
             }

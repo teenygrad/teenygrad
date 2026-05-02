@@ -16,6 +16,8 @@
 
 #![allow(non_snake_case)]
 
+use core::marker::PhantomData;
+
 use teeny_core::dtype::Num;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
@@ -23,11 +25,11 @@ use teeny_triton::triton::{
     *,
 };
 
-/// 2-D max-pooling forward pass.
+/// 2-D max-pooling forward pass with optional symmetric padding.
 ///
 /// Grid: `pid = ((b * C + c) * OH + oh) * num_ow_tiles + ow_tile`
 ///
-/// **Constraints**: no padding; `OH = (H - KH) / STRIDE_H + 1`, `OW = (W - KW) / STRIDE_W + 1`.
+/// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
 #[kernel]
 pub fn maxpool2d_forward<
     T: Triton,
@@ -36,6 +38,8 @@ pub fn maxpool2d_forward<
     const KW: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     input_ptr: T::Pointer<D>,
@@ -70,16 +74,42 @@ pub fn maxpool2d_forward<
 
     let mut acc = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false);
 
-    let loop_bound = KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let kh = idx / KW;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
-        let in_offsets = iw_range + (in_bc_base + ih * W);
+    // The Triton MLIR frontend only generates correct scf.while (with body) for
+    // single-variable, single-condition loops with no nested control flow.
+    // A nested `for kw` inside `while kh` creates extra basic blocks that break
+    // the outer loop's structural conversion — the body gets dropped silently.
+    //
+    // Solution: flatten (kh, kw) into a single linear loop `iter < n_valid_kh * KW`,
+    // recover kh/kw per-iteration via div/rem (KW is a compile-time constant).
+    //
+    // Phase 1: skip-loop — advance kh until ih = oh*STRIDE_H + kh - PAD_H >= 0.
+    let mut kh: i32 = 0;
+    let mut ih: i32 = oh * STRIDE_H - PAD_H;
+    while ih < 0 {
+        kh += 1;
+        ih += 1;  // each kh step advances ih by exactly 1
+    }
+    // Phase 2: clamp kh_hi = min(kh + (H - ih), KH) via countdown.
+    let mut kh_hi: i32 = kh + (H - ih);
+    while kh_hi > KH {
+        kh_hi -= 1;
+    }
+    // Phase 3: flat loop over all (kh, kw) pairs — matches BN kernel structure
+    // (single variable `iter`, single condition, vector body, no nested loops).
+    // If kh_hi <= kh (no valid rows), total_iters <= 0 → loop runs 0 times.
+    let total_iters = (kh_hi - kh) * KW;
+    let ih_lo = ih;
+    let mut iter: i32 = 0;
+    while iter < total_iters {
+        let kw_idx = iter % KW;
+        let ih_local = ih_lo + iter / KW;
+        let iw_range = ow_range * STRIDE_W + kw_idx - PAD_W;
+        let iw_valid = iw_range.ge(0) & iw_range.lt(W);
+        let valid_mask = ow_mask & iw_valid;
+        let in_offsets = iw_range + (in_bc_base + ih_local * W);
         let tile = T::load(
             input_ptr.add_offsets(in_offsets),
-            Some(ow_mask),
+            Some(valid_mask),
             Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)),
             &[],
             None,
@@ -88,6 +118,7 @@ pub fn maxpool2d_forward<
             false,
         );
         acc = T::maximum(acc, tile);
+        iter += 1;
     }
 
     let out_offsets = ow_range + (out_bc_base + oh * OW);
@@ -101,7 +132,7 @@ pub fn maxpool2d_forward<
     );
 }
 
-/// 2-D max-pooling backward pass.
+/// 2-D max-pooling backward pass with optional symmetric padding.
 ///
 /// Re-scans the input window and scatters `dy` to positions where
 /// `input == output_max`. `dx` must be zero-initialised before launch.
@@ -113,6 +144,8 @@ pub fn maxpool2d_backward<
     const KW: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -169,16 +202,29 @@ pub fn maxpool2d_backward<
         false,
     );
 
-    let loop_bound = KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let kh = idx / KW;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
-        let in_offsets = iw_range + (in_bc_base + ih * W);
+    let mut kh: i32 = 0;
+    let mut ih: i32 = oh * STRIDE_H - PAD_H;
+    while ih < 0 {
+        kh += 1;
+        ih += 1;
+    }
+    let mut kh_hi: i32 = kh + (H - ih);
+    while kh_hi > KH {
+        kh_hi -= 1;
+    }
+    let total_iters = (kh_hi - kh) * KW;
+    let ih_lo = ih;
+    let mut iter: i32 = 0;
+    while iter < total_iters {
+        let kw_idx = iter % KW;
+        let ih_local = ih_lo + iter / KW;
+        let iw_range = ow_range * STRIDE_W + kw_idx - PAD_W;
+        let iw_valid = iw_range.ge(0) & iw_range.lt(W);
+        let valid_mask = ow_mask & iw_valid;
+        let in_offsets = iw_range + (in_bc_base + ih_local * W);
         let x_tile = T::load(
             x_ptr.add_offsets(in_offsets),
-            Some(ow_mask),
+            Some(valid_mask),
             Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)),
             &[],
             None,
@@ -191,15 +237,49 @@ pub fn maxpool2d_backward<
         T::atomic_add(
             dx_ptr.add_offsets(in_offsets),
             grad,
-            Some(ow_mask),
+            Some(valid_mask),
             None,
             None,
         );
+        iter += 1;
+    }
+}
+
+impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dForward<D> {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let input_shape = inputs[0].1;
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(input_shape[0] as i32);  // B
+        visitor.visit_i32(input_shape[1] as i32);  // C
+        visitor.visit_i32(input_shape[2] as i32);  // H
+        visitor.visit_i32(input_shape[3] as i32);  // W
+        visitor.visit_i32(output_shape[2] as i32); // OH
+        visitor.visit_i32(output_shape[3] as i32); // OW
+    }
+
+    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
+        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
     }
 }
 
 pub struct Maxpool2dOp<'a, T: Num> {
     pub forward: Maxpool2dForward<T>,
     pub backward: Maxpool2dBackward<T>,
-    _marker: core::marker::PhantomData<&'a ()>,
+    _marker: PhantomData<&'a ()>,
 }

@@ -203,7 +203,7 @@ pub enum Op {
     AvgPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
     AvgPool3d { kernel_d: usize, kernel_h: usize, kernel_w: usize, stride_d: usize, stride_h: usize, stride_w: usize },
     MaxPool1d { kernel_l: usize, stride: usize },
-    MaxPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
+    MaxPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize, pad_h: usize, pad_w: usize },
     MaxPool3d { kernel_d: usize, kernel_h: usize, kernel_w: usize, stride_d: usize, stride_h: usize, stride_w: usize },
     LpPool1d { kernel_l: usize, stride: usize, p: f64 },
     LpPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize, p: f64 },
@@ -438,10 +438,15 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
             vec![input[0], input[1], l_out]
         }
 
-        Op::AvgPool2d { kernel_h, kernel_w, stride_h, stride_w }
-        | Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w } => {
+        Op::AvgPool2d { kernel_h, kernel_w, stride_h, stride_w } => {
             let h_out = input[2].map(|h| (h - kernel_h) / stride_h + 1);
             let w_out = input[3].map(|w| (w - kernel_w) / stride_w + 1);
+            vec![input[0], input[1], h_out, w_out]
+        }
+
+        Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w } => {
+            let h_out = input[2].map(|h| (h + 2 * pad_h - kernel_h) / stride_h + 1);
+            let w_out = input[3].map(|w| (w + 2 * pad_w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], h_out, w_out]
         }
 
@@ -829,6 +834,8 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool2d<D, SymTensor, S
             kernel_w: self.kernel_w,
             stride_h: self.stride_h,
             stride_w: self.stride_w,
+            pad_h: self.padding_h,
+            pad_w: self.padding_w,
         })
     }
 }

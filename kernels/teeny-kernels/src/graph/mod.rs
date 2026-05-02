@@ -330,7 +330,6 @@ impl_stub_runtime_op_num!(Conv3dForward);
 impl_stub_runtime_op_num!(Avgpool1dForward);
 impl_stub_runtime_op_num!(Avgpool3dForward);
 impl_stub_runtime_op_num!(Maxpool1dForward);
-impl_stub_runtime_op_num!(Maxpool2dForward);
 impl_stub_runtime_op_num!(Maxpool3dForward);
 impl_stub_runtime_op_float!(Lppool1dForward);
 impl_stub_runtime_op_float!(Lppool2dForward);
@@ -581,9 +580,9 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::MaxPool1d { kernel_l, stride } => {
                     make_num_kernel!(Maxpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
                 }
-                Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w } => {
+                Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w } => {
                     make_num_kernel!(
-                        Maxpool2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, 16),
+                        Maxpool2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *pad_h as i32, *pad_w as i32, 16),
                         node
                     )
                 }
