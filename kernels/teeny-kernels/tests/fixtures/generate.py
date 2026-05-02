@@ -698,4 +698,52 @@ save(f"{d}/expected_forward.bin", y_3p_out.detach())
 save(f"{d}/expected_dx.bin",     x_r3p.grad)
 save(f"{d}/expected_dw.bin",     w_r3p.grad)
 
+# ── flash_attn2 ────────────────────────────────────────────────────────────────
+print("flash_attn2")
+import math
+
+FA_BATCH    = 2
+FA_N_HEADS  = 2
+FA_BH       = FA_BATCH * FA_N_HEADS  # 4
+FA_N_CTX    = 8
+FA_HEAD_DIM = 64
+FA_SCALE    = 1.0 / math.sqrt(FA_HEAD_DIM)
+
+d = os.path.join(BASE, "flash_attn2")
+os.makedirs(d, exist_ok=True)
+
+q_fa = torch.empty(FA_BH, FA_N_CTX, FA_HEAD_DIM).uniform_(-1, 1)
+k_fa = torch.empty(FA_BH, FA_N_CTX, FA_HEAD_DIM).uniform_(-1, 1)
+v_fa = torch.empty(FA_BH, FA_N_CTX, FA_HEAD_DIM).uniform_(-1, 1)
+
+scores_fa = q_fa @ k_fa.transpose(-1, -2) * FA_SCALE  # [BH, N_CTX, N_CTX]
+o_fa      = F.softmax(scores_fa, dim=-1) @ v_fa        # [BH, N_CTX, HEAD_DIM]
+l_fa      = torch.logsumexp(scores_fa, dim=-1)         # [BH, N_CTX]
+
+save(f"{d}/q.bin",                q_fa)
+save(f"{d}/k.bin",                k_fa)
+save(f"{d}/v.bin",                v_fa)
+save(f"{d}/expected_forward_o.bin", o_fa)
+save(f"{d}/expected_forward_l.bin", l_fa)
+
+# Backward fixtures — need p (attention weights) and dO
+scores_fa = q_fa @ k_fa.transpose(-1, -2) * FA_SCALE  # [BH, N_CTX, N_CTX]
+p_fa      = F.softmax(scores_fa, dim=-1)               # [BH, N_CTX_Q, N_CTX_K]
+do_fa     = torch.empty(FA_BH, FA_N_CTX, FA_HEAD_DIM).uniform_(-1, 1)
+
+# D_q = rowsum(O * dO)  [BH, N_CTX_Q]
+D_fa = (o_fa * do_fa).sum(dim=-1)
+
+# dS = p * (dO @ V^T - D)  [BH, N_CTX_Q, N_CTX_K]
+dS_fa = p_fa * (do_fa @ v_fa.transpose(-1, -2) - D_fa.unsqueeze(-1))
+
+dq_fa = dS_fa @ k_fa * FA_SCALE          # [BH, N_CTX_Q, HEAD_DIM]
+dk_fa = dS_fa.transpose(-1, -2) @ q_fa * FA_SCALE  # [BH, N_CTX_K, HEAD_DIM]
+dv_fa = p_fa.transpose(-1, -2) @ do_fa   # [BH, N_CTX_K, HEAD_DIM]
+
+save(f"{d}/do.bin",                    do_fa)
+save(f"{d}/expected_backward_dq.bin",  dq_fa)
+save(f"{d}/expected_backward_dk.bin",  dk_fa)
+save(f"{d}/expected_backward_dv.bin",  dv_fa)
+
 print("\nDone — all fixtures generated.")

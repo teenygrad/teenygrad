@@ -187,7 +187,7 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
     let l_row_base = pid_bh * n_ctx_q + pid_m;
 
     let d = T::arange(0, HEAD_DIM);
-    let scale_t = T::full::<f32>(&[1], softmax_scale);
+    let scale_t = T::full::<f32>(&[HEAD_DIM], softmax_scale);
 
     let q_vec = T::load(
         q_ptr.add_offsets(d + q_row_base),
@@ -220,11 +220,11 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
         false,
     );
 
-    // D_q = rowsum(O_q * dO_q)  — per-query scalar
-    let d_q = T::sum(o_vec * do_vec, Some(0), true); // [1]
+    // D_q = rowsum(O_q * dO_q)  — scalar
+    let d_q = T::sum(o_vec * do_vec, Some(0), false);
 
-    // Load logsumexp L_q (scalar stored as 1-element vec)
-    let l_q = T::load(
+    // Load logsumexp L_q (scalar stored as 1-element vec); reduce to scalar.
+    let l_q_raw = T::load(
         l_ptr.add_offsets(T::arange(0, 1) + l_row_base),
         None,
         None,
@@ -233,7 +233,8 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
         None,
         None,
         false,
-    ); // [1]
+    );
+    let l_q = T::sum(l_q_raw, Some(0), false); // scalar f32
 
     let mut dq_acc = T::zeros::<f32>(&[HEAD_DIM]);
 
@@ -261,13 +262,13 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
             false,
         );
 
-        // Recompute attention weight: p = exp(qk * scale - L_q)
-        let qk = T::sum(q_vec * k_vec, Some(0), true) * scale_t; // [1]
-        let p = T::exp(qk - l_q); // [1]
+        // Recompute attention weight: p = exp(qk * scale - L_q) — [HEAD_DIM] (scalar replicated)
+        let qk = T::sum(q_vec * k_vec, Some(0), false) * scale_t;
+        let p = T::exp(qk - l_q);
 
         // dS = p * (dO · V_k - D_q)
-        let do_dot_v = T::sum(do_vec * v_vec, Some(0), true); // [1]
-        let ds = p * (do_dot_v - d_q); // [1]
+        let do_dot_v = T::sum(do_vec * v_vec, Some(0), false);
+        let ds = p * (do_dot_v - d_q);
 
         // dQ += dS * K_k * scale
         dq_acc = dq_acc + ds * k_vec * scale_t;
@@ -325,7 +326,7 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
     let l_bh_base = pid_bh * n_ctx_q;
 
     let d = T::arange(0, HEAD_DIM);
-    let scale_t = T::full::<f32>(&[1], softmax_scale);
+    let scale_t = T::full::<f32>(&[HEAD_DIM], softmax_scale);
 
     // Load K_n and V_n — fixed for this CTA.
     let k_vec = T::load(
@@ -386,7 +387,8 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
             None,
             false,
         );
-        let l_m = T::load(
+        // Load logsumexp L_m; reduce tensor<1xf32> to scalar.
+        let l_m_raw = T::load(
             l_ptr.add_offsets(T::arange(0, 1) + l_row_base),
             None,
             None,
@@ -395,21 +397,22 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
             None,
             None,
             false,
-        ); // [1]
+        );
+        let l_m = T::sum(l_m_raw, Some(0), false); // scalar f32
 
-        // D_m = rowsum(O_m * dO_m)
-        let d_m = T::sum(o_vec_m * do_vec_m, Some(0), true); // [1]
+        // D_m = rowsum(O_m * dO_m) — scalar
+        let d_m = T::sum(o_vec_m * do_vec_m, Some(0), false);
 
-        // Recompute p_{mn} = exp(Q_m · K_n * scale - L_m)
-        let qk = T::sum(q_vec_m * k_vec, Some(0), true) * scale_t; // [1]
-        let p = T::exp(qk - l_m); // [1]
+        // Recompute p_{mn} = exp(Q_m · K_n * scale - L_m) — [HEAD_DIM] (scalar replicated)
+        let qk = T::sum(q_vec_m * k_vec, Some(0), false) * scale_t;
+        let p = T::exp(qk - l_m);
 
         // dV += p * dO_m
         dv_acc = dv_acc + p * do_vec_m;
 
         // dS = p * (dO_m · V_n - D_m)
-        let do_dot_v = T::sum(do_vec_m * v_vec, Some(0), true); // [1]
-        let ds = p * (do_dot_v - d_m); // [1]
+        let do_dot_v = T::sum(do_vec_m * v_vec, Some(0), false);
+        let ds = p * (do_dot_v - d_m);
 
         // dK += dS * Q_m * scale
         dk_acc = dk_acc + ds * q_vec_m * scale_t;
