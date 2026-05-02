@@ -16,3 +16,4 @@
 
 pub mod channel_cat;
 pub mod channel_chunk;
+pub mod upsample_nearest2d;

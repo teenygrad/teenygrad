@@ -209,6 +209,14 @@ pub enum Op {
     LpPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize, p: f64 },
     LpPool3d { kernel_d: usize, kernel_h: usize, kernel_w: usize, stride_d: usize, stride_h: usize, stride_w: usize, p: f64 },
 
+    // --- Upsample ---
+    /// Nearest-neighbour 2-D upsampling.
+    /// Output shape: `[N, C, H * scale_h, W * scale_w]`.
+    UpsampleNearest2d {
+        scale_h: usize,
+        scale_w: usize,
+    },
+
     // --- Padding ---
     ConstantPad1d { pad_left: usize, pad_right: usize, value: f64 },
     ConstantPad2d { pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize, value: f64 },
@@ -456,6 +464,14 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
             let h_out = input[3].map(|h| (h - kernel_h) / stride_h + 1);
             let w_out = input[4].map(|w| (w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], d_out, h_out, w_out]
+        }
+
+        // --- Upsample ---
+        Op::UpsampleNearest2d { scale_h, scale_w } => {
+            // [N, C, H, W] → [N, C, H * scale_h, W * scale_w]
+            let h_out = input[2].map(|h| h * scale_h);
+            let w_out = input[3].map(|w| w * scale_w);
+            vec![input[0], input[1], h_out, w_out]
         }
 
         // --- Padding ---
