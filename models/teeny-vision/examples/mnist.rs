@@ -74,8 +74,6 @@ const N_CLASSES: usize = 10;
 
 /// `next_power_of_two(N_CLASSES)` — required by the CE loss kernel.
 const CE_BLOCK_SIZE: i32 = 16;
-/// Threads per CTA for the CE loss kernels (determined at PTX compile time).
-const CE_PTX_THREADS: u32 = 128;
 /// Block size for the AdamW kernel.
 const ADAMW_BLOCK_SIZE: i32 = 1024;
 
@@ -172,9 +170,9 @@ async fn main() -> Result<()> {
     let ptx_ce_bwd  = std::fs::read(compile_kernel(&ce_bwd_spec,  &target, false)?)?;
     let ptx_adamw   = std::fs::read(compile_kernel(&adamw_spec,   &target, false)?)?;
 
-    let ce_fwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_fwd, "entry_point")?;
-    let ce_bwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_bwd, "entry_point")?;
-    let adamw_kernel = AdamwKernel::from_ptx(&ptx_adamw, ADAMW_BLOCK_SIZE as u32)?;
+    let ce_fwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_fwd)?;
+    let ce_bwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_bwd)?;
+    let adamw_kernel = AdamwKernel::from_ptx(&ptx_adamw)?;
     println!("      done.");
 
     // ── 7. Pre-allocate fixed device buffers ──────────────────────────────────
@@ -189,11 +187,11 @@ async fn main() -> Result<()> {
     let dy_host = vec![1.0_f32 / BATCH_SIZE as f32; BATCH_SIZE];
     unsafe { mem::copy_h_to_d(dy_ptr, dy_host.as_ptr(), BATCH_SIZE) }?;
 
-    // CE loss launch config: one CTA per row (batch element).
+    // CE loss launch config: one CTA per row (batch element), block from kernel metadata.
     let ce_cfg = CudaLaunchConfig {
         grid:    [BATCH_SIZE as u32, 1, 1],
-        block:   [CE_PTX_THREADS, 1, 1],
-        cluster: [1, 1, 1],
+        block:   [ce_fwd_prog.metadata.threads_per_block(), 1, 1],
+        cluster: [ce_fwd_prog.metadata.num_ctas.max(1), 1, 1],
     };
 
     // ── 8. Training loop ──────────────────────────────────────────────────────

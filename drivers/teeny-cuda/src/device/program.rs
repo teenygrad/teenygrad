@@ -22,6 +22,94 @@ use teeny_core::device::program::{Kernel, Program};
 use crate::cuda;
 use crate::errors::{Error, Result};
 
+/// Kernel resource metadata parsed from `// meta:key=value` PTX comments
+/// appended by the Triton CUDA backend during compilation.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct KernelMetadata {
+    pub(crate) name: String,
+    pub(crate) num_warps: u32,
+    pub(crate) num_ctas: u32,
+    pub(crate) shared: u32,
+    pub(crate) tmem_size: u32,
+    pub(crate) global_scratch_size: u64,
+    pub(crate) global_scratch_align: u64,
+    pub(crate) profile_scratch_size: u32,
+    pub(crate) profile_scratch_align: u32,
+}
+
+impl KernelMetadata {
+    fn parse(ptx: &str) -> Self {
+        let mut m = KernelMetadata { num_ctas: 1, global_scratch_align: 1, profile_scratch_align: 1, ..Default::default() };
+        let mut reqntid: Option<u32> = None;
+
+        for line in ptx.lines() {
+            let trimmed = line.trim();
+
+            // Parse Triton metadata block: `// meta:key=value`
+            if let Some(rest) = trimmed.strip_prefix("// meta:") {
+                if let Some((key, val)) = rest.split_once('=') {
+                    match key {
+                        "name"                  => m.name                  = val.to_owned(),
+                        "num_warps"             => m.num_warps             = val.parse().unwrap_or(0),
+                        "num_ctas"              => m.num_ctas              = val.parse().unwrap_or(1),
+                        "shared"               => m.shared               = val.parse().unwrap_or(0),
+                        "tmem_size"             => m.tmem_size             = val.parse().unwrap_or(0),
+                        "global_scratch_size"   => m.global_scratch_size   = val.parse().unwrap_or(0),
+                        "global_scratch_align"  => m.global_scratch_align  = val.parse().unwrap_or(1),
+                        "profile_scratch_size"  => m.profile_scratch_size  = val.parse().unwrap_or(0),
+                        "profile_scratch_align" => m.profile_scratch_align = val.parse().unwrap_or(1),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            // Parse `.reqntid X` — PTX thread-count directive emitted by NVPTX backend.
+            // Used as fallback when Triton metadata is absent (e.g. NVPTX-compiled kernels).
+            if let Some(rest) = trimmed.strip_prefix(".reqntid ") {
+                let x_str = rest.split(',').next().unwrap_or("").trim();
+                if let Ok(x) = x_str.parse::<u32>() {
+                    reqntid = Some(x);
+                }
+            }
+
+            // Parse legacy Triton comment format emitted by older PTX cached before the
+            // `// meta:` block was introduced. These act as low-priority fallbacks: a
+            // later `// meta:` line for the same key will have already set the value, so
+            // we only write when the field still holds its zero/unit default.
+            if let Some(v) = trimmed.strip_prefix("// TRITON_SHARED_MEM_BYTES: ") {
+                if m.shared == 0 {
+                    m.shared = v.trim().parse().unwrap_or(0);
+                }
+            } else if let Some(v) = trimmed.strip_prefix("// TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA: ") {
+                if m.global_scratch_size == 0 {
+                    m.global_scratch_size = v.trim().parse().unwrap_or(0);
+                }
+            } else if let Some(v) = trimmed.strip_prefix("// TRITON_GLOBAL_SCRATCH_ALIGN: ") {
+                if m.global_scratch_align == 1 {
+                    m.global_scratch_align = v.trim().parse::<u64>().unwrap_or(1).max(1);
+                }
+            }
+        }
+
+        // Fill name and num_warps from fallbacks for NVPTX-compiled kernels.
+        if m.name.is_empty() {
+            m.name = "entry_point".to_owned();
+        }
+        if m.num_warps == 0 {
+            // Derive num_warps from .reqntid (round up to full warps).
+            m.num_warps = reqntid.unwrap_or(128).div_ceil(32);
+        }
+
+        m
+    }
+
+    /// Threads per block, derived from num_warps (CUDA warp size is always 32).
+    pub(crate) fn threads_per_block(&self) -> u32 {
+        self.num_warps * 32
+    }
+}
+
 /// Strip DWARF debug sections from PTX source.
 ///
 /// The Rust NVPTX backend emits PTX object files that include DWARF debug
@@ -64,14 +152,8 @@ fn strip_debug_sections(ptx: &[u8]) -> &[u8] {
 pub struct CudaProgram<'a, K: Kernel> {
     pub(crate) module: cuda::CUmodule,
     pub(crate) function: cuda::CUfunction,
-    /// Dynamic shared memory bytes required by the kernel (from TRITON_SHARED_MEM_BYTES).
-    pub(crate) shared_mem_bytes: u32,
-    /// Per-CTA global scratch memory required for TMA descriptors (TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA).
-    pub(crate) global_scratch_bytes_per_cta: u64,
-    /// Alignment for global scratch buffer (TRITON_GLOBAL_SCRATCH_ALIGN).
-    pub(crate) global_scratch_align: u64,
-    /// Required threads per CTA, from PTX `.reqntid` directive (default 128).
-    pub(crate) threads_per_block: u32,
+    /// Kernel resource metadata parsed from `// meta:key=value` PTX comments.
+    pub(crate) metadata: KernelMetadata,
     _unused: PhantomData<&'a ()>,
     _kernel: PhantomData<K>,
 }
@@ -85,6 +167,8 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     }
 
     /// Load a cubin image into the current CUDA context and resolve `entry_point`.
+    ///
+    /// Metadata is not available from a cubin; default values are used.
     pub fn try_new(cubin: &[u8], entry_point: &str) -> Result<Self> {
         let mut module = cuda::CUmodule::default();
         let status = unsafe { cuda::cuModuleLoadData(&mut module, cubin.as_ptr().cast()) };
@@ -92,47 +176,18 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
             return Err(Error::from_cuda_error(status).into());
         }
 
-        Self::resolve_function(module, entry_point, 0, 0, 1, 128)
+        Self::resolve_function(module, entry_point, KernelMetadata::default())
     }
 
-    /// JIT-compile PTX source via the CUDA driver and resolve `entry_point`.
+    /// JIT-compile PTX source via the CUDA driver.
     ///
-    /// This bypasses the nvPTX compiler library and lets the driver JIT the PTX
-    /// directly, which is more robust across CUDA toolkit versions.
-    /// `ptx` must be ASCII PTX text; a null terminator is appended automatically.
-    pub fn try_from_ptx(ptx: &[u8], entry_point: &str) -> Result<Self> {
-        // Extract dynamic shared memory size from TRITON_SHARED_MEM_BYTES comment,
-        // which is prepended by our Triton C++ backend to the PTX text.
-        fn parse_ptx_meta(ptx: &[u8], key: &[u8]) -> u64 {
-            ptx.windows(key.len())
-                .position(|w| w == key)
-                .and_then(|pos| {
-                    let rest = &ptx[pos + key.len()..];
-                    let end = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
-                    std::str::from_utf8(&rest[..end])
-                        .ok()
-                        .and_then(|s| s.trim().parse::<u64>().ok())
-                })
-                .unwrap_or(0)
-        }
-
-        let shared_mem_bytes = parse_ptx_meta(ptx, b"// TRITON_SHARED_MEM_BYTES: ") as u32;
-        let global_scratch_bytes_per_cta =
-            parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA: ");
-        let global_scratch_align = parse_ptx_meta(ptx, b"// TRITON_GLOBAL_SCRATCH_ALIGN: ").max(1);
-        // Parse `.reqntid X` directive — the number of threads per CTA mandated by the kernel.
-        let threads_per_block = {
-            let key = b".reqntid ";
-            ptx.windows(key.len())
-                .position(|w| w == key)
-                .and_then(|pos| {
-                    let rest = &ptx[pos + key.len()..];
-                    let end = rest.iter().position(|&b| b == b'\n' || b == b'\r' || b == b',').unwrap_or(rest.len());
-                    std::str::from_utf8(&rest[..end]).ok()
-                        .and_then(|s| s.trim().parse::<u32>().ok())
-                })
-                .unwrap_or(128)
-        };
+    /// The entry-point function name and all resource metadata are read from
+    /// the `// meta:key=value` block that the Triton CUDA backend appends to
+    /// every PTX output. `ptx` must be ASCII PTX text; a null terminator is
+    /// appended automatically.
+    pub fn try_from_ptx(ptx: &[u8]) -> Result<Self> {
+        let ptx_str = std::str::from_utf8(ptx).unwrap_or("");
+        let metadata = KernelMetadata::parse(ptx_str);
 
         // Strip DWARF debug sections — they contain relocations (.b32 .debug_abbrev)
         // that are only valid in linked PTX object files, not for driver JIT.
@@ -192,23 +247,13 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
             eprintln!("[CUDA-JIT] info: {}", info_str);
         }
 
-        Self::resolve_function(
-            module,
-            entry_point,
-            shared_mem_bytes,
-            global_scratch_bytes_per_cta,
-            global_scratch_align,
-            threads_per_block,
-        )
+        Self::resolve_function(module, &metadata.name.clone(), metadata)
     }
 
     fn resolve_function(
         module: cuda::CUmodule,
         entry_point: &str,
-        shared_mem_bytes: u32,
-        global_scratch_bytes_per_cta: u64,
-        global_scratch_align: u64,
-        threads_per_block: u32,
+        metadata: KernelMetadata,
     ) -> Result<Self> {
         let name = CString::new(entry_point).map_err(Error::CStringError)?;
         let mut function = cuda::CUfunction::default();
@@ -221,10 +266,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
         Ok(Self {
             module,
             function,
-            shared_mem_bytes,
-            global_scratch_bytes_per_cta,
-            global_scratch_align,
-            threads_per_block,
+            metadata,
             _unused: PhantomData,
             _kernel: PhantomData,
         })

@@ -101,7 +101,7 @@ fn test_nadam_step_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::optim::nadam::NadamStep::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::nadam::NadamStep>(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         params_buf.as_device_ptr() as *mut f32,
         grad_buf.as_device_ptr() as *mut f32,
         exp_avg_buf.as_device_ptr() as *mut f32,

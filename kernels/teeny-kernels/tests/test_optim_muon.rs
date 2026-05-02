@@ -150,7 +150,7 @@ fn test_muon_update_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::optim::muon::MuonUpdate::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonUpdate>(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(n, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(n, &program), (
         params_buf.as_device_ptr() as *mut f32,
         grad_buf.as_device_ptr() as *mut f32,
         n as i32,
@@ -185,7 +185,7 @@ fn test_muon_frob_norm_sq_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::optim::muon::MuonFrobNormSq::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonFrobNormSq>(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(n, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(n, &program), (
         x_buf.as_device_ptr() as *mut f32,
         out_buf.as_device_ptr() as *mut f32,
         n as i32,
@@ -220,9 +220,9 @@ fn test_muon_ns_xtx_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonNsXtx>(&ptx)?;
     env.device.launch(
         &program,
-        &testing::launch_config(
+        &testing::launch_config_with_grid(
             (M.div_ceil(BLOCK_R as usize)) * (M.div_ceil(BLOCK_R as usize)),
-            1,
+            &program,
         ),
         (
             x_buf.as_device_ptr() as *mut f32,
@@ -269,9 +269,9 @@ fn test_muon_ns_step_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonNsStep>(&ptx)?;
     env.device.launch(
         &program,
-        &testing::launch_config(
+        &testing::launch_config_with_grid(
             M.div_ceil(BLOCK_M as usize) * N.div_ceil(BLOCK_N as usize),
-            1,
+            &program,
         ),
         (
             t_buf.as_device_ptr() as *mut f32,

@@ -93,7 +93,7 @@ fn test_elu_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::elu::EluForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -124,7 +124,7 @@ fn test_elu_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::elu::EluBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32,
     ))?;
@@ -156,7 +156,7 @@ fn test_selu_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::elu::SeluForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -187,7 +187,7 @@ fn test_selu_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::elu::SeluBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32,
     ))?;
@@ -219,7 +219,7 @@ fn test_celu_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::elu::CeluForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -250,7 +250,7 @@ fn test_celu_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::elu::CeluBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32,
     ))?;

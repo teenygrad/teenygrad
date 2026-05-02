@@ -81,7 +81,7 @@ fn test_gelu_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::GeluForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -113,7 +113,7 @@ fn test_gelu_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::GeluBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32,
         x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32,
@@ -148,7 +148,7 @@ fn test_mish_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::MishForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -180,7 +180,7 @@ fn test_mish_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::MishBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32,
         x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32,

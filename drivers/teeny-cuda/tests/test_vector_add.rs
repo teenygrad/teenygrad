@@ -68,7 +68,7 @@ fn test_tensor_add() -> Result<()> {
     >(&ptx)?;
 
     // ── Launch ─────────────────────────────────────────────────────────────
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     println!(
         "[8/9] launching: grid={:?} block={:?} n_elements={N}",
         cfg.grid, cfg.block,

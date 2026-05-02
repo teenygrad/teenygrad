@@ -90,7 +90,7 @@ fn test_relu_forward_gpu() -> Result<()> {
         teeny_kernels::nn::activation::relu::ReluForward<f32>,
     >(&ptx)?;
 
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     println!(
         "[8/9] launching: grid={:?} block={:?} n_elements={N}",
         cfg.grid, cfg.block,
@@ -152,7 +152,7 @@ fn test_relu_backward_gpu() -> Result<()> {
         teeny_kernels::nn::activation::relu::ReluBackward<f32>,
     >(&ptx)?;
 
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     let args = (
         dy_buf.as_device_ptr() as *mut f32,
         y_buf.as_device_ptr() as *mut f32,

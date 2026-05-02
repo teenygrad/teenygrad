@@ -81,7 +81,7 @@ fn test_tanh_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -116,7 +116,7 @@ fn test_tanh_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32,
         y_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32,
@@ -151,7 +151,7 @@ fn test_tanhshrink_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhshrinkForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -188,7 +188,7 @@ fn test_tanhshrink_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhshrinkBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32,
         x_buf.as_device_ptr() as *mut f32,
         y_buf.as_device_ptr() as *mut f32,

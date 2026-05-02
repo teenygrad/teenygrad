@@ -161,13 +161,13 @@ impl<'a> CudaModel<'a> {
             // JIT-compile the PTX via the CUDA driver.
             let ptx = std::fs::read(&cn.ptx_path)
                 .map_err(|e| anyhow!("failed to read PTX for node {idx}: {e}"))?;
-            let program = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx, &cn.entry_point)?;
+            let program = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx)?;
 
             #[cfg(feature = "training")]
             let backward_program = if let Some(ref bwd_path) = cn.backward_ptx_path {
                 let bwd_ptx = std::fs::read(bwd_path)
                     .map_err(|e| anyhow!("failed to read backward PTX for node {idx}: {e}"))?;
-                Some(CudaProgram::<ErasedKernel>::try_from_ptx(&bwd_ptx, &cn.backward_entry_point)?)
+                Some(CudaProgram::<ErasedKernel>::try_from_ptx(&bwd_ptx)?)
             } else {
                 None
             };
@@ -423,10 +423,11 @@ impl LoadedModel {
                 &mut packer,
             );
 
-            // Compute launch config.
+            // Compute launch config from RuntimeOp (grid) and kernel metadata (block/cluster).
             let grid = loaded.runtime_op.grid(&output_shape);
-            let block = loaded.runtime_op.block();
-            let cfg = CudaLaunchConfig { grid, block, cluster: [1, 1, 1] };
+            let block = [loaded.program.metadata.threads_per_block(), 1, 1];
+            let cluster = [loaded.program.metadata.num_ctas, 1, 1];
+            let cfg = CudaLaunchConfig { grid, block, cluster };
 
             let launch_result = device.launch_with_packer(&loaded.program, &cfg, &mut packer);
 
@@ -535,8 +536,9 @@ impl LoadedModel {
                 &mut packer,
             );
             let grid = loaded.runtime_op.grid(&output_shape);
-            let block = loaded.runtime_op.block();
-            let launch_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer);
+            let block = [loaded.program.metadata.threads_per_block(), 1, 1];
+            let cluster = [loaded.program.metadata.num_ctas, 1, 1];
+            let launch_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
 
             if let Some(padded) = padded_out {
                 if launch_result.is_ok() {
@@ -682,8 +684,9 @@ impl LoadedModel {
                 );
 
                 let grid = loaded.runtime_op.backward_grid(&input_shapes, &output_shape);
-                let block = loaded.runtime_op.backward_block();
-                let launch_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer);
+                let block = [bwd_prog.metadata.threads_per_block(), 1, 1];
+                let cluster = [bwd_prog.metadata.num_ctas, 1, 1];
+                let launch_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
 
                 // Free the padded dy buffer after the (synchronous) launch completes.
                 if let Some(padded) = padded_dy {
@@ -764,8 +767,9 @@ impl LoadedModel {
                 packer.visit_f32(weight_decay);      // weight_decay
                 packer.visit_f32(lr);                // lr
 
-                let grid = [n_elems.div_ceil(kernel.block_size as usize) as u32, 1, 1];
-                let block = [kernel.program.threads_per_block, 1, 1];
+                let threads = kernel.program.metadata.threads_per_block();
+                let grid = [n_elems.div_ceil(threads as usize) as u32, 1, 1];
+                let block = [threads, 1, 1];
                 device.launch_with_packer(
                     &kernel.program,
                     &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] },
@@ -822,18 +826,17 @@ impl Drop for ActivationCache {
 /// Create via:
 /// ```ignore
 /// let ptx = std::fs::read(compile_kernel(&AdamwStep::new(1024), &target, true)?)?;
-/// let kernel = AdamwKernel::from_ptx(&ptx, 1024)?;
+/// let kernel = AdamwKernel::from_ptx(&ptx)?;
 /// ```
 #[cfg(feature = "training")]
 pub struct AdamwKernel {
     pub(crate) program: CudaProgram<'static, ErasedKernel>,
-    pub(crate) block_size: u32,
 }
 
 #[cfg(feature = "training")]
 impl AdamwKernel {
-    pub fn from_ptx(ptx: &[u8], block_size: u32) -> Result<Self> {
-        let program = CudaProgram::<ErasedKernel>::try_from_ptx(ptx, "entry_point")?;
-        Ok(Self { program, block_size })
+    pub fn from_ptx(ptx: &[u8]) -> Result<Self> {
+        let program = CudaProgram::<ErasedKernel>::try_from_ptx(ptx)?;
+        Ok(Self { program })
     }
 }

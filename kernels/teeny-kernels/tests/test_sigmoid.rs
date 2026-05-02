@@ -94,7 +94,7 @@ fn test_sigmoid_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::sigmoid::SigmoidForward
     >(&ptx)?;
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     env.device.launch(&program, &cfg, (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -130,7 +130,7 @@ fn test_sigmoid_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::sigmoid::SigmoidBackward
     >(&ptx)?;
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     env.device.launch(&program, &cfg, (
         dy_buf.as_device_ptr() as *mut f32,
         y_buf.as_device_ptr() as *mut f32,
@@ -165,7 +165,7 @@ fn test_silu_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::sigmoid::SiluForward
     >(&ptx)?;
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     env.device.launch(&program, &cfg, (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -198,7 +198,7 @@ fn test_silu_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::sigmoid::SiluBackward
     >(&ptx)?;
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     env.device.launch(&program, &cfg, (
         dy_buf.as_device_ptr() as *mut f32,
         x_buf.as_device_ptr() as *mut f32,
@@ -233,7 +233,7 @@ fn test_logsigmoid_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::sigmoid::LogsigmoidForward
     >(&ptx)?;
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     env.device.launch(&program, &cfg, (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
 
@@ -266,7 +266,7 @@ fn test_logsigmoid_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::sigmoid::LogsigmoidBackward
     >(&ptx)?;
-    let cfg = testing::launch_config(N, BLOCK_SIZE);
+    let cfg = testing::launch_config_from_program(N, &program);
     env.device.launch(&program, &cfg, (
         dy_buf.as_device_ptr() as *mut f32,
         x_buf.as_device_ptr() as *mut f32,

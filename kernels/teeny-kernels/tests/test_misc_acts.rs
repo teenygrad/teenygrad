@@ -93,7 +93,7 @@ fn test_leaky_relu_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::LeakyReluForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.01_f32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -124,7 +124,7 @@ fn test_leaky_relu_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::LeakyReluBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32, 0.01_f32,
     ))?;
@@ -156,7 +156,7 @@ fn test_threshold_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::ThresholdForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32, 0.0_f32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -187,7 +187,7 @@ fn test_threshold_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::ThresholdBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32,
     ))?;
@@ -219,7 +219,7 @@ fn test_softsign_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftsignForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -250,7 +250,7 @@ fn test_softsign_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftsignBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32,
     ))?;
@@ -282,7 +282,7 @@ fn test_softshrink_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftshrinkForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -313,7 +313,7 @@ fn test_softshrink_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftshrinkBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32,
     ))?;
@@ -345,7 +345,7 @@ fn test_softplus_forward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftplusForward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE),
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32, 20.0_f32))?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
@@ -376,7 +376,7 @@ fn test_softplus_backward_cuda() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftplusBackward
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config(N, BLOCK_SIZE), (
+    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
         dx_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32, 20.0_f32,
     ))?;

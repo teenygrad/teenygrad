@@ -222,9 +222,9 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         args: K::Args<'a>,
     ) -> teeny_core::errors::Result<()> {
         // Allocate global scratch memory for TMA descriptors if the kernel requires it.
-        // The kernel uses per-CTA scratch = global_scratch_bytes_per_cta * num_ctas bytes.
+        // Total scratch = per-CTA scratch * number of CTAs in the launch grid.
         let num_ctas = (cfg.grid[0] * cfg.grid[1] * cfg.grid[2]) as u64;
-        let scratch_total = program.global_scratch_bytes_per_cta * num_ctas;
+        let scratch_total = program.metadata.global_scratch_size * num_ctas;
         let mut scratch_ptr: cuda::CUdeviceptr = 0;
         if scratch_total > 0 {
             // cuMemAlloc_v2 guarantees 256-byte alignment, which satisfies Triton's
@@ -256,7 +256,7 @@ impl<'a> Device<'a> for CudaDevice<'a> {
                 cfg.block[0],
                 cfg.block[1],
                 cfg.block[2],
-                program.shared_mem_bytes, // dynamic shared memory required by Triton kernel
+                program.metadata.shared, // dynamic shared memory required by Triton kernel
                 std::ptr::null_mut(),     // hStream (default/null stream)
                 ptrs.as_mut_ptr(),
                 std::ptr::null_mut(), // extra
@@ -301,7 +301,7 @@ impl<'a> CudaDevice<'a> {
         packer: &mut CudaArgPacker,
     ) -> Result<()> {
         let num_ctas = (cfg.grid[0] * cfg.grid[1] * cfg.grid[2]) as u64;
-        let scratch_total = program.global_scratch_bytes_per_cta * num_ctas;
+        let scratch_total = program.metadata.global_scratch_size * num_ctas;
         let mut scratch_ptr: cuda::CUdeviceptr = 0;
         if scratch_total > 0 {
             let alloc_status =
@@ -321,7 +321,7 @@ impl<'a> CudaDevice<'a> {
                 program.function,
                 cfg.grid[0], cfg.grid[1], cfg.grid[2],
                 cfg.block[0], cfg.block[1], cfg.block[2],
-                program.shared_mem_bytes,
+                program.metadata.shared,
                 std::ptr::null_mut(),
                 ptrs.as_mut_ptr(),
                 std::ptr::null_mut(),
