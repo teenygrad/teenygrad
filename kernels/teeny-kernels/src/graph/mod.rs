@@ -58,6 +58,11 @@ use crate::nn::{
         lppool1d::Lppool1dForward, lppool2d::Lppool2dForward, lppool3d::Lppool3dForward,
         maxpool1d::Maxpool1dForward, maxpool2d::Maxpool2dForward, maxpool3d::Maxpool3dForward,
     },
+    tensor::{
+        channel_cat::ChannelCatRuntimeOp,
+        channel_chunk::ChannelChunkRuntimeOp,
+        upsample_nearest2d::UpsampleNearest2dForward,
+    },
 };
 
 use crate::errors::Result;
@@ -699,7 +704,76 @@ impl<'a> Lowering<'a> for TritonLowering {
                     make_float_kernel!(SoftmaxForward(block_size), node)
                 }
 
-                Op::Add | Op::ChannelChunk { .. } | Op::ChannelCat { .. } | Op::Attention { .. } => {
+                // --- Upsample ---
+                Op::UpsampleNearest2d { scale_h, scale_w } => {
+                    make_num_kernel!(
+                        UpsampleNearest2dForward(*scale_h as i32, *scale_w as i32, 16),
+                        node
+                    )
+                }
+
+                Op::ChannelCat { .. } => {
+                    let n_inputs = node.inputs.len();
+                    let (name, fwd_src, bwd_src, rop): (String, String, String, Arc<dyn RuntimeOp>) =
+                        match node.dtype {
+                            DtypeRepr::F32 => { let r = ChannelCatRuntimeOp::<f32>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::F64 => { let r = ChannelCatRuntimeOp::<f64>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I8  => { let r = ChannelCatRuntimeOp::<i8>::new(128, n_inputs);  (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I16 => { let r = ChannelCatRuntimeOp::<i16>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I32 => { let r = ChannelCatRuntimeOp::<i32>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I64 => { let r = ChannelCatRuntimeOp::<i64>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U8  => { let r = ChannelCatRuntimeOp::<u8>::new(128, n_inputs);  (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U16 => { let r = ChannelCatRuntimeOp::<u16>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U32 => { let r = ChannelCatRuntimeOp::<u32>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U64 => { let r = ChannelCatRuntimeOp::<u64>::new(128, n_inputs); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelCat", other)),
+                        };
+                    Box::new(KernelExecutable {
+                        name,
+                        kernel_source: fwd_src,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
+                }
+
+                Op::ChannelChunk { chunk_c, chunk_offset, .. } => {
+                    let chunk_c = *chunk_c;
+                    let chunk_offset = *chunk_offset;
+                    let (name, fwd_src, bwd_src, rop): (String, String, String, Arc<dyn RuntimeOp>) =
+                        match node.dtype {
+                            DtypeRepr::F32 => { let r = ChannelChunkRuntimeOp::<f32>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::F64 => { let r = ChannelChunkRuntimeOp::<f64>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I8  => { let r = ChannelChunkRuntimeOp::<i8>::new(128, chunk_c, chunk_offset);  (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I16 => { let r = ChannelChunkRuntimeOp::<i16>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I32 => { let r = ChannelChunkRuntimeOp::<i32>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::I64 => { let r = ChannelChunkRuntimeOp::<i64>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U8  => { let r = ChannelChunkRuntimeOp::<u8>::new(128, chunk_c, chunk_offset);  (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U16 => { let r = ChannelChunkRuntimeOp::<u16>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U32 => { let r = ChannelChunkRuntimeOp::<u32>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::U64 => { let r = ChannelChunkRuntimeOp::<u64>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelChunk", other)),
+                        };
+                    Box::new(KernelExecutable {
+                        name,
+                        kernel_source: fwd_src,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
+                }
+
+                Op::Add | Op::Attention { .. } => {
                     return Err(anyhow::anyhow!("kernel lowering for {:?} is not yet implemented", node.op));
                 }
             };

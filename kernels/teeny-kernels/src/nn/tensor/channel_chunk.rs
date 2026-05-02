@@ -125,3 +125,115 @@ pub struct ChannelChunkOp<'a, D: Num> {
     pub backward: ChannelChunkBackward<D>,
     _marker: PhantomData<&'a ()>,
 }
+
+/// Runtime op for channel_chunk forward + backward.
+///
+/// Single-launch: extracts one channel slice from a wide NCHW input.
+/// `chunk_c` and `chunk_offset` are fixed at graph construction time
+/// from `Op::ChannelChunk`.
+pub struct ChannelChunkRuntimeOp<D: Num + Send + Sync + 'static> {
+    fwd: ChannelChunkForward<D>,
+    bwd: ChannelChunkBackward<D>,
+    chunk_c: usize,
+    chunk_offset: usize,
+}
+
+impl<D: Num + Send + Sync + 'static> ChannelChunkRuntimeOp<D> {
+    pub fn new(block_size: i32, chunk_c: usize, chunk_offset: usize) -> Self {
+        Self {
+            fwd: ChannelChunkForward::<D>::new(block_size),
+            bwd: ChannelChunkBackward::<D>::new(block_size),
+            chunk_c,
+            chunk_offset,
+        }
+    }
+
+    pub fn forward_source(&self) -> &str { &self.fwd.source }
+    pub fn backward_source(&self) -> &str { &self.bwd.source }
+    pub fn kernel_name(&self) -> &str { self.fwd.name }
+}
+
+impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelChunkRuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        _output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        // Input is NCHW [B, C_total, H, W]. Treat as NC: N=B, C=C_total*H*W.
+        let input_shape = inputs[0].1;
+        let c_total = (input_shape[1] * input_shape[2] * input_shape[3]) as i32;
+        let chunk_c = self.chunk_c as i32;
+        // Scale chunk_offset from channel index to NC-layout offset (×H×W).
+        let h = input_shape[2];
+        let w = input_shape[3];
+        let chunk_offset = (self.chunk_offset * h * w) as i32;
+
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(c_total);
+        visitor.visit_i32(chunk_c * (h as i32) * (w as i32));  // chunk_c in NC units
+        visitor.visit_i32(chunk_offset);
+    }
+
+    fn block(&self) -> [u32; 3] { [self.fwd.block_size as u32, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        // Grid over n_spatial * ceil(chunk_c_nc / block_size)
+        // output_shape = [B, chunk_c, H, W]
+        let n_spatial = output_shape[0];
+        let chunk_c_nc = output_shape[1] * output_shape[2] * output_shape[3];
+        let num_tiles = chunk_c_nc.div_ceil(self.fwd.block_size as usize);
+        [(n_spatial * num_tiles) as u32, 1, 1]
+    }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        _output: teeny_core::model::RawPtr,
+        _output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        _grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        // channel_chunk_backward: (dy_ptr, dx_ptr, c_total, chunk_c, chunk_offset)
+        // dy = grad_output (narrow [B, chunk_c, H, W])
+        // dx = grad_inputs[0] (wide [B, C_total, H, W])
+        let input_shape = inputs[0].1;  // original input shape [B, C_total, H, W]
+        let h = input_shape[2];
+        let w = input_shape[3];
+        let c_total = (input_shape[1] * h * w) as i32;
+        let chunk_c_nc = (self.chunk_c * h * w) as i32;
+        let chunk_offset = (self.chunk_offset * h * w) as i32;
+
+        visitor.visit_ptr(grad_output);
+        visitor.visit_ptr(grad_inputs[0]);
+        visitor.visit_i32(c_total);
+        visitor.visit_i32(chunk_c_nc);
+        visitor.visit_i32(chunk_offset);
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
+        // Grid over input grad: n_spatial * ceil(chunk_c_nc / block_size)
+        let s = input_shapes[0];
+        let n_spatial = s[0];
+        let chunk_c_nc = self.chunk_c * s[2] * s[3];
+        let num_tiles = chunk_c_nc.div_ceil(self.fwd.block_size as usize);
+        [(n_spatial * num_tiles) as u32, 1, 1]
+    }
+}

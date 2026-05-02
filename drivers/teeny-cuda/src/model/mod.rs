@@ -412,28 +412,38 @@ impl LoadedModel {
                 .map(|&p| p as *mut core::ffi::c_void)
                 .collect();
 
-            // Pack arguments via RuntimeOp.
-            let mut packer = CudaArgPacker::new();
-            loaded.runtime_op.pack_args(
-                &act_inputs,
-                &param_ptrs,
-                kernel_out_ptr as *mut core::ffi::c_void,
-                &output_shape,
-                required_stride as i32,
-                &mut packer,
-            );
-
-            // Compute launch config from RuntimeOp (grid) and kernel metadata (block/cluster).
-            let grid = loaded.runtime_op.grid(&output_shape);
+            // Launch kernel(s). Most ops need one launch; multi-input scatter
+            // ops (e.g. channel-cat) set n_launches > 1.
+            let n_launches = loaded.runtime_op.n_launches();
+            let input_shapes: Vec<&[usize]> = act_inputs.iter().map(|(_, s)| *s).collect();
             let block = [loaded.program.metadata.threads_per_block(), 1, 1];
             let cluster = [loaded.program.metadata.num_ctas, 1, 1];
-            let cfg = CudaLaunchConfig { grid, block, cluster };
+            let out_raw = kernel_out_ptr as *mut core::ffi::c_void;
 
-            let launch_result = device.launch_with_packer(&loaded.program, &cfg, &mut packer);
+            let mut last_result = Ok(());
+            for launch_idx in 0..n_launches {
+                let mut packer = CudaArgPacker::new();
+                if n_launches == 1 {
+                    loaded.runtime_op.pack_args(
+                        &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                    );
+                } else {
+                    loaded.runtime_op.pack_args_for_launch(
+                        launch_idx, &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                    );
+                }
+                let grid = if n_launches == 1 {
+                    loaded.runtime_op.grid(&output_shape)
+                } else {
+                    loaded.runtime_op.grid_for_launch(launch_idx, &input_shapes, &output_shape)
+                };
+                last_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
+                if last_result.is_err() { break; }
+            }
 
             // Copy valid rows from padded output back to tight buffer, then free padded.
             if let Some(padded) = padded_out {
-                if launch_result.is_ok() {
+                if last_result.is_ok() {
                     mem::copy_rows_d_to_d(
                         out_ptr, natural_stride * elem_bytes,
                         padded, required_stride * elem_bytes,
@@ -443,7 +453,7 @@ impl LoadedModel {
                 }
                 mem::free(padded).ok();
             }
-            launch_result?;
+            last_result?;
 
             ctx[idx] = Some(TensorRef::new(out_ptr, output_shape));
         }
@@ -670,30 +680,41 @@ impl LoadedModel {
                     (grad_in_ptr, None)
                 };
 
-                let mut packer = CudaArgPacker::new();
-                loaded.runtime_op.pack_backward_args(
-                    &act_inputs,
-                    &param_ptrs,
-                    node_out_ptr as teeny_core::model::RawPtr,
-                    &output_shape,
-                    dy_ptr as teeny_core::model::RawPtr,
-                    required_stride as i32,
-                    &grad_input_rawptrs,
-                    &grad_param_rawptrs,
-                    &mut packer,
-                );
+                let bwd_block = [bwd_prog.metadata.threads_per_block(), 1, 1];
+                let bwd_cluster = [bwd_prog.metadata.num_ctas, 1, 1];
+                let n_bwd_launches = loaded.runtime_op.n_backward_launches();
+                let node_out_raw = node_out_ptr as teeny_core::model::RawPtr;
+                let dy_raw = dy_ptr as teeny_core::model::RawPtr;
 
-                let grid = loaded.runtime_op.backward_grid(&input_shapes, &output_shape);
-                let block = [bwd_prog.metadata.threads_per_block(), 1, 1];
-                let cluster = [bwd_prog.metadata.num_ctas, 1, 1];
-                let launch_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
+                let mut bwd_result = Ok(());
+                for launch_idx in 0..n_bwd_launches {
+                    let mut packer = CudaArgPacker::new();
+                    if n_bwd_launches == 1 {
+                        loaded.runtime_op.pack_backward_args(
+                            &act_inputs, &param_ptrs, node_out_raw, &output_shape,
+                            dy_raw, required_stride as i32, &grad_input_rawptrs, &grad_param_rawptrs, &mut packer,
+                        );
+                    } else {
+                        loaded.runtime_op.pack_backward_args_for_launch(
+                            launch_idx, &act_inputs, &param_ptrs, node_out_raw, &output_shape,
+                            dy_raw, required_stride as i32, &grad_input_rawptrs, &grad_param_rawptrs, &mut packer,
+                        );
+                    }
+                    let grid = if n_bwd_launches == 1 {
+                        loaded.runtime_op.backward_grid(&input_shapes, &output_shape)
+                    } else {
+                        loaded.runtime_op.backward_grid_for_launch(launch_idx, &input_shapes, &output_shape)
+                    };
+                    bwd_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid: grid, block: bwd_block, cluster: bwd_cluster }, &mut packer);
+                    if bwd_result.is_err() { break; }
+                }
 
                 // Free the padded dy buffer after the (synchronous) launch completes.
                 if let Some(padded) = padded_dy {
                     mem::free(padded).ok();
                 }
 
-                launch_result?;
+                bwd_result?;
 
                 // Propagate gradients to parent nodes.
                 for (i, &pidx) in parent_indices.iter().enumerate() {

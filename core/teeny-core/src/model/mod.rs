@@ -72,6 +72,46 @@ pub trait RuntimeOp: Send + Sync {
     /// Number of CTAs to launch (x, y, z), given the concrete output shape.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3];
 
+    /// Number of sequential kernel launches this op requires.
+    ///
+    /// Ops like channel-cat scatter N input chunks into one output buffer and
+    /// need one kernel call per chunk. The executor loops `n_launches()` times,
+    /// calling `pack_args_for_launch` and `grid_for_launch` on each iteration.
+    /// The default is 1, which delegates to `pack_args` / `grid`.
+    fn n_launches(&self) -> usize { 1 }
+
+    /// Pack kernel arguments for launch `i` (0-indexed).
+    ///
+    /// Only called by the executor when `n_launches() > 1`. The default
+    /// delegates to `pack_args`, ignoring `launch_idx`.
+    fn pack_args_for_launch(
+        &self,
+        launch_idx: usize,
+        inputs: &[(RawPtr, &[usize])],
+        params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        output_row_stride: i32,
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        let _ = launch_idx;
+        self.pack_args(inputs, params, output, output_shape, output_row_stride, visitor);
+    }
+
+    /// Grid for launch `i`. Receives concrete input shapes so that per-chunk
+    /// grids can be computed without storing them in the op.
+    ///
+    /// Only called when `n_launches() > 1`. The default delegates to `grid`.
+    fn grid_for_launch(
+        &self,
+        launch_idx: usize,
+        input_shapes: &[&[usize]],
+        output_shape: &[usize],
+    ) -> [u32; 3] {
+        let _ = (launch_idx, input_shapes);
+        self.grid(output_shape)
+    }
+
     /// Returns true if this op has a backward (gradient) kernel.
     #[cfg(feature = "training")]
     fn has_backward(&self) -> bool { false }
@@ -124,6 +164,51 @@ pub trait RuntimeOp: Send + Sync {
     fn backward_grid(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let _ = (input_shapes, output_shape);
         [0, 0, 0]
+    }
+
+    /// Number of sequential kernel launches for the backward pass.
+    ///
+    /// For ops like channel-cat where the backward must write separate gradient
+    /// buffers per input chunk, this should return `n_inputs`. Default is 1.
+    #[cfg(feature = "training")]
+    fn n_backward_launches(&self) -> usize { 1 }
+
+    /// Pack backward kernel arguments for launch `i` (0-indexed).
+    ///
+    /// Only called when `n_backward_launches() > 1`. The default delegates to
+    /// `pack_backward_args`, ignoring `launch_idx`.
+    #[cfg(feature = "training")]
+    #[allow(clippy::too_many_arguments)]
+    fn pack_backward_args_for_launch(
+        &self,
+        launch_idx: usize,
+        inputs: &[(RawPtr, &[usize])],
+        params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        grad_output: RawPtr,
+        grad_output_row_stride: i32,
+        grad_inputs: &[RawPtr],
+        grad_params: &[RawPtr],
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        let _ = launch_idx;
+        self.pack_backward_args(inputs, params, output, output_shape, grad_output, grad_output_row_stride, grad_inputs, grad_params, visitor);
+    }
+
+    /// Grid for backward launch `i`.
+    ///
+    /// Only called when `n_backward_launches() > 1`. The default delegates to
+    /// `backward_grid`.
+    #[cfg(feature = "training")]
+    fn backward_grid_for_launch(
+        &self,
+        launch_idx: usize,
+        input_shapes: &[&[usize]],
+        output_shape: &[usize],
+    ) -> [u32; 3] {
+        let _ = launch_idx;
+        self.backward_grid(input_shapes, output_shape)
     }
 }
 
