@@ -546,7 +546,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                 }
                 Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. } => {
                     make_num_kernel!(
-                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, 16),
+                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, 1, 16),
                         node
                     )
                 }
@@ -699,7 +699,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                     make_float_kernel!(SoftmaxForward(block_size), node)
                 }
 
-                Op::Add | Op::ChannelChunk { .. } | Op::ChannelCat { .. } => {
+                Op::Add | Op::ChannelChunk { .. } | Op::ChannelCat { .. } | Op::Attention { .. } => {
                     return Err(anyhow::anyhow!("kernel lowering for {:?} is not yet implemented", node.op));
                 }
             };

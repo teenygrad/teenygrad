@@ -180,6 +180,7 @@ pub enum Op {
         stride_w: usize,
         padding_h: usize,
         padding_w: usize,
+        groups: usize,
         has_bias: bool,
     },
     Conv3d {
@@ -245,6 +246,17 @@ pub enum Op {
     Tanh,
     Tanhshrink,
     Softmax { dim: usize },
+
+    // --- Attention ---
+    /// Multi-head self-attention with Flash Attention 2 and position encoding.
+    /// Represents the full `Attention.forward()` in PSABlock:
+    ///   qkv conv → FA2 → pe depthwise conv → proj conv → residual add.
+    /// Input/output shape: `[N, c, H, W]`.
+    Attention {
+        c:         usize,
+        num_heads: usize,
+        key_dim:   usize,
+    },
 
     // --- Tensor structural ops ---
     /// Element-wise addition of two tensors with identical shapes.
@@ -476,6 +488,8 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
             let w_out = input[4].map(|w| w + pad_w1 + pad_w2);
             vec![input[0], input[1], d_out, h_out, w_out]
         }
+
+        Op::Attention { .. } => input.clone(),
 
         Op::Add => input.clone(),
 
@@ -723,6 +737,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv2d<D, SymTensor, SymT
             stride_w: self.stride_w,
             padding_h: self.padding_h,
             padding_w: self.padding_w,
+            groups: self.groups,
             has_bias: self.has_bias,
         })
     }
@@ -1291,6 +1306,7 @@ mod tests {
                 padding_h: 1,
                 padding_w: 1,
                 has_bias: true,
+                ..
             }
         ));
         assert_eq!(g.nodes[1].shape, vec![None, Some(64), Some(32), Some(32)]);

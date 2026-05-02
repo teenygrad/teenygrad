@@ -25,14 +25,18 @@ use teeny_triton::triton::{
     *,
 };
 
-/// 2-D convolution forward pass.
+/// 2-D convolution forward pass (supports grouped and depthwise conv).
 ///
 /// Grid: one CTA per (b, c_out, oh, ow-tile):
 ///   `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
 ///
 /// Each CTA computes a BLOCK_OW-wide strip of output columns by iterating over
-/// all `C_IN * KH * KW` combinations in a flat loop.  The weight for each
-/// `(c_in, kh, kw)` is loaded as a [1] tensor and broadcast to `[BLOCK_OW]`.
+/// `(C_IN/G) * KH * KW` combinations for its assigned group.  The weight for
+/// each `(c_in_local, kh, kw)` is loaded as a [1] tensor and broadcast to
+/// `[BLOCK_OW]`.
+///
+/// `G` is the number of groups (1 = standard conv, G = C_IN = C_OUT for depthwise).
+/// Weight layout: `[C_OUT, C_IN/G, KH, KW]`.
 ///
 /// Zero-padding of `PAD_H` / `PAD_W` elements is applied on each spatial side.
 /// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
@@ -46,6 +50,7 @@ pub fn conv2d_forward<
     const STRIDE_W: i32,
     const PAD_H: i32,
     const PAD_W: i32,
+    const G: i32,
     const BLOCK_OW: i32,
 >(
     x_ptr: T::Pointer<D>,
@@ -81,15 +86,21 @@ pub fn conv2d_forward<
 
     let out_bc_base = (b * C_OUT + c_out) * OH * OW;
 
+    // Group index for this output channel and its input-channel window.
+    let c_in_per_group = C_IN / G;
+    let g_idx = c_out / (C_OUT / G);
+    let c_in_start = g_idx * c_in_per_group;
+
     let mut acc = T::zeros::<D>(&[BLOCK_OW]);
 
-    // Flat loop over all C_IN * KH * KW combinations.
-    let loop_bound = C_IN * KH * KW;
+    // Flat loop over (C_IN/G) * KH * KW combinations for this group.
+    let loop_bound = c_in_per_group * KH * KW;
     for idx in 0..loop_bound {
         let kw = idx % KW;
         let kh_cin = idx / KW;
         let kh = kh_cin % KH;
-        let c_in = kh_cin / KH;
+        let c_in_local = kh_cin / KH;           // index within the group
+        let c_in = c_in_start + c_in_local;     // absolute input channel
 
         // Compute padded input coordinates; OOB height rows contribute zero via mask.
         let ih = oh * STRIDE_H + kh - PAD_H;
@@ -115,8 +126,8 @@ pub fn conv2d_forward<
             false,
         );
 
-        // Load scalar weight and broadcast to [BLOCK_OW].
-        let w_idx = ((c_out * C_IN + c_in) * KH + kh) * KW + kw;
+        // Weight layout [C_OUT, C_IN/G, KH, KW]: load scalar and broadcast.
+        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
         let w_off = T::arange(0, 1) + w_idx;
         let w_1 = T::load(
             w_ptr.add_offsets(w_off),
@@ -150,6 +161,9 @@ pub fn conv2d_forward<
 /// the gradient back to the input via `atomic_add`, which correctly handles
 /// overlapping receptive fields when `STRIDE < kernel size`.
 ///
+/// `G` — number of groups (1 = standard conv, G = C_IN = C_OUT for depthwise).
+/// Weight layout: `[C_OUT, C_IN/G, KH, KW]`.
+///
 /// Grid: `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
 ///
 /// Padding positions (those that correspond to out-of-bounds input locations)
@@ -164,6 +178,7 @@ pub fn conv2d_backward_dx<
     const STRIDE_W: i32,
     const PAD_H: i32,
     const PAD_W: i32,
+    const G: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -209,15 +224,21 @@ pub fn conv2d_backward_dx<
         false,
     );
 
-    // Scatter gradient to input via flat loop over C_IN * KH * KW.
-    let loop_bound = C_IN * KH * KW;
+    // Group index for this output channel and its input-channel window.
+    let c_in_per_group = C_IN / G;
+    let g_idx = c_out / (C_OUT / G);
+    let c_in_start = g_idx * c_in_per_group;
+
+    // Scatter gradient to input via flat loop over (C_IN/G) * KH * KW.
+    let loop_bound = c_in_per_group * KH * KW;
     for idx in 0..loop_bound {
         let kw = idx % KW;
         let kh_cin = idx / KW;
         let kh = kh_cin % KH;
-        let c_in = kh_cin / KH;
+        let c_in_local = kh_cin / KH;
+        let c_in = c_in_start + c_in_local;
 
-        let w_idx = ((c_out * C_IN + c_in) * KH + kh) * KW + kw;
+        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
         let w_off = T::arange(0, 1) + w_idx;
         let w_1 = T::load(
             w_ptr.add_offsets(w_off),
@@ -255,9 +276,10 @@ pub fn conv2d_backward_dx<
 /// 2-D convolution backward pass — gradient with respect to weights (`dw`).
 ///
 /// Uses the same grid as the forward pass.  Each CTA at `(b, c_out, oh, ow_tile)`
-/// accumulates partial sums into `dw` via `atomic_add` (one per `(c_in, kh, kw)`
-/// combination).
+/// accumulates partial sums into `dw` via `atomic_add` (one per `(c_in_local, kh, kw)`
+/// combination within the group).
 ///
+/// `G` — number of groups. Weight layout: `[C_OUT, C_IN/G, KH, KW]`.
 /// Grid: `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
 ///
 /// `dw` must be zero-initialised before launch.
@@ -271,6 +293,7 @@ pub fn conv2d_backward_dw<
     const STRIDE_W: i32,
     const PAD_H: i32,
     const PAD_W: i32,
+    const G: i32,
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
@@ -318,13 +341,19 @@ pub fn conv2d_backward_dw<
 
     let ih_base = oh * STRIDE_H;
 
-    // Flat loop over C_IN * KH * KW to compute partial weight gradients.
-    let loop_bound = C_IN * KH * KW;
+    // Group index for this output channel and its input-channel window.
+    let c_in_per_group = C_IN / G;
+    let g_idx = c_out / (C_OUT / G);
+    let c_in_start = g_idx * c_in_per_group;
+
+    // Flat loop over (C_IN/G) * KH * KW to compute partial weight gradients.
+    let loop_bound = c_in_per_group * KH * KW;
     for idx in 0..loop_bound {
         let kw = idx % KW;
         let kh_cin = idx / KW;
         let kh = kh_cin % KH;
-        let c_in = kh_cin / KH;
+        let c_in_local = kh_cin / KH;
+        let c_in = c_in_start + c_in_local;
 
         let ih = ih_base + kh - PAD_H;
         let iw_range = ow_range * STRIDE_W + kw - PAD_W;
@@ -351,7 +380,7 @@ pub fn conv2d_backward_dw<
         let partial = T::sum(dy_tile * x_tile, Some(0), false);
         let partial_1 = T::expand_dims(partial, 0);
 
-        let w_idx = ((c_out * C_IN + c_in) * KH + kh) * KW + kw;
+        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
         let dw_off = T::arange(0, 1) + w_idx;
         T::atomic_add(dw_ptr.add_offsets(dw_off), partial_1, None, None, None);
     }
@@ -362,9 +391,10 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
         // input_shapes[0] = [B, C_IN, H, W], output_shape = [B, C_OUT, OH, OW]
+        // Weight layout: [C_OUT, C_IN/G, KH, KW]
         let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
-        vec![vec![c_out, c_in, self.kh as usize, self.kw as usize]]
+        vec![vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize]]
     }
 
     fn pack_args(

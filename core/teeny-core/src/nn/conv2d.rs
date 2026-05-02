@@ -47,6 +47,7 @@ pub struct Conv2d<D: Dtype, IT, OT, const RANK: usize> {
     pub stride_w: usize,
     pub padding_h: usize,
     pub padding_w: usize,
+    pub groups: usize,
     pub has_bias: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
@@ -74,6 +75,31 @@ impl<D: Dtype, IT, OT, const RANK: usize> Conv2d<D, IT, OT, RANK> {
             stride_w: stride.1,
             padding_h: padding.0,
             padding_w: padding.1,
+            groups: 1,
+            has_bias,
+            _pd: PhantomData,
+        }
+    }
+
+    pub fn new_grouped(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        padding: (usize, usize),
+        has_bias: bool,
+        groups: usize,
+    ) -> Self {
+        Self {
+            in_channels,
+            out_channels,
+            kernel_h: kernel_size.0,
+            kernel_w: kernel_size.1,
+            stride_h: stride.0,
+            stride_w: stride.1,
+            padding_h: padding.0,
+            padding_w: padding.1,
+            groups,
             has_bias,
             _pd: PhantomData,
         }
