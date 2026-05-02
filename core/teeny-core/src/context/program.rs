@@ -21,9 +21,17 @@ use sha2::{Digest, Sha256};
 /// specific "packer" struct (e.g. a CUDA arg-pointer array builder).
 pub trait ArgVisitor {
     fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void);
+    fn visit_bool(&mut self, val: bool);
+    fn visit_i8(&mut self, val: i8);
+    fn visit_i16(&mut self, val: i16);
     fn visit_i32(&mut self, val: i32);
+    fn visit_i64(&mut self, val: i64);
+    fn visit_u8(&mut self, val: u8);
+    fn visit_u16(&mut self, val: u16);
     fn visit_u32(&mut self, val: u32);
+    fn visit_u64(&mut self, val: u64);
     fn visit_f32(&mut self, val: f32);
+    fn visit_f64(&mut self, val: f64);
 }
 
 /// Implemented by each concrete argument type; dispatches to the right
@@ -39,25 +47,59 @@ impl<T> KernelArg for *mut T {
     }
 }
 
+impl KernelArg for bool {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_bool(*self); }
+}
+
+impl KernelArg for i8 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_i8(*self); }
+}
+
+impl KernelArg for i16 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_i16(*self); }
+}
+
 impl KernelArg for i32 {
     #[inline]
-    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
-        visitor.visit_i32(*self);
-    }
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_i32(*self); }
+}
+
+impl KernelArg for i64 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_i64(*self); }
+}
+
+impl KernelArg for u8 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_u8(*self); }
+}
+
+impl KernelArg for u16 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_u16(*self); }
 }
 
 impl KernelArg for u32 {
     #[inline]
-    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
-        visitor.visit_u32(*self);
-    }
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_u32(*self); }
+}
+
+impl KernelArg for u64 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_u64(*self); }
 }
 
 impl KernelArg for f32 {
     #[inline]
-    fn visit<V: ArgVisitor>(&self, visitor: &mut V) {
-        visitor.visit_f32(*self);
-    }
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_f32(*self); }
+}
+
+impl KernelArg for f64 {
+    #[inline]
+    fn visit<V: ArgVisitor>(&self, visitor: &mut V) { visitor.visit_f64(*self); }
 }
 
 /// Implemented for tuples of `KernelArg`s; visits each element in order.

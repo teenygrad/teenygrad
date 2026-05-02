@@ -15,6 +15,7 @@
  */
 
 pub mod activation;
+pub mod attention;
 pub mod conv;
 pub mod loss;
 pub mod mlp;

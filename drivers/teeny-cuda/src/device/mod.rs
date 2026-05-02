@@ -70,18 +70,17 @@ impl ArgVisitor for CudaArgPacker {
     fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void) {
         self.push_bytes(&(ptr as usize).to_ne_bytes());
     }
-
-    fn visit_i32(&mut self, val: i32) {
-        self.push_bytes(&val.to_ne_bytes());
-    }
-
-    fn visit_u32(&mut self, val: u32) {
-        self.push_bytes(&val.to_ne_bytes());
-    }
-
-    fn visit_f32(&mut self, val: f32) {
-        self.push_bytes(&val.to_ne_bytes());
-    }
+    fn visit_bool(&mut self, val: bool) { self.push_bytes(&[val as u8]); }
+    fn visit_i8(&mut self, val: i8)     { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_i16(&mut self, val: i16)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_i32(&mut self, val: i32)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_i64(&mut self, val: i64)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_u8(&mut self, val: u8)     { self.push_bytes(&[val]); }
+    fn visit_u16(&mut self, val: u16)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_u32(&mut self, val: u32)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_u64(&mut self, val: u64)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_f32(&mut self, val: f32)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_f64(&mut self, val: f64)   { self.push_bytes(&val.to_ne_bytes()); }
 }
 
 pub struct CudaLaunchConfig {

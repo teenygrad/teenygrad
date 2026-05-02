@@ -121,7 +121,6 @@ where
     Self::BoolTensor: BitAnd<Output = Self::BoolTensor>,
     Self::BoolTensor: BitOr<Output = Self::BoolTensor>,
 {
-    type BF16: ty::BF16;
     type BoolTensor: Copy + Clone;
     type I32Tensor: Copy + Clone;
     type Tensor<D: ty::Dtype>: Copy + Clone

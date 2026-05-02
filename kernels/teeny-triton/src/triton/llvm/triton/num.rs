@@ -14,22 +14,4 @@
  * limitations under the License.
  */
 
-use super::super::super::types as ty;
-
-/*--------------------------------- BF16 ---------------------------------*/
-
-pub struct LlvmBF16;
-impl Copy for LlvmBF16 {}
-impl Clone for LlvmBF16 {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl ty::Dtype for LlvmBF16 {}
-impl ty::Num for LlvmBF16 {
-    const BITS: u8 = 16;
-}
-impl ty::Float for LlvmBF16 {}
-impl ty::BF16 for LlvmBF16 {}
+// BF16 support deferred — needs a KernelArg impl strategy for non-native types.

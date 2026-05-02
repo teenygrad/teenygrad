@@ -28,7 +28,6 @@ pub mod types;
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {
-    type BF16 = num::LlvmBF16;
     type BoolTensor = tensor::LlvmBoolTensor;
     type I32Tensor = tensor::LlvmI32Tensor;
     type Tensor<D: ty::Dtype> = tensor::LlvmTensor<D>;

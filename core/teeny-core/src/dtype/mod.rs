@@ -24,7 +24,10 @@ pub trait Num: Dtype {
     const BITS: u8;
 }
 
-pub trait Float: Num {}
+pub trait Float: Num {
+    const ZERO: Self;
+    const ONE: Self;
+}
 pub trait Int: Num {}
 pub trait Bool: Dtype + Copy {}
 
@@ -93,13 +96,19 @@ impl Dtype for f32 {}
 impl Num for f32 {
     const BITS: u8 = 32;
 }
-impl Float for f32 {}
+impl Float for f32 {
+    const ZERO: Self = 0.0;
+    const ONE: Self  = 1.0;
+}
 
 impl Dtype for f64 {}
 impl Num for f64 {
     const BITS: u8 = 64;
 }
-impl Float for f64 {}
+impl Float for f64 {
+    const ZERO: Self = 0.0;
+    const ONE: Self  = 1.0;
+}
 
 // Tensor
 pub trait RankedTensor<D: Dtype, const RANK: usize>: Clone {
