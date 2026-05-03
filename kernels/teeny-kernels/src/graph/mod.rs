@@ -59,6 +59,7 @@ use crate::nn::{
         maxpool1d::Maxpool1dForward, maxpool2d::Maxpool2dForward, maxpool3d::Maxpool3dForward,
     },
     tensor::{
+        channel_bias_add::ChannelBiasAddRuntimeOp,
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
         upsample_nearest2d::UpsampleNearest2dForward,
@@ -548,9 +549,9 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::Conv1d { kernel_l, stride, padding, .. } => {
                     make_num_kernel!(Conv1dForward(*kernel_l as i32, *stride as i32, *padding as i32, 32), node)
                 }
-                Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. } => {
+                Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, groups, .. } => {
                     make_num_kernel!(
-                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, 1, 16),
+                        Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16),
                         node
                     )
                 }
@@ -757,6 +758,28 @@ impl<'a> Lowering<'a> for TritonLowering {
                             DtypeRepr::U32 => { let r = ChannelChunkRuntimeOp::<u32>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
                             DtypeRepr::U64 => { let r = ChannelChunkRuntimeOp::<u64>::new(128, chunk_c, chunk_offset); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
                             other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelChunk", other)),
+                        };
+                    Box::new(KernelExecutable {
+                        name,
+                        kernel_source: fwd_src,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
+                }
+
+                Op::ChannelBiasAdd { c } => {
+                    let c = *c;
+                    let (name, fwd_src, bwd_src, rop): (String, String, String, Arc<dyn RuntimeOp>) =
+                        match node.dtype {
+                            DtypeRepr::F32 => { let r = ChannelBiasAddRuntimeOp::<f32>::new(128, c); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            DtypeRepr::F64 => { let r = ChannelBiasAddRuntimeOp::<f64>::new(128, c); (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r)) }
+                            other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelBiasAdd", other)),
                         };
                     Box::new(KernelExecutable {
                         name,

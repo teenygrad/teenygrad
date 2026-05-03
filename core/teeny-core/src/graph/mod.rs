@@ -281,6 +281,9 @@ pub enum Op {
     ChannelCat {
         c_total: usize,
     },
+    /// Adds a (C,) bias vector to a (B, C, H, W) feature map — NC layout (N=B*H*W).
+    /// Output shape equals input shape.
+    ChannelBiasAdd { c: usize },
 }
 
 #[derive(Debug)]
@@ -523,6 +526,8 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
             // multi-input; c_total encodes the output channel count
             vec![input[0], Some(*c_total), input[2], input[3]]
         }
+
+        Op::ChannelBiasAdd { .. } => input.to_vec(),
     }
 }
 
