@@ -197,3 +197,65 @@ pub struct LogsigmoidOp {
     pub forward: LogsigmoidForward,
     pub backward: LogsigmoidBackward,
 }
+
+// ── RuntimeOp for SiLU forward ────────────────────────────────────────────────
+
+impl teeny_core::model::RuntimeOp for SiluForward {
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(n as i32);
+    }
+
+    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        _output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        _grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(grad_output);    // dy_ptr
+        visitor.visit_ptr(inputs[0].0);    // x_ptr (saved activation)
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_i32(n as i32);
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
+}

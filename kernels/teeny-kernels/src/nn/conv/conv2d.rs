@@ -386,12 +386,123 @@ pub fn conv2d_backward_dw<
     }
 }
 
+/// 2-D convolution combined backward pass — computes both `dx` and `dw` in one
+/// kernel launch, using the same grid as the forward pass.
+///
+/// Grid: `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
+///
+/// For each `(c_in_local, kh, kw)` combination:
+///   - `dx`: `atomic_add(dx_ptr[b, c_in, ih, iw], dy * w)`
+///   - `dw`: `atomic_add(dw_ptr[c_out, c_in_local, kh, kw], sum(dy * x))`
+///
+/// Both `dx_ptr` and `dw_ptr` must be zero-initialised before launch.
+#[kernel]
+pub fn conv2d_backward<
+    T: Triton,
+    D: Num,
+    const KH: i32,
+    const KW: i32,
+    const STRIDE_H: i32,
+    const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
+    const G: i32,
+    const BLOCK_OW: i32,
+>(
+    dy_ptr: T::Pointer<D>,
+    x_ptr:  T::Pointer<D>,
+    w_ptr:  T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
+    dw_ptr: T::Pointer<D>,
+    B: i32,
+    C_IN: i32,
+    C_OUT: i32,
+    H: i32,
+    W: i32,
+    OH: i32,
+    OW: i32,
+) where
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
+
+    let ow_tile = pid % num_ow_tiles;
+    let bco = pid / num_ow_tiles;
+    let oh = bco % OH;
+    let bc = bco / OH;
+    let c_out = bc % C_OUT;
+    let b = bc / C_OUT;
+
+    let ow_start = ow_tile * BLOCK_OW;
+    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
+    let ow_mask = ow_range.lt(OW);
+
+    // Load the upstream gradient tile for this output row.
+    let dy_offsets = ow_range + ((b * C_OUT + c_out) * OH * OW + oh * OW);
+    let dy_tile = T::load(
+        dy_ptr.add_offsets(dy_offsets),
+        Some(ow_mask),
+        Some(T::zeros::<D>(&[BLOCK_OW])),
+        &[],
+        None, None, None, false,
+    );
+
+    let c_in_per_group = C_IN / G;
+    let g_idx = c_out / (C_OUT / G);
+    let c_in_start = g_idx * c_in_per_group;
+
+    let loop_bound = c_in_per_group * KH * KW;
+    for idx in 0..loop_bound {
+        let kw = idx % KW;
+        let kh_cin = idx / KW;
+        let kh = kh_cin % KH;
+        let c_in_local = kh_cin / KH;
+        let c_in = c_in_start + c_in_local;
+
+        // Load weight scalar and broadcast.
+        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
+        let w_off = T::arange(0, 1) + w_idx;
+        let w_1 = T::load(w_ptr.add_offsets(w_off), None, None, &[], None, None, None, false);
+        let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
+
+        let ih = oh * STRIDE_H + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+
+        #[allow(clippy::erasing_op)]
+        let ih_t = ow_range * 0 + ih;
+        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
+        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
+        let in_mask = ow_mask & h_in_bounds & w_in_bounds;
+
+        let dx_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
+
+        // dx: scatter dy * w to input positions.
+        let grad_tile = dy_tile * w_tile;
+        T::atomic_add(dx_ptr.add_offsets(dx_offsets), grad_tile, Some(in_mask), None, None);
+
+        // dw: load x tile, compute partial = sum(dy * x), scatter to weight.
+        let x_tile = T::load(
+            x_ptr.add_offsets(dx_offsets),
+            Some(in_mask),
+            Some(T::zeros::<D>(&[BLOCK_OW])),
+            &[],
+            None, None, None, false,
+        );
+        let partial = T::sum(dy_tile * x_tile, Some(0), false);
+        let partial_1 = T::expand_dims(partial, 0);
+        let dw_off = T::arange(0, 1) + w_idx;
+        T::atomic_add(dw_ptr.add_offsets(dw_off), partial_1, None, None, None);
+    }
+}
+
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForward<D> {
     fn n_activation_inputs(&self) -> usize { 1 }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
-        // input_shapes[0] = [B, C_IN, H, W], output_shape = [B, C_OUT, OH, OW]
-        // Weight layout: [C_OUT, C_IN/G, KH, KW]
         let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
         vec![vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize]]
@@ -406,24 +517,64 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-        // kernel args: x_ptr, w_ptr, y_ptr, B, C_IN, C_OUT, H, W, OH, OW
         let input_shape = inputs[0].1;
-        visitor.visit_ptr(inputs[0].0);          // x_ptr
-        visitor.visit_ptr(params[0]);             // w_ptr
-        visitor.visit_ptr(output);               // y_ptr
-        visitor.visit_i32(input_shape[0] as i32); // B
-        visitor.visit_i32(input_shape[1] as i32); // C_IN
-        visitor.visit_i32(output_shape[1] as i32); // C_OUT
-        visitor.visit_i32(input_shape[2] as i32); // H
-        visitor.visit_i32(input_shape[3] as i32); // W
-        visitor.visit_i32(output_shape[2] as i32); // OH
-        visitor.visit_i32(output_shape[3] as i32); // OW
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(input_shape[0] as i32);
+        visitor.visit_i32(input_shape[1] as i32);
+        visitor.visit_i32(output_shape[1] as i32);
+        visitor.visit_i32(input_shape[2] as i32);
+        visitor.visit_i32(input_shape[3] as i32);
+        visitor.visit_i32(output_shape[2] as i32);
+        visitor.visit_i32(output_shape[3] as i32);
     }
 
     fn block(&self) -> [u32; 3] { [128, 1, 1] }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        // pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile
+        let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
+        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+    }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    /// kernel args: dy, x, w, dx, dw, B, C_IN, C_OUT, H, W, OH, OW
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        _output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let in_shape = inputs[0].1; // [B, C_IN, H, W]
+        visitor.visit_ptr(grad_output);       // dy_ptr
+        visitor.visit_ptr(inputs[0].0);       // x_ptr
+        visitor.visit_ptr(params[0]);         // w_ptr
+        visitor.visit_ptr(grad_inputs[0]);    // dx_ptr
+        visitor.visit_ptr(grad_params[0]);    // dw_ptr
+        visitor.visit_i32(in_shape[0] as i32);      // B
+        visitor.visit_i32(in_shape[1] as i32);      // C_IN
+        visitor.visit_i32(output_shape[1] as i32);  // C_OUT
+        visitor.visit_i32(in_shape[2] as i32);      // H
+        visitor.visit_i32(in_shape[3] as i32);      // W
+        visitor.visit_i32(output_shape[2] as i32);  // OH
+        visitor.visit_i32(output_shape[3] as i32);  // OW
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    /// Grid over forward-output positions (same formula as forward).
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
         [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
     }

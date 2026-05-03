@@ -276,6 +276,46 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dF
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
         [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
     }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    /// kernel args: dy, x, y, dx, B, C, H, W, OH, OW
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        _grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let in_shape = inputs[0].1; // [B, C, H, W]
+        visitor.visit_ptr(grad_output);       // dy_ptr
+        visitor.visit_ptr(inputs[0].0);       // x_ptr (saved activation)
+        visitor.visit_ptr(output);            // y_ptr (forward output = max values)
+        visitor.visit_ptr(grad_inputs[0]);    // dx_ptr
+        visitor.visit_i32(in_shape[0] as i32);      // B
+        visitor.visit_i32(in_shape[1] as i32);      // C
+        visitor.visit_i32(in_shape[2] as i32);      // H
+        visitor.visit_i32(in_shape[3] as i32);      // W
+        visitor.visit_i32(output_shape[2] as i32);  // OH
+        visitor.visit_i32(output_shape[3] as i32);  // OW
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+
+    /// Grid over output positions (same formula as forward).
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
+        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+    }
 }
 
 pub struct Maxpool2dOp<'a, T: Num> {

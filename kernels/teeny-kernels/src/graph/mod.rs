@@ -32,14 +32,17 @@ use crate::nn::{
             LeakyReluForward, SoftplusForward, SoftshrinkForward, SoftsignForward, ThresholdForward,
         },
         relu::{ReluBackward, ReluForward},
-        sigmoid::{LogsigmoidForward, SigmoidForward, SiluForward},
+        sigmoid::{LogsigmoidForward, SigmoidForward},
         softmax::SoftmaxForward,
         tanh::{TanhForward, TanhshrinkForward},
     },
-    conv::{conv1d::Conv1dForward, conv2d::Conv2dForward, conv3d::Conv3dForward},
+    attention::psa::{
+        FlashAttn2PsaRuntimeOp, PsaExtractVRuntimeOp, PsaMergeAttnRuntimeOp, PsaPackQkvRuntimeOp,
+    },
+    conv::{conv1d::Conv1dForward, conv2d::{Conv2dBackward, Conv2dForward}, conv3d::Conv3dForward},
     mlp::{flatten::FlattenForward, linear::{LinearBackward, LinearForward}},
     norm::{
-        batchnorm::BatchNormForwardInference,
+        batchnorm::{BatchNorm2dNchwInferenceRuntimeOp, BatchNormForwardInference},
         groupnorm::GroupNormForwardInference,
         instancenorm::InstanceNormForwardInference,
         layernorm::LayerNormForwardInference,
@@ -56,14 +59,14 @@ use crate::nn::{
     pool::{
         avgpool1d::Avgpool1dForward, avgpool2d::Avgpool2dForward, avgpool3d::Avgpool3dForward,
         lppool1d::Lppool1dForward, lppool2d::Lppool2dForward, lppool3d::Lppool3dForward,
-        maxpool1d::Maxpool1dForward, maxpool2d::Maxpool2dForward, maxpool3d::Maxpool3dForward,
+        maxpool1d::Maxpool1dForward, maxpool2d::{Maxpool2dBackward, Maxpool2dForward}, maxpool3d::Maxpool3dForward,
     },
     tensor::{
         channel_bias_add::ChannelBiasAddRuntimeOp,
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
-        upsample_nearest2d::UpsampleNearest2dForward,
+        upsample_nearest2d::{UpsampleNearest2dBackward, UpsampleNearest2dForward},
     },
 };
 
@@ -71,6 +74,7 @@ use crate::errors::Result;
 
 #[cfg(feature = "training")]
 use crate::nn::norm::batchnorm::{
+    BatchNorm2dNchwBackward,
     BatchNormNormalizeForward, BatchNormNormalizeRuntimeOp,
     BatchNormStatsForward, BatchNormStatsRuntimeOp,
 };
@@ -368,7 +372,7 @@ impl_stub_runtime_op_untyped!(SoftsignForward);
 impl_stub_runtime_op_untyped!(SoftshrinkForward);
 impl_stub_runtime_op_untyped!(SoftplusForward);
 impl_stub_runtime_op_untyped!(SigmoidForward);
-impl_stub_runtime_op_untyped!(SiluForward);
+// SiluForward has a real RuntimeOp impl in nn::activation::sigmoid
 impl_stub_runtime_op_untyped!(LogsigmoidForward);
 impl_stub_runtime_op_untyped!(TanhForward);
 impl_stub_runtime_op_untyped!(TanhshrinkForward);
@@ -462,23 +466,21 @@ impl<'a> Lowering<'a> for TritonLowering {
                         dag.add_edge(graph_to_dag[input_graph_idx], stats_dag_idx);
                     }
 
-                    let (norm_name, norm_src, norm_rop): (String, String, Arc<dyn RuntimeOp>) =
+                    let (norm_name, norm_src, norm_bwd_src, norm_rop): (String, String, String, Arc<dyn RuntimeOp>) =
                         match node.dtype {
                             DtypeRepr::F32 => {
                                 let k = BatchNormNormalizeForward::<f32>::new(BLOCK_N);
                                 let src = k.source.clone();
-                                let rop: Arc<dyn RuntimeOp> = Arc::new(
-                                    BatchNormNormalizeRuntimeOp::<f32>::new(BLOCK_N),
-                                );
-                                (k.name.to_string(), src, rop)
+                                let rop = BatchNormNormalizeRuntimeOp::<f32>::new(BLOCK_N);
+                                let bwd_src = rop.backward_source().to_string();
+                                (k.name.to_string(), src, bwd_src, Arc::new(rop) as Arc<dyn RuntimeOp>)
                             }
                             DtypeRepr::F64 => {
                                 let k = BatchNormNormalizeForward::<f64>::new(BLOCK_N);
                                 let src = k.source.clone();
-                                let rop: Arc<dyn RuntimeOp> = Arc::new(
-                                    BatchNormNormalizeRuntimeOp::<f64>::new(BLOCK_N),
-                                );
-                                (k.name.to_string(), src, rop)
+                                let rop = BatchNormNormalizeRuntimeOp::<f64>::new(BLOCK_N);
+                                let bwd_src = rop.backward_source().to_string();
+                                (k.name.to_string(), src, bwd_src, Arc::new(rop) as Arc<dyn RuntimeOp>)
                             }
                             other => return Err(anyhow::anyhow!(
                                 "{:?} is not a Float dtype for BatchNormNormalizeForward", other
@@ -491,7 +493,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                         entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
-                        backward_kernel_source: String::new(),
+                        backward_kernel_source: norm_bwd_src,
                         backward_entry_point: "entry_point".to_string(),
                         runtime_op: norm_rop,
                     }) as Box<dyn ExecutableOp>;
@@ -508,6 +510,226 @@ impl<'a> Lowering<'a> for TritonLowering {
                     continue;
                 }
             }
+
+            // ── Op::Attention: PSA decomposition ───────────────────────────────────────
+            // Decomposed into 13 DAG sub-nodes (QKV conv, BN, pack, FA2×2, merge,
+            // extract-V, PE conv, BN, add, proj conv, BN, residual add).
+            if let Op::Attention { c, num_heads, key_dim } = &node.op {
+                if node.dtype != DtypeRepr::F32 {
+                    return Err(anyhow::anyhow!(
+                        "Op::Attention only supports f32, got {:?}", node.dtype
+                    ));
+                }
+
+                let ch = *c;
+                let nh = *num_heads;
+                let kd = *key_dim;
+                let qkv_h = 4 * nh * kd; // num_heads * (2*key_dim + head_dim) = num_heads * 4*key_dim
+
+                let b_opt = node.shape[0];
+                let h_val = node.shape[2].unwrap_or(1);
+                let w_val = node.shape[3].unwrap_or(1);
+                let n_spatial = h_val * w_val;
+                let bh_opt = b_opt.map(|b| b * nh);
+
+                let nchw = |ci: usize| -> Shape { vec![b_opt, Some(ci), Some(h_val), Some(w_val)] };
+                let fa2_shape: Shape = vec![bh_opt, Some(n_spatial), Some(kd)];
+                let packed_shape: Shape = vec![Some(4), bh_opt, Some(n_spatial), Some(kd)];
+
+                let eps = 0.001_f32; // ultralytics default BN eps
+
+                // Build a KernelExecutable with a backward kernel source.
+                macro_rules! ke_bwd {
+                    ($shape:expr, $name:expr, $src:expr, $bwd_src:expr, $rop:expr) => {
+                        Box::new(KernelExecutable {
+                            name: $name,
+                            kernel_source: $src,
+                            entry_point: "entry_point".to_string(),
+                            shape: $shape,
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: $bwd_src,
+                            #[cfg(feature = "training")]
+                            backward_entry_point: "entry_point".to_string(),
+                            runtime_op: $rop,
+                        }) as Box<dyn ExecutableOp>
+                    };
+                }
+
+                let x_idx = graph_to_dag[node.inputs[0]];
+
+                // 1. QKV Conv2d [B,c,H,W] → [B,qkv_h,H,W]  (1×1, stride=1, pad=0, groups=1)
+                let qkv_conv = Conv2dForward::<f32>::new(1, 1, 1, 1, 0, 0, 1, 16);
+                let qkv_conv_bwd_src = Conv2dBackward::<f32>::new(1, 1, 1, 1, 0, 0, 1, 16).source;
+                let qkv_conv_idx = dag.add_node(ke_bwd!(
+                    nchw(qkv_h),
+                    qkv_conv.name.to_string(),
+                    qkv_conv.source.clone(),
+                    qkv_conv_bwd_src,
+                    Arc::new(qkv_conv) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(x_idx, qkv_conv_idx);
+
+                // 2. QKV BatchNorm2d
+                let qkv_bn_rop = BatchNorm2dNchwInferenceRuntimeOp::<f32>::new(128, eps);
+                #[cfg(feature = "training")]
+                let qkv_bn_bwd_src = qkv_bn_rop.backward_source();
+                #[cfg(not(feature = "training"))]
+                let qkv_bn_bwd_src = String::new();
+                let qkv_bn_idx = dag.add_node(ke_bwd!(
+                    nchw(qkv_h),
+                    qkv_bn_rop.kernel_name().to_string(),
+                    qkv_bn_rop.forward_source().to_string(),
+                    qkv_bn_bwd_src,
+                    Arc::new(qkv_bn_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(qkv_conv_idx, qkv_bn_idx);
+
+                // 3. Pack QKV → [4, BH, N, KEY_DIM]
+                let pack_rop = PsaPackQkvRuntimeOp::new(kd as i32, nh);
+                let pack_bwd_src = pack_rop.backward_source().to_string();
+                let pack_idx = dag.add_node(ke_bwd!(
+                    packed_shape,
+                    pack_rop.kernel_name().to_string(),
+                    pack_rop.forward_source().to_string(),
+                    pack_bwd_src,
+                    Arc::new(pack_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(qkv_bn_idx, pack_idx);
+
+                // 4. FA2 for V_lo → [BH, N, KEY_DIM]
+                let fa2_lo_rop = FlashAttn2PsaRuntimeOp::new_lo(kd as i32);
+                let fa2_lo_bwd_src = fa2_lo_rop.backward_source().to_string();
+                let fa2_lo_idx = dag.add_node(ke_bwd!(
+                    fa2_shape.clone(),
+                    fa2_lo_rop.kernel_name().to_string(),
+                    fa2_lo_rop.forward_source().to_string(),
+                    fa2_lo_bwd_src,
+                    Arc::new(fa2_lo_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(pack_idx, fa2_lo_idx);
+
+                // 5. FA2 for V_hi → [BH, N, KEY_DIM]
+                let fa2_hi_rop = FlashAttn2PsaRuntimeOp::new_hi(kd as i32);
+                let fa2_hi_bwd_src = fa2_hi_rop.backward_source().to_string();
+                let fa2_hi_idx = dag.add_node(ke_bwd!(
+                    fa2_shape,
+                    fa2_hi_rop.kernel_name().to_string(),
+                    fa2_hi_rop.forward_source().to_string(),
+                    fa2_hi_bwd_src,
+                    Arc::new(fa2_hi_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(pack_idx, fa2_hi_idx);
+
+                // 6. Merge attn → [B, c, H, W]
+                let merge_rop = PsaMergeAttnRuntimeOp::new(kd as i32, nh);
+                let merge_bwd_src = merge_rop.backward_source().to_string();
+                let merge_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    merge_rop.kernel_name().to_string(),
+                    merge_rop.forward_source().to_string(),
+                    merge_bwd_src,
+                    Arc::new(merge_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(fa2_lo_idx, merge_idx);
+                dag.add_edge(fa2_hi_idx, merge_idx);
+
+                // 7. Extract V NCHW → [B, c, H, W]
+                let extv_rop = PsaExtractVRuntimeOp::new(kd as i32, nh);
+                let extv_bwd_src = extv_rop.backward_source().to_string();
+                let extv_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    extv_rop.kernel_name().to_string(),
+                    extv_rop.forward_source().to_string(),
+                    extv_bwd_src,
+                    Arc::new(extv_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(qkv_bn_idx, extv_idx);
+
+                // 8. PE depthwise Conv2d (3×3, stride=1, pad=1, groups=c)
+                let pe_conv = Conv2dForward::<f32>::new(3, 3, 1, 1, 1, 1, ch as i32, 16);
+                let pe_conv_bwd_src = Conv2dBackward::<f32>::new(3, 3, 1, 1, 1, 1, ch as i32, 16).source;
+                let pe_conv_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    pe_conv.name.to_string(),
+                    pe_conv.source.clone(),
+                    pe_conv_bwd_src,
+                    Arc::new(pe_conv) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(extv_idx, pe_conv_idx);
+
+                // 9. PE BatchNorm2d
+                let pe_bn_rop = BatchNorm2dNchwInferenceRuntimeOp::<f32>::new(128, eps);
+                #[cfg(feature = "training")]
+                let pe_bn_bwd_src = pe_bn_rop.backward_source();
+                #[cfg(not(feature = "training"))]
+                let pe_bn_bwd_src = String::new();
+                let pe_bn_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    pe_bn_rop.kernel_name().to_string(),
+                    pe_bn_rop.forward_source().to_string(),
+                    pe_bn_bwd_src,
+                    Arc::new(pe_bn_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(pe_conv_idx, pe_bn_idx);
+
+                // 10. Add (attn_merged + pe_bn) → [B, c, H, W]
+                let add1 = ElemwiseAddForward::<f32>::new(128);
+                let add1_bwd_src = ElemwiseAddBackward::<f32>::new(128).source.clone();
+                let add1_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    add1.name.to_string(),
+                    add1.source.clone(),
+                    add1_bwd_src,
+                    Arc::new(add1) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(merge_idx, add1_idx);
+                dag.add_edge(pe_bn_idx, add1_idx);
+
+                // 11. Proj Conv2d (1×1, stride=1, pad=0, groups=1)
+                let proj_conv = Conv2dForward::<f32>::new(1, 1, 1, 1, 0, 0, 1, 16);
+                let proj_conv_bwd_src = Conv2dBackward::<f32>::new(1, 1, 1, 1, 0, 0, 1, 16).source;
+                let proj_conv_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    proj_conv.name.to_string(),
+                    proj_conv.source.clone(),
+                    proj_conv_bwd_src,
+                    Arc::new(proj_conv) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(add1_idx, proj_conv_idx);
+
+                // 12. Proj BatchNorm2d
+                let proj_bn_rop = BatchNorm2dNchwInferenceRuntimeOp::<f32>::new(128, eps);
+                #[cfg(feature = "training")]
+                let proj_bn_bwd_src = proj_bn_rop.backward_source();
+                #[cfg(not(feature = "training"))]
+                let proj_bn_bwd_src = String::new();
+                let proj_bn_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    proj_bn_rop.kernel_name().to_string(),
+                    proj_bn_rop.forward_source().to_string(),
+                    proj_bn_bwd_src,
+                    Arc::new(proj_bn_rop) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(proj_conv_idx, proj_bn_idx);
+
+                // 13. Residual add (x + proj_bn) → [B, c, H, W]
+                let add2 = ElemwiseAddForward::<f32>::new(128);
+                let add2_bwd_src = ElemwiseAddBackward::<f32>::new(128).source.clone();
+                let add2_idx = dag.add_node(ke_bwd!(
+                    nchw(ch),
+                    add2.name.to_string(),
+                    add2.source.clone(),
+                    add2_bwd_src,
+                    Arc::new(add2) as Arc<dyn RuntimeOp>
+                ));
+                dag.add_edge(x_idx, add2_idx);
+                dag.add_edge(proj_bn_idx, add2_idx);
+
+                graph_to_dag[node_index] = add2_idx;
+                continue;
+            }
+            // ── End of Op::Attention decomposition ────────────────────────────────────
 
             let executable: Box<dyn ExecutableOp> = match &node.op {
                 Op::Input => Box::new(KernelExecutable {
@@ -530,8 +752,41 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::Flatten => make_num_kernel!(FlattenForward(32, 256), node),
 
                 // --- Normalisation ---
-                Op::BatchNorm1d { .. } | Op::BatchNorm2d { .. } | Op::BatchNorm3d { .. } => {
+                Op::BatchNorm1d { .. } | Op::BatchNorm3d { .. } => {
                     make_float_kernel!(BatchNormForwardInference(64), node)
+                }
+                Op::BatchNorm2d { eps, .. } => {
+                    let eps_f32 = *eps as f32;
+                    const BN2D_BLOCK_HW: i32 = 128;
+                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                        DtypeRepr::F32 => {
+                            let r = BatchNorm2dNchwInferenceRuntimeOp::<f32>::new(BN2D_BLOCK_HW, eps_f32);
+                            (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                        }
+                        DtypeRepr::F64 => {
+                            let r = BatchNorm2dNchwInferenceRuntimeOp::<f64>::new(BN2D_BLOCK_HW, eps_f32);
+                            (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                        }
+                        other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for BatchNorm2d", other)),
+                    };
+                    #[cfg(feature = "training")]
+                    let bwd_ks = match node.dtype {
+                        DtypeRepr::F32 => BatchNorm2dNchwBackward::<f32>::new(BN2D_BLOCK_HW).source,
+                        DtypeRepr::F64 => BatchNorm2dNchwBackward::<f64>::new(BN2D_BLOCK_HW).source,
+                        _ => String::new(),
+                    };
+                    Box::new(KernelExecutable {
+                        name,
+                        kernel_source: ks,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_ks,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
                 }
                 Op::LayerNorm { .. } => {
                     make_float_kernel!(LayerNormForwardInference(1024), node)
@@ -553,6 +808,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::Conv2d { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, groups, .. } => {
                     make_num_kernel!(
                         Conv2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16),
+                        Conv2dBackward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16),
                         node
                     )
                 }
@@ -585,6 +841,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w } => {
                     make_num_kernel!(
                         Maxpool2dForward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *pad_h as i32, *pad_w as i32, 16),
+                        Maxpool2dBackward(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *pad_h as i32, *pad_w as i32, 16),
                         node
                     )
                 }
@@ -692,7 +949,27 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::Softshrink { .. }  => make_untyped_kernel!(SoftshrinkForward(1024), node),
                 Op::Softplus { .. }    => make_untyped_kernel!(SoftplusForward(1024), node),
                 Op::Sigmoid            => make_untyped_kernel!(SigmoidForward(1024), node),
-                Op::Silu               => make_untyped_kernel!(SiluForward(1024), node),
+                Op::Silu => {
+                    use crate::nn::activation::sigmoid::{SiluBackward, SiluForward};
+                    let fwd = SiluForward::new(1024);
+                    let nm = fwd.name.to_string();
+                    let fwd_src = fwd.source.clone();
+                    #[cfg(feature = "training")]
+                    let bwd_src = SiluBackward::new(1024).source.clone();
+                    let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                    Box::new(KernelExecutable {
+                        name: nm,
+                        kernel_source: fwd_src,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
+                }
                 Op::Logsigmoid         => make_untyped_kernel!(LogsigmoidForward(1024), node),
                 Op::Tanh               => make_untyped_kernel!(TanhForward(1024), node),
                 Op::Tanhshrink         => make_untyped_kernel!(TanhshrinkForward(1024), node),
@@ -709,6 +986,7 @@ impl<'a> Lowering<'a> for TritonLowering {
                 Op::UpsampleNearest2d { scale_h, scale_w } => {
                     make_num_kernel!(
                         UpsampleNearest2dForward(*scale_h as i32, *scale_w as i32, 16),
+                        UpsampleNearest2dBackward(*scale_h as i32, *scale_w as i32, 16),
                         node
                     )
                 }
@@ -798,8 +1076,14 @@ impl<'a> Lowering<'a> for TritonLowering {
 
                 Op::Add => make_num_kernel!(ElemwiseAddForward(128), ElemwiseAddBackward(128), node),
 
-                Op::Attention { .. } => {
-                    return Err(anyhow::anyhow!("kernel lowering for {:?} is not yet implemented", node.op));
+                Op::Attention { c, num_heads, key_dim } => {
+                    // PSA attention is decomposed into 13 sub-nodes inline below.
+                    // The match arm is unreachable because the pre-match block handles it
+                    // and calls `continue`. We return an error here as a safety net.
+                    let _ = (c, num_heads, key_dim);
+                    return Err(anyhow::anyhow!(
+                        "Op::Attention reached the match arm — this should not happen"
+                    ));
                 }
             };
 

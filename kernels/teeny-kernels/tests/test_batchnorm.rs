@@ -321,6 +321,123 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
     Ok(())
 }
 
+// ─── NCHW backward kernel tests ──────────────────────────────────────────────
+
+#[cfg(feature = "training")]
+#[test]
+fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
+    dotenv()?;
+    use teeny_cuda::compiler::target::Capability;
+    let kernel =
+        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
+    let target = Target::new(Capability::Sm90);
+    compile_kernel(&kernel, &target, true)?;
+    assert_debug_snapshot!("batch_norm_2d_nchw_backward_source", kernel.source());
+    Ok(())
+}
+
+// Analytically verified test: mean=2, var=0, eps=1 → rstd=1.
+//   x = 5.0 everywhere, weight = 3.0 everywhere, dy = 1.0 everywhere.
+//   xhat = (5 - 2) * 1 = 3.
+//   dx   = 3 * 1 * 1 = 3.0 per element.
+//   dweight[c] = B*H*W * (1 * 3) = 4 * 3 = 12.0.
+//   dbias[c]   = B*H*W * 1       = 4.0.
+#[test]
+#[cfg(all(feature = "cuda", feature = "training"))]
+fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
+    dotenv()?;
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    const BN_B: usize = 1;
+    const BN_C: usize = 4;
+    const BN_H: usize = 2;
+    const BN_W: usize = 2;
+    const BN_HW: usize = BN_H * BN_W;
+    const BN_ELEM: usize = BN_B * BN_C * BN_HW;
+    const BN_BLOCK_HW: i32 = 128;
+    const BN_EPS: f32 = 1.0;
+
+    let x_host = vec![5.0_f32; BN_ELEM];
+    let dy_host = vec![1.0_f32; BN_ELEM];
+    let weight_host = vec![3.0_f32; BN_C];
+    let running_mean_host = vec![2.0_f32; BN_C];
+    let running_var_host = vec![0.0_f32; BN_C];
+
+    let mut x_buf = device.buffer::<f32>(BN_ELEM)?;
+    let mut dy_buf = device.buffer::<f32>(BN_ELEM)?;
+    let mut w_buf = device.buffer::<f32>(BN_C)?;
+    let mut rm_buf = device.buffer::<f32>(BN_C)?;
+    let mut rv_buf = device.buffer::<f32>(BN_C)?;
+    let dx_buf = device.buffer::<f32>(BN_ELEM)?;
+    let dw_buf = device.buffer::<f32>(BN_C)?;
+    let db_buf = device.buffer::<f32>(BN_C)?;
+
+    x_buf.to_device(&x_host)?;
+    dy_buf.to_device(&dy_host)?;
+    w_buf.to_device(&weight_host)?;
+    rm_buf.to_device(&running_mean_host)?;
+    rv_buf.to_device(&running_var_host)?;
+
+    let kernel =
+        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BN_BLOCK_HW);
+    let target = Target::new(env.capability);
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward<f32>,
+    >(&ptx)?;
+
+    let cfg = CudaLaunchConfig {
+        grid: [BN_C as u32, 1, 1],
+        block: [BN_BLOCK_HW as u32, 1, 1],
+        cluster: [1, 1, 1],
+    };
+    device.launch(&program, &cfg, (
+        dy_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        w_buf.as_device_ptr() as *mut f32,
+        rm_buf.as_device_ptr() as *mut f32,
+        rv_buf.as_device_ptr() as *mut f32,
+        dw_buf.as_device_ptr() as *mut f32,
+        db_buf.as_device_ptr() as *mut f32,
+        BN_B as i32,
+        BN_C as i32,
+        BN_HW as i32,
+        BN_EPS,
+    ))?;
+
+    let mut dx_out = vec![0.0_f32; BN_ELEM];
+    let mut dw_out = vec![0.0_f32; BN_C];
+    let mut db_out = vec![0.0_f32; BN_C];
+    dx_buf.to_host(&mut dx_out)?;
+    dw_buf.to_host(&mut dw_out)?;
+    db_buf.to_host(&mut db_out)?;
+
+    // rstd = 1/sqrt(0 + 1.0) = 1.0; dx = weight * rstd * dy = 3 * 1 * 1 = 3.0
+    for (i, &v) in dx_out.iter().enumerate() {
+        assert!(
+            (v - 3.0).abs() < 1e-5,
+            "nchw_backward: dx[{i}] = {v}, expected 3.0",
+        );
+    }
+    // dweight[c] = B*H*W * (dy * xhat) = 4 * (1 * 3) = 12.0
+    for (c, &v) in dw_out.iter().enumerate() {
+        assert!(
+            (v - 12.0).abs() < 1e-5,
+            "nchw_backward: dweight[{c}] = {v}, expected 12.0",
+        );
+    }
+    // dbias[c] = B*H*W * dy = 4 * 1 = 4.0
+    for (c, &v) in db_out.iter().enumerate() {
+        assert!(
+            (v - 4.0).abs() < 1e-5,
+            "nchw_backward: dbias[{c}] = {v}, expected 4.0",
+        );
+    }
+    Ok(())
+}
+
 // ─── Graph-compiler training test ─────────────────────────────────────────────
 
 #[test]
