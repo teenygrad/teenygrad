@@ -249,6 +249,13 @@ pub enum LoweringMode {
 
 pub trait Lowering<'a> {
     fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>>;
+
+    /// Returns the next lowering in a middleware chain, or `None` if this is
+    /// the final lowering.  A custom lowering can call `self.base_lowering()`
+    /// to delegate ops it does not handle.
+    fn base_lowering(&self) -> Option<&dyn Lowering<'a>> {
+        None
+    }
 }
 
 pub trait Model<'a> {

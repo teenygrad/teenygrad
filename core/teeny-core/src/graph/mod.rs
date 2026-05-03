@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-use alloc::{rc::Rc, vec, vec::Vec};
-use core::cell::RefCell;
+use alloc::{rc::Rc, sync::Arc, vec, vec::Vec};
+use core::{any::Any, cell::RefCell};
 
 use crate::{
     dtype::{Dtype, Float, RankedTensor, Tensor},
@@ -88,6 +88,50 @@ pub enum DtypeRepr {
 // ---------------------------------------------------------------------------
 // Graph IR
 // ---------------------------------------------------------------------------
+
+/// Trait implemented by user-defined ops.
+///
+/// The custom lowering receives the concrete type via [`CustomData::downcast_ref`]
+/// after matching on [`Op::Custom`].
+pub trait CustomOp: Any + Send + Sync {
+    /// Identifier used in error messages and debug output.
+    fn name(&self) -> &str;
+
+    /// Compute the output shape given the shapes of all input tensors in order.
+    fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape;
+
+    /// Expose `self` as `&dyn Any` so the custom lowering can downcast to the
+    /// concrete op type.  Implement as `fn as_any(&self) -> &dyn Any { self }`.
+    fn as_any(&self) -> &dyn Any;
+}
+
+/// Wrapper around `Arc<dyn CustomOp>` that implements `Debug` for [`Op`].
+pub struct CustomData(pub Arc<dyn CustomOp>);
+
+impl CustomData {
+    pub fn new<T: CustomOp>(op: T) -> Self {
+        Self(Arc::new(op))
+    }
+
+    pub fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    pub fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
+        self.0.infer_output_shape(input_shapes)
+    }
+
+    /// Downcast to a concrete op type via [`CustomOp::as_any`].
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.0.as_any().downcast_ref::<T>()
+    }
+}
+
+impl core::fmt::Debug for CustomData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Custom({})", self.0.name())
+    }
+}
 
 #[derive(Debug)]
 pub enum Op {
@@ -284,6 +328,12 @@ pub enum Op {
     /// Adds a (C,) bias vector to a (B, C, H, W) feature map — NC layout (N=B*H*W).
     /// Output shape equals input shape.
     ChannelBiasAdd { c: usize },
+
+    /// User-defined op.  Shape and dtype must be provided via [`Graph::add_node`]
+    /// or [`SymTensor::record_custom`] — the base system cannot infer them.
+    Custom {
+        data: CustomData,
+    },
 }
 
 #[derive(Debug)]
@@ -355,7 +405,8 @@ impl Graph {
 // Shape inference — computes the output shape for each Op given an input shape
 // ---------------------------------------------------------------------------
 
-fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
+fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
+    let input = inputs[0];
     match op {
         Op::Input => input.clone(),
 
@@ -528,6 +579,8 @@ fn infer_output_shape(op: &Op, input: &Shape) -> Shape {
         }
 
         Op::ChannelBiasAdd { .. } => input.to_vec(),
+
+        Op::Custom { data } => data.infer_output_shape(inputs),
     }
 }
 
@@ -578,7 +631,7 @@ impl SymTensor {
     }
 
     fn record(&self, op: Op) -> Self {
-        let output_shape = infer_output_shape(&op, &self.shape);
+        let output_shape = infer_output_shape(&op, &[&self.shape]);
         self.record_with_shape(op, output_shape)
     }
 
@@ -588,6 +641,32 @@ impl SymTensor {
                 .borrow_mut()
                 .add_node(op, vec![self.node_id], self.dtype, shape.clone());
         Self { node_id, graph: self.graph.clone(), dtype: self.dtype, shape }
+    }
+
+    /// Record a custom op whose output shape is determined by [`CustomOp::infer_output_shape`].
+    ///
+    /// `self` is the primary (first) input.  Pass additional inputs via
+    /// `other_inputs`.  Pass `dtype` to override the output element type;
+    /// defaults to the primary input's dtype.
+    pub fn record_custom(
+        &self,
+        data: CustomData,
+        other_inputs: &[&SymTensor],
+        dtype: Option<DtypeRepr>,
+    ) -> Self {
+        let mut shapes: Vec<&Shape> = vec![&self.shape];
+        shapes.extend(other_inputs.iter().map(|t| &t.shape));
+        let output_shape = data.infer_output_shape(&shapes);
+
+        let mut input_ids: Vec<usize> = vec![self.node_id];
+        input_ids.extend(other_inputs.iter().map(|t| t.node_id));
+
+        let out_dtype = dtype.unwrap_or(self.dtype);
+        let node_id = self
+            .graph
+            .borrow_mut()
+            .add_node(Op::Custom { data }, input_ids, out_dtype, output_shape.clone());
+        Self { node_id, graph: self.graph.clone(), dtype: out_dtype, shape: output_shape }
     }
 }
 

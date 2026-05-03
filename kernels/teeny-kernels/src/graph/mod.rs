@@ -1085,6 +1085,14 @@ impl<'a> Lowering<'a> for TritonLowering {
                         "Op::Attention reached the match arm — this should not happen"
                     ));
                 }
+
+                Op::Custom { data } => {
+                    return Err(anyhow::anyhow!(
+                        "custom op '{}' is not handled by TritonLowering — \
+                         wrap it in a custom lowering chain",
+                        data.name()
+                    ));
+                }
             };
 
             let dag_idx = dag.add_node(executable);
