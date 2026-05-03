@@ -404,8 +404,15 @@ impl TritonLowering {
     }
 }
 
-impl<'a> Lowering<'a> for TritonLowering {
-    fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>> {
+impl TritonLowering {
+    /// Like `lower` but also returns the graph-node-index → DAG-node-index mapping.
+    /// Useful for middleware lowerings that need to patch specific DAG nodes after
+    /// the base lowering runs.
+    pub fn lower_with_mapping(
+        &self,
+        graph: &Graph,
+        mode: LoweringMode,
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
         let _ = mode; // used by #[cfg(feature = "training")] branch below
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
@@ -1103,6 +1110,12 @@ impl<'a> Lowering<'a> for TritonLowering {
             }
         }
 
-        Ok(dag)
+        Ok((dag, graph_to_dag))
+    }
+}
+
+impl<'a> Lowering<'a> for TritonLowering {
+    fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>> {
+        self.lower_with_mapping(graph, mode).map(|(dag, _)| dag)
     }
 }

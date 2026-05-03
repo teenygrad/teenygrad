@@ -49,6 +49,14 @@ pub trait RuntimeOp: Send + Sync {
         output_shape.last().copied().unwrap_or(1)
     }
 
+    /// Returns raw (little-endian) bytes to pre-populate parameter slot `param_idx`
+    /// immediately after device buffer allocation.  Return `None` to leave the
+    /// slot zero-initialised (the default for trained parameters).
+    /// Byte count must equal `param_shapes()[param_idx].iter().product() * dtype_bytes`.
+    fn param_init_data(&self, _param_idx: usize) -> Option<Vec<u8>> {
+        None
+    }
+
     /// Pack all kernel arguments into `visitor` in the correct order.
     /// - `inputs`            — (ptr, concrete_shape) per activation input
     /// - `params`            — raw pointers to pre-allocated param buffers

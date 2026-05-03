@@ -106,6 +106,7 @@ pub trait CustomOp: Any + Send + Sync {
 }
 
 /// Wrapper around `Arc<dyn CustomOp>` that implements `Debug` for [`Op`].
+#[derive(Clone)]
 pub struct CustomData(pub Arc<dyn CustomOp>);
 
 impl CustomData {
@@ -133,7 +134,7 @@ impl core::fmt::Debug for CustomData {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op {
     /// Model input placeholder.
     Input,
@@ -336,7 +337,7 @@ pub enum Op {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GraphNode {
     pub op: Op,
     /// Indices of producer nodes in `Graph::nodes`; empty for `Input`.
@@ -347,7 +348,7 @@ pub struct GraphNode {
     pub shape: Shape,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
 }

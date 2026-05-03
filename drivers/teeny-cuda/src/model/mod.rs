@@ -150,11 +150,14 @@ impl<'a> CudaModel<'a> {
             // Allocate and zero-init device buffers for each parameter slot.
             let p_shapes = rop.param_shapes(&parent_shape_refs, &output_shape);
             let mut param_bufs: Vec<DevicePtr> = Vec::with_capacity(p_shapes.len());
-            for ps in &p_shapes {
+            for (pi, ps) in p_shapes.iter().enumerate() {
                 let n_elems: usize = ps.iter().product();
                 let byte_size = n_elems * dtype_bytes(cn.output_dtype);
                 let ptr = mem::alloc(byte_size)?;
                 unsafe { cuda::cuMemsetD8_v2(ptr, 0, byte_size) };
+                if let Some(cpu_bytes) = rop.param_init_data(pi) {
+                    unsafe { mem::copy_h_to_d::<u8>(ptr, cpu_bytes.as_ptr(), cpu_bytes.len())? };
+                }
                 param_bufs.push(ptr);
             }
 
