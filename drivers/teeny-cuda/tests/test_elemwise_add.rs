@@ -52,7 +52,7 @@ fn test_tensor_add() -> Result<()> {
     println!("[5/9] copied input data to device");
 
     // ── Compile PTX → cubin → CudaProgram ─────────────────────────────────
-    let kernel = teeny_kernels::math::add::VectorAdd::<f32>::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[6/9] compiled PTX: {ptx_path}");
@@ -64,7 +64,7 @@ fn test_tensor_add() -> Result<()> {
     );
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::math::add::VectorAdd<f32>,
+        teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward<f32>,
     >(&ptx)?;
 
     // ── Launch ─────────────────────────────────────────────────────────────

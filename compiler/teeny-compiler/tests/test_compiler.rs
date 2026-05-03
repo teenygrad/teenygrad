@@ -34,12 +34,12 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         )
         .try_init();
 
-    let tensor_add = &teeny_kernels::math::add::VectorAdd::<f32>::new(1024);
+    let tensor_add = &teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(1024);
     let target = Target::new(Capability::Sm90);
     let output_file = compile_kernel(tensor_add, &target, true)?;
 
     let generated_ptx = std::fs::read_to_string(output_file)?;
-    assert_snapshot!("vector_add_sm90", generated_ptx.trim());
+    assert_snapshot!("elemwise_add_forward_sm90", generated_ptx.trim());
 
     Ok(())
 }

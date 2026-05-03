@@ -62,6 +62,7 @@ use crate::nn::{
         channel_bias_add::ChannelBiasAddRuntimeOp,
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
+        elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
         upsample_nearest2d::UpsampleNearest2dForward,
     },
 };
@@ -795,7 +796,9 @@ impl<'a> Lowering<'a> for TritonLowering {
                     })
                 }
 
-                Op::Add | Op::Attention { .. } => {
+                Op::Add => make_num_kernel!(ElemwiseAddForward(128), ElemwiseAddBackward(128), node),
+
+                Op::Attention { .. } => {
                     return Err(anyhow::anyhow!("kernel lowering for {:?} is not yet implemented", node.op));
                 }
             };
