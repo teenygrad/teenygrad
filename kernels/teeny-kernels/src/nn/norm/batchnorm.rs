@@ -125,10 +125,11 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     let c = T::program_id(Axis::X);
 
     // Accumulate sum(x) and sum(x²) over all N elements for this channel.
-    let zeros_1 = T::zeros::<D>(&[1]);
+    // Triton idiom: accumulate BLOCK_N-wide tiles inside the loop, reduce once
+    // outside — tt.reduce inside a loop body is not supported by Triton's lowering.
     let zeros_blk = T::zeros::<D>(&[BLOCK_N]);
-    let mut sum = zeros_1;
-    let mut sum_sq = zeros_1;
+    let mut acc_sum = zeros_blk;
+    let mut acc_sum_sq = zeros_blk;
     let mut n_start: i32 = 0;
 
     while n_start < N {
@@ -137,11 +138,15 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
         let elem_offsets = offsets_n * C + c;
 
         let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
-        sum = sum + T::sum(x_tile, None, true);
-        sum_sq = sum_sq + T::sum(x_tile * x_tile, None, true);
+        acc_sum = acc_sum + x_tile;
+        acc_sum_sq = acc_sum_sq + x_tile * x_tile;
 
         n_start += BLOCK_N;
     }
+
+    // Single reduce outside the loop — shape [BLOCK_N] → [1].
+    let sum = T::sum(acc_sum, None, true);
+    let sum_sq = T::sum(acc_sum_sq, None, true);
 
     // Derive mean, biased variance, and rstd (all shape [1]).
     let n_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false);
@@ -709,10 +714,11 @@ pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     );
 
     // Pass 1: accumulate dbias (= Σ dy) and dweight (= Σ dy * xhat).
-    let zeros_1 = T::zeros::<D>(&[1]);
+    // Triton idiom: accumulate BLOCK_N-wide tiles inside the loop, reduce once
+    // outside — tt.reduce inside a loop body is not supported by Triton's lowering.
     let zeros_blk = T::zeros::<D>(&[BLOCK_N]);
-    let mut sum_dy = zeros_1;
-    let mut sum_dy_xhat = zeros_1;
+    let mut acc_dy = zeros_blk;
+    let mut acc_dy_xhat = zeros_blk;
     let mut n_start: i32 = 0;
 
     while n_start < N {
@@ -724,11 +730,15 @@ pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
         let dy_tile = T::load(dy_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
         let xhat = (x_tile - mean) * rstd;
 
-        sum_dy = sum_dy + T::sum(dy_tile, None, true);
-        sum_dy_xhat = sum_dy_xhat + T::sum(dy_tile * xhat, None, true);
+        acc_dy = acc_dy + dy_tile;
+        acc_dy_xhat = acc_dy_xhat + dy_tile * xhat;
 
         n_start += BLOCK_N;
     }
+
+    // Single reduce outside the loop — shape [BLOCK_N] → [1].
+    let sum_dy = T::sum(acc_dy, None, true);
+    let sum_dy_xhat = T::sum(acc_dy_xhat, None, true);
 
     // Save dweight and dbias (shape [1] → stored as scalars).
     T::store(dweight_ptr.add_offsets(c_idx), sum_dy_xhat, None, &[], None, None);
