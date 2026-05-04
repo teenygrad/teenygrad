@@ -190,8 +190,8 @@ async fn main() -> Result<()> {
     // CE loss launch config: one CTA per row (batch element), block from kernel metadata.
     let ce_cfg = CudaLaunchConfig {
         grid:    [BATCH_SIZE as u32, 1, 1],
-        block:   [ce_fwd_prog.metadata.threads_per_block(), 1, 1],
-        cluster: [ce_fwd_prog.metadata.num_ctas.max(1), 1, 1],
+        block:   [ce_fwd_prog.threads_per_block(), 1, 1],
+        cluster: [ce_fwd_prog.num_ctas().max(1), 1, 1],
     };
 
     // ── 8. Training loop ──────────────────────────────────────────────────────

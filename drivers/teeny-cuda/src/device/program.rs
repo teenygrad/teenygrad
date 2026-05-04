@@ -165,6 +165,12 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     pub fn function_ptr(&self) -> usize {
         self.function as usize
     }
+    pub fn threads_per_block(&self) -> u32 {
+        self.metadata.threads_per_block()
+    }
+    pub fn num_ctas(&self) -> u32 {
+        self.metadata.num_ctas
+    }
 
     /// Load a cubin image into the current CUDA context and resolve `entry_point`.
     ///
