@@ -58,8 +58,44 @@ use teeny_core::{
     sequential,
 };
 
-/// LeNet-5 (valid-convolution variant) — no padding, no bias, compatible with
-/// the current Conv2d/Linear runtime kernels.
+/// LeNet-5 (valid-convolution variant) — no padding, no bias, returns raw
+/// logits.  Use this for training with a cross-entropy loss kernel that
+/// computes log-softmax internally.
+///
+/// ```text
+/// Input         [N,  1, 28, 28]
+/// Conv2d(1→6,   5×5, pad=0) →  [N,  6, 24, 24]
+/// ReLU
+/// AvgPool2d(2×2, stride=2)  →  [N,  6, 12, 12]
+/// Conv2d(6→16,  5×5, pad=0) →  [N, 16,  8,  8]
+/// ReLU
+/// AvgPool2d(2×2, stride=2)  →  [N, 16,  4,  4]
+/// Flatten                   →  [N, 256]
+/// Linear(256→120)
+/// ReLU
+/// Linear(120→84)
+/// ReLU
+/// Linear(84→10)             →  [N, 10]  raw logits
+/// ```
+pub fn mnist_lenet5<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
+    sequential![
+        Conv2d::<D, _, _, 4>::new(1, 6, (5, 5), (1, 1), (0, 0), false),
+        Relu::<D, _, 4>::new(),
+        AvgPool2d::<D, _, _, 4>::new((2, 2), (2, 2)),
+        Conv2d::<D, _, _, 4>::new(6, 16, (5, 5), (1, 1), (0, 0), false),
+        Relu::<D, _, 4>::new(),
+        AvgPool2d::<D, _, _, 4>::new((2, 2), (2, 2)),
+        Flatten::<D, _, _>::new(),
+        Linear::<D, _, _, 2>::new(256, 120, false),
+        Relu::<D, _, 2>::new(),
+        Linear::<D, _, _, 2>::new(120, 84, false),
+        Relu::<D, _, 2>::new(),
+        Linear::<D, _, _, 2>::new(84, 10, false)
+    ]
+}
+
+/// LeNet-5 (valid-convolution variant) — no padding, no bias, with final
+/// softmax.  Use this for inference when you need class probabilities.
 ///
 /// ```text
 /// Input         [N,  1, 28, 28]

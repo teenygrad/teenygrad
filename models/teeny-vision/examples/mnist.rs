@@ -16,14 +16,16 @@
 
 //! End-to-end MNIST training + evaluation demo.
 //!
-//! Architecture: 3-layer MLP (784→256→64→10, ReLU activations, no bias).
+//! Architecture: LeNet-5 (valid-conv variant): Conv→ReLU→AvgPool ×2, then
+//!               Linear(256→120)→ReLU→Linear(120→84)→ReLU→Linear(84→10).
+//!               No padding, no bias; raw logits (no final softmax).
 //! Loss:         cross-entropy (numerically stable log-sum-exp variant).
 //! Optimiser:    AdamW with decoupled weight decay.
 //!
 //! Steps performed:
 //!   1. Download the HuggingFace MNIST parquet files (cached in TEENY_DATA_DIR).
 //!   2. Load the full train/test sets into host memory (PNG decode, one-time cost).
-//!   3. Trace + compile the MLP graph to PTX via CudaGraphCompiler.
+//!   3. Trace + compile the LeNet-5 graph to PTX via CudaGraphCompiler.
 //!   4. Compile standalone CE-loss and AdamW PTX kernels.
 //!   5. Initialise weights with Kaiming-uniform and upload to device.
 //!   6. Train for N_EPOCHS, printing loss every 200 steps.
@@ -63,7 +65,7 @@ use teeny_kernels::{
         optim::adam::AdamwStep,
     },
 };
-use teeny_vision::mnist::{MnistDataset, mnist_mlp};
+use teeny_vision::mnist::{MnistDataset, mnist_lenet5};
 use tokio::io::AsyncWriteExt;
 
 // ── Hyper-parameters ──────────────────────────────────────────────────────────
@@ -123,8 +125,8 @@ async fn main() -> Result<()> {
     let capability = capability_from_device_info(&device.info)?;
     println!("      device: {} ({})", device.info.name, capability);
 
-    // ── 4. Trace + compile the MLP ───────────────────────────────────────────
-    println!("[3/8] tracing + compiling MLP graph …");
+    // ── 4. Trace + compile LeNet-5 ───────────────────────────────────────────
+    println!("[3/8] tracing + compiling LeNet-5 graph …");
     let rustc_path = env::var("TEENY_RUSTC_PATH")
         .context("TEENY_RUSTC_PATH must point to the teenygrad rustc binary")?;
     let ptx_cache =
@@ -132,7 +134,7 @@ async fn main() -> Result<()> {
 
     let (input, graph) =
         SymTensor::input(DtypeRepr::F32, vec![None, Some(1), Some(28), Some(28)]);
-    let _output = Layer::call(&mnist_mlp::<f32>(), input);
+    let _output = Layer::call(&mnist_lenet5::<f32>(), input);
     let graph = graph.borrow();
     println!("      graph: {} nodes", graph.nodes.len());
 
@@ -248,7 +250,7 @@ async fn main() -> Result<()> {
                 device.launch_with_packer(&ce_bwd_prog, &ce_cfg, &mut packer)?;
             }
 
-            // Model backward: propagate gradients through the MLP layers.
+            // Model backward: propagate gradients through the LeNet-5 layers.
             let grad_out = TensorRef::new(dx_logit_ptr, vec![BATCH_SIZE, N_CLASSES]);
             model.backward(&device, BATCH_SIZE, grad_out, &cache)?;
 
