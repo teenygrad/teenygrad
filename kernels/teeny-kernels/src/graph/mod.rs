@@ -1094,11 +1094,28 @@ impl TritonLowering {
                 }
 
                 Op::Custom { data } => {
-                    return Err(anyhow::anyhow!(
-                        "custom op '{}' is not handled by TritonLowering — \
-                         wrap it in a custom lowering chain",
-                        data.name()
-                    ));
+                    match data.0.lower() {
+                        Some((name, kernel_source, entry_point, runtime_op)) => {
+                            Box::new(KernelExecutable {
+                                name,
+                                kernel_source,
+                                entry_point,
+                                shape: node.shape.clone(),
+                                dtype: node.dtype,
+                                runtime_op,
+                                #[cfg(feature = "training")]
+                                backward_kernel_source: String::new(),
+                                #[cfg(feature = "training")]
+                                backward_entry_point: String::new(),
+                            })
+                        }
+                        None => {
+                            return Err(anyhow::anyhow!(
+                                "custom op '{}' is not handled — implement CustomOp::lower()",
+                                data.name()
+                            ));
+                        }
+                    }
                 }
             };
 

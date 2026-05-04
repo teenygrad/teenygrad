@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use alloc::{rc::Rc, sync::Arc, vec, vec::Vec};
+use alloc::{rc::Rc, string::String, sync::Arc, vec, vec::Vec};
 use core::{any::Any, cell::RefCell};
 
 use crate::{
@@ -90,9 +90,6 @@ pub enum DtypeRepr {
 // ---------------------------------------------------------------------------
 
 /// Trait implemented by user-defined ops.
-///
-/// The custom lowering receives the concrete type via [`CustomData::downcast_ref`]
-/// after matching on [`Op::Custom`].
 pub trait CustomOp: Any + Send + Sync {
     /// Identifier used in error messages and debug output.
     fn name(&self) -> &str;
@@ -103,6 +100,15 @@ pub trait CustomOp: Any + Send + Sync {
     /// Expose `self` as `&dyn Any` so the custom lowering can downcast to the
     /// concrete op type.  Implement as `fn as_any(&self) -> &dyn Any { self }`.
     fn as_any(&self) -> &dyn Any;
+
+    /// Return kernel lowering info so `TritonLowering` can compile this op
+    /// without a project-specific middleware.  Return `None` to keep the
+    /// existing middleware / error behaviour.
+    ///
+    /// Tuple layout: `(name, kernel_source, entry_point, runtime_op)`.
+    fn lower(&self) -> Option<(String, String, String, Arc<dyn crate::model::RuntimeOp>)> {
+        None
+    }
 }
 
 /// Wrapper around `Arc<dyn CustomOp>` that implements `Debug` for [`Op`].
