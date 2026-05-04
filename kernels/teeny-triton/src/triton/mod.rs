@@ -377,6 +377,7 @@ where
     fn sqrt<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
     fn sqrt_rn<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
     fn erf<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    fn atan<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
 
     /*------------------------------ Math Ops — Float (higher-level) ------------------------------*/
 

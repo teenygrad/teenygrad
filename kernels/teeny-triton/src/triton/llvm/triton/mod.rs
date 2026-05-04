@@ -465,6 +465,12 @@ impl Triton for LlvmTriton {
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
+    fn atan<D: ty::Float>(_x: Self::Tensor<D>) -> Self::Tensor<D> {
+        tensor::LlvmTensor(0 as *mut D)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn softmax<D: ty::Float>(
         _x: Self::Tensor<D>,
         _dim: Option<i32>,
