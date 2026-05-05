@@ -35,6 +35,51 @@ use crate::{
 };
 
 // ---------------------------------------------------------------------------
+// Inline PTX for GPU-side f32 gradient accumulation: dst[i] += src[i]
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "training")]
+const GRAD_ACCUM_F32_PTX: &[u8] = b"\
+// meta:name=grad_accum_f32\n\
+// meta:num_warps=4\n\
+.version 7.0\n\
+.target sm_60\n\
+.address_size 64\n\
+\n\
+.visible .entry grad_accum_f32(\n\
+    .param .u64 param0,\n\
+    .param .u64 param1,\n\
+    .param .u32 param2,\n\
+    .param .u64 param3,\n\
+    .param .u64 param4\n\
+)\n\
+{\n\
+    .reg .pred %p0;\n\
+    .reg .u32 %r<5>;\n\
+    .reg .u64 %rd<5>;\n\
+    .reg .f32 %f<3>;\n\
+    ld.param.u64 %rd0, [param0];\n\
+    ld.param.u64 %rd1, [param1];\n\
+    ld.param.u32 %r0,  [param2];\n\
+    mov.u32 %r1, %ctaid.x;\n\
+    mov.u32 %r2, %ntid.x;\n\
+    mov.u32 %r3, %tid.x;\n\
+    mad.lo.u32 %r4, %r1, %r2, %r3;\n\
+    setp.ge.u32 %p0, %r4, %r0;\n\
+    @%p0 bra $L__return;\n\
+    mul.wide.u32 %rd2, %r4, 4;\n\
+    add.u64 %rd3, %rd0, %rd2;\n\
+    add.u64 %rd4, %rd1, %rd2;\n\
+    ld.global.f32 %f0, [%rd3];\n\
+    ld.global.f32 %f1, [%rd4];\n\
+    add.f32 %f2, %f0, %f1;\n\
+    st.global.f32 [%rd3], %f2;\n\
+$L__return:\n\
+    ret;\n\
+}\n\
+";
+
+// ---------------------------------------------------------------------------
 // TensorRef — a device buffer pointer with a concrete runtime shape
 // ---------------------------------------------------------------------------
 
@@ -222,6 +267,8 @@ impl<'a> CudaModel<'a> {
             parents,
             #[cfg(feature = "training")]
             optim_step: 0,
+            #[cfg(feature = "training")]
+            accum_program: None,
         })
     }
 }
@@ -293,6 +340,9 @@ pub struct LoadedModel {
     /// AdamW step counter for bias correction (incremented each `adamw_step` call).
     #[cfg(feature = "training")]
     optim_step: u32,
+    /// Lazily-compiled f32 gradient accumulation kernel (`dst[i] += src[i]`).
+    #[cfg(feature = "training")]
+    accum_program: Option<CudaProgram<'static, ErasedKernel>>,
 }
 
 impl LoadedModel {
@@ -576,9 +626,86 @@ impl LoadedModel {
         Ok((output, ActivationCache { tensors: ctx }))
     }
 
-    /// Run the backward pass, accumulating parameter gradients into each node's
-    /// `grad_param_bufs`.  Call `zero_grad` before each training step to reset
-    /// those buffers.
+
+    /// Zero all parameter gradient buffers. Call before each backward pass.
+    #[cfg(feature = "training")]
+    pub fn zero_grad(&mut self) {
+        for node in self.nodes.iter().flatten() {
+            for (&gp, ps) in node.grad_param_bufs.iter().zip(node.param_shapes.iter()) {
+                let byte_size = ps.iter().product::<usize>() * dtype_bytes(node.output_dtype);
+                unsafe { cuda::cuMemsetD8_v2(gp, 0, byte_size); }
+            }
+        }
+    }
+
+    /// Apply an AdamW update to all parameters using the accumulated gradient buffers.
+    ///
+    /// `kernel` — pre-compiled `adamw_step` PTX (compile with `AdamwStep::new(1024)` from
+    ///            `teeny_kernels::nn::optim::adam`).
+    #[cfg(feature = "training")]
+    pub fn adamw_step(
+        &mut self,
+        device: &CudaDevice<'_>,
+        kernel: &AdamwKernel,
+        lr: f32,
+        beta1: f32,
+        beta2: f32,
+        eps: f32,
+        weight_decay: f32,
+    ) -> Result<()> {
+        self.optim_step += 1;
+        let bias_correction1 = 1.0_f32 - beta1.powi(self.optim_step as i32);
+        let bias_correction2 = 1.0_f32 - beta2.powi(self.optim_step as i32);
+        let step_size = lr / bias_correction1;
+        let bias_corr2_sqrt = bias_correction2.sqrt();
+
+        for node in self.nodes.iter().flatten() {
+            if node.param_bufs.is_empty() { continue; }
+            for i in 0..node.param_bufs.len() {
+                let n_elems: usize = node.param_shapes[i].iter().product();
+                let mut packer = CudaArgPacker::new();
+                packer.visit_ptr(node.param_bufs[i] as *mut core::ffi::c_void);      // params_ptr
+                packer.visit_ptr(node.grad_param_bufs[i] as *mut core::ffi::c_void); // grad_ptr
+                packer.visit_ptr(node.optim_m_bufs[i] as *mut core::ffi::c_void);    // exp_avg_ptr
+                packer.visit_ptr(node.optim_v_bufs[i] as *mut core::ffi::c_void);    // exp_avg_sq_ptr
+                packer.visit_i32(n_elems as i32);   // n_elements
+                packer.visit_f32(step_size);         // step_size
+                packer.visit_f32(bias_corr2_sqrt);   // bias_corr2_sqrt
+                packer.visit_f32(beta1);             // beta1
+                packer.visit_f32(beta2);             // beta2
+                packer.visit_f32(eps);               // eps
+                packer.visit_f32(weight_decay);      // weight_decay
+                packer.visit_f32(lr);                // lr
+
+                let threads = kernel.program.metadata.threads_per_block();
+                let grid = [n_elems.div_ceil(threads as usize) as u32, 1, 1];
+                let block = [threads, 1, 1];
+                device.launch_with_packer(
+                    &kernel.program,
+                    &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] },
+                    &mut packer,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Indices of all DAG nodes that have no children (sinks / output nodes).
+    ///
+    /// For single-output models this returns one element.  YOLO26 returns two:
+    /// the boxes node and the scores node.
+    pub fn terminal_node_indices(&self) -> Vec<usize> {
+        let n = self.nodes.len();
+        let mut has_child = vec![false; n];
+        for i in 0..n {
+            for &p in &self.parents[i] {
+                has_child[p] = true;
+            }
+        }
+        (0..n).filter(|&i| !has_child[i]).collect()
+    }
+
+    /// Backward pass seeded from a single output node (common case for single-output models).
     ///
     /// `grad_output` — dL/d(model_output), provided by the loss backward.
     /// `cache`       — the activation cache returned by `forward_train`.
@@ -590,6 +717,28 @@ impl LoadedModel {
         grad_output: TensorRef,
         cache: &ActivationCache,
     ) -> Result<()> {
+        let topo = self.topo_sort();
+        let last_idx = *topo.last().ok_or_else(|| anyhow!("empty model"))?;
+        self.backward_multi(device, batch_size, &[(last_idx, grad_output)], cache)
+    }
+
+    /// Backward pass seeded from multiple output nodes (e.g. YOLO26 boxes + scores).
+    ///
+    /// `seed_grads` — list of `(node_idx, grad_tensor)` pairs, one per output node.
+    /// `cache`      — the activation cache returned by `forward_train`.
+    #[cfg(feature = "training")]
+    pub fn backward_multi(
+        &mut self,
+        device: &CudaDevice<'_>,
+        batch_size: usize,
+        seed_grads: &[(usize, TensorRef)],
+        cache: &ActivationCache,
+    ) -> Result<()> {
+        // Lazy-compile the gradient accumulation kernel on first use.
+        if self.accum_program.is_none() {
+            self.accum_program = Some(CudaProgram::<ErasedKernel>::try_from_ptx(GRAD_ACCUM_F32_PTX)?);
+        }
+
         let n = self.nodes.len();
         let topo = self.topo_sort();
 
@@ -598,8 +747,9 @@ impl LoadedModel {
         // All intermediate gradient buffers we allocated (freed after backward).
         let mut owned_grad_ptrs: Vec<DevicePtr> = Vec::new();
 
-        let last_idx = *topo.last().ok_or_else(|| anyhow!("empty model"))?;
-        grad_ctx[last_idx] = Some(grad_output.ptr);
+        for (node_idx, grad) in seed_grads {
+            grad_ctx[*node_idx] = Some(grad.ptr);
+        }
 
         for &idx in topo.iter().rev() {
             let grad_in_ptr = match grad_ctx[idx] {
@@ -641,7 +791,7 @@ impl LoadedModel {
                     .map(|&p| p as *mut core::ffi::c_void)
                     .collect();
 
-                // Allocate gradient buffers for each activation parent.
+                // Allocate zero-initialised gradient buffers for each activation parent.
                 let mut grad_input_ptrs: Vec<DevicePtr> = Vec::with_capacity(parent_trs.len());
                 for tr in &parent_trs {
                     let n_elems: usize = tr.shape.iter().product();
@@ -719,14 +869,15 @@ impl LoadedModel {
 
                 bwd_result?;
 
-                // Propagate gradients to parent nodes.
+                // Propagate gradients to parent nodes. If a parent already has a
+                // gradient (fan-out node), accumulate: existing += new_contrib.
                 for (i, &pidx) in parent_indices.iter().enumerate() {
-                    if grad_ctx[pidx].is_some() {
-                        return Err(anyhow!(
-                            "gradient accumulation not yet supported (node {pidx} has multiple consumers)"
-                        ));
+                    if let Some(existing) = grad_ctx[pidx] {
+                        let n_elems: usize = parent_trs[i].shape.iter().product();
+                        self.accum_grad_f32(device, existing, grad_input_ptrs[i], n_elems)?;
+                    } else {
+                        grad_ctx[pidx] = Some(grad_input_ptrs[i]);
                     }
-                    grad_ctx[pidx] = Some(grad_input_ptrs[i]);
                 }
             }
         }
@@ -734,74 +885,25 @@ impl LoadedModel {
         // Free all intermediate gradient buffers.
         for ptr in owned_grad_ptrs {
             let _ = mem::free(ptr).map_err(|e| {
-                eprintln!("LoadedModel::backward: failed to free grad buffer: {e}");
+                eprintln!("LoadedModel::backward_multi: failed to free grad buffer: {e}");
             });
         }
 
         Ok(())
     }
 
-    /// Zero all parameter gradient buffers. Call before each backward pass.
+    /// In-place GPU accumulation: `dst[i] += src[i]` for `n_elems` f32 values.
     #[cfg(feature = "training")]
-    pub fn zero_grad(&mut self) {
-        for node in self.nodes.iter().flatten() {
-            for (&gp, ps) in node.grad_param_bufs.iter().zip(node.param_shapes.iter()) {
-                let byte_size = ps.iter().product::<usize>() * dtype_bytes(node.output_dtype);
-                unsafe { cuda::cuMemsetD8_v2(gp, 0, byte_size); }
-            }
-        }
-    }
-
-    /// Apply an AdamW update to all parameters using the accumulated gradient buffers.
-    ///
-    /// `kernel` — pre-compiled `adamw_step` PTX (compile with `AdamwStep::new(1024)` from
-    ///            `teeny_kernels::nn::optim::adam`).
-    #[cfg(feature = "training")]
-    pub fn adamw_step(
-        &mut self,
-        device: &CudaDevice<'_>,
-        kernel: &AdamwKernel,
-        lr: f32,
-        beta1: f32,
-        beta2: f32,
-        eps: f32,
-        weight_decay: f32,
-    ) -> Result<()> {
-        self.optim_step += 1;
-        let bias_correction1 = 1.0_f32 - beta1.powi(self.optim_step as i32);
-        let bias_correction2 = 1.0_f32 - beta2.powi(self.optim_step as i32);
-        let step_size = lr / bias_correction1;
-        let bias_corr2_sqrt = bias_correction2.sqrt();
-
-        for node in self.nodes.iter().flatten() {
-            if node.param_bufs.is_empty() { continue; }
-            for i in 0..node.param_bufs.len() {
-                let n_elems: usize = node.param_shapes[i].iter().product();
-                let mut packer = CudaArgPacker::new();
-                packer.visit_ptr(node.param_bufs[i] as *mut core::ffi::c_void);      // params_ptr
-                packer.visit_ptr(node.grad_param_bufs[i] as *mut core::ffi::c_void); // grad_ptr
-                packer.visit_ptr(node.optim_m_bufs[i] as *mut core::ffi::c_void);    // exp_avg_ptr
-                packer.visit_ptr(node.optim_v_bufs[i] as *mut core::ffi::c_void);    // exp_avg_sq_ptr
-                packer.visit_i32(n_elems as i32);   // n_elements
-                packer.visit_f32(step_size);         // step_size
-                packer.visit_f32(bias_corr2_sqrt);   // bias_corr2_sqrt
-                packer.visit_f32(beta1);             // beta1
-                packer.visit_f32(beta2);             // beta2
-                packer.visit_f32(eps);               // eps
-                packer.visit_f32(weight_decay);      // weight_decay
-                packer.visit_f32(lr);                // lr
-
-                let threads = kernel.program.metadata.threads_per_block();
-                let grid = [n_elems.div_ceil(threads as usize) as u32, 1, 1];
-                let block = [threads, 1, 1];
-                device.launch_with_packer(
-                    &kernel.program,
-                    &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] },
-                    &mut packer,
-                )?;
-            }
-        }
-        Ok(())
+    fn accum_grad_f32(&self, device: &CudaDevice<'_>, dst: DevicePtr, src: DevicePtr, n_elems: usize) -> Result<()> {
+        let prog = self.accum_program.as_ref().expect("accum_program must be initialised before calling accum_grad_f32");
+        let threads: u32 = prog.metadata.threads_per_block();
+        let grid = [n_elems.div_ceil(threads as usize) as u32, 1, 1];
+        let block = [threads, 1, 1];
+        let mut packer = CudaArgPacker::new();
+        packer.visit_ptr(dst as *mut core::ffi::c_void);
+        packer.visit_ptr(src as *mut core::ffi::c_void);
+        packer.visit_i32(n_elems as i32);
+        device.launch_with_packer(prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)
     }
 
     fn topo_sort(&self) -> Vec<usize> {
