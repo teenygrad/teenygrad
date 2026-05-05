@@ -622,19 +622,32 @@ impl LoadedModel {
                 .map(|&p| p as *mut core::ffi::c_void)
                 .collect();
 
-            let mut packer = CudaArgPacker::new();
-            loaded.runtime_op.pack_args(
-                &act_inputs,
-                &param_ptrs,
-                kernel_out_ptr as *mut core::ffi::c_void,
-                &output_shape,
-                required_stride as i32,
-                &mut packer,
-            );
-            let grid = loaded.runtime_op.grid(&output_shape);
+            let n_launches = loaded.runtime_op.n_launches();
+            let input_shapes: Vec<&[usize]> = act_inputs.iter().map(|(_, s)| *s).collect();
             let block = [loaded.program.metadata.threads_per_block(), 1, 1];
             let cluster = [loaded.program.metadata.num_ctas, 1, 1];
-            let launch_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
+            let out_raw = kernel_out_ptr as *mut core::ffi::c_void;
+
+            let mut launch_result = Ok(());
+            for launch_idx in 0..n_launches {
+                let mut packer = CudaArgPacker::new();
+                if n_launches == 1 {
+                    loaded.runtime_op.pack_args(
+                        &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                    );
+                } else {
+                    loaded.runtime_op.pack_args_for_launch(
+                        launch_idx, &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                    );
+                }
+                let grid = if n_launches == 1 {
+                    loaded.runtime_op.grid(&output_shape)
+                } else {
+                    loaded.runtime_op.grid_for_launch(launch_idx, &input_shapes, &output_shape)
+                };
+                launch_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
+                if launch_result.is_err() { break; }
+            }
 
             if let Some(padded) = padded_out {
                 if launch_result.is_ok() {
