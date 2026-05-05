@@ -100,6 +100,39 @@ impl TensorRef {
     pub fn n_elements(&self) -> usize {
         self.shape.iter().product()
     }
+
+    /// Allocate a device buffer, copy `data` to it, and return a `TensorRef`.
+    ///
+    /// `data.len()` must equal `shape.iter().product()`.
+    /// The caller owns the allocation; call [`TensorRef::free`] when done.
+    pub fn from_host_f32(data: &[f32], shape: Vec<usize>) -> Result<Self> {
+        assert_eq!(
+            data.len(),
+            shape.iter().product::<usize>(),
+            "data length must match shape product"
+        );
+        let ptr = mem::alloc(data.len() * std::mem::size_of::<f32>())?;
+        unsafe { mem::copy_h_to_d(ptr, data.as_ptr(), data.len()) }?;
+        Ok(Self { ptr, shape })
+    }
+
+    /// Copy the device buffer contents to a host `Vec<f32>`.
+    pub fn to_host_f32(&self) -> Result<Vec<f32>> {
+        let n = self.n_elements();
+        let mut out = vec![0.0_f32; n];
+        unsafe { mem::copy_d_to_h(out.as_mut_ptr(), self.ptr, n) }?;
+        Ok(out)
+    }
+
+    /// Free the underlying device buffer.
+    ///
+    /// Only call this on `TensorRef`s that own their allocation (created via
+    /// [`TensorRef::from_host_f32`] or [`TensorRef::new`] with a freshly
+    /// allocated pointer).  Do **not** call this on refs borrowed from an
+    /// [`ActivationCache`] — the cache frees them on drop.
+    pub fn free(self) -> Result<()> {
+        mem::free(self.ptr)
+    }
 }
 
 fn dtype_bytes(dtype: DtypeRepr) -> usize {
