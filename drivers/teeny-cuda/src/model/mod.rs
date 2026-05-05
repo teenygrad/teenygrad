@@ -705,6 +705,21 @@ impl LoadedModel {
         (0..n).filter(|&i| !has_child[i]).collect()
     }
 
+    /// Terminal node indices sorted by output tensor element count (ascending).
+    ///
+    /// For YOLO26 this reliably gives `[boxes_idx, scores_idx]`: boxes has
+    /// `4·A` elements in the channel dim while scores has `nc·A`, and nc > 4
+    /// for all practical detection models.
+    pub fn terminal_node_indices_sorted_by_size(&self) -> Vec<usize> {
+        let mut terminals = self.terminal_node_indices();
+        terminals.sort_by_key(|&i| {
+            self.nodes[i].as_ref()
+                .map(|n| n.output_shape.iter().filter_map(|&d| d).product::<usize>())
+                .unwrap_or(0)
+        });
+        terminals
+    }
+
     /// Backward pass seeded from a single output node (common case for single-output models).
     ///
     /// `grad_output` — dL/d(model_output), provided by the loss backward.
