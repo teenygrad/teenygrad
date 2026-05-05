@@ -15,4 +15,3 @@
  */
 
 pub mod flash_attn2;
-pub mod psa;

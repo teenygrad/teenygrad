@@ -109,6 +109,12 @@ pub trait CustomOp: Any + Send + Sync {
     fn lower(&self) -> Option<(String, String, String, Arc<dyn crate::model::RuntimeOp>)> {
         None
     }
+
+    /// Return the backward kernel source for this op (used in training mode).
+    /// Return an empty string if this op has no backward pass.
+    fn lower_backward_source(&self) -> String {
+        String::new()
+    }
 }
 
 /// Wrapper around `Arc<dyn CustomOp>` that implements `Debug` for [`Op`].
