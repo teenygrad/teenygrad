@@ -24,6 +24,8 @@ pub mod errors;
 pub mod graph;
 pub mod macros;
 pub mod model;
+#[cfg(feature = "std")]
+pub mod name_scope;
 pub mod nn;
 pub mod runtime;
 pub mod utils;

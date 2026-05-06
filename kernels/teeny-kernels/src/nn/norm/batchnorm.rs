@@ -509,6 +509,10 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         vec![vec![c], vec![c], vec![c], vec![c]]
     }
 
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight", "bias", "running_mean", "running_var"]
+    }
+
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],

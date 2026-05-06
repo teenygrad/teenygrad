@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
+
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_core::{
     compiler::{Compiler, Target},
@@ -109,7 +111,7 @@ impl CudaGraphCompiler {
         mode: LoweringMode,
         force: bool,
     ) -> Result<CudaModel<'a>> {
-        let op_dag: Dag<Box<dyn ExecutableOp>> = lowering.lower(graph, mode)?;
+        let (op_dag, graph_to_dag) = lowering.lower_with_mapping(graph, mode)?;
 
         let compiler = match target.target_cpu() {
             Some(cpu) => self.compiler.clone().with_target_cpu(cpu),
@@ -159,7 +161,16 @@ impl CudaGraphCompiler {
             }
         }
 
-        CudaModel::new(compiled_dag)
+        // Propagate graph-level node names (from name_scope annotations) into the
+        // compiled DAG using the graph_node → dag_node index mapping.
+        let dag_names: HashMap<usize, String> = graph.names.iter()
+            .filter_map(|(&graph_idx, name)| {
+                let dag_idx = *graph_to_dag.get(graph_idx)?;
+                Some((dag_idx, name.clone()))
+            })
+            .collect();
+
+        CudaModel::with_names(compiled_dag, dag_names)
     }
 }
 

@@ -157,6 +157,10 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         vec![vec![self.c_out]]
     }
 
+    fn param_names(&self) -> &'static [&'static str] {
+        &["bias"]
+    }
+
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],

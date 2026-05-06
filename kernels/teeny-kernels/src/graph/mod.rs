@@ -911,6 +911,14 @@ impl TritonLowering {
 
 impl<'a> Lowering<'a> for TritonLowering {
     fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>> {
-        self.lower_with_mapping(graph, mode).map(|(dag, _)| dag)
+        TritonLowering::lower_with_mapping(self, graph, mode).map(|(dag, _)| dag)
+    }
+
+    fn lower_with_mapping(
+        &self,
+        graph: &Graph,
+        mode: LoweringMode,
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
+        TritonLowering::lower_with_mapping(self, graph, mode)
     }
 }

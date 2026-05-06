@@ -508,6 +508,10 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         vec![vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize]]
     }
 
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight"]
+    }
+
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],

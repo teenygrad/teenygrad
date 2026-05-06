@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use std::{marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use anyhow::anyhow;
 use teeny_core::{
@@ -174,6 +174,9 @@ pub struct CompiledNode {
 
 pub struct CudaModel<'a> {
     pub dag: Dag<CompiledNode>,
+    /// DAG node index → dotted name (e.g. `"model.0.conv"`), populated from the
+    /// source `Graph::names` field during compilation.
+    pub names: HashMap<usize, String>,
     _marker: PhantomData<&'a ()>,
 }
 
@@ -188,7 +191,11 @@ impl<'a> Model<'a> for CudaModel<'a> {
 
 impl<'a> CudaModel<'a> {
     pub fn new(dag: Dag<CompiledNode>) -> Result<Self> {
-        Ok(Self { dag, _marker: PhantomData })
+        Ok(Self { dag, names: HashMap::new(), _marker: PhantomData })
+    }
+
+    pub fn with_names(dag: Dag<CompiledNode>, names: HashMap<usize, String>) -> Result<Self> {
+        Ok(Self { dag, names, _marker: PhantomData })
     }
 
     /// Load all compiled PTX kernels into GPU memory and pre-allocate
@@ -198,6 +205,7 @@ impl<'a> CudaModel<'a> {
     /// `batch_size` resolves dynamic (`None`) shape dimensions when computing
     /// parameter buffer sizes.
     pub fn load(self, _device: &CudaDevice<'_>, batch_size: usize) -> Result<LoadedModel> {
+        let names = self.names;
         let n = self.dag.len();
         let topo = self.dag.topological_sort();
 
@@ -298,6 +306,7 @@ impl<'a> CudaModel<'a> {
         Ok(LoadedModel {
             nodes: loaded_nodes,
             parents,
+            names,
             #[cfg(feature = "training")]
             optim_step: 0,
             #[cfg(feature = "training")]
@@ -370,6 +379,8 @@ pub struct LoadedModel {
     nodes: Vec<Option<LoadedNode>>,
     /// Parent node indices per node (same topology as the compiled DAG).
     parents: Vec<Vec<usize>>,
+    /// DAG node index → dotted name (e.g. `"model.0.conv"`).
+    names: HashMap<usize, String>,
     /// AdamW step counter for bias correction (incremented each `adamw_step` call).
     #[cfg(feature = "training")]
     optim_step: u32,
@@ -388,6 +399,30 @@ impl LoadedModel {
         self.nodes.iter().enumerate().filter_map(|(idx, node)| {
             node.as_ref().filter(|n| !n.param_shapes.is_empty())
                 .map(|n| (idx, n.param_shapes.as_slice()))
+        })
+    }
+
+    /// Iterate over every named parameter slot.
+    ///
+    /// Yields `(full_key, node_idx, param_idx)` where `full_key` is the dotted
+    /// safetensors key (e.g. `"model.0.conv.weight"`), built by joining the
+    /// node name from the graph with the slot name from the runtime op.
+    /// Nodes without a name or without parameters are skipped.
+    pub fn param_info_named(&self) -> impl Iterator<Item = (String, usize, usize)> + '_ {
+        self.nodes.iter().enumerate().filter_map(|(node_idx, node)| {
+            let n = node.as_ref().filter(|n| !n.param_shapes.is_empty())?;
+            let node_name = self.names.get(&node_idx)?;
+            let slot_names = n.runtime_op.param_names();
+            Some((node_idx, node_name, n, slot_names))
+        }).flat_map(|(node_idx, node_name, n, slot_names)| {
+            (0..n.param_shapes.len()).filter_map(move |param_idx| {
+                let slot = slot_names.get(param_idx).copied().unwrap_or("");
+                if slot.is_empty() {
+                    return None;
+                }
+                let key = format!("{node_name}.{slot}");
+                Some((key, node_idx, param_idx))
+            })
         })
     }
 

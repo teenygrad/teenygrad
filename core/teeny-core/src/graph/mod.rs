@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use alloc::{rc::Rc, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{collections::BTreeMap, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
 use core::{any::Any, cell::RefCell};
 
 use crate::{
@@ -363,6 +363,8 @@ pub struct GraphNode {
 #[derive(Debug, Default, Clone)]
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
+    /// Node index → dotted name captured from [`crate::name_scope`] at recording time.
+    pub names: BTreeMap<usize, String>,
 }
 
 impl Graph {
@@ -379,6 +381,10 @@ impl Graph {
     ) -> usize {
         let id = self.nodes.len();
         self.nodes.push(GraphNode { op, inputs, dtype, shape });
+        #[cfg(feature = "std")]
+        if let Some(name) = crate::name_scope::current_scope() {
+            self.names.insert(id, name);
+        }
         id
     }
 

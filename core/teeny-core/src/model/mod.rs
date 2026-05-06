@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 
 use crate::{device::program::ArgVisitor, errors::Result, graph::{DtypeRepr, Graph, Shape}, utils::dag::Dag};
 
@@ -40,6 +40,13 @@ pub trait RuntimeOp: Send + Sync {
     /// op. Called at `LoadedModel::load()` time to pre-allocate device buffers.
     /// `input_shapes` / `output_shape` are concrete (batch dim resolved).
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>>;
+
+    /// Names of parameter slots returned by [`param_shapes`], in the same order.
+    /// Used as the suffix in the dotted key `{node_name}.{slot_name}`.
+    /// Return an empty slice for ops that have no named parameters.
+    fn param_names(&self) -> &'static [&'static str] {
+        &[]
+    }
 
     /// Returns the required row stride (in elements) for the output buffer of
     /// this op's forward kernel.  The default is the natural row-major stride
@@ -257,6 +264,29 @@ pub enum LoweringMode {
 
 pub trait Lowering<'a> {
     fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>>;
+
+    /// Like [`lower`] but also returns a `graph_node_idx → dag_node_idx` mapping
+    /// so that graph-level metadata (e.g. names) can be propagated into the compiled DAG.
+    ///
+    /// The default implementation assumes a 1-to-1 identity mapping between graph
+    /// topological order and DAG node indices — valid for graphs that are already in
+    /// topological order (which is always true for models built by sequential recording)
+    /// and lowerings that do not reorder or split nodes.  Override this method in
+    /// lowerings that reorder or split nodes to return the correct mapping.
+    fn lower_with_mapping(
+        &self,
+        graph: &Graph,
+        mode: LoweringMode,
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
+        let dag = self.lower(graph, mode)?;
+        let topo = graph.topological_sort();
+        // topo[dag_idx] = graph_node_idx  →  graph_to_dag[graph_node_idx] = dag_idx
+        let mut graph_to_dag = vec![0usize; graph.nodes.len()];
+        for (dag_idx, graph_idx) in topo.into_iter().enumerate() {
+            graph_to_dag[graph_idx] = dag_idx;
+        }
+        Ok((dag, graph_to_dag))
+    }
 
     /// Returns the next lowering in a middleware chain, or `None` if this is
     /// the final lowering.  A custom lowering can call `self.base_lowering()`
