@@ -457,11 +457,11 @@ fn test_batch_norm_training_graph() -> anyhow::Result<()> {
     );
     let graph = graph.borrow();
 
-    let rustc_path = std::env::var("TEENY_RUSTC_PATH")
-        .expect("TEENY_RUSTC_PATH must be set");
+    let teenyc_path = std::env::var("TEENYC_PATH")
+        .expect("TEENYC_PATH must be set");
     let cache_dir =
         std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
-    let compiler = LlvmCompiler::new(rustc_path, cache_dir)?;
+    let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let lowering = TritonLowering::new();
     let model = graph_compiler.compile_model(

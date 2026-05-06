@@ -32,7 +32,7 @@
 //!   7. Evaluate on the test set and print final accuracy.
 //!
 //! Required environment variables:
-//!   TEENY_RUSTC_PATH  — path to the teenygrad rustc binary used by LlvmCompiler
+//!   TEENYC_PATH  — path to the teenyc binary used by LlvmCompiler
 //!   TEENY_DATA_DIR    — (optional) cache dir for MNIST parquet  [/tmp/teenygrad_cache]
 //!   TEENY_CACHE_DIR   — (optional) cache dir for compiled PTX   [/tmp/teenygrad_rustc]
 
@@ -127,8 +127,8 @@ async fn main() -> Result<()> {
 
     // ── 4. Trace + compile LeNet-5 ───────────────────────────────────────────
     println!("[3/8] tracing + compiling LeNet-5 graph …");
-    let rustc_path = env::var("TEENY_RUSTC_PATH")
-        .context("TEENY_RUSTC_PATH must point to the teenygrad rustc binary")?;
+    let teenyc_path = env::var("TEENYC_PATH")
+        .context("TEENYC_PATH must point to the teenyc binary")?;
     let ptx_cache =
         env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
 
@@ -138,7 +138,7 @@ async fn main() -> Result<()> {
     let graph = graph.borrow();
     println!("      graph: {} nodes", graph.nodes.len());
 
-    let compiler = LlvmCompiler::new(rustc_path, ptx_cache)?;
+    let compiler = LlvmCompiler::new(teenyc_path, ptx_cache)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(capability);
     let lowering = TritonLowering::new();

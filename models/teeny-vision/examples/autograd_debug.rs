@@ -103,8 +103,8 @@ fn net_linear_relu_linear<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let rustc_path = env::var("TEENY_RUSTC_PATH")
-        .context("TEENY_RUSTC_PATH must be set")?;
+    let teenyc_path = env::var("TEENYC_PATH")
+        .context("TEENYC_PATH must be set")?;
     let ptx_cache =
         env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
 
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
     let capability = capability_from_device_info(&device.info)?;
     println!("device: {} ({})", device.info.name, capability);
 
-    let compiler = LlvmCompiler::new(rustc_path, ptx_cache)?;
+    let compiler = LlvmCompiler::new(teenyc_path, ptx_cache)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(capability);
     let lowering = TritonLowering::new();

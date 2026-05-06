@@ -28,18 +28,18 @@ use crate::errors::Result;
 
 #[derive(Debug, Clone)]
 pub struct LlvmCompiler {
-    rustc_path: PathBuf,
+    teenyc_path: PathBuf,
     cache_dir: PathBuf,
     target_cpu: Option<String>,
 }
 
 impl LlvmCompiler {
-    pub fn new(rustc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
-        let rustc_path = rustc_path.into();
+    pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
+        let teenyc_path = teenyc_path.into();
         let cache_dir = cache_dir.into();
 
-        if !rustc_path.exists() {
-            anyhow::bail!("rustc path does not exist: {}", rustc_path.display());
+        if !teenyc_path.exists() {
+            anyhow::bail!("rustc path does not exist: {}", teenyc_path.display());
         }
 
         if !cache_dir.exists() {
@@ -47,7 +47,7 @@ impl LlvmCompiler {
         }
 
         Ok(Self {
-            rustc_path,
+            teenyc_path,
             cache_dir,
             target_cpu: None,
         })
@@ -82,7 +82,7 @@ impl Compiler for LlvmCompiler {
             file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
             file.write_all(kernel.source().as_bytes())?;
 
-            let mut cmd = Command::new(&self.rustc_path);
+            let mut cmd = Command::new(&self.teenyc_path);
             cmd.arg(&kernel_file)
                 .arg("-Copt-level=3")
                 .arg("-Zcodegen-backend=mlir")
