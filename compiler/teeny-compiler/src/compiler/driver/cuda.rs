@@ -32,7 +32,7 @@ const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm89;
 pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
     let teenyc_path = std::env::var("TEENYC_PATH")?;
     let cache_dir =
-        std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+        std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 
     let effective_cpu = clamp_capability(target.capability).to_string();
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?.with_target_cpu(effective_cpu);

@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
     let teenyc_path = env::var("TEENYC_PATH")
         .context("TEENYC_PATH must be set")?;
     let ptx_cache =
-        env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+        env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 
     let cuda = Cuda::try_new()?;
     let device_infos = cuda.list_devices()?;

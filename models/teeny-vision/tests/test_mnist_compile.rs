@@ -53,7 +53,7 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     let teenyc_path = std::env::var("TEENYC_PATH")
         .expect("TEENYC_PATH must be set to run this test");
     let cache_dir =
-        std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+        std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
     println!("[2/3] built graph compiler (target: {})", env.capability);

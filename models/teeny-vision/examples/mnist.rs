@@ -34,7 +34,7 @@
 //! Required environment variables:
 //!   TEENYC_PATH  — path to the teenyc binary used by LlvmCompiler
 //!   TEENY_DATA_DIR    — (optional) cache dir for MNIST parquet  [/tmp/teenygrad_cache]
-//!   TEENY_CACHE_DIR   — (optional) cache dir for compiled PTX   [/tmp/teenygrad_rustc]
+//!   TEENYC_CACHE_DIR   — (optional) cache dir for compiled PTX   [/tmp/teenyc_cache]
 
 use std::env;
 use std::ffi::c_void;
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
     let teenyc_path = env::var("TEENYC_PATH")
         .context("TEENYC_PATH must point to the teenyc binary")?;
     let ptx_cache =
-        env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+        env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 
     let (input, graph) =
         SymTensor::input(DtypeRepr::F32, vec![None, Some(1), Some(28), Some(28)]);

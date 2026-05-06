@@ -306,7 +306,7 @@ fn test_kitchen_sink() -> anyhow::Result<()> {
     let kernel = KitchenSink::<f32>::new(1024);
     let teenyc_path = std::env::var("TEENYC_PATH").expect("TEENYC_PATH must be set");
     let cache_dir =
-        std::env::var("TEENY_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenygrad_rustc".to_string());
+        std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let target = Target::new(Capability::Sm90);
     let ptx_path: PathBuf = compiler.compile(&kernel, &target, true)?.into();
