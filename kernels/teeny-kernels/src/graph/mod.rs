@@ -59,7 +59,7 @@ use crate::nn::{
         maxpool1d::Maxpool1dForward, maxpool2d::{Maxpool2dBackward, Maxpool2dForward}, maxpool3d::Maxpool3dForward,
     },
     tensor::{
-        channel_bias_add::ChannelBiasAddRuntimeOp,
+        channel_bias_add::{ChannelBiasAddRuntimeOp, NchwBiasAddRuntimeOp},
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
@@ -420,10 +420,11 @@ impl TritonLowering {
             let node = &graph.nodes[node_index];
 
             // Training BatchNorm needs two sequential DAG nodes: stats then normalize.
+            // BatchNorm2d uses NCHW-native kernels (falls through to the inference path below)
+            // which already supports training via has_backward=true.
             #[cfg(feature = "training")]
             if mode == LoweringMode::Training {
                 if let Op::BatchNorm1d { num_features, eps, momentum, .. }
-                     | Op::BatchNorm2d { num_features, eps, momentum, .. }
                      | Op::BatchNorm3d { num_features, eps, momentum, .. } = &node.op
                 {
                     let c = *num_features;
@@ -515,6 +516,86 @@ impl TritonLowering {
                 }
             }
 
+            // Conv2d with bias → split into Conv2d (weight only) + NchwBiasAdd (bias only).
+            if let Op::Conv2d { has_bias: true, kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, groups, out_channels, .. } = &node.op {
+                const BIAS_BLOCK_HW: i32 = 128;
+                let (conv_name, conv_ks, conv_rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                    DtypeRepr::F32 => {
+                        let k = Conv2dForward::<f32>::new(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16);
+                        let src = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(Conv2dForward::<f32>::new(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16));
+                        (k.name.to_string(), src, rop)
+                    }
+                    DtypeRepr::F64 => {
+                        let k = Conv2dForward::<f64>::new(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16);
+                        let src = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(Conv2dForward::<f64>::new(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16));
+                        (k.name.to_string(), src, rop)
+                    }
+                    other => return Err(anyhow::anyhow!("{:?} is not supported for Conv2dForward", other)),
+                };
+
+                #[cfg(feature = "training")]
+                let conv_bwd_ks = match node.dtype {
+                    DtypeRepr::F32 => Conv2dBackward::<f32>::new(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16).source,
+                    DtypeRepr::F64 => Conv2dBackward::<f64>::new(*kernel_h as i32, *kernel_w as i32, *stride_h as i32, *stride_w as i32, *padding_h as i32, *padding_w as i32, *groups as i32, 16).source,
+                    _ => String::new(),
+                };
+
+                let conv_dag_idx = dag.add_node(Box::new(KernelExecutable {
+                    name: conv_name,
+                    kernel_source: conv_ks,
+                    entry_point: "entry_point".to_string(),
+                    shape: node.shape.clone(),
+                    dtype: node.dtype,
+                    #[cfg(feature = "training")]
+                    backward_kernel_source: conv_bwd_ks,
+                    #[cfg(feature = "training")]
+                    backward_entry_point: "entry_point".to_string(),
+                    runtime_op: conv_rop,
+                }) as Box<dyn ExecutableOp>);
+                for &input_graph_idx in &node.inputs {
+                    dag.add_edge(graph_to_dag[input_graph_idx], conv_dag_idx);
+                }
+
+                let (bias_name, bias_ks, bias_rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                    DtypeRepr::F32 => {
+                        let r = NchwBiasAddRuntimeOp::<f32>::new(BIAS_BLOCK_HW);
+                        (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                    }
+                    DtypeRepr::F64 => {
+                        let r = NchwBiasAddRuntimeOp::<f64>::new(BIAS_BLOCK_HW);
+                        (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                    }
+                    other => return Err(anyhow::anyhow!("{:?} is not supported for NchwBiasAdd", other)),
+                };
+
+                #[cfg(feature = "training")]
+                let bias_bwd_ks = match node.dtype {
+                    DtypeRepr::F32 => NchwBiasAddRuntimeOp::<f32>::new(BIAS_BLOCK_HW).backward_source().to_string(),
+                    DtypeRepr::F64 => NchwBiasAddRuntimeOp::<f64>::new(BIAS_BLOCK_HW).backward_source().to_string(),
+                    _ => String::new(),
+                };
+
+                let biasadd_dag_idx = dag.add_node(Box::new(KernelExecutable {
+                    name: bias_name,
+                    kernel_source: bias_ks,
+                    entry_point: "entry_point".to_string(),
+                    shape: node.shape.clone(),
+                    dtype: node.dtype,
+                    #[cfg(feature = "training")]
+                    backward_kernel_source: bias_bwd_ks,
+                    #[cfg(feature = "training")]
+                    backward_entry_point: "entry_point".to_string(),
+                    runtime_op: bias_rop,
+                }) as Box<dyn ExecutableOp>);
+                dag.add_edge(conv_dag_idx, biasadd_dag_idx);
+                graph_to_dag[node_index] = biasadd_dag_idx;
+                // conv_dag_idx == biasadd_dag_idx - 1 (added consecutively).
+                // extra_dag_names() uses this invariant to propagate the name to conv_dag_idx.
+                let _ = (conv_dag_idx, out_channels);
+                continue;
+            }
 
             let executable: Box<dyn ExecutableOp> = match &node.op {
                 Op::Input => Box::new(KernelExecutable {
@@ -920,5 +1001,24 @@ impl<'a> Lowering<'a> for TritonLowering {
         mode: LoweringMode,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
         TritonLowering::lower_with_mapping(self, graph, mode)
+    }
+
+    /// Conv2d-with-bias splits one graph node into two DAG nodes (conv + biasadd).
+    /// `graph_to_dag[graph_idx]` already points at the biasadd DAG node; here we
+    /// propagate the same name to the conv DAG node (biasadd_dag_idx - 1) so that
+    /// the conv weight parameter can be loaded under the same name prefix.
+    fn extra_dag_names(&self, graph: &Graph, graph_to_dag: &[usize]) -> Vec<(usize, String)> {
+        let mut extra = Vec::new();
+        for (graph_idx, node) in graph.nodes.iter().enumerate() {
+            if let Op::Conv2d { has_bias: true, .. } = &node.op {
+                if let Some(name) = graph.names.get(&graph_idx) {
+                    let biasadd_dag_idx = graph_to_dag[graph_idx];
+                    if biasadd_dag_idx > 0 {
+                        extra.push((biasadd_dag_idx - 1, name.clone()));
+                    }
+                }
+            }
+        }
+        extra
     }
 }

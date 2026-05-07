@@ -155,20 +155,31 @@ impl CudaGraphCompiler {
             });
         }
 
+        // Rebuild edges using parent lists (not children) to preserve the insertion
+        // order that the lowering recorded. If we iterated children (add_edge(i, child)
+        // for each i in 0..N), parents with smaller DAG indices would be appended first,
+        // destroying the logical input ordering required by ops like ChannelCat.
         for i in 0..op_dag.len() {
-            for &child in &op_dag.node(i).children {
-                compiled_dag.add_edge(i, child);
+            for &parent in &op_dag.node(i).parents {
+                compiled_dag.add_edge(parent, i);
             }
         }
 
         // Propagate graph-level node names (from name_scope annotations) into the
         // compiled DAG using the graph_node → dag_node index mapping.
-        let dag_names: HashMap<usize, String> = graph.names.iter()
+        let mut dag_names: HashMap<usize, String> = graph.names.iter()
             .filter_map(|(&graph_idx, name)| {
                 let dag_idx = *graph_to_dag.get(graph_idx)?;
                 Some((dag_idx, name.clone()))
             })
             .collect();
+
+        // Lowerings that split one graph node into multiple DAG nodes (e.g.
+        // Conv2d-with-bias → Conv2d + NchwBiasAdd) expose the extra mappings
+        // here so that every DAG node with parameters can resolve its name.
+        for (dag_idx, name) in lowering.extra_dag_names(graph, &graph_to_dag) {
+            dag_names.entry(dag_idx).or_insert(name);
+        }
 
         CudaModel::with_names(compiled_dag, dag_names)
     }

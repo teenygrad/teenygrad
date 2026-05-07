@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec, vec::Vec};
 
 use crate::{device::program::ArgVisitor, errors::Result, graph::{DtypeRepr, Graph, Shape}, utils::dag::Dag};
 
@@ -286,6 +286,15 @@ pub trait Lowering<'a> {
             graph_to_dag[graph_idx] = dag_idx;
         }
         Ok((dag, graph_to_dag))
+    }
+
+    /// Returns extra (dag_idx, name) pairs beyond those derivable from the
+    /// 1-to-1 graph→dag mapping.  Used for lowerings that split one graph node
+    /// into multiple DAG nodes (e.g. Conv2d-with-bias → Conv2d + NchwBiasAdd);
+    /// the "extra" DAG nodes would otherwise have no name and their weight
+    /// parameters would not be loaded.
+    fn extra_dag_names(&self, _graph: &Graph, _graph_to_dag: &[usize]) -> Vec<(usize, String)> {
+        Vec::new()
     }
 
     /// Returns the next lowering in a middleware chain, or `None` if this is

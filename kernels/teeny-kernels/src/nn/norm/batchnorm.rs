@@ -327,6 +327,10 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         vec![vec![c], vec![c]]
     }
 
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight", "bias"]
+    }
+
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -409,7 +413,7 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
 /// Input layout: [B, C, H, W] row-major. Element `x[b, c, h, w]` lives at
 /// offset `b*C*HW + c*HW + h*W + w`.
 ///
-/// Grid: `[C]` — one CTA per channel; each CTA iterates over B batches and
+/// Grid: `[C, B]` — one CTA per (channel, batch) pair; each CTA iterates over
 /// H*W spatial positions in `BLOCK_HW`-wide tiles.
 #[kernel]
 pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
@@ -419,7 +423,6 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
     bias_ptr: T::Pointer<D>,
     running_mean_ptr: T::Pointer<D>,
     running_var_ptr: T::Pointer<D>,
-    B: i32,
     C: i32,
     HW: i32,
     eps: f32,
@@ -429,6 +432,7 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let c = T::program_id(Axis::X);
+    let b = T::program_id(Axis::Y);
     let c_idx = T::arange(0, 1) + c;
 
     // Load per-channel scalars and broadcast to [BLOCK_HW].
@@ -447,25 +451,20 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
         &[BLOCK_HW],
     );
 
+    // Flat start offset for (b, c, hw=0) in NCHW: b*C*HW + c*HW
+    let batch_channel_offset: i32 = b * C * HW + c * HW;
     let zeros = T::zeros::<D>(&[BLOCK_HW]);
-    // One iteration per batch; inner loop covers H*W spatial positions.
-    let mut b: i32 = 0;
-    while b < B {
-        // Flat start offset for (b, c, hw=0) in NCHW: b*C*HW + c*HW
-        let batch_channel_offset: i32 = b * C * HW + c * HW;
-        let mut hw_start: i32 = 0;
-        while hw_start < HW {
-            let offsets = T::arange(0, BLOCK_HW) + hw_start;
-            let mask = offsets.lt(HW);
-            let elem_offsets = offsets + batch_channel_offset;
+    let mut hw_start: i32 = 0;
+    while hw_start < HW {
+        let offsets = T::arange(0, BLOCK_HW) + hw_start;
+        let mask = offsets.lt(HW);
+        let elem_offsets = offsets + batch_channel_offset;
 
-            let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
-            let y_tile = gamma * (x_tile - mean) * rstd + beta;
-            T::store(y_ptr.add_offsets(elem_offsets), y_tile, Some(mask), &[], None, None);
+        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        let y_tile = gamma * (x_tile - mean) * rstd + beta;
+        T::store(y_ptr.add_offsets(elem_offsets), y_tile, Some(mask), &[], None, None);
 
-            hw_start += BLOCK_HW;
-        }
-        b += 1;
+        hw_start += BLOCK_HW;
     }
 }
 
@@ -522,7 +521,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-        let b = output_shape[0] as i32;
         let c = output_shape[1] as i32;
         let hw = (output_shape[2] * output_shape[3]) as i32;
         visitor.visit_ptr(inputs[0].0);
@@ -531,7 +529,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_ptr(params[1]); // bias
         visitor.visit_ptr(params[2]); // running_mean
         visitor.visit_ptr(params[3]); // running_var
-        visitor.visit_i32(b);
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
         visitor.visit_f32(self.eps);
@@ -540,7 +537,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     fn block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [output_shape[1] as u32, 1, 1]
+        [output_shape[1] as u32, output_shape[0] as u32, 1]
     }
 
     #[cfg(feature = "training")]

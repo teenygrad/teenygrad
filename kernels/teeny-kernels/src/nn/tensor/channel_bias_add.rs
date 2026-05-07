@@ -118,6 +118,180 @@ pub fn channel_bias_add_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::atomic_add(dbias_ptr.add_offsets(c_idx), acc, None, None, None);
 }
 
+// ─── NCHW Bias Add (for Conv2d with bias) ────────────────────────────────────
+
+/// Adds a (C,) bias to a tensor in NCHW layout.
+///
+/// Grid: `[C, B]` — one CTA per (channel, batch) pair; each CTA iterates over
+/// H*W spatial positions in `BLOCK_HW`-wide tiles.
+#[kernel]
+pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
+    x_ptr: T::Pointer<D>,
+    bias_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
+    C: i32,
+    HW: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let c = T::program_id(Axis::X);
+    let b = T::program_id(Axis::Y);
+    let c_idx = T::arange(0, 1) + c;
+
+    let bias = T::broadcast_to(
+        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        &[BLOCK_HW],
+    );
+
+    let zeros = T::zeros::<D>(&[BLOCK_HW]);
+    let batch_channel_offset: i32 = b * C * HW + c * HW;
+    let mut hw_start: i32 = 0;
+    while hw_start < HW {
+        let offsets = T::arange(0, BLOCK_HW) + hw_start;
+        let mask = offsets.lt(HW);
+        let elem_offsets = offsets + batch_channel_offset;
+        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        T::store(y_ptr.add_offsets(elem_offsets), x_tile + bias, Some(mask), &[], None, None);
+        hw_start += BLOCK_HW;
+    }
+}
+
+/// NCHW bias add backward: dx = dy, dbias[c] = sum over (B, H, W) of dy.
+///
+/// Grid: `[C, B]` — one CTA per (channel, batch) pair; single while loop over
+/// H*W to avoid nested loops (which ICE the teenyc compiler).
+#[kernel]
+pub fn nchw_bias_add_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
+    dy_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
+    dbias_ptr: T::Pointer<D>,
+    C: i32,
+    HW: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let c = T::program_id(Axis::X);
+    let b = T::program_id(Axis::Y);
+    let c_idx = T::arange(0, 1) + c;
+    let zeros = T::zeros::<D>(&[BLOCK_HW]);
+    let mut dbias_acc = T::zeros::<D>(&[1]);
+    let batch_channel_offset: i32 = b * C * HW + c * HW;
+
+    let mut hw_start: i32 = 0;
+    while hw_start < HW {
+        let offsets = T::arange(0, BLOCK_HW) + hw_start;
+        let mask = offsets.lt(HW);
+        let elem_offsets = offsets + batch_channel_offset;
+        let dy_tile = T::load(dy_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        T::store(dx_ptr.add_offsets(elem_offsets), dy_tile, Some(mask), &[], None, None);
+        dbias_acc = dbias_acc + T::sum(dy_tile, None, true);
+        hw_start += BLOCK_HW;
+    }
+    T::atomic_add(dbias_ptr.add_offsets(c_idx), dbias_acc, None, None, None);
+}
+
+/// RuntimeOp for adding a (C,) bias to an NCHW-layout tensor.
+///
+/// Used by the graph lowering when `Op::Conv2d { has_bias: true }` is encountered.
+/// Grid: `[C, B]` — one CTA per (channel, batch-item).
+pub struct NchwBiasAddRuntimeOp<D: Float + Send + Sync + 'static> {
+    fwd: NchwBiasAddForward<D>,
+    bwd: NchwBiasAddBackward<D>,
+    block_hw: i32,
+}
+
+impl<D: Float + Send + Sync + 'static> NchwBiasAddRuntimeOp<D> {
+    pub fn new(block_hw: i32) -> Self {
+        Self {
+            fwd: NchwBiasAddForward::<D>::new(block_hw),
+            bwd: NchwBiasAddBackward::<D>::new(block_hw),
+            block_hw,
+        }
+    }
+    pub fn forward_source(&self) -> &str { &self.fwd.source }
+    pub fn backward_source(&self) -> &str { &self.bwd.source }
+    pub fn kernel_name(&self) -> &str { self.fwd.name }
+}
+
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
+    for NchwBiasAddRuntimeOp<D>
+{
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        let c = input_shapes[0][1];
+        vec![vec![c]]
+    }
+
+    fn param_names(&self) -> &'static [&'static str] {
+        &["bias"]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let c = output_shape[1] as i32;
+        let hw = (output_shape[2] * output_shape[3]) as i32;
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(params[0]);   // bias_ptr
+        visitor.visit_ptr(output);      // y_ptr
+        visitor.visit_i32(c);
+        visitor.visit_i32(hw);
+    }
+
+    fn block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        [output_shape[1] as u32, output_shape[0] as u32, 1]
+    }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool { true }
+
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        _output: teeny_core::model::RawPtr,
+        _output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let in_shape = inputs[0].1; // [B, C, H, W]
+        let c = in_shape[1] as i32;
+        let hw = (in_shape[2] * in_shape[3]) as i32;
+        visitor.visit_ptr(grad_output);     // dy_ptr
+        visitor.visit_ptr(grad_inputs[0]);  // dx_ptr
+        visitor.visit_ptr(grad_params[0]);  // dbias_ptr
+        // B is encoded in grid.y — not passed as a kernel arg.
+        visitor.visit_i32(c);
+        visitor.visit_i32(hw);
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
+
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
+        // Grid [C, B] — one CTA per (channel, batch) pair, mirroring the kernel.
+        [input_shapes[0][1] as u32, input_shapes[0][0] as u32, 1]
+    }
+}
+
 // ─── RuntimeOp ───────────────────────────────────────────────────────────────
 
 /// Combined forward + backward RuntimeOp for channel bias add.

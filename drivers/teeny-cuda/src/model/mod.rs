@@ -459,6 +459,11 @@ impl LoadedModel {
         Ok(out)
     }
 
+    /// Return the parent node indices for a DAG node.
+    pub fn node_parents(&self, idx: usize) -> &[usize] {
+        self.parents.get(idx).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
     /// Run a single forward pass through the loaded model.
     ///
     /// `device`     — the CUDA device context.
@@ -791,6 +796,11 @@ impl LoadedModel {
     /// For YOLO26 this reliably gives `[boxes_idx, scores_idx]`: boxes has
     /// `4·A` elements in the channel dim while scores has `nc·A`, and nc > 4
     /// for all practical detection models.
+    /// Return the name for a node index, if one was recorded during compilation.
+    pub fn node_name(&self, idx: usize) -> Option<&str> {
+        self.names.get(&idx).map(|s| s.as_str())
+    }
+
     pub fn terminal_node_indices_sorted_by_size(&self) -> Vec<usize> {
         let mut terminals = self.terminal_node_indices();
         terminals.sort_by_key(|&i| {
@@ -954,7 +964,7 @@ impl LoadedModel {
                     } else {
                         loaded.runtime_op.backward_grid_for_launch(launch_idx, &input_shapes, &output_shape)
                     };
-                    bwd_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid: grid, block: bwd_block, cluster: bwd_cluster }, &mut packer);
+                    bwd_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block: bwd_block, cluster: bwd_cluster }, &mut packer);
                     if bwd_result.is_err() { break; }
                 }
 
