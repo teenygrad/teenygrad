@@ -45,12 +45,23 @@ impl Triton for LlvmTriton {
         0
     }
 
+    #[inline(never)]
+    fn load_scalar_f32_as_i32(_ptr: Self::Pointer<f32>, _offset: i32) -> i32 {
+        0
+    }
+
     /*------------------------------ Creation Ops ------------------------------*/
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn arange(_start: impl Into<i32>, _end: impl Into<i32>) -> Self::I32Tensor {
         tensor::LlvmTensor(0 as *mut i32)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn arange_f32(_start: impl Into<i32>, _end: impl Into<i32>) -> Self::Tensor<f32> {
+        tensor::LlvmTensor(0 as *mut f32)
     }
 
     #[inline(never)]

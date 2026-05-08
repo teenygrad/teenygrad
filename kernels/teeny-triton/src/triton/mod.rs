@@ -137,9 +137,22 @@ where
 
     fn num_programs(axis: Axis) -> i32;
 
+    /// Scalar gather: load the `f32` at `ptr + offset`, truncate to `i32`,
+    /// and return it as a plain Rust `i32` usable in scalar arithmetic
+    /// (e.g. as an addend to `arange` results via `I32Tensor + i32`).
+    ///
+    /// Used when integer indices are stored as f32 (the graph's default dtype).
+    fn load_scalar_f32_as_i32(ptr: Self::Pointer<f32>, offset: i32) -> i32;
+
     /*------------------------------ Creation Ops ------------------------------*/
 
     fn arange(start: impl Into<i32>, end: impl Into<i32>) -> Self::I32Tensor;
+
+    /// Create a 1-D `f32` tensor with values `[start as f32, start+1, ..., end-1]`.
+    ///
+    /// Equivalent to casting `arange(start, end)` to f32, but avoids the
+    /// intermediate I32Tensor copy that some backends cannot handle.
+    fn arange_f32(start: impl Into<i32>, end: impl Into<i32>) -> Self::Tensor<f32>;
 
     fn zeros<D: ty::Dtype>(shape: &[i32]) -> Self::Tensor<D>;
 
