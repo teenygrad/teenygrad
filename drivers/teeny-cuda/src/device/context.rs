@@ -72,6 +72,9 @@ impl<'a> Context<'a> for Cuda<'a> {
 
         for id in 0..device_count {
             let mut props = cuda::cudaDeviceProp::default();
+            #[cfg(cuda_props_v2)]
+            let err = unsafe { cuda::cudaGetDeviceProperties_v2(&mut props, id) };
+            #[cfg(not(cuda_props_v2))]
             let err = unsafe { cuda::cudaGetDeviceProperties(&mut props, id) };
             if err != cuda::cudaError_enum_CUDA_SUCCESS {
                 return Err(Error::from_cuda_error(err).into());

@@ -168,6 +168,9 @@ impl<'a> CudaDevice<'a> {
         }
 
         let mut props = cuda::cudaDeviceProp::default();
+        #[cfg(cuda_props_v2)]
+        let status = unsafe { cuda::cudaGetDeviceProperties_v2(&mut props, device_id) };
+        #[cfg(not(cuda_props_v2))]
         let status = unsafe { cuda::cudaGetDeviceProperties(&mut props, device_id) };
         if status != cuda::cudaError_enum_CUDA_SUCCESS {
             return Err(Error::from_cuda_error(status).into());

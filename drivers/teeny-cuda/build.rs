@@ -56,6 +56,16 @@ fn main() {
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 
+    // Detect which cudaGetDeviceProperties variant the headers expose.
+    // CUDA 12.x aarch64 headers omit the backward-compat alias and expose only
+    // cudaGetDeviceProperties_v2; x86_64 headers expose both names.
+    println!("cargo::rustc-check-cfg=cfg(cuda_props_v2)");
+    let bindings_content =
+        std::fs::read_to_string(out_path.join("bindings.rs")).unwrap_or_default();
+    if bindings_content.contains("fn cudaGetDeviceProperties_v2(") {
+        println!("cargo:rustc-cfg=cuda_props_v2");
+    }
+
     let bindings_dir = out_path.display();
     println!("Bindings written to {bindings_dir}")
 }
