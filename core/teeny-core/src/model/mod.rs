@@ -64,6 +64,22 @@ pub trait RuntimeOp: Send + Sync {
         None
     }
 
+    /// Override to compute the true concrete output shape from concrete input shapes.
+    ///
+    /// Called during both `load()` (for param allocation) and `forward()` (for buffer
+    /// allocation). The default just returns the `resolved` shape (from `resolve_shape`).
+    ///
+    /// Override this when the output's first dimension is a multiple of the batch size
+    /// (e.g. `B * H` for attention pack/unpack ops) so that `resolve_shape`'s simple
+    /// `None → batch_size` substitution would under-allocate the buffer.
+    fn compute_concrete_output_shape(
+        &self,
+        _input_shapes: &[&[usize]],
+        resolved: &[usize],
+    ) -> Vec<usize> {
+        resolved.to_vec()
+    }
+
     /// Pack all kernel arguments into `visitor` in the correct order.
     /// - `inputs`            — (ptr, concrete_shape) per activation input
     /// - `params`            — raw pointers to pre-allocated param buffers

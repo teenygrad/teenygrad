@@ -42,7 +42,7 @@ use crate::nn::{
         batchnorm::{BatchNorm2dNchwInferenceRuntimeOp, BatchNormForwardInference},
         groupnorm::GroupNormForwardInference,
         instancenorm::InstanceNormForwardInference,
-        layernorm::LayerNormForwardInference,
+        layernorm::{LayerNormForwardInference, LayerNormForwardInferenceRuntimeOp},
         rmsnorm::RmsNormForward,
     },
     pad::{
@@ -356,7 +356,6 @@ impl_stub_runtime_op_num!(CircularPad3dForward);
 impl_stub_runtime_op_untyped!(EluForward);
 impl_stub_runtime_op_untyped!(SeluForward);
 impl_stub_runtime_op_untyped!(CeluForward);
-impl_stub_runtime_op_untyped!(GeluForward);
 impl_stub_runtime_op_untyped!(MishForward);
 impl_stub_runtime_op_untyped!(HardtanhForward);
 impl_stub_runtime_op_untyped!(Relu6Forward);
@@ -368,7 +367,6 @@ impl_stub_runtime_op_untyped!(ThresholdForward);
 impl_stub_runtime_op_untyped!(SoftsignForward);
 impl_stub_runtime_op_untyped!(SoftshrinkForward);
 impl_stub_runtime_op_untyped!(SoftplusForward);
-impl_stub_runtime_op_untyped!(SigmoidForward);
 // SiluForward has a real RuntimeOp impl in nn::activation::sigmoid
 impl_stub_runtime_op_untyped!(LogsigmoidForward);
 impl_stub_runtime_op_untyped!(TanhForward);
@@ -654,8 +652,32 @@ impl TritonLowering {
                         runtime_op: rop,
                     })
                 }
-                Op::LayerNorm { .. } => {
-                    make_float_kernel!(LayerNormForwardInference(1024), node)
+                Op::LayerNorm { eps, .. } => {
+                    let eps_f32 = *eps as f32;
+                    const LN_BLOCK_N: i32 = 1024;
+                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                        DtypeRepr::F32 => {
+                            let r = LayerNormForwardInferenceRuntimeOp::<f32>::new(LN_BLOCK_N, eps_f32);
+                            (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                        }
+                        DtypeRepr::F64 => {
+                            let r = LayerNormForwardInferenceRuntimeOp::<f64>::new(LN_BLOCK_N, eps_f32);
+                            (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                        }
+                        other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for LayerNorm", other)),
+                    };
+                    Box::new(KernelExecutable {
+                        name,
+                        kernel_source: ks,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
                 }
                 Op::RmsNorm { .. } => {
                     make_float_kernel!(RmsNormForward(1024), node)

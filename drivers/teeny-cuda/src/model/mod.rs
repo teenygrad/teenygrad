@@ -219,19 +219,29 @@ impl<'a> CudaModel<'a> {
 
         let mut loaded_nodes: Vec<Option<LoadedNode>> = (0..n).map(|_| None).collect();
 
+        // Track correctly-computed concrete shapes for each node so that ops whose
+        // first dimension is `k * batch_size` (e.g. attention pack/unpack) propagate
+        // the true shape rather than the naive `batch_size` substitution.
+        let mut concrete_shapes: Vec<Vec<usize>> = compiled.iter()
+            .map(|cn| resolve_shape(&cn.output_shape, batch_size))
+            .collect();
+
         for &idx in &topo {
             let cn = &compiled[idx];
             let Some(rop) = cn.runtime_op.as_ref() else {
-                continue; // Input placeholder — no kernel, no params
+                // Input placeholder: shape is already correct in concrete_shapes.
+                continue;
             };
 
-            // Gather concrete input shapes from parent nodes' CompiledNode shapes.
+            // Gather concrete input shapes, using the correctly-propagated shapes.
             let parent_shapes: Vec<Vec<usize>> = parents[idx].iter()
-                .map(|&p| resolve_shape(&compiled[p].output_shape, batch_size))
+                .map(|&p| concrete_shapes[p].clone())
                 .collect();
             let parent_shape_refs: Vec<&[usize]> =
                 parent_shapes.iter().map(|s| s.as_slice()).collect();
-            let output_shape = resolve_shape(&cn.output_shape, batch_size);
+            let raw_output_shape = resolve_shape(&cn.output_shape, batch_size);
+            let output_shape = rop.compute_concrete_output_shape(&parent_shape_refs, &raw_output_shape);
+            concrete_shapes[idx] = output_shape.clone();
 
             // Allocate and zero-init device buffers for each parameter slot.
             let p_shapes = rop.param_shapes(&parent_shape_refs, &output_shape);
@@ -500,12 +510,16 @@ impl LoadedModel {
             }
 
             let loaded = self.nodes[idx].as_ref().unwrap();
-            let output_shape = resolve_shape(&loaded.output_shape, batch_size);
 
             // Gather activation inputs from the context.
             let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
                 .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
                 .collect();
+            let act_input_shapes: Vec<&[usize]> = parent_refs.iter()
+                .map(|tr| tr.shape.as_slice())
+                .collect();
+            let raw_output_shape = resolve_shape(&loaded.output_shape, batch_size);
+            let output_shape = loaded.runtime_op.compute_concrete_output_shape(&act_input_shapes, &raw_output_shape);
 
             // Allocate tight output buffer.
             let n_elems: usize = output_shape.iter().product();
@@ -632,7 +646,21 @@ impl LoadedModel {
             }
 
             let loaded = self.nodes[idx].as_ref().unwrap();
-            let output_shape = resolve_shape(&loaded.output_shape, batch_size);
+
+            let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
+                .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
+                .collect();
+            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs.iter()
+                .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
+                .collect();
+            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
+                .map(|&p| p as *mut core::ffi::c_void)
+                .collect();
+
+            let input_shapes: Vec<&[usize]> = act_inputs.iter().map(|(_, s)| *s).collect();
+            let raw_output_shape = resolve_shape(&loaded.output_shape, batch_size);
+            let output_shape = loaded.runtime_op.compute_concrete_output_shape(&input_shapes, &raw_output_shape);
+
             let n_elems: usize = output_shape.iter().product();
             let elem_bytes = dtype_bytes(loaded.output_dtype);
             let byte_size = n_elems * elem_bytes;
@@ -652,18 +680,7 @@ impl LoadedModel {
                 (out_ptr, None)
             };
 
-            let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
-                .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
-                .collect();
-            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs.iter()
-                .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
-                .collect();
-            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
-                .map(|&p| p as *mut core::ffi::c_void)
-                .collect();
-
             let n_launches = loaded.runtime_op.n_launches();
-            let input_shapes: Vec<&[usize]> = act_inputs.iter().map(|(_, s)| *s).collect();
             let block = [loaded.program.metadata.threads_per_block(), 1, 1];
             let cluster = [loaded.program.metadata.num_ctas, 1, 1];
             let out_raw = kernel_out_ptr as *mut core::ffi::c_void;

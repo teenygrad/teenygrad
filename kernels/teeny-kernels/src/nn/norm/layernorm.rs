@@ -351,3 +351,74 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
         n_start += BLOCK_N;
     }
 }
+
+// ─── Inference RuntimeOp ──────────────────────────────────────────────────────
+
+/// RuntimeOp for LayerNorm inference.
+///
+/// Parameter layout (2 params): `[weight, bias]`, each of shape `[N]` where
+/// N is the last (normalized) dimension of the input.
+pub struct LayerNormForwardInferenceRuntimeOp<D: Float + Send + Sync + 'static> {
+    fwd:                    LayerNormForwardInference<D>,
+    #[allow(dead_code)]
+    block_n:                i32,
+    eps:                    f32,
+}
+
+impl<D: Float + Send + Sync + 'static> LayerNormForwardInferenceRuntimeOp<D> {
+    pub fn new(block_n: i32, eps: f32) -> Self {
+        Self { fwd: LayerNormForwardInference::<D>::new(block_n), block_n, eps }
+    }
+
+    pub fn forward_source(&self) -> &str { &self.fwd.source }
+    pub fn kernel_name(&self)    -> &str { self.fwd.name }
+}
+
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
+    for LayerNormForwardInferenceRuntimeOp<D>
+{
+    fn n_activation_inputs(&self) -> usize { 1 }
+
+    fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        // N = last dim of input
+        let n = *input_shapes[0].last().unwrap();
+        vec![vec![n], vec![n]]
+    }
+
+    fn param_names(&self) -> &'static [&'static str] { &["weight", "bias"] }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        _output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let shape = inputs[0].1;
+        let n = *shape.last().unwrap() as i32;
+        let total: usize = shape.iter().product();
+        let m = (total as i32) / n;
+
+        visitor.visit_ptr(inputs[0].0);  // x
+        visitor.visit_ptr(output);       // y
+        visitor.visit_ptr(params[0]);    // weight (gamma)
+        visitor.visit_ptr(params[1]);    // bias (beta)
+        visitor.visit_i32(m);            // M
+        visitor.visit_i32(n);            // N
+        visitor.visit_f32(self.eps);     // eps
+    }
+
+    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        // one CTA per row; M = product of all dims except last
+        let n = *output_shape.last().unwrap();
+        let total: usize = output_shape.iter().product();
+        let m = total / n;
+        [m as u32, 1, 1]
+    }
+
+    fn has_backward(&self) -> bool { false }
+}
