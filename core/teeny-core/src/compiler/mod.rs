@@ -30,35 +30,32 @@ pub trait Compiler {
 }
 
 /// GPU compute capability (CUDA SM version).
+///
+/// Minimum supported: sm_75 (Turing). Triton's MMA acceleration requires sm_75+;
+/// sm_70/sm_72 only have a deprecated FMA fallback path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
-    Sm60,
-    Sm61,
-    Sm70,
-    Sm72,
-    Sm75,
-    Sm80,
-    Sm86,
-    Sm89,
-    Sm90,
-    Sm100,
-    Sm120a,
+    Sm75,  // Turing:          RTX 20xx, GTX 16xx, T4
+    Sm80,  // Ampere DC:       A100, A30
+    Sm86,  // Ampere:          RTX 30xx, A40, A10, A16
+    Sm87,  // Ampere embedded: Jetson Orin (AGX/NX/Nano)
+    Sm89,  // Ada Lovelace:    RTX 40xx, L4, L40S
+    Sm90,  // Hopper:          H100, H200
+    Sm100, // Blackwell DC:    B100, B200, GB200
+    Sm120, // Blackwell:       RTX 50xx (GB10x)
 }
 
 impl Capability {
     pub fn from_major_minor(major: i32, minor: i32) -> Option<Self> {
         match (major, minor) {
-            (6, 0) => Some(Self::Sm60),
-            (6, 1) => Some(Self::Sm61),
-            (7, 0) => Some(Self::Sm70),
-            (7, 2) => Some(Self::Sm72),
             (7, 5) => Some(Self::Sm75),
             (8, 0) => Some(Self::Sm80),
             (8, 6) => Some(Self::Sm86),
+            (8, 7) => Some(Self::Sm87),
             (8, 9) => Some(Self::Sm89),
             (9, 0) => Some(Self::Sm90),
             (10, 0) => Some(Self::Sm100),
-            (12, 0) => Some(Self::Sm120a),
+            (12, 0) => Some(Self::Sm120),
             _ => None,
         }
     }
@@ -67,17 +64,14 @@ impl Capability {
 impl core::fmt::Display for Capability {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
-            Self::Sm60 => "sm_60",
-            Self::Sm61 => "sm_61",
-            Self::Sm70 => "sm_70",
-            Self::Sm72 => "sm_72",
             Self::Sm75 => "sm_75",
             Self::Sm80 => "sm_80",
             Self::Sm86 => "sm_86",
+            Self::Sm87 => "sm_87",
             Self::Sm89 => "sm_89",
             Self::Sm90 => "sm_90",
             Self::Sm100 => "sm_100",
-            Self::Sm120a => "sm_120a",
+            Self::Sm120 => "sm_120",
         };
         f.write_str(s)
     }

@@ -40,17 +40,14 @@ impl TryFrom<(i32, i32)> for Target {
 
     fn try_from((major, minor): (i32, i32)) -> Result<Self> {
         let capabilities: HashMap<i32, Capability> = vec![
-            (60, Capability::Sm60),
-            (61, Capability::Sm61),
-            (70, Capability::Sm70),
-            (72, Capability::Sm72),
             (75, Capability::Sm75),
             (80, Capability::Sm80),
             (86, Capability::Sm86),
+            (87, Capability::Sm87),
             (89, Capability::Sm89),
             (90, Capability::Sm90),
             (100, Capability::Sm100),
-            (120, Capability::Sm120a),
+            (120, Capability::Sm120),
         ]
         .into_iter()
         .collect();

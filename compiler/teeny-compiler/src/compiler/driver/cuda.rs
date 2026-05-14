@@ -43,7 +43,7 @@ pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Res
 /// is newer than what the backend supports, so PTX remains forward-compatible.
 fn clamp_capability(cap: Capability) -> Capability {
     match cap {
-        Capability::Sm90 | Capability::Sm100 | Capability::Sm120a => MAX_CODEGEN_CAPABILITY,
+        Capability::Sm90 | Capability::Sm100 | Capability::Sm120 => MAX_CODEGEN_CAPABILITY,
         other => other,
     }
 }
