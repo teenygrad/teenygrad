@@ -38,10 +38,6 @@ impl LlvmCompiler {
         let teenyc_path = teenyc_path.into();
         let cache_dir = cache_dir.into();
 
-        if !teenyc_path.exists() {
-            anyhow::bail!("rustc path does not exist: {}", teenyc_path.display());
-        }
-
         if !cache_dir.exists() {
             create_dir_all(&cache_dir)?;
         }
@@ -76,6 +72,13 @@ impl Compiler for LlvmCompiler {
         let output_file = self.cache_dir.join(kernel_file_name).with_extension("o");
 
         if !output_file.exists() || force {
+            anyhow::ensure!(
+                self.teenyc_path.exists(),
+                "kernel not cached and rustc not found at {:?}; \
+                 set TEENYC_PATH to a valid rustc binary",
+                self.teenyc_path
+            );
+
             let mut file = File::create(&kernel_file)?;
 
             info!("Writing kernel code to file");

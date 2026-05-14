@@ -30,7 +30,7 @@ use crate::errors::Result;
 const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm89;
 
 pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
-    let teenyc_path = std::env::var("TEENYC_PATH")?;
+    let teenyc_path = std::env::var("TEENYC_PATH").unwrap_or_else(|_| "rustc".to_string());
     let cache_dir =
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 
