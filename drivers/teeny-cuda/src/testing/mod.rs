@@ -43,11 +43,28 @@ pub fn setup_cuda_env() -> Result<CudaTestEnv> {
     println!("[2/9] found {} device(s)", devices.len());
 
     let device = cuda.device(&devices[0].id())?;
-    let capability = capability_from_device_info(&device.info)?;
-    println!(
-        "[3/9] device: {} (capability: {capability})",
-        device.info.name
-    );
+    let device_capability = capability_from_device_info(&device.info)?;
+
+    let capability = if let Ok(val) = std::env::var("TEENYC_CAPABILITY") {
+        let parsed = val
+            .strip_prefix("sm_")
+            .and_then(|s| s.parse::<i32>().ok())
+            .and_then(|n| Capability::from_major_minor(n / 10, n % 10))
+            .ok_or_else(|| crate::errors::Error::UnknownCapability(
+                format!("TEENYC_CAPABILITY={val:?} is not a recognised sm version")
+            ))?;
+        println!(
+            "[3/9] device: {} (capability overridden: {device_capability} → {parsed})",
+            device.info.name
+        );
+        parsed
+    } else {
+        println!(
+            "[3/9] device: {} (capability: {device_capability})",
+            device.info.name
+        );
+        device_capability
+    };
 
     Ok(CudaTestEnv { device, capability })
 }
