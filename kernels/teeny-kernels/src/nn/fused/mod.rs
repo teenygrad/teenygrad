@@ -14,14 +14,4 @@
  * limitations under the License.
  */
 
-pub mod activation;
-pub mod attention;
-pub mod conv;
-pub mod fused;
-pub mod loss;
-pub mod mlp;
-pub mod norm;
-pub mod optim;
-pub mod pad;
-pub mod pool;
-pub mod tensor;
+pub mod conv2d_bn_silu;

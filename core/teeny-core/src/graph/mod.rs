@@ -255,6 +255,27 @@ pub enum Op {
         has_bias: bool,
     },
 
+    /// Fused Conv2d + BatchNorm2d (inference-only) + SiLU forward.
+    ///
+    /// The BN parameters (scale, shift) are stored as precomputed affine
+    /// constants — not raw mean/var/gamma/beta.  Produced by `Graph::optimise()`
+    /// when it detects the pattern `Conv2d(no bias) → BatchNorm2d → Silu`.
+    ///
+    /// `bn_eps` is carried forward only for reference; the BN affine constants
+    /// are passed at runtime via the `bn_scale` and `bn_shift` parameters.
+    Conv2dBnSilu {
+        in_channels: usize,
+        out_channels: usize,
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+        padding_h: usize,
+        padding_w: usize,
+        groups: usize,
+        bn_eps: f64,
+    },
+
     // --- Pooling ---
     AvgPool1d { kernel_l: usize, stride: usize },
     AvgPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
@@ -418,6 +439,109 @@ impl Graph {
         assert_eq!(order.len(), n, "graph contains a cycle");
         order
     }
+
+    /// Rewrite the graph by fusing compatible op sequences into single fused ops.
+    ///
+    /// Currently recognises: `Conv2d(no bias) → BatchNorm2d → Silu`
+    /// and replaces the triple with a single `Conv2dBnSilu` node.
+    ///
+    /// Nodes that are absorbed into a fused node are removed from the output
+    /// graph; remaining node indices are renumbered contiguously.
+    pub fn optimise(&self) -> Graph {
+        let n = self.nodes.len();
+
+        // Build per-node consumer counts so we can detect single-use nodes.
+        let mut n_consumers = vec![0usize; n];
+        for node in &self.nodes {
+            for &inp in &node.inputs {
+                n_consumers[inp] += 1;
+            }
+        }
+
+        // dead[i] — node i is absorbed into a downstream fused node.
+        let mut dead = vec![false; n];
+        // node_override[i] — replacement (op, inputs) for node i.
+        let mut node_override: Vec<Option<(Op, Vec<usize>)>> = vec![None; n];
+
+        for silu_idx in 0..n {
+            if !matches!(self.nodes[silu_idx].op, Op::Silu) { continue; }
+            if self.nodes[silu_idx].inputs.len() != 1 { continue; }
+
+            let bn_idx = self.nodes[silu_idx].inputs[0];
+            if !matches!(self.nodes[bn_idx].op, Op::BatchNorm2d { .. }) { continue; }
+            if n_consumers[bn_idx] != 1 { continue; }
+            if self.nodes[bn_idx].inputs.len() != 1 { continue; }
+
+            let conv_idx = self.nodes[bn_idx].inputs[0];
+            if !matches!(self.nodes[conv_idx].op, Op::Conv2d { has_bias: false, .. }) { continue; }
+            if n_consumers[conv_idx] != 1 { continue; }
+
+            let (in_channels, out_channels, kernel_h, kernel_w,
+                 stride_h, stride_w, padding_h, padding_w, groups) =
+                if let Op::Conv2d { in_channels, out_channels, kernel_h, kernel_w,
+                                    stride_h, stride_w, padding_h, padding_w, groups, .. } =
+                    self.nodes[conv_idx].op
+                {
+                    (in_channels, out_channels, kernel_h, kernel_w,
+                     stride_h, stride_w, padding_h, padding_w, groups)
+                } else { unreachable!() };
+
+            let bn_eps = if let Op::BatchNorm2d { eps, .. } = self.nodes[bn_idx].op {
+                eps
+            } else { unreachable!() };
+
+            dead[conv_idx] = true;
+            dead[bn_idx] = true;
+            node_override[silu_idx] = Some((
+                Op::Conv2dBnSilu {
+                    in_channels, out_channels,
+                    kernel_h, kernel_w,
+                    stride_h, stride_w,
+                    padding_h, padding_w,
+                    groups, bn_eps,
+                },
+                self.nodes[conv_idx].inputs.clone(),
+            ));
+        }
+
+        // Build old → new index mapping (dead nodes are skipped).
+        let mut old_to_new = vec![0usize; n];
+        let mut new_count = 0usize;
+        for i in 0..n {
+            if !dead[i] {
+                old_to_new[i] = new_count;
+                new_count += 1;
+            }
+        }
+
+        // Emit new graph in topological order (original ordering is already valid).
+        let mut new_graph = Graph::new();
+        for old_idx in 0..n {
+            if dead[old_idx] { continue; }
+            let node = &self.nodes[old_idx];
+            let (op, inputs) = if let Some((fused_op, fused_inputs)) =
+                node_override[old_idx].clone()
+            {
+                let mapped = fused_inputs.iter().map(|&i| old_to_new[i]).collect();
+                (fused_op, mapped)
+            } else {
+                let mapped = node.inputs.iter().map(|&i| old_to_new[i]).collect();
+                (node.op.clone(), mapped)
+            };
+            let new_idx = new_graph.nodes.len();
+            new_graph.nodes.push(GraphNode {
+                op,
+                inputs,
+                dtype: node.dtype,
+                shape: node.shape.clone(),
+            });
+            if let Some(name) = self.names.get(&old_idx) {
+                new_graph.names.insert(new_idx, name.clone());
+            }
+        }
+
+        new_graph
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,7 +609,8 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             vec![input[0], Some(*out_channels), l_out]
         }
 
-        Op::Conv2d { out_channels, kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. } => {
+        Op::Conv2d { out_channels, kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. }
+        | Op::Conv2dBnSilu { out_channels, kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. } => {
             // [N, C_in, H, W] → [N, C_out, H_out, W_out]
             let h_out = input[2].map(|h| (h + 2 * padding_h - kernel_h) / stride_h + 1);
             let w_out = input[3].map(|w| (w + 2 * padding_w - kernel_w) / stride_w + 1);

@@ -22,6 +22,7 @@ use teeny_core::{
 };
 
 use crate::nn::{
+    fused::conv2d_bn_silu::Conv2dBnSiluForward,
     activation::{
         elu::{CeluForward, EluForward, SeluForward},
         gelu::{GeluForward, MishForward},
@@ -705,6 +706,36 @@ impl TritonLowering {
                         Conv3dForward(*kernel_d as i32, *kernel_h as i32, *kernel_w as i32, *stride_d as i32, *stride_h as i32, *stride_w as i32, *padding_d as i32, *padding_h as i32, *padding_w as i32, 8),
                         node
                     )
+                }
+
+                Op::Conv2dBnSilu { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, groups, .. } => {
+                    if node.dtype != DtypeRepr::F32 {
+                        return Err(anyhow::anyhow!(
+                            "Conv2dBnSilu only supports f32 (got {:?})", node.dtype
+                        ));
+                    }
+                    const BLOCK_OW: i32 = 16;
+                    let k = Conv2dBnSiluForward::new(
+                        *kernel_h as i32, *kernel_w as i32,
+                        *stride_h as i32, *stride_w as i32,
+                        *padding_h as i32, *padding_w as i32,
+                        *groups as i32, BLOCK_OW,
+                    );
+                    let nm = k.name.to_string();
+                    let ks = k.source.clone();
+                    let rop: Arc<dyn RuntimeOp> = Arc::new(k);
+                    Box::new(KernelExecutable {
+                        name: nm,
+                        kernel_source: ks,
+                        entry_point: "entry_point".to_string(),
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: "entry_point".to_string(),
+                        runtime_op: rop,
+                    })
                 }
 
                 // --- Pooling ---
