@@ -1378,6 +1378,75 @@ impl CudaGraphModel {
         &self.output_shapes
     }
 
+    /// Like [`run`] but also returns GPU execution time in milliseconds.
+    ///
+    /// The GPU time is measured with CUDA events bracketing only `cuGraphLaunch`
+    /// (pure kernel execution, excluding host↔device copies).
+    /// The returned `f32` is milliseconds of GPU time for the whole batch.
+    pub fn run_timed(&self, inputs: &[&[f32]]) -> Result<(Vec<Vec<f32>>, f32)> {
+        if inputs.len() != self.input_bufs.len() {
+            return Err(anyhow!(
+                "CudaGraphModel::run_timed: expected {} inputs, got {}",
+                self.input_bufs.len(),
+                inputs.len()
+            ));
+        }
+        for (i, (&(ptr, n_elems), &data)) in self.input_bufs.iter().zip(inputs.iter()).enumerate() {
+            if data.len() != n_elems {
+                return Err(anyhow!(
+                    "CudaGraphModel::run_timed: input[{i}] has {} elements, expected {n_elems}",
+                    data.len()
+                ));
+            }
+            unsafe { mem::copy_h_to_d(ptr, data.as_ptr(), n_elems) }?;
+        }
+
+        // Create CUDA events to measure GPU kernel time.
+        let mut ev_start = cuda::CUevent::default();
+        let mut ev_end   = cuda::CUevent::default();
+        let cu_event_default = 0u32;
+        unsafe {
+            cuda::cuEventCreate(&mut ev_start, cu_event_default);
+            cuda::cuEventCreate(&mut ev_end,   cu_event_default);
+            cuda::cuEventRecord(ev_start, self.stream);
+        }
+
+        let launch_s = unsafe { cuda::cuGraphLaunch(self.graph_exec, self.stream) };
+        if launch_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            unsafe {
+                cuda::cuEventDestroy_v2(ev_start);
+                cuda::cuEventDestroy_v2(ev_end);
+            }
+            return Err(Error::from_cuda_error(launch_s).into());
+        }
+
+        unsafe { cuda::cuEventRecord(ev_end, self.stream); }
+
+        let sync_s = unsafe { cuda::cuEventSynchronize(ev_end) };
+        if sync_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            unsafe {
+                cuda::cuEventDestroy_v2(ev_start);
+                cuda::cuEventDestroy_v2(ev_end);
+            }
+            return Err(Error::from_cuda_error(sync_s).into());
+        }
+
+        let mut gpu_ms = 0.0f32;
+        unsafe {
+            cuda::cuEventElapsedTime(&mut gpu_ms, ev_start, ev_end);
+            cuda::cuEventDestroy_v2(ev_start);
+            cuda::cuEventDestroy_v2(ev_end);
+        }
+
+        let mut result = Vec::with_capacity(self.output_bufs.len());
+        for &(ptr, n_elems) in &self.output_bufs {
+            let mut out = vec![0.0_f32; n_elems];
+            unsafe { mem::copy_d_to_h(out.as_mut_ptr(), ptr, n_elems) }?;
+            result.push(out);
+        }
+        Ok((result, gpu_ms))
+    }
+
     /// Copy f32 `inputs` to device, replay the CUDA graph, copy f32 outputs to host.
     ///
     /// Returns one `Vec<f32>` per requested output node (same order as
