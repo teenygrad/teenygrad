@@ -21,6 +21,8 @@
 //!    replaces it with a single `Op::Conv2dBnSilu` node.
 //! 2. `TritonLowering` can lower `Op::Conv2dBnSilu` to a `KernelExecutable`
 //!    with the expected kernel source.
+//! 3. The GPU fused kernel produces numerical output matching a pure-Rust
+//!    reference that runs the three operations separately.
 
 use std::rc::Rc;
 
@@ -29,6 +31,98 @@ use teeny_core::{
     model::LoweringMode,
 };
 use teeny_kernels::graph::TritonLowering;
+
+// ── CUDA numerical test setup ─────────────────────────────────────────────────
+
+#[cfg(feature = "cuda")]
+use dotenv::dotenv;
+#[cfg(feature = "cuda")]
+use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+#[cfg(feature = "cuda")]
+use teeny_core::device::{Device, buffer::Buffer};
+#[cfg(feature = "cuda")]
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
+
+// Dimensions for the numerical test — kept small so it runs in milliseconds.
+const NB: usize = 1;       // batch
+const C_IN: usize = 2;
+const C_OUT: usize = 4;
+const HH: usize = 6;       // input spatial height
+const WW: usize = 6;       // input spatial width
+const KH: i32 = 3;
+const KW: i32 = 3;
+const STRIDE_H: i32 = 1;
+const STRIDE_W: i32 = 1;
+const PAD_H: i32 = 1;
+const PAD_W: i32 = 1;
+const G: i32 = 1;          // groups
+const BLOCK_OW: i32 = 8;
+const EPS: f32 = 1e-5;
+const OH: usize = (HH + 2 * PAD_H as usize - KH as usize) / STRIDE_H as usize + 1; // 6
+const OW: usize = (WW + 2 * PAD_W as usize - KW as usize) / STRIDE_W as usize + 1; // 6
+
+// ── Pure-Rust reference implementations ──────────────────────────────────────
+
+/// Conv2d forward on the CPU.  No bias, NCHW layout, groups=1.
+fn conv2d_reference(
+    x: &[f32], w: &[f32],
+    b: usize, c_in: usize, c_out: usize,
+    h: usize, w_sz: usize,
+    kh: usize, kw: usize,
+    stride_h: usize, stride_w: usize,
+    pad_h: usize, pad_w: usize,
+    oh: usize, ow: usize,
+) -> Vec<f32> {
+    let mut y = vec![0.0f32; b * c_out * oh * ow];
+    for bi in 0..b {
+        for co in 0..c_out {
+            for ohi in 0..oh {
+                for owi in 0..ow {
+                    let mut acc = 0.0f32;
+                    for ci in 0..c_in {
+                        for khi in 0..kh {
+                            for kwi in 0..kw {
+                                let ih = (ohi * stride_h + khi) as isize - pad_h as isize;
+                                let iw = (owi * stride_w + kwi) as isize - pad_w as isize;
+                                if ih >= 0 && ih < h as isize && iw >= 0 && iw < w_sz as isize {
+                                    let xi = ((bi * c_in + ci) * h + ih as usize) * w_sz + iw as usize;
+                                    let wi = ((co * c_in + ci) * kh + khi) * kw + kwi;
+                                    acc += x[xi] * w[wi];
+                                }
+                            }
+                        }
+                    }
+                    y[((bi * c_out + co) * oh + ohi) * ow + owi] = acc;
+                }
+            }
+        }
+    }
+    y
+}
+
+/// Apply BN affine (inference-mode, precomputed scale/shift) then SiLU
+/// element-wise.  Input is NCHW with B=1.
+fn bn_affine_silu_reference(
+    conv_out: &[f32],
+    bn_scale: &[f32],
+    bn_shift: &[f32],
+    c_out: usize,
+    oh: usize,
+    ow: usize,
+) -> Vec<f32> {
+    let hw = oh * ow;
+    conv_out
+        .iter()
+        .enumerate()
+        .map(|(idx, &val)| {
+            // For B=1 NCHW layout, channel = idx / (oh*ow)
+            let c = (idx / hw) % c_out;
+            let bn_out = bn_scale[c] * val + bn_shift[c];
+            // SiLU: y = x * sigmoid(x)
+            bn_out / (1.0 + (-bn_out).exp())
+        })
+        .collect()
+}
 
 /// Build: `Input → Conv2d(no bias) → BatchNorm2d → Silu`
 fn build_conv_bn_silu_graph() -> Graph {
@@ -250,4 +344,95 @@ fn test_optimise_no_fusion_when_conv_has_multiple_consumers() {
     // Conv has 2 consumers — must not fuse.
     assert!(!opt.nodes.iter().any(|n| matches!(n.op, Op::Conv2dBnSilu { .. })),
         "should not fuse when Conv2d has multiple consumers");
+}
+
+// ── CUDA numerical correctness test ──────────────────────────────────────────
+//
+// Runs the fused GPU kernel and compares its output element-by-element against
+// a pure-Rust reference that executes Conv2d, BN affine, and SiLU separately.
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_conv2d_bn_silu_matches_reference() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    // ── Deterministic test data (no fixtures needed) ──────────────────────
+    let x_host: Vec<f32> = (0..NB * C_IN * HH * WW)
+        .map(|i| (i as f32 % 17.0 - 8.0) * 0.1)
+        .collect();
+    let w_host: Vec<f32> = (0..C_OUT * C_IN * KH as usize * KW as usize)
+        .map(|i| (i as f32 % 13.0 - 6.0) * 0.05)
+        .collect();
+    // Precomputed BN affine constants: bn_scale = gamma/sqrt(var+eps),
+    // bn_shift = beta - bn_scale * mean  (exact formula used at inference).
+    let bn_scale: Vec<f32> = (0..C_OUT).map(|i| 0.8 + i as f32 * 0.1).collect();
+    let bn_shift: Vec<f32> = (0..C_OUT).map(|i| i as f32 * 0.1 - 0.15).collect();
+    let mut y_gpu = vec![0.0f32; NB * C_OUT * OH * OW];
+
+    // ── CPU reference ─────────────────────────────────────────────────────
+    let conv_out = conv2d_reference(
+        &x_host, &w_host,
+        NB, C_IN, C_OUT,
+        HH, WW,
+        KH as usize, KW as usize,
+        STRIDE_H as usize, STRIDE_W as usize,
+        PAD_H as usize, PAD_W as usize,
+        OH, OW,
+    );
+    let expected = bn_affine_silu_reference(&conv_out, &bn_scale, &bn_shift, C_OUT, OH, OW);
+
+    // ── GPU fused kernel ──────────────────────────────────────────────────
+    let mut x_buf  = device.buffer::<f32>(NB * C_IN * HH * WW)?;
+    let mut w_buf  = device.buffer::<f32>(C_OUT * C_IN * KH as usize * KW as usize)?;
+    let mut s_buf  = device.buffer::<f32>(C_OUT)?;
+    let mut sh_buf = device.buffer::<f32>(C_OUT)?;
+    let y_buf      = device.buffer::<f32>(NB * C_OUT * OH * OW)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&w_host)?;
+    s_buf.to_device(&bn_scale)?;
+    sh_buf.to_device(&bn_shift)?;
+
+    let kernel = teeny_kernels::nn::fused::conv2d_bn_silu::Conv2dBnSiluForward::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, G, BLOCK_OW,
+    );
+    let target = Target::new(env.capability);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx = std::fs::read(&ptx_path)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::fused::conv2d_bn_silu::Conv2dBnSiluForward,
+    >(&ptx)?;
+
+    let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
+    let grid = (NB * C_OUT * OH * num_ow_tiles) as u32;
+    let cfg = CudaLaunchConfig { grid: [grid, 1, 1], block: [128, 1, 1], cluster: [1, 1, 1] };
+
+    device.launch(&program, &cfg, (
+        x_buf.as_device_ptr()  as *mut f32,
+        w_buf.as_device_ptr()  as *mut f32,
+        s_buf.as_device_ptr()  as *mut f32,
+        sh_buf.as_device_ptr() as *mut f32,
+        y_buf.as_device_ptr()  as *mut f32,
+        NB as i32,
+        C_IN as i32,
+        C_OUT as i32,
+        HH as i32,
+        WW as i32,
+        OH as i32,
+        OW as i32,
+    ))?;
+    y_buf.to_host(&mut y_gpu)?;
+
+    // ── Compare ───────────────────────────────────────────────────────────
+    let n = NB * C_OUT * OH * OW;
+    for i in 0..n {
+        assert!(
+            (y_gpu[i] - expected[i]).abs() < 1e-4,
+            "mismatch at element {i}: fused_gpu={:.6} reference={:.6}",
+            y_gpu[i], expected[i],
+        );
+    }
+    Ok(())
 }
