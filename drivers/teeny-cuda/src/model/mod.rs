@@ -1040,6 +1040,8 @@ impl LoadedModel {
     /// # Parameters
     /// - `batch_size` — resolves dynamic (`None`) shape dimensions.
     /// - `input_shapes` — concrete shape per `Input` node, in topological order.
+    /// - `output_node_indices` — which DAG node indices to read back as outputs.
+    ///   Use [`LoadedModel::terminal_node_indices_sorted_by_size`] to obtain them.
     ///
     /// # Constraints
     /// - Inference-only (no backward pass).
@@ -1050,6 +1052,7 @@ impl LoadedModel {
         device: &CudaDevice<'_>,
         batch_size: usize,
         input_shapes: &[Vec<usize>],
+        output_node_indices: &[usize],
     ) -> Result<CudaGraphModel> {
         let n = self.nodes.len();
         let topo = self.topo_sort();
@@ -1278,19 +1281,31 @@ impl LoadedModel {
             return Err(Error::from_cuda_error(inst_s).into());
         }
 
-        let last_idx = *topo.last().ok_or_else(|| anyhow!("capture_graph: empty model"))?;
-        let output_buf = node_out_bufs[last_idx];
-        let output_shape = concrete_shapes[last_idx].clone();
-        if self.nodes[last_idx].is_none() {
-            return Err(anyhow!("capture_graph: last node is an Input placeholder"));
+        if output_node_indices.is_empty() {
+            unsafe { cuda::cuStreamDestroy_v2(stream); }
+            for &p in &owned { let _ = mem::free(p); }
+            return Err(anyhow!("capture_graph: output_node_indices must not be empty"));
+        }
+        let mut output_bufs: Vec<(DevicePtr, usize)> = Vec::with_capacity(output_node_indices.len());
+        let mut output_shapes: Vec<Vec<usize>> = Vec::with_capacity(output_node_indices.len());
+        for &oi in output_node_indices {
+            if oi >= self.nodes.len() || self.nodes[oi].is_none() {
+                unsafe { cuda::cuStreamDestroy_v2(stream); }
+                for &p in &owned { let _ = mem::free(p); }
+                return Err(anyhow!("capture_graph: output node {oi} is an Input or out of bounds"));
+            }
+            let shape = concrete_shapes[oi].clone();
+            let n_elems: usize = shape.iter().product();
+            output_bufs.push((node_out_bufs[oi], n_elems));
+            output_shapes.push(shape);
         }
 
         Ok(CudaGraphModel {
             stream,
             graph_exec,
             input_bufs,
-            output_buf,
-            output_shape,
+            output_bufs,
+            output_shapes,
             _owned: owned,
         })
     }
@@ -1346,29 +1361,28 @@ impl Drop for ActivationCache {
 /// pre-allocated; the kernel sequence is captured once and replayed on each
 /// [`run`] call with a single `cuGraphLaunch` + `cuStreamSynchronize`.
 pub struct CudaGraphModel {
-    stream:      cuda::CUstream,
-    graph_exec:  cuda::CUgraphExec,
+    stream:        cuda::CUstream,
+    graph_exec:    cuda::CUgraphExec,
     /// Pre-allocated input buffers (one per `Input` node, topological order).
-    input_bufs:  Vec<(DevicePtr, usize)>,  // (device_ptr, n_f32_elements)
-    /// Pre-allocated output buffer of the final node.
-    output_buf:  DevicePtr,
-    output_shape: Vec<usize>,
+    input_bufs:    Vec<(DevicePtr, usize)>,
+    /// Pre-allocated output buffers, in the order of `output_node_indices`.
+    output_bufs:   Vec<(DevicePtr, usize)>,
+    output_shapes: Vec<Vec<usize>>,
     /// All owned device allocations freed on drop.
     _owned: Vec<DevicePtr>,
 }
 
 impl CudaGraphModel {
-    /// Concrete shape of the model output tensor.
-    pub fn output_shape(&self) -> &[usize] {
-        &self.output_shape
+    /// Concrete shapes of the output tensors, in the order of `output_node_indices`.
+    pub fn output_shapes(&self) -> &[Vec<usize>] {
+        &self.output_shapes
     }
 
-    /// Copy f32 `inputs` to device, replay the CUDA graph, copy f32 output to host.
+    /// Copy f32 `inputs` to device, replay the CUDA graph, copy f32 outputs to host.
     ///
-    /// `inputs[i]` must match the shape supplied as `input_shapes[i]` to
-    /// [`LoadedModel::capture_graph`].  The model output is returned as a flat
-    /// `Vec<f32>` in the same logical order as `output_shape()`.
-    pub fn run(&self, inputs: &[&[f32]]) -> Result<Vec<f32>> {
+    /// Returns one `Vec<f32>` per requested output node (same order as
+    /// `output_node_indices` passed to [`LoadedModel::capture_graph`]).
+    pub fn run(&self, inputs: &[&[f32]]) -> Result<Vec<Vec<f32>>> {
         if inputs.len() != self.input_bufs.len() {
             return Err(anyhow!(
                 "CudaGraphModel::run: expected {} inputs, got {}",
@@ -1395,10 +1409,13 @@ impl CudaGraphModel {
             return Err(Error::from_cuda_error(sync_s).into());
         }
 
-        let n_out: usize = self.output_shape.iter().product();
-        let mut out = vec![0.0_f32; n_out];
-        unsafe { mem::copy_d_to_h(out.as_mut_ptr(), self.output_buf, n_out) }?;
-        Ok(out)
+        let mut result = Vec::with_capacity(self.output_bufs.len());
+        for &(ptr, n_elems) in &self.output_bufs {
+            let mut out = vec![0.0_f32; n_elems];
+            unsafe { mem::copy_d_to_h(out.as_mut_ptr(), ptr, n_elems) }?;
+            result.push(out);
+        }
+        Ok(result)
     }
 }
 

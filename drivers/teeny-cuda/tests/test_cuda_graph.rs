@@ -82,27 +82,29 @@ fn test_cuda_graph_silu_matches_forward() -> Result<()> {
     mem::free(x_ptr)?;
 
     // ── Capture CUDA graph ──────────────────────────────────────────────────
+    let terminals = loaded.terminal_node_indices_sorted_by_size();
     let graph_model = loaded.capture_graph(
         &env.device,
         BATCH,
         &[vec![BATCH, FEATURES]],
+        &terminals,
     )?;
-    assert_eq!(graph_model.output_shape(), &[BATCH, FEATURES]);
+    assert_eq!(graph_model.output_shapes()[0], &[BATCH, FEATURES]);
 
     // ── First run: compare against forward reference ───────────────────────
     let run1 = graph_model.run(&[x.as_slice()])?;
-    assert_eq!(run1.len(), BATCH * FEATURES);
+    assert_eq!(run1[0].len(), BATCH * FEATURES);
     for i in 0..BATCH * FEATURES {
         assert!(
-            (run1[i] - reference[i]).abs() < TOL,
-            "run1[{i}]: graph={} forward={}", run1[i], reference[i]
+            (run1[0][i] - reference[i]).abs() < TOL,
+            "run1[{i}]: graph={} forward={}", run1[0][i], reference[i]
         );
     }
 
     // ── Second run: verify deterministic replay ───────────────────────────
     let run2 = graph_model.run(&[x.as_slice()])?;
     for i in 0..BATCH * FEATURES {
-        assert_eq!(run1[i], run2[i], "run2 differs from run1 at index {i}");
+        assert_eq!(run1[0][i], run2[0][i], "run2 differs from run1 at index {i}");
     }
 
     // ── Third run with different input ────────────────────────────────────
@@ -110,7 +112,7 @@ fn test_cuda_graph_silu_matches_forward() -> Result<()> {
     let run3 = graph_model.run(&[x2.as_slice()])?;
 
     // Verify run3 differs from run1 (different input → different output).
-    let any_different = run3.iter().zip(run1.iter()).any(|(a, b)| (a - b).abs() > TOL);
+    let any_different = run3[0].iter().zip(run1[0].iter()).any(|(a, b)| (a - b).abs() > TOL);
     assert!(any_different, "run3 should differ from run1 since input changed");
 
     Ok(())
