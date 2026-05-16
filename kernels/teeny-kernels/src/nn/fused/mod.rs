@@ -15,3 +15,5 @@
  */
 
 pub mod conv2d_bn_silu;
+pub mod conv2d_bn_silu_gemm;
+pub mod conv2d_bn_silu_tiled;

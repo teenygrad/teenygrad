@@ -22,7 +22,11 @@ use teeny_core::{
 };
 
 use crate::nn::{
-    fused::conv2d_bn_silu::Conv2dBnSiluForward,
+    fused::{
+        conv2d_bn_silu::Conv2dBnSiluForward,
+        conv2d_bn_silu_gemm::Conv2dBnSiluGemmForward,
+        conv2d_bn_silu_tiled::Conv2dBnSiluTiledForward,
+    },
     activation::{
         elu::{CeluForward, EluForward, SeluForward},
         gelu::{GeluForward, MishForward},
@@ -708,34 +712,106 @@ impl TritonLowering {
                     )
                 }
 
-                Op::Conv2dBnSilu { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, groups, .. } => {
+                Op::Conv2dBnSilu { kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, groups, in_channels, .. } => {
                     if node.dtype != DtypeRepr::F32 {
                         return Err(anyhow::anyhow!(
                             "Conv2dBnSilu only supports f32 (got {:?})", node.dtype
                         ));
                     }
-                    const BLOCK_OW: i32 = 16;
-                    let k = Conv2dBnSiluForward::new(
-                        *kernel_h as i32, *kernel_w as i32,
-                        *stride_h as i32, *stride_w as i32,
-                        *padding_h as i32, *padding_w as i32,
-                        *groups as i32, BLOCK_OW,
-                    );
-                    let nm = k.name.to_string();
-                    let ks = k.source.clone();
-                    let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-                    Box::new(KernelExecutable {
-                        entry_point: format!("{}_entry_point", nm),
-                        name: nm,
-                        kernel_source: ks,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                        #[cfg(feature = "training")]
-                        backward_kernel_source: String::new(),
-                        #[cfg(feature = "training")]
-                        backward_entry_point: String::new(),
-                        runtime_op: rop,
-                    })
+                    let kh = *kernel_h as i32;
+                    let kw = *kernel_w as i32;
+                    let sh = *stride_h as i32;
+                    let sw = *stride_w as i32;
+                    let ph = *padding_h as i32;
+                    let pw = *padding_w as i32;
+                    let g  = *groups as i32;
+                    let c_out = node.shape[1].unwrap_or(0);
+                    let is_depthwise = g as usize == *in_channels;
+
+                    // ── Dispatch: select kernel based on op shape ─────────────────────────
+                    //
+                    // Case 1 — GEMM (TF32 tensor cores):
+                    //   1×1 kernel, stride=1, no padding, groups=1, C_OUT ≥ 32.
+                    //   Treats the convolution as Y[N,M] = W[N,K] @ X[K,M].
+                    //
+                    // Case 2 — Channel-tiled direct conv (outer-product accumulation):
+                    //   groups=1, C_OUT ≥ 16.
+                    //   Processes BLOCK_N output channels simultaneously per CTA.
+                    //
+                    // Case 3 — Scalar direct conv (existing kernel):
+                    //   Depthwise, tiny spatial, or any other fallback.
+
+                    let use_gemm = kh == 1 && kw == 1
+                        && sh == 1 && sw == 1
+                        && ph == 0 && pw == 0
+                        && !is_depthwise && g == 1
+                        && c_out >= 32;
+
+                    let use_tiled = !is_depthwise && g == 1 && c_out >= 16 && !use_gemm;
+
+                    if use_gemm {
+                        const BLOCK_M: i32 = 32;
+                        const BLOCK_N: i32 = 32;
+                        const BLOCK_K: i32 = 32;
+                        const GROUP_M: i32 = 8;
+                        let k = Conv2dBnSiluGemmForward::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
+                        let nm = k.name.to_string();
+                        let ks = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{}_entry_point", nm),
+                            name: nm,
+                            kernel_source: ks,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    } else if use_tiled {
+                        const BLOCK_OW: i32 = 16;
+                        const BLOCK_N_TILE: i32 = 16;
+                        let k = Conv2dBnSiluTiledForward::new(
+                            kh, kw, sh, sw, ph, pw, BLOCK_OW, BLOCK_N_TILE,
+                        );
+                        let nm = k.name.to_string();
+                        let ks = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{}_entry_point", nm),
+                            name: nm,
+                            kernel_source: ks,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    } else {
+                        const BLOCK_OW: i32 = 16;
+                        let k = Conv2dBnSiluForward::new(
+                            kh, kw, sh, sw, ph, pw, g, BLOCK_OW,
+                        );
+                        let nm = k.name.to_string();
+                        let ks = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{}_entry_point", nm),
+                            name: nm,
+                            kernel_source: ks,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    }
                 }
 
                 // --- Pooling ---
