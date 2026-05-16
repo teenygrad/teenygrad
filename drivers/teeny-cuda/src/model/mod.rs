@@ -31,7 +31,7 @@ use crate::{
         mem::{self, DevicePtr},
         program::{CudaProgram, ErasedKernel},
     },
-    errors::Result,
+    errors::{Error, Result},
 };
 
 // ---------------------------------------------------------------------------
@@ -1029,6 +1029,272 @@ impl LoadedModel {
         device.launch_with_packer(prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)
     }
 
+    /// Capture a fixed-batch CUDA graph for low-overhead repeated inference.
+    ///
+    /// All device buffers (intermediate activations, scratch pads, TMA padding)
+    /// are pre-allocated once. The kernel sequence is then recorded via
+    /// `cuStreamBeginCapture_v2` / `cuStreamEndCapture` and instantiated as a
+    /// `CUgraphExec`. Subsequent [`CudaGraphModel::run`] calls replay it with a
+    /// single `cuGraphLaunch` + `cuStreamSynchronize`.
+    ///
+    /// # Parameters
+    /// - `batch_size` — resolves dynamic (`None`) shape dimensions.
+    /// - `input_shapes` — concrete shape per `Input` node, in topological order.
+    ///
+    /// # Constraints
+    /// - Inference-only (no backward pass).
+    /// - Fixed topology: re-capture if `batch_size` or input shapes change.
+    /// - f32 inputs and outputs assumed for the convenience [`CudaGraphModel::run`] API.
+    pub fn capture_graph(
+        &self,
+        device: &CudaDevice<'_>,
+        batch_size: usize,
+        input_shapes: &[Vec<usize>],
+    ) -> Result<CudaGraphModel> {
+        let n = self.nodes.len();
+        let topo = self.topo_sort();
+
+        // ── Phase 1: concrete output shapes for every node ──────────────────
+        let mut concrete_shapes: Vec<Vec<usize>> = vec![vec![]; n];
+        let mut input_cursor = 0usize;
+        for &idx in &topo {
+            if self.nodes[idx].is_none() {
+                let shape = input_shapes
+                    .get(input_cursor)
+                    .ok_or_else(|| anyhow!("capture_graph: input_shapes[{input_cursor}] missing"))?
+                    .clone();
+                concrete_shapes[idx] = shape;
+                input_cursor += 1;
+            } else {
+                let loaded = self.nodes[idx].as_ref().unwrap();
+                let parent_shapes: Vec<&[usize]> = self.parents[idx]
+                    .iter()
+                    .map(|&p| concrete_shapes[p].as_slice())
+                    .collect();
+                let raw = resolve_shape(&loaded.output_shape, batch_size);
+                concrete_shapes[idx] =
+                    loaded.runtime_op.compute_concrete_output_shape(&parent_shapes, &raw);
+            }
+        }
+
+        // ── Phase 2: pre-allocate all device buffers ─────────────────────────
+        // All pointers accumulated here; CudaGraphModel::drop frees them.
+        let mut owned: Vec<DevicePtr> = Vec::new();
+        let mut node_out_bufs: Vec<DevicePtr> = vec![0; n];
+        let mut node_scratch_bufs: Vec<DevicePtr> = vec![0; n];
+        type PaddedEntry = Option<(DevicePtr, usize, usize, usize, usize)>;
+        // (padded_ptr, natural_stride, required_stride, n_rows, elem_bytes)
+        let mut node_padded: Vec<PaddedEntry> = vec![None; n];
+        let mut input_bufs: Vec<(DevicePtr, usize)> = Vec::new();
+
+        for &idx in &topo {
+            if self.nodes[idx].is_none() {
+                // f32 input buffer — filled by the caller before each run().
+                let n_elems: usize = concrete_shapes[idx].iter().product();
+                let ptr = mem::alloc(n_elems * 4)?;
+                owned.push(ptr);
+                node_out_bufs[idx] = ptr;
+                input_bufs.push((ptr, n_elems));
+                continue;
+            }
+
+            let loaded = self.nodes[idx].as_ref().unwrap();
+            let output_shape = &concrete_shapes[idx];
+            let n_elems: usize = output_shape.iter().product();
+            let elem_bytes = dtype_bytes(loaded.output_dtype);
+
+            // Tight output buffer for this node.
+            let out_ptr = mem::alloc(n_elems * elem_bytes)?;
+            owned.push(out_ptr);
+            node_out_bufs[idx] = out_ptr;
+
+            // TMA padded buffer when the op requires a wider row stride.
+            let natural_stride = output_shape.last().copied().unwrap_or(1);
+            let required_stride = loaded.runtime_op.forward_output_row_stride(output_shape);
+            if required_stride > natural_stride {
+                let n_rows = n_elems / natural_stride.max(1);
+                let padded_bytes = n_rows * required_stride * elem_bytes;
+                let padded_ptr = mem::alloc(padded_bytes)?;
+                unsafe { cuda::cuMemsetD8_v2(padded_ptr, 0, padded_bytes) };
+                owned.push(padded_ptr);
+                node_padded[idx] = Some((padded_ptr, natural_stride, required_stride, n_rows, elem_bytes));
+            }
+
+            // Global scratch pad for TMA descriptors.
+            let grid = loaded.runtime_op.grid(output_shape);
+            let num_ctas = (grid[0] * grid[1] * grid[2]) as u64;
+            let scratch_total = loaded.program.metadata.global_scratch_size * num_ctas;
+            if scratch_total > 0 {
+                let scratch_ptr = mem::alloc(scratch_total as usize)?;
+                unsafe { cuda::cuMemsetD8_v2(scratch_ptr, 0, scratch_total as usize) };
+                owned.push(scratch_ptr);
+                node_scratch_bufs[idx] = scratch_ptr;
+            }
+        }
+
+        // ── Phase 3: create stream and begin graph capture ───────────────────
+        let mut stream: cuda::CUstream = std::ptr::null_mut();
+        {
+            let s = unsafe { cuda::cuStreamCreate(&mut stream, 0) };
+            if s != cuda::cudaError_enum_CUDA_SUCCESS {
+                for &p in &owned { let _ = mem::free(p); }
+                return Err(Error::from_cuda_error(s).into());
+            }
+        }
+
+        {
+            let s = unsafe {
+                cuda::cuStreamBeginCapture_v2(
+                    stream,
+                    cuda::CUstreamCaptureMode_enum_CU_STREAM_CAPTURE_MODE_GLOBAL,
+                )
+            };
+            if s != cuda::cudaError_enum_CUDA_SUCCESS {
+                unsafe { cuda::cuStreamDestroy_v2(stream) };
+                for &p in &owned { let _ = mem::free(p); }
+                return Err(Error::from_cuda_error(s).into());
+            }
+        }
+
+        // ── Phase 4: record kernels into the capture stream ──────────────────
+        let mut capture_err: Option<anyhow::Error> = None;
+        'capture: for &idx in &topo {
+            let Some(loaded) = self.nodes[idx].as_ref() else { continue };
+            let output_shape = &concrete_shapes[idx];
+
+            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = self.parents[idx]
+                .iter()
+                .map(|&p| (node_out_bufs[p] as *mut core::ffi::c_void, concrete_shapes[p].as_slice()))
+                .collect();
+            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs
+                .iter()
+                .map(|&p| p as *mut core::ffi::c_void)
+                .collect();
+            let input_shapes_ref: Vec<&[usize]> = act_inputs.iter().map(|(_, s)| *s).collect();
+
+            let required_stride = loaded.runtime_op.forward_output_row_stride(output_shape);
+            let scratch_ptr = node_scratch_bufs[idx];
+            let (kernel_out_raw, tight_out_ptr) = if let Some((padded_ptr, ..)) = node_padded[idx] {
+                (padded_ptr as *mut core::ffi::c_void, node_out_bufs[idx])
+            } else {
+                let op = node_out_bufs[idx];
+                (op as *mut core::ffi::c_void, op)
+            };
+
+            let block = [loaded.program.metadata.threads_per_block(), 1, 1];
+            let cluster = [loaded.program.metadata.num_ctas, 1, 1];
+            let n_launches = loaded.runtime_op.n_launches();
+
+            // Re-zero scratch each replay so TMA descriptors start clean.
+            if scratch_ptr != 0 {
+                let grid = loaded.runtime_op.grid(output_shape);
+                let num_ctas = (grid[0] * grid[1] * grid[2]) as u64;
+                let scratch_total = loaded.program.metadata.global_scratch_size * num_ctas;
+                let s = unsafe { cuda::cuMemsetD8Async(scratch_ptr, 0, scratch_total as usize, stream) };
+                if s != cuda::cudaError_enum_CUDA_SUCCESS {
+                    capture_err = Some(Error::from_cuda_error(s).into());
+                    break 'capture;
+                }
+            }
+
+            for launch_idx in 0..n_launches {
+                let mut packer = CudaArgPacker::new();
+                if n_launches == 1 {
+                    loaded.runtime_op.pack_args(
+                        &act_inputs, &param_ptrs, kernel_out_raw, output_shape,
+                        required_stride as i32, &mut packer,
+                    );
+                } else {
+                    loaded.runtime_op.pack_args_for_launch(
+                        launch_idx, &act_inputs, &param_ptrs, kernel_out_raw, output_shape,
+                        required_stride as i32, &mut packer,
+                    );
+                }
+                // Triton trailing args: global scratch pad + profile scratch pad.
+                packer.visit_ptr(scratch_ptr as *mut core::ffi::c_void);
+                packer.visit_ptr(std::ptr::null_mut());
+
+                let grid = if n_launches == 1 {
+                    loaded.runtime_op.grid(output_shape)
+                } else {
+                    loaded.runtime_op.grid_for_launch(launch_idx, &input_shapes_ref, output_shape)
+                };
+                let cfg = CudaLaunchConfig { grid, block, cluster };
+                if let Err(e) = device.launch_on_stream(&loaded.program, &cfg, &mut packer, stream) {
+                    capture_err = Some(e);
+                    break 'capture;
+                }
+            }
+
+            // Depad: copy valid rows from padded → tight output buffer (async, captured).
+            if let Some((padded_ptr, ns, rs, n_rows, eb)) = node_padded[idx] {
+                for i in 0..n_rows {
+                    let src_off = (i * rs * eb) as u64;
+                    let dst_off = (i * ns * eb) as u64;
+                    let s = unsafe {
+                        cuda::cuMemcpyDtoDAsync_v2(
+                            tight_out_ptr + dst_off,
+                            padded_ptr + src_off,
+                            ns * eb,
+                            stream,
+                        )
+                    };
+                    if s != cuda::cudaError_enum_CUDA_SUCCESS {
+                        capture_err = Some(Error::from_cuda_error(s).into());
+                        break 'capture;
+                    }
+                }
+            }
+        }
+
+        // ── Phase 5: end capture and instantiate ─────────────────────────────
+        let mut graph: cuda::CUgraph = std::ptr::null_mut();
+        let end_s = unsafe { cuda::cuStreamEndCapture(stream, &mut graph) };
+
+        if let Some(err) = capture_err {
+            // A kernel record step failed — discard the partial graph.
+            unsafe {
+                if !graph.is_null() { cuda::cuGraphDestroy(graph); }
+                cuda::cuStreamDestroy_v2(stream);
+            }
+            for &p in &owned { let _ = mem::free(p); }
+            return Err(err);
+        }
+        if end_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            unsafe {
+                if !graph.is_null() { cuda::cuGraphDestroy(graph); }
+                cuda::cuStreamDestroy_v2(stream);
+            }
+            for &p in &owned { let _ = mem::free(p); }
+            return Err(Error::from_cuda_error(end_s).into());
+        }
+
+        let mut graph_exec: cuda::CUgraphExec = std::ptr::null_mut();
+        let inst_s = unsafe { cuda::cuGraphInstantiateWithFlags(&mut graph_exec, graph, 0) };
+        unsafe { cuda::cuGraphDestroy(graph) };
+        if inst_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            unsafe { cuda::cuStreamDestroy_v2(stream) };
+            for &p in &owned { let _ = mem::free(p); }
+            return Err(Error::from_cuda_error(inst_s).into());
+        }
+
+        let last_idx = *topo.last().ok_or_else(|| anyhow!("capture_graph: empty model"))?;
+        let output_buf = node_out_bufs[last_idx];
+        let output_shape = concrete_shapes[last_idx].clone();
+        if self.nodes[last_idx].is_none() {
+            return Err(anyhow!("capture_graph: last node is an Input placeholder"));
+        }
+
+        Ok(CudaGraphModel {
+            stream,
+            graph_exec,
+            input_bufs,
+            output_buf,
+            output_shape,
+            _owned: owned,
+        })
+    }
+
     fn topo_sort(&self) -> Vec<usize> {
         let n = self.nodes.len();
         let mut in_deg: Vec<usize> = (0..n).map(|i| self.parents[i].len()).collect();
@@ -1065,6 +1331,86 @@ impl Drop for ActivationCache {
         for tr in self.tensors.iter().flatten() {
             if let Err(e) = mem::free(tr.ptr) {
                 eprintln!("ActivationCache: failed to free buffer: {e}");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CudaGraphModel — captured inference graph for fixed-batch execution
+// ---------------------------------------------------------------------------
+
+/// A CUDA graph compiled from a [`LoadedModel`] for fixed-batch inference.
+///
+/// Created via [`LoadedModel::capture_graph`]. All device buffers are
+/// pre-allocated; the kernel sequence is captured once and replayed on each
+/// [`run`] call with a single `cuGraphLaunch` + `cuStreamSynchronize`.
+pub struct CudaGraphModel {
+    stream:      cuda::CUstream,
+    graph_exec:  cuda::CUgraphExec,
+    /// Pre-allocated input buffers (one per `Input` node, topological order).
+    input_bufs:  Vec<(DevicePtr, usize)>,  // (device_ptr, n_f32_elements)
+    /// Pre-allocated output buffer of the final node.
+    output_buf:  DevicePtr,
+    output_shape: Vec<usize>,
+    /// All owned device allocations freed on drop.
+    _owned: Vec<DevicePtr>,
+}
+
+impl CudaGraphModel {
+    /// Concrete shape of the model output tensor.
+    pub fn output_shape(&self) -> &[usize] {
+        &self.output_shape
+    }
+
+    /// Copy f32 `inputs` to device, replay the CUDA graph, copy f32 output to host.
+    ///
+    /// `inputs[i]` must match the shape supplied as `input_shapes[i]` to
+    /// [`LoadedModel::capture_graph`].  The model output is returned as a flat
+    /// `Vec<f32>` in the same logical order as `output_shape()`.
+    pub fn run(&self, inputs: &[&[f32]]) -> Result<Vec<f32>> {
+        if inputs.len() != self.input_bufs.len() {
+            return Err(anyhow!(
+                "CudaGraphModel::run: expected {} inputs, got {}",
+                self.input_bufs.len(),
+                inputs.len()
+            ));
+        }
+        for (i, (&(ptr, n_elems), &data)) in self.input_bufs.iter().zip(inputs.iter()).enumerate() {
+            if data.len() != n_elems {
+                return Err(anyhow!(
+                    "CudaGraphModel::run: input[{i}] has {} elements, expected {n_elems}",
+                    data.len()
+                ));
+            }
+            unsafe { mem::copy_h_to_d(ptr, data.as_ptr(), n_elems) }?;
+        }
+
+        let launch_s = unsafe { cuda::cuGraphLaunch(self.graph_exec, self.stream) };
+        if launch_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(launch_s).into());
+        }
+        let sync_s = unsafe { cuda::cuStreamSynchronize(self.stream) };
+        if sync_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(sync_s).into());
+        }
+
+        let n_out: usize = self.output_shape.iter().product();
+        let mut out = vec![0.0_f32; n_out];
+        unsafe { mem::copy_d_to_h(out.as_mut_ptr(), self.output_buf, n_out) }?;
+        Ok(out)
+    }
+}
+
+impl Drop for CudaGraphModel {
+    fn drop(&mut self) {
+        unsafe {
+            cuda::cuGraphExecDestroy(self.graph_exec);
+            cuda::cuStreamDestroy_v2(self.stream);
+        }
+        for &ptr in &self._owned {
+            if ptr != 0 && mem::free(ptr).is_err() {
+                eprintln!("CudaGraphModel::drop: failed to free buffer at {ptr:#x}");
             }
         }
     }

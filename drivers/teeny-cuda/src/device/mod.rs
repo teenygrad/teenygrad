@@ -292,6 +292,36 @@ impl<'a> Device<'a> for CudaDevice<'a> {
 }
 
 impl<'a> CudaDevice<'a> {
+    /// Launch a kernel on the given stream without allocating scratch or
+    /// synchronising. Used during CUDA graph capture: the caller must have
+    /// already appended the global-scratch-pad and profile-scratch-pad pointers
+    /// to `packer` before calling this.
+    pub(crate) fn launch_on_stream<K: Kernel>(
+        &self,
+        program: &CudaProgram<'_, K>,
+        cfg: &CudaLaunchConfig,
+        packer: &mut CudaArgPacker,
+        stream: cuda::CUstream,
+    ) -> Result<()> {
+        let mut ptrs = packer.as_ptrs();
+        let status = unsafe {
+            cuda::cuLaunchKernel(
+                program.function,
+                cfg.grid[0], cfg.grid[1], cfg.grid[2],
+                cfg.block[0], cfg.block[1], cfg.block[2],
+                program.metadata.shared,
+                stream,
+                ptrs.as_mut_ptr(),
+                std::ptr::null_mut(),
+            )
+        };
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            Err(Error::from_cuda_error(status).into())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Launch a pre-loaded kernel using a dynamically-built arg list.
     ///
     /// Use this instead of `launch` when the kernel type is erased (e.g. in
