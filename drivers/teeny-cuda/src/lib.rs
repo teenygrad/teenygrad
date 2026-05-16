@@ -22,3 +22,20 @@ pub mod runtime;
 pub mod testing;
 
 mod cuda;
+
+/// Signal nsys (or any CUDA profiler) to start capturing.
+///
+/// # Safety
+/// Calls `cudaProfilerStart` via the CUDA runtime. Safe to call multiple times;
+/// has no effect if no profiler is attached.
+pub unsafe fn cuda_profiler_start() {
+    unsafe { cuda::cudaProfilerStart() };
+}
+
+/// Signal nsys (or any CUDA profiler) to stop capturing.
+///
+/// # Safety
+/// Calls `cudaProfilerStop` via the CUDA runtime.
+pub unsafe fn cuda_profiler_stop() {
+    unsafe { cuda::cudaProfilerStop() };
+}

@@ -16,5 +16,6 @@
 
 #include "cuda.h"
 #include "cuda_runtime.h"
+#include "cuda_profiler_api.h"
 #include "nvPTXCompiler.h"
 #include "nvrtc.h"
