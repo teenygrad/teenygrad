@@ -41,6 +41,7 @@ impl KernelMetadata {
     fn parse(ptx: &str) -> Self {
         let mut m = KernelMetadata { num_ctas: 1, global_scratch_align: 1, profile_scratch_align: 1, ..Default::default() };
         let mut reqntid: Option<u32> = None;
+        let mut visible_entry_name = String::new();
 
         for line in ptx.lines() {
             let trimmed = line.trim();
@@ -73,6 +74,18 @@ impl KernelMetadata {
                 }
             }
 
+            // Parse `.visible .entry name(` — the PTX kernel symbol name emitted by NVPTX.
+            // Used as a fallback when no `// meta:name=` comment is present.
+            if visible_entry_name.is_empty() {
+                if let Some(rest) = trimmed.strip_prefix(".visible .entry ") {
+                    let name_end = rest.find('(').unwrap_or(rest.find(' ').unwrap_or(rest.len()));
+                    let parsed = rest[..name_end].trim();
+                    if !parsed.is_empty() {
+                        visible_entry_name = parsed.to_owned();
+                    }
+                }
+            }
+
             // Parse legacy Triton comment format emitted by older PTX cached before the
             // `// meta:` block was introduced. These act as low-priority fallbacks: a
             // later `// meta:` line for the same key will have already set the value, so
@@ -92,9 +105,13 @@ impl KernelMetadata {
             }
         }
 
-        // Fill name and num_warps from fallbacks for NVPTX-compiled kernels.
+        // Fill name: prefer `// meta:name=`, then `.visible .entry`, then fallback.
         if m.name.is_empty() {
-            m.name = "entry_point".to_owned();
+            m.name = if !visible_entry_name.is_empty() {
+                visible_entry_name
+            } else {
+                "entry_point".to_owned()
+            };
         }
         if m.num_warps == 0 {
             // Derive num_warps from .reqntid (round up to full warps).
@@ -299,5 +316,5 @@ impl Kernel for ErasedKernel {
     fn name(&self) -> &str { "" }
     fn source(&self) -> &str { "" }
     fn kernel_source(&self) -> &str { "" }
-    fn entry_point(&self) -> &str { "" }
+    fn entry_point_source(&self) -> &str { "" }
 }

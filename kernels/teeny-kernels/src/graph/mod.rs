@@ -106,15 +106,15 @@ macro_rules! make_num_kernel {
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
+            entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
-            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
             backward_kernel_source: String::new(),
             #[cfg(feature = "training")]
-            backward_entry_point: "entry_point".to_string(),
+            backward_entry_point: String::new(),
             runtime_op: rop,
         })
     }};
@@ -134,29 +134,29 @@ macro_rules! make_num_kernel {
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         #[cfg(feature = "training")]
-        let bwd_ks = match $node.dtype {
-            DtypeRepr::F32 => $Bwd::<f32>::new($($barg),*).source.clone(),
-            DtypeRepr::F64 => $Bwd::<f64>::new($($barg),*).source.clone(),
-            DtypeRepr::I8  => $Bwd::<i8>::new($($barg),*).source.clone(),
-            DtypeRepr::I16 => $Bwd::<i16>::new($($barg),*).source.clone(),
-            DtypeRepr::I32 => $Bwd::<i32>::new($($barg),*).source.clone(),
-            DtypeRepr::I64 => $Bwd::<i64>::new($($barg),*).source.clone(),
-            DtypeRepr::U8  => $Bwd::<u8>::new($($barg),*).source.clone(),
-            DtypeRepr::U16 => $Bwd::<u16>::new($($barg),*).source.clone(),
-            DtypeRepr::U32 => $Bwd::<u32>::new($($barg),*).source.clone(),
-            DtypeRepr::U64 => $Bwd::<u64>::new($($barg),*).source.clone(),
+        let (bwd_name, bwd_ks) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $Bwd::<f32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::F64 => { let k = $Bwd::<f64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::I8  => { let k = $Bwd::<i8>::new($($barg),*);  (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::I16 => { let k = $Bwd::<i16>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::I32 => { let k = $Bwd::<i32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::I64 => { let k = $Bwd::<i64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::U8  => { let k = $Bwd::<u8>::new($($barg),*);  (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::U16 => { let k = $Bwd::<u16>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::U32 => { let k = $Bwd::<u32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::U64 => { let k = $Bwd::<u64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($Bwd))),
         };
         Box::new(KernelExecutable {
+            entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
-            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
             backward_kernel_source: bwd_ks,
             #[cfg(feature = "training")]
-            backward_entry_point: "entry_point".to_string(),
+            backward_entry_point: format!("{}_entry_point", bwd_name),
             runtime_op: rop,
         })
     }};
@@ -172,15 +172,15 @@ macro_rules! make_float_kernel {
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
+            entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
-            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
             backward_kernel_source: String::new(),
             #[cfg(feature = "training")]
-            backward_entry_point: "entry_point".to_string(),
+            backward_entry_point: String::new(),
             runtime_op: rop,
         })
     }};
@@ -195,15 +195,15 @@ macro_rules! make_untyped_kernel {
         let src = k.source.clone();
         let rop: Arc<dyn RuntimeOp> = Arc::new(k);
         Box::new(KernelExecutable {
+            entry_point: format!("{}_entry_point", nm),
             name: nm,
             kernel_source: src,
-            entry_point: "entry_point".to_string(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
             backward_kernel_source: String::new(),
             #[cfg(feature = "training")]
-            backward_entry_point: "entry_point".to_string(),
+            backward_entry_point: String::new(),
             runtime_op: rop,
         })
     }};
@@ -455,13 +455,13 @@ impl TritonLowering {
                         };
 
                     let stats_node = Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", stats_name),
                         name: stats_name,
                         kernel_source: stats_src,
-                        entry_point: "entry_point".to_string(),
                         shape: vec![Some(2 * c)],
                         dtype: node.dtype,
                         backward_kernel_source: String::new(),
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: stats_rop,
                     }) as Box<dyn ExecutableOp>;
 
@@ -492,13 +492,13 @@ impl TritonLowering {
                         };
 
                     let norm_node = Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", norm_name),
                         name: norm_name,
                         kernel_source: norm_src,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         backward_kernel_source: norm_bwd_src,
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: norm_rop,
                     }) as Box<dyn ExecutableOp>;
 
@@ -542,15 +542,15 @@ impl TritonLowering {
                 };
 
                 let conv_dag_idx = dag.add_node(Box::new(KernelExecutable {
+                    entry_point: format!("{}_entry_point", conv_name),
                     name: conv_name,
                     kernel_source: conv_ks,
-                    entry_point: "entry_point".to_string(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
                     backward_kernel_source: conv_bwd_ks,
                     #[cfg(feature = "training")]
-                    backward_entry_point: "entry_point".to_string(),
+                    backward_entry_point: String::new(),
                     runtime_op: conv_rop,
                 }) as Box<dyn ExecutableOp>);
                 for &input_graph_idx in &node.inputs {
@@ -577,15 +577,15 @@ impl TritonLowering {
                 };
 
                 let biasadd_dag_idx = dag.add_node(Box::new(KernelExecutable {
+                    entry_point: format!("{}_entry_point", bias_name),
                     name: bias_name,
                     kernel_source: bias_ks,
-                    entry_point: "entry_point".to_string(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
                     backward_kernel_source: bias_bwd_ks,
                     #[cfg(feature = "training")]
-                    backward_entry_point: "entry_point".to_string(),
+                    backward_entry_point: String::new(),
                     runtime_op: bias_rop,
                 }) as Box<dyn ExecutableOp>);
                 dag.add_edge(conv_dag_idx, biasadd_dag_idx);
@@ -606,7 +606,7 @@ impl TritonLowering {
                     #[cfg(feature = "training")]
                     backward_kernel_source: String::new(),
                     #[cfg(feature = "training")]
-                    backward_entry_point: "entry_point".to_string(),
+                    backward_entry_point: String::new(),
                     runtime_op: Arc::new(InputRuntimeOp),
                 }),
 
@@ -641,15 +641,15 @@ impl TritonLowering {
                         _ => String::new(),
                     };
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: bwd_ks,
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -668,15 +668,15 @@ impl TritonLowering {
                         other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for LayerNorm", other)),
                     };
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: String::new(),
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -725,15 +725,15 @@ impl TritonLowering {
                     let ks = k.source.clone();
                     let rop: Arc<dyn RuntimeOp> = Arc::new(k);
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", nm),
                         name: nm,
                         kernel_source: ks,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: String::new(),
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -877,15 +877,15 @@ impl TritonLowering {
                     let bwd_src = SiluBackward::new(1024).source.clone();
                     let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", nm),
                         name: nm,
                         kernel_source: fwd_src,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: bwd_src,
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -927,15 +927,15 @@ impl TritonLowering {
                             other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelCat", other)),
                         };
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: fwd_src,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: bwd_src,
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -958,15 +958,15 @@ impl TritonLowering {
                             other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelChunk", other)),
                         };
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: fwd_src,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: bwd_src,
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -980,15 +980,15 @@ impl TritonLowering {
                             other => return Err(anyhow::anyhow!("{:?} is not supported for ChannelBiasAdd", other)),
                         };
                     Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: fwd_src,
-                        entry_point: "entry_point".to_string(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
                         backward_kernel_source: bwd_src,
                         #[cfg(feature = "training")]
-                        backward_entry_point: "entry_point".to_string(),
+                        backward_entry_point: String::new(),
                         runtime_op: rop,
                     })
                 }
@@ -1018,7 +1018,7 @@ impl TritonLowering {
                                 #[cfg(feature = "training")]
                                 backward_kernel_source: data.0.lower_backward_source(),
                                 #[cfg(feature = "training")]
-                                backward_entry_point: "entry_point".to_string(),
+                                backward_entry_point: String::new(),
                             })
                         }
                         None => {

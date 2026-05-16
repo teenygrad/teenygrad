@@ -148,7 +148,13 @@ pub trait Kernel {
 
     fn kernel_source(&self) -> &str;
 
-    fn entry_point(&self) -> &str;
+    /// Returns the Rust source of the generated C-ABI entry-point wrapper function.
+    fn entry_point_source(&self) -> &str;
+
+    /// Returns the PTX symbol name for this kernel: `"{name}_entry_point"`.
+    fn entry_point_name(&self) -> String {
+        format!("{}_entry_point", self.name())
+    }
 }
 
 pub trait Program<'a, K: Kernel>: Sized {}

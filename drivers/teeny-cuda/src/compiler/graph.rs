@@ -54,8 +54,8 @@ impl<'a> Kernel for ForwardKernelAdapter<'a> {
         self.0.forward_kernel_source()
     }
 
-    fn entry_point(&self) -> &str {
-        self.0.forward_kernel_entry_point()
+    fn entry_point_source(&self) -> &str {
+        ""
     }
 }
 
@@ -75,8 +75,8 @@ impl<'a> Kernel for BackwardKernelAdapter<'a> {
         self.0.backward_kernel_source()
     }
 
-    fn entry_point(&self) -> &str {
-        self.0.backward_kernel_entry_point()
+    fn entry_point_source(&self) -> &str {
+        ""
     }
 }
 

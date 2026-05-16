@@ -375,6 +375,10 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         quote! { _phantom: ::std::marker::PhantomData, }
     };
 
+    // The PTX symbol name: "{fn_name}_entry_point", computed at macro-expansion time
+    // so it can be embedded as a string literal in the generated concat!/format! call.
+    let entry_point_fn_name = format!("{}_entry_point", fn_name_str);
+
     let struct_stream: TokenStream2 = quote! {
         pub struct #struct_ident #struct_generics_def {
             pub name: &'static str,
@@ -383,9 +387,9 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
             #(#const_field_defs)*
             /// The original kernel function source.
             pub kernel_source: ::std::string::String,
-            /// The generated entry-point wrapper source.
-            pub entry_point: ::std::string::String,
-            /// Combined source (`kernel_source + "\n\n" + entry_point`); used by the `Kernel` trait.
+            /// The Rust source of the generated C-ABI entry-point wrapper function.
+            pub entry_point_source: ::std::string::String,
+            /// Combined source (`kernel_source + "\n\n" + entry_point_source`); used by the `Kernel` trait.
             pub source: ::std::string::String,
             #phantom_field
         }
@@ -435,7 +439,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                         "type LlvmTriton = triton::llvm::triton::LlvmTriton;\n",
                         "\n",
                         "#[no_mangle]\n",
-                        "pub extern \"C\" fn entry_point({params}) {{\n",
+                        "pub extern \"C\" fn ", #entry_point_fn_name, "({params}) {{\n",
                         "{body}\n",
                         "}}"
                     ),
@@ -456,7 +460,7 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                     id: __id,
                     #(#const_field_idents,)*
                     kernel_source: __kernel_source,
-                    entry_point: __entry_point,
+                    entry_point_source: __entry_point,
                     source: __source,
                     #phantom_init
                 }
@@ -484,8 +488,8 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
                 &self.kernel_source
             }
 
-            fn entry_point(&self) -> &str {
-                &self.entry_point
+            fn entry_point_source(&self) -> &str {
+                &self.entry_point_source
             }
         }
     };

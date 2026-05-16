@@ -105,7 +105,8 @@ pub trait CustomOp: Any + Send + Sync {
     /// without a project-specific middleware.  Return `None` to keep the
     /// existing middleware / error behaviour.
     ///
-    /// Tuple layout: `(name, kernel_source, entry_point, runtime_op)`.
+    /// Tuple layout: `(name, kernel_source, entry_point_name, runtime_op)`.
+    /// `entry_point_name` is the PTX symbol name, conventionally `"{name}_entry_point"`.
     fn lower(&self) -> Option<(String, String, String, Arc<dyn crate::model::RuntimeOp>)> {
         None
     }
