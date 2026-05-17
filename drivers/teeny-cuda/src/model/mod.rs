@@ -1230,22 +1230,24 @@ impl LoadedModel {
             }
 
             // Depad: copy valid rows from padded → tight output buffer (async, captured).
+            // Single cuMemcpy2DAsync replaces the previous per-row loop, giving the
+            // driver one node in the graph instead of n_rows nodes.
             if let Some((padded_ptr, ns, rs, n_rows, eb)) = node_padded[idx] {
-                for i in 0..n_rows {
-                    let src_off = (i * rs * eb) as u64;
-                    let dst_off = (i * ns * eb) as u64;
-                    let s = unsafe {
-                        cuda::cuMemcpyDtoDAsync_v2(
-                            tight_out_ptr + dst_off,
-                            padded_ptr + src_off,
-                            ns * eb,
-                            stream,
-                        )
-                    };
-                    if s != cuda::cudaError_enum_CUDA_SUCCESS {
-                        capture_err = Some(Error::from_cuda_error(s).into());
-                        break 'capture;
-                    }
+                let params = cuda::CUDA_MEMCPY2D {
+                    srcMemoryType: cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE,
+                    srcDevice: padded_ptr,
+                    srcPitch: rs * eb,
+                    dstMemoryType: cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE,
+                    dstDevice: tight_out_ptr,
+                    dstPitch: ns * eb,
+                    WidthInBytes: ns * eb,
+                    Height: n_rows,
+                    ..Default::default()
+                };
+                let s = unsafe { cuda::cuMemcpy2DAsync_v2(&params, stream) };
+                if s != cuda::cudaError_enum_CUDA_SUCCESS {
+                    capture_err = Some(Error::from_cuda_error(s).into());
+                    break 'capture;
                 }
             }
         }

@@ -71,7 +71,10 @@ pub unsafe fn copy_d_to_h<T>(dst: *mut T, src: DevicePtr, count: usize) -> Resul
 
 /// Copy `num_rows` rows of `row_bytes` bytes from a device buffer with
 /// `src_stride_bytes` row stride to a device buffer with `dst_stride_bytes`
-/// row stride.  Used to create TMA-aligned (padded) copies of tensors.
+/// row stride.  Used to depad TMA-aligned output tensors back to tight NCHW.
+///
+/// Issues a single `cuMemcpy2D` rather than one `cuMemcpyDtoD` per row,
+/// letting the driver schedule the whole transfer as one unit.
 pub fn copy_rows_d_to_d(
     dst: DevicePtr,
     dst_stride_bytes: usize,
@@ -80,13 +83,20 @@ pub fn copy_rows_d_to_d(
     row_bytes: usize,
     num_rows: usize,
 ) -> Result<()> {
-    for i in 0..num_rows {
-        let src_off = (i * src_stride_bytes) as u64;
-        let dst_off = (i * dst_stride_bytes) as u64;
-        let status = unsafe { cuda::cuMemcpyDtoD_v2(dst + dst_off, src + src_off, row_bytes) };
-        if status != cuda::cudaError_enum_CUDA_SUCCESS {
-            return Err(Error::from_cuda_error(status).into());
-        }
+    let params = cuda::CUDA_MEMCPY2D {
+        srcMemoryType: cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE,
+        srcDevice: src,
+        srcPitch: src_stride_bytes,
+        dstMemoryType: cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE,
+        dstDevice: dst,
+        dstPitch: dst_stride_bytes,
+        WidthInBytes: row_bytes,
+        Height: num_rows,
+        ..Default::default()
+    };
+    let status = unsafe { cuda::cuMemcpy2D_v2(&params) };
+    if status != cuda::cudaError_enum_CUDA_SUCCESS {
+        return Err(Error::from_cuda_error(status).into());
     }
     Ok(())
 }
