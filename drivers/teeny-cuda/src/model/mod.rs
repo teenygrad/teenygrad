@@ -1302,12 +1302,44 @@ impl LoadedModel {
             output_shapes.push(shape);
         }
 
+        // ── Phase 5: allocate pinned (page-locked) host staging buffers ─────────
+        // One buffer per input and per output.  cuMemcpyHtoD/DtoH over pinned
+        // memory uses DMA directly, skipping the driver's internal pageable
+        // staging bounce and achieving full PCIe bandwidth.
+        let mut pinned_inputs: Vec<*mut f32> = Vec::with_capacity(input_bufs.len());
+        for &(_, n_elems) in &input_bufs {
+            match mem::alloc_host::<f32>(n_elems) {
+                Ok(ptr) => pinned_inputs.push(ptr),
+                Err(e) => {
+                    unsafe { cuda::cuStreamDestroy_v2(stream); }
+                    for &p in &owned { let _ = mem::free(p); }
+                    for &p in &pinned_inputs { unsafe { let _ = mem::free_host(p); } }
+                    return Err(e);
+                }
+            }
+        }
+        let mut pinned_outputs: Vec<*mut f32> = Vec::with_capacity(output_bufs.len());
+        for &(_, n_elems) in &output_bufs {
+            match mem::alloc_host::<f32>(n_elems) {
+                Ok(ptr) => pinned_outputs.push(ptr),
+                Err(e) => {
+                    unsafe { cuda::cuStreamDestroy_v2(stream); }
+                    for &p in &owned { let _ = mem::free(p); }
+                    for &p in &pinned_inputs { unsafe { let _ = mem::free_host(p); } }
+                    for &p in &pinned_outputs { unsafe { let _ = mem::free_host(p); } }
+                    return Err(e);
+                }
+            }
+        }
+
         Ok(CudaGraphModel {
             stream,
             graph_exec,
             input_bufs,
             output_bufs,
             output_shapes,
+            pinned_inputs,
+            pinned_outputs,
             _owned: owned,
         })
     }
@@ -1363,16 +1395,26 @@ impl Drop for ActivationCache {
 /// pre-allocated; the kernel sequence is captured once and replayed on each
 /// [`run`] call with a single `cuGraphLaunch` + `cuStreamSynchronize`.
 pub struct CudaGraphModel {
-    stream:        cuda::CUstream,
-    graph_exec:    cuda::CUgraphExec,
+    stream:          cuda::CUstream,
+    graph_exec:      cuda::CUgraphExec,
     /// Pre-allocated input buffers (one per `Input` node, topological order).
-    input_bufs:    Vec<(DevicePtr, usize)>,
+    input_bufs:      Vec<(DevicePtr, usize)>,
     /// Pre-allocated output buffers, in the order of `output_node_indices`.
-    output_bufs:   Vec<(DevicePtr, usize)>,
-    output_shapes: Vec<Vec<usize>>,
+    output_bufs:     Vec<(DevicePtr, usize)>,
+    output_shapes:   Vec<Vec<usize>>,
+    /// Page-locked (pinned) staging buffers for inputs — one per `input_bufs`
+    /// entry. Pinned memory enables direct DMA, avoiding the driver's internal
+    /// pageable staging bounce and achieving full PCIe bandwidth.
+    pinned_inputs:   Vec<*mut f32>,
+    /// Page-locked (pinned) staging buffers for outputs — one per `output_bufs`.
+    pinned_outputs:  Vec<*mut f32>,
     /// All owned device allocations freed on drop.
     _owned: Vec<DevicePtr>,
 }
+
+// SAFETY: CudaGraphModel is used from a single thread. The raw CUDA handles
+// and pinned pointers are not shared across threads.
+unsafe impl Send for CudaGraphModel {}
 
 impl CudaGraphModel {
     /// Concrete shapes of the output tensors, in the order of `output_node_indices`.
@@ -1488,6 +1530,89 @@ impl CudaGraphModel {
         }
         Ok(result)
     }
+
+    /// Mutable slice into the `i`-th pinned (page-locked) input staging buffer.
+    ///
+    /// Write your input data here before calling [`run_inplace`] /
+    /// [`run_timed_inplace`] to avoid the intermediate CPU copy that
+    /// [`run`] / [`run_timed`] perform when given a pageable `&[f32]`.
+    ///
+    /// # Safety
+    /// The slice is valid until this `CudaGraphModel` is dropped.
+    pub fn input_slice_mut(&mut self, i: usize) -> &mut [f32] {
+        let (_, n_elems) = self.input_bufs[i];
+        unsafe { std::slice::from_raw_parts_mut(self.pinned_inputs[i], n_elems) }
+    }
+
+    /// Immutable slice into the `i`-th pinned (page-locked) output staging
+    /// buffer. Valid after [`run_inplace`] / [`run_timed_inplace`] returns.
+    pub fn output_slice(&self, i: usize) -> &[f32] {
+        let (_, n_elems) = self.output_bufs[i];
+        unsafe { std::slice::from_raw_parts(self.pinned_outputs[i], n_elems) }
+    }
+
+    /// Copy pinned inputs → device, launch graph, copy device → pinned outputs.
+    ///
+    /// Callers must fill [`input_slice_mut`] before calling and read
+    /// [`output_slice`] afterwards.  No heap allocations are performed.
+    pub fn run_inplace(&self) -> Result<()> {
+        for (i, &(dev_ptr, n_elems)) in self.input_bufs.iter().enumerate() {
+            unsafe { mem::copy_h_to_d(dev_ptr, self.pinned_inputs[i], n_elems) }?;
+        }
+        let launch_s = unsafe { cuda::cuGraphLaunch(self.graph_exec, self.stream) };
+        if launch_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(launch_s).into());
+        }
+        let sync_s = unsafe { cuda::cuStreamSynchronize(self.stream) };
+        if sync_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(sync_s).into());
+        }
+        for (i, &(dev_ptr, n_elems)) in self.output_bufs.iter().enumerate() {
+            unsafe { mem::copy_d_to_h(self.pinned_outputs[i], dev_ptr, n_elems) }?;
+        }
+        Ok(())
+    }
+
+    /// Like [`run_inplace`] but also returns GPU execution time in milliseconds.
+    pub fn run_timed_inplace(&self) -> Result<f32> {
+        for (i, &(dev_ptr, n_elems)) in self.input_bufs.iter().enumerate() {
+            unsafe { mem::copy_h_to_d(dev_ptr, self.pinned_inputs[i], n_elems) }?;
+        }
+
+        let mut ev_start = cuda::CUevent::default();
+        let mut ev_end   = cuda::CUevent::default();
+        unsafe {
+            cuda::cuEventCreate(&mut ev_start, 0);
+            cuda::cuEventCreate(&mut ev_end,   0);
+            cuda::cuEventRecord(ev_start, self.stream);
+        }
+
+        let launch_s = unsafe { cuda::cuGraphLaunch(self.graph_exec, self.stream) };
+        if launch_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            unsafe { cuda::cuEventDestroy_v2(ev_start); cuda::cuEventDestroy_v2(ev_end); }
+            return Err(Error::from_cuda_error(launch_s).into());
+        }
+
+        unsafe { cuda::cuEventRecord(ev_end, self.stream); }
+
+        let sync_s = unsafe { cuda::cuEventSynchronize(ev_end) };
+        if sync_s != cuda::cudaError_enum_CUDA_SUCCESS {
+            unsafe { cuda::cuEventDestroy_v2(ev_start); cuda::cuEventDestroy_v2(ev_end); }
+            return Err(Error::from_cuda_error(sync_s).into());
+        }
+
+        let mut gpu_ms = 0.0f32;
+        unsafe {
+            cuda::cuEventElapsedTime(&mut gpu_ms, ev_start, ev_end);
+            cuda::cuEventDestroy_v2(ev_start);
+            cuda::cuEventDestroy_v2(ev_end);
+        }
+
+        for (i, &(dev_ptr, n_elems)) in self.output_bufs.iter().enumerate() {
+            unsafe { mem::copy_d_to_h(self.pinned_outputs[i], dev_ptr, n_elems) }?;
+        }
+        Ok(gpu_ms)
+    }
 }
 
 impl Drop for CudaGraphModel {
@@ -1499,6 +1624,20 @@ impl Drop for CudaGraphModel {
         for &ptr in &self._owned {
             if ptr != 0 && mem::free(ptr).is_err() {
                 eprintln!("CudaGraphModel::drop: failed to free buffer at {ptr:#x}");
+            }
+        }
+        for &ptr in &self.pinned_inputs {
+            if !ptr.is_null() {
+                if let Err(e) = unsafe { mem::free_host(ptr) } {
+                    eprintln!("CudaGraphModel::drop: failed to free pinned input: {e}");
+                }
+            }
+        }
+        for &ptr in &self.pinned_outputs {
+            if !ptr.is_null() {
+                if let Err(e) = unsafe { mem::free_host(ptr) } {
+                    eprintln!("CudaGraphModel::drop: failed to free pinned output: {e}");
+                }
             }
         }
     }

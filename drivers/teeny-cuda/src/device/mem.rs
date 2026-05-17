@@ -69,6 +69,32 @@ pub unsafe fn copy_d_to_h<T>(dst: *mut T, src: DevicePtr, count: usize) -> Resul
     Ok(())
 }
 
+/// Allocate `n_elems` elements of `T` in page-locked (pinned) host memory.
+///
+/// Pinned memory enables direct DMA for `cuMemcpyHtoD`/`cuMemcpyDtoH`,
+/// bypassing the driver's internal staging buffer and achieving full PCIe
+/// bandwidth.
+pub fn alloc_host<T>(n_elems: usize) -> Result<*mut T> {
+    let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let status = unsafe { cuda::cuMemAllocHost_v2(&mut ptr, n_elems * std::mem::size_of::<T>()) };
+    if status != cuda::cudaError_enum_CUDA_SUCCESS {
+        return Err(Error::from_cuda_error(status).into());
+    }
+    Ok(ptr.cast())
+}
+
+/// Free a pinned host allocation returned by [`alloc_host`].
+///
+/// # Safety
+/// `ptr` must have been returned by [`alloc_host`] and not yet freed.
+pub unsafe fn free_host<T>(ptr: *mut T) -> Result<()> {
+    let status = unsafe { cuda::cuMemFreeHost(ptr.cast()) };
+    if status != cuda::cudaError_enum_CUDA_SUCCESS {
+        return Err(Error::from_cuda_error(status).into());
+    }
+    Ok(())
+}
+
 /// Copy `num_rows` rows of `row_bytes` bytes from a device buffer with
 /// `src_stride_bytes` row stride to a device buffer with `dst_stride_bytes`
 /// row stride.  Used to depad TMA-aligned output tensors back to tight NCHW.
