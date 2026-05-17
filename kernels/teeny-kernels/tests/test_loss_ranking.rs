@@ -72,7 +72,7 @@ fn row_launch_cfg() -> CudaLaunchConfig {
 fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("margin_ranking_loss_forward_source", kernel.source());
@@ -84,7 +84,7 @@ fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
 fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("hinge_embedding_loss_forward_source", kernel.source());
@@ -96,7 +96,7 @@ fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
 fn test_multi_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("multi_margin_loss_forward_source", kernel.source());

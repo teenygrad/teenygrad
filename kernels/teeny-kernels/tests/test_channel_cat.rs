@@ -73,7 +73,7 @@ fn test_channel_cat_forward_snapshot() -> Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::tensor::channel_cat::ChannelCatForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -88,7 +88,7 @@ fn test_channel_cat_backward_snapshot() -> Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::tensor::channel_cat::ChannelCatBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

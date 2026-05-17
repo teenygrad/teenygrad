@@ -76,7 +76,7 @@ fn test_conv3d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -91,7 +91,7 @@ fn test_conv3d_backward_dx_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -106,7 +106,7 @@ fn test_conv3d_backward_dw_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

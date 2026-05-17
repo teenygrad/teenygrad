@@ -47,7 +47,7 @@ fn load(rel: &str) -> Vec<f32> {
 fn test_channel_bias_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::tensor::channel_bias_add::ChannelBiasAddForward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("channel_bias_add_forward_source", kernel.source());
@@ -59,7 +59,7 @@ fn test_channel_bias_add_forward_snapshot() -> std::result::Result<(), Box<dyn s
 fn test_channel_bias_add_backward_snapshot() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::tensor::channel_bias_add::ChannelBiasAddBackward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("channel_bias_add_backward_source", kernel.source());

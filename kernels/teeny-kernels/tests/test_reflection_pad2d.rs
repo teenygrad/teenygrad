@@ -55,7 +55,7 @@ fn test_reflection_pad2d_forward_mlir_output() -> std::result::Result<(), Box<dy
     let kernel = teeny_kernels::nn::pad::reflection_pad2d::ReflectionPad2dForward::<f32>::new(
         PT, PB, PL, PR, BLOCK_OW,
     );
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("reflection_pad2d_forward_source", kernel.source());
@@ -70,7 +70,7 @@ fn test_reflection_pad2d_backward_mlir_output()
     let kernel = teeny_kernels::nn::pad::reflection_pad2d::ReflectionPad2dBackward::<f32>::new(
         PT, PB, PL, PR, BLOCK_OW,
     );
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("reflection_pad2d_backward_source", kernel.source());

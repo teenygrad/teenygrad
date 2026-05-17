@@ -65,7 +65,7 @@ fn test_flash_attention2_forward_snapshot() -> Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::new(HEAD_DIM);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -163,7 +163,7 @@ fn test_flash_attention2_backward_dq_snapshot() -> Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::new(HEAD_DIM);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -178,7 +178,7 @@ fn test_flash_attention2_backward_dkv_snapshot() -> Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::new(HEAD_DIM);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

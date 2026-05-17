@@ -43,7 +43,7 @@ macro_rules! mlir_snap {
         fn $test() -> anyhow::Result<()> {
             dotenv()?;
             let kernel = <$KernelTy>::new(BLOCK_SIZE);
-            let target = Target::new(Capability::Sm90);
+            let target = Target::new(Capability::Sm89);
             let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
             let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
             assert_debug_snapshot!($src_name,  kernel.source());

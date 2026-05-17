@@ -52,7 +52,7 @@ fn launch_cfg() -> CudaLaunchConfig {
 fn test_bce_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::bce::BceLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("bce_loss_forward_source", kernel.source());
@@ -64,7 +64,7 @@ fn test_bce_loss_mlir() -> anyhow::Result<()> {
 fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("bce_with_logits_loss_forward_source", kernel.source());
@@ -76,7 +76,7 @@ fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
 fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("soft_margin_loss_forward_source", kernel.source());
@@ -88,7 +88,7 @@ fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
 fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("kl_div_loss_forward_source", kernel.source());
@@ -100,7 +100,7 @@ fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
 fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("poisson_nll_loss_forward_source", kernel.source());
@@ -112,7 +112,7 @@ fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
 fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("gaussian_nll_loss_forward_source", kernel.source());

@@ -48,7 +48,7 @@ fn test_relu() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(1024);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

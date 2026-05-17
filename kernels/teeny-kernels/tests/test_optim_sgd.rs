@@ -41,7 +41,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_sgd_step_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::sgd::SgdStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("sgd_step_source", kernel.source());
@@ -53,7 +53,7 @@ fn test_sgd_step_mlir() -> anyhow::Result<()> {
 fn test_sgd_momentum_step_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::sgd::SgdMomentumStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("sgd_momentum_step_source", kernel.source());
@@ -65,7 +65,7 @@ fn test_sgd_momentum_step_mlir() -> anyhow::Result<()> {
 fn test_sgd_nesterov_step_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::sgd::SgdNesterovStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("sgd_nesterov_step_source", kernel.source());

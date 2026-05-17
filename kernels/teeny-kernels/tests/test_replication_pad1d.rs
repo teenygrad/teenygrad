@@ -51,7 +51,7 @@ fn test_replication_pad1d_forward_mlir_output()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
     let kernel = teeny_kernels::nn::pad::replication_pad1d::ReplicationPad1dForward::<f32>::new(PAD_LEFT, PAD_RIGHT, BLOCK_OL);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("replication_pad1d_forward_source", kernel.source());
@@ -64,7 +64,7 @@ fn test_replication_pad1d_backward_mlir_output()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv()?;
     let kernel = teeny_kernels::nn::pad::replication_pad1d::ReplicationPad1dBackward::<f32>::new(PAD_LEFT, PAD_RIGHT, BLOCK_OL);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("replication_pad1d_backward_source", kernel.source());

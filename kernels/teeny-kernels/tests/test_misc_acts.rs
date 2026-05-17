@@ -41,7 +41,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_leaky_relu_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::misc::LeakyReluForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("leaky_relu_forward_source", kernel.source());
@@ -53,7 +53,7 @@ fn test_leaky_relu_mlir() -> anyhow::Result<()> {
 fn test_softsign_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::misc::SoftsignForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("softsign_forward_source", kernel.source());
@@ -65,7 +65,7 @@ fn test_softsign_mlir() -> anyhow::Result<()> {
 fn test_softplus_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::misc::SoftplusForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("softplus_forward_source", kernel.source());

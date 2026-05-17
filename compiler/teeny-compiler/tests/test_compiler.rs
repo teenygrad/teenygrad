@@ -35,7 +35,7 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     let tensor_add = &teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(1024);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let output_file = compile_kernel(tensor_add, &target, true)?;
 
     let generated_ptx = std::fs::read_to_string(output_file)?;

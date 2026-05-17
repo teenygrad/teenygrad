@@ -60,7 +60,7 @@ fn test_avgpool2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -75,7 +75,7 @@ fn test_avgpool2d_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dBackward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

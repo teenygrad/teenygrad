@@ -41,7 +41,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_tanh_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::tanh::TanhForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("tanh_forward_source", kernel.source());
@@ -53,7 +53,7 @@ fn test_tanh_mlir() -> anyhow::Result<()> {
 fn test_tanhshrink_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("tanhshrink_forward_source", kernel.source());

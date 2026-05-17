@@ -41,7 +41,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_sigmoid_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::sigmoid::SigmoidForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("sigmoid_forward_source", kernel.source());
@@ -53,7 +53,7 @@ fn test_sigmoid_mlir() -> anyhow::Result<()> {
 fn test_silu_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::sigmoid::SiluForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("silu_forward_source", kernel.source());
@@ -65,7 +65,7 @@ fn test_silu_mlir() -> anyhow::Result<()> {
 fn test_logsigmoid_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::activation::sigmoid::LogsigmoidForward::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("logsigmoid_forward_source", kernel.source());

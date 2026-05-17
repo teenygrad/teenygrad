@@ -52,7 +52,7 @@ fn test_softmax_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -67,7 +67,7 @@ fn test_softmax_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

@@ -71,7 +71,7 @@ fn mlsm_launch_cfg() -> CudaLaunchConfig {
 fn test_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::nll::NllLossForward::new();
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("nll_loss_forward_source", kernel.source());
@@ -83,7 +83,7 @@ fn test_nll_loss_mlir() -> anyhow::Result<()> {
 fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("cross_entropy_loss_forward_source", kernel.source());
@@ -95,7 +95,7 @@ fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
 fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("multilabel_soft_margin_loss_forward_source", kernel.source());

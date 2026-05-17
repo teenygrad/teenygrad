@@ -60,7 +60,7 @@ fn test_batch_norm_inference_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_inference_source", kernel.source());
     Ok(())
@@ -73,7 +73,7 @@ fn test_batch_norm_stats_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_stats_source", kernel.source());
     Ok(())
@@ -86,7 +86,7 @@ fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_normalize_source", kernel.source());
     Ok(())
@@ -98,7 +98,7 @@ fn test_batch_norm_backward_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormBackward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_backward_source", kernel.source());
     Ok(())
@@ -330,7 +330,7 @@ fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_2d_nchw_backward_source", kernel.source());
     Ok(())

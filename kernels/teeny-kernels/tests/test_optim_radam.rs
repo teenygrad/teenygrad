@@ -65,7 +65,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("radam_adaptive_step_source", kernel.source());
@@ -77,7 +77,7 @@ fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
 fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("radam_sgd_step_source", kernel.source());

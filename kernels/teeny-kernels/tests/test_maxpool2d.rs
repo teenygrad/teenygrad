@@ -59,7 +59,7 @@ fn test_maxpool2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::pool::maxpool2d::Maxpool2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, 0, 0, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -74,7 +74,7 @@ fn test_maxpool2d_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::pool::maxpool2d::Maxpool2dBackward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, 0, 0, BLOCK_OW);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

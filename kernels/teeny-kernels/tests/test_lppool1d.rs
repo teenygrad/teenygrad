@@ -56,7 +56,7 @@ fn test_lppool1d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::pool::lppool1d::Lppool1dForward::<f32>::new(KL, STRIDE, BLOCK_OL);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -72,7 +72,7 @@ fn test_lppool1d_backward_mlir_output() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::pool::lppool1d::Lppool1dBackward::<f32>::new(KL, STRIDE, BLOCK_OL);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

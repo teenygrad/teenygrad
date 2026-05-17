@@ -64,7 +64,7 @@ fn cpu_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
 fn test_muon_frob_norm_sq_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::muon::MuonFrobNormSq::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("muon_frob_norm_sq_source", kernel.source());
@@ -75,7 +75,7 @@ fn test_muon_frob_norm_sq_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
 
     // !TRANSPOSE: T = X @ X.T
     let k_no_t = teeny_kernels::nn::optim::muon::MuonNsXtx::new(false, BLOCK_R, BLOCK_K, GROUP_R);
@@ -97,7 +97,7 @@ fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
 
     // !TRANSPOSE: X ← a·X + b·(T·X)
     let k_no_t = teeny_kernels::nn::optim::muon::MuonNsStep::new(false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
@@ -120,7 +120,7 @@ fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
 fn test_muon_update_mlir() -> anyhow::Result<()> {
     dotenv()?;
     let kernel = teeny_kernels::nn::optim::muon::MuonUpdate::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm90);
+    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("muon_update_source", kernel.source());

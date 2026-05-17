@@ -23,11 +23,20 @@ use crate::errors::Result;
 
 /// Highest SM version our Triton MLIR codegen has validated support for.
 ///
-/// LLVM's NVPTX backend maps `sm_90` to `.target sm_90a` in PTX, and the `a`
-/// suffix means architecture-specific — not forward-compatible with newer GPUs.
-/// `sm_89` (Ada Lovelace) has no `a` variant and generates plain `.target sm_89`
-/// PTX, which the CUDA driver JITs forward-compatibly on any newer architecture.
-const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm89;
+/// LLVM's NVPTX backend emits `.target sm_NNNa` for each architecture:
+///   sm_90  → sm_90a  (Hopper:   TMA, wgmma)
+///   sm_100 → sm_100a (Blackwell DC: B100/B200/GB200)
+///   sm_120 → sm_120a (Blackwell consumer: RTX 50xx)
+///
+/// Architecture-specific PTX (the `a` suffix) runs only on its own
+/// architecture and forward via native execution — NOT via driver JIT
+/// cross-architecture.  Each GPU therefore needs code compiled for its own SM
+/// version to avoid `ptxas fatal: ... cannot be compiled to future architecture`.
+///
+/// The teenyc backend (LLVM 20+) validates all SM versions up to sm_120.
+/// If a future architecture is released before the backend adds support,
+/// extend this constant and the match arm below.
+const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm120;
 
 pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
     let teenyc_path = std::env::var("TEENYC_PATH").unwrap_or_else(|_| "teenyc".to_string());
@@ -39,11 +48,11 @@ pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Res
     compiler.compile(kernel, target, force)
 }
 
-/// Clamp `cap` down to `MAX_CODEGEN_CAPABILITY` when the requested capability
-/// is newer than what the backend supports, so PTX remains forward-compatible.
+/// Clamp `cap` to `MAX_CODEGEN_CAPABILITY` for any architecture newer than
+/// what the backend supports.  All SM versions up to sm_120 are natively
+/// supported, so no clamping is needed for current hardware.  If a new SM
+/// version is added to `Capability` before teenyc validates it, add a match
+/// arm here that maps it to `MAX_CODEGEN_CAPABILITY`.
 fn clamp_capability(cap: Capability) -> Capability {
-    match cap {
-        Capability::Sm90 | Capability::Sm100 | Capability::Sm120 => MAX_CODEGEN_CAPABILITY,
-        other => other,
-    }
+    cap
 }

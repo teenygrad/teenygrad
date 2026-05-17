@@ -50,7 +50,7 @@ fn test_linear_mlir_without_bias_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -65,7 +65,7 @@ fn test_linear_mlir_with_bias_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -80,7 +80,7 @@ fn test_linear_backward_mlir_without_bias_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -95,7 +95,7 @@ fn test_linear_backward_mlir_with_bias_output() -> Result<()> {
     dotenv()?;
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 

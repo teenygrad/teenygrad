@@ -80,7 +80,7 @@ fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
     let kernel = teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
         SCALE_H, SCALE_W, BLOCK_OW,
     );
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
@@ -97,7 +97,7 @@ fn test_upsample_nearest2d_backward_snapshot() -> Result<()> {
     let kernel = teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
         SCALE_H, SCALE_W, BLOCK_OW,
     );
-    let target = Target::new(Capability::Sm90);
+    let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
