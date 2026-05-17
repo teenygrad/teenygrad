@@ -219,16 +219,22 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
         &["weight", "bn_scale", "bn_shift"]
     }
 
-    // y_col_stride = max(OW, BLOCK_OW).next_multiple_of(4) is the padded column
-    // width of each OH row in the output buffer. This ensures:
-    //   (1) store positions oh*y_col_stride are 4-float (16-byte) aligned, and
-    //   (2) adjacent oh tiles never overlap (y_col_stride >= BLOCK_OW).
+    // y_col_stride is the padded column width of each OH row in the output buffer.
+    // Must be a multiple of BLOCK_OW to guarantee that the BLOCK_OW-wide TMA store
+    // tile for the last OW tile never crosses into the next oh row's data.
+    //
+    // Example: OW=40, BLOCK_OW=16 → 3 tiles (ow_start = 0, 16, 32).
+    //   Tile 2 stores [BLOCK_OW=16] columns at oh*stride+32..oh*stride+47.
+    //   With stride=40: oh*40+40 = (oh+1)*40, so the last 8 columns overwrite
+    //   (oh+1)'s first 8 positions. With stride=48 (next multiple of 16):
+    //   oh*48+47 < oh*48+48 = (oh+1)*48 — fully within oh's padding. ✓
+    //
     // The runtime row-stride contract expects the stride between adjacent
     // last-dimension rows (each of natural_stride = OW elements), which is
     // exactly y_col_stride — NOT OH * y_col_stride.
     fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
         let ow = output_shape[3];
-        ow.max(self.block_ow as usize).next_multiple_of(4)
+        ow.next_multiple_of(self.block_ow as usize)
     }
 
     fn pack_args(

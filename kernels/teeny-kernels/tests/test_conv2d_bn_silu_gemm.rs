@@ -189,3 +189,88 @@ fn test_conv2d_bn_silu_gemm_matches_reference() -> Result<()> {
     }
     Ok(())
 }
+
+/// Test the exact model.6.m.0.cv2 configuration: C_OUT=32 (exactly 1 N-tile),
+/// C_IN=64 (2 K-tiles), M=1600 (40×40). This reproduces the failing scenario.
+#[test]
+#[cfg(feature = "cuda")]
+fn test_conv2d_bn_silu_gemm_c_out32_c_in64_m1600() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+
+    const NB2: usize = 1;
+    const C_IN2: usize = 64;
+    const C_OUT2: usize = 32; // exactly 1 N-tile — the failing case
+    const M2: usize = 1600;   // 40×40 spatial
+
+    let x_host: Vec<f32> = (0..NB2 * C_IN2 * M2)
+        .map(|i| (i as f32 % 17.0 - 8.0) * 0.1)
+        .collect();
+    let w_host: Vec<f32> = (0..C_OUT2 * C_IN2)
+        .map(|i| (i as f32 % 13.0 - 6.0) * 0.05)
+        .collect();
+    // Large bn_scale (like channel 2 of model.6.m.0.cv2) to amplify errors
+    let bn_scale: Vec<f32> = (0..C_OUT2)
+        .map(|i| if i == 2 { 8.216f32 } else { 1.0 + i as f32 * 0.05 })
+        .collect();
+    let bn_shift: Vec<f32> = (0..C_OUT2).map(|i| i as f32 * 0.1 - 0.15).collect();
+    let mut y_gpu = vec![0.0f32; NB2 * C_OUT2 * M2];
+
+    let conv_out = conv1x1_reference(&x_host, &w_host, NB2, C_IN2, C_OUT2, 1, M2);
+    let expected = bn_affine_silu_reference(&conv_out, &bn_scale, &bn_shift, C_OUT2, 1, M2);
+
+    let mut x_buf  = device.buffer::<f32>(NB2 * C_IN2 * M2)?;
+    let mut w_buf  = device.buffer::<f32>(C_OUT2 * C_IN2)?;
+    let mut s_buf  = device.buffer::<f32>(C_OUT2)?;
+    let mut sh_buf = device.buffer::<f32>(C_OUT2)?;
+    let y_buf      = device.buffer::<f32>(NB2 * C_OUT2 * M2)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&w_host)?;
+    s_buf.to_device(&bn_scale)?;
+    sh_buf.to_device(&bn_shift)?;
+
+    let kernel = teeny_kernels::nn::fused::conv2d_bn_silu_gemm::Conv2dBnSiluGemmForward::new(
+        BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
+    );
+    let target = Target::new(env.capability);
+    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx = std::fs::read(&ptx_path)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::fused::conv2d_bn_silu_gemm::Conv2dBnSiluGemmForward,
+    >(&ptx)?;
+
+    let num_pm = M2.div_ceil(BLOCK_M as usize);
+    let num_pn = C_OUT2.div_ceil(BLOCK_N as usize);
+    let grid = (NB2 * num_pm * num_pn) as u32;
+    let cfg = CudaLaunchConfig { grid: [grid, 1, 1], block: [128, 1, 1], cluster: [1, 1, 1] };
+
+    device.launch(&program, &cfg, (
+        x_buf.as_device_ptr()  as *mut f32,
+        w_buf.as_device_ptr()  as *mut f32,
+        s_buf.as_device_ptr()  as *mut f32,
+        sh_buf.as_device_ptr() as *mut f32,
+        y_buf.as_device_ptr()  as *mut f32,
+        NB2 as i32,
+        C_IN2 as i32,
+        C_OUT2 as i32,
+        M2 as i32,
+    ))?;
+    y_buf.to_host(&mut y_gpu)?;
+
+    let mut max_err = 0.0f32;
+    for i in 0..NB2 * C_OUT2 * M2 {
+        let err = (y_gpu[i] - expected[i]).abs();
+        if err > max_err { max_err = err; }
+    }
+    eprintln!("C_OUT=32/C_IN=64/M=1600 max_err={max_err:.6e}");
+    for i in 0..NB2 * C_OUT2 * M2 {
+        assert!(
+            (y_gpu[i] - expected[i]).abs() < 1e-2,
+            "mismatch at [{}]: gpu={:.6} ref={:.6} diff={:.6e}",
+            i, y_gpu[i], expected[i], (y_gpu[i] - expected[i]).abs()
+        );
+    }
+    Ok(())
+}
