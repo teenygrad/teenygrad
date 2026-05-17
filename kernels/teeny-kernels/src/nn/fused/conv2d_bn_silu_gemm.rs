@@ -133,8 +133,8 @@ pub fn conv2d_bn_silu_gemm_forward<
         );
 
         // [BLOCK_N, BLOCK_K] @ [BLOCK_K, BLOCK_M] → [BLOCK_N, BLOCK_M]
-        // TF32 Tensor Cores used automatically on sm_75+ (None = hardware default).
-        acc = T::dot::<f32, f32>(w_tile, x_tile, Some(acc), None, None);
+        // IEEE precision required to match cuDNN's float32 accumulation.
+        acc = T::dot::<f32, f32>(w_tile, x_tile, Some(acc), Some(InputPrecision::IEEE), None);
     }
 
     // ── BatchNorm epilog ──────────────────────────────────────────────────────
