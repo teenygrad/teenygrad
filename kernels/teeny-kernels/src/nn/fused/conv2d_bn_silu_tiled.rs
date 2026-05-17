@@ -219,17 +219,16 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
         &["weight", "bn_scale", "bn_shift"]
     }
 
-    // Output is stored as [B*C_OUT, OH * y_col_stride] where:
-    //   y_col_stride = max(OW, BLOCK_OW).next_multiple_of(4)
-    // This ensures: (1) TMA positions oh*y_col_stride are 16-byte aligned,
-    //               (2) adjacent oh tiles never overlap (y_col_stride >= BLOCK_OW),
-    //               (3) the full tile fits within the buffer (no OOB writes).
-    // Caller allocates B * C_OUT * OH * y_col_stride floats.
+    // y_col_stride = max(OW, BLOCK_OW).next_multiple_of(4) is the padded column
+    // width of each OH row in the output buffer. This ensures:
+    //   (1) store positions oh*y_col_stride are 4-float (16-byte) aligned, and
+    //   (2) adjacent oh tiles never overlap (y_col_stride >= BLOCK_OW).
+    // The runtime row-stride contract expects the stride between adjacent
+    // last-dimension rows (each of natural_stride = OW elements), which is
+    // exactly y_col_stride — NOT OH * y_col_stride.
     fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
-        let oh = output_shape[2];
         let ow = output_shape[3];
-        let y_col_stride = ow.max(self.block_ow as usize).next_multiple_of(4);
-        oh * y_col_stride
+        ow.max(self.block_ow as usize).next_multiple_of(4)
     }
 
     fn pack_args(
@@ -243,7 +242,8 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
     ) {
         let input_shape = inputs[0].1;
         let oh = output_shape[2] as i32;
-        let y_col_stride = output_row_stride / oh; // output_row_stride = OH * y_col_stride
+        // output_row_stride == y_col_stride (the per-oh-row column stride).
+        let y_col_stride = output_row_stride;
         visitor.visit_ptr(inputs[0].0);              // x_ptr
         visitor.visit_ptr(params[0]);                // w_ptr
         visitor.visit_ptr(params[1]);                // bn_scale_ptr
