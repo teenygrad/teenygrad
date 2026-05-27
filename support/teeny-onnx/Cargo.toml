@@ -9,7 +9,10 @@ homepage.workspace = true
 readme.workspace = true
 
 [dependencies]
+thiserror.workspace = true
+anyhow.workspace = true
 protobuf.workspace = true
+teeny-core = { path = "../../core/teeny-core" }
 
 [build-dependencies]
 protobuf-codegen.workspace = true

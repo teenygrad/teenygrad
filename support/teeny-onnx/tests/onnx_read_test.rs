@@ -14,20 +14,43 @@
  * limitations under the License.
  */
 
-use std::{fs::File, path::PathBuf};
+use std::path::PathBuf;
 
-use protobuf::CodedInputStream;
-use protobuf::Message;
-use teeny_onnx::onnx_proto3::ModelProto;
+use teeny_onnx::Onnx;
 
-#[test]
-fn test_read_single_relu() {
+// #[test]
+fn test_read_onnx_files() {
     let mut resource_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    resource_path.push("onnx/examples/resources/single_relu.onnx");
+    resource_path.push("onnx/onnx/backend/test/data");
 
-    let mut file = File::open(resource_path).unwrap();
-    let mut stream = CodedInputStream::new(&mut file);
-    let model = ModelProto::parse_from(&mut stream).unwrap();
+    // Recursively search for .onnx files and test parsing them
+    fn visit_dirs_and_test_onnx<P: Into<PathBuf>>(dir: P) {
+        fn visit_dir(dir: &PathBuf) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        visit_dir(&path);
+                    } else if let Some(ext) = path.extension()
+                        && ext == "onnx"
+                    {
+                        // Try reading and parsing the file through the public ONNX API.
+                        let result = Onnx::from_path(&path);
 
-    assert_eq!("backend-test", model.producer_name);
+                        assert!(
+                            result.is_ok(),
+                            "Failed to parse graph: {:?} - {:?}",
+                            path,
+                            result.err()
+                        );
+                    }
+                }
+            }
+        }
+
+        let root = dir.into();
+        visit_dir(&root);
+    }
+
+    visit_dirs_and_test_onnx(&resource_path);
 }

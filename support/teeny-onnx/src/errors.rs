@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
-pub mod errors;
+pub type Result<T> = anyhow::Result<T>;
 
-mod onnx;
-pub use onnx::Onnx;
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Invalid model: {0}")]
+    InvalidModel(String),
+}

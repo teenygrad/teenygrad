@@ -2926,9 +2926,12 @@ dependencies = [
 name = "teeny-onnx"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "protobuf",
  "protobuf-codegen",
  "protoc-bin-vendored",
+ "teeny-core",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
