@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use teeny_onnx::Onnx;
 
-// #[test]
+#[test]
 fn test_read_onnx_files() {
     let mut resource_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     resource_path.push("onnx/onnx/backend/test/data");

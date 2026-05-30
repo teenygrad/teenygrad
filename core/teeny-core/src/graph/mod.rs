@@ -369,6 +369,242 @@ pub enum Op {
     Custom {
         data: CustomData,
     },
+
+    // -----------------------------------------------------------------------
+    // ONNX-sourced ops — added to let the ONNX loader build a complete graph.
+    // Triton/CPU lowering is not yet implemented for these variants.
+    // -----------------------------------------------------------------------
+
+    // --- Element-wise unary math ---
+    Abs,
+    Neg,
+    Ceil,
+    Floor,
+    Round,
+    Sqrt,
+    Reciprocal,
+    Exp,
+    Log,
+    Erf,
+    Sign,
+    IsNaN,
+    IsInf { detect_negative: bool, detect_positive: bool },
+    Not,
+    BitwiseNot,
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Sinh,
+    Cosh,
+    Asinh,
+    Acosh,
+    Atanh,
+
+    // --- Element-wise binary / variadic ---
+    Mul,
+    Sub,
+    Div,
+    Pow,
+    Mod { fmod: bool },
+    ElemMin,
+    ElemMax,
+    ElemMean,
+    ElemSum,
+    Equal,
+    Greater,
+    GreaterOrEqual,
+    Less,
+    LessOrEqual,
+    And,
+    Or,
+    Xor,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    BitShift { direction: alloc::string::String },
+
+    // --- Tensor structural ---
+    Reshape,
+    Transpose { perm: alloc::vec::Vec<usize> },
+    Squeeze { axes: alloc::vec::Vec<i64> },
+    Unsqueeze { axes: alloc::vec::Vec<i64> },
+    Concat { axis: i64 },
+    Split { axis: i64, num_outputs: usize },
+    Slice,
+    Gather { axis: i64 },
+    GatherElements { axis: i64 },
+    GatherND { batch_dims: i64 },
+    ScatterElements { axis: i64 },
+    ScatterND,
+    Tile,
+    Expand,
+    ShapeOf { start: i64, end: i64 },
+    SizeOf,
+    Identity,
+    Cast { to: DtypeRepr },
+    CastLike,
+    Where,
+    Compress { axis: i64 },
+    Range,
+    /// Constant tensor (value embedded in the ONNX model).
+    Constant { dtype: DtypeRepr, shape: Shape },
+    ConstantOfShape { dtype: DtypeRepr },
+    Trilu { upper: bool },
+    BitCast { to: DtypeRepr },
+    Pad { mode: alloc::string::String },
+    ReverseSequence { batch_axis: i64, time_axis: i64 },
+    NonZero,
+    Scatter { axis: i64 },
+    TensorScatter,
+
+    // --- Matrix ---
+    Gemm { alpha: f64, beta: f64, trans_a: bool, trans_b: bool },
+    MatMul,
+    MatMulInteger,
+    Einsum { equation: alloc::string::String },
+    Det,
+    QLinearMatMul,
+
+    // --- Convolution extras ---
+    ConvTranspose {
+        in_channels: usize,
+        out_channels: usize,
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+        padding_h: usize,
+        padding_w: usize,
+        output_padding_h: usize,
+        output_padding_w: usize,
+        groups: usize,
+        has_bias: bool,
+    },
+    ConvInteger { groups: usize },
+    DeformConv { group: usize, offset_group: usize },
+    QLinearConv { groups: usize },
+    Col2Im { kernel_h: usize, kernel_w: usize },
+
+    // --- Reductions ---
+    ReduceSum { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceMean { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceMax { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceMin { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceProd { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceL1 { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceL2 { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceLogSum { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceLogSumExp { keepdims: bool, noop_with_empty_axes: bool },
+    ReduceSumSquare { keepdims: bool, noop_with_empty_axes: bool },
+    CumSum { exclusive: bool, reverse: bool },
+    CumProd { exclusive: bool, reverse: bool },
+    ArgMax { axis: i64, keepdims: bool, select_last_index: bool },
+    ArgMin { axis: i64, keepdims: bool, select_last_index: bool },
+    GlobalAvgPool,
+    GlobalMaxPool,
+    LpNormalization { axis: i64, p: i64 },
+    MeanVarianceNormalization { axes: alloc::vec::Vec<i64> },
+
+    // --- Additional activations ---
+    LogSoftmax { axis: i64 },
+    Hardmax { axis: i64 },
+    PRelu,
+    ThresholdedRelu { alpha: f64 },
+    Shrink { lambd: f64, bias: f64 },
+    Clip,
+    Swish,
+    MultiHeadAttention { q_num_heads: usize, kv_num_heads: usize },
+
+    // --- Normalisation (generic) ---
+    LRN { alpha: f64, beta: f64, bias: f64, size: usize },
+
+    // --- Recurrent ---
+    Lstm { hidden_size: usize, direction: alloc::string::String, bidirectional: bool },
+    Gru { hidden_size: usize, direction: alloc::string::String, bidirectional: bool },
+    Rnn { hidden_size: usize, direction: alloc::string::String, bidirectional: bool },
+
+    // --- Resize / spatial ---
+    Resize {
+        mode: alloc::string::String,
+        coordinate_transformation_mode: alloc::string::String,
+        antialias: bool,
+    },
+    GridSample { mode: alloc::string::String, padding_mode: alloc::string::String, align_corners: bool },
+    SpaceToDepth { blocksize: usize },
+    DepthToSpace { blocksize: usize, mode: alloc::string::String },
+    RoiAlign { output_h: usize, output_w: usize, sampling_ratio: i64, spatial_scale: f64 },
+    AffineGrid { align_corners: bool },
+    MaxUnpool { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
+    CenterCropPad { axes: alloc::vec::Vec<i64> },
+    NonMaxSuppression { center_point_box: bool },
+
+    // --- Misc ---
+    TopK { axis: i64, largest: bool, sorted: bool },
+    Unique { sorted: bool },
+    Dropout { training_mode: bool },
+    EyeLike { dtype: Option<DtypeRepr>, k: i64 },
+    OneHot { axis: i64 },
+    Bernoulli { dtype: Option<DtypeRepr> },
+    RandomUniformLike { dtype: Option<DtypeRepr>, high: f64, low: f64 },
+    RotaryEmbedding,
+
+    // --- Quantisation ---
+    QuantizeLinear { axis: i64, saturate: bool },
+    DequantizeLinear { axis: i64 },
+    DynamicQuantizeLinear,
+
+    // --- Signal ---
+    Dft { inverse: bool, onesided: bool },
+    Stft,
+    MelWeightMatrix,
+    HannWindow { periodic: bool },
+    BlackmanWindow { periodic: bool },
+    HammingWindow { periodic: bool },
+
+    // --- Loss ---
+    NegativeLogLikelihoodLoss { reduction: alloc::string::String },
+    SoftmaxCrossEntropyLoss { reduction: alloc::string::String },
+
+    // --- Sequences ---
+    SequenceAt,
+    SequenceConstruct,
+    SequenceEmpty,
+    SequenceErase,
+    SequenceInsert,
+    SequenceLength,
+    SequenceMap,
+    SplitToSequence { axis: i64, keepdims: bool },
+    ConcatFromSequence { axis: i64, new_axis: bool },
+    OptionalGetElement,
+    OptionalHasElement,
+
+    // --- Control flow ---
+    Loop,
+    Scan { num_scan_inputs: i64 },
+    If,
+
+    // --- Optimiser ops ---
+    Adagrad,
+    Adam,
+    Momentum,
+    Gradient,
+
+    // --- String / NLP ---
+    StringNormalizer,
+    RegexFullMatch { pattern: alloc::string::String },
+    StringConcat,
+    StringSplit,
+    TfIdfVectorizer,
+    LabelEncoder,
+
+    // --- Other ML ---
+    ArrayFeatureExtractor,
+    Binarizer { threshold: f64 },
+    TreeEnsemble,
+    ImageDecoder,
 }
 
 #[derive(Debug, Clone)]
@@ -550,6 +786,14 @@ impl Graph {
 // ---------------------------------------------------------------------------
 
 fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
+    // Constant has no tensor inputs — its shape is embedded in the op itself.
+    if let Op::Constant { shape, .. } = op {
+        return shape.clone();
+    }
+    // Zero-input ops that produce no tensor output.
+    if matches!(op, Op::SequenceEmpty | Op::OptionalHasElement) {
+        return vec![];
+    }
     let input = inputs[0];
     match op {
         Op::Input => input.clone(),
@@ -726,6 +970,242 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         Op::ChannelBiasAdd { .. } => input.to_vec(),
 
         Op::Custom { data } => data.infer_output_shape(inputs),
+
+        // -------------------------------------------------------------------
+        // ONNX-sourced ops — shape inference below.
+        // For ops whose output shape equals the primary input shape (element-
+        // wise, identity-like, or shape-tracked via ONNX value_info), we just
+        // clone the input shape.  Ops with genuinely different output shapes
+        // have explicit arms.
+        // -------------------------------------------------------------------
+
+        // Unary element-wise — output shape = input shape
+        Op::Abs | Op::Neg | Op::Ceil | Op::Floor | Op::Round | Op::Sqrt
+        | Op::Reciprocal | Op::Exp | Op::Log | Op::Erf | Op::Sign | Op::IsNaN
+        | Op::IsInf { .. } | Op::Not | Op::BitwiseNot
+        | Op::Sin | Op::Cos | Op::Tan | Op::Asin | Op::Acos | Op::Atan
+        | Op::Sinh | Op::Cosh | Op::Asinh | Op::Acosh | Op::Atanh
+        | Op::PRelu | Op::ThresholdedRelu { .. } | Op::Shrink { .. } | Op::Clip
+        | Op::Swish | Op::LogSoftmax { .. } | Op::Hardmax { .. }
+        | Op::Dropout { .. } | Op::Identity
+        | Op::LRN { .. } | Op::MeanVarianceNormalization { .. }
+        | Op::LpNormalization { .. }
+        | Op::Pad { .. } | Op::ReverseSequence { .. } | Op::Trilu { .. }
+        | Op::CumSum { .. } | Op::CumProd { .. }
+        | Op::QuantizeLinear { .. } | Op::DequantizeLinear { .. } | Op::DynamicQuantizeLinear
+        | Op::Bernoulli { .. } | Op::RandomUniformLike { .. } | Op::EyeLike { .. }
+        | Op::RotaryEmbedding | Op::MultiHeadAttention { .. }
+        => input.clone(),
+
+        // Binary / variadic element-wise — approximate as first-input shape
+        Op::Mul | Op::Sub | Op::Div | Op::Pow | Op::Mod { .. }
+        | Op::ElemMin | Op::ElemMax | Op::ElemMean | Op::ElemSum
+        | Op::Equal | Op::Greater | Op::GreaterOrEqual | Op::Less | Op::LessOrEqual
+        | Op::And | Op::Or | Op::Xor
+        | Op::BitwiseAnd | Op::BitwiseOr | Op::BitwiseXor | Op::BitShift { .. }
+        | Op::Cast { .. } | Op::CastLike | Op::BitCast { .. } | Op::Where
+        => input.clone(),
+
+        // Structural ops where output shape = input shape or is unknown at
+        // static inference time (ONNX value_info carries the true shape).
+        Op::Reshape | Op::Squeeze { .. } | Op::Unsqueeze { .. }
+        | Op::Slice | Op::Gather { .. } | Op::GatherElements { .. }
+        | Op::GatherND { .. } | Op::ScatterElements { .. } | Op::ScatterND
+        | Op::Tile | Op::Expand | Op::Compress { .. } | Op::Range
+        | Op::ConstantOfShape { .. } | Op::NonZero
+        | Op::Scatter { .. } | Op::TensorScatter
+        | Op::Resize { .. } | Op::GridSample { .. }
+        | Op::AffineGrid { .. } | Op::CenterCropPad { .. }
+        => input.clone(),
+
+        Op::Transpose { perm } => {
+            if perm.is_empty() {
+                input.iter().rev().cloned().collect()
+            } else {
+                perm.iter().map(|&i| input.get(i).copied().unwrap_or(None)).collect()
+            }
+        }
+
+        Op::Concat { axis } => {
+            let rank = input.len();
+            if rank == 0 { return input.clone(); }
+            let ax = axis.rem_euclid(rank as i64) as usize;
+            let mut out = input.clone();
+            // Sum the concatenated axis across all inputs.
+            out[ax] = inputs.iter().try_fold(0usize, |acc, s| {
+                s.get(ax).copied().unwrap_or(None).map(|d| acc + d)
+            }).map(Some).unwrap_or(None);
+            out
+        }
+
+        Op::Split { axis, num_outputs } => {
+            let rank = input.len();
+            if rank == 0 { return input.clone(); }
+            let ax = axis.rem_euclid(rank as i64) as usize;
+            let mut out = input.clone();
+            out[ax] = input[ax].map(|d| d / num_outputs.max(&1));
+            out
+        }
+
+        Op::ShapeOf { start, end } => {
+            let rank = input.len() as i64;
+            let s = start.rem_euclid(rank.max(1));
+            let e = end.rem_euclid(rank.max(1));
+            vec![Some((e - s).max(0) as usize)]
+        }
+
+        Op::SizeOf => vec![Some(1)],
+
+        Op::Gemm { trans_a, trans_b, .. } => {
+            let m = if *trans_a { input.get(1) } else { input.first() }
+                .copied().unwrap_or(None);
+            let n = if inputs.len() >= 2 {
+                let b = inputs[1];
+                if *trans_b { b.first() } else { b.get(1) }.copied().unwrap_or(None)
+            } else {
+                None
+            };
+            vec![m, n]
+        }
+
+        Op::MatMul | Op::MatMulInteger | Op::QLinearMatMul => {
+            if inputs.len() >= 2 && !input.is_empty() {
+                let other = inputs[1];
+                let mut out = input[..input.len() - 1].to_vec();
+                out.push(other.last().copied().unwrap_or(None));
+                out
+            } else {
+                input.clone()
+            }
+        }
+
+        Op::Einsum { .. } | Op::Det | Op::Col2Im { .. }
+        | Op::ConvInteger { .. } | Op::DeformConv { .. } | Op::QLinearConv { .. }
+        => input.clone(),
+
+        Op::ConvTranspose {
+            out_channels, kernel_h, kernel_w,
+            stride_h, stride_w, padding_h, padding_w,
+            output_padding_h, output_padding_w, ..
+        } => {
+            let h_out = input[2].map(|h| {
+                (h - 1) * stride_h - 2 * padding_h + kernel_h + output_padding_h
+            });
+            let w_out = input[3].map(|w| {
+                (w - 1) * stride_w - 2 * padding_w + kernel_w + output_padding_w
+            });
+            vec![input[0], Some(*out_channels), h_out, w_out]
+        }
+
+        Op::ReduceSum { keepdims, .. } | Op::ReduceMean { keepdims, .. }
+        | Op::ReduceMax { keepdims, .. } | Op::ReduceMin { keepdims, .. }
+        | Op::ReduceProd { keepdims, .. } | Op::ReduceL1 { keepdims, .. }
+        | Op::ReduceL2 { keepdims, .. } | Op::ReduceLogSum { keepdims, .. }
+        | Op::ReduceLogSumExp { keepdims, .. } | Op::ReduceSumSquare { keepdims, .. } => {
+            // Without axis info at static-inference time, approximate:
+            // keepdims=true → same rank, keepdims=false → reduce all → scalar.
+            if *keepdims { input.clone() } else { vec![Some(1)] }
+        }
+
+        Op::ArgMax { axis, keepdims, .. } | Op::ArgMin { axis, keepdims, .. } => {
+            if input.is_empty() { return vec![]; }
+            let ax = axis.rem_euclid(input.len() as i64) as usize;
+            if *keepdims {
+                let mut out = input.clone();
+                out[ax] = Some(1);
+                out
+            } else {
+                let mut out = input.clone();
+                out.remove(ax);
+                out
+            }
+        }
+
+        Op::GlobalAvgPool | Op::GlobalMaxPool => {
+            let mut out = input[..2.min(input.len())].to_vec();
+            for _ in 2..input.len() { out.push(Some(1)); }
+            out
+        }
+
+        Op::Lstm { hidden_size, bidirectional, .. }
+        | Op::Gru { hidden_size, bidirectional, .. }
+        | Op::Rnn { hidden_size, bidirectional, .. } => {
+            let num_dirs: usize = if *bidirectional { 2 } else { 1 };
+            // [seq_len, num_directions, batch, hidden_size] (approximate)
+            vec![input.first().copied().unwrap_or(None),
+                 Some(num_dirs),
+                 input.get(1).copied().unwrap_or(None),
+                 Some(*hidden_size)]
+        }
+
+        Op::SpaceToDepth { blocksize } => {
+            let c_out = input[1].map(|c| c * blocksize * blocksize);
+            let h_out = input[2].map(|h| h / blocksize);
+            let w_out = input[3].map(|w| w / blocksize);
+            vec![input[0], c_out, h_out, w_out]
+        }
+
+        Op::DepthToSpace { blocksize, .. } => {
+            let c_out = input[1].map(|c| c / (blocksize * blocksize));
+            let h_out = input[2].map(|h| h * blocksize);
+            let w_out = input[3].map(|w| w * blocksize);
+            vec![input[0], c_out, h_out, w_out]
+        }
+
+        Op::RoiAlign { output_h, output_w, .. } => {
+            vec![input[0], input[1], Some(*output_h), Some(*output_w)]
+        }
+
+        Op::MaxUnpool { kernel_h, kernel_w, stride_h, stride_w } => {
+            let h_out = input[2].map(|h| (h - 1) * stride_h + kernel_h);
+            let w_out = input[3].map(|w| (w - 1) * stride_w + kernel_w);
+            vec![input[0], input[1], h_out, w_out]
+        }
+
+        Op::NonMaxSuppression { .. } => vec![None, Some(3)],
+
+        Op::TopK { axis, .. } => {
+            // Second input is k (runtime). Return input shape as approximation.
+            let _ = axis;
+            input.clone()
+        }
+
+        Op::Unique { .. } => input.clone(),
+        Op::OneHot { .. } => input.clone(),
+
+        Op::NegativeLogLikelihoodLoss { .. } | Op::SoftmaxCrossEntropyLoss { .. } => {
+            vec![Some(1)]
+        }
+
+        Op::Dft { onesided, .. } => {
+            // DFT last dim: full=N, onesided=N/2+1. Approximate.
+            if *onesided && input.len() >= 2 {
+                let mut out = input.clone();
+                *out.last_mut().unwrap() = None;
+                out
+            } else {
+                input.clone()
+            }
+        }
+
+        Op::Stft | Op::MelWeightMatrix
+        | Op::HannWindow { .. } | Op::BlackmanWindow { .. } | Op::HammingWindow { .. }
+        => input.clone(),
+
+        Op::SequenceAt | Op::SequenceConstruct | Op::SequenceErase | Op::SequenceInsert
+        | Op::SequenceLength | Op::SequenceMap
+        | Op::SplitToSequence { .. } | Op::ConcatFromSequence { .. }
+        | Op::OptionalGetElement
+        | Op::Loop | Op::Scan { .. } | Op::If
+        | Op::Adagrad | Op::Adam | Op::Momentum | Op::Gradient
+        | Op::StringNormalizer | Op::RegexFullMatch { .. } | Op::StringConcat | Op::StringSplit
+        | Op::TfIdfVectorizer | Op::LabelEncoder
+        | Op::ArrayFeatureExtractor | Op::Binarizer { .. } | Op::TreeEnsemble | Op::ImageDecoder
+        => input.clone(),
+
+        // Handled by early returns above the match; arms required for exhaustiveness.
+        Op::Constant { shape, .. } => shape.clone(),
+        Op::SequenceEmpty | Op::OptionalHasElement => vec![],
     }
 }
 
