@@ -746,4 +746,303 @@ save(f"{d}/expected_backward_dq.bin",  dq_fa)
 save(f"{d}/expected_backward_dk.bin",  dk_fa)
 save(f"{d}/expected_backward_dv.bin",  dv_fa)
 
+# ── elemwise_unary ────────────────────────────────────────────────────────────
+print("elemwise_unary")
+d = os.path.join(BASE, "elemwise_unary")
+os.makedirs(d, exist_ok=True)
+N_EU = 1024
+torch.manual_seed(42)
+# x: positive values in [0.1, 2.0] so log/sqrt/acos/acosh stay valid
+x_eu = torch.empty(N_EU).uniform_(0.1, 0.9)  # in (0,1) for acos, asin, atanh
+dy_eu = torch.ones(N_EU)  # upstream gradient = 1 for simplicity
+save(f"{d}/x.bin", x_eu)
+save(f"{d}/dy.bin", dy_eu)
+
+# Forward fixtures
+save(f"{d}/expected_abs.bin",        x_eu.abs())
+save(f"{d}/expected_neg.bin",        -x_eu)
+save(f"{d}/expected_sign.bin",       torch.sign(x_eu))
+save(f"{d}/expected_ceil.bin",       x_eu.ceil())
+save(f"{d}/expected_floor.bin",      x_eu.floor())
+save(f"{d}/expected_sqrt.bin",       x_eu.sqrt())
+save(f"{d}/expected_reciprocal.bin", 1.0 / x_eu)
+save(f"{d}/expected_exp.bin",        x_eu.exp())
+save(f"{d}/expected_log.bin",        x_eu.log())
+save(f"{d}/expected_erf.bin",        torch.erf(x_eu))
+save(f"{d}/expected_sin.bin",        torch.sin(x_eu))
+save(f"{d}/expected_cos.bin",        torch.cos(x_eu))
+save(f"{d}/expected_tan.bin",        torch.tan(x_eu))
+save(f"{d}/expected_asin.bin",       torch.asin(x_eu))
+save(f"{d}/expected_acos.bin",       torch.acos(x_eu))
+save(f"{d}/expected_atan.bin",       torch.atan(x_eu))
+save(f"{d}/expected_sinh.bin",       torch.sinh(x_eu))
+save(f"{d}/expected_cosh.bin",       torch.cosh(x_eu))
+save(f"{d}/expected_asinh.bin",      torch.asinh(x_eu))
+# acosh requires x >= 1; use a separate tensor in [1.1, 3.0]
+x_acosh = torch.empty(N_EU).uniform_(1.1, 3.0)
+save(f"{d}/expected_acosh.bin",      torch.acosh(x_acosh))
+# atanh requires |x| < 1 — x_eu is already in (0, 0.9)
+save(f"{d}/expected_atanh.bin",      torch.atanh(x_eu))
+
+# Backward fixtures (dy = 1 so dx = d(op)/dx)
+x_r = x_eu.clone().requires_grad_(True)
+x_r.abs().sum().backward()
+save(f"{d}/expected_abs_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+(-x_r).sum().backward()
+save(f"{d}/expected_neg_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+x_r.sqrt().sum().backward()
+save(f"{d}/expected_sqrt_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+(1.0 / x_r).sum().backward()
+save(f"{d}/expected_reciprocal_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+x_r.exp().sum().backward()
+save(f"{d}/expected_exp_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+x_r.log().sum().backward()
+save(f"{d}/expected_log_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.erf(x_r).sum().backward()
+save(f"{d}/expected_erf_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.sin(x_r).sum().backward()
+save(f"{d}/expected_sin_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.cos(x_r).sum().backward()
+save(f"{d}/expected_cos_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.tan(x_r).sum().backward()
+save(f"{d}/expected_tan_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.asin(x_r).sum().backward()
+save(f"{d}/expected_asin_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.acos(x_r).sum().backward()
+save(f"{d}/expected_acos_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.atan(x_r).sum().backward()
+save(f"{d}/expected_atan_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.sinh(x_r).sum().backward()
+save(f"{d}/expected_sinh_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.cosh(x_r).sum().backward()
+save(f"{d}/expected_cosh_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.asinh(x_r).sum().backward()
+save(f"{d}/expected_asinh_backward.bin", x_r.grad.detach())
+
+x_r = x_acosh.clone().requires_grad_(True)
+torch.acosh(x_r).sum().backward()
+save(f"{d}/expected_acosh_backward.bin", x_r.grad.detach())
+
+x_r = x_eu.clone().requires_grad_(True)
+torch.atanh(x_r).sum().backward()
+save(f"{d}/expected_atanh_backward.bin", x_r.grad.detach())
+
+# IsNaN fixture: mix of NaN and normal values
+x_nan = x_eu.clone()
+x_nan[::4] = float('nan')  # every 4th element is NaN
+save(f"{d}/x_with_nan.bin", x_nan)
+expected_isnan = torch.zeros(N_EU)
+expected_isnan[::4] = 1.0
+save(f"{d}/expected_isnan.bin", expected_isnan)
+
+# ── elemwise_binary ────────────────────────────────────────────────────────────
+print("elemwise_binary")
+d = os.path.join(BASE, "elemwise_binary")
+os.makedirs(d, exist_ok=True)
+N_EB = 1024
+torch.manual_seed(42)
+# Use values in [0.5, 2.0] to keep division, pow, log safe
+a_eb = torch.empty(N_EB).uniform_(0.5, 2.0)
+b_eb = torch.empty(N_EB).uniform_(0.5, 2.0)
+dy_eb = torch.ones(N_EB)
+# cond: alternating 0 and 1
+cond_eb = torch.zeros(N_EB)
+cond_eb[::2] = 1.0
+save(f"{d}/a.bin", a_eb)
+save(f"{d}/b.bin", b_eb)
+save(f"{d}/dy.bin", dy_eb)
+save(f"{d}/cond.bin", cond_eb)
+
+# Forward fixtures
+save(f"{d}/expected_mul.bin",           a_eb * b_eb)
+save(f"{d}/expected_sub.bin",           a_eb - b_eb)
+save(f"{d}/expected_div.bin",           a_eb / b_eb)
+save(f"{d}/expected_pow.bin",           torch.pow(a_eb, b_eb))
+save(f"{d}/expected_fmod.bin",          a_eb - torch.floor(a_eb / b_eb) * b_eb)
+save(f"{d}/expected_min.bin",           torch.minimum(a_eb, b_eb))
+save(f"{d}/expected_max.bin",           torch.maximum(a_eb, b_eb))
+save(f"{d}/expected_mean.bin",          (a_eb + b_eb) / 2.0)
+save(f"{d}/expected_sum.bin",           a_eb + b_eb)
+save(f"{d}/expected_equal.bin",         (a_eb == b_eb).float())
+save(f"{d}/expected_greater.bin",       (a_eb > b_eb).float())
+save(f"{d}/expected_greater_equal.bin", (a_eb >= b_eb).float())
+save(f"{d}/expected_less.bin",          (a_eb < b_eb).float())
+save(f"{d}/expected_less_equal.bin",    (a_eb <= b_eb).float())
+save(f"{d}/expected_where.bin",         torch.where(cond_eb.bool(), a_eb, b_eb))
+save(f"{d}/expected_clip.bin",          torch.clamp(a_eb, -1.0, 1.0))
+
+# Backward fixtures
+
+# Mul backward: da = dy * b, db = dy * a
+a_r = a_eb.clone().requires_grad_(True)
+b_r = b_eb.clone().requires_grad_(True)
+(a_r * b_r).sum().backward()
+save(f"{d}/expected_mul_da.bin", a_r.grad.detach())
+save(f"{d}/expected_mul_db.bin", b_r.grad.detach())
+
+# Sub backward: da = dy, db = -dy
+save(f"{d}/expected_sub_da.bin", dy_eb)
+save(f"{d}/expected_sub_db.bin", -dy_eb)
+
+# Div backward: da = dy/b, db = -a*dy/b^2
+save(f"{d}/expected_div_da.bin", dy_eb / b_eb)
+save(f"{d}/expected_div_db.bin", -(a_eb * dy_eb / (b_eb * b_eb)))
+
+# Pow backward: da = b*a^(b-1)*dy, db = log(a)*a^b*dy
+a_r = a_eb.clone().requires_grad_(True)
+b_r = b_eb.clone().requires_grad_(True)
+torch.pow(a_r, b_r).sum().backward()
+save(f"{d}/expected_pow_da.bin", a_r.grad.detach())
+save(f"{d}/expected_pow_db.bin", b_r.grad.detach())
+
+# Min/Max backward
+a_r = a_eb.clone().requires_grad_(True)
+b_r = b_eb.clone().requires_grad_(True)
+torch.minimum(a_r, b_r).sum().backward()
+save(f"{d}/expected_min_da.bin", a_r.grad.detach())
+save(f"{d}/expected_min_db.bin", b_r.grad.detach())
+
+a_r = a_eb.clone().requires_grad_(True)
+b_r = b_eb.clone().requires_grad_(True)
+torch.maximum(a_r, b_r).sum().backward()
+save(f"{d}/expected_max_da.bin", a_r.grad.detach())
+save(f"{d}/expected_max_db.bin", b_r.grad.detach())
+
+# Mean backward: da = db = dy/2
+save(f"{d}/expected_mean_da.bin", dy_eb / 2.0)
+save(f"{d}/expected_mean_db.bin", dy_eb / 2.0)
+
+# Sum backward: da = db = dy
+save(f"{d}/expected_sum_da.bin", dy_eb)
+save(f"{d}/expected_sum_db.bin", dy_eb)
+
+# Where backward: dx = where(cond, dy, 0), dy_in = where(cond, 0, dy)
+save(f"{d}/expected_where_dx.bin",    torch.where(cond_eb.bool(), dy_eb, torch.zeros_like(dy_eb)))
+save(f"{d}/expected_where_dy_in.bin", torch.where(cond_eb.bool(), torch.zeros_like(dy_eb), dy_eb))
+
+# Clip backward: dx = dy where x in [-1, 1], else 0
+in_range = (a_eb >= -1.0) & (a_eb <= 1.0)
+save(f"{d}/expected_clip_backward.bin", torch.where(in_range, dy_eb, torch.zeros_like(dy_eb)))
+
+# ── reduction ─────────────────────────────────────────────────────────────────
+print("reduction")
+d = os.path.join(BASE, "reduction")
+os.makedirs(d, exist_ok=True)
+OUTER_R, INNER_R = 32, 64
+torch.manual_seed(42)
+# Use positive values for log-based reductions
+x_red = torch.empty(OUTER_R, INNER_R).uniform_(0.5, 2.0)
+save(f"{d}/x.bin", x_red)
+
+save(f"{d}/expected_reduce_sum.bin",        x_red.sum(dim=-1))
+save(f"{d}/expected_reduce_mean.bin",       x_red.mean(dim=-1))
+save(f"{d}/expected_reduce_max.bin",        x_red.max(dim=-1).values)
+save(f"{d}/expected_reduce_min.bin",        x_red.min(dim=-1).values)
+save(f"{d}/expected_reduce_prod.bin",       x_red.prod(dim=-1))
+save(f"{d}/expected_reduce_l1.bin",         x_red.abs().sum(dim=-1))
+save(f"{d}/expected_reduce_l2.bin",         (x_red ** 2).sum(dim=-1).sqrt())
+save(f"{d}/expected_reduce_log_sum.bin",    torch.log(x_red.sum(dim=-1)))
+save(f"{d}/expected_reduce_log_sum_exp.bin", torch.logsumexp(x_red, dim=-1))
+save(f"{d}/expected_reduce_sum_square.bin", (x_red ** 2).sum(dim=-1))
+save(f"{d}/expected_global_avg_pool.bin",   x_red.mean(dim=-1))
+save(f"{d}/expected_global_max_pool.bin",   x_red.max(dim=-1).values)
+
+# Cumulative ops: output same shape as input
+save(f"{d}/expected_cum_sum.bin",  torch.cumsum(x_red, dim=-1))
+save(f"{d}/expected_cum_prod.bin", torch.cumprod(x_red, dim=-1))
+
+# ── extra_activations ─────────────────────────────────────────────────────────
+print("extra_activations")
+d = os.path.join(BASE, "extra_activations")
+os.makedirs(d, exist_ok=True)
+N_EA = 1024
+LOG_SOFTMAX_ROWS_EA = 32
+LOG_SOFTMAX_COLS_EA = 128
+THRELU_ALPHA_EA = 1.0
+SHRINK_LAMBD_EA = 0.5
+SHRINK_BIAS_EA = 0.0
+torch.manual_seed(42)
+
+x_ea = torch.empty(N_EA).uniform_(-5, 5)
+dy_ea = torch.ones(N_EA)
+slope_ea = torch.empty(N_EA).uniform_(0.1, 1.0)
+save(f"{d}/x.bin", x_ea)
+save(f"{d}/dy.bin", dy_ea)
+save(f"{d}/slope.bin", slope_ea)
+
+# Swish forward: x * sigmoid(x)
+save(f"{d}/expected_swish.bin", F.silu(x_ea))
+# Swish backward
+x_r = x_ea.clone().requires_grad_(True)
+F.silu(x_r).sum().backward()
+save(f"{d}/expected_swish_backward.bin", x_r.grad.detach())
+
+# PRelu forward: max(0,x) + slope * min(0,x)
+save(f"{d}/expected_prelu.bin", F.prelu(x_ea, slope_ea))
+# PRelu backward
+x_r = x_ea.clone().requires_grad_(True)
+s_r = slope_ea.clone().requires_grad_(True)
+F.prelu(x_r, s_r).sum().backward()
+save(f"{d}/expected_prelu_dx.bin", x_r.grad.detach())
+save(f"{d}/expected_prelu_dslope.bin", s_r.grad.detach())
+
+# ThresholdedRelu forward: x if x > alpha else 0
+save(f"{d}/expected_thresholded_relu.bin",
+     torch.where(x_ea > THRELU_ALPHA_EA, x_ea, torch.zeros_like(x_ea)))
+# backward: dy if x > alpha else 0
+save(f"{d}/expected_thresholded_relu_backward.bin",
+     torch.where(x_ea > THRELU_ALPHA_EA, dy_ea, torch.zeros_like(dy_ea)))
+
+# Shrink forward: x - bias if x > lambd, x + bias if x < -lambd, else 0
+def shrink_fwd(x, lambd, bias):
+    return torch.where(x > lambd, x - bias,
+           torch.where(x < -lambd, x + bias, torch.zeros_like(x)))
+
+save(f"{d}/expected_shrink.bin", shrink_fwd(x_ea, SHRINK_LAMBD_EA, SHRINK_BIAS_EA))
+# backward: dy if |x| > lambd else 0
+save(f"{d}/expected_shrink_backward.bin",
+     torch.where(x_ea.abs() > SHRINK_LAMBD_EA, dy_ea, torch.zeros_like(dy_ea)))
+
+# LogSoftmax: 2D input [n_rows, n_cols]
+x_2d = torch.empty(LOG_SOFTMAX_ROWS_EA, LOG_SOFTMAX_COLS_EA).uniform_(-3, 3)
+dy_2d = torch.ones(LOG_SOFTMAX_ROWS_EA, LOG_SOFTMAX_COLS_EA)
+save(f"{d}/x_2d.bin", x_2d)
+save(f"{d}/dy_2d.bin", dy_2d)
+y_lsm = F.log_softmax(x_2d, dim=-1)
+save(f"{d}/expected_log_softmax.bin", y_lsm)
+# backward
+x_r = x_2d.clone().requires_grad_(True)
+F.log_softmax(x_r, dim=-1).sum().backward()
+save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
+
 print("\nDone — all fixtures generated.")
