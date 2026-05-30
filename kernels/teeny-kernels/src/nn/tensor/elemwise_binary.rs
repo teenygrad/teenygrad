@@ -415,9 +415,9 @@ pub fn elemwise_pow_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let a  = T::load(a_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
     let b  = T::load(b_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one   = T::full(&[BLOCK_SIZE], D::ONE);
-    let a_pow_b   = T::exp(b * T::log(a));          // a^b
-    let a_pow_bm1 = T::exp((b - one) * T::log(a)); // a^(b-1)
+    let a_pow_b   = T::exp(b * T::log(a));  // a^b
+    // a^(b-1) = a^b / a  (avoids generic constant D::ONE)
+    let a_pow_bm1 = a_pow_b / a;
     T::store(da_ptr.add_offsets(offsets), b * a_pow_bm1 * dy,       Some(in_bounds), &[], None, None);
     T::store(db_ptr.add_offsets(offsets), T::log(a) * a_pow_b * dy, Some(in_bounds), &[], None, None);
 }

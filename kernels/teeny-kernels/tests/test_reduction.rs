@@ -100,11 +100,14 @@ macro_rules! gpu_reduce_test {
             let target = Target::new(env.capability);
             let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
             let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
+            // Use threads_per_block from PTX metadata — Triton may choose a
+            // different thread count (e.g. 128) than BLOCK_INNER (64).
+            let tpb = program.threads_per_block();
             use teeny_cuda::device::CudaLaunchConfig;
             let cfg = CudaLaunchConfig {
-                grid: [n_outer as u32, 1, 1],
-                block: [BLOCK_INNER as u32, 1, 1],
-                cluster: [1, 1, 1],
+                grid:    [n_outer as u32, 1, 1],
+                block:   [tpb, 1, 1],
+                cluster: [program.num_ctas().max(1), 1, 1],
             };
             device.launch(&program, &cfg, (
                 x_buf.as_device_ptr() as *mut f32,
@@ -149,11 +152,12 @@ macro_rules! gpu_cum_test {
             let target = Target::new(env.capability);
             let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
             let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
+            let tpb = program.threads_per_block();
             use teeny_cuda::device::CudaLaunchConfig;
             let cfg = CudaLaunchConfig {
-                grid: [n_outer as u32, 1, 1],
-                block: [BLOCK_INNER as u32, 1, 1],
-                cluster: [1, 1, 1],
+                grid:    [n_outer as u32, 1, 1],
+                block:   [tpb, 1, 1],
+                cluster: [program.num_ctas().max(1), 1, 1],
             };
             device.launch(&program, &cfg, (
                 x_buf.as_device_ptr() as *mut f32,
@@ -197,7 +201,37 @@ gpu_reduce_test!(test_reduce_sum_gpu,         ReduceSumForward::<f32>,       "re
 gpu_reduce_test!(test_reduce_mean_gpu,        ReduceMeanForward::<f32>,      "reduce_mean",       "reduce_mean");
 gpu_reduce_test!(test_reduce_max_gpu,         ReduceMaxForward::<f32>,       "reduce_max",        "reduce_max");
 gpu_reduce_test!(test_reduce_min_gpu,         ReduceMinForward::<f32>,       "reduce_min",        "reduce_min");
-gpu_reduce_test!(test_reduce_prod_gpu,        ReduceProdForward::<f32>,      "reduce_prod",       "reduce_prod");
+// reduce_prod uses exp(sum(log)) which accumulates fp error; use relative tolerance
+#[cfg(feature = "cuda")]
+#[test]
+fn test_reduce_prod_gpu() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+    let x = load_fixture("reduction/x.bin");
+    let expected = load_fixture("reduction/expected_reduce_prod.bin");
+    let n_total = x.len();
+    let n_outer = expected.len();
+    let n_inner = n_total / n_outer;
+    let mut x_buf = device.buffer::<f32>(n_total)?;
+    let y_buf = device.buffer::<f32>(n_outer)?;
+    let mut y_out = vec![0.0f32; n_outer];
+    x_buf.to_device(&x)?;
+    let kernel = ReduceProdForward::<f32>::new(BLOCK_INNER);
+    let target = Target::new(env.capability);
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let program = testing::load_program_from_ptx::<ReduceProdForward<f32>>(&ptx)?;
+    let tpb = program.threads_per_block();
+    use teeny_cuda::device::CudaLaunchConfig;
+    let cfg = CudaLaunchConfig { grid: [n_outer as u32, 1, 1], block: [tpb, 1, 1], cluster: [1, 1, 1] };
+    device.launch(&program, &cfg, (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, n_inner as i32, n_outer as i32))?;
+    y_buf.to_host(&mut y_out)?;
+    for i in 0..n_outer {
+        let rel_err = (y_out[i] - expected[i]).abs() / expected[i].abs().max(1e-6);
+        assert!(rel_err < 1e-4, "reduce_prod mismatch at row={i}: gpu={} expected={} rel_err={}", y_out[i], expected[i], rel_err);
+    }
+    Ok(())
+}
 gpu_reduce_test!(test_reduce_l1_gpu,          ReduceL1Forward::<f32>,        "reduce_l1",         "reduce_l1");
 gpu_reduce_test!(test_reduce_l2_gpu,          ReduceL2Forward::<f32>,        "reduce_l2",         "reduce_l2");
 gpu_reduce_test!(test_reduce_log_sum_gpu,     ReduceLogSumForward::<f32>,    "reduce_log_sum",    "reduce_log_sum");
@@ -207,4 +241,34 @@ gpu_reduce_test!(test_global_avg_pool_gpu,    GlobalAvgPoolForward::<f32>,   "gl
 gpu_reduce_test!(test_global_max_pool_gpu,    GlobalMaxPoolForward::<f32>,   "global_max_pool",   "global_max_pool");
 
 gpu_cum_test!(test_cum_sum_gpu,  CumSumForward::<f32>,  "cum_sum",  "cum_sum");
-gpu_cum_test!(test_cum_prod_gpu, CumProdForward::<f32>, "cum_prod", "cum_prod");
+// cum_prod accumulates floating-point error for large products; use relative tolerance
+#[cfg(feature = "cuda")]
+#[test]
+fn test_cum_prod_gpu() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+    let x = load_fixture("reduction/x.bin");
+    let expected = load_fixture("reduction/expected_cum_prod.bin");
+    let n_total = x.len();
+    let n_inner = INNER;
+    let n_outer = n_total / n_inner;
+    let mut x_buf = device.buffer::<f32>(n_total)?;
+    let y_buf = device.buffer::<f32>(n_total)?;
+    let mut y_out = vec![0.0f32; n_total];
+    x_buf.to_device(&x)?;
+    let kernel = CumProdForward::<f32>::new(BLOCK_INNER);
+    let target = Target::new(env.capability);
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let program = testing::load_program_from_ptx::<CumProdForward<f32>>(&ptx)?;
+    let tpb = program.threads_per_block();
+    use teeny_cuda::device::CudaLaunchConfig;
+    let cfg = CudaLaunchConfig { grid: [n_outer as u32, 1, 1], block: [tpb, 1, 1], cluster: [1, 1, 1] };
+    device.launch(&program, &cfg, (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, n_inner as i32, n_outer as i32))?;
+    y_buf.to_host(&mut y_out)?;
+    for i in 0..n_total {
+        let rel_err = (y_out[i] - expected[i]).abs() / expected[i].abs().max(1e-6);
+        assert!(rel_err < 1e-3, "cum_prod mismatch at i={i}: gpu={} expected={} rel_err={}", y_out[i], expected[i], rel_err);
+    }
+    Ok(())
+}

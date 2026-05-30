@@ -243,7 +243,32 @@ gpu_forward_test!(test_atan_forward_gpu,       ElemwiseAtanForward::<f32>,      
 gpu_forward_test!(test_sinh_forward_gpu,       ElemwiseSinhForward::<f32>,       "sinh",       "sinh");
 gpu_forward_test!(test_cosh_forward_gpu,       ElemwiseCoshForward::<f32>,       "cosh",       "cosh");
 gpu_forward_test!(test_asinh_forward_gpu,      ElemwiseAsinhForward::<f32>,      "asinh",      "asinh");
-gpu_forward_test!(test_acosh_forward_gpu,      ElemwiseAcoshForward::<f32>,      "acosh",      "acosh");
+// acosh requires x >= 1 — uses x_acosh.bin not x.bin
+#[cfg(feature = "cuda")]
+#[test]
+fn test_acosh_forward_gpu() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+    let x = load_fixture("elemwise_unary/x_acosh.bin");
+    let expected = load_fixture("elemwise_unary/expected_acosh.bin");
+    let n = x.len();
+    let mut x_buf = device.buffer::<f32>(n)?;
+    let y_buf = device.buffer::<f32>(n)?;
+    let mut y_out = vec![0.0f32; n];
+    x_buf.to_device(&x)?;
+    let kernel = ElemwiseAcoshForward::<f32>::new(BLOCK_SIZE);
+    let target = Target::new(env.capability);
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let program = testing::load_program_from_ptx::<ElemwiseAcoshForward::<f32>>(&ptx)?;
+    let cfg = testing::launch_config_from_program(n, &program);
+    device.launch(&program, &cfg, (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, n as i32))?;
+    y_buf.to_host(&mut y_out)?;
+    for i in 0..n {
+        assert!((y_out[i] - expected[i]).abs() < TOL, "acosh fwd mismatch at i={i}: gpu={} expected={}", y_out[i], expected[i]);
+    }
+    Ok(())
+}
 gpu_forward_test!(test_atanh_forward_gpu,      ElemwiseAtanhForward::<f32>,      "atanh",      "atanh");
 
 // IsNaN uses x_with_nan.bin (contains some NaNs)
@@ -297,7 +322,35 @@ gpu_backward_test!(test_atan_backward_gpu,       ElemwiseAtanBackward::<f32>,   
 gpu_backward_test!(test_sinh_backward_gpu,       ElemwiseSinhBackward::<f32>,       "sinh",       "sinh");
 gpu_backward_test!(test_cosh_backward_gpu,       ElemwiseCoshBackward::<f32>,       "cosh",       "cosh");
 gpu_backward_test!(test_asinh_backward_gpu,      ElemwiseAsinhBackward::<f32>,      "asinh",      "asinh");
-gpu_backward_test!(test_acosh_backward_gpu,      ElemwiseAcoshBackward::<f32>,      "acosh",      "acosh");
+// acosh backward: uses x_acosh.bin (domain x >= 1)
+#[cfg(feature = "cuda")]
+#[test]
+fn test_acosh_backward_gpu() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let device = env.device;
+    let x = load_fixture("elemwise_unary/x_acosh.bin");
+    let dy = load_fixture("elemwise_unary/dy.bin");
+    let expected = load_fixture("elemwise_unary/expected_acosh_backward.bin");
+    let n = x.len();
+    let mut x_buf = device.buffer::<f32>(n)?;
+    let mut dy_buf = device.buffer::<f32>(n)?;
+    let dx_buf = device.buffer::<f32>(n)?;
+    let mut dx_out = vec![0.0f32; n];
+    x_buf.to_device(&x)?;
+    dy_buf.to_device(&dy)?;
+    let kernel = ElemwiseAcoshBackward::<f32>::new(BLOCK_SIZE);
+    let target = Target::new(env.capability);
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let program = testing::load_program_from_ptx::<ElemwiseAcoshBackward::<f32>>(&ptx)?;
+    let cfg = testing::launch_config_from_program(n, &program);
+    device.launch(&program, &cfg, (dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32, n as i32))?;
+    dx_buf.to_host(&mut dx_out)?;
+    for i in 0..n {
+        assert!((dx_out[i] - expected[i]).abs() < TOL, "acosh bwd mismatch at i={i}: gpu={} expected={}", dx_out[i], expected[i]);
+    }
+    Ok(())
+}
 gpu_backward_test!(test_atanh_backward_gpu,      ElemwiseAtanhBackward::<f32>,      "atanh",      "atanh");
 
 // Neg backward: signature is (dy_ptr, dx_ptr, n) — no x saved

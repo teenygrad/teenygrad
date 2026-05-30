@@ -1477,7 +1477,7 @@ impl CudaGraphModel {
 
         let mut gpu_ms = 0.0f32;
         unsafe {
-            cuda::cuEventElapsedTime(&mut gpu_ms, ev_start, ev_end);
+            cuda::cudaEventElapsedTime(&mut gpu_ms, ev_start, ev_end);
             cuda::cuEventDestroy_v2(ev_start);
             cuda::cuEventDestroy_v2(ev_end);
         }
@@ -1603,7 +1603,7 @@ impl CudaGraphModel {
 
         let mut gpu_ms = 0.0f32;
         unsafe {
-            cuda::cuEventElapsedTime(&mut gpu_ms, ev_start, ev_end);
+            cuda::cudaEventElapsedTime(&mut gpu_ms, ev_start, ev_end);
             cuda::cuEventDestroy_v2(ev_start);
             cuda::cuEventDestroy_v2(ev_end);
         }

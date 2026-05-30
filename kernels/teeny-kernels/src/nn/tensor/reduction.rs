@@ -428,7 +428,7 @@ pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
     // Fill with 1.0 for masked-off lanes so they don't affect the product.
-    let one_fill = T::full(&[BLOCK_INNER], D::ONE);
+    let one_fill = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], 1.0_f32), None, false);
     let x = T::load(
         x_ptr.add_offsets(offsets),
         Some(mask),

@@ -780,6 +780,7 @@ save(f"{d}/expected_cosh.bin",       torch.cosh(x_eu))
 save(f"{d}/expected_asinh.bin",      torch.asinh(x_eu))
 # acosh requires x >= 1; use a separate tensor in [1.1, 3.0]
 x_acosh = torch.empty(N_EU).uniform_(1.1, 3.0)
+save(f"{d}/x_acosh.bin",             x_acosh)
 save(f"{d}/expected_acosh.bin",      torch.acosh(x_acosh))
 # atanh requires |x| < 1 — x_eu is already in (0, 0.9)
 save(f"{d}/expected_atanh.bin",      torch.atanh(x_eu))
@@ -1008,13 +1009,15 @@ F.silu(x_r).sum().backward()
 save(f"{d}/expected_swish_backward.bin", x_r.grad.detach())
 
 # PRelu forward: max(0,x) + slope * min(0,x)
-save(f"{d}/expected_prelu.bin", F.prelu(x_ea, slope_ea))
-# PRelu backward
-x_r = x_ea.clone().requires_grad_(True)
-s_r = slope_ea.clone().requires_grad_(True)
-F.prelu(x_r, s_r).sum().backward()
-save(f"{d}/expected_prelu_dx.bin", x_r.grad.detach())
-save(f"{d}/expected_prelu_dslope.bin", s_r.grad.detach())
+# PyTorch F.prelu requires a scalar or per-channel weight; compute manually.
+prelu_out = torch.where(x_ea > 0, x_ea, slope_ea * x_ea)
+save(f"{d}/expected_prelu.bin", prelu_out)
+# PRelu backward: dx = dy if x > 0 else slope * dy
+prelu_dx = torch.where(x_ea > 0, dy_ea, slope_ea * dy_ea)
+save(f"{d}/expected_prelu_dx.bin", prelu_dx)
+# PRelu backward: dslope = dy * min(0, x)
+prelu_dslope = torch.where(x_ea > 0, torch.zeros_like(x_ea), dy_ea * x_ea)
+save(f"{d}/expected_prelu_dslope.bin", prelu_dslope)
 
 # ThresholdedRelu forward: x if x > alpha else 0
 save(f"{d}/expected_thresholded_relu.bin",

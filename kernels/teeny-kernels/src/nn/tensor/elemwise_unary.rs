@@ -395,11 +395,12 @@ pub fn elemwise_isnan_forward<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    // x != x is true iff x is NaN
-    let is_nan = T::ne(x, x);
+    // Triton uses ordered comparison: eq(NaN, NaN) = False.
+    // Exploit: where(eq(x, x), 0, 1) yields 1 for NaN, 0 otherwise.
     let one  = T::full::<f32>(&[BLOCK_SIZE], 1.0_f32);
     let zero = T::full::<f32>(&[BLOCK_SIZE], 0.0_f32);
-    let y = T::where_(is_nan, one, zero);
+    let is_not_nan = T::eq(x, x);  // False for NaN (ordered), True for normal
+    let y = T::where_(is_not_nan, zero, one);
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
 
@@ -540,7 +541,7 @@ pub fn elemwise_reciprocal_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let y = one / x;
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
@@ -844,7 +845,7 @@ pub fn elemwise_tan_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let tan = T::sin(x) / T::cos(x);
     let dx = (one + tan * tan) * dy;
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
@@ -870,7 +871,7 @@ pub fn elemwise_asin_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let y = T::atan(x / T::sqrt(one - x * x));
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
@@ -893,7 +894,7 @@ pub fn elemwise_asin_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let dx = dy / T::sqrt(one - x * x);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
@@ -918,9 +919,9 @@ pub fn elemwise_acos_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one     = T::full(&[BLOCK_SIZE], D::ONE);
+    let one     = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let half_pi = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_SIZE], core::f32::consts::FRAC_PI_2),
+        T::full::<f32>(&[BLOCK_SIZE], 1.5707963267948966_f32), // π/2
         None, false,
     );
     let y = half_pi - T::atan(x / T::sqrt(one - x * x));
@@ -945,7 +946,7 @@ pub fn elemwise_acos_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let dx = -(dy / T::sqrt(one - x * x));
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
@@ -992,7 +993,7 @@ pub fn elemwise_atan_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let dx = dy / (one + x * x);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
@@ -1115,7 +1116,7 @@ pub fn elemwise_asinh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let y = T::log(x + T::sqrt(x * x + one));
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
@@ -1138,7 +1139,7 @@ pub fn elemwise_asinh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let dx = dy / T::sqrt(x * x + one);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
@@ -1163,7 +1164,7 @@ pub fn elemwise_acosh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let y = T::log(x + T::sqrt(x * x - one));
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
@@ -1186,7 +1187,7 @@ pub fn elemwise_acosh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let dx = dy / T::sqrt(x * x - one);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
@@ -1211,7 +1212,7 @@ pub fn elemwise_atanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let two = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 2.0_f32), None, false);
     let y = T::log((one + x) / (one - x)) / two;
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
@@ -1235,7 +1236,7 @@ pub fn elemwise_atanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], D::ONE);
+    let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let dx = dy / (one - x * x);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
