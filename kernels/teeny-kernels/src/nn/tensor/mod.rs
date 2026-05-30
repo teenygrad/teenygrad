@@ -18,4 +18,7 @@ pub mod channel_bias_add;
 pub mod channel_cat;
 pub mod channel_chunk;
 pub mod elemwise_add;
+pub mod elemwise_binary;
+pub mod elemwise_unary;
+pub mod reduction;
 pub mod upsample_nearest2d;

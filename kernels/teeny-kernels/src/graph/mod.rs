@@ -68,9 +68,45 @@ use crate::nn::{
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
+        elemwise_binary::{
+            ClipRuntimeOp,
+            ElemwiseDivBackward, ElemwiseDivForward, ElemwiseEqualForward,
+            ElemwiseFmodForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
+            ElemwiseLessEqualForward, ElemwiseLessForward, ElemwiseMaxBackward,
+            ElemwiseMaxForward, ElemwiseMeanBackward, ElemwiseMeanForward,
+            ElemwiseMinBackward, ElemwiseMinForward, ElemwiseMulBackward, ElemwiseMulForward,
+            ElemwisePowBackward, ElemwisePowForward, ElemwiseSubBackward, ElemwiseSubForward,
+            ElemwiseSumBackward, ElemwiseSumForward, ElemwiseWhereBackward, ElemwiseWhereForward,
+        },
+        elemwise_unary::{
+            ElemwiseAbsBackward, ElemwiseAbsForward, ElemwiseAcosBackward, ElemwiseAcosForward,
+            ElemwiseAcoshBackward, ElemwiseAcoshForward, ElemwiseAsinBackward, ElemwiseAsinForward,
+            ElemwiseAsinhBackward, ElemwiseAsinhForward, ElemwiseAtanBackward, ElemwiseAtanForward,
+            ElemwiseAtanhBackward, ElemwiseAtanhForward, ElemwiseCeilForward, ElemwiseCosBackward,
+            ElemwiseCosForward, ElemwiseCoshBackward, ElemwiseCoshForward, ElemwiseErfBackward,
+            ElemwiseErfForward, ElemwiseExpBackward, ElemwiseExpForward, ElemwiseFloorForward,
+            ElemwiseIsnanForward, ElemwiseLogBackward, ElemwiseLogForward, ElemwiseNegBackward,
+            ElemwiseNegForward, ElemwiseReciprocalBackward, ElemwiseReciprocalForward,
+            ElemwiseSignForward, ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward,
+            ElemwiseSinhForward, ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward,
+            ElemwiseTanForward,
+        },
+        reduction::{
+            CumProdForward, CumSumForward,
+            GlobalAvgPoolForward, GlobalMaxPoolForward, ReduceL1Forward,
+            ReduceL2Forward, ReduceLogSumExpForward, ReduceLogSumForward,
+            ReduceMaxForward, ReduceMeanForward, ReduceMinForward, ReduceProdForward,
+            ReduceSumForward, ReduceSumSquareForward,
+        },
         upsample_nearest2d::{UpsampleNearest2dBackward, UpsampleNearest2dForward},
     },
+    activation::extra::{
+        LogSoftmaxBackward, LogSoftmaxForward, PreluForward, ShrinkRuntimeOp, SwishBackward,
+        SwishForward, ThresholdedReluRuntimeOp,
+    },
 };
+
+use crate::math::gemm::MatMulRuntimeOp;
 
 use crate::errors::Result;
 
@@ -185,6 +221,32 @@ macro_rules! make_float_kernel {
             backward_kernel_source: String::new(),
             #[cfg(feature = "training")]
             backward_entry_point: String::new(),
+            runtime_op: rop,
+        })
+    }};
+    // Variant with explicit float backward kernel
+    ($K:ident ($($arg:expr),*), $Bwd:ident ($($barg:expr),*), $node:expr) => {{
+        let (name, ks, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+            other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
+        };
+        #[cfg(feature = "training")]
+        let (bwd_name, bwd_ks) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $Bwd::<f32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::F64 => { let k = $Bwd::<f64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
+            other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($Bwd))),
+        };
+        Box::new(KernelExecutable {
+            entry_point: format!("{}_entry_point", name),
+            name,
+            kernel_source: ks,
+            shape: $node.shape.clone(),
+            dtype: $node.dtype,
+            #[cfg(feature = "training")]
+            backward_kernel_source: bwd_ks,
+            #[cfg(feature = "training")]
+            backward_entry_point: format!("{}_entry_point", bwd_name),
             runtime_op: rop,
         })
     }};
@@ -1070,6 +1132,409 @@ impl TritonLowering {
                 }
 
                 Op::Add => make_num_kernel!(ElemwiseAddForward(128), ElemwiseAddBackward(128), node),
+
+                // ── ONNX unary element-wise ops ─────────────────────────────
+                Op::Abs  => make_num_kernel!(ElemwiseAbsForward(1024), ElemwiseAbsBackward(1024), node),
+                Op::Neg  => make_num_kernel!(ElemwiseNegForward(1024), ElemwiseNegBackward(1024), node),
+                Op::Sign => make_num_kernel!(ElemwiseSignForward(1024), node),
+                Op::IsNaN => make_untyped_kernel!(ElemwiseIsnanForward(1024), node),
+                Op::Ceil  => make_float_kernel!(ElemwiseCeilForward(1024), node),
+                Op::Floor => make_float_kernel!(ElemwiseFloorForward(1024), node),
+                Op::Sqrt       => make_float_kernel!(ElemwiseSqrtForward(1024), ElemwiseSqrtBackward(1024), node),
+                Op::Reciprocal => make_float_kernel!(ElemwiseReciprocalForward(1024), ElemwiseReciprocalBackward(1024), node),
+                Op::Exp  => make_float_kernel!(ElemwiseExpForward(1024), ElemwiseExpBackward(1024), node),
+                Op::Log  => make_float_kernel!(ElemwiseLogForward(1024), ElemwiseLogBackward(1024), node),
+                Op::Erf  => make_float_kernel!(ElemwiseErfForward(1024), ElemwiseErfBackward(1024), node),
+                Op::Sin  => make_float_kernel!(ElemwiseSinForward(1024), ElemwiseSinBackward(1024), node),
+                Op::Cos  => make_float_kernel!(ElemwiseCosForward(1024), ElemwiseCosBackward(1024), node),
+                Op::Tan  => make_float_kernel!(ElemwiseTanForward(1024), ElemwiseTanBackward(1024), node),
+                Op::Asin => make_float_kernel!(ElemwiseAsinForward(1024), ElemwiseAsinBackward(1024), node),
+                Op::Acos => make_float_kernel!(ElemwiseAcosForward(1024), ElemwiseAcosBackward(1024), node),
+                Op::Atan => make_float_kernel!(ElemwiseAtanForward(1024), ElemwiseAtanBackward(1024), node),
+                Op::Sinh => make_float_kernel!(ElemwiseSinhForward(1024), ElemwiseSinhBackward(1024), node),
+                Op::Cosh => make_float_kernel!(ElemwiseCoshForward(1024), ElemwiseCoshBackward(1024), node),
+                Op::Asinh => make_float_kernel!(ElemwiseAsinhForward(1024), ElemwiseAsinhBackward(1024), node),
+                Op::Acosh => make_float_kernel!(ElemwiseAcoshForward(1024), ElemwiseAcoshBackward(1024), node),
+                Op::Atanh => make_float_kernel!(ElemwiseAtanhForward(1024), ElemwiseAtanhBackward(1024), node),
+                Op::Round => return Err(anyhow::anyhow!(
+                    "TODO: Op::Round — implement rounding kernel"
+                )),
+
+                // ── ONNX binary element-wise ops ─────────────────────────────
+                Op::Mul      => make_num_kernel!(ElemwiseMulForward(1024), ElemwiseMulBackward(1024), node),
+                Op::Sub      => make_num_kernel!(ElemwiseSubForward(1024), ElemwiseSubBackward(1024), node),
+                Op::Div      => make_float_kernel!(ElemwiseDivForward(1024), ElemwiseDivBackward(1024), node),
+                Op::Pow      => make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node),
+                Op::Mod { .. } => make_float_kernel!(ElemwiseFmodForward(1024), node),
+                Op::ElemMin  => make_num_kernel!(ElemwiseMinForward(1024), ElemwiseMinBackward(1024), node),
+                Op::ElemMax  => make_num_kernel!(ElemwiseMaxForward(1024), ElemwiseMaxBackward(1024), node),
+                Op::ElemMean => make_float_kernel!(ElemwiseMeanForward(1024), ElemwiseMeanBackward(1024), node),
+                Op::ElemSum  => make_num_kernel!(ElemwiseSumForward(1024), ElemwiseSumBackward(1024), node),
+                Op::Equal          => make_num_kernel!(ElemwiseEqualForward(1024), node),
+                Op::Greater        => make_num_kernel!(ElemwiseGreaterForward(1024), node),
+                Op::GreaterOrEqual => make_num_kernel!(ElemwiseGreaterEqualForward(1024), node),
+                Op::Less           => make_num_kernel!(ElemwiseLessForward(1024), node),
+                Op::LessOrEqual    => make_num_kernel!(ElemwiseLessEqualForward(1024), node),
+                Op::Where          => make_float_kernel!(ElemwiseWhereForward(1024), ElemwiseWhereBackward(1024), node),
+                Op::Clip => {
+                    let (name, ks, bwd_ks, rop): (String, String, String, Arc<dyn RuntimeOp>) =
+                        match node.dtype {
+                            DtypeRepr::F32 => {
+                                let r = ClipRuntimeOp::<f32>::new(1024, f32::NEG_INFINITY, f32::INFINITY);
+                                (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r))
+                            }
+                            DtypeRepr::F64 => {
+                                let r = ClipRuntimeOp::<f64>::new(1024, f32::NEG_INFINITY, f32::INFINITY);
+                                (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r))
+                            }
+                            other => return Err(anyhow::anyhow!("{:?} is not supported for Clip", other)),
+                        };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
+                        name,
+                        kernel_source: ks,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_ks,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+
+                // ── ONNX reduction ops ────────────────────────────────────────
+                Op::ReduceSum { .. }       => make_num_kernel!(ReduceSumForward(1024), node),
+                Op::ReduceMean { .. }      => make_float_kernel!(ReduceMeanForward(1024), node),
+                Op::ReduceMax { .. }       => make_num_kernel!(ReduceMaxForward(1024), node),
+                Op::ReduceMin { .. }       => make_num_kernel!(ReduceMinForward(1024), node),
+                Op::ReduceProd { .. }      => make_float_kernel!(ReduceProdForward(1024), node),
+                Op::ReduceL1 { .. }        => make_num_kernel!(ReduceL1Forward(1024), node),
+                Op::ReduceL2 { .. }        => make_float_kernel!(ReduceL2Forward(1024), node),
+                Op::ReduceLogSum { .. }    => make_float_kernel!(ReduceLogSumForward(1024), node),
+                Op::ReduceLogSumExp { .. } => make_float_kernel!(ReduceLogSumExpForward(1024), node),
+                Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
+                Op::CumSum { .. }          => make_num_kernel!(CumSumForward(1024), node),
+                Op::CumProd { .. }         => make_num_kernel!(CumProdForward(1024), node),
+                Op::GlobalAvgPool          => make_float_kernel!(GlobalAvgPoolForward(1024), node),
+                Op::GlobalMaxPool          => make_float_kernel!(GlobalMaxPoolForward(1024), node),
+                Op::ArgMax { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::ArgMax — I32Tensor output requires a custom kernel"
+                )),
+                Op::ArgMin { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::ArgMin — I32Tensor output requires a custom kernel"
+                )),
+
+                // ── Additional activations ────────────────────────────────────
+                Op::Swish => {
+                    let fwd = SwishForward::new(1024);
+                    let nm = fwd.name.to_string();
+                    let fwd_src = fwd.source.clone();
+                    #[cfg(feature = "training")]
+                    let bwd_src = SwishBackward::new(1024).source.clone();
+                    let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", nm),
+                        name: nm,
+                        kernel_source: fwd_src,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+                Op::PRelu => {
+                    let fwd = PreluForward::new(1024);
+                    let nm = fwd.name.to_string();
+                    let fwd_src = fwd.source.clone();
+                    #[cfg(feature = "training")]
+                    let bwd_src = crate::nn::activation::extra::PreluBackward::new(1024).source.clone();
+                    let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", nm),
+                        name: nm,
+                        kernel_source: fwd_src,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+                Op::LogSoftmax { .. } => {
+                    let n_cols = node.shape.last().and_then(|d| *d).unwrap_or(1024);
+                    let block_size = n_cols.next_power_of_two() as i32;
+                    let fwd = LogSoftmaxForward::new(block_size);
+                    let nm = fwd.name.to_string();
+                    let fwd_src = fwd.source.clone();
+                    #[cfg(feature = "training")]
+                    let bwd_src = LogSoftmaxBackward::new(block_size).source.clone();
+                    let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", nm),
+                        name: nm,
+                        kernel_source: fwd_src,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_src,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+                Op::ThresholdedRelu { alpha } => {
+                    let alpha_f = *alpha as f32;
+                    let (name, ks, bwd_ks, rop): (String, String, String, Arc<dyn RuntimeOp>) =
+                        match node.dtype {
+                            DtypeRepr::F32 => {
+                                let r = ThresholdedReluRuntimeOp::new(1024, alpha_f);
+                                (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r))
+                            }
+                            other => return Err(anyhow::anyhow!("{:?} is not supported for ThresholdedRelu", other)),
+                        };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
+                        name,
+                        kernel_source: ks,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_ks,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+                Op::Shrink { lambd, bias } => {
+                    let lambd_f = *lambd as f32;
+                    let bias_f  = *bias  as f32;
+                    let (name, ks, bwd_ks, rop): (String, String, String, Arc<dyn RuntimeOp>) =
+                        match node.dtype {
+                            DtypeRepr::F32 => {
+                                let r = ShrinkRuntimeOp::new(1024, lambd_f, bias_f);
+                                (r.kernel_name().to_string(), r.forward_source().to_string(), r.backward_source().to_string(), Arc::new(r))
+                            }
+                            other => return Err(anyhow::anyhow!("{:?} is not supported for Shrink", other)),
+                        };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
+                        name,
+                        kernel_source: ks,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: bwd_ks,
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+
+                // ── Matrix ops ────────────────────────────────────────────────
+                Op::MatMul | Op::Gemm { .. } => {
+                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                        DtypeRepr::F32 => {
+                            let r = MatMulRuntimeOp::<f32>::new(128);
+                            (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                        }
+                        DtypeRepr::F64 => {
+                            let r = MatMulRuntimeOp::<f64>::new(128);
+                            (r.kernel_name().to_string(), r.forward_source().to_string(), Arc::new(r))
+                        }
+                        other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for MatMul", other)),
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
+                        name,
+                        kernel_source: ks,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
+                }
+
+                // ── ONNX ops that cannot be lowered to a single Triton kernel ─
+                Op::Lstm { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Lstm — multi-step recurrent; implement as a custom loop kernel"
+                )),
+                Op::Gru { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Gru — multi-step recurrent; implement as a custom loop kernel"
+                )),
+                Op::Rnn { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Rnn — multi-step recurrent; implement as a custom loop kernel"
+                )),
+                Op::RotaryEmbedding => return Err(anyhow::anyhow!(
+                    "TODO: Op::RotaryEmbedding — implement RoPE kernel"
+                )),
+                Op::MultiHeadAttention { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::MultiHeadAttention — use flash attention or a custom MHA kernel"
+                )),
+                Op::Reshape => return Err(anyhow::anyhow!(
+                    "TODO: Op::Reshape — implement as a strided view or copy kernel"
+                )),
+                Op::Transpose { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Transpose — implement as a permuted-copy kernel"
+                )),
+                Op::Squeeze { .. } | Op::Unsqueeze { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Squeeze/Unsqueeze — implement as a zero-copy view"
+                )),
+                Op::Concat { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Concat — implement as a multi-input copy kernel"
+                )),
+                Op::Split { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Split — implement as a multi-output slice kernel"
+                )),
+                Op::Slice => return Err(anyhow::anyhow!(
+                    "TODO: Op::Slice — implement as a strided-copy kernel"
+                )),
+                Op::Gather { .. } | Op::GatherElements { .. } | Op::GatherND { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Gather — implement as an index-gather kernel"
+                )),
+                Op::ScatterElements { .. } | Op::ScatterND | Op::Scatter { .. } | Op::TensorScatter => return Err(anyhow::anyhow!(
+                    "TODO: Op::Scatter — implement as an index-scatter kernel"
+                )),
+                Op::Tile => return Err(anyhow::anyhow!(
+                    "TODO: Op::Tile — implement as a tiled-copy kernel"
+                )),
+                Op::Expand => return Err(anyhow::anyhow!(
+                    "TODO: Op::Expand — implement as a broadcast-copy kernel"
+                )),
+                Op::ShapeOf { .. } | Op::SizeOf => return Err(anyhow::anyhow!(
+                    "TODO: Op::ShapeOf/SizeOf — output is metadata, not tensor data"
+                )),
+                Op::Compress { .. } | Op::NonZero => return Err(anyhow::anyhow!(
+                    "TODO: Op::Compress/NonZero — variable-output ops require stream compaction"
+                )),
+                Op::Range => return Err(anyhow::anyhow!(
+                    "TODO: Op::Range — implement as a fill/arange kernel"
+                )),
+                Op::Constant { .. } | Op::ConstantOfShape { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Constant — inline constant; should be materialised before lowering"
+                )),
+                Op::Trilu { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Trilu — implement as a triangular mask kernel"
+                )),
+                Op::Pad { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Pad — implement as a generic N-D padding kernel"
+                )),
+                Op::ReverseSequence { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::ReverseSequence — implement as a scatter-copy kernel"
+                )),
+                Op::Einsum { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Einsum — parse equation and emit a fused contraction kernel"
+                )),
+                Op::Det => return Err(anyhow::anyhow!(
+                    "TODO: Op::Det — implement via LU decomposition"
+                )),
+                Op::QLinearMatMul | Op::MatMulInteger | Op::ConvInteger { .. } | Op::QLinearConv { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Q* quantised matmul/conv — implement quantised compute kernels"
+                )),
+                Op::ConvTranspose { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::ConvTranspose — implement transposed (gradient) convolution kernel"
+                )),
+                Op::DeformConv { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::DeformConv — implement deformable convolution kernel"
+                )),
+                Op::Col2Im { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Col2Im — implement col2im (fold) kernel"
+                )),
+                Op::Resize { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Resize — implement nearest/bilinear/bicubic resize kernels"
+                )),
+                Op::GridSample { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::GridSample — implement bilinear grid sample kernel"
+                )),
+                Op::SpaceToDepth { .. } | Op::DepthToSpace { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::SpaceToDepth/DepthToSpace — implement pixel shuffle kernel"
+                )),
+                Op::RoiAlign { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::RoiAlign — implement RoI-align pooling kernel"
+                )),
+                Op::AffineGrid { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::AffineGrid — implement affine grid generator kernel"
+                )),
+                Op::MaxUnpool { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::MaxUnpool — implement max-unpool (scatter with saved indices) kernel"
+                )),
+                Op::CenterCropPad { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::CenterCropPad — implement center-crop-pad kernel"
+                )),
+                Op::NonMaxSuppression { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::NonMaxSuppression — implement NMS kernel"
+                )),
+                Op::TopK { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::TopK — implement radix sort / parallel selection kernel"
+                )),
+                Op::Unique { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Unique — implement stream-compaction unique kernel"
+                )),
+                Op::EyeLike { .. } | Op::OneHot { .. } | Op::Bernoulli { .. } | Op::RandomUniformLike { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::EyeLike/OneHot/Bernoulli/RandomUniformLike — implement generation kernels"
+                )),
+                Op::And | Op::Or | Op::Xor => return Err(anyhow::anyhow!(
+                    "TODO: Op::And/Or/Xor — implement boolean logical kernels"
+                )),
+                Op::BitShift { .. } | Op::BitwiseAnd | Op::BitwiseOr | Op::BitwiseXor | Op::BitwiseNot | Op::Not => return Err(anyhow::anyhow!(
+                    "TODO: Op::Bitwise* — implement integer bitwise kernels"
+                )),
+                Op::QuantizeLinear { .. } | Op::DequantizeLinear { .. } | Op::DynamicQuantizeLinear => return Err(anyhow::anyhow!(
+                    "TODO: Op::Quantize/Dequantize — implement quantisation kernels"
+                )),
+                Op::LRN { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::LRN — implement local response normalisation kernel"
+                )),
+                Op::MeanVarianceNormalization { .. } | Op::LpNormalization { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::MvnNorm/LpNorm — implement normalisation kernels"
+                )),
+                Op::Dft { .. } | Op::Stft | Op::MelWeightMatrix | Op::HannWindow { .. } | Op::BlackmanWindow { .. } | Op::HammingWindow { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::DFT/STFT/Window — implement signal processing kernels"
+                )),
+                Op::NegativeLogLikelihoodLoss { .. } | Op::SoftmaxCrossEntropyLoss { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::NllLoss/SoftmaxCELoss — implement loss kernels"
+                )),
+                Op::SequenceAt | Op::SequenceConstruct | Op::SequenceEmpty | Op::SequenceErase
+                | Op::SequenceInsert | Op::SequenceLength | Op::SequenceMap
+                | Op::SplitToSequence { .. } | Op::ConcatFromSequence { .. }
+                | Op::OptionalGetElement | Op::OptionalHasElement
+                | Op::Loop | Op::Scan { .. } | Op::If => return Err(anyhow::anyhow!(
+                    "TODO: Op::Sequence/Control-flow — not lowerable to single Triton kernels"
+                )),
+                Op::Adagrad | Op::Adam | Op::Momentum | Op::Gradient => return Err(anyhow::anyhow!(
+                    "TODO: Op::OnnxOptimizer — use teenygrad's own optimizer kernels instead"
+                )),
+                Op::StringNormalizer | Op::RegexFullMatch { .. } | Op::StringConcat | Op::StringSplit
+                | Op::TfIdfVectorizer | Op::LabelEncoder
+                | Op::ArrayFeatureExtractor | Op::Binarizer { .. } | Op::TreeEnsemble | Op::ImageDecoder => return Err(anyhow::anyhow!(
+                    "TODO: Op::String/ClassicalML — not GPU-lowerable"
+                )),
+                Op::CastLike | Op::BitCast { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::CastLike/BitCast — implement dtype-cast kernels"
+                )),
+                Op::Cast { to } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Cast to {:?} — implement dtype-cast kernel", to
+                )),
+                Op::Identity => return Err(anyhow::anyhow!(
+                    "TODO: Op::Identity — implement zero-copy pass-through kernel"
+                )),
+                Op::Dropout { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Dropout — implement inference pass-through / training dropout kernel"
+                )),
+                Op::IsInf { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::IsInf — implement isinf kernel"
+                )),
+                Op::Hardmax { .. } => return Err(anyhow::anyhow!(
+                    "TODO: Op::Hardmax — implement argmax + one-hot kernel"
+                )),
 
                 Op::Attention { c, num_heads, key_dim } => {
                     // PSA attention is decomposed into 13 sub-nodes inline below.

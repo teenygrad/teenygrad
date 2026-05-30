@@ -15,6 +15,7 @@
  */
 
 pub mod elu;
+pub mod extra;
 pub mod gelu;
 pub mod hard;
 pub mod misc;
