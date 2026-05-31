@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "teenygrad"
-version = "0.1.0"
+version = "0.1.1"
 description = "Teenygrad JIT compiler."
 authors = [
     { name="Arshad M", email="arshadm@teenygrad.org" },
