@@ -6,4 +6,4 @@ scratch/
 todo.md
 kernel.py
 .env
-.beads/
+.beads
