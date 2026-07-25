@@ -15,8 +15,8 @@ training = ["teeny-core/training"]
 [lib]
 
 [dependencies]
-teeny-core = { path = "../../core/teeny-core" }
-teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
+teeny-compiler = { path = "../../compiler/teeny-compiler", version = "0.1.0" }
 thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true

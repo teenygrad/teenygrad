@@ -18,10 +18,10 @@ training = ["teeny-core/training"]
 [dependencies]
 thiserror.workspace = true
 anyhow.workspace = true
-teeny-macros = { path = "../../macros/teeny-macros" }
-teeny-core = { path = "../../core/teeny-core" }
-teeny-triton = { path = "../teeny-triton" }
-teeny-cuda = { path = "../../drivers/teeny-cuda", optional = true }
+teeny-macros = { path = "../../macros/teeny-macros", version = "0.1.0" }
+teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
+teeny-triton = { path = "../teeny-triton", version = "0.1.0" }
+teeny-cuda = { path = "../../drivers/teeny-cuda", version = "0.1.0", optional = true }
 
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }

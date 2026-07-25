@@ -11,7 +11,7 @@ readme.workspace = true
 [dependencies]
 thiserror.workspace = true
 anyhow.workspace = true
-teeny-core = { path = "../../core/teeny-core" }
+teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
 parquet.workspace = true
 arrow-array.workspace = true
 image.workspace = true

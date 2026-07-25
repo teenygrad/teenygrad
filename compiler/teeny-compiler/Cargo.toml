@@ -12,8 +12,8 @@ readme.workspace = true
 default = ["ndarray"]
 
 [dependencies]
-teeny-core = { path = "../../core/teeny-core" }
-teeny-triton = { path = "../../kernels/teeny-triton" }
+teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
+teeny-triton = { path = "../../kernels/teeny-triton", version = "0.1.0" }
 ndarray = { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true
