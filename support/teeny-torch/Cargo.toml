@@ -13,9 +13,9 @@ name = "teenygrad"
 crate-type = ["cdylib"]
 
 [dependencies]
-teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
-teeny-fxgraph = { path = "../../support/teeny-fxgraph", version = "0.1.0" }
-teeny-compiler = { path = "../../compiler/teeny-compiler", version = "0.1.0" }
+teeny-core.workspace = true
+teeny-fxgraph.workspace = true
+teeny-compiler.workspace = true
 thiserror.workspace = true
 pyo3.workspace = true
 flatbuffers.workspace = true

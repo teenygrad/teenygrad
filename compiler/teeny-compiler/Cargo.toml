@@ -12,8 +12,8 @@ readme.workspace = true
 default = ["ndarray"]
 
 [dependencies]
-teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
-teeny-triton = { path = "../../kernels/teeny-triton", version = "0.1.0" }
+teeny-core.workspace = true
+teeny-triton.workspace = true
 ndarray = { workspace = true, optional = true }
 thiserror.workspace = true
 anyhow.workspace = true
@@ -26,7 +26,7 @@ tracing-subscriber.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
-teeny-kernels = { path = "../../kernels/teeny-kernels" }
-teeny-cuda = { path = "../../drivers/teeny-cuda" }
+teeny-kernels.workspace = true
+teeny-cuda.workspace = true
 insta.workspace = true
 dotenv.workspace = true

@@ -9,7 +9,7 @@ homepage.workspace = true
 readme.workspace = true
 
 [dependencies]
-teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
+teeny-core.workspace = true
 tokio.workspace = true
 reqwest.workspace = true
 thiserror.workspace = true

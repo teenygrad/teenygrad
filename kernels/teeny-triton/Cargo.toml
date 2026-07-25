@@ -9,7 +9,7 @@ homepage.workspace = true
 readme.workspace = true
 
 [dependencies]
-teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
+teeny-core.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -17,10 +17,10 @@ insta.workspace = true
 dotenv.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
-teeny-core = { path = "../../core/teeny-core" }
-teeny-compiler = { path = "../../compiler/teeny-compiler" }
-teeny-macros = { path = "../../macros/teeny-macros" }
-teeny-cuda = { path = "../../drivers/teeny-cuda" }
+teeny-core.workspace = true
+teeny-compiler.workspace = true
+teeny-macros.workspace = true
+teeny-cuda.workspace = true
 
 [build-dependencies]
 cargo_metadata.workspace = true

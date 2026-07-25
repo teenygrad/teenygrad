@@ -11,7 +11,7 @@ readme.workspace = true
 [dependencies]
 thiserror.workspace = true
 anyhow.workspace = true
-teeny-core = { path = "../../core/teeny-core", version = "0.1.0" }
+teeny-core.workspace = true
 parquet.workspace = true
 arrow-array.workspace = true
 image.workspace = true
@@ -22,6 +22,6 @@ reqwest.workspace = true
 indicatif.workspace = true
 dotenv.workspace = true
 rand.workspace = true
-teeny-kernels = { path = "../../kernels/teeny-kernels" }
-teeny-cuda = { path = "../../drivers/teeny-cuda" }
-teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-kernels.workspace = true
+teeny-cuda.workspace = true
+teeny-compiler.workspace = true
