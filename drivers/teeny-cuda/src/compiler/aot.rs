@@ -48,7 +48,10 @@ pub fn compile_graph<'a, L: Lowering<'a>>(
     let teenyc_path =
         std::env::var("TEENYC_PATH").unwrap_or_else(|_| "teenyc".to_string());
 
-    let compiler = LlvmCompiler::new(teenyc_path, cache_dir.to_string())?;
+    let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir.to_string())?;
+    if let Some(ptx_version) = options.ptx_version {
+        compiler = compiler.with_ptx_version(ptx_version);
+    }
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(options.gpu_name);
 

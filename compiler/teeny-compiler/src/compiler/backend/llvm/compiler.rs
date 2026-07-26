@@ -31,6 +31,7 @@ pub struct LlvmCompiler {
     teenyc_path: PathBuf,
     cache_dir: PathBuf,
     target_cpu: Option<String>,
+    ptx_version: Option<u32>,
 }
 
 impl LlvmCompiler {
@@ -46,6 +47,7 @@ impl LlvmCompiler {
             teenyc_path,
             cache_dir,
             target_cpu: None,
+            ptx_version: None,
         })
     }
 
@@ -53,17 +55,30 @@ impl LlvmCompiler {
         self.target_cpu = Some(cpu.into());
         self
     }
+
+    /// Override the PTX ISA version `teenyc` stamps into the generated PTX
+    /// (encoded as `major*10 + minor`, e.g. `82` for `8.2`), via
+    /// `TEENYC_PTX_VERSION`. Without this, `teenyc` picks a conservative
+    /// default from the target capability — set this when the deployment
+    /// target's exact CUDA version is known and needs a precise match.
+    pub fn with_ptx_version(mut self, ptx_version: u32) -> Self {
+        self.ptx_version = Some(ptx_version);
+        self
+    }
 }
 
 impl Compiler for LlvmCompiler {
     fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
-        // Hash the kernel id together with target cpu so that different targets
-        // each get their own cache entry.
+        // Hash the kernel id together with target cpu and ptx version so that
+        // different targets/overrides each get their own cache entry.
         let effective_id = {
             let mut h = Sha256::new();
             h.update(kernel.id().as_bytes());
             if let Some(cpu) = &self.target_cpu {
                 h.update(cpu.as_bytes());
+            }
+            if let Some(ptx_version) = self.ptx_version {
+                h.update(ptx_version.to_le_bytes());
             }
             h.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
         };
@@ -99,6 +114,9 @@ impl Compiler for LlvmCompiler {
                 .current_dir(&self.cache_dir);
             if let Some(cpu) = &self.target_cpu {
                 cmd.arg(format!("-Ctarget-cpu={cpu}"));
+            }
+            if let Some(ptx_version) = self.ptx_version {
+                cmd.env("TEENYC_PTX_VERSION", ptx_version.to_string());
             }
             let output = cmd.output()?;
 

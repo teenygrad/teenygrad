@@ -91,6 +91,16 @@ pub struct Options {
     #[builder]
     pub gpu_name: Capability,
 
+    /// Explicit PTX ISA version to request from `teenyc` (e.g. `82` for
+    /// `8.2`), encoded as `major*10 + minor`. Not an `nvptxcompiler` flag —
+    /// excluded from [`Options::to_compile_options`]; consumed separately by
+    /// [`crate::compiler::aot::compile_graph`] to override `teenyc`'s
+    /// capability-based default when the deployment target's exact CUDA
+    /// version is known (e.g. `ptx-version=82` for a Jetson Orin Nano on
+    /// CUDA 12.2, since sm_87's own default floor is conservative).
+    #[builder(default = "None")]
+    pub ptx_version: Option<u32>,
+
     #[builder(default = "None")]
     pub maxrregcount: Option<u32>,
 
@@ -349,6 +359,9 @@ impl Options {
                         Error::InvalidOptions { input: input.to_string(), reason }
                     })?);
                 }
+                "ptx-version" => {
+                    builder.ptx_version(Some(parse_u32(input, &key, value)?));
+                }
                 "allow-expensive-optimizations" => {
                     builder.allow_expensive_optimizations(parse_bool(input, &key, value)?);
                 }
@@ -575,5 +588,18 @@ mod parse_tests {
     #[test]
     fn unknown_key_errors() {
         assert!(Options::parse("capability=sm_90,shared-memory=25k").is_err());
+    }
+
+    #[test]
+    fn parses_ptx_version_override() {
+        let opts = Options::parse("capability=sm_87,ptx-version=82").unwrap();
+        assert_eq!(opts.gpu_name, Capability::Sm87);
+        assert_eq!(opts.ptx_version, Some(82));
+    }
+
+    #[test]
+    fn ptx_version_defaults_to_none() {
+        let opts = Options::parse("capability=sm_87").unwrap();
+        assert_eq!(opts.ptx_version, None);
     }
 }
