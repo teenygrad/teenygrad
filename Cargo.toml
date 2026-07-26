@@ -28,6 +28,7 @@ teeny-kernels = { path = "kernels/teeny-kernels", version = "0.0.0" }
 teeny-fxgraph = { path = "support/teeny-fxgraph", version = "0.0.0" }
 teeny-compiler = { path = "compiler/teeny-compiler", version = "0.0.0" }
 teeny-cuda = { path = "drivers/teeny-cuda", version = "0.0.0" }
+teeny-vision = { path = "models/teeny-vision", version = "0.0.0" }
 
 anyhow = { version = "1.0.100", default-features = false }
 thiserror = { version = "2.0.18", default-features = false }

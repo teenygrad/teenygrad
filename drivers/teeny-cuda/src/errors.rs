@@ -43,6 +43,9 @@ pub enum Error {
 
     #[error("buffer overflow: source has {src} elements but buffer holds {buf}")]
     BufferOverflow { src: usize, buf: usize },
+
+    #[error("invalid compiler options '{input}': {reason}")]
+    InvalidOptions { input: String, reason: String },
 }
 
 impl Error {

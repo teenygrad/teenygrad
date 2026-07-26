@@ -1,0 +1,31 @@
+[package]
+name = "teeny-cli"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme.workspace = true
+
+[features]
+default = []
+# Enables the "cuda" --device backend (teeny-cuda) and the smoke-test binary,
+# which AOT-compiles teeny-vision's LeNet-5 against it.
+cuda = ["dep:teeny-cuda", "dep:teeny-kernels", "dep:teeny-vision"]
+
+[lib]
+
+[[bin]]
+name = "teeny-cli"
+path = "src/main.rs"
+required-features = ["cuda"]
+
+[dependencies]
+teeny-core.workspace = true
+teeny-cuda = { workspace = true, optional = true }
+teeny-kernels = { workspace = true, optional = true }
+teeny-vision = { workspace = true, optional = true }
+clap.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true

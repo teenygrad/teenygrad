@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use alloc::format;
 use alloc::string::String;
 
 use crate::device::program::Kernel;
@@ -74,5 +75,54 @@ impl core::fmt::Display for Capability {
             Self::Sm120 => "sm_120",
         };
         f.write_str(s)
+    }
+}
+
+impl core::str::FromStr for Capability {
+    type Err = String;
+
+    /// Accepts the canonical `sm_90` form as well as `sm-90`, `sm90` and bare
+    /// `90` (case-insensitive) — the latter forms are convenient for CLI args
+    /// like `--options capability=sm_90`.
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        let normalized = s.trim().to_ascii_lowercase();
+        let digits = normalized
+            .strip_prefix("sm_")
+            .or_else(|| normalized.strip_prefix("sm-"))
+            .or_else(|| normalized.strip_prefix("sm"))
+            .unwrap_or(normalized.as_str());
+
+        match digits {
+            "75" => Ok(Self::Sm75),
+            "80" => Ok(Self::Sm80),
+            "86" => Ok(Self::Sm86),
+            "87" => Ok(Self::Sm87),
+            "89" => Ok(Self::Sm89),
+            "90" => Ok(Self::Sm90),
+            "100" => Ok(Self::Sm100),
+            "120" => Ok(Self::Sm120),
+            _ => Err(format!(
+                "unknown capability '{s}'; expected one of sm_75, sm_80, sm_86, sm_87, sm_89, sm_90, sm_100, sm_120"
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod capability_from_str_tests {
+    use super::Capability;
+
+    #[test]
+    fn accepts_canonical_and_tolerant_forms() {
+        assert_eq!("sm_90".parse::<Capability>().unwrap(), Capability::Sm90);
+        assert_eq!("sm-90".parse::<Capability>().unwrap(), Capability::Sm90);
+        assert_eq!("SM90".parse::<Capability>().unwrap(), Capability::Sm90);
+        assert_eq!("90".parse::<Capability>().unwrap(), Capability::Sm90);
+        assert_eq!("sm_120".parse::<Capability>().unwrap(), Capability::Sm120);
+    }
+
+    #[test]
+    fn rejects_unknown_capability() {
+        assert!("sm_61".parse::<Capability>().is_err());
     }
 }
