@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
+//! Tokenizer trait and chat-message types.
+
 use serde::{Deserialize, Serialize};
 
+/// A single chat-conversation turn: a `role` (e.g. `"user"`, `"assistant"`, `"system"`) paired
+/// with its `content`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
@@ -23,6 +27,7 @@ pub struct Message {
 }
 
 impl Message {
+    /// Creates a message from `role`/`content` string slices.
     pub fn new(role: &str, content: &str) -> Self {
         Self {
             role: role.to_string(),
@@ -31,7 +36,12 @@ impl Message {
     }
 }
 
+/// Text tokenization and chat-templating, implemented per model/tokenizer family.
 pub trait Tokenizer {
+    /// Renders `messages` through `chat_template` (a Jinja-style template string, per the Hugging
+    /// Face chat-template convention), optionally tokenizing the result (`tokenize`), appending a
+    /// generation prompt (`add_generation_prompt`), and enabling "thinking"/reasoning mode
+    /// (`enable_thinking`) for models that support it.
     fn apply_chat_template(
         &self,
         messages: &[Message],
@@ -41,7 +51,9 @@ pub trait Tokenizer {
         enable_thinking: bool,
     ) -> String;
 
+    /// Encodes `texts` into a flat sequence of token IDs.
     fn encode(&self, texts: &[String]) -> Vec<usize>;
 
+    /// Decodes a sequence of token IDs back into text.
     fn decode(&self, ids: &[usize]) -> String;
 }

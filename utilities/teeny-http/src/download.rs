@@ -22,6 +22,8 @@ use crate::{
 };
 use std::{fs::File, io::Write, path::Path};
 
+/// Fetches `url` and writes the response body to `path.join(name)`, optionally showing a
+/// progress bar (see [`crate::fetch::fetch_content`]).
 pub async fn download_file(
     name: &str,
     url: &str,

@@ -24,18 +24,29 @@
 pub struct DynamicCache {}
 
 impl DynamicCache {
+    /// Creates an empty cache.
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Returns the number of tokens currently cached.
+    ///
+    /// Not yet implemented.
     pub fn get_sequence_length(&self) -> usize {
         todo!()
     }
 
+    /// Per-layer sliding-window state: `(window_size, is_sliding)` for each layer, or `None` if
+    /// no layer uses a sliding window.
+    ///
+    /// Not yet implemented.
     pub fn is_sliding(&self) -> Option<&[(usize, bool)]> {
         todo!()
     }
 
+    /// Whether this cache's current state is safe to pass into a compiled (AOT/JIT) kernel path.
+    ///
+    /// Not yet implemented.
     pub fn is_compileable(&self) -> bool {
         todo!()
     }

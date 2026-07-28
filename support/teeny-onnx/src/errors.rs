@@ -14,10 +14,14 @@
  * limitations under the License.
  */
 
+/// `teeny-onnx`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Errors produced by [`crate::Onnx`].
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// The `.onnx` file parsed as valid protobuf but its contents don't form a valid/supported
+    /// model (e.g. an unsupported op).
     #[error("Invalid model: {0}")]
     InvalidModel(String),
 }

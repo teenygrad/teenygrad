@@ -14,4 +14,6 @@
  * limitations under the License.
  */
 
+//! Dataset loading (currently CSV, over HTTP).
+
 pub mod loader;

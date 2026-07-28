@@ -14,19 +14,25 @@
  * limitations under the License.
  */
 
+/// `teeny-data`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Errors produced by [`crate::dataset::loader::load_csv`]/[`crate::safetensors::SafeTensors`].
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// Fetching the CSV over HTTP failed.
     #[error("Failed to download CSV: {0}")]
     DownloadError(#[from] reqwest::Error),
 
+    /// The response body wasn't valid CSV for the given delimiter.
     #[error("Failed to parse CSV: {0}")]
     ParseError(#[from] csv::Error),
 
+    /// Couldn't reshape the parsed rows into an `ndarray::Array2`.
     #[error("Failed to convert to ndarray: {0}")]
     ArrayError(#[from] ndarray::ShapeError),
 
+    /// A cell's value failed to parse as the requested element type, or no rows were found.
     #[error("Failed to parse value: {0}")]
     ParseValueError(String),
     // #[error("SafeTensors error: {0}")]

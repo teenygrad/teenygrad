@@ -18,6 +18,10 @@ use reqwest::header::HeaderMap;
 
 use crate::error::{Error, Result};
 
+/// Issues a `GET` to `url` (with optional `headers`) and returns the full response body.
+///
+/// If `show_progress` is set, renders an `indicatif` progress bar (labeled `name`) as the body
+/// streams in; otherwise the body is read in one shot.
 pub async fn fetch_content(
     name: &str,
     url: &str,

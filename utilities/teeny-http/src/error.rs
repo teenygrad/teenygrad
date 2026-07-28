@@ -16,19 +16,25 @@
 
 use thiserror::Error;
 
+/// `teeny-http`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Errors produced by [`crate::fetch::fetch_content`]/[`crate::download::download_file`].
 #[derive(Error, Debug)]
 pub enum Error {
+    /// The underlying HTTP request failed (network error, timeout, etc).
     #[error("Request failed: {0}")]
     RequestFailed(reqwest::Error),
 
+    /// Couldn't create the destination file for a download.
     #[error("File create failed: {0}")]
     FileCreateFailed(std::io::Error),
 
+    /// Couldn't write the downloaded content to the destination file.
     #[error("File write failed: {0}")]
     FileWriteFailed(std::io::Error),
 
+    /// The server responded with a non-success status code.
     #[error("HTTP error: {0}")]
     HttpError(reqwest::StatusCode),
 }

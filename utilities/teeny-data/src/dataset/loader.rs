@@ -20,6 +20,10 @@ use ndarray::{Array2, ArrayBase, Ix2, OwnedRepr};
 
 use crate::error::{Error, Result};
 
+/// Downloads the CSV at `url` and parses every field as `T`, returning it as a 2D `ndarray`
+/// (rows × columns). `delimiter` is the field separator byte (e.g. `b','`).
+///
+/// Errors if the download/parse fails, any cell fails to parse as `T`, or the CSV has no rows.
 pub async fn load_csv<T: FromStr>(
     url: &str,
     delimiter: u8,

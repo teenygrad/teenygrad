@@ -31,14 +31,20 @@ use crate::{
 
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
+/// Parses ONNX protobuf models into a `teeny-core` [`Graph`].
 pub struct Onnx {}
 
 impl Onnx {
+    /// Reads and parses the `.onnx` file at `path`.
     pub fn from_path(path: impl AsRef<Path>) -> Result<Graph> {
         let mut file = File::open(path)?;
         Self::from_reader(&mut file)
     }
 
+    /// Parses an ONNX model (`ModelProto`, protobuf binary format) from `reader` into a `Graph`.
+    ///
+    /// Errors if the bytes aren't valid ONNX protobuf, the model has no graph, or the graph uses
+    /// an op this crate doesn't support yet.
     pub fn from_reader(reader: &mut impl Read) -> Result<Graph> {
         let mut reader = CodedInputStream::new(reader);
         let model = ModelProto::parse_from(&mut reader)?;
