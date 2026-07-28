@@ -111,7 +111,15 @@ impl Compiler for LlvmCompiler {
                 .arg("-C")
                 .arg("overflow-checks=off")
                 .arg("--frontend=triton")
-                .current_dir(&self.cache_dir);
+                .current_dir(&self.cache_dir)
+                // `-Zcodegen-backend` is an unstable flag; `teenyc` is distributed on the
+                // "stable" channel (real version numbers, normal feature-gating), so without
+                // this it refuses with "the option `Z` is only accepted on the nightly
+                // compiler". `RUSTC_BOOTSTRAP=1` is the standard, narrowly-scoped way to permit
+                // specific unstable flags against a stable-channel compiler (the same mechanism
+                // rustc's own bootstrap, bindgen, and miri's installer rely on) without needing
+                // to distribute `teenyc` itself as a nightly build.
+                .env("RUSTC_BOOTSTRAP", "1");
             if let Some(cpu) = &self.target_cpu {
                 cmd.arg(format!("-Ctarget-cpu={cpu}"));
             }
