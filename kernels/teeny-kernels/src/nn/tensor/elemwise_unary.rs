@@ -379,16 +379,16 @@ impl_num_unary_runtime_op!(ElemwiseSignForward);
 
 // ── IsNaN ─────────────────────────────────────────────────────────────────────
 
-/// Forward: y = 1.0 if x is NaN else 0.0 (hardcoded f32 input/output)
+/// Forward: y = 1.0 if x is NaN else 0.0
 #[kernel]
-pub fn elemwise_isnan_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+pub fn elemwise_isnan_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -397,14 +397,14 @@ pub fn elemwise_isnan_forward<T: Triton, const BLOCK_SIZE: i32>(
     let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     // Triton uses ordered comparison: eq(NaN, NaN) = False.
     // Exploit: where(eq(x, x), 0, 1) yields 1 for NaN, 0 otherwise.
-    let one  = T::full::<f32>(&[BLOCK_SIZE], 1.0_f32);
-    let zero = T::full::<f32>(&[BLOCK_SIZE], 0.0_f32);
+    let one  = T::full::<D>(&[BLOCK_SIZE], D::from_f64(1.0));
+    let zero = T::full::<D>(&[BLOCK_SIZE], D::from_f64(0.0));
     let is_not_nan = T::eq(x, x);  // False for NaN (ordered), True for normal
     let y = T::where_(is_not_nan, zero, one);
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
 
-impl teeny_core::model::RuntimeOp for ElemwiseIsnanForward {
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseIsnanForward<D> {
     fn n_activation_inputs(&self) -> usize { 1 }
     fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
     fn pack_args(

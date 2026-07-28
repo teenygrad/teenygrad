@@ -16,6 +16,7 @@
 
 #![allow(non_snake_case)]
 
+use teeny_core::dtype::Float;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -25,15 +26,15 @@ use teeny_triton::triton::{
 // ── Sigmoid ──────────────────────────────────────────────────────────────────
 
 /// Forward: y = 1 / (1 + exp(-x))
-#[kernel]
-pub fn sigmoid_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = SigmoidBackward)]
+pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -41,23 +42,23 @@ pub fn sigmoid_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
 
     let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let neg1 = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
     let y    = one / (one + T::exp(neg1 * x));
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
 }
 
 /// Backward: dx = dy * y * (1 - y) = dy * (y - y²)
 #[kernel]
-pub fn sigmoid_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -74,15 +75,15 @@ pub fn sigmoid_backward<T: Triton, const BLOCK_SIZE: i32>(
 // ── SiLU (Swish) ─────────────────────────────────────────────────────────────
 
 /// Forward: y = x * sigmoid(x)
-#[kernel]
-pub fn silu_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = SiluBackward)]
+pub fn silu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -90,8 +91,8 @@ pub fn silu_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
 
     let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let neg1 = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
     let s    = one / (one + T::exp(neg1 * x));
     let y    = x * s;
     T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
@@ -100,15 +101,15 @@ pub fn silu_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * (sigmoid(x) + y * (1 - sigmoid(x)))
 ///         = dy * (s + y - y*s)   where s = sigmoid(x)
 #[kernel]
-pub fn silu_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    x_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -117,8 +118,8 @@ pub fn silu_backward<T: Triton, const BLOCK_SIZE: i32>(
 
     let dy   = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x    = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let neg1 = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
     let s    = one / (one + T::exp(neg1 * x));
     let y    = x * s;
     // d(silu)/dx = s + x*s*(1-s) = s + y - y*s
@@ -129,15 +130,15 @@ pub fn silu_backward<T: Triton, const BLOCK_SIZE: i32>(
 // ── LogSigmoid ────────────────────────────────────────────────────────────────
 
 /// Forward: y = log(sigmoid(x)) = -log(1 + exp(-x))
-#[kernel]
-pub fn logsigmoid_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = LogsigmoidBackward)]
+pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -145,8 +146,8 @@ pub fn logsigmoid_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
 
     let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let neg1 = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
     // -log(1 + exp(-x)) = log(1/(1+exp(-x))) = log(sigmoid(x))
     // But we want to avoid negating the result: use (neg1 * log(1 + exp(neg1*x)))
     // Actually: y = neg1 * log(one + T::exp(neg1 * x))
@@ -159,15 +160,15 @@ pub fn logsigmoid_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// Backward: dx = dy * sigmoid(-x) = dy / (1 + exp(x))
 #[kernel]
-pub fn logsigmoid_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    x_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -176,31 +177,31 @@ pub fn logsigmoid_backward<T: Triton, const BLOCK_SIZE: i32>(
 
     let dy  = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let x   = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one = T::full(&[BLOCK_SIZE], 1.0_f32);
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     // sigmoid(-x) = 1 / (1 + exp(x))
     let dx  = dy / (one + T::exp(x));
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
 
 
-pub struct SigmoidOp {
-    pub forward: SigmoidForward,
-    pub backward: SigmoidBackward,
+pub struct SigmoidOp<D: Float> {
+    pub forward: SigmoidForward<D>,
+    pub backward: SigmoidBackward<D>,
 }
 
-pub struct SiluOp {
-    pub forward: SiluForward,
-    pub backward: SiluBackward,
+pub struct SiluOp<D: Float> {
+    pub forward: SiluForward<D>,
+    pub backward: SiluBackward<D>,
 }
 
-pub struct LogsigmoidOp {
-    pub forward: LogsigmoidForward,
-    pub backward: LogsigmoidBackward,
+pub struct LogsigmoidOp<D: Float> {
+    pub forward: LogsigmoidForward<D>,
+    pub backward: LogsigmoidBackward<D>,
 }
 
 // ── RuntimeOp for Sigmoid forward ────────────────────────────────────────────
 
-impl teeny_core::model::RuntimeOp for SigmoidForward {
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidForward<D> {
     fn n_activation_inputs(&self) -> usize { 1 }
 
     fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
@@ -262,7 +263,7 @@ impl teeny_core::model::RuntimeOp for SigmoidForward {
 
 // ── RuntimeOp for SiLU forward ────────────────────────────────────────────────
 
-impl teeny_core::model::RuntimeOp for SiluForward {
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForward<D> {
     fn n_activation_inputs(&self) -> usize { 1 }
 
     fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }

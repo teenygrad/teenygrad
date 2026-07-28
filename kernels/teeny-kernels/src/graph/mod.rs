@@ -28,18 +28,30 @@ use crate::nn::{
         conv2d_bn_silu_tiled::Conv2dBnSiluTiledForward,
     },
     activation::{
-        elu::{CeluForward, EluForward, SeluForward},
-        gelu::{GeluForward, MishForward},
+        elu::{
+            CeluForward, CeluForwardDispatch, EluForward, EluForwardDispatch, SeluForward,
+            SeluForwardDispatch,
+        },
+        gelu::{GeluForwardDispatch, MishForward, MishForwardDispatch},
         hard::{
-            HardshrinkForward, HardsigmoidForward, HardswishForward, HardtanhForward, Relu6Forward,
+            HardshrinkForward, HardshrinkForwardDispatch, HardsigmoidForward,
+            HardsigmoidForwardDispatch, HardswishForward, HardswishForwardDispatch, HardtanhForward,
+            HardtanhForwardDispatch, Relu6Forward, Relu6ForwardDispatch,
         },
         misc::{
-            LeakyReluForward, SoftplusForward, SoftshrinkForward, SoftsignForward, ThresholdForward,
+            LeakyReluForward, LeakyReluForwardDispatch, SoftplusForward, SoftplusForwardDispatch,
+            SoftshrinkForward, SoftshrinkForwardDispatch, SoftsignForward, SoftsignForwardDispatch,
+            ThresholdForward, ThresholdForwardDispatch,
         },
         relu::{ReluBackward, ReluForward},
-        sigmoid::{LogsigmoidForward, SigmoidForward},
+        sigmoid::{
+            LogsigmoidForward, LogsigmoidForwardDispatch, SigmoidForwardDispatch,
+            SiluForwardDispatch,
+        },
         softmax::SoftmaxForward,
-        tanh::{TanhForward, TanhshrinkForward},
+        tanh::{
+            TanhForward, TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch,
+        },
     },
     conv::{conv1d::Conv1dForward, conv2d::{Conv2dBackward, Conv2dForward}, conv3d::Conv3dForward},
     mlp::{flatten::FlattenForward, linear::{LinearBackward, LinearForward}},
@@ -125,7 +137,6 @@ use crate::nn::norm::batchnorm::{
 //
 // make_num_kernel!  — for kernels with D: Num (int + float)
 // make_float_kernel! — for kernels with D: Float (float only)
-// make_untyped_kernel! — for kernels without a D type parameter
 // ---------------------------------------------------------------------------
 
 /// Dispatch to a D: Num kernel based on `$node.dtype`.
@@ -252,27 +263,33 @@ macro_rules! make_float_kernel {
     }};
 }
 
-/// Build a KernelExecutable for kernels without a D type parameter (hardcoded f32).
-/// Usage: `make_untyped_kernel!(KernelType(arg1, arg2, ...), node)`
-macro_rules! make_untyped_kernel {
-    ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let k = $K::new($($arg),*);
-        let nm = k.name.to_string();
-        let src = k.source.clone();
-        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-        Box::new(KernelExecutable {
-            entry_point: format!("{}_entry_point", nm),
-            name: nm,
-            kernel_source: src,
-            shape: $node.shape.clone(),
-            dtype: $node.dtype,
-            #[cfg(feature = "training")]
-            backward_kernel_source: String::new(),
-            #[cfg(feature = "training")]
-            backward_entry_point: String::new(),
-            runtime_op: rop,
-        })
-    }};
+/// Assemble a [`KernelExecutable`] from a dtype-resolved [`KernelInstance`]
+/// produced by a `#[kernel(dtypes = [..])]` dispatcher.
+fn exec_from(
+    shape: Shape,
+    dtype: DtypeRepr,
+    inst: teeny_core::model::KernelInstance,
+) -> Box<KernelExecutable> {
+    Box::new(KernelExecutable {
+        entry_point: format!("{}_entry_point", inst.name),
+        name: inst.name,
+        kernel_source: inst.source,
+        shape,
+        dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: inst
+            .backward
+            .as_ref()
+            .map(|b| b.source.clone())
+            .unwrap_or_default(),
+        #[cfg(feature = "training")]
+        backward_entry_point: inst
+            .backward
+            .as_ref()
+            .map(|b| format!("{}_entry_point", b.name))
+            .unwrap_or_default(),
+        runtime_op: inst.runtime_op,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -374,18 +391,6 @@ macro_rules! impl_stub_runtime_op_float {
     };
 }
 
-macro_rules! impl_stub_runtime_op_untyped {
-    ($T:ident) => {
-        impl RuntimeOp for $T {
-            fn n_activation_inputs(&self) -> usize { unimplemented!(concat!(stringify!($T), " has no runtime support")) }
-            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { unimplemented!() }
-            fn pack_args(&self, _: &[(teeny_core::model::RawPtr, &[usize])], _: &[teeny_core::model::RawPtr], _: teeny_core::model::RawPtr, _: &[usize], _: i32, _: &mut dyn teeny_core::device::program::ArgVisitor) { unimplemented!() }
-            fn block(&self) -> [u32; 3] { unimplemented!() }
-            fn grid(&self, _: &[usize]) -> [u32; 3] { unimplemented!() }
-        }
-    };
-}
-
 // Normalisation
 impl_stub_runtime_op_float!(BatchNormForwardInference);
 impl_stub_runtime_op_float!(LayerNormForwardInference);
@@ -419,25 +424,25 @@ impl_stub_runtime_op_num!(CircularPad1dForward);
 impl_stub_runtime_op_num!(CircularPad2dForward);
 impl_stub_runtime_op_num!(CircularPad3dForward);
 
-// Activation — untyped (no D type parameter; hardcoded f32)
-impl_stub_runtime_op_untyped!(EluForward);
-impl_stub_runtime_op_untyped!(SeluForward);
-impl_stub_runtime_op_untyped!(CeluForward);
-impl_stub_runtime_op_untyped!(MishForward);
-impl_stub_runtime_op_untyped!(HardtanhForward);
-impl_stub_runtime_op_untyped!(Relu6Forward);
-impl_stub_runtime_op_untyped!(HardsigmoidForward);
-impl_stub_runtime_op_untyped!(HardswishForward);
-impl_stub_runtime_op_untyped!(HardshrinkForward);
-impl_stub_runtime_op_untyped!(LeakyReluForward);
-impl_stub_runtime_op_untyped!(ThresholdForward);
-impl_stub_runtime_op_untyped!(SoftsignForward);
-impl_stub_runtime_op_untyped!(SoftshrinkForward);
-impl_stub_runtime_op_untyped!(SoftplusForward);
-// SiluForward has a real RuntimeOp impl in nn::activation::sigmoid
-impl_stub_runtime_op_untyped!(LogsigmoidForward);
-impl_stub_runtime_op_untyped!(TanhForward);
-impl_stub_runtime_op_untyped!(TanhshrinkForward);
+// Activation — dtype-generic (D: Float) kernels without runtime support yet.
+// GeluForward and SiluForward have real RuntimeOp impls in their kernel modules.
+impl_stub_runtime_op_float!(EluForward);
+impl_stub_runtime_op_float!(SeluForward);
+impl_stub_runtime_op_float!(CeluForward);
+impl_stub_runtime_op_float!(MishForward);
+impl_stub_runtime_op_float!(HardtanhForward);
+impl_stub_runtime_op_float!(Relu6Forward);
+impl_stub_runtime_op_float!(HardsigmoidForward);
+impl_stub_runtime_op_float!(HardswishForward);
+impl_stub_runtime_op_float!(HardshrinkForward);
+impl_stub_runtime_op_float!(LeakyReluForward);
+impl_stub_runtime_op_float!(ThresholdForward);
+impl_stub_runtime_op_float!(SoftsignForward);
+impl_stub_runtime_op_float!(SoftshrinkForward);
+impl_stub_runtime_op_float!(SoftplusForward);
+impl_stub_runtime_op_float!(LogsigmoidForward);
+impl_stub_runtime_op_float!(TanhForward);
+impl_stub_runtime_op_float!(TanhshrinkForward);
 
 // ---------------------------------------------------------------------------
 // No-op RuntimeOp for Input placeholder nodes
@@ -989,47 +994,27 @@ impl TritonLowering {
                 // --- Activation (D: Num) ---
                 Op::Relu => make_num_kernel!(ReluForward(1024), ReluBackward(1024), node),
 
-                // --- Activation (hardcoded f32 — no D type parameter) ---
-                Op::Elu { .. }       => make_untyped_kernel!(EluForward(1024), node),
-                Op::Selu             => make_untyped_kernel!(SeluForward(1024), node),
-                Op::Celu { .. }      => make_untyped_kernel!(CeluForward(1024), node),
-                Op::Gelu             => make_untyped_kernel!(GeluForward(1024), node),
-                Op::Mish             => make_untyped_kernel!(MishForward(1024), node),
-                Op::Hardtanh { .. }  => make_untyped_kernel!(HardtanhForward(1024), node),
-                Op::Relu6            => make_untyped_kernel!(Relu6Forward(1024), node),
-                Op::Hardsigmoid      => make_untyped_kernel!(HardsigmoidForward(1024), node),
-                Op::Hardswish        => make_untyped_kernel!(HardswishForward(1024), node),
-                Op::Hardshrink { .. }  => make_untyped_kernel!(HardshrinkForward(1024), node),
-                Op::LeakyRelu { .. }   => make_untyped_kernel!(LeakyReluForward(1024), node),
-                Op::Threshold { .. }   => make_untyped_kernel!(ThresholdForward(1024), node),
-                Op::Softsign           => make_untyped_kernel!(SoftsignForward(1024), node),
-                Op::Softshrink { .. }  => make_untyped_kernel!(SoftshrinkForward(1024), node),
-                Op::Softplus { .. }    => make_untyped_kernel!(SoftplusForward(1024), node),
-                Op::Sigmoid            => make_untyped_kernel!(SigmoidForward(1024), node),
-                Op::Silu => {
-                    use crate::nn::activation::sigmoid::{SiluBackward, SiluForward};
-                    let fwd = SiluForward::new(1024);
-                    let nm = fwd.name.to_string();
-                    let fwd_src = fwd.source.clone();
-                    #[cfg(feature = "training")]
-                    let bwd_src = SiluBackward::new(1024).source.clone();
-                    let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
-                    Box::new(KernelExecutable {
-                        entry_point: format!("{}_entry_point", nm),
-                        name: nm,
-                        kernel_source: fwd_src,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                        #[cfg(feature = "training")]
-                        backward_kernel_source: bwd_src,
-                        #[cfg(feature = "training")]
-                        backward_entry_point: String::new(),
-                        runtime_op: rop,
-                    })
-                }
-                Op::Logsigmoid         => make_untyped_kernel!(LogsigmoidForward(1024), node),
-                Op::Tanh               => make_untyped_kernel!(TanhForward(1024), node),
-                Op::Tanhshrink         => make_untyped_kernel!(TanhshrinkForward(1024), node),
+                // --- Activation (D: Float — dtype-dispatched) ---
+                Op::Elu { .. }       => exec_from(node.shape.clone(), node.dtype, EluForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Selu             => exec_from(node.shape.clone(), node.dtype, SeluForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Celu { .. }      => exec_from(node.shape.clone(), node.dtype, CeluForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Gelu             => exec_from(node.shape.clone(), node.dtype, GeluForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Mish             => exec_from(node.shape.clone(), node.dtype, MishForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Hardtanh { .. }  => exec_from(node.shape.clone(), node.dtype, HardtanhForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Relu6            => exec_from(node.shape.clone(), node.dtype, Relu6ForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Hardsigmoid      => exec_from(node.shape.clone(), node.dtype, HardsigmoidForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Hardswish        => exec_from(node.shape.clone(), node.dtype, HardswishForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Hardshrink { .. }  => exec_from(node.shape.clone(), node.dtype, HardshrinkForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::LeakyRelu { .. }   => exec_from(node.shape.clone(), node.dtype, LeakyReluForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Threshold { .. }   => exec_from(node.shape.clone(), node.dtype, ThresholdForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Softsign           => exec_from(node.shape.clone(), node.dtype, SoftsignForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Softshrink { .. }  => exec_from(node.shape.clone(), node.dtype, SoftshrinkForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Softplus { .. }    => exec_from(node.shape.clone(), node.dtype, SoftplusForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Sigmoid            => exec_from(node.shape.clone(), node.dtype, SigmoidForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Silu               => exec_from(node.shape.clone(), node.dtype, SiluForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Logsigmoid         => exec_from(node.shape.clone(), node.dtype, LogsigmoidForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Tanh               => exec_from(node.shape.clone(), node.dtype, TanhForwardDispatch::dispatch(node.dtype, 1024)?),
+                Op::Tanhshrink         => exec_from(node.shape.clone(), node.dtype, TanhshrinkForwardDispatch::dispatch(node.dtype, 1024)?),
 
                 // --- Activation (D: Float) ---
                 Op::Softmax { .. } => {
@@ -1137,7 +1122,7 @@ impl TritonLowering {
                 Op::Abs  => make_num_kernel!(ElemwiseAbsForward(1024), ElemwiseAbsBackward(1024), node),
                 Op::Neg  => make_num_kernel!(ElemwiseNegForward(1024), ElemwiseNegBackward(1024), node),
                 Op::Sign => make_num_kernel!(ElemwiseSignForward(1024), node),
-                Op::IsNaN => make_untyped_kernel!(ElemwiseIsnanForward(1024), node),
+                Op::IsNaN => make_float_kernel!(ElemwiseIsnanForward(1024), node),
                 Op::Ceil  => make_float_kernel!(ElemwiseCeilForward(1024), node),
                 Op::Floor => make_float_kernel!(ElemwiseFloorForward(1024), node),
                 Op::Sqrt       => make_float_kernel!(ElemwiseSqrtForward(1024), ElemwiseSqrtBackward(1024), node),

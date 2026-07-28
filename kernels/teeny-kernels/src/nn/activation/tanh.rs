@@ -16,6 +16,7 @@
 
 #![allow(non_snake_case)]
 
+use teeny_core::dtype::Float;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -25,15 +26,15 @@ use teeny_triton::triton::{
 // ── Tanh ─────────────────────────────────────────────────────────────────────
 
 /// Forward: y = tanh(x) = 2*sigmoid(2x) - 1 = 2/(1+exp(-2x)) - 1
-#[kernel]
-pub fn tanh_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = TanhBackward)]
+pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -41,9 +42,9 @@ pub fn tanh_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
 
     let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let two  = T::full(&[BLOCK_SIZE], 2.0_f32);
-    let neg2 = T::full(&[BLOCK_SIZE], -2.0_f32);
+    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let two  = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     // sigmoid(2x) = 1 / (1 + exp(-2x))
     let s2x  = one / (one + T::exp(neg2 * x));
     let y    = two * s2x - one;
@@ -52,15 +53,15 @@ pub fn tanh_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// Backward: dx = dy * (1 - y²)  — sech²(x) expressed via saved output
 #[kernel]
-pub fn tanh_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -69,7 +70,7 @@ pub fn tanh_backward<T: Triton, const BLOCK_SIZE: i32>(
 
     let dy   = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
     let y    = T::load(y_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], 1.0_f32);
+    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let dx   = dy * (one - y * y);
     T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
 }
@@ -77,15 +78,15 @@ pub fn tanh_backward<T: Triton, const BLOCK_SIZE: i32>(
 // ── Tanhshrink ───────────────────────────────────────────────────────────────
 
 /// Forward: y = x - tanh(x)
-#[kernel]
-pub fn tanhshrink_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = TanhshrinkBackward)]
+pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -93,9 +94,9 @@ pub fn tanhshrink_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
 
     let x     = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one   = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let two   = T::full(&[BLOCK_SIZE], 2.0_f32);
-    let neg2  = T::full(&[BLOCK_SIZE], -2.0_f32);
+    let one   = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let two   = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let neg2  = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     let s2x   = one / (one + T::exp(neg2 * x));
     let tanh_x = two * s2x - one;
     let y      = x - tanh_x;
@@ -105,16 +106,16 @@ pub fn tanhshrink_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * tanh²(x)
 ///   Since y = x - tanh(x), we have tanh(x) = x - y, so tanh²(x) = (x-y)².
 #[kernel]
-pub fn tanhshrink_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn tanhshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -130,12 +131,12 @@ pub fn tanhshrink_backward<T: Triton, const BLOCK_SIZE: i32>(
 }
 
 
-pub struct TanhOp {
-    pub forward: TanhForward,
-    pub backward: TanhBackward,
+pub struct TanhOp<D: Float> {
+    pub forward: TanhForward<D>,
+    pub backward: TanhBackward<D>,
 }
 
-pub struct TanhshrinkOp {
-    pub forward: TanhshrinkForward,
-    pub backward: TanhshrinkBackward,
+pub struct TanhshrinkOp<D: Float> {
+    pub forward: TanhshrinkForward<D>,
+    pub backward: TanhshrinkBackward<D>,
 }

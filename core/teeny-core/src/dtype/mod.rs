@@ -27,6 +27,22 @@ pub trait Num: Dtype {
 pub trait Float: Num {
     const ZERO: Self;
     const ONE: Self;
+
+    /// Materialize a scalar constant of this float type from an `f64` literal.
+    ///
+    /// Kernels are generic over `D: Float`, so they cannot use bare `f32`/`f64`
+    /// literals when building constant tensors (e.g. `T::full(shape, value: D)`).
+    /// `from_f64` provides the one hook needed to construct arbitrary constants
+    /// generically; each concrete float type narrows/keeps the value as needed.
+    fn from_f64(value: f64) -> Self;
+
+    /// Serialize this scalar to its little-endian byte representation.
+    ///
+    /// The byte length equals `Num::BITS / 8`. This is the generic hook used to
+    /// upload host-side constant/parameter data (anchor grids, strides, …) into
+    /// a device buffer whose element type is an arbitrary `D: Float`, without
+    /// hard-coding `f32`.
+    fn to_le_bytes(self) -> alloc::vec::Vec<u8>;
 }
 pub trait Int: Num {}
 pub trait Bool: Dtype + Copy {}
@@ -99,6 +115,12 @@ impl Num for f32 {
 impl Float for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self  = 1.0;
+    fn from_f64(value: f64) -> Self {
+        value as f32
+    }
+    fn to_le_bytes(self) -> alloc::vec::Vec<u8> {
+        f32::to_le_bytes(self).to_vec()
+    }
 }
 
 impl Dtype for f64 {}
@@ -108,6 +130,12 @@ impl Num for f64 {
 impl Float for f64 {
     const ZERO: Self = 0.0;
     const ONE: Self  = 1.0;
+    fn from_f64(value: f64) -> Self {
+        value
+    }
+    fn to_le_bytes(self) -> alloc::vec::Vec<u8> {
+        f64::to_le_bytes(self).to_vec()
+    }
 }
 
 // Tensor

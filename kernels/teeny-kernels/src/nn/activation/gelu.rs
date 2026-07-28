@@ -16,6 +16,7 @@
 
 #![allow(non_snake_case)]
 
+use teeny_core::dtype::Float;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -26,15 +27,15 @@ use teeny_triton::triton::{
 
 /// Forward: y = x / (1 + exp(-2 * c * (x + a*x³)))
 ///   where c = sqrt(2/pi), a = 0.044715 — the tanh GELU approximation.
-#[kernel]
-pub fn gelu_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = GeluBackward)]
+pub fn gelu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -52,9 +53,9 @@ pub fn gelu_forward<T: Triton, const BLOCK_SIZE: i32>(
         false,
     );
 
-    let one = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let neg2c = T::full(&[BLOCK_SIZE], -2.0_f32 * 0.7978845608028654_f32);
-    let coeff = T::full(&[BLOCK_SIZE], 0.044715_f32);
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let neg2c = T::full(&[BLOCK_SIZE], D::from_f64(-2.0 * 0.7978845608028654));
+    let coeff = T::full(&[BLOCK_SIZE], D::from_f64(0.044715));
 
     // tanh-GELU: y = x * 0.5 * (1 + tanh(c*(x + a*x³)))
     //              = x / (1 + exp(-2c*(x + a*x³)))
@@ -74,15 +75,15 @@ pub fn gelu_forward<T: Triton, const BLOCK_SIZE: i32>(
 ///   Let inner = x + a*x³, s = sigmoid(2c*inner), t = tanh(c*inner) = 2s-1
 ///   d/dx = 0.5*(1 + t) + x * 0.5 * sech²(c*inner) * c*(1+3a*x²)
 #[kernel]
-pub fn gelu_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn gelu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    x_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -110,13 +111,13 @@ pub fn gelu_backward<T: Triton, const BLOCK_SIZE: i32>(
         false,
     );
 
-    let one = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let half = T::full(&[BLOCK_SIZE], 0.5_f32);
-    let two = T::full(&[BLOCK_SIZE], 2.0_f32);
-    let three = T::full(&[BLOCK_SIZE], 3.0_f32);
-    let c = T::full(&[BLOCK_SIZE], 0.7978845608028654_f32);
-    let neg2c = T::full(&[BLOCK_SIZE], -2.0_f32 * 0.7978845608028654_f32);
-    let coeff = T::full(&[BLOCK_SIZE], 0.044715_f32);
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let half = T::full(&[BLOCK_SIZE], D::from_f64(0.5));
+    let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let three = T::full(&[BLOCK_SIZE], D::from_f64(3.0));
+    let c = T::full(&[BLOCK_SIZE], D::from_f64(0.7978845608028654));
+    let neg2c = T::full(&[BLOCK_SIZE], D::from_f64(-2.0 * 0.7978845608028654));
+    let coeff = T::full(&[BLOCK_SIZE], D::from_f64(0.044715));
 
     let inner = x + coeff * x * x * x;
     let s = one / (one + T::exp(neg2c * inner)); // sigmoid(2c*inner)
@@ -137,15 +138,15 @@ pub fn gelu_backward<T: Triton, const BLOCK_SIZE: i32>(
 // ── Mish ─────────────────────────────────────────────────────────────────────
 
 /// Forward: y = x * tanh(softplus(x)) = x * tanh(log(1 + exp(x)))
-#[kernel]
-pub fn mish_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+#[kernel(backward = MishBackward)]
+pub fn mish_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: T::Pointer<D>,
+    y_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -162,9 +163,9 @@ pub fn mish_forward<T: Triton, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    let one = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let two = T::full(&[BLOCK_SIZE], 2.0_f32);
-    let neg2 = T::full(&[BLOCK_SIZE], -2.0_f32);
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     let sp = T::log(one + T::exp(x)); // softplus(x)
     // tanh(sp) = 2*sigmoid(2*sp) - 1 = 2/(1+exp(-2*sp)) - 1
     let s2 = one / (one + T::exp(neg2 * sp));
@@ -183,15 +184,15 @@ pub fn mish_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * (tanh(sp) + x * (1 - tanh²(sp)) * sigmoid(x))
 ///   where sp = softplus(x). Recomputes all intermediates from x.
 #[kernel]
-pub fn mish_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+pub fn mish_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    dy_ptr: T::Pointer<D>,
+    x_ptr: T::Pointer<D>,
+    dx_ptr: T::Pointer<D>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let block_start = pid * BLOCK_SIZE;
@@ -218,10 +219,10 @@ pub fn mish_backward<T: Triton, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    let one = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let two = T::full(&[BLOCK_SIZE], 2.0_f32);
-    let neg1 = T::full(&[BLOCK_SIZE], -1.0_f32);
-    let neg2 = T::full(&[BLOCK_SIZE], -2.0_f32);
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
+    let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     let sp = T::log(one + T::exp(x));
     let s2 = one / (one + T::exp(neg2 * sp));
     let t = two * s2 - one; // tanh(sp)
@@ -240,19 +241,19 @@ pub fn mish_backward<T: Triton, const BLOCK_SIZE: i32>(
 }
 
 
-pub struct GeluOp {
-    pub forward: GeluForward,
-    pub backward: GeluBackward,
+pub struct GeluOp<D: Float> {
+    pub forward: GeluForward<D>,
+    pub backward: GeluBackward<D>,
 }
 
-pub struct MishOp {
-    pub forward: MishForward,
-    pub backward: MishBackward,
+pub struct MishOp<D: Float> {
+    pub forward: MishForward<D>,
+    pub backward: MishBackward<D>,
 }
 
 // ── RuntimeOp for GELU forward ────────────────────────────────────────────────
 
-impl teeny_core::model::RuntimeOp for GeluForward {
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for GeluForward<D> {
     fn n_activation_inputs(&self) -> usize { 1 }
 
     fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }

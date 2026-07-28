@@ -193,7 +193,7 @@ source_test!(test_atanh_source,      ElemwiseAtanhForward::<f32>,      "elemwise
 #[test]
 fn test_isnan_source() -> anyhow::Result<()> {
     dotenv().ok();
-    let kernel = ElemwiseIsnanForward::new(BLOCK_SIZE);
+    let kernel = ElemwiseIsnanForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -285,10 +285,10 @@ fn test_isnan_forward_gpu() -> Result<()> {
     let y_buf = device.buffer::<f32>(n)?;
     let mut y_out = vec![0.0f32; n];
     x_buf.to_device(&x)?;
-    let kernel = ElemwiseIsnanForward::new(BLOCK_SIZE);
+    let kernel = ElemwiseIsnanForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<ElemwiseIsnanForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<ElemwiseIsnanForward<f32>>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(&program, &cfg, (
         x_buf.as_device_ptr() as *mut f32,

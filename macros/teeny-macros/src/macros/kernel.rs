@@ -18,8 +18,9 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, FnArg, GenericArgument, GenericParam, Ident, ItemFn, Pat, PatType,
-    PathArguments, Type, TypeParamBound,
+    parse::Parser, parse_macro_input, punctuated::Punctuated, Expr, FnArg, GenericArgument,
+    GenericParam, Ident, ItemFn, MetaNameValue, Pat, PatType, PathArguments, Token, Type,
+    TypeParamBound,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,9 +73,142 @@ fn pat_to_str(pat: &Pat) -> String {
     quote!(#pat).to_string()
 }
 
+/// The set of concrete scalar dtypes permitted by a type-parameter trait bound.
+///
+/// Used when a kernel opts into dispatch (via `dtypes`/`backward`) but omits an
+/// explicit `dtypes` list: "no dtypes specified" means "every dtype the bound
+/// allows". Only dtypes with concrete Rust impls are included (e.g. `f16`/`bf16`
+/// are marker-only and cannot be monomorphized). Returns `None` for an unknown
+/// bound.
+fn all_dtypes_for_bound(bound: &str) -> Option<&'static [&'static str]> {
+    Some(match bound {
+        "Float" => &["f32", "f64"],
+        "Int" => &["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"],
+        "Num" => &["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"],
+        "Bool" => &["bool"],
+        "Dtype" => &[
+            "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
+        ],
+        _ => return None,
+    })
+}
+
+/// Map a dtype ident (e.g. `f32`) to its `DtypeRepr` variant path.
+/// Returns `None` for idents that are not valid scalar dtypes.
+fn dtype_ident_to_repr(id: &Ident) -> Option<TokenStream2> {
+    let variant = match id.to_string().as_str() {
+        "bool" => "Bool",
+        "i8" => "I8",
+        "i16" => "I16",
+        "i32" => "I32",
+        "i64" => "I64",
+        "u8" => "U8",
+        "u16" => "U16",
+        "u32" => "U32",
+        "u64" => "U64",
+        "f16" => "F16",
+        "bf16" => "BF16",
+        "f32" => "F32",
+        "f64" => "F64",
+        _ => return None,
+    };
+    let v = format_ident!("{}", variant);
+    Some(quote! { teeny_core::graph::DtypeRepr::#v })
+}
+
+/// Parsed `#[kernel(...)]` attribute arguments.
+#[derive(Default)]
+struct KernelAttrs {
+    /// Declared supported dtypes (idents such as `f32`, `f64`, `i32`).
+    dtypes: Vec<Ident>,
+    /// Optional paired backward kernel struct ident.
+    backward: Option<Ident>,
+}
+
+/// Parse the attribute tokens of `#[kernel(dtypes = [..], backward = Foo)]`.
+fn parse_kernel_attrs(attrs: TokenStream) -> Result<KernelAttrs, syn::Error> {
+    let mut out = KernelAttrs::default();
+    let tokens: TokenStream2 = attrs.into();
+    if tokens.is_empty() {
+        return Ok(out);
+    }
+    let parsed =
+        Punctuated::<MetaNameValue, Token![,]>::parse_terminated.parse2(tokens)?;
+    for nv in parsed {
+        let key = nv
+            .path
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        match key.as_str() {
+            "dtypes" => {
+                let Expr::Array(arr) = &nv.value else {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "`dtypes` must be a list, e.g. `dtypes = [f32, f64]`",
+                    ));
+                };
+                for elem in &arr.elems {
+                    let Expr::Path(p) = elem else {
+                        return Err(syn::Error::new_spanned(
+                            elem,
+                            "each dtype must be a bare type name, e.g. `f32`",
+                        ));
+                    };
+                    let Some(id) = p.path.get_ident() else {
+                        return Err(syn::Error::new_spanned(
+                            elem,
+                            "each dtype must be a single identifier",
+                        ));
+                    };
+                    if dtype_ident_to_repr(id).is_none() {
+                        return Err(syn::Error::new_spanned(
+                            id,
+                            format!("`{id}` is not a known scalar dtype"),
+                        ));
+                    }
+                    if out.dtypes.iter().any(|d| d == id) {
+                        return Err(syn::Error::new_spanned(
+                            id,
+                            format!("duplicate dtype `{id}` in `dtypes`"),
+                        ));
+                    }
+                    out.dtypes.push(id.clone());
+                }
+            }
+            "backward" => {
+                let Expr::Path(p) = &nv.value else {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "`backward` must be a kernel struct name",
+                    ));
+                };
+                let Some(id) = p.path.get_ident() else {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "`backward` must be a single identifier",
+                    ));
+                };
+                out.backward = Some(id.clone());
+            }
+            other => {
+                return Err(syn::Error::new_spanned(
+                    &nv.path,
+                    format!("unknown `#[kernel]` argument `{other}` (expected `dtypes` or `backward`)"),
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 // ── Macro implementation ──────────────────────────────────────────────────────
 
-pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
+pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let kernel_attrs = match parse_kernel_attrs(attrs) {
+        Ok(a) => a,
+        Err(e) => return e.to_compile_error().into(),
+    };
     let input = parse_macro_input!(item as ItemFn);
     let fn_ident = input.sig.ident.clone();
     let fn_name_str = fn_ident.to_string();
@@ -120,6 +254,27 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         })
         .expect("#[kernel] requires a type parameter with a `Triton` bound");
+
+    // Trait-bound name of the first non-hw dtype type parameter (e.g. `Float`),
+    // used to infer the implicit "all dtypes" set when `dtypes` is omitted.
+    let dtype_param_bound: Option<String> = input
+        .sig
+        .generics
+        .params
+        .iter()
+        .find_map(|p| match p {
+            GenericParam::Type(tp) if tp.ident != hw_ident => Some(tp),
+            _ => None,
+        })
+        .and_then(|tp| {
+            tp.bounds.iter().find_map(|b| {
+                if let TypeParamBound::Trait(tb) = b {
+                    tb.path.segments.last().map(|s| s.ident.to_string())
+                } else {
+                    None
+                }
+            })
+        });
 
     // 3a. Collect const generic params — these become struct fields, not type params.
     let const_params: Vec<syn::ConstParam> = input
@@ -494,7 +649,121 @@ pub fn kernel(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    // 9. Optional dtype dispatcher, generated when the kernel opts into dispatch
+    //    via `#[kernel(dtypes = [..])]` and/or `#[kernel(backward = ..)]`. Maps a
+    //    runtime `DtypeRepr` to the monomorphized kernel struct (and its paired
+    //    backward, if declared), returning a crate-agnostic `KernelInstance`.
+    //
+    //    Effective dtypes: the explicit `dtypes` list if given, otherwise (when
+    //    dispatch is opted into via `backward`) every dtype permitted by the
+    //    dtype type-parameter's trait bound — "no dtypes specified ⇒ all dtypes".
+    let effective_dtypes: Vec<Ident> = if !kernel_attrs.dtypes.is_empty() {
+        kernel_attrs.dtypes.clone()
+    } else if kernel_attrs.backward.is_some() {
+        match dtype_param_bound.as_deref().and_then(all_dtypes_for_bound) {
+            Some(names) => names
+                .iter()
+                .map(|n| Ident::new(n, fn_ident.span()))
+                .collect(),
+            None => {
+                return syn::Error::new_spanned(
+                    &fn_ident,
+                    "cannot infer supported dtypes: a `#[kernel]` that opts into dispatch \
+                     without an explicit `dtypes = [..]` must have a dtype type parameter \
+                     bound by one of Dtype/Num/Int/Float/Bool",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    let dispatcher_stream: TokenStream2 = if effective_dtypes.is_empty() {
+        quote! {}
+    } else {
+        let dispatch_ident = format_ident!("{}Dispatch", struct_ident);
+        let has_type_param = !type_param_vars.is_empty();
+        let reprs: Vec<TokenStream2> = effective_dtypes
+            .iter()
+            .map(|dt| dtype_ident_to_repr(dt).expect("validated set"))
+            .collect();
+        let backward = kernel_attrs.backward.clone();
+
+        let arms: Vec<TokenStream2> = effective_dtypes
+            .iter()
+            .map(|dt| {
+                let repr = dtype_ident_to_repr(dt).expect("validated in parse_kernel_attrs");
+                let concrete = dt;
+                let fwd_new = if has_type_param {
+                    quote! { #struct_ident::<#concrete>::new( #(#const_field_idents),* ) }
+                } else {
+                    quote! { #struct_ident::new( #(#const_field_idents),* ) }
+                };
+                let backward_expr = if let Some(bwd) = &backward {
+                    let bwd_new = if has_type_param {
+                        quote! { #bwd::<#concrete>::new( #(#const_field_idents),* ) }
+                    } else {
+                        quote! { #bwd::new( #(#const_field_idents),* ) }
+                    };
+                    quote! {{
+                        let __b = #bwd_new;
+                        ::core::option::Option::Some(teeny_core::model::KernelInstanceBackward {
+                            name: __b.name.to_string(),
+                            source: __b.source.clone(),
+                        })
+                    }}
+                } else {
+                    quote! { ::core::option::Option::None }
+                };
+                quote! {
+                    #repr => {
+                        let __f = #fwd_new;
+                        teeny_core::model::KernelInstance {
+                            name: __f.name.to_string(),
+                            source: __f.source.clone(),
+                            runtime_op: ::std::sync::Arc::new(__f),
+                            backward: #backward_expr,
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        let fn_name_for_err = fn_name_str.clone();
+        quote! {
+            pub struct #dispatch_ident;
+
+            impl #dispatch_ident {
+                /// Dtypes this kernel declares support for.
+                pub const SUPPORTED_DTYPES: &'static [teeny_core::graph::DtypeRepr] =
+                    &[ #(#reprs),* ];
+
+                /// Instantiate the kernel for a runtime `dtype`, returning a
+                /// `KernelInstance` (forward + optional backward). Errors for
+                /// any dtype outside [`SUPPORTED_DTYPES`].
+                #[allow(clippy::too_many_arguments)]
+                pub fn dispatch(
+                    dtype: teeny_core::graph::DtypeRepr,
+                    #(#const_constructor_args,)*
+                ) -> ::anyhow::Result<teeny_core::model::KernelInstance> {
+                    ::core::result::Result::Ok(match dtype {
+                        #(#arms)*
+                        other => {
+                            return ::core::result::Result::Err(::anyhow::anyhow!(
+                                "{} does not support dtype {:?} (supported: {:?})",
+                                #fn_name_for_err, other, Self::SUPPORTED_DTYPES
+                            ));
+                        }
+                    })
+                }
+            }
+        }
+    };
+
     let mut result: TokenStream = TokenStream::from(function_stream);
     result.extend(TokenStream::from(struct_stream));
+    result.extend(TokenStream::from(dispatcher_stream));
     result
 }

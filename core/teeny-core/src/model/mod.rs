@@ -22,6 +22,33 @@ pub type NodeId = usize;
 /// Raw device pointer alias used by runtime arg-packing.
 pub type RawPtr = *mut core::ffi::c_void;
 
+/// A concrete, dtype-resolved kernel produced by a `#[kernel(dtypes = [...])]`
+/// dispatcher (or a `kernel_group!`).
+///
+/// It is deliberately crate-agnostic: it carries only the pieces needed to
+/// assemble a compilable unit (`teeny-kernels`' `KernelExecutable`), while
+/// living in `teeny-core` so the `#[kernel]` macro can reference it from any
+/// consuming crate without a dependency on `teeny-kernels`.
+pub struct KernelInstance {
+    /// Forward kernel name (used to derive the entry-point symbol).
+    pub name: String,
+    /// Combined forward kernel source (`kernel_source + entry_point`).
+    pub source: String,
+    /// Runtime dispatch object for arg-packing and launch config.
+    pub runtime_op: Arc<dyn RuntimeOp>,
+    /// Backward kernel, present only when the kernel declares one.
+    pub backward: Option<KernelInstanceBackward>,
+}
+
+/// The backward half of a [`KernelInstance`], when a paired backward kernel is
+/// declared via `#[kernel(..., backward = ...)]`.
+pub struct KernelInstanceBackward {
+    /// Backward kernel name (used to derive the entry-point symbol).
+    pub name: String,
+    /// Combined backward kernel source.
+    pub source: String,
+}
+
 pub trait RuntimeContext<'a> {}
 
 /// Encapsulates the runtime-dispatch behaviour for a compiled op node:

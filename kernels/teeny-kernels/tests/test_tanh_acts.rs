@@ -40,7 +40,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 #[test]
 fn test_tanh_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::nn::activation::tanh::TanhForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::activation::tanh::TanhForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -52,7 +52,7 @@ fn test_tanh_mlir() -> anyhow::Result<()> {
 #[test]
 fn test_tanhshrink_mlir() -> anyhow::Result<()> {
     dotenv()?;
-    let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -76,10 +76,10 @@ fn test_tanh_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::nn::activation::tanh::TanhForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::activation::tanh::TanhForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::tanh::TanhForward
+        teeny_kernels::nn::activation::tanh::TanhForward<f32>
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
@@ -111,10 +111,10 @@ fn test_tanh_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::nn::activation::tanh::TanhBackward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::activation::tanh::TanhBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::tanh::TanhBackward
+        teeny_kernels::nn::activation::tanh::TanhBackward<f32>
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32,
@@ -146,10 +146,10 @@ fn test_tanhshrink_forward_cuda() -> Result<()> {
     let y_buf = env.device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::tanh::TanhshrinkForward
+        teeny_kernels::nn::activation::tanh::TanhshrinkForward<f32>
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config_from_program(N, &program),
         (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
@@ -183,10 +183,10 @@ fn test_tanhshrink_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     y_buf.to_device(&y_host)?;
 
-    let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkBackward::new(BLOCK_SIZE);
+    let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::tanh::TanhshrinkBackward
+        teeny_kernels::nn::activation::tanh::TanhshrinkBackward<f32>
     >(&ptx)?;
     env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
         dy_buf.as_device_ptr() as *mut f32,
