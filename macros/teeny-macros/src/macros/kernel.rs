@@ -220,6 +220,13 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let sig = &input.sig;
     let block = &input.block;
 
+    // Doc comments (`#[doc = "..."]`, from `///`/`//!`) on the annotated fn,
+    // forwarded onto the generated struct(s) below -- they're the actual
+    // public item downstream users and rustdoc see, so without this the
+    // fn's docs never reach anything `missing_docs` checks.
+    let doc_attrs: Vec<&syn::Attribute> =
+        attrs.iter().filter(|a| a.path().is_ident("doc")).collect();
+
     // 1. Emit the original function unchanged.
     let function_stream: TokenStream2 = quote! {
         #[allow(non_snake_case)]
@@ -534,7 +541,9 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let entry_point_fn_name = format!("{}_entry_point", fn_name_str);
 
     let struct_stream: TokenStream2 = quote! {
+        #(#doc_attrs)*
         pub struct #struct_ident #struct_generics_def {
+            /// The kernel function's name (e.g. `"flash_attention2_forward"`).
             pub name: &'static str,
             /// Unique kernel identifier: fn_name + dtype(s) + const values joined by "__".
             pub id: ::std::string::String,
@@ -732,6 +741,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
 
         let fn_name_for_err = fn_name_str.clone();
         quote! {
+            #(#doc_attrs)*
             pub struct #dispatch_ident;
 
             impl #dispatch_ident {
