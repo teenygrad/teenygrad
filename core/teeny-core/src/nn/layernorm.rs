@@ -32,13 +32,17 @@ use crate::{
 /// - `eps`     — numerical stability constant (default 1e-5)
 /// - `affine`  — if true, learns per-element γ and β (default true)
 pub struct LayerNorm<D: Dtype, IT, OT, const RANK: usize> {
+    /// The shape of the trailing axes to normalize over.
     pub normalized_shape: alloc::vec::Vec<usize>,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Whether to learn per-element scale (gamma) and shift (beta) parameters.
     pub affine: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> LayerNorm<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`, affine on.
     pub fn new(normalized_shape: impl Into<alloc::vec::Vec<usize>>) -> Self {
         Self {
             normalized_shape: normalized_shape.into(),
@@ -48,11 +52,13 @@ impl<D: Dtype, IT, OT, const RANK: usize> LayerNorm<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    /// Sets whether to learn per-element scale/shift parameters.
     pub fn with_affine(mut self, affine: bool) -> Self {
         self.affine = affine;
         self

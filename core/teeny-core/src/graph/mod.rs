@@ -73,18 +73,31 @@ pub type Shape = Vec<Option<usize>>;
 /// mirroring `dtype::Dtype`'s implementors.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DtypeRepr {
+    /// `bool`.
     Bool,
+    /// Signed 8-bit integer.
     I8,
+    /// Signed 16-bit integer.
     I16,
+    /// Signed 32-bit integer.
     I32,
+    /// Signed 64-bit integer.
     I64,
+    /// Unsigned 8-bit integer.
     U8,
+    /// Unsigned 16-bit integer.
     U16,
+    /// Unsigned 32-bit integer.
     U32,
+    /// Unsigned 64-bit integer.
     U64,
+    /// 16-bit float.
     F16,
+    /// `bfloat16`.
     BF16,
+    /// 32-bit float.
     F32,
+    /// 64-bit float.
     F64,
 }
 
@@ -162,106 +175,191 @@ pub enum Op {
     Input,
 
     // --- Linear / MLP ---
+    /// Fully-connected layer (see `nn::linear::Linear`).
     Linear {
+        /// Size of the last input dimension.
         in_features: usize,
+        /// Size of the last output dimension.
         out_features: usize,
+        /// Whether a learned bias is added.
         has_bias: bool,
     },
+    /// Flattens all spatial dimensions into a single feature vector (see `nn::flatten::Flatten`).
     Flatten,
 
     // --- Normalisation ---
+    /// 1-D batch normalization (see `nn::batchnorm::BatchNorm1d`).
     BatchNorm1d {
+        /// Number of channels/features.
         num_features: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Running-stats exponential moving average weight.
         momentum: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
+        /// Whether to maintain running mean/variance across batches.
         track_running_stats: bool,
     },
+    /// 2-D batch normalization (see `nn::batchnorm::BatchNorm2d`).
     BatchNorm2d {
+        /// Number of channels/features.
         num_features: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Running-stats exponential moving average weight.
         momentum: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
+        /// Whether to maintain running mean/variance across batches.
         track_running_stats: bool,
     },
+    /// 3-D batch normalization (see `nn::batchnorm::BatchNorm3d`).
     BatchNorm3d {
+        /// Number of channels/features.
         num_features: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Running-stats exponential moving average weight.
         momentum: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
+        /// Whether to maintain running mean/variance across batches.
         track_running_stats: bool,
     },
+    /// Layer normalization (see `nn::layernorm::LayerNorm`).
     LayerNorm {
+        /// Shape of the trailing axes to normalize over.
         normalized_shape: alloc::vec::Vec<usize>,
+        /// Numerical stability constant.
         eps: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
     },
+    /// RMS normalization (see `nn::rmsnorm::RmsNorm`).
     RmsNorm {
+        /// Shape of the trailing axes to normalize over.
         normalized_shape: alloc::vec::Vec<usize>,
+        /// Numerical stability constant.
         eps: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
     },
+    /// Group normalization (see `nn::groupnorm::GroupNorm`).
     GroupNorm {
+        /// Number of groups.
         num_groups: usize,
+        /// Number of channels.
         num_channels: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
     },
+    /// 1-D instance normalization (see `nn::instancenorm::InstanceNorm1d`).
     InstanceNorm1d {
+        /// Number of channels/features.
         num_features: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Running-stats exponential moving average weight.
         momentum: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
+        /// Whether to maintain running mean/variance across batches.
         track_running_stats: bool,
     },
+    /// 2-D instance normalization (see `nn::instancenorm::InstanceNorm2d`).
     InstanceNorm2d {
+        /// Number of channels/features.
         num_features: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Running-stats exponential moving average weight.
         momentum: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
+        /// Whether to maintain running mean/variance across batches.
         track_running_stats: bool,
     },
+    /// 3-D instance normalization (see `nn::instancenorm::InstanceNorm3d`).
     InstanceNorm3d {
+        /// Number of channels/features.
         num_features: usize,
+        /// Numerical stability constant.
         eps: f64,
+        /// Running-stats exponential moving average weight.
         momentum: f64,
+        /// Whether to learn per-channel scale/shift parameters.
         affine: bool,
+        /// Whether to maintain running mean/variance across batches.
         track_running_stats: bool,
     },
 
     // --- Convolution ---
+    /// 1-D convolution (see `nn::conv1d::Conv1d`).
     Conv1d {
+        /// Number of input channels.
         in_channels: usize,
+        /// Number of output channels.
         out_channels: usize,
+        /// Convolution/pooling kernel length.
         kernel_l: usize,
+        /// Stride between kernel applications.
         stride: usize,
+        /// Zero-padding applied to the input.
         padding: usize,
+        /// Whether a learned bias is added.
         has_bias: bool,
     },
+    /// 2-D convolution (see `nn::conv2d::Conv2d`).
     Conv2d {
+        /// Number of input channels.
         in_channels: usize,
+        /// Number of output channels.
         out_channels: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// Vertical zero-padding.
         padding_h: usize,
+        /// Horizontal zero-padding.
         padding_w: usize,
+        /// Number of blocked/grouped connections (1 = standard).
         groups: usize,
+        /// Whether a learned bias is added.
         has_bias: bool,
     },
+    /// 3-D convolution (see `nn::conv3d::Conv3d`).
     Conv3d {
+        /// Number of input channels.
         in_channels: usize,
+        /// Number of output channels.
         out_channels: usize,
+        /// Convolution/pooling kernel depth.
         kernel_d: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Stride along the depth dimension.
         stride_d: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// Zero-padding along the depth dimension.
         padding_d: usize,
+        /// Vertical zero-padding.
         padding_h: usize,
+        /// Horizontal zero-padding.
         padding_w: usize,
+        /// Whether a learned bias is added.
         has_bias: bool,
     },
 
@@ -274,76 +372,137 @@ pub enum Op {
     /// `bn_eps` is carried forward only for reference; the BN affine constants
     /// are passed at runtime via the `bn_scale` and `bn_shift` parameters.
     Conv2dBnSilu {
+        /// Number of input channels.
         in_channels: usize,
+        /// Number of output channels.
         out_channels: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// Vertical zero-padding.
         padding_h: usize,
+        /// Horizontal zero-padding.
         padding_w: usize,
+        /// Number of blocked/grouped connections (1 = standard).
         groups: usize,
+        /// The fused BatchNorm's numerical stability constant (kept for reference only; the
+        /// affine constants are passed at runtime via `bn_scale`/`bn_shift`).
         bn_eps: f64,
     },
 
     // --- Pooling ---
+    /// 1-D average pooling (see `nn::pool::AvgPool1d`).
     AvgPool1d {
+        /// Convolution/pooling kernel length.
         kernel_l: usize,
+        /// Stride between kernel applications.
         stride: usize,
     },
+    /// 2-D average pooling (see `nn::pool::AvgPool2d`).
     AvgPool2d {
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
     },
+    /// 3-D average pooling (see `nn::pool::AvgPool3d`).
     AvgPool3d {
+        /// Convolution/pooling kernel depth.
         kernel_d: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Stride along the depth dimension.
         stride_d: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
     },
+    /// 1-D max pooling (see `nn::pool::MaxPool1d`).
     MaxPool1d {
+        /// Convolution/pooling kernel length.
         kernel_l: usize,
+        /// Stride between kernel applications.
         stride: usize,
     },
+    /// 2-D max pooling (see `nn::pool::MaxPool2d`).
     MaxPool2d {
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// Vertical padding.
         pad_h: usize,
+        /// Horizontal padding.
         pad_w: usize,
     },
+    /// 3-D max pooling (see `nn::pool::MaxPool3d`).
     MaxPool3d {
+        /// Convolution/pooling kernel depth.
         kernel_d: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Stride along the depth dimension.
         stride_d: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
     },
+    /// 1-D power-average (Lp) pooling (see `nn::pool::LpPool1d`).
     LpPool1d {
+        /// Convolution/pooling kernel length.
         kernel_l: usize,
+        /// Stride between kernel applications.
         stride: usize,
+        /// The `p` in the p-norm.
         p: f64,
     },
+    /// 2-D power-average (Lp) pooling (see `nn::pool::LpPool2d`).
     LpPool2d {
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// The `p` in the p-norm.
         p: f64,
     },
+    /// 3-D power-average (Lp) pooling (see `nn::pool::LpPool3d`).
     LpPool3d {
+        /// Convolution/pooling kernel depth.
         kernel_d: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Stride along the depth dimension.
         stride_d: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// The `p` in the p-norm.
         p: f64,
     },
 
@@ -351,129 +510,228 @@ pub enum Op {
     /// Nearest-neighbour 2-D upsampling.
     /// Output shape: `[N, C, H * scale_h, W * scale_w]`.
     UpsampleNearest2d {
+        /// Vertical upsampling scale factor.
         scale_h: usize,
+        /// Horizontal upsampling scale factor.
         scale_w: usize,
     },
 
     // --- Padding ---
+    /// 1-D constant padding (see `nn::pad::ConstantPad1d`).
     ConstantPad1d {
+        /// Left padding.
         pad_left: usize,
+        /// Right padding.
         pad_right: usize,
+        /// The constant fill value.
         value: f64,
     },
+    /// 2-D constant padding (see `nn::pad::ConstantPad2d`).
     ConstantPad2d {
+        /// Left padding.
         pad_l: usize,
+        /// Right padding.
         pad_r: usize,
+        /// Top padding.
         pad_t: usize,
+        /// Bottom padding.
         pad_b: usize,
+        /// The constant fill value.
         value: f64,
     },
+    /// 3-D constant padding (see `nn::pad::ConstantPad3d`).
     ConstantPad3d {
+        /// Padding before the depth dimension.
         pad_d1: usize,
+        /// Padding after the depth dimension.
         pad_d2: usize,
+        /// Padding before the height dimension.
         pad_h1: usize,
+        /// Padding after the height dimension.
         pad_h2: usize,
+        /// Padding before the width dimension.
         pad_w1: usize,
+        /// Padding after the width dimension.
         pad_w2: usize,
+        /// The constant fill value.
         value: f64,
     },
+    /// 1-D reflection padding (see `nn::pad::ReflectionPad1d`).
     ReflectionPad1d {
+        /// Left padding.
         pad_left: usize,
+        /// Right padding.
         pad_right: usize,
     },
+    /// 2-D reflection padding (see `nn::pad::ReflectionPad2d`).
     ReflectionPad2d {
+        /// Left padding.
         pad_l: usize,
+        /// Right padding.
         pad_r: usize,
+        /// Top padding.
         pad_t: usize,
+        /// Bottom padding.
         pad_b: usize,
     },
+    /// 3-D reflection padding (see `nn::pad::ReflectionPad3d`).
     ReflectionPad3d {
+        /// Padding before the depth dimension.
         pad_d1: usize,
+        /// Padding after the depth dimension.
         pad_d2: usize,
+        /// Padding before the height dimension.
         pad_h1: usize,
+        /// Padding after the height dimension.
         pad_h2: usize,
+        /// Padding before the width dimension.
         pad_w1: usize,
+        /// Padding after the width dimension.
         pad_w2: usize,
     },
+    /// 1-D replication padding (see `nn::pad::ReplicationPad1d`).
     ReplicationPad1d {
+        /// Left padding.
         pad_left: usize,
+        /// Right padding.
         pad_right: usize,
     },
+    /// 2-D replication padding (see `nn::pad::ReplicationPad2d`).
     ReplicationPad2d {
+        /// Left padding.
         pad_l: usize,
+        /// Right padding.
         pad_r: usize,
+        /// Top padding.
         pad_t: usize,
+        /// Bottom padding.
         pad_b: usize,
     },
+    /// 3-D replication padding (see `nn::pad::ReplicationPad3d`).
     ReplicationPad3d {
+        /// Padding before the depth dimension.
         pad_d1: usize,
+        /// Padding after the depth dimension.
         pad_d2: usize,
+        /// Padding before the height dimension.
         pad_h1: usize,
+        /// Padding after the height dimension.
         pad_h2: usize,
+        /// Padding before the width dimension.
         pad_w1: usize,
+        /// Padding after the width dimension.
         pad_w2: usize,
     },
+    /// 1-D circular padding (see `nn::pad::CircularPad1d`).
     CircularPad1d {
+        /// Left padding.
         pad_left: usize,
+        /// Right padding.
         pad_right: usize,
     },
+    /// 2-D circular padding (see `nn::pad::CircularPad2d`).
     CircularPad2d {
+        /// Left padding.
         pad_l: usize,
+        /// Right padding.
         pad_r: usize,
+        /// Top padding.
         pad_t: usize,
+        /// Bottom padding.
         pad_b: usize,
     },
+    /// 3-D circular padding (see `nn::pad::CircularPad3d`).
     CircularPad3d {
+        /// Padding before the depth dimension.
         pad_d1: usize,
+        /// Padding after the depth dimension.
         pad_d2: usize,
+        /// Padding before the height dimension.
         pad_h1: usize,
+        /// Padding after the height dimension.
         pad_h2: usize,
+        /// Padding before the width dimension.
         pad_w1: usize,
+        /// Padding after the width dimension.
         pad_w2: usize,
     },
 
     // --- Activation ---
+    /// ReLU activation (see `nn::activation::relu::Relu`).
     Relu,
+    /// ELU activation (see `nn::activation::elu::Elu`).
     Elu {
+        /// The `alpha` parameter.
         alpha: f64,
     },
+    /// SELU activation (see `nn::activation::elu::Selu`).
     Selu,
+    /// CELU activation (see `nn::activation::elu::Celu`).
     Celu {
+        /// The `alpha` parameter.
         alpha: f64,
     },
+    /// GELU activation (see `nn::activation::gelu::Gelu`).
     Gelu,
+    /// Mish activation (see `nn::activation::gelu::Mish`).
     Mish,
+    /// Hardtanh activation (see `nn::activation::hard::Hardtanh`).
     Hardtanh {
+        /// The lower clamp bound.
         min_val: f64,
+        /// The upper clamp bound.
         max_val: f64,
     },
+    /// ReLU6 activation (see `nn::activation::hard::Relu6`).
     Relu6,
+    /// Hard-sigmoid activation (see `nn::activation::hard::Hardsigmoid`).
     Hardsigmoid,
+    /// Hard-swish activation (see `nn::activation::hard::Hardswish`).
     Hardswish,
+    /// Hardshrink activation (see `nn::activation::hard::Hardshrink`).
     Hardshrink {
+        /// The shrinkage threshold.
         lambda: f64,
     },
+    /// Leaky ReLU activation (see `nn::activation::misc::LeakyRelu`).
     LeakyRelu {
+        /// The slope applied to negative inputs.
         negative_slope: f64,
     },
+    /// Threshold activation (see `nn::activation::misc::Threshold`).
     Threshold {
+        /// The threshold value.
         threshold: f64,
+        /// The constant fill value.
         value: f64,
     },
+    /// Softsign activation (see `nn::activation::misc::Softsign`).
     Softsign,
+    /// Softshrink activation (see `nn::activation::misc::Softshrink`).
     Softshrink {
+        /// The shrinkage threshold.
         lambda: f64,
     },
+    /// Softplus activation (see `nn::activation::misc::Softplus`).
     Softplus {
+        /// The `beta` parameter.
         beta: f64,
+        /// The threshold value.
         threshold: f64,
     },
+    /// Sigmoid activation (see `nn::activation::sigmoid::Sigmoid`).
     Sigmoid,
+    /// SiLU/Swish activation (see `nn::activation::sigmoid::Silu`).
     Silu,
+    /// Log-sigmoid activation (see `nn::activation::sigmoid::Logsigmoid`).
     Logsigmoid,
+    /// Tanh activation (see `nn::activation::tanh::Tanh`).
     Tanh,
+    /// Tanhshrink activation (see `nn::activation::tanh::Tanhshrink`).
     Tanhshrink,
+    /// Softmax activation (see `nn::activation::softmax::Softmax`).
     Softmax {
+        /// The dimension to operate along.
         dim: usize,
     },
 
@@ -483,8 +741,11 @@ pub enum Op {
     ///   qkv conv → FA2 → pe depthwise conv → proj conv → residual add.
     /// Input/output shape: `[N, c, H, W]`.
     Attention {
+        /// Number of channels.
         c: usize,
+        /// Number of attention heads.
         num_heads: usize,
+        /// Per-head key/query dimension.
         key_dim: usize,
     },
 
@@ -494,24 +755,30 @@ pub enum Op {
     /// Extract one contiguous channel slice from a 4-D NCHW tensor.
     /// Output shape: `[N, chunk_c, H, W]`.
     ChannelChunk {
+        /// Total number of channels across all inputs/outputs.
         c_total: usize,
+        /// Number of channels in this chunk.
         chunk_c: usize,
+        /// Channel offset of this chunk within the total.
         chunk_offset: usize,
     },
     /// Concatenate N 4-D NCHW tensors along the channel dimension.
     /// Output shape: `[N, c_total, H, W]`.
     ChannelCat {
+        /// Total number of channels across all inputs/outputs.
         c_total: usize,
     },
     /// Adds a (C,) bias vector to a (B, C, H, W) feature map — NC layout (N=B*H*W).
     /// Output shape equals input shape.
     ChannelBiasAdd {
+        /// Number of channels.
         c: usize,
     },
 
     /// User-defined op.  Shape and dtype must be provided via [`Graph::add_node`]
     /// or [`SymTensor::record_custom`] — the base system cannot infer them.
     Custom {
+        /// The wrapped user-defined op.
         data: CustomData,
     },
 
@@ -521,452 +788,778 @@ pub enum Op {
     // -----------------------------------------------------------------------
 
     // --- Element-wise unary math ---
+    /// Element-wise absolute value (ONNX `Abs`).
     Abs,
+    /// Element-wise negation (ONNX `Neg`).
     Neg,
+    /// Element-wise ceiling (ONNX `Ceil`).
     Ceil,
+    /// Element-wise floor (ONNX `Floor`).
     Floor,
+    /// Element-wise round-to-nearest-even (ONNX `Round`).
     Round,
+    /// Element-wise square root (ONNX `Sqrt`).
     Sqrt,
+    /// Element-wise reciprocal, `1/x` (ONNX `Reciprocal`).
     Reciprocal,
+    /// Element-wise natural exponential (ONNX `Exp`).
     Exp,
+    /// Element-wise natural logarithm (ONNX `Log`).
     Log,
+    /// Element-wise error function (ONNX `Erf`).
     Erf,
+    /// Element-wise sign (ONNX `Sign`).
     Sign,
+    /// Element-wise NaN test (ONNX `IsNaN`).
     IsNaN,
+    /// Element-wise infinity test (ONNX `IsInf`).
     IsInf {
+        /// Whether to treat negative infinity as infinite.
         detect_negative: bool,
+        /// Whether to treat positive infinity as infinite.
         detect_positive: bool,
     },
+    /// Element-wise logical NOT (ONNX `Not`).
     Not,
+    /// Element-wise bitwise NOT (ONNX `BitwiseNot`).
     BitwiseNot,
+    /// Element-wise sine (ONNX `Sin`).
     Sin,
+    /// Element-wise cosine (ONNX `Cos`).
     Cos,
+    /// Element-wise tangent (ONNX `Tan`).
     Tan,
+    /// Element-wise arcsine (ONNX `Asin`).
     Asin,
+    /// Element-wise arccosine (ONNX `Acos`).
     Acos,
+    /// Element-wise arctangent (ONNX `Atan`).
     Atan,
+    /// Element-wise hyperbolic sine (ONNX `Sinh`).
     Sinh,
+    /// Element-wise hyperbolic cosine (ONNX `Cosh`).
     Cosh,
+    /// Element-wise inverse hyperbolic sine (ONNX `Asinh`).
     Asinh,
+    /// Element-wise inverse hyperbolic cosine (ONNX `Acosh`).
     Acosh,
+    /// Element-wise inverse hyperbolic tangent (ONNX `Atanh`).
     Atanh,
 
     // --- Element-wise binary / variadic ---
+    /// Element-wise multiplication (ONNX `Mul`).
     Mul,
+    /// Element-wise subtraction (ONNX `Sub`).
     Sub,
+    /// Element-wise division (ONNX `Div`).
     Div,
+    /// Element-wise exponentiation (ONNX `Pow`).
     Pow,
+    /// Element-wise modulo (ONNX `Mod`).
     Mod {
+        /// Whether to use C-style (`fmod`) semantics instead of Python-style modulo.
         fmod: bool,
     },
+    /// Element-wise minimum across inputs (ONNX `Min`).
     ElemMin,
+    /// Element-wise maximum across inputs (ONNX `Max`).
     ElemMax,
+    /// Element-wise mean across inputs (ONNX `Mean`).
     ElemMean,
+    /// Element-wise sum across inputs (ONNX `Sum`).
     ElemSum,
+    /// Element-wise equality (ONNX `Equal`).
     Equal,
+    /// Element-wise greater-than (ONNX `Greater`).
     Greater,
+    /// Element-wise greater-than-or-equal (ONNX `GreaterOrEqual`).
     GreaterOrEqual,
+    /// Element-wise less-than (ONNX `Less`).
     Less,
+    /// Element-wise less-than-or-equal (ONNX `LessOrEqual`).
     LessOrEqual,
+    /// Element-wise logical AND (ONNX `And`).
     And,
+    /// Element-wise logical OR (ONNX `Or`).
     Or,
+    /// Element-wise logical XOR (ONNX `Xor`).
     Xor,
+    /// Element-wise bitwise AND (ONNX `BitwiseAnd`).
     BitwiseAnd,
+    /// Element-wise bitwise OR (ONNX `BitwiseOr`).
     BitwiseOr,
+    /// Element-wise bitwise XOR (ONNX `BitwiseXor`).
     BitwiseXor,
+    /// Element-wise bit shift (ONNX `BitShift`).
     BitShift {
+        /// Direction of iteration/shift (e.g. `"forward"`, `"reverse"`, `"bidirectional"`).
         direction: alloc::string::String,
     },
 
     // --- Tensor structural ---
+    /// Reshapes a tensor without changing its data (ONNX `Reshape`).
     Reshape,
+    /// Permutes a tensor's dimensions (ONNX `Transpose`).
     Transpose {
+        /// The output permutation of input dimensions.
         perm: alloc::vec::Vec<usize>,
     },
+    /// Removes size-1 dimensions (ONNX `Squeeze`).
     Squeeze {
+        /// The axes to operate along.
         axes: alloc::vec::Vec<i64>,
     },
+    /// Inserts size-1 dimensions (ONNX `Unsqueeze`).
     Unsqueeze {
+        /// The axes to operate along.
         axes: alloc::vec::Vec<i64>,
     },
+    /// Concatenates tensors along an axis (ONNX `Concat`).
     Concat {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Splits a tensor into multiple outputs along an axis (ONNX `Split`).
     Split {
+        /// The axis to operate along.
         axis: i64,
+        /// Number of outputs to split into.
         num_outputs: usize,
     },
+    /// Extracts a slice of a tensor (ONNX `Slice`).
     Slice,
+    /// Gathers slices along an axis using an index tensor (ONNX `Gather`).
     Gather {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Gathers individual elements along an axis (ONNX `GatherElements`).
     GatherElements {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Gathers slices using N-D indices (ONNX `GatherND`).
     GatherND {
+        /// Number of leading batch dimensions.
         batch_dims: i64,
     },
+    /// Scatters individual elements along an axis (ONNX `ScatterElements`).
     ScatterElements {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Scatters slices using N-D indices (ONNX `ScatterND`).
     ScatterND,
+    /// Tiles a tensor by repeating it (ONNX `Tile`).
     Tile,
+    /// Broadcasts a tensor to a larger shape (ONNX `Expand`).
     Expand,
+    /// Returns a tensor's shape as a 1-D tensor (ONNX `Shape`).
     ShapeOf {
+        /// Start index.
         start: i64,
+        /// End index.
         end: i64,
     },
+    /// Returns the total number of elements (ONNX `Size`).
     SizeOf,
+    /// Passes the input through unchanged (ONNX `Identity`).
     Identity,
+    /// Casts a tensor to another dtype (ONNX `Cast`).
     Cast {
+        /// Target dtype.
         to: DtypeRepr,
     },
+    /// Casts a tensor to match another tensor's dtype (ONNX `CastLike`).
     CastLike,
+    /// Element-wise conditional selection (ONNX `Where`).
     Where,
+    /// Selects slices along an axis using a boolean mask (ONNX `Compress`).
     Compress {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Generates a range of values (ONNX `Range`).
     Range,
     /// Constant tensor (value embedded in the ONNX model).
     Constant {
+        /// The dtype to use.
         dtype: DtypeRepr,
+        /// The tensor shape.
         shape: Shape,
     },
+    /// Creates a constant-filled tensor of a given shape (ONNX `ConstantOfShape`).
     ConstantOfShape {
+        /// The dtype to use.
         dtype: DtypeRepr,
     },
+    /// Extracts the upper or lower triangular part of a matrix (ONNX `Trilu`).
     Trilu {
+        /// Whether to keep the upper (vs. lower) triangular part.
         upper: bool,
     },
+    /// Reinterprets a tensor's bits as another dtype without conversion.
     BitCast {
+        /// Target dtype.
         to: DtypeRepr,
     },
+    /// Generic padding (ONNX `Pad`).
     Pad {
+        /// The mode string selecting op-specific behavior.
         mode: alloc::string::String,
     },
+    /// Reverses variable-length sequences along an axis (ONNX `ReverseSequence`).
     ReverseSequence {
+        /// The batch axis.
         batch_axis: i64,
+        /// The time axis.
         time_axis: i64,
     },
+    /// Returns the indices of non-zero elements (ONNX `NonZero`).
     NonZero,
+    /// Scatters values along an axis (deprecated ONNX `Scatter`, superseded by `ScatterElements`).
     Scatter {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Scatters an entire tensor into another at given indices.
     TensorScatter,
 
     // --- Matrix ---
+    /// General matrix multiply: `alpha * A @ B + beta * C` (ONNX `Gemm`).
     Gemm {
+        /// The `alpha` parameter.
         alpha: f64,
+        /// The `beta` parameter.
         beta: f64,
+        /// Whether to transpose the first matrix operand.
         trans_a: bool,
+        /// Whether to transpose the second matrix operand.
         trans_b: bool,
     },
+    /// Matrix multiplication (ONNX `MatMul`).
     MatMul,
+    /// Integer matrix multiplication (ONNX `MatMulInteger`).
     MatMulInteger,
+    /// Einstein-summation contraction (ONNX `Einsum`).
     Einsum {
+        /// The Einstein-summation equation string.
         equation: alloc::string::String,
     },
+    /// Matrix determinant (ONNX `Det`).
     Det,
+    /// Quantized linear matrix multiplication (ONNX `QLinearMatMul`).
     QLinearMatMul,
 
     // --- Convolution extras ---
+    /// Transposed (deconvolution) 2-D convolution (ONNX `ConvTranspose`).
     ConvTranspose {
+        /// Number of input channels.
         in_channels: usize,
+        /// Number of output channels.
         out_channels: usize,
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
+        /// Vertical zero-padding.
         padding_h: usize,
+        /// Horizontal zero-padding.
         padding_w: usize,
+        /// Additional vertical padding added to the output (transposed convolution).
         output_padding_h: usize,
+        /// Additional horizontal padding added to the output (transposed convolution).
         output_padding_w: usize,
+        /// Number of blocked/grouped connections (1 = standard).
         groups: usize,
+        /// Whether a learned bias is added.
         has_bias: bool,
     },
+    /// Integer convolution (ONNX `ConvInteger`).
     ConvInteger {
+        /// Number of blocked/grouped connections (1 = standard).
         groups: usize,
     },
+    /// Deformable convolution (ONNX `DeformConv`).
     DeformConv {
+        /// Number of blocked/grouped connections (1 = standard).
         group: usize,
+        /// Number of groups for deformable-convolution offset channels.
         offset_group: usize,
     },
+    /// Quantized linear convolution (ONNX `QLinearConv`).
     QLinearConv {
+        /// Number of blocked/grouped connections (1 = standard).
         groups: usize,
     },
+    /// Combines sliding local blocks into a large tensor (ONNX `Col2Im`, inverse of im2col).
     Col2Im {
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
     },
 
     // --- Reductions ---
+    /// Sum reduction along axes (ONNX `ReduceSum`).
     ReduceSum {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Mean reduction along axes (ONNX `ReduceMean`).
     ReduceMean {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Max reduction along axes (ONNX `ReduceMax`).
     ReduceMax {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Min reduction along axes (ONNX `ReduceMin`).
     ReduceMin {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Product reduction along axes (ONNX `ReduceProd`).
     ReduceProd {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// L1-norm reduction along axes (ONNX `ReduceL1`).
     ReduceL1 {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// L2-norm reduction along axes (ONNX `ReduceL2`).
     ReduceL2 {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Log-sum reduction along axes (ONNX `ReduceLogSum`).
     ReduceLogSum {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Log-sum-exp reduction along axes (ONNX `ReduceLogSumExp`).
     ReduceLogSumExp {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Sum-of-squares reduction along axes (ONNX `ReduceSumSquare`).
     ReduceSumSquare {
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether an empty `axes` list means "no-op" instead of "reduce all".
         noop_with_empty_axes: bool,
     },
+    /// Cumulative sum along an axis (ONNX `CumSum`).
     CumSum {
+        /// Whether to exclude the current element from the cumulative result.
         exclusive: bool,
+        /// Whether to accumulate in reverse order.
         reverse: bool,
     },
+    /// Cumulative product along an axis (ONNX `CumProd`).
     CumProd {
+        /// Whether to exclude the current element from the cumulative result.
         exclusive: bool,
+        /// Whether to accumulate in reverse order.
         reverse: bool,
     },
+    /// Index of the maximum along an axis (ONNX `ArgMax`).
     ArgMax {
+        /// The axis to operate along.
         axis: i64,
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether ties select the last (rather than first) matching index.
         select_last_index: bool,
     },
+    /// Index of the minimum along an axis (ONNX `ArgMin`).
     ArgMin {
+        /// The axis to operate along.
         axis: i64,
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
+        /// Whether ties select the last (rather than first) matching index.
         select_last_index: bool,
     },
+    /// Average-pools over the entire spatial extent (ONNX `GlobalAveragePool`).
     GlobalAvgPool,
+    /// Max-pools over the entire spatial extent (ONNX `GlobalMaxPool`).
     GlobalMaxPool,
+    /// Lp-norm normalization along an axis (ONNX `LpNormalization`).
     LpNormalization {
+        /// The axis to operate along.
         axis: i64,
+        /// The `p` in the p-norm.
         p: i64,
     },
+    /// Mean/variance normalization along axes (ONNX `MeanVarianceNormalization`).
     MeanVarianceNormalization {
+        /// The axes to operate along.
         axes: alloc::vec::Vec<i64>,
     },
 
     // --- Additional activations ---
+    /// Log-softmax along an axis (ONNX `LogSoftmax`).
     LogSoftmax {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// One-hot of the argmax along an axis (ONNX `Hardmax`).
     Hardmax {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Parametric ReLU, with a learned per-channel slope (ONNX `PRelu`).
     PRelu,
+    /// ReLU that zeroes values at or below `alpha` (ONNX `ThresholdedRelu`).
     ThresholdedRelu {
+        /// The `alpha` parameter.
         alpha: f64,
     },
+    /// Shrinks values toward zero by `lambd`, with a `bias` offset (ONNX `Shrink`).
     Shrink {
+        /// The shrinkage threshold.
         lambd: f64,
+        /// A bias/offset value.
         bias: f64,
     },
+    /// Clamps values to a `[min, max]` range (ONNX `Clip`).
     Clip,
+    /// Swish/SiLU activation (ONNX `Swish`).
     Swish,
+    /// Multi-head attention (ONNX `MultiHeadAttention`).
     MultiHeadAttention {
+        /// Number of query attention heads.
         q_num_heads: usize,
+        /// Number of key/value attention heads.
         kv_num_heads: usize,
     },
 
     // --- Normalisation (generic) ---
+    /// Local response normalization (ONNX `LRN`).
     LRN {
+        /// The `alpha` parameter.
         alpha: f64,
+        /// The `beta` parameter.
         beta: f64,
+        /// A bias/offset value.
         bias: f64,
+        /// Window/kernel size.
         size: usize,
     },
 
     // --- Recurrent ---
+    /// Long short-term memory recurrent layer (ONNX `LSTM`).
     Lstm {
+        /// Size of the hidden state.
         hidden_size: usize,
+        /// Direction of iteration/shift (e.g. `"forward"`, `"reverse"`, `"bidirectional"`).
         direction: alloc::string::String,
+        /// Whether to run the recurrence in both directions.
         bidirectional: bool,
     },
+    /// Gated recurrent unit layer (ONNX `GRU`).
     Gru {
+        /// Size of the hidden state.
         hidden_size: usize,
+        /// Direction of iteration/shift (e.g. `"forward"`, `"reverse"`, `"bidirectional"`).
         direction: alloc::string::String,
+        /// Whether to run the recurrence in both directions.
         bidirectional: bool,
     },
+    /// Simple recurrent layer (ONNX `RNN`).
     Rnn {
+        /// Size of the hidden state.
         hidden_size: usize,
+        /// Direction of iteration/shift (e.g. `"forward"`, `"reverse"`, `"bidirectional"`).
         direction: alloc::string::String,
+        /// Whether to run the recurrence in both directions.
         bidirectional: bool,
     },
 
     // --- Resize / spatial ---
+    /// Resizes a tensor (interpolation) (ONNX `Resize`).
     Resize {
+        /// The mode string selecting op-specific behavior.
         mode: alloc::string::String,
+        /// How resized coordinates map back to the input (ONNX `Resize` mode string).
         coordinate_transformation_mode: alloc::string::String,
+        /// Whether to apply an anti-aliasing filter when downsampling.
         antialias: bool,
     },
+    /// Samples a tensor at grid-specified locations (ONNX `GridSample`).
     GridSample {
+        /// The mode string selecting op-specific behavior.
         mode: alloc::string::String,
+        /// How out-of-bounds sample coordinates are handled.
         padding_mode: alloc::string::String,
+        /// Whether corner pixels are aligned (vs. edge-aligned) when sampling/resizing.
         align_corners: bool,
     },
+    /// Rearranges spatial blocks into depth/channels (ONNX `SpaceToDepth`).
     SpaceToDepth {
+        /// Block size for the space/depth rearrangement.
         blocksize: usize,
     },
+    /// Rearranges depth/channels into spatial blocks (ONNX `DepthToSpace`).
     DepthToSpace {
+        /// Block size for the space/depth rearrangement.
         blocksize: usize,
+        /// The mode string selecting op-specific behavior.
         mode: alloc::string::String,
     },
+    /// Region-of-interest pooling with bilinear alignment (ONNX `RoiAlign`).
     RoiAlign {
+        /// Output region height.
         output_h: usize,
+        /// Output region width.
         output_w: usize,
+        /// Number of sampling points per output bin (0 = adaptive).
         sampling_ratio: i64,
+        /// Scale factor mapping ROI coordinates to the input feature map.
         spatial_scale: f64,
     },
+    /// Generates a 2-D/3-D sampling grid from an affine matrix (ONNX `AffineGrid`).
     AffineGrid {
+        /// Whether corner pixels are aligned (vs. edge-aligned) when sampling/resizing.
         align_corners: bool,
     },
+    /// Inverse of max pooling, using stored indices (ONNX `MaxUnpool`).
     MaxUnpool {
+        /// Convolution/pooling kernel height.
         kernel_h: usize,
+        /// Convolution/pooling kernel width.
         kernel_w: usize,
+        /// Vertical stride.
         stride_h: usize,
+        /// Horizontal stride.
         stride_w: usize,
     },
+    /// Crops or pads a tensor to a target shape, centered (ONNX `CenterCropPad`).
     CenterCropPad {
+        /// The axes to operate along.
         axes: alloc::vec::Vec<i64>,
     },
+    /// Filters overlapping boxes by score (ONNX `NonMaxSuppression`).
     NonMaxSuppression {
+        /// Whether boxes are given as `(center_x, center_y, width, height)` instead of corners.
         center_point_box: bool,
     },
 
     // --- Misc ---
+    /// Returns the top-K values/indices along an axis (ONNX `TopK`).
     TopK {
+        /// The axis to operate along.
         axis: i64,
+        /// Whether to return the largest (vs. smallest) K values.
         largest: bool,
+        /// Whether outputs are sorted.
         sorted: bool,
     },
+    /// Returns unique elements (ONNX `Unique`).
     Unique {
+        /// Whether outputs are sorted.
         sorted: bool,
     },
+    /// Dropout regularization (ONNX `Dropout`).
     Dropout {
+        /// Whether dropout is active (vs. a no-op at inference).
         training_mode: bool,
     },
+    /// Creates an identity-like 2-D tensor (ONNX `EyeLike`).
     EyeLike {
+        /// The dtype to use.
         dtype: Option<DtypeRepr>,
+        /// Diagonal offset.
         k: i64,
     },
+    /// One-hot encodes indices along an axis (ONNX `OneHot`).
     OneHot {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Samples from a Bernoulli distribution using input probabilities (ONNX `Bernoulli`).
     Bernoulli {
+        /// The dtype to use.
         dtype: Option<DtypeRepr>,
     },
+    /// Samples uniform random values with another tensor's shape (ONNX `RandomUniformLike`).
     RandomUniformLike {
+        /// The dtype to use.
         dtype: Option<DtypeRepr>,
+        /// Upper bound of the sampling range.
         high: f64,
+        /// Lower bound of the sampling range.
         low: f64,
     },
+    /// Rotary position embedding (ONNX `RotaryEmbedding`).
     RotaryEmbedding,
 
     // --- Quantisation ---
+    /// Linear quantization to a lower-precision dtype (ONNX `QuantizeLinear`).
     QuantizeLinear {
+        /// The axis to operate along.
         axis: i64,
+        /// Whether to saturate (clamp) out-of-range values instead of wrapping.
         saturate: bool,
     },
+    /// Linear dequantization back to a floating-point dtype (ONNX `DequantizeLinear`).
     DequantizeLinear {
+        /// The axis to operate along.
         axis: i64,
     },
+    /// Dynamically computes quantization parameters and quantizes (ONNX `DynamicQuantizeLinear`).
     DynamicQuantizeLinear,
 
     // --- Signal ---
+    /// Discrete Fourier transform (ONNX `DFT`).
     Dft {
+        /// Whether to compute the inverse transform.
         inverse: bool,
+        /// Whether to return only the non-redundant half of the spectrum.
         onesided: bool,
     },
+    /// Short-time Fourier transform (ONNX `STFT`).
     Stft,
+    /// Generates a mel-scale filterbank matrix (ONNX `MelWeightMatrix`).
     MelWeightMatrix,
+    /// Generates a Hann window (ONNX `HannWindow`).
     HannWindow {
+        /// Whether the window is periodic (vs. symmetric).
         periodic: bool,
     },
+    /// Generates a Blackman window (ONNX `BlackmanWindow`).
     BlackmanWindow {
+        /// Whether the window is periodic (vs. symmetric).
         periodic: bool,
     },
+    /// Generates a Hamming window (ONNX `HammingWindow`).
     HammingWindow {
+        /// Whether the window is periodic (vs. symmetric).
         periodic: bool,
     },
 
     // --- Loss ---
+    /// Negative log-likelihood loss (ONNX `NegativeLogLikelihoodLoss`).
     NegativeLogLikelihoodLoss {
+        /// The reduction mode applied to the per-element loss (e.g. `"mean"`, `"sum"`, `"none"`).
         reduction: alloc::string::String,
     },
+    /// Softmax + cross-entropy loss (ONNX `SoftmaxCrossEntropyLoss`).
     SoftmaxCrossEntropyLoss {
+        /// The reduction mode applied to the per-element loss (e.g. `"mean"`, `"sum"`, `"none"`).
         reduction: alloc::string::String,
     },
 
     // --- Sequences ---
+    /// Indexes into a sequence (ONNX `SequenceAt`).
     SequenceAt,
+    /// Constructs a sequence from tensors (ONNX `SequenceConstruct`).
     SequenceConstruct,
+    /// Constructs an empty sequence (ONNX `SequenceEmpty`).
     SequenceEmpty,
+    /// Removes an element from a sequence (ONNX `SequenceErase`).
     SequenceErase,
+    /// Inserts an element into a sequence (ONNX `SequenceInsert`).
     SequenceInsert,
+    /// Returns a sequence's length (ONNX `SequenceLength`).
     SequenceLength,
+    /// Applies a subgraph to each element of a sequence (ONNX `SequenceMap`).
     SequenceMap,
+    /// Splits a tensor into a sequence along an axis (ONNX `SplitToSequence`).
     SplitToSequence {
+        /// The axis to operate along.
         axis: i64,
+        /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
     },
+    /// Concatenates a sequence's elements into one tensor (ONNX `ConcatFromSequence`).
     ConcatFromSequence {
+        /// The axis to operate along.
         axis: i64,
+        /// Whether to insert a new axis for the concatenation dimension.
         new_axis: bool,
     },
+    /// Extracts the value from an optional (ONNX `OptionalGetElement`).
     OptionalGetElement,
+    /// Tests whether an optional has a value (ONNX `OptionalHasElement`).
     OptionalHasElement,
 
     // --- Control flow ---
+    /// Generic looping construct over a subgraph (ONNX `Loop`).
     Loop,
+    /// Applies a subgraph iteratively over input sequences (ONNX `Scan`).
     Scan {
+        /// Number of inputs treated as scanned sequences.
         num_scan_inputs: i64,
     },
+    /// Conditional branch over subgraphs (ONNX `If`).
     If,
 
     // --- Optimiser ops ---
+    /// Adagrad optimizer step (ONNX `Adagrad`).
     Adagrad,
+    /// Adam optimizer step (ONNX `Adam`).
     Adam,
+    /// Momentum optimizer step (ONNX `Momentum`).
     Momentum,
+    /// Computes gradients of a subgraph (ONNX `Gradient`).
     Gradient,
 
     // --- String / NLP ---
+    /// Normalizes strings (case folding, stop-word removal) (ONNX `StringNormalizer`).
     StringNormalizer,
+    /// Tests strings against a regex (ONNX `RegexFullMatch`).
     RegexFullMatch {
+        /// The regular expression pattern.
         pattern: alloc::string::String,
     },
+    /// Concatenates strings element-wise (ONNX `StringConcat`).
     StringConcat,
+    /// Splits strings on a delimiter (ONNX `StringSplit`).
     StringSplit,
+    /// Computes TF-IDF n-gram features (ONNX `TfIdfVectorizer`).
     TfIdfVectorizer,
+    /// Maps categorical labels to/from encoded values (ONNX `LabelEncoder`).
     LabelEncoder,
 
     // --- Other ML ---
+    /// Selects elements from a tensor by index (ONNX-ML `ArrayFeatureExtractor`).
     ArrayFeatureExtractor,
+    /// Binarizes values against a threshold (ONNX-ML `Binarizer`).
     Binarizer {
+        /// The threshold value.
         threshold: f64,
     },
+    /// Decision-tree ensemble inference (ONNX-ML `TreeEnsemble`).
     TreeEnsemble,
+    /// Decodes an encoded image (e.g. PNG/JPEG) into a tensor (ONNX `ImageDecoder`).
     ImageDecoder,
 }
 
@@ -1937,8 +2530,11 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
 /// the new node. Cloning is cheap — it shares the graph via `Rc`.
 #[derive(Clone)]
 pub struct SymTensor {
+    /// This tensor's node index in `graph`.
     pub node_id: usize,
+    /// The shared graph this tensor's operations record into.
     pub graph: Rc<RefCell<Graph>>,
+    /// This tensor's dtype.
     pub dtype: DtypeRepr,
     /// Output shape of this tensor. `None` in a slot means a dynamic/unknown
     /// dimension (e.g. the batch axis).

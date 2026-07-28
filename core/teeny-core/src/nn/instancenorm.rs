@@ -35,15 +35,21 @@ use crate::{
 /// - `affine`              — if true, learns per-channel γ and β (default false)
 /// - `track_running_stats` — maintain running mean/var (default false)
 pub struct InstanceNorm1d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of channels/features.
     pub num_features: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Weight of the current batch in the running-stats exponential moving average.
     pub momentum: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
+    /// Whether to maintain running mean/variance across batches.
     pub track_running_stats: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm1d<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`/`momentum`, affine/running-stats off.
     pub fn new(num_features: usize) -> Self {
         Self {
             num_features,
@@ -55,18 +61,22 @@ impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm1d<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
+    /// Sets the running-stats EMA momentum.
     pub fn with_momentum(mut self, m: f64) -> Self {
         self.momentum = m;
         self
     }
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, a: bool) -> Self {
         self.affine = a;
         self
     }
+    /// Sets whether to maintain running mean/variance across batches.
     pub fn with_track_running_stats(mut self, t: bool) -> Self {
         self.track_running_stats = t;
         self
@@ -86,15 +96,21 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
 
 /// Instance normalisation over a 4-D `[N, C, H, W]` input.
 pub struct InstanceNorm2d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of channels/features.
     pub num_features: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Weight of the current batch in the running-stats exponential moving average.
     pub momentum: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
+    /// Whether to maintain running mean/variance across batches.
     pub track_running_stats: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm2d<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`/`momentum`, affine/running-stats off.
     pub fn new(num_features: usize) -> Self {
         Self {
             num_features,
@@ -106,18 +122,22 @@ impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm2d<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
+    /// Sets the running-stats EMA momentum.
     pub fn with_momentum(mut self, m: f64) -> Self {
         self.momentum = m;
         self
     }
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, a: bool) -> Self {
         self.affine = a;
         self
     }
+    /// Sets whether to maintain running mean/variance across batches.
     pub fn with_track_running_stats(mut self, t: bool) -> Self {
         self.track_running_stats = t;
         self
@@ -137,15 +157,21 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
 
 /// Instance normalisation over a 5-D `[N, C, D, H, W]` input.
 pub struct InstanceNorm3d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of channels/features.
     pub num_features: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Weight of the current batch in the running-stats exponential moving average.
     pub momentum: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
+    /// Whether to maintain running mean/variance across batches.
     pub track_running_stats: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm3d<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`/`momentum`, affine/running-stats off.
     pub fn new(num_features: usize) -> Self {
         Self {
             num_features,
@@ -157,18 +183,22 @@ impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm3d<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
+    /// Sets the running-stats EMA momentum.
     pub fn with_momentum(mut self, m: f64) -> Self {
         self.momentum = m;
         self
     }
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, a: bool) -> Self {
         self.affine = a;
         self
     }
+    /// Sets whether to maintain running mean/variance across batches.
     pub fn with_track_running_stats(mut self, t: bool) -> Self {
         self.track_running_stats = t;
         self

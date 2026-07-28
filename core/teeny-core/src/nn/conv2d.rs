@@ -39,15 +39,25 @@ use crate::{
 /// Tensor bounds are on impls, not the struct, so `SymTensor` can have its
 /// own `Layer` impl without a coherence conflict.
 pub struct Conv2d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of input channels.
     pub in_channels: usize,
+    /// Number of output channels.
     pub out_channels: usize,
+    /// Convolution kernel height.
     pub kernel_h: usize,
+    /// Convolution kernel width.
     pub kernel_w: usize,
+    /// Vertical stride.
     pub stride_h: usize,
+    /// Horizontal stride.
     pub stride_w: usize,
+    /// Vertical zero-padding.
     pub padding_h: usize,
+    /// Horizontal zero-padding.
     pub padding_w: usize,
+    /// Number of blocked/grouped connections (1 = standard convolution).
     pub groups: usize,
+    /// Whether to add a learned bias.
     pub has_bias: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
@@ -81,6 +91,7 @@ impl<D: Dtype, IT, OT, const RANK: usize> Conv2d<D, IT, OT, RANK> {
         }
     }
 
+    /// Creates a new grouped `Conv2d` layer (see [`Conv2d::groups`]).
     pub fn new_grouped(
         in_channels: usize,
         out_channels: usize,

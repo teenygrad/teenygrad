@@ -32,14 +32,19 @@ use crate::{
 /// - `eps`          — numerical stability constant (default 1e-5)
 /// - `affine`       — if true, learns per-channel γ and β (default true)
 pub struct GroupNorm<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of groups to divide the channels into.
     pub num_groups: usize,
+    /// Number of channels.
     pub num_channels: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> GroupNorm<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`, affine on.
     pub fn new(num_groups: usize, num_channels: usize) -> Self {
         Self {
             num_groups,
@@ -50,11 +55,13 @@ impl<D: Dtype, IT, OT, const RANK: usize> GroupNorm<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, affine: bool) -> Self {
         self.affine = affine;
         self

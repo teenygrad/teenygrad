@@ -35,13 +35,17 @@ use crate::{
 /// Tensor bounds are on impls, not the struct, so `SymTensor` can have its
 /// own `Layer` impl without a coherence conflict.
 pub struct Linear<D: Dtype, IT, OT, const RANK: usize> {
+    /// Size of the last input dimension.
     pub in_features: usize,
+    /// Size of the last output dimension.
     pub out_features: usize,
+    /// Whether to add a learned bias.
     pub has_bias: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> Linear<D, IT, OT, RANK> {
+    /// Creates a new `Linear` layer.
     pub fn new(in_features: usize, out_features: usize, has_bias: bool) -> Self {
         Self {
             in_features,

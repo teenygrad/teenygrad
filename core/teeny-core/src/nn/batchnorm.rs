@@ -36,15 +36,21 @@ use crate::{
 /// - `affine`       — if true, learns per-channel γ (weight) and β (bias)
 /// - `track_running_stats` — if true, maintains running_mean / running_var
 pub struct BatchNorm1d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of channels/features.
     pub num_features: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Weight of the current batch in the running-stats exponential moving average.
     pub momentum: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
+    /// Whether to maintain running mean/variance across batches.
     pub track_running_stats: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm1d<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`/`momentum`/`affine`/`track_running_stats`.
     pub fn new(num_features: usize) -> Self {
         Self {
             num_features,
@@ -56,21 +62,25 @@ impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm1d<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    /// Sets the running-stats EMA momentum.
     pub fn with_momentum(mut self, momentum: f64) -> Self {
         self.momentum = momentum;
         self
     }
 
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, affine: bool) -> Self {
         self.affine = affine;
         self
     }
 
+    /// Sets whether to maintain running mean/variance across batches.
     pub fn with_track_running_stats(mut self, track: bool) -> Self {
         self.track_running_stats = track;
         self
@@ -94,15 +104,21 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
 /// Applies the same statistics as `BatchNorm1d` but treats each (C) channel
 /// independently across the (N, H, W) axes.
 pub struct BatchNorm2d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of channels/features.
     pub num_features: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Weight of the current batch in the running-stats exponential moving average.
     pub momentum: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
+    /// Whether to maintain running mean/variance across batches.
     pub track_running_stats: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm2d<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`/`momentum`/`affine`/`track_running_stats`.
     pub fn new(num_features: usize) -> Self {
         Self {
             num_features,
@@ -114,21 +130,25 @@ impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm2d<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    /// Sets the running-stats EMA momentum.
     pub fn with_momentum(mut self, momentum: f64) -> Self {
         self.momentum = momentum;
         self
     }
 
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, affine: bool) -> Self {
         self.affine = affine;
         self
     }
 
+    /// Sets whether to maintain running mean/variance across batches.
     pub fn with_track_running_stats(mut self, track: bool) -> Self {
         self.track_running_stats = track;
         self
@@ -152,15 +172,21 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
 /// Applies the same statistics as `BatchNorm1d` but treats each (C) channel
 /// independently across the (N, D, H, W) axes.
 pub struct BatchNorm3d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of channels/features.
     pub num_features: usize,
+    /// Numerical stability constant added to the variance.
     pub eps: f64,
+    /// Weight of the current batch in the running-stats exponential moving average.
     pub momentum: f64,
+    /// Whether to learn per-channel scale (gamma) and shift (beta) parameters.
     pub affine: bool,
+    /// Whether to maintain running mean/variance across batches.
     pub track_running_stats: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm3d<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`/`momentum`/`affine`/`track_running_stats`.
     pub fn new(num_features: usize) -> Self {
         Self {
             num_features,
@@ -172,21 +198,25 @@ impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm3d<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    /// Sets the running-stats EMA momentum.
     pub fn with_momentum(mut self, momentum: f64) -> Self {
         self.momentum = momentum;
         self
     }
 
+    /// Sets whether to learn per-channel scale/shift parameters.
     pub fn with_affine(mut self, affine: bool) -> Self {
         self.affine = affine;
         self
     }
 
+    /// Sets whether to maintain running mean/variance across batches.
     pub fn with_track_running_stats(mut self, track: bool) -> Self {
         self.track_running_stats = track;
         self

@@ -31,6 +31,7 @@ pub struct Hardtanh<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Hardtanh<D, T, RANK> {
+    /// Creates a new `Hardtanh` layer clamping to `[min_val, max_val]`.
     pub fn new(min_val: f64, max_val: f64) -> Self {
         Self {
             min_val,
@@ -55,6 +56,7 @@ pub struct Relu6<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Relu6<D, T, RANK> {
+    /// Creates a new `Relu6` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -79,6 +81,7 @@ pub struct Hardsigmoid<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Hardsigmoid<D, T, RANK> {
+    /// Creates a new `Hardsigmoid` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -105,6 +108,7 @@ pub struct Hardswish<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Hardswish<D, T, RANK> {
+    /// Creates a new `Hardswish` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -133,6 +137,7 @@ pub struct Hardshrink<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Hardshrink<D, T, RANK> {
+    /// Creates a new `Hardshrink` layer with the given `lambda`.
     pub fn new(lambda: f64) -> Self {
         Self {
             lambda,

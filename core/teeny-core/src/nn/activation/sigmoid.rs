@@ -27,6 +27,7 @@ pub struct Sigmoid<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Sigmoid<D, T, RANK> {
+    /// Creates a new `Sigmoid` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -53,6 +54,7 @@ pub struct Silu<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Silu<D, T, RANK> {
+    /// Creates a new `Silu` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -77,6 +79,7 @@ pub struct Logsigmoid<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Logsigmoid<D, T, RANK> {
+    /// Creates a new `Logsigmoid` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }

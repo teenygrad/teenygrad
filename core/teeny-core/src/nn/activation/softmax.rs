@@ -29,6 +29,7 @@ pub struct Softmax<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Softmax<D, T, RANK> {
+    /// Creates a new `Softmax` layer.
     pub fn new(dim: usize) -> Self {
         Self {
             dim,

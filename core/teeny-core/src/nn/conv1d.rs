@@ -28,16 +28,23 @@ use crate::{
 ///
 /// where: `L_out = (L_in + 2*padding - kernel_l) / stride + 1`
 pub struct Conv1d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of input channels.
     pub in_channels: usize,
+    /// Number of output channels.
     pub out_channels: usize,
+    /// Convolution kernel length.
     pub kernel_l: usize,
+    /// Stride.
     pub stride: usize,
+    /// Zero-padding applied to both sides of the input.
     pub padding: usize,
+    /// Whether to add a learned bias.
     pub has_bias: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> Conv1d<D, IT, OT, RANK> {
+    /// Creates a new `Conv1d` layer.
     pub fn new(
         in_channels: usize,
         out_channels: usize,

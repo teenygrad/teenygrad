@@ -321,14 +321,19 @@ pub trait RuntimeOp: Send + Sync {
 /// Holds enough information for a caller (who has access to `teeny-compiler`)
 /// to compile the kernel for a given target. Dispatch/execution is deferred.
 pub trait ExecutableOp {
+    /// This op's name.
     fn name(&self) -> &str;
     /// Returns `true` for `Input` placeholder nodes, which carry no kernel.
     fn is_input(&self) -> bool {
         false
     }
+    /// This op's forward kernel source.
     fn forward_kernel_source(&self) -> &str;
+    /// This op's forward kernel entry-point symbol name.
     fn forward_kernel_entry_point(&self) -> &str;
+    /// This op's output shape.
     fn output_shape(&self) -> &Shape;
+    /// This op's output dtype.
     fn output_dtype(&self) -> DtypeRepr;
     /// Returns the runtime dispatch object for this op, or `None` for Input nodes.
     fn runtime_op(&self) -> Option<Arc<dyn RuntimeOp>> {

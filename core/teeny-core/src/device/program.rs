@@ -20,23 +20,36 @@ use sha2::{Digest, Sha256};
 /// Receives each argument of a kernel in order. Implement this on a backend-
 /// specific "packer" struct (e.g. a CUDA arg-pointer array builder).
 pub trait ArgVisitor {
+    /// Visits a raw pointer argument.
     fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void);
+    /// Visits a `bool` argument.
     fn visit_bool(&mut self, val: bool);
+    /// Visits an `i8` argument.
     fn visit_i8(&mut self, val: i8);
+    /// Visits an `i16` argument.
     fn visit_i16(&mut self, val: i16);
+    /// Visits an `i32` argument.
     fn visit_i32(&mut self, val: i32);
+    /// Visits an `i64` argument.
     fn visit_i64(&mut self, val: i64);
+    /// Visits a `u8` argument.
     fn visit_u8(&mut self, val: u8);
+    /// Visits a `u16` argument.
     fn visit_u16(&mut self, val: u16);
+    /// Visits a `u32` argument.
     fn visit_u32(&mut self, val: u32);
+    /// Visits a `u64` argument.
     fn visit_u64(&mut self, val: u64);
+    /// Visits an `f32` argument.
     fn visit_f32(&mut self, val: f32);
+    /// Visits an `f64` argument.
     fn visit_f64(&mut self, val: f64);
 }
 
 /// Implemented by each concrete argument type; dispatches to the right
 /// `ArgVisitor` method.
 pub trait KernelArg {
+    /// Visits `self` on `visitor`.
     fn visit<V: ArgVisitor>(&self, visitor: &mut V);
 }
 
@@ -128,6 +141,7 @@ impl KernelArg for f64 {
 /// The proc macro generates `type Args<'a> = (A, B, C, ...)` and the blanket
 /// tuple impls below make that satisfy this bound automatically.
 pub trait KernelArgs {
+    /// Visits each element of `self` in order.
     fn visit_args<V: ArgVisitor>(&self, visitor: &mut V);
 }
 
@@ -173,6 +187,7 @@ pub trait Kernel {
     /// This kernel's launch-argument tuple type.
     type Args<'a>: KernelArgs;
 
+    /// A content hash of this kernel's source, used as a cache key.
     fn id(&self) -> String {
         let mut hasher = Sha256::new();
         hasher.update(self.source().as_bytes());
@@ -183,10 +198,13 @@ pub trait Kernel {
             .collect()
     }
 
+    /// This kernel's name.
     fn name(&self) -> &str;
 
+    /// This kernel's full source (DSL + kernel body + entry point wrapper).
     fn source(&self) -> &str;
 
+    /// This kernel's body source, without the entry-point wrapper.
     fn kernel_source(&self) -> &str;
 
     /// Returns the Rust source of the generated C-ABI entry-point wrapper function.

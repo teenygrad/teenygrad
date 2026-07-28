@@ -27,6 +27,7 @@ pub struct Tanh<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Tanh<D, T, RANK> {
+    /// Creates a new `Tanh` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -51,6 +52,7 @@ pub struct Tanhshrink<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Tanhshrink<D, T, RANK> {
+    /// Creates a new `Tanhshrink` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }

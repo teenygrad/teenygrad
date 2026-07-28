@@ -33,6 +33,7 @@ impl<D: Dtype, T, const RANK: usize> Default for Relu<D, T, RANK> {
 }
 
 impl<D: Dtype, T, const RANK: usize> Relu<D, T, RANK> {
+    /// Creates a new `Relu` layer.
     pub fn new() -> Self {
         Self::default()
     }

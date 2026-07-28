@@ -41,17 +41,26 @@ pub trait Compiler {
 /// sm_70/sm_72 only have a deprecated FMA fallback path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
-    Sm75,  // Turing:          RTX 20xx, GTX 16xx, T4
-    Sm80,  // Ampere DC:       A100, A30
-    Sm86,  // Ampere:          RTX 30xx, A40, A10, A16
-    Sm87,  // Ampere embedded: Jetson Orin (AGX/NX/Nano)
-    Sm89,  // Ada Lovelace:    RTX 40xx, L4, L40S
-    Sm90,  // Hopper:          H100, H200
-    Sm100, // Blackwell DC:    B100, B200, GB200
-    Sm120, // Blackwell:       RTX 50xx (GB10x)
+    /// Turing: RTX 20xx, GTX 16xx, T4.
+    Sm75,
+    /// Ampere datacenter: A100, A30.
+    Sm80,
+    /// Ampere: RTX 30xx, A40, A10, A16.
+    Sm86,
+    /// Ampere embedded: Jetson Orin (AGX/NX/Nano).
+    Sm87,
+    /// Ada Lovelace: RTX 40xx, L4, L40S.
+    Sm89,
+    /// Hopper: H100, H200.
+    Sm90,
+    /// Blackwell datacenter: B100, B200, GB200.
+    Sm100,
+    /// Blackwell: RTX 50xx (GB10x).
+    Sm120,
 }
 
 impl Capability {
+    /// Looks up the `Capability` matching a CUDA `(major, minor)` compute-capability version.
     pub fn from_major_minor(major: i32, minor: i32) -> Option<Self> {
         match (major, minor) {
             (7, 5) => Some(Self::Sm75),

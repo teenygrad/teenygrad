@@ -26,22 +26,35 @@ use crate::{
 /// Input shape:  `[N, C_in,  D_in,  H_in,  W_in ]`
 /// Output shape: `[N, C_out, D_out, H_out, W_out]`
 pub struct Conv3d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Number of input channels.
     pub in_channels: usize,
+    /// Number of output channels.
     pub out_channels: usize,
+    /// Convolution kernel depth.
     pub kernel_d: usize,
+    /// Convolution kernel height.
     pub kernel_h: usize,
+    /// Convolution kernel width.
     pub kernel_w: usize,
+    /// Stride along the depth dimension.
     pub stride_d: usize,
+    /// Stride along the height dimension.
     pub stride_h: usize,
+    /// Stride along the width dimension.
     pub stride_w: usize,
+    /// Zero-padding along the depth dimension.
     pub padding_d: usize,
+    /// Zero-padding along the height dimension.
     pub padding_h: usize,
+    /// Zero-padding along the width dimension.
     pub padding_w: usize,
+    /// Whether to add a learned bias.
     pub has_bias: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> Conv3d<D, IT, OT, RANK> {
+    /// Creates a new `Conv3d` layer.
     pub fn new(
         in_channels: usize,
         out_channels: usize,

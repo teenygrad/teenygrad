@@ -27,6 +27,7 @@ pub struct Gelu<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Gelu<D, T, RANK> {
+    /// Creates a new `Gelu` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -51,6 +52,7 @@ pub struct Mish<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Mish<D, T, RANK> {
+    /// Creates a new `Mish` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }

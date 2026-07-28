@@ -23,9 +23,7 @@
 //! you need it. See the crate README for the full feature list.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-// NOT #![warn(missing_docs)] yet: struct-field/variant/method-level doc coverage is still
-// incomplete (module/struct/trait/enum-level coverage is complete) -- see teenygrad-nov.21.
-// Enabling the lint now would make CI's `-D warnings` clippy step fail on the remaining gaps.
+#![warn(missing_docs)]
 extern crate alloc;
 
 /// Compiler-facing traits (targets, compiled kernels).

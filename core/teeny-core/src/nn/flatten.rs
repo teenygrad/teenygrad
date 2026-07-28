@@ -38,6 +38,7 @@ pub struct Flatten<D: Dtype, IT, OT> {
 }
 
 impl<D: Dtype, IT, OT> Flatten<D, IT, OT> {
+    /// Creates a new `Flatten` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }

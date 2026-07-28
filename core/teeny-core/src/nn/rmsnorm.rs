@@ -34,13 +34,17 @@ use crate::{
 /// - `eps`    — numerical stability constant (default 1e-8)
 /// - `affine` — if true, learns per-element γ (default true)
 pub struct RmsNorm<D: Dtype, IT, OT, const RANK: usize> {
+    /// The shape of the trailing axes to normalize over.
     pub normalized_shape: alloc::vec::Vec<usize>,
+    /// Numerical stability constant.
     pub eps: f64,
+    /// Whether to learn a per-element scale (gamma) parameter.
     pub affine: bool,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> RmsNorm<D, IT, OT, RANK> {
+    /// Creates a new layer with default `eps`, affine on.
     pub fn new(normalized_shape: impl Into<alloc::vec::Vec<usize>>) -> Self {
         Self {
             normalized_shape: normalized_shape.into(),
@@ -50,11 +54,13 @@ impl<D: Dtype, IT, OT, const RANK: usize> RmsNorm<D, IT, OT, RANK> {
         }
     }
 
+    /// Sets the numerical stability constant.
     pub fn with_eps(mut self, eps: f64) -> Self {
         self.eps = eps;
         self
     }
 
+    /// Sets whether to learn a per-element scale parameter.
     pub fn with_affine(mut self, affine: bool) -> Self {
         self.affine = affine;
         self

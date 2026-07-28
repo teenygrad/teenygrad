@@ -29,6 +29,7 @@ pub struct LeakyRelu<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> LeakyRelu<D, T, RANK> {
+    /// Creates a new `LeakyRelu` layer with the given negative slope.
     pub fn new(negative_slope: f64) -> Self {
         Self {
             negative_slope,
@@ -56,6 +57,7 @@ pub struct Threshold<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Threshold<D, T, RANK> {
+    /// Creates a new `Threshold` layer.
     pub fn new(threshold: f64, value: f64) -> Self {
         Self {
             threshold,
@@ -80,6 +82,7 @@ pub struct Softsign<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Softsign<D, T, RANK> {
+    /// Creates a new `Softsign` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -108,6 +111,7 @@ pub struct Softshrink<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Softshrink<D, T, RANK> {
+    /// Creates a new `Softshrink` layer.
     pub fn new(lambda: f64) -> Self {
         Self {
             lambda,
@@ -136,6 +140,7 @@ pub struct Softplus<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Softplus<D, T, RANK> {
+    /// Creates a new `Softplus` layer with the given `beta`/`threshold`.
     pub fn new(beta: f64, threshold: f64) -> Self {
         Self {
             beta,

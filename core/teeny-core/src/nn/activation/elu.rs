@@ -29,6 +29,7 @@ pub struct Elu<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Elu<D, T, RANK> {
+    /// Creates a new `Elu` layer with the given `alpha`.
     pub fn new(alpha: f64) -> Self {
         Self {
             alpha,
@@ -50,6 +51,7 @@ pub struct Selu<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Selu<D, T, RANK> {
+    /// Creates a new `Selu` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
@@ -76,6 +78,7 @@ pub struct Celu<D: Float, T, const RANK: usize> {
 }
 
 impl<D: Float, T, const RANK: usize> Celu<D, T, RANK> {
+    /// Creates a new `Celu` layer.
     pub fn new(alpha: f64) -> Self {
         Self {
             alpha,
