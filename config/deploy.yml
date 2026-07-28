@@ -16,7 +16,7 @@ servers:
     - 46.62.237.88
 
 proxy:
-  ssl: true
+  ssl: false
   host: docs.teenygrad.org
   app_port: 80
 
