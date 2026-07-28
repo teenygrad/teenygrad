@@ -40,13 +40,26 @@ jobs:
       # packages build.rs actually links against (cudart, nvrtc,
       # nvptxcompiler_static via nvcc, and the libcuda.so *stub* via
       # driver-dev) avoids the driver/dkms packages entirely.
+      #
+      # Two more gaps found later (2026-07-28, while building vision-rs's
+      # equivalent workflow) that mean this step was NOT actually working
+      # end-to-end despite runs reporting success -- docs.teenygrad.org's
+      # API index has never actually included teeny_cuda/teeny_kernels:
+      # (1) teeny-cuda's wrapper.h includes cuda_profiler_api.h directly,
+      #     which lives in a separate apt package from cuda-cudart-dev
+      #     (confirmed via `dpkg -S cuda_profiler_api.h`).
+      # (2) installing the -dev packages does not put /usr/local/cuda/bin
+      #     on PATH, so docs-site/build.sh's `command -v nvcc` check has
+      #     been silently falling back to excluding teeny-cuda/teeny-kernels
+      #     every single run.
       - name: Install CUDA toolkit
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb
           sudo dpkg -i /tmp/cuda-keyring.deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2
+            cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2 cuda-profiler-api-13-2
+          echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
 
       - name: Install mdbook + mdbook-mermaid
         run: |
