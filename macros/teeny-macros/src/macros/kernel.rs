@@ -18,9 +18,9 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    parse::Parser, parse_macro_input, punctuated::Punctuated, Expr, FnArg, GenericArgument,
-    GenericParam, Ident, ItemFn, MetaNameValue, Pat, PatType, PathArguments, Token, Type,
-    TypeParamBound,
+    Expr, FnArg, GenericArgument, GenericParam, Ident, ItemFn, MetaNameValue, Pat, PatType,
+    PathArguments, Token, Type, TypeParamBound, parse::Parser, parse_macro_input,
+    punctuated::Punctuated,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -84,7 +84,9 @@ fn all_dtypes_for_bound(bound: &str) -> Option<&'static [&'static str]> {
     Some(match bound {
         "Float" => &["f32", "f64"],
         "Int" => &["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"],
-        "Num" => &["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"],
+        "Num" => &[
+            "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
+        ],
         "Bool" => &["bool"],
         "Dtype" => &[
             "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
@@ -132,8 +134,7 @@ fn parse_kernel_attrs(attrs: TokenStream) -> Result<KernelAttrs, syn::Error> {
     if tokens.is_empty() {
         return Ok(out);
     }
-    let parsed =
-        Punctuated::<MetaNameValue, Token![,]>::parse_terminated.parse2(tokens)?;
+    let parsed = Punctuated::<MetaNameValue, Token![,]>::parse_terminated.parse2(tokens)?;
     for nv in parsed {
         let key = nv
             .path
@@ -194,7 +195,9 @@ fn parse_kernel_attrs(attrs: TokenStream) -> Result<KernelAttrs, syn::Error> {
             other => {
                 return Err(syn::Error::new_spanned(
                     &nv.path,
-                    format!("unknown `#[kernel]` argument `{other}` (expected `dtypes` or `backward`)"),
+                    format!(
+                        "unknown `#[kernel]` argument `{other}` (expected `dtypes` or `backward`)"
+                    ),
                 ));
             }
         }
@@ -244,11 +247,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         false
                     }
                 });
-                if is_hw {
-                    Some(tp.ident.clone())
-                } else {
-                    None
-                }
+                if is_hw { Some(tp.ident.clone()) } else { None }
             } else {
                 None
             }

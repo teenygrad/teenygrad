@@ -54,7 +54,16 @@ pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 
     // Load bias[c] as shape [1], broadcast to [BLOCK_N].
     let bias = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
 
@@ -65,8 +74,24 @@ pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
-        T::store(y_ptr.add_offsets(elem_offsets), x_tile + bias, Some(mask), &[], None, None);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        T::store(
+            y_ptr.add_offsets(elem_offsets),
+            x_tile + bias,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
 
         n_start += BLOCK_N;
     }
@@ -103,10 +128,26 @@ pub fn channel_bias_add_backward<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let dy_tile = T::load(dy_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        let dy_tile = T::load(
+            dy_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
 
         // dx = dy (pass-through gradient)
-        T::store(dx_ptr.add_offsets(elem_offsets), dy_tile, Some(mask), &[], None, None);
+        T::store(
+            dx_ptr.add_offsets(elem_offsets),
+            dy_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
 
         // Accumulate bias gradient (keepdim so shape stays [1])
         acc = acc + T::sum(dy_tile, None, true);
@@ -141,7 +182,16 @@ pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
     let c_idx = T::arange(0, 1) + c;
 
     let bias = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_HW],
     );
 
@@ -152,8 +202,24 @@ pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
         let offsets = T::arange(0, BLOCK_HW) + hw_start;
         let mask = offsets.lt(HW);
         let elem_offsets = offsets + batch_channel_offset;
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
-        T::store(y_ptr.add_offsets(elem_offsets), x_tile + bias, Some(mask), &[], None, None);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        T::store(
+            y_ptr.add_offsets(elem_offsets),
+            x_tile + bias,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         hw_start += BLOCK_HW;
     }
 }
@@ -186,8 +252,24 @@ pub fn nchw_bias_add_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
         let offsets = T::arange(0, BLOCK_HW) + hw_start;
         let mask = offsets.lt(HW);
         let elem_offsets = offsets + batch_channel_offset;
-        let dy_tile = T::load(dy_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
-        T::store(dx_ptr.add_offsets(elem_offsets), dy_tile, Some(mask), &[], None, None);
+        let dy_tile = T::load(
+            dy_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        T::store(
+            dx_ptr.add_offsets(elem_offsets),
+            dy_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         dbias_acc = dbias_acc + T::sum(dy_tile, None, true);
         hw_start += BLOCK_HW;
     }
@@ -212,15 +294,21 @@ impl<D: Float + Send + Sync + 'static> NchwBiasAddRuntimeOp<D> {
             block_hw,
         }
     }
-    pub fn forward_source(&self) -> &str { &self.fwd.source }
-    pub fn backward_source(&self) -> &str { &self.bwd.source }
-    pub fn kernel_name(&self) -> &str { self.fwd.name }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd.source
+    }
+    pub fn backward_source(&self) -> &str {
+        &self.bwd.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        self.fwd.name
+    }
 }
 
-impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
-    for NchwBiasAddRuntimeOp<D>
-{
-    fn n_activation_inputs(&self) -> usize { 1 }
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for NchwBiasAddRuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         let c = input_shapes[0][1];
@@ -243,20 +331,24 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         let c = output_shape[1] as i32;
         let hw = (output_shape[2] * output_shape[3]) as i32;
         visitor.visit_ptr(inputs[0].0); // x_ptr
-        visitor.visit_ptr(params[0]);   // bias_ptr
-        visitor.visit_ptr(output);      // y_ptr
+        visitor.visit_ptr(params[0]); // bias_ptr
+        visitor.visit_ptr(output); // y_ptr
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
     }
 
-    fn block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_hw as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[1] as u32, output_shape[0] as u32, 1]
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -274,16 +366,18 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         let in_shape = inputs[0].1; // [B, C, H, W]
         let c = in_shape[1] as i32;
         let hw = (in_shape[2] * in_shape[3]) as i32;
-        visitor.visit_ptr(grad_output);     // dy_ptr
-        visitor.visit_ptr(grad_inputs[0]);  // dx_ptr
-        visitor.visit_ptr(grad_params[0]);  // dbias_ptr
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_ptr(grad_params[0]); // dbias_ptr
         // B is encoded in grid.y — not passed as a kernel arg.
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_hw as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
@@ -316,15 +410,21 @@ impl<D: Float + Send + Sync + 'static> ChannelBiasAddRuntimeOp<D> {
         }
     }
 
-    pub fn forward_source(&self) -> &str { &self.fwd.source }
-    pub fn backward_source(&self) -> &str { &self.bwd.source }
-    pub fn kernel_name(&self) -> &str { self.fwd.name }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd.source
+    }
+    pub fn backward_source(&self) -> &str {
+        &self.bwd.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        self.fwd.name
+    }
 }
 
-impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
-    for ChannelBiasAddRuntimeOp<D>
-{
-    fn n_activation_inputs(&self) -> usize { 1 }
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelBiasAddRuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         // Bias shape is (C_out,)
@@ -352,14 +452,16 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         let w = input_shape[3];
         let n_spatial = (b * h * w) as i32;
 
-        visitor.visit_ptr(inputs[0].0);    // x_ptr
-        visitor.visit_ptr(params[0]);      // bias_ptr
-        visitor.visit_ptr(output);         // y_ptr
-        visitor.visit_i32(n_spatial);      // N
-        visitor.visit_i32(c as i32);       // C
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(params[0]); // bias_ptr
+        visitor.visit_ptr(output); // y_ptr
+        visitor.visit_i32(n_spatial); // N
+        visitor.visit_i32(c as i32); // C
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // One CTA per output channel.
@@ -367,7 +469,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -389,11 +493,11 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         let w = input_shape[3];
         let n_spatial = (b * h * w) as i32;
 
-        visitor.visit_ptr(grad_output);       // dy_ptr
-        visitor.visit_ptr(grad_inputs[0]);    // dx_ptr
-        visitor.visit_ptr(grad_params[0]);    // dbias_ptr
-        visitor.visit_i32(n_spatial);         // N
-        visitor.visit_i32(c as i32);          // C
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_ptr(grad_params[0]); // dbias_ptr
+        visitor.visit_i32(n_spatial); // N
+        visitor.visit_i32(c as i32); // C
     }
 
     #[cfg(feature = "training")]

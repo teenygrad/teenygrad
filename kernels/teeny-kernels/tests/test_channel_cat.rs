@@ -43,23 +43,18 @@ use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors:
 
 // ── Dimensions ───────────────────────────────────────────────────────────────
 const N_SPATIAL: usize = 64;
-const C_TOTAL:   usize = 32;
-const CHUNK_C:   usize = 16;
-const BLOCK_SIZE: i32  = 128;
+const C_TOTAL: usize = 32;
+const CHUNK_C: usize = 16;
+const BLOCK_SIZE: i32 = 128;
 
-const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C;  // 1024
-const N_ELEM_OUT:   usize = N_SPATIAL * C_TOTAL;  // 2048
+const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C; // 1024
+const N_ELEM_OUT: usize = N_SPATIAL * C_TOTAL; // 2048
 
 // ── Fixture loader ────────────────────────────────────────────────────────────
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -107,8 +102,8 @@ fn test_channel_cat_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x0_host      = load_fixture("channel_cat/x0.bin");
-    let x1_host      = load_fixture("channel_cat/x1.bin");
+    let x0_host = load_fixture("channel_cat/x0.bin");
+    let x1_host = load_fixture("channel_cat/x1.bin");
     let expected_cat = load_fixture("channel_cat/expected_cat.bin");
 
     assert_eq!(x0_host.len(), N_ELEM_CHUNK);
@@ -132,28 +127,36 @@ fn test_channel_cat_forward_cuda() -> Result<()> {
 
     let num_c_tiles = CHUNK_C.div_ceil(BLOCK_SIZE as usize);
     let cfg = CudaLaunchConfig {
-        grid:    [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
-        block:   [BLOCK_SIZE as u32, 1, 1],
+        grid: [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
+        block: [BLOCK_SIZE as u32, 1, 1],
         cluster: [1, 1, 1],
     };
 
     // Chunk 0 → output channels [0, CHUNK_C)
-    device.launch(&program, &cfg, (
-        x0_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        CHUNK_C as i32,
-        C_TOTAL as i32,
-        0i32,           // chunk_offset = 0
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x0_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            CHUNK_C as i32,
+            C_TOTAL as i32,
+            0i32, // chunk_offset = 0
+        ),
+    )?;
 
     // Chunk 1 → output channels [CHUNK_C, C_TOTAL)
-    device.launch(&program, &cfg, (
-        x1_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        CHUNK_C as i32,
-        C_TOTAL as i32,
-        CHUNK_C as i32, // chunk_offset = 16
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x1_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            CHUNK_C as i32,
+            C_TOTAL as i32,
+            CHUNK_C as i32, // chunk_offset = 16
+        ),
+    )?;
 
     let mut y_host = vec![0.0f32; N_ELEM_OUT];
     y_buf.to_host(&mut y_host)?;
@@ -178,14 +181,14 @@ fn test_channel_cat_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host       = load_fixture("channel_cat/dy.bin");
-    let expected_dx0  = load_fixture("channel_cat/expected_dx0.bin");
-    let expected_dx1  = load_fixture("channel_cat/expected_dx1.bin");
+    let dy_host = load_fixture("channel_cat/dy.bin");
+    let expected_dx0 = load_fixture("channel_cat/expected_dx0.bin");
+    let expected_dx1 = load_fixture("channel_cat/expected_dx1.bin");
 
     assert_eq!(dy_host.len(), N_ELEM_OUT);
     assert_eq!(expected_dx0.len(), N_ELEM_CHUNK);
 
-    let mut dy_buf  = device.buffer::<f32>(N_ELEM_OUT)?;
+    let mut dy_buf = device.buffer::<f32>(N_ELEM_OUT)?;
     let dx0_buf = device.buffer::<f32>(N_ELEM_CHUNK)?;
     let dx1_buf = device.buffer::<f32>(N_ELEM_CHUNK)?;
     dy_buf.to_device(&dy_host)?;
@@ -199,28 +202,36 @@ fn test_channel_cat_backward_cuda() -> Result<()> {
 
     let num_c_tiles = CHUNK_C.div_ceil(BLOCK_SIZE as usize);
     let cfg = CudaLaunchConfig {
-        grid:    [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
-        block:   [BLOCK_SIZE as u32, 1, 1],
+        grid: [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
+        block: [BLOCK_SIZE as u32, 1, 1],
         cluster: [1, 1, 1],
     };
 
     // Gradient for chunk 0 (reads dy channels [0, CHUNK_C))
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        dx0_buf.as_device_ptr() as *mut f32,
-        CHUNK_C as i32,
-        C_TOTAL as i32,
-        0i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            dx0_buf.as_device_ptr() as *mut f32,
+            CHUNK_C as i32,
+            C_TOTAL as i32,
+            0i32,
+        ),
+    )?;
 
     // Gradient for chunk 1 (reads dy channels [CHUNK_C, C_TOTAL))
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        dx1_buf.as_device_ptr() as *mut f32,
-        CHUNK_C as i32,
-        C_TOTAL as i32,
-        CHUNK_C as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            dx1_buf.as_device_ptr() as *mut f32,
+            CHUNK_C as i32,
+            C_TOTAL as i32,
+            CHUNK_C as i32,
+        ),
+    )?;
 
     let mut dx0_host = vec![0.0f32; N_ELEM_CHUNK];
     let mut dx1_host = vec![0.0f32; N_ELEM_CHUNK];

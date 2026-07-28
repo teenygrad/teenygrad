@@ -191,11 +191,19 @@ impl<'a> Model<'a> for CudaModel<'a> {
 
 impl<'a> CudaModel<'a> {
     pub fn new(dag: Dag<CompiledNode>) -> Result<Self> {
-        Ok(Self { dag, names: HashMap::new(), _marker: PhantomData })
+        Ok(Self {
+            dag,
+            names: HashMap::new(),
+            _marker: PhantomData,
+        })
     }
 
     pub fn with_names(dag: Dag<CompiledNode>, names: HashMap<usize, String>) -> Result<Self> {
-        Ok(Self { dag, names, _marker: PhantomData })
+        Ok(Self {
+            dag,
+            names,
+            _marker: PhantomData,
+        })
     }
 
     /// Load all compiled PTX kernels into GPU memory and pre-allocate
@@ -210,9 +218,7 @@ impl<'a> CudaModel<'a> {
         let topo = self.dag.topological_sort();
 
         // Snapshot parent lists before consuming the dag.
-        let parents: Vec<Vec<usize>> = (0..n)
-            .map(|i| self.dag.node(i).parents.clone())
-            .collect();
+        let parents: Vec<Vec<usize>> = (0..n).map(|i| self.dag.node(i).parents.clone()).collect();
 
         // Consume the dag into (parents, CompiledNode) pairs.
         let compiled: Vec<CompiledNode> = self.dag.into_iter().map(|node| node.value).collect();
@@ -222,7 +228,8 @@ impl<'a> CudaModel<'a> {
         // Track correctly-computed concrete shapes for each node so that ops whose
         // first dimension is `k * batch_size` (e.g. attention pack/unpack) propagate
         // the true shape rather than the naive `batch_size` substitution.
-        let mut concrete_shapes: Vec<Vec<usize>> = compiled.iter()
+        let mut concrete_shapes: Vec<Vec<usize>> = compiled
+            .iter()
             .map(|cn| resolve_shape(&cn.output_shape, batch_size))
             .collect();
 
@@ -234,13 +241,15 @@ impl<'a> CudaModel<'a> {
             };
 
             // Gather concrete input shapes, using the correctly-propagated shapes.
-            let parent_shapes: Vec<Vec<usize>> = parents[idx].iter()
+            let parent_shapes: Vec<Vec<usize>> = parents[idx]
+                .iter()
                 .map(|&p| concrete_shapes[p].clone())
                 .collect();
             let parent_shape_refs: Vec<&[usize]> =
                 parent_shapes.iter().map(|s| s.as_slice()).collect();
             let raw_output_shape = resolve_shape(&cn.output_shape, batch_size);
-            let output_shape = rop.compute_concrete_output_shape(&parent_shape_refs, &raw_output_shape);
+            let output_shape =
+                rop.compute_concrete_output_shape(&parent_shape_refs, &raw_output_shape);
             concrete_shapes[idx] = output_shape.clone();
 
             // Allocate and zero-init device buffers for each parameter slot.
@@ -275,8 +284,8 @@ impl<'a> CudaModel<'a> {
             #[cfg(feature = "training")]
             let (grad_param_bufs, optim_m_bufs, optim_v_bufs) = {
                 let mut grads = Vec::with_capacity(p_shapes.len());
-                let mut ms    = Vec::with_capacity(p_shapes.len());
-                let mut vs    = Vec::with_capacity(p_shapes.len());
+                let mut ms = Vec::with_capacity(p_shapes.len());
+                let mut vs = Vec::with_capacity(p_shapes.len());
                 for ps in &p_shapes {
                     let n_elems: usize = ps.iter().product();
                     let byte_size = n_elems * dtype_bytes(cn.output_dtype);
@@ -407,7 +416,8 @@ impl LoadedModel {
     /// weight matrix). Use `load_param_f32(node_idx, i, data)` to upload values.
     pub fn param_info(&self) -> impl Iterator<Item = (usize, &[Vec<usize>])> {
         self.nodes.iter().enumerate().filter_map(|(idx, node)| {
-            node.as_ref().filter(|n| !n.param_shapes.is_empty())
+            node.as_ref()
+                .filter(|n| !n.param_shapes.is_empty())
                 .map(|n| (idx, n.param_shapes.as_slice()))
         })
     }
@@ -419,21 +429,25 @@ impl LoadedModel {
     /// node name from the graph with the slot name from the runtime op.
     /// Nodes without a name or without parameters are skipped.
     pub fn param_info_named(&self) -> impl Iterator<Item = (String, usize, usize)> + '_ {
-        self.nodes.iter().enumerate().filter_map(|(node_idx, node)| {
-            let n = node.as_ref().filter(|n| !n.param_shapes.is_empty())?;
-            let node_name = self.names.get(&node_idx)?;
-            let slot_names = n.runtime_op.param_names();
-            Some((node_idx, node_name, n, slot_names))
-        }).flat_map(|(node_idx, node_name, n, slot_names)| {
-            (0..n.param_shapes.len()).filter_map(move |param_idx| {
-                let slot = slot_names.get(param_idx).copied().unwrap_or("");
-                if slot.is_empty() {
-                    return None;
-                }
-                let key = format!("{node_name}.{slot}");
-                Some((key, node_idx, param_idx))
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(node_idx, node)| {
+                let n = node.as_ref().filter(|n| !n.param_shapes.is_empty())?;
+                let node_name = self.names.get(&node_idx)?;
+                let slot_names = n.runtime_op.param_names();
+                Some((node_idx, node_name, n, slot_names))
             })
-        })
+            .flat_map(|(node_idx, node_name, n, slot_names)| {
+                (0..n.param_shapes.len()).filter_map(move |param_idx| {
+                    let slot = slot_names.get(param_idx).copied().unwrap_or("");
+                    if slot.is_empty() {
+                        return None;
+                    }
+                    let key = format!("{node_name}.{slot}");
+                    Some((key, node_idx, param_idx))
+                })
+            })
     }
 
     /// Copy `f32` parameter data into a node's pre-allocated device buffer.
@@ -447,9 +461,12 @@ impl LoadedModel {
         param_idx: usize,
         data: &[f32],
     ) -> Result<()> {
-        let node = self.nodes[node_idx].as_ref()
+        let node = self.nodes[node_idx]
+            .as_ref()
             .ok_or_else(|| anyhow!("node {node_idx} is an Input placeholder"))?;
-        let ptr = *node.param_bufs.get(param_idx)
+        let ptr = *node
+            .param_bufs
+            .get(param_idx)
             .ok_or_else(|| anyhow!("node {node_idx} has no param at index {param_idx}"))?;
         unsafe { mem::copy_h_to_d(ptr, data.as_ptr(), data.len()) }
     }
@@ -459,9 +476,12 @@ impl LoadedModel {
     /// Call after `backward` and before `zero_grad`.
     #[cfg(feature = "training")]
     pub fn read_param_grad_f32(&self, node_idx: usize, param_idx: usize) -> Result<Vec<f32>> {
-        let node = self.nodes[node_idx].as_ref()
+        let node = self.nodes[node_idx]
+            .as_ref()
             .ok_or_else(|| anyhow!("node {node_idx} is an Input placeholder"))?;
-        let &ptr = node.grad_param_bufs.get(param_idx)
+        let &ptr = node
+            .grad_param_bufs
+            .get(param_idx)
             .ok_or_else(|| anyhow!("node {node_idx} has no grad param at index {param_idx}"))?;
         let n_elems: usize = node.param_shapes[param_idx].iter().product();
         let mut out = vec![0.0_f32; n_elems];
@@ -501,7 +521,8 @@ impl LoadedModel {
         for &idx in &topo {
             if self.nodes[idx].is_none() {
                 // Input placeholder — assign from caller-provided inputs.
-                let tr = inputs.get(input_cursor)
+                let tr = inputs
+                    .get(input_cursor)
                     .ok_or_else(|| anyhow!("too few inputs: needed >{input_cursor}"))?
                     .clone();
                 ctx[idx] = Some(tr);
@@ -512,14 +533,20 @@ impl LoadedModel {
             let loaded = self.nodes[idx].as_ref().unwrap();
 
             // Gather activation inputs from the context.
-            let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
-                .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
+            let parent_refs: Vec<&TensorRef> = self.parents[idx]
+                .iter()
+                .map(|&p| {
+                    ctx[p]
+                        .as_ref()
+                        .expect("parent must be computed before child")
+                })
                 .collect();
-            let act_input_shapes: Vec<&[usize]> = parent_refs.iter()
-                .map(|tr| tr.shape.as_slice())
-                .collect();
+            let act_input_shapes: Vec<&[usize]> =
+                parent_refs.iter().map(|tr| tr.shape.as_slice()).collect();
             let raw_output_shape = resolve_shape(&loaded.output_shape, batch_size);
-            let output_shape = loaded.runtime_op.compute_concrete_output_shape(&act_input_shapes, &raw_output_shape);
+            let output_shape = loaded
+                .runtime_op
+                .compute_concrete_output_shape(&act_input_shapes, &raw_output_shape);
 
             // Allocate tight output buffer.
             let n_elems: usize = output_shape.iter().product();
@@ -537,18 +564,23 @@ impl LoadedModel {
             let (kernel_out_ptr, padded_out) = if required_stride > natural_stride {
                 let padded_bytes = n_rows * required_stride * elem_bytes;
                 let padded = mem::alloc(padded_bytes)?;
-                unsafe { cuda::cuMemsetD8_v2(padded, 0, padded_bytes); }
+                unsafe {
+                    cuda::cuMemsetD8_v2(padded, 0, padded_bytes);
+                }
                 (padded, Some(padded))
             } else {
                 (out_ptr, None)
             };
 
             // Build arg inputs: (raw ptr, concrete shape slice).
-            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs.iter()
+            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs
+                .iter()
                 .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
                 .collect();
 
-            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
+            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded
+                .param_bufs
+                .iter()
                 .map(|&p| p as *mut core::ffi::c_void)
                 .collect();
 
@@ -565,28 +597,53 @@ impl LoadedModel {
                 let mut packer = CudaArgPacker::new();
                 if n_launches == 1 {
                     loaded.runtime_op.pack_args(
-                        &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                        &act_inputs,
+                        &param_ptrs,
+                        out_raw,
+                        &output_shape,
+                        required_stride as i32,
+                        &mut packer,
                     );
                 } else {
                     loaded.runtime_op.pack_args_for_launch(
-                        launch_idx, &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                        launch_idx,
+                        &act_inputs,
+                        &param_ptrs,
+                        out_raw,
+                        &output_shape,
+                        required_stride as i32,
+                        &mut packer,
                     );
                 }
                 let grid = if n_launches == 1 {
                     loaded.runtime_op.grid(&output_shape)
                 } else {
-                    loaded.runtime_op.grid_for_launch(launch_idx, &input_shapes, &output_shape)
+                    loaded
+                        .runtime_op
+                        .grid_for_launch(launch_idx, &input_shapes, &output_shape)
                 };
-                last_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
-                if last_result.is_err() { break; }
+                last_result = device.launch_with_packer(
+                    &loaded.program,
+                    &CudaLaunchConfig {
+                        grid,
+                        block,
+                        cluster,
+                    },
+                    &mut packer,
+                );
+                if last_result.is_err() {
+                    break;
+                }
             }
 
             // Copy valid rows from padded output back to tight buffer, then free padded.
             if let Some(padded) = padded_out {
                 if last_result.is_ok() {
                     mem::copy_rows_d_to_d(
-                        out_ptr, natural_stride * elem_bytes,
-                        padded, required_stride * elem_bytes,
+                        out_ptr,
+                        natural_stride * elem_bytes,
+                        padded,
+                        required_stride * elem_bytes,
                         natural_stride * elem_bytes,
                         n_rows,
                     )?;
@@ -599,7 +656,8 @@ impl LoadedModel {
         }
 
         let last_idx = *topo.last().ok_or_else(|| anyhow!("empty model"))?;
-        let result = ctx[last_idx].clone()
+        let result = ctx[last_idx]
+            .clone()
             .ok_or_else(|| anyhow!("last node produced no output"))?;
 
         // Free all intermediate buffers except the output of the last node.
@@ -637,7 +695,8 @@ impl LoadedModel {
 
         for &idx in &topo {
             if self.nodes[idx].is_none() {
-                let tr = inputs.get(input_cursor)
+                let tr = inputs
+                    .get(input_cursor)
                     .ok_or_else(|| anyhow!("too few inputs: needed >{input_cursor}"))?
                     .clone();
                 ctx[idx] = Some(tr);
@@ -647,19 +706,29 @@ impl LoadedModel {
 
             let loaded = self.nodes[idx].as_ref().unwrap();
 
-            let parent_refs: Vec<&TensorRef> = self.parents[idx].iter()
-                .map(|&p| ctx[p].as_ref().expect("parent must be computed before child"))
+            let parent_refs: Vec<&TensorRef> = self.parents[idx]
+                .iter()
+                .map(|&p| {
+                    ctx[p]
+                        .as_ref()
+                        .expect("parent must be computed before child")
+                })
                 .collect();
-            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs.iter()
+            let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_refs
+                .iter()
                 .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
                 .collect();
-            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
+            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded
+                .param_bufs
+                .iter()
                 .map(|&p| p as *mut core::ffi::c_void)
                 .collect();
 
             let input_shapes: Vec<&[usize]> = act_inputs.iter().map(|(_, s)| *s).collect();
             let raw_output_shape = resolve_shape(&loaded.output_shape, batch_size);
-            let output_shape = loaded.runtime_op.compute_concrete_output_shape(&input_shapes, &raw_output_shape);
+            let output_shape = loaded
+                .runtime_op
+                .compute_concrete_output_shape(&input_shapes, &raw_output_shape);
 
             let n_elems: usize = output_shape.iter().product();
             let elem_bytes = dtype_bytes(loaded.output_dtype);
@@ -674,7 +743,9 @@ impl LoadedModel {
             let (kernel_out_ptr, padded_out) = if required_stride > natural_stride {
                 let padded_bytes = n_rows * required_stride * elem_bytes;
                 let padded = mem::alloc(padded_bytes)?;
-                unsafe { cuda::cuMemsetD8_v2(padded, 0, padded_bytes); }
+                unsafe {
+                    cuda::cuMemsetD8_v2(padded, 0, padded_bytes);
+                }
                 (padded, Some(padded))
             } else {
                 (out_ptr, None)
@@ -690,27 +761,52 @@ impl LoadedModel {
                 let mut packer = CudaArgPacker::new();
                 if n_launches == 1 {
                     loaded.runtime_op.pack_args(
-                        &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                        &act_inputs,
+                        &param_ptrs,
+                        out_raw,
+                        &output_shape,
+                        required_stride as i32,
+                        &mut packer,
                     );
                 } else {
                     loaded.runtime_op.pack_args_for_launch(
-                        launch_idx, &act_inputs, &param_ptrs, out_raw, &output_shape, required_stride as i32, &mut packer,
+                        launch_idx,
+                        &act_inputs,
+                        &param_ptrs,
+                        out_raw,
+                        &output_shape,
+                        required_stride as i32,
+                        &mut packer,
                     );
                 }
                 let grid = if n_launches == 1 {
                     loaded.runtime_op.grid(&output_shape)
                 } else {
-                    loaded.runtime_op.grid_for_launch(launch_idx, &input_shapes, &output_shape)
+                    loaded
+                        .runtime_op
+                        .grid_for_launch(launch_idx, &input_shapes, &output_shape)
                 };
-                launch_result = device.launch_with_packer(&loaded.program, &CudaLaunchConfig { grid, block, cluster }, &mut packer);
-                if launch_result.is_err() { break; }
+                launch_result = device.launch_with_packer(
+                    &loaded.program,
+                    &CudaLaunchConfig {
+                        grid,
+                        block,
+                        cluster,
+                    },
+                    &mut packer,
+                );
+                if launch_result.is_err() {
+                    break;
+                }
             }
 
             if let Some(padded) = padded_out {
                 if launch_result.is_ok() {
                     mem::copy_rows_d_to_d(
-                        out_ptr, natural_stride * elem_bytes,
-                        padded, required_stride * elem_bytes,
+                        out_ptr,
+                        natural_stride * elem_bytes,
+                        padded,
+                        required_stride * elem_bytes,
                         natural_stride * elem_bytes,
                         n_rows,
                     )?;
@@ -723,12 +819,12 @@ impl LoadedModel {
         }
 
         let last_idx = *topo.last().ok_or_else(|| anyhow!("empty model"))?;
-        let output = ctx[last_idx].clone()
+        let output = ctx[last_idx]
+            .clone()
             .ok_or_else(|| anyhow!("last node produced no output"))?;
 
         Ok((output, ActivationCache { tensors: ctx }))
     }
-
 
     /// Zero all parameter gradient buffers. Call before each backward pass.
     #[cfg(feature = "training")]
@@ -736,7 +832,9 @@ impl LoadedModel {
         for node in self.nodes.iter().flatten() {
             for (&gp, ps) in node.grad_param_bufs.iter().zip(node.param_shapes.iter()) {
                 let byte_size = ps.iter().product::<usize>() * dtype_bytes(node.output_dtype);
-                unsafe { cuda::cuMemsetD8_v2(gp, 0, byte_size); }
+                unsafe {
+                    cuda::cuMemsetD8_v2(gp, 0, byte_size);
+                }
             }
         }
     }
@@ -763,29 +861,35 @@ impl LoadedModel {
         let bias_corr2_sqrt = bias_correction2.sqrt();
 
         for node in self.nodes.iter().flatten() {
-            if node.param_bufs.is_empty() { continue; }
+            if node.param_bufs.is_empty() {
+                continue;
+            }
             for i in 0..node.param_bufs.len() {
                 let n_elems: usize = node.param_shapes[i].iter().product();
                 let mut packer = CudaArgPacker::new();
-                packer.visit_ptr(node.param_bufs[i] as *mut core::ffi::c_void);      // params_ptr
+                packer.visit_ptr(node.param_bufs[i] as *mut core::ffi::c_void); // params_ptr
                 packer.visit_ptr(node.grad_param_bufs[i] as *mut core::ffi::c_void); // grad_ptr
-                packer.visit_ptr(node.optim_m_bufs[i] as *mut core::ffi::c_void);    // exp_avg_ptr
-                packer.visit_ptr(node.optim_v_bufs[i] as *mut core::ffi::c_void);    // exp_avg_sq_ptr
-                packer.visit_i32(n_elems as i32);   // n_elements
-                packer.visit_f32(step_size);         // step_size
-                packer.visit_f32(bias_corr2_sqrt);   // bias_corr2_sqrt
-                packer.visit_f32(beta1);             // beta1
-                packer.visit_f32(beta2);             // beta2
-                packer.visit_f32(eps);               // eps
-                packer.visit_f32(weight_decay);      // weight_decay
-                packer.visit_f32(lr);                // lr
+                packer.visit_ptr(node.optim_m_bufs[i] as *mut core::ffi::c_void); // exp_avg_ptr
+                packer.visit_ptr(node.optim_v_bufs[i] as *mut core::ffi::c_void); // exp_avg_sq_ptr
+                packer.visit_i32(n_elems as i32); // n_elements
+                packer.visit_f32(step_size); // step_size
+                packer.visit_f32(bias_corr2_sqrt); // bias_corr2_sqrt
+                packer.visit_f32(beta1); // beta1
+                packer.visit_f32(beta2); // beta2
+                packer.visit_f32(eps); // eps
+                packer.visit_f32(weight_decay); // weight_decay
+                packer.visit_f32(lr); // lr
 
                 let threads = kernel.program.metadata.threads_per_block();
                 let grid = [n_elems.div_ceil(threads as usize) as u32, 1, 1];
                 let block = [threads, 1, 1];
                 device.launch_with_packer(
                     &kernel.program,
-                    &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] },
+                    &CudaLaunchConfig {
+                        grid,
+                        block,
+                        cluster: [1, 1, 1],
+                    },
                     &mut packer,
                 )?;
             }
@@ -821,7 +925,8 @@ impl LoadedModel {
     pub fn terminal_node_indices_sorted_by_size(&self) -> Vec<usize> {
         let mut terminals = self.terminal_node_indices();
         terminals.sort_by_key(|&i| {
-            self.nodes[i].as_ref()
+            self.nodes[i]
+                .as_ref()
                 .map(|n| n.output_shape.iter().filter_map(|&d| d).product::<usize>())
                 .unwrap_or(0)
         });
@@ -859,7 +964,9 @@ impl LoadedModel {
     ) -> Result<()> {
         // Lazy-compile the gradient accumulation kernel on first use.
         if self.accum_program.is_none() {
-            self.accum_program = Some(CudaProgram::<ErasedKernel>::try_from_ptx(GRAD_ACCUM_F32_PTX)?);
+            self.accum_program = Some(CudaProgram::<ErasedKernel>::try_from_ptx(
+                GRAD_ACCUM_F32_PTX,
+            )?);
         }
 
         let n = self.nodes.len();
@@ -894,23 +1001,33 @@ impl LoadedModel {
                 };
 
                 let output_shape = resolve_shape(&loaded.output_shape, batch_size);
-                let node_out_ptr = cache.tensors[idx].as_ref()
+                let node_out_ptr = cache.tensors[idx]
+                    .as_ref()
                     .ok_or_else(|| anyhow!("activation cache missing for node {idx}"))?
                     .ptr;
 
                 // Gather parent activation refs from cache.
-                let parent_trs: Vec<&TensorRef> = parent_indices.iter()
-                    .map(|&p| cache.tensors[p].as_ref()
-                        .expect("activation cache must have parent activation"))
+                let parent_trs: Vec<&TensorRef> = parent_indices
+                    .iter()
+                    .map(|&p| {
+                        cache.tensors[p]
+                            .as_ref()
+                            .expect("activation cache must have parent activation")
+                    })
                     .collect();
 
-                let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_trs.iter()
+                let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = parent_trs
+                    .iter()
                     .map(|tr| (tr.ptr as *mut core::ffi::c_void, tr.shape.as_slice()))
                     .collect();
-                let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs.iter()
+                let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded
+                    .param_bufs
+                    .iter()
                     .map(|&p| p as *mut core::ffi::c_void)
                     .collect();
-                let grad_param_rawptrs: Vec<teeny_core::model::RawPtr> = loaded.grad_param_bufs.iter()
+                let grad_param_rawptrs: Vec<teeny_core::model::RawPtr> = loaded
+                    .grad_param_bufs
+                    .iter()
                     .map(|&p| p as *mut core::ffi::c_void)
                     .collect();
 
@@ -920,34 +1037,42 @@ impl LoadedModel {
                     let n_elems: usize = tr.shape.iter().product();
                     let byte_size = n_elems * dtype_bytes(loaded.output_dtype);
                     let gptr = mem::alloc(byte_size)?;
-                    unsafe { cuda::cuMemsetD8_v2(gptr, 0, byte_size); }
+                    unsafe {
+                        cuda::cuMemsetD8_v2(gptr, 0, byte_size);
+                    }
                     grad_input_ptrs.push(gptr);
                     owned_grad_ptrs.push(gptr);
                 }
 
-                let grad_input_rawptrs: Vec<teeny_core::model::RawPtr> = grad_input_ptrs.iter()
+                let grad_input_rawptrs: Vec<teeny_core::model::RawPtr> = grad_input_ptrs
+                    .iter()
                     .map(|&p| p as *mut core::ffi::c_void)
                     .collect();
 
-                let input_shapes: Vec<&[usize]> = parent_trs.iter()
-                    .map(|tr| tr.shape.as_slice())
-                    .collect();
+                let input_shapes: Vec<&[usize]> =
+                    parent_trs.iter().map(|tr| tr.shape.as_slice()).collect();
 
                 // Some kernels (e.g. linear_backward) use TMA, which requires
                 // 16-byte aligned row strides.  If the natural stride is too
                 // small, allocate a zero-padded copy and use the padded stride.
                 let natural_stride = output_shape.last().copied().unwrap_or(1);
-                let required_stride = loaded.runtime_op.backward_grad_output_row_stride(&output_shape);
+                let required_stride = loaded
+                    .runtime_op
+                    .backward_grad_output_row_stride(&output_shape);
                 let elem_bytes = dtype_bytes(loaded.output_dtype);
                 let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
 
                 let (dy_ptr, padded_dy) = if required_stride > natural_stride {
                     let padded_bytes = n_rows * required_stride * elem_bytes;
                     let padded = mem::alloc(padded_bytes)?;
-                    unsafe { cuda::cuMemsetD8_v2(padded, 0, padded_bytes); }
+                    unsafe {
+                        cuda::cuMemsetD8_v2(padded, 0, padded_bytes);
+                    }
                     mem::copy_rows_d_to_d(
-                        padded, required_stride * elem_bytes,
-                        grad_in_ptr, natural_stride * elem_bytes,
+                        padded,
+                        required_stride * elem_bytes,
+                        grad_in_ptr,
+                        natural_stride * elem_bytes,
                         natural_stride * elem_bytes,
                         n_rows,
                     )?;
@@ -967,22 +1092,53 @@ impl LoadedModel {
                     let mut packer = CudaArgPacker::new();
                     if n_bwd_launches == 1 {
                         loaded.runtime_op.pack_backward_args(
-                            &act_inputs, &param_ptrs, node_out_raw, &output_shape,
-                            dy_raw, required_stride as i32, &grad_input_rawptrs, &grad_param_rawptrs, &mut packer,
+                            &act_inputs,
+                            &param_ptrs,
+                            node_out_raw,
+                            &output_shape,
+                            dy_raw,
+                            required_stride as i32,
+                            &grad_input_rawptrs,
+                            &grad_param_rawptrs,
+                            &mut packer,
                         );
                     } else {
                         loaded.runtime_op.pack_backward_args_for_launch(
-                            launch_idx, &act_inputs, &param_ptrs, node_out_raw, &output_shape,
-                            dy_raw, required_stride as i32, &grad_input_rawptrs, &grad_param_rawptrs, &mut packer,
+                            launch_idx,
+                            &act_inputs,
+                            &param_ptrs,
+                            node_out_raw,
+                            &output_shape,
+                            dy_raw,
+                            required_stride as i32,
+                            &grad_input_rawptrs,
+                            &grad_param_rawptrs,
+                            &mut packer,
                         );
                     }
                     let grid = if n_bwd_launches == 1 {
-                        loaded.runtime_op.backward_grid(&input_shapes, &output_shape)
+                        loaded
+                            .runtime_op
+                            .backward_grid(&input_shapes, &output_shape)
                     } else {
-                        loaded.runtime_op.backward_grid_for_launch(launch_idx, &input_shapes, &output_shape)
+                        loaded.runtime_op.backward_grid_for_launch(
+                            launch_idx,
+                            &input_shapes,
+                            &output_shape,
+                        )
                     };
-                    bwd_result = device.launch_with_packer(bwd_prog, &CudaLaunchConfig { grid, block: bwd_block, cluster: bwd_cluster }, &mut packer);
-                    if bwd_result.is_err() { break; }
+                    bwd_result = device.launch_with_packer(
+                        bwd_prog,
+                        &CudaLaunchConfig {
+                            grid,
+                            block: bwd_block,
+                            cluster: bwd_cluster,
+                        },
+                        &mut packer,
+                    );
+                    if bwd_result.is_err() {
+                        break;
+                    }
                 }
 
                 // Free the padded dy buffer after the (synchronous) launch completes.
@@ -1017,8 +1173,17 @@ impl LoadedModel {
 
     /// In-place GPU accumulation: `dst[i] += src[i]` for `n_elems` f32 values.
     #[cfg(feature = "training")]
-    fn accum_grad_f32(&self, device: &CudaDevice<'_>, dst: DevicePtr, src: DevicePtr, n_elems: usize) -> Result<()> {
-        let prog = self.accum_program.as_ref().expect("accum_program must be initialised before calling accum_grad_f32");
+    fn accum_grad_f32(
+        &self,
+        device: &CudaDevice<'_>,
+        dst: DevicePtr,
+        src: DevicePtr,
+        n_elems: usize,
+    ) -> Result<()> {
+        let prog = self
+            .accum_program
+            .as_ref()
+            .expect("accum_program must be initialised before calling accum_grad_f32");
         let threads: u32 = prog.metadata.threads_per_block();
         let grid = [n_elems.div_ceil(threads as usize) as u32, 1, 1];
         let block = [threads, 1, 1];
@@ -1026,7 +1191,15 @@ impl LoadedModel {
         packer.visit_ptr(dst as *mut core::ffi::c_void);
         packer.visit_ptr(src as *mut core::ffi::c_void);
         packer.visit_i32(n_elems as i32);
-        device.launch_with_packer(prog, &CudaLaunchConfig { grid, block, cluster: [1, 1, 1] }, &mut packer)
+        device.launch_with_packer(
+            prog,
+            &CudaLaunchConfig {
+                grid,
+                block,
+                cluster: [1, 1, 1],
+            },
+            &mut packer,
+        )
     }
 
     /// Capture a fixed-batch CUDA graph for low-overhead repeated inference.
@@ -1075,8 +1248,9 @@ impl LoadedModel {
                     .map(|&p| concrete_shapes[p].as_slice())
                     .collect();
                 let raw = resolve_shape(&loaded.output_shape, batch_size);
-                concrete_shapes[idx] =
-                    loaded.runtime_op.compute_concrete_output_shape(&parent_shapes, &raw);
+                concrete_shapes[idx] = loaded
+                    .runtime_op
+                    .compute_concrete_output_shape(&parent_shapes, &raw);
             }
         }
 
@@ -1120,7 +1294,13 @@ impl LoadedModel {
                 let padded_ptr = mem::alloc(padded_bytes)?;
                 unsafe { cuda::cuMemsetD8_v2(padded_ptr, 0, padded_bytes) };
                 owned.push(padded_ptr);
-                node_padded[idx] = Some((padded_ptr, natural_stride, required_stride, n_rows, elem_bytes));
+                node_padded[idx] = Some((
+                    padded_ptr,
+                    natural_stride,
+                    required_stride,
+                    n_rows,
+                    elem_bytes,
+                ));
             }
 
             // Global scratch pad for TMA descriptors.
@@ -1140,7 +1320,9 @@ impl LoadedModel {
         {
             let s = unsafe { cuda::cuStreamCreate(&mut stream, 0) };
             if s != cuda::cudaError_enum_CUDA_SUCCESS {
-                for &p in &owned { let _ = mem::free(p); }
+                for &p in &owned {
+                    let _ = mem::free(p);
+                }
                 return Err(Error::from_cuda_error(s).into());
             }
         }
@@ -1154,7 +1336,9 @@ impl LoadedModel {
             };
             if s != cuda::cudaError_enum_CUDA_SUCCESS {
                 unsafe { cuda::cuStreamDestroy_v2(stream) };
-                for &p in &owned { let _ = mem::free(p); }
+                for &p in &owned {
+                    let _ = mem::free(p);
+                }
                 return Err(Error::from_cuda_error(s).into());
             }
         }
@@ -1162,14 +1346,22 @@ impl LoadedModel {
         // ── Phase 4: record kernels into the capture stream ──────────────────
         let mut capture_err: Option<anyhow::Error> = None;
         'capture: for &idx in &topo {
-            let Some(loaded) = self.nodes[idx].as_ref() else { continue };
+            let Some(loaded) = self.nodes[idx].as_ref() else {
+                continue;
+            };
             let output_shape = &concrete_shapes[idx];
 
             let act_inputs: Vec<(teeny_core::model::RawPtr, &[usize])> = self.parents[idx]
                 .iter()
-                .map(|&p| (node_out_bufs[p] as *mut core::ffi::c_void, concrete_shapes[p].as_slice()))
+                .map(|&p| {
+                    (
+                        node_out_bufs[p] as *mut core::ffi::c_void,
+                        concrete_shapes[p].as_slice(),
+                    )
+                })
                 .collect();
-            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded.param_bufs
+            let param_ptrs: Vec<teeny_core::model::RawPtr> = loaded
+                .param_bufs
                 .iter()
                 .map(|&p| p as *mut core::ffi::c_void)
                 .collect();
@@ -1193,7 +1385,9 @@ impl LoadedModel {
                 let grid = loaded.runtime_op.grid(output_shape);
                 let num_ctas = (grid[0] * grid[1] * grid[2]) as u64;
                 let scratch_total = loaded.program.metadata.global_scratch_size * num_ctas;
-                let s = unsafe { cuda::cuMemsetD8Async(scratch_ptr, 0, scratch_total as usize, stream) };
+                let s = unsafe {
+                    cuda::cuMemsetD8Async(scratch_ptr, 0, scratch_total as usize, stream)
+                };
                 if s != cuda::cudaError_enum_CUDA_SUCCESS {
                     capture_err = Some(Error::from_cuda_error(s).into());
                     break 'capture;
@@ -1204,13 +1398,22 @@ impl LoadedModel {
                 let mut packer = CudaArgPacker::new();
                 if n_launches == 1 {
                     loaded.runtime_op.pack_args(
-                        &act_inputs, &param_ptrs, kernel_out_raw, output_shape,
-                        required_stride as i32, &mut packer,
+                        &act_inputs,
+                        &param_ptrs,
+                        kernel_out_raw,
+                        output_shape,
+                        required_stride as i32,
+                        &mut packer,
                     );
                 } else {
                     loaded.runtime_op.pack_args_for_launch(
-                        launch_idx, &act_inputs, &param_ptrs, kernel_out_raw, output_shape,
-                        required_stride as i32, &mut packer,
+                        launch_idx,
+                        &act_inputs,
+                        &param_ptrs,
+                        kernel_out_raw,
+                        output_shape,
+                        required_stride as i32,
+                        &mut packer,
                     );
                 }
                 // Triton trailing args: global scratch pad + profile scratch pad.
@@ -1220,10 +1423,17 @@ impl LoadedModel {
                 let grid = if n_launches == 1 {
                     loaded.runtime_op.grid(output_shape)
                 } else {
-                    loaded.runtime_op.grid_for_launch(launch_idx, &input_shapes_ref, output_shape)
+                    loaded
+                        .runtime_op
+                        .grid_for_launch(launch_idx, &input_shapes_ref, output_shape)
                 };
-                let cfg = CudaLaunchConfig { grid, block, cluster };
-                if let Err(e) = device.launch_on_stream(&loaded.program, &cfg, &mut packer, stream) {
+                let cfg = CudaLaunchConfig {
+                    grid,
+                    block,
+                    cluster,
+                };
+                if let Err(e) = device.launch_on_stream(&loaded.program, &cfg, &mut packer, stream)
+                {
                     capture_err = Some(e);
                     break 'capture;
                 }
@@ -1259,18 +1469,26 @@ impl LoadedModel {
         if let Some(err) = capture_err {
             // A kernel record step failed — discard the partial graph.
             unsafe {
-                if !graph.is_null() { cuda::cuGraphDestroy(graph); }
+                if !graph.is_null() {
+                    cuda::cuGraphDestroy(graph);
+                }
                 cuda::cuStreamDestroy_v2(stream);
             }
-            for &p in &owned { let _ = mem::free(p); }
+            for &p in &owned {
+                let _ = mem::free(p);
+            }
             return Err(err);
         }
         if end_s != cuda::cudaError_enum_CUDA_SUCCESS {
             unsafe {
-                if !graph.is_null() { cuda::cuGraphDestroy(graph); }
+                if !graph.is_null() {
+                    cuda::cuGraphDestroy(graph);
+                }
                 cuda::cuStreamDestroy_v2(stream);
             }
-            for &p in &owned { let _ = mem::free(p); }
+            for &p in &owned {
+                let _ = mem::free(p);
+            }
             return Err(Error::from_cuda_error(end_s).into());
         }
 
@@ -1279,22 +1497,37 @@ impl LoadedModel {
         unsafe { cuda::cuGraphDestroy(graph) };
         if inst_s != cuda::cudaError_enum_CUDA_SUCCESS {
             unsafe { cuda::cuStreamDestroy_v2(stream) };
-            for &p in &owned { let _ = mem::free(p); }
+            for &p in &owned {
+                let _ = mem::free(p);
+            }
             return Err(Error::from_cuda_error(inst_s).into());
         }
 
         if output_node_indices.is_empty() {
-            unsafe { cuda::cuStreamDestroy_v2(stream); }
-            for &p in &owned { let _ = mem::free(p); }
-            return Err(anyhow!("capture_graph: output_node_indices must not be empty"));
+            unsafe {
+                cuda::cuStreamDestroy_v2(stream);
+            }
+            for &p in &owned {
+                let _ = mem::free(p);
+            }
+            return Err(anyhow!(
+                "capture_graph: output_node_indices must not be empty"
+            ));
         }
-        let mut output_bufs: Vec<(DevicePtr, usize)> = Vec::with_capacity(output_node_indices.len());
+        let mut output_bufs: Vec<(DevicePtr, usize)> =
+            Vec::with_capacity(output_node_indices.len());
         let mut output_shapes: Vec<Vec<usize>> = Vec::with_capacity(output_node_indices.len());
         for &oi in output_node_indices {
             if oi >= self.nodes.len() || self.nodes[oi].is_none() {
-                unsafe { cuda::cuStreamDestroy_v2(stream); }
-                for &p in &owned { let _ = mem::free(p); }
-                return Err(anyhow!("capture_graph: output node {oi} is an Input or out of bounds"));
+                unsafe {
+                    cuda::cuStreamDestroy_v2(stream);
+                }
+                for &p in &owned {
+                    let _ = mem::free(p);
+                }
+                return Err(anyhow!(
+                    "capture_graph: output node {oi} is an Input or out of bounds"
+                ));
             }
             let shape = concrete_shapes[oi].clone();
             let n_elems: usize = shape.iter().product();
@@ -1311,9 +1544,17 @@ impl LoadedModel {
             match mem::alloc_host::<f32>(n_elems) {
                 Ok(ptr) => pinned_inputs.push(ptr),
                 Err(e) => {
-                    unsafe { cuda::cuStreamDestroy_v2(stream); }
-                    for &p in &owned { let _ = mem::free(p); }
-                    for &p in &pinned_inputs { unsafe { let _ = mem::free_host(p); } }
+                    unsafe {
+                        cuda::cuStreamDestroy_v2(stream);
+                    }
+                    for &p in &owned {
+                        let _ = mem::free(p);
+                    }
+                    for &p in &pinned_inputs {
+                        unsafe {
+                            let _ = mem::free_host(p);
+                        }
+                    }
                     return Err(e);
                 }
             }
@@ -1323,10 +1564,22 @@ impl LoadedModel {
             match mem::alloc_host::<f32>(n_elems) {
                 Ok(ptr) => pinned_outputs.push(ptr),
                 Err(e) => {
-                    unsafe { cuda::cuStreamDestroy_v2(stream); }
-                    for &p in &owned { let _ = mem::free(p); }
-                    for &p in &pinned_inputs { unsafe { let _ = mem::free_host(p); } }
-                    for &p in &pinned_outputs { unsafe { let _ = mem::free_host(p); } }
+                    unsafe {
+                        cuda::cuStreamDestroy_v2(stream);
+                    }
+                    for &p in &owned {
+                        let _ = mem::free(p);
+                    }
+                    for &p in &pinned_inputs {
+                        unsafe {
+                            let _ = mem::free_host(p);
+                        }
+                    }
+                    for &p in &pinned_outputs {
+                        unsafe {
+                            let _ = mem::free_host(p);
+                        }
+                    }
                     return Err(e);
                 }
             }
@@ -1359,7 +1612,9 @@ impl LoadedModel {
             order.push(id);
             for &dep in &dependents[id] {
                 in_deg[dep] -= 1;
-                if in_deg[dep] == 0 { stack.push(dep); }
+                if in_deg[dep] == 0 {
+                    stack.push(dep);
+                }
             }
         }
         order
@@ -1395,19 +1650,19 @@ impl Drop for ActivationCache {
 /// pre-allocated; the kernel sequence is captured once and replayed on each
 /// [`run`] call with a single `cuGraphLaunch` + `cuStreamSynchronize`.
 pub struct CudaGraphModel {
-    stream:          cuda::CUstream,
-    graph_exec:      cuda::CUgraphExec,
+    stream: cuda::CUstream,
+    graph_exec: cuda::CUgraphExec,
     /// Pre-allocated input buffers (one per `Input` node, topological order).
-    input_bufs:      Vec<(DevicePtr, usize)>,
+    input_bufs: Vec<(DevicePtr, usize)>,
     /// Pre-allocated output buffers, in the order of `output_node_indices`.
-    output_bufs:     Vec<(DevicePtr, usize)>,
-    output_shapes:   Vec<Vec<usize>>,
+    output_bufs: Vec<(DevicePtr, usize)>,
+    output_shapes: Vec<Vec<usize>>,
     /// Page-locked (pinned) staging buffers for inputs — one per `input_bufs`
     /// entry. Pinned memory enables direct DMA, avoiding the driver's internal
     /// pageable staging bounce and achieving full PCIe bandwidth.
-    pinned_inputs:   Vec<*mut f32>,
+    pinned_inputs: Vec<*mut f32>,
     /// Page-locked (pinned) staging buffers for outputs — one per `output_bufs`.
-    pinned_outputs:  Vec<*mut f32>,
+    pinned_outputs: Vec<*mut f32>,
     /// All owned device allocations freed on drop.
     _owned: Vec<DevicePtr>,
 }
@@ -1447,11 +1702,11 @@ impl CudaGraphModel {
 
         // Create CUDA events to measure GPU kernel time.
         let mut ev_start = cuda::CUevent::default();
-        let mut ev_end   = cuda::CUevent::default();
+        let mut ev_end = cuda::CUevent::default();
         let cu_event_default = 0u32;
         unsafe {
             cuda::cuEventCreate(&mut ev_start, cu_event_default);
-            cuda::cuEventCreate(&mut ev_end,   cu_event_default);
+            cuda::cuEventCreate(&mut ev_end, cu_event_default);
             cuda::cuEventRecord(ev_start, self.stream);
         }
 
@@ -1464,7 +1719,9 @@ impl CudaGraphModel {
             return Err(Error::from_cuda_error(launch_s).into());
         }
 
-        unsafe { cuda::cuEventRecord(ev_end, self.stream); }
+        unsafe {
+            cuda::cuEventRecord(ev_end, self.stream);
+        }
 
         let sync_s = unsafe { cuda::cuEventSynchronize(ev_end) };
         if sync_s != cuda::cudaError_enum_CUDA_SUCCESS {
@@ -1580,24 +1837,32 @@ impl CudaGraphModel {
         }
 
         let mut ev_start = cuda::CUevent::default();
-        let mut ev_end   = cuda::CUevent::default();
+        let mut ev_end = cuda::CUevent::default();
         unsafe {
             cuda::cuEventCreate(&mut ev_start, 0);
-            cuda::cuEventCreate(&mut ev_end,   0);
+            cuda::cuEventCreate(&mut ev_end, 0);
             cuda::cuEventRecord(ev_start, self.stream);
         }
 
         let launch_s = unsafe { cuda::cuGraphLaunch(self.graph_exec, self.stream) };
         if launch_s != cuda::cudaError_enum_CUDA_SUCCESS {
-            unsafe { cuda::cuEventDestroy_v2(ev_start); cuda::cuEventDestroy_v2(ev_end); }
+            unsafe {
+                cuda::cuEventDestroy_v2(ev_start);
+                cuda::cuEventDestroy_v2(ev_end);
+            }
             return Err(Error::from_cuda_error(launch_s).into());
         }
 
-        unsafe { cuda::cuEventRecord(ev_end, self.stream); }
+        unsafe {
+            cuda::cuEventRecord(ev_end, self.stream);
+        }
 
         let sync_s = unsafe { cuda::cuEventSynchronize(ev_end) };
         if sync_s != cuda::cudaError_enum_CUDA_SUCCESS {
-            unsafe { cuda::cuEventDestroy_v2(ev_start); cuda::cuEventDestroy_v2(ev_end); }
+            unsafe {
+                cuda::cuEventDestroy_v2(ev_start);
+                cuda::cuEventDestroy_v2(ev_end);
+            }
             return Err(Error::from_cuda_error(sync_s).into());
         }
 

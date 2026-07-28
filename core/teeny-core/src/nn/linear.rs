@@ -52,8 +52,8 @@ impl<D: Dtype, IT, OT, const RANK: usize> Linear<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for Linear<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for Linear<D, IT, OT, RANK>
 {
     type Output = OT;
 

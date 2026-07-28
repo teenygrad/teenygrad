@@ -23,9 +23,7 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{
-    compiler::target::Capability, errors::Result, testing, device::CudaLaunchConfig,
-};
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
 // ── No-padding constants ─────────────────────────────────────────────────────
 const B: usize = 1;
@@ -68,7 +66,9 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_conv2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
+    );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -83,7 +83,9 @@ fn test_conv2d_forward_mlir_output() -> Result<()> {
 fn test_conv2d_backward_dx_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
+    );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -98,7 +100,9 @@ fn test_conv2d_backward_dx_mlir_output() -> Result<()> {
 fn test_conv2d_backward_dw_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
+    );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -132,7 +136,9 @@ fn test_conv2d_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[conv2d_forward] compiled PTX: {ptx_path}");
@@ -197,7 +203,9 @@ fn test_conv2d_backward_dx_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
@@ -261,7 +269,9 @@ fn test_conv2d_backward_dw_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     dy_buf.to_device(&dy_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
@@ -329,7 +339,9 @@ fn test_conv2d_padded_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H_P, PAD_W_P, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H_P, PAD_W_P, 1, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[conv2d_padded_forward] compiled PTX: {ptx_path}");
@@ -394,7 +406,9 @@ fn test_conv2d_padded_backward_dx_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     w_buf.to_device(&w_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H_P, PAD_W_P, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H_P, PAD_W_P, 1, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;
@@ -458,7 +472,9 @@ fn test_conv2d_padded_backward_dw_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
     dy_buf.to_device(&dy_host)?;
 
-    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, PAD_H_P, PAD_W_P, 1, BLOCK_OW);
+    let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, PAD_H_P, PAD_W_P, 1, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     let ptx = std::fs::read(&ptx_path)?;

@@ -45,8 +45,7 @@ pub fn compile_graph<'a, L: Lowering<'a>>(
     cache_dir: &str,
     force: bool,
 ) -> Result<CudaModel<'a>> {
-    let teenyc_path =
-        std::env::var("TEENYC_PATH").unwrap_or_else(|_| "teenyc".to_string());
+    let teenyc_path = std::env::var("TEENYC_PATH").unwrap_or_else(|_| "teenyc".to_string());
 
     let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir.to_string())?;
     if let Some(ptx_version) = options.ptx_version {

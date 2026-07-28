@@ -113,22 +113,34 @@ impl<D: ty::Num> ty::Comparison<D> for LlvmTensor<D> {
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn lt(self, _other: D) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn lt(self, _other: D) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn le(self, _other: D) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn le(self, _other: D) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn gt(self, _other: D) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn gt(self, _other: D) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn ge(self, _other: D) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn ge(self, _other: D) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn eq(self, _other: D) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn eq(self, _other: D) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn ne(self, _other: D) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn ne(self, _other: D) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
 }
 
 impl<D: ty::Num> ty::Comparison<LlvmTensor<D>> for LlvmTensor<D> {
@@ -136,22 +148,34 @@ impl<D: ty::Num> ty::Comparison<LlvmTensor<D>> for LlvmTensor<D> {
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn lt(self, _other: LlvmTensor<D>) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn lt(self, _other: LlvmTensor<D>) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn le(self, _other: LlvmTensor<D>) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn le(self, _other: LlvmTensor<D>) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn gt(self, _other: LlvmTensor<D>) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn gt(self, _other: LlvmTensor<D>) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn ge(self, _other: LlvmTensor<D>) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn ge(self, _other: LlvmTensor<D>) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn eq(self, _other: LlvmTensor<D>) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn eq(self, _other: LlvmTensor<D>) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
-    fn ne(self, _other: LlvmTensor<D>) -> Self::BoolTensor { LlvmTensor(0 as *mut bool) }
+    fn ne(self, _other: LlvmTensor<D>) -> Self::BoolTensor {
+        LlvmTensor(0 as *mut bool)
+    }
 }
 
 impl Add<i32> for LlvmI32Tensor {

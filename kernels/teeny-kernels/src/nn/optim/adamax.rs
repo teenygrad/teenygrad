@@ -55,25 +55,82 @@ pub fn adamax_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p       = T::load(params_ptr.add_offsets(offsets),  Some(mask), None, &[], None, None, None, false);
-    let g       = T::load(grad_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let exp_avg = T::load(exp_avg_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let exp_inf = T::load(exp_inf_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let exp_avg = T::load(
+        exp_avg_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let exp_inf = T::load(
+        exp_inf_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let beta1_t     = T::full(&[BLOCK_SIZE], beta1);
+    let beta1_t = T::full(&[BLOCK_SIZE], beta1);
     let one_m_beta1 = T::full(&[BLOCK_SIZE], 1.0_f32 - beta1);
-    let beta2_t     = T::full(&[BLOCK_SIZE], beta2);
-    let eps_t       = T::full(&[BLOCK_SIZE], eps);
-    let clr_t       = T::full(&[BLOCK_SIZE], clr);
-    let wd_t        = T::full(&[BLOCK_SIZE], weight_decay);
+    let beta2_t = T::full(&[BLOCK_SIZE], beta2);
+    let eps_t = T::full(&[BLOCK_SIZE], eps);
+    let clr_t = T::full(&[BLOCK_SIZE], clr);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let g_eff       = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let exp_avg_new = beta1_t * exp_avg + one_m_beta1 * g_eff;
     // exp_inf = max(beta2 * exp_inf, |g| + eps)
     let exp_inf_new = T::maximum(beta2_t * exp_inf, T::abs(g_eff) + eps_t);
-    let p_new       = p - clr_t * exp_avg_new / exp_inf_new;
+    let p_new = p - clr_t * exp_avg_new / exp_inf_new;
 
-    T::store(params_ptr.add_offsets(offsets),  p_new,       Some(mask), &[], None, None);
-    T::store(exp_avg_ptr.add_offsets(offsets), exp_avg_new, Some(mask), &[], None, None);
-    T::store(exp_inf_ptr.add_offsets(offsets), exp_inf_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        exp_avg_ptr.add_offsets(offsets),
+        exp_avg_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        exp_inf_ptr.add_offsets(offsets),
+        exp_inf_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

@@ -121,24 +121,31 @@ fn test_layer_norm_inference_cuda() -> Result<()> {
     w_buf.to_device(&weight_host)?;
     b_buf.to_device(&bias_host)?;
 
-    let kernel =
-        teeny_kernels::nn::norm::layernorm::LayerNormForwardInference::<f32>::new(BLOCK_N);
+    let kernel = teeny_kernels::nn::norm::layernorm::LayerNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::layernorm::LayerNormForwardInference<f32>,
     >(&ptx)?;
 
-    let cfg = CudaLaunchConfig { grid: [M as u32, 1, 1], block: [PTX_LAUNCH_THREADS_X, 1, 1], cluster: [1, 1, 1] };
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        M as i32,
-        N as i32,
-        EPS,
-    ))?;
+    let cfg = CudaLaunchConfig {
+        grid: [M as u32, 1, 1],
+        block: [PTX_LAUNCH_THREADS_X, 1, 1],
+        cluster: [1, 1, 1],
+    };
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            M as i32,
+            N as i32,
+            EPS,
+        ),
+    )?;
 
     y_buf.to_host(&mut y_host)?;
     for i in 0..M * N {

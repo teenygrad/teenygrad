@@ -27,14 +27,10 @@ use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cu
 use teeny_core::{
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,
-    nn::{activation::sigmoid::Silu, Layer},
+    nn::{Layer, activation::sigmoid::Silu},
 };
 use teeny_cuda::{
-    compiler::graph::CudaGraphCompiler,
-    device::mem,
-    errors::Result,
-    model::TensorRef,
-    testing,
+    compiler::graph::CudaGraphCompiler, device::mem, errors::Result, model::TensorRef, testing,
 };
 use teeny_kernels::graph::TritonLowering;
 
@@ -60,7 +56,8 @@ fn test_cuda_graph_silu_matches_forward() -> Result<()> {
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let lowering = TritonLowering::new();
-    let model = graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
+    let model =
+        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
 
     // ── Load ───────────────────────────────────────────────────────────────
     let loaded = model.load(&env.device, BATCH)?;
@@ -83,12 +80,8 @@ fn test_cuda_graph_silu_matches_forward() -> Result<()> {
 
     // ── Capture CUDA graph ──────────────────────────────────────────────────
     let terminals = loaded.terminal_node_indices_sorted_by_size();
-    let graph_model = loaded.capture_graph(
-        &env.device,
-        BATCH,
-        &[vec![BATCH, FEATURES]],
-        &terminals,
-    )?;
+    let graph_model =
+        loaded.capture_graph(&env.device, BATCH, &[vec![BATCH, FEATURES]], &terminals)?;
     assert_eq!(graph_model.output_shapes()[0], &[BATCH, FEATURES]);
 
     // ── First run: compare against forward reference ───────────────────────
@@ -97,14 +90,19 @@ fn test_cuda_graph_silu_matches_forward() -> Result<()> {
     for i in 0..BATCH * FEATURES {
         assert!(
             (run1[0][i] - reference[i]).abs() < TOL,
-            "run1[{i}]: graph={} forward={}", run1[0][i], reference[i]
+            "run1[{i}]: graph={} forward={}",
+            run1[0][i],
+            reference[i]
         );
     }
 
     // ── Second run: verify deterministic replay ───────────────────────────
     let run2 = graph_model.run(&[x.as_slice()])?;
     for i in 0..BATCH * FEATURES {
-        assert_eq!(run1[0][i], run2[0][i], "run2 differs from run1 at index {i}");
+        assert_eq!(
+            run1[0][i], run2[0][i],
+            "run2 differs from run1 at index {i}"
+        );
     }
 
     // ── Third run with different input ────────────────────────────────────
@@ -112,8 +110,14 @@ fn test_cuda_graph_silu_matches_forward() -> Result<()> {
     let run3 = graph_model.run(&[x2.as_slice()])?;
 
     // Verify run3 differs from run1 (different input → different output).
-    let any_different = run3[0].iter().zip(run1[0].iter()).any(|(a, b)| (a - b).abs() > TOL);
-    assert!(any_different, "run3 should differ from run1 since input changed");
+    let any_different = run3[0]
+        .iter()
+        .zip(run1[0].iter())
+        .any(|(a, b)| (a - b).abs() > TOL);
+    assert!(
+        any_different,
+        "run3 should differ from run1 since input changed"
+    );
 
     Ok(())
 }

@@ -58,38 +58,95 @@ pub fn rprop_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p         = T::load(params_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let g         = T::load(grad_ptr.add_offsets(offsets),      Some(mask), None, &[], None, None, None, false);
-    let prev_g    = T::load(prev_grad_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let step_size = T::load(step_size_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let prev_g = T::load(
+        prev_grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let step_size = T::load(
+        step_size_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let zeros      = T::zeros::<f32>(&[BLOCK_SIZE]);
-    let ones       = T::full(&[BLOCK_SIZE], 1.0_f32);
-    let neg_ones   = T::full(&[BLOCK_SIZE], -1.0_f32);
-    let eta_plus_t  = T::full(&[BLOCK_SIZE], eta_plus);
+    let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
+    let ones = T::full(&[BLOCK_SIZE], 1.0_f32);
+    let neg_ones = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let eta_plus_t = T::full(&[BLOCK_SIZE], eta_plus);
     let eta_minus_t = T::full(&[BLOCK_SIZE], eta_minus);
-    let step_min_t  = T::full(&[BLOCK_SIZE], step_min);
-    let step_max_t  = T::full(&[BLOCK_SIZE], step_max);
+    let step_min_t = T::full(&[BLOCK_SIZE], step_min);
+    let step_max_t = T::full(&[BLOCK_SIZE], step_max);
 
-    let prod      = g * prev_g;
-    let sign_pos  = T::gt(prod, zeros);   // sign > 0: same direction
-    let sign_neg  = T::lt(prod, zeros);   // sign < 0: reversal
+    let prod = g * prev_g;
+    let sign_pos = T::gt(prod, zeros); // sign > 0: same direction
+    let sign_neg = T::lt(prod, zeros); // sign < 0: reversal
 
     // Scale step size based on gradient sign agreement
     let step_after_pos = T::where_(sign_pos, step_size * eta_plus_t, step_size);
-    let step_scaled    = T::where_(sign_neg, step_after_pos * eta_minus_t, step_after_pos);
-    let step_clamped   = T::clamp(step_scaled, step_min_t, step_max_t);
+    let step_scaled = T::where_(sign_neg, step_after_pos * eta_minus_t, step_after_pos);
+    let step_clamped = T::clamp(step_scaled, step_min_t, step_max_t);
 
     // Mask gradient to zero when sign reversal (backtracking: skip update this step)
     let g_masked = T::where_(sign_neg, zeros, g);
 
     // Update: p -= sign(g_masked) * step_size
-    let g_pos     = T::gt(g_masked, zeros);
-    let g_neg     = T::lt(g_masked, zeros);
-    let g_sign    = T::where_(g_pos, ones, T::where_(g_neg, neg_ones, zeros));
-    let p_new     = p - g_sign * step_clamped;
+    let g_pos = T::gt(g_masked, zeros);
+    let g_neg = T::lt(g_masked, zeros);
+    let g_sign = T::where_(g_pos, ones, T::where_(g_neg, neg_ones, zeros));
+    let p_new = p - g_sign * step_clamped;
 
-    T::store(params_ptr.add_offsets(offsets),    p_new,       Some(mask), &[], None, None);
-    T::store(step_size_ptr.add_offsets(offsets), step_clamped, Some(mask), &[], None, None);
-    T::store(prev_grad_ptr.add_offsets(offsets), g_masked,    Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        step_size_ptr.add_offsets(offsets),
+        step_clamped,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        prev_grad_ptr.add_offsets(offsets),
+        g_masked,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

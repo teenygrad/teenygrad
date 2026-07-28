@@ -22,13 +22,13 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-#[cfg(feature = "cuda")]
 use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
+#[cfg(feature = "cuda")]
+use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
-use teeny_kernels::math::gemm::{MatmulForward, MatmulBackwardDa, MatmulBackwardDb};
+use teeny_kernels::math::gemm::{MatmulBackwardDa, MatmulBackwardDb, MatmulForward};
 
 const BLOCK_K: i32 = 128;
 const TOL: f32 = 1e-3;
@@ -118,20 +118,26 @@ fn test_matmul_forward_gpu() -> Result<()> {
         block: [BLOCK_K as u32, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        a_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        c_buf.as_device_ptr() as *mut f32,
-        m as i32,
-        n as i32,
-        k as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            a_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            c_buf.as_device_ptr() as *mut f32,
+            m as i32,
+            n as i32,
+            k as i32,
+        ),
+    )?;
 
     c_buf.to_host(&mut c_out)?;
     for i in 0..m * n {
         assert!(
             (c_out[i] - expected[i]).abs() < TOL,
-            "matmul fwd mismatch at i={i}: gpu={} expected={}", c_out[i], expected[i]
+            "matmul fwd mismatch at i={i}: gpu={} expected={}",
+            c_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -184,20 +190,26 @@ fn test_matmul_backward_da_gpu() -> Result<()> {
         block: [BLOCK_K as u32, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        dc_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        da_buf.as_device_ptr() as *mut f32,
-        m as i32,
-        n as i32,
-        k as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dc_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            da_buf.as_device_ptr() as *mut f32,
+            m as i32,
+            n as i32,
+            k as i32,
+        ),
+    )?;
 
     da_buf.to_host(&mut da_out)?;
     for i in 0..m * k {
         assert!(
             (da_out[i] - expected_da[i]).abs() < TOL,
-            "matmul bwd_da mismatch at i={i}: gpu={} expected={}", da_out[i], expected_da[i]
+            "matmul bwd_da mismatch at i={i}: gpu={} expected={}",
+            da_out[i],
+            expected_da[i]
         );
     }
     Ok(())
@@ -250,20 +262,26 @@ fn test_matmul_backward_db_gpu() -> Result<()> {
         block: [BLOCK_K as u32, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        dc_buf.as_device_ptr() as *mut f32,
-        a_buf.as_device_ptr() as *mut f32,
-        db_buf.as_device_ptr() as *mut f32,
-        m as i32,
-        n as i32,
-        k as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dc_buf.as_device_ptr() as *mut f32,
+            a_buf.as_device_ptr() as *mut f32,
+            db_buf.as_device_ptr() as *mut f32,
+            m as i32,
+            n as i32,
+            k as i32,
+        ),
+    )?;
 
     db_buf.to_host(&mut db_out)?;
     for i in 0..k * n {
         assert!(
             (db_out[i] - expected_db[i]).abs() < TOL,
-            "matmul bwd_db mismatch at i={i}: gpu={} expected={}", db_out[i], expected_db[i]
+            "matmul bwd_db mismatch at i={i}: gpu={} expected={}",
+            db_out[i],
+            expected_db[i]
         );
     }
     Ok(())

@@ -89,7 +89,11 @@ pub fn conv2d_bn_silu_gemm_forward<
     let group_id = pid_local / num_pid_in_group;
     let first_pid_m = group_id * GROUP_M;
     let remaining_m = num_pid_m - first_pid_m;
-    let group_size_m = if remaining_m < GROUP_M { remaining_m } else { GROUP_M };
+    let group_size_m = if remaining_m < GROUP_M {
+        remaining_m
+    } else {
+        GROUP_M
+    };
     let pid_in_group = pid_local % num_pid_in_group;
     let pid_m = first_pid_m + (pid_in_group % group_size_m);
     let pid_n = pid_in_group / group_size_m;
@@ -121,16 +125,10 @@ pub fn conv2d_bn_silu_gemm_forward<
     let k_tiles = T::cdiv(C_IN, BLOCK_K);
     for k in 0..k_tiles {
         // x_tile: [BLOCK_K, BLOCK_M] — rows are the C_IN channels for batch b
-        let x_tile = T::load_tensor_descriptor(
-            x_desc,
-            &[b * C_IN + k * BLOCK_K, pid_m * BLOCK_M],
-        );
+        let x_tile = T::load_tensor_descriptor(x_desc, &[b * C_IN + k * BLOCK_K, pid_m * BLOCK_M]);
 
         // w_tile: [BLOCK_N, BLOCK_K]
-        let w_tile = T::load_tensor_descriptor(
-            w_desc,
-            &[pid_n * BLOCK_N, k * BLOCK_K],
-        );
+        let w_tile = T::load_tensor_descriptor(w_desc, &[pid_n * BLOCK_N, k * BLOCK_K]);
 
         // [BLOCK_N, BLOCK_K] @ [BLOCK_K, BLOCK_M] → [BLOCK_N, BLOCK_M]
         // IEEE precision required to match cuDNN's float32 accumulation.
@@ -144,13 +142,21 @@ pub fn conv2d_bn_silu_gemm_forward<
         bn_scale_ptr.add_offsets(bn_off),
         Some(bn_n_mask),
         Some(T::zeros::<f32>(&[BLOCK_N])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let bn_shift = T::load(
         bn_shift_ptr.add_offsets(bn_off),
         Some(bn_n_mask),
         Some(T::zeros::<f32>(&[BLOCK_N])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let scale_2d = T::broadcast_to(T::expand_dims(bn_scale, 1), &[BLOCK_N, BLOCK_M]);
     let shift_2d = T::broadcast_to(T::expand_dims(bn_shift, 1), &[BLOCK_N, BLOCK_M]);
@@ -168,11 +174,7 @@ pub fn conv2d_bn_silu_gemm_forward<
         &[BLOCK_N, BLOCK_M],
         Some(PaddingOption::Zero),
     );
-    T::store_tensor_descriptor(
-        y_desc,
-        &[b * C_OUT + pid_n * BLOCK_N, pid_m * BLOCK_M],
-        y,
-    );
+    T::store_tensor_descriptor(y_desc, &[b * C_OUT + pid_n * BLOCK_N, pid_m * BLOCK_M], y);
 }
 
 // ── RuntimeOp ────────────────────────────────────────────────────────────────
@@ -182,17 +184,15 @@ pub fn conv2d_bn_silu_gemm_forward<
 //                  B, C_IN, C_OUT, M (= OH * OW)
 
 impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
-        let c_in  = input_shapes[0][1];
+        let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
         // 1×1 weight: [C_OUT, C_IN] (no KH/KW dims needed — both are 1)
-        vec![
-            vec![c_out, c_in],
-            vec![c_out],
-            vec![c_out],
-        ]
+        vec![vec![c_out, c_in], vec![c_out], vec![c_out]]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
@@ -209,26 +209,28 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let input_shape = inputs[0].1;
-        let b   = input_shape[0] as i32;
-        let c_in  = input_shape[1] as i32;
+        let b = input_shape[0] as i32;
+        let c_in = input_shape[1] as i32;
         let c_out = output_shape[1] as i32;
         let m = (output_shape[2] * output_shape[3]) as i32; // OH * OW
         visitor.visit_ptr(inputs[0].0); // x_ptr
-        visitor.visit_ptr(params[0]);   // w_ptr
-        visitor.visit_ptr(params[1]);   // bn_scale_ptr
-        visitor.visit_ptr(params[2]);   // bn_shift_ptr
-        visitor.visit_ptr(output);      // y_ptr
+        visitor.visit_ptr(params[0]); // w_ptr
+        visitor.visit_ptr(params[1]); // bn_scale_ptr
+        visitor.visit_ptr(params[2]); // bn_shift_ptr
+        visitor.visit_ptr(output); // y_ptr
         visitor.visit_i32(b);
         visitor.visit_i32(c_in);
         visitor.visit_i32(c_out);
         visitor.visit_i32(m);
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        let b     = output_shape[0];
-        let m     = output_shape[2] * output_shape[3]; // OH * OW
+        let b = output_shape[0];
+        let m = output_shape[2] * output_shape[3]; // OH * OW
         let c_out = output_shape[1];
         let pm = m.div_ceil(self.block_m as usize);
         let pn = c_out.div_ceil(self.block_n as usize);

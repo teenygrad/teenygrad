@@ -110,7 +110,7 @@ impl Num for f32 {
 }
 impl Float for f32 {
     const ZERO: Self = 0.0;
-    const ONE: Self  = 1.0;
+    const ONE: Self = 1.0;
     fn from_f64(value: f64) -> Self {
         value as f32
     }
@@ -122,7 +122,7 @@ impl Num for f64 {
 }
 impl Float for f64 {
     const ZERO: Self = 0.0;
-    const ONE: Self  = 1.0;
+    const ONE: Self = 1.0;
     fn from_f64(value: f64) -> Self {
         value
     }
@@ -155,10 +155,7 @@ pub trait Comparison<Rhs = Self> {
     fn ne(self, other: Rhs) -> Self::BoolTensor;
 }
 
-pub trait I32Tensor<const RANK: usize>:
-    Tensor<i32, RANK> + Add<i32> + Comparison<i32>
-{
-}
+pub trait I32Tensor<const RANK: usize>: Tensor<i32, RANK> + Add<i32> + Comparison<i32> {}
 
 // Offsets trait for adding tensor offsets to pointers
 pub trait AddOffsets<I: Int, const RANK: usize, T: Tensor<I, RANK>> {

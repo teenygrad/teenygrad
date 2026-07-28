@@ -22,29 +22,20 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-#[cfg(feature = "cuda")]
 use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
+#[cfg(feature = "cuda")]
+use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 use teeny_kernels::nn::tensor::elemwise_binary::{
-    ElemwiseMulForward, ElemwiseMulBackward,
-    ElemwiseSubForward, ElemwiseSubBackward,
-    ElemwiseDivForward, ElemwiseDivBackward,
-    ElemwisePowForward, ElemwisePowBackward,
-    ElemwiseFmodForward,
-    ElemwiseMinForward, ElemwiseMinBackward,
-    ElemwiseMaxForward, ElemwiseMaxBackward,
-    ElemwiseMeanForward, ElemwiseMeanBackward,
-    ElemwiseSumForward, ElemwiseSumBackward,
-    ElemwiseEqualForward,
-    ElemwiseGreaterForward,
-    ElemwiseGreaterEqualForward,
-    ElemwiseLessForward,
-    ElemwiseLessEqualForward,
-    ElemwiseWhereForward, ElemwiseWhereBackward,
-    ElemwiseClipForward, ElemwiseClipBackward,
+    ElemwiseClipBackward, ElemwiseClipForward, ElemwiseDivBackward, ElemwiseDivForward,
+    ElemwiseEqualForward, ElemwiseFmodForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
+    ElemwiseLessEqualForward, ElemwiseLessForward, ElemwiseMaxBackward, ElemwiseMaxForward,
+    ElemwiseMeanBackward, ElemwiseMeanForward, ElemwiseMinBackward, ElemwiseMinForward,
+    ElemwiseMulBackward, ElemwiseMulForward, ElemwisePowBackward, ElemwisePowForward,
+    ElemwiseSubBackward, ElemwiseSubForward, ElemwiseSumBackward, ElemwiseSumForward,
+    ElemwiseWhereBackward, ElemwiseWhereForward,
 };
 
 const BLOCK_SIZE: i32 = 1024;
@@ -53,7 +44,10 @@ const TOL: f32 = 1e-4;
 fn load_fixture(rel: &str) -> Vec<f32> {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect()
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
 }
 
 // ── Macro: source + MLIR snapshot ────────────────────────────────────────────
@@ -86,8 +80,7 @@ macro_rules! gpu_forward_test_2 {
             let device = env.device;
             let a = load_fixture("elemwise_binary/a.bin");
             let b = load_fixture("elemwise_binary/b.bin");
-            let expected =
-                load_fixture(concat!("elemwise_binary/expected_", $fixture_op, ".bin"));
+            let expected = load_fixture(concat!("elemwise_binary/expected_", $fixture_op, ".bin"));
             let n = a.len();
             let mut a_buf = device.buffer::<f32>(n)?;
             let mut b_buf = device.buffer::<f32>(n)?;
@@ -100,18 +93,24 @@ macro_rules! gpu_forward_test_2 {
             let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
             let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
             let cfg = testing::launch_config_from_program(n, &program);
-            device.launch(&program, &cfg, (
-                a_buf.as_device_ptr() as *mut f32,
-                b_buf.as_device_ptr() as *mut f32,
-                out_buf.as_device_ptr() as *mut f32,
-                n as i32,
-            ))?;
+            device.launch(
+                &program,
+                &cfg,
+                (
+                    a_buf.as_device_ptr() as *mut f32,
+                    b_buf.as_device_ptr() as *mut f32,
+                    out_buf.as_device_ptr() as *mut f32,
+                    n as i32,
+                ),
+            )?;
             out_buf.to_host(&mut out)?;
             for i in 0..n {
                 assert!(
                     (out[i] - expected[i]).abs() < TOL,
                     "{} fwd mismatch at i={i}: gpu={} expected={}",
-                    $op_name, out[i], expected[i]
+                    $op_name,
+                    out[i],
+                    expected[i]
                 );
             }
             Ok(())
@@ -152,26 +151,34 @@ macro_rules! gpu_backward_test_2 {
             let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
             let program = testing::load_program_from_ptx::<$bwd_kernel_ty>(&ptx)?;
             let cfg = testing::launch_config_from_program(n, &program);
-            device.launch(&program, &cfg, (
-                dy_buf.as_device_ptr() as *mut f32,
-                a_buf.as_device_ptr() as *mut f32,
-                b_buf.as_device_ptr() as *mut f32,
-                da_buf.as_device_ptr() as *mut f32,
-                db_buf.as_device_ptr() as *mut f32,
-                n as i32,
-            ))?;
+            device.launch(
+                &program,
+                &cfg,
+                (
+                    dy_buf.as_device_ptr() as *mut f32,
+                    a_buf.as_device_ptr() as *mut f32,
+                    b_buf.as_device_ptr() as *mut f32,
+                    da_buf.as_device_ptr() as *mut f32,
+                    db_buf.as_device_ptr() as *mut f32,
+                    n as i32,
+                ),
+            )?;
             da_buf.to_host(&mut da_out)?;
             db_buf.to_host(&mut db_out)?;
             for i in 0..n {
                 assert!(
                     (da_out[i] - expected_da[i]).abs() < TOL,
                     "{} bwd da mismatch at i={i}: gpu={} expected={}",
-                    $op_name, da_out[i], expected_da[i]
+                    $op_name,
+                    da_out[i],
+                    expected_da[i]
                 );
                 assert!(
                     (db_out[i] - expected_db[i]).abs() < TOL,
                     "{} bwd db mismatch at i={i}: gpu={} expected={}",
-                    $op_name, db_out[i], expected_db[i]
+                    $op_name,
+                    db_out[i],
+                    expected_db[i]
                 );
             }
             Ok(())
@@ -207,24 +214,32 @@ macro_rules! gpu_backward_test_dyonly {
             let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
             let program = testing::load_program_from_ptx::<$bwd_kernel_ty>(&ptx)?;
             let cfg = testing::launch_config_from_program(n, &program);
-            device.launch(&program, &cfg, (
-                dy_buf.as_device_ptr() as *mut f32,
-                da_buf.as_device_ptr() as *mut f32,
-                db_buf.as_device_ptr() as *mut f32,
-                n as i32,
-            ))?;
+            device.launch(
+                &program,
+                &cfg,
+                (
+                    dy_buf.as_device_ptr() as *mut f32,
+                    da_buf.as_device_ptr() as *mut f32,
+                    db_buf.as_device_ptr() as *mut f32,
+                    n as i32,
+                ),
+            )?;
             da_buf.to_host(&mut da_out)?;
             db_buf.to_host(&mut db_out)?;
             for i in 0..n {
                 assert!(
                     (da_out[i] - expected_da[i]).abs() < TOL,
                     "{} bwd da mismatch at i={i}: gpu={} expected={}",
-                    $op_name, da_out[i], expected_da[i]
+                    $op_name,
+                    da_out[i],
+                    expected_da[i]
                 );
                 assert!(
                     (db_out[i] - expected_db[i]).abs() < TOL,
                     "{} bwd db mismatch at i={i}: gpu={} expected={}",
-                    $op_name, db_out[i], expected_db[i]
+                    $op_name,
+                    db_out[i],
+                    expected_db[i]
                 );
             }
             Ok(())
@@ -234,51 +249,225 @@ macro_rules! gpu_backward_test_dyonly {
 
 // ── Source + MLIR snapshots ───────────────────────────────────────────────────
 
-source_test!(test_mul_source,           ElemwiseMulForward::<f32>,          "elemwise_mul_forward");
-source_test!(test_sub_source,           ElemwiseSubForward::<f32>,          "elemwise_sub_forward");
-source_test!(test_div_source,           ElemwiseDivForward::<f32>,          "elemwise_div_forward");
-source_test!(test_pow_source,           ElemwisePowForward::<f32>,          "elemwise_pow_forward");
-source_test!(test_fmod_source,          ElemwiseFmodForward::<f32>,         "elemwise_fmod_forward");
-source_test!(test_min_source,           ElemwiseMinForward::<f32>,          "elemwise_min_forward");
-source_test!(test_max_source,           ElemwiseMaxForward::<f32>,          "elemwise_max_forward");
-source_test!(test_mean_source,          ElemwiseMeanForward::<f32>,         "elemwise_mean_forward");
-source_test!(test_sum_source,           ElemwiseSumForward::<f32>,          "elemwise_sum_forward");
-source_test!(test_equal_source,         ElemwiseEqualForward::<f32>,        "elemwise_equal_forward");
-source_test!(test_greater_source,       ElemwiseGreaterForward::<f32>,      "elemwise_greater_forward");
-source_test!(test_greater_equal_source, ElemwiseGreaterEqualForward::<f32>, "elemwise_greater_equal_forward");
-source_test!(test_less_source,          ElemwiseLessForward::<f32>,         "elemwise_less_forward");
-source_test!(test_less_equal_source,    ElemwiseLessEqualForward::<f32>,    "elemwise_less_equal_forward");
-source_test!(test_where_source,         ElemwiseWhereForward::<f32>,        "elemwise_where_forward");
-source_test!(test_clip_source,          ElemwiseClipForward::<f32>,         "elemwise_clip_forward");
+source_test!(
+    test_mul_source,
+    ElemwiseMulForward::<f32>,
+    "elemwise_mul_forward"
+);
+source_test!(
+    test_sub_source,
+    ElemwiseSubForward::<f32>,
+    "elemwise_sub_forward"
+);
+source_test!(
+    test_div_source,
+    ElemwiseDivForward::<f32>,
+    "elemwise_div_forward"
+);
+source_test!(
+    test_pow_source,
+    ElemwisePowForward::<f32>,
+    "elemwise_pow_forward"
+);
+source_test!(
+    test_fmod_source,
+    ElemwiseFmodForward::<f32>,
+    "elemwise_fmod_forward"
+);
+source_test!(
+    test_min_source,
+    ElemwiseMinForward::<f32>,
+    "elemwise_min_forward"
+);
+source_test!(
+    test_max_source,
+    ElemwiseMaxForward::<f32>,
+    "elemwise_max_forward"
+);
+source_test!(
+    test_mean_source,
+    ElemwiseMeanForward::<f32>,
+    "elemwise_mean_forward"
+);
+source_test!(
+    test_sum_source,
+    ElemwiseSumForward::<f32>,
+    "elemwise_sum_forward"
+);
+source_test!(
+    test_equal_source,
+    ElemwiseEqualForward::<f32>,
+    "elemwise_equal_forward"
+);
+source_test!(
+    test_greater_source,
+    ElemwiseGreaterForward::<f32>,
+    "elemwise_greater_forward"
+);
+source_test!(
+    test_greater_equal_source,
+    ElemwiseGreaterEqualForward::<f32>,
+    "elemwise_greater_equal_forward"
+);
+source_test!(
+    test_less_source,
+    ElemwiseLessForward::<f32>,
+    "elemwise_less_forward"
+);
+source_test!(
+    test_less_equal_source,
+    ElemwiseLessEqualForward::<f32>,
+    "elemwise_less_equal_forward"
+);
+source_test!(
+    test_where_source,
+    ElemwiseWhereForward::<f32>,
+    "elemwise_where_forward"
+);
+source_test!(
+    test_clip_source,
+    ElemwiseClipForward::<f32>,
+    "elemwise_clip_forward"
+);
 
 // Backward source snapshots
-source_test!(test_mul_backward_source,   ElemwiseMulBackward::<f32>,   "elemwise_mul_backward");
-source_test!(test_sub_backward_source,   ElemwiseSubBackward::<f32>,   "elemwise_sub_backward");
-source_test!(test_div_backward_source,   ElemwiseDivBackward::<f32>,   "elemwise_div_backward");
-source_test!(test_pow_backward_source,   ElemwisePowBackward::<f32>,   "elemwise_pow_backward");
-source_test!(test_min_backward_source,   ElemwiseMinBackward::<f32>,   "elemwise_min_backward");
-source_test!(test_max_backward_source,   ElemwiseMaxBackward::<f32>,   "elemwise_max_backward");
-source_test!(test_mean_backward_source,  ElemwiseMeanBackward::<f32>,  "elemwise_mean_backward");
-source_test!(test_sum_backward_source,   ElemwiseSumBackward::<f32>,   "elemwise_sum_backward");
-source_test!(test_where_backward_source, ElemwiseWhereBackward::<f32>, "elemwise_where_backward");
-source_test!(test_clip_backward_source,  ElemwiseClipBackward::<f32>,  "elemwise_clip_backward");
+source_test!(
+    test_mul_backward_source,
+    ElemwiseMulBackward::<f32>,
+    "elemwise_mul_backward"
+);
+source_test!(
+    test_sub_backward_source,
+    ElemwiseSubBackward::<f32>,
+    "elemwise_sub_backward"
+);
+source_test!(
+    test_div_backward_source,
+    ElemwiseDivBackward::<f32>,
+    "elemwise_div_backward"
+);
+source_test!(
+    test_pow_backward_source,
+    ElemwisePowBackward::<f32>,
+    "elemwise_pow_backward"
+);
+source_test!(
+    test_min_backward_source,
+    ElemwiseMinBackward::<f32>,
+    "elemwise_min_backward"
+);
+source_test!(
+    test_max_backward_source,
+    ElemwiseMaxBackward::<f32>,
+    "elemwise_max_backward"
+);
+source_test!(
+    test_mean_backward_source,
+    ElemwiseMeanBackward::<f32>,
+    "elemwise_mean_backward"
+);
+source_test!(
+    test_sum_backward_source,
+    ElemwiseSumBackward::<f32>,
+    "elemwise_sum_backward"
+);
+source_test!(
+    test_where_backward_source,
+    ElemwiseWhereBackward::<f32>,
+    "elemwise_where_backward"
+);
+source_test!(
+    test_clip_backward_source,
+    ElemwiseClipBackward::<f32>,
+    "elemwise_clip_backward"
+);
 
 // ── GPU forward tests ─────────────────────────────────────────────────────────
 
-gpu_forward_test_2!(test_mul_forward_gpu,           ElemwiseMulForward::<f32>,          "mul",           "mul");
-gpu_forward_test_2!(test_sub_forward_gpu,           ElemwiseSubForward::<f32>,          "sub",           "sub");
-gpu_forward_test_2!(test_div_forward_gpu,           ElemwiseDivForward::<f32>,          "div",           "div");
-gpu_forward_test_2!(test_pow_forward_gpu,           ElemwisePowForward::<f32>,          "pow",           "pow");
-gpu_forward_test_2!(test_fmod_forward_gpu,          ElemwiseFmodForward::<f32>,         "fmod",          "fmod");
-gpu_forward_test_2!(test_min_forward_gpu,           ElemwiseMinForward::<f32>,          "min",           "min");
-gpu_forward_test_2!(test_max_forward_gpu,           ElemwiseMaxForward::<f32>,          "max",           "max");
-gpu_forward_test_2!(test_mean_forward_gpu,          ElemwiseMeanForward::<f32>,         "mean",          "mean");
-gpu_forward_test_2!(test_sum_forward_gpu,           ElemwiseSumForward::<f32>,          "sum",           "sum");
-gpu_forward_test_2!(test_equal_forward_gpu,         ElemwiseEqualForward::<f32>,        "equal",         "equal");
-gpu_forward_test_2!(test_greater_forward_gpu,       ElemwiseGreaterForward::<f32>,      "greater",       "greater");
-gpu_forward_test_2!(test_greater_equal_forward_gpu, ElemwiseGreaterEqualForward::<f32>, "greater_equal", "greater_equal");
-gpu_forward_test_2!(test_less_forward_gpu,          ElemwiseLessForward::<f32>,         "less",          "less");
-gpu_forward_test_2!(test_less_equal_forward_gpu,    ElemwiseLessEqualForward::<f32>,    "less_equal",    "less_equal");
+gpu_forward_test_2!(
+    test_mul_forward_gpu,
+    ElemwiseMulForward::<f32>,
+    "mul",
+    "mul"
+);
+gpu_forward_test_2!(
+    test_sub_forward_gpu,
+    ElemwiseSubForward::<f32>,
+    "sub",
+    "sub"
+);
+gpu_forward_test_2!(
+    test_div_forward_gpu,
+    ElemwiseDivForward::<f32>,
+    "div",
+    "div"
+);
+gpu_forward_test_2!(
+    test_pow_forward_gpu,
+    ElemwisePowForward::<f32>,
+    "pow",
+    "pow"
+);
+gpu_forward_test_2!(
+    test_fmod_forward_gpu,
+    ElemwiseFmodForward::<f32>,
+    "fmod",
+    "fmod"
+);
+gpu_forward_test_2!(
+    test_min_forward_gpu,
+    ElemwiseMinForward::<f32>,
+    "min",
+    "min"
+);
+gpu_forward_test_2!(
+    test_max_forward_gpu,
+    ElemwiseMaxForward::<f32>,
+    "max",
+    "max"
+);
+gpu_forward_test_2!(
+    test_mean_forward_gpu,
+    ElemwiseMeanForward::<f32>,
+    "mean",
+    "mean"
+);
+gpu_forward_test_2!(
+    test_sum_forward_gpu,
+    ElemwiseSumForward::<f32>,
+    "sum",
+    "sum"
+);
+gpu_forward_test_2!(
+    test_equal_forward_gpu,
+    ElemwiseEqualForward::<f32>,
+    "equal",
+    "equal"
+);
+gpu_forward_test_2!(
+    test_greater_forward_gpu,
+    ElemwiseGreaterForward::<f32>,
+    "greater",
+    "greater"
+);
+gpu_forward_test_2!(
+    test_greater_equal_forward_gpu,
+    ElemwiseGreaterEqualForward::<f32>,
+    "greater_equal",
+    "greater_equal"
+);
+gpu_forward_test_2!(
+    test_less_forward_gpu,
+    ElemwiseLessForward::<f32>,
+    "less",
+    "less"
+);
+gpu_forward_test_2!(
+    test_less_equal_forward_gpu,
+    ElemwiseLessEqualForward::<f32>,
+    "less_equal",
+    "less_equal"
+);
 
 // Where forward: (cond_ptr, x_ptr, y_ptr, out_ptr, n)
 #[cfg(feature = "cuda")]
@@ -305,18 +494,24 @@ fn test_where_forward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ElemwiseWhereForward<f32>>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        cond_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        out_buf.as_device_ptr() as *mut f32,
-        n as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            cond_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            out_buf.as_device_ptr() as *mut f32,
+            n as i32,
+        ),
+    )?;
     out_buf.to_host(&mut out)?;
     for i in 0..n {
         assert!(
             (out[i] - expected[i]).abs() < TOL,
-            "where fwd mismatch at i={i}: gpu={} expected={}", out[i], expected[i]
+            "where fwd mismatch at i={i}: gpu={} expected={}",
+            out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -342,18 +537,24 @@ fn test_clip_forward_gpu() -> Result<()> {
     let program = testing::load_program_from_ptx::<ElemwiseClipForward<f32>>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     // min_val=-1.0, max_val=1.0 (must match fixture)
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        out_buf.as_device_ptr() as *mut f32,
-        n as i32,
-        -1.0f32,
-        1.0f32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            out_buf.as_device_ptr() as *mut f32,
+            n as i32,
+            -1.0f32,
+            1.0f32,
+        ),
+    )?;
     out_buf.to_host(&mut out)?;
     for i in 0..n {
         assert!(
             (out[i] - expected[i]).abs() < TOL,
-            "clip fwd mismatch at i={i}: gpu={} expected={}", out[i], expected[i]
+            "clip fwd mismatch at i={i}: gpu={} expected={}",
+            out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -361,16 +562,56 @@ fn test_clip_forward_gpu() -> Result<()> {
 
 // ── GPU backward tests ────────────────────────────────────────────────────────
 
-gpu_backward_test_2!(test_mul_backward_gpu, ElemwiseMulBackward::<f32>, "mul", "mul");
-gpu_backward_test_2!(test_div_backward_gpu, ElemwiseDivBackward::<f32>, "div", "div");
-gpu_backward_test_2!(test_pow_backward_gpu, ElemwisePowBackward::<f32>, "pow", "pow");
-gpu_backward_test_2!(test_min_backward_gpu, ElemwiseMinBackward::<f32>, "min", "min");
-gpu_backward_test_2!(test_max_backward_gpu, ElemwiseMaxBackward::<f32>, "max", "max");
+gpu_backward_test_2!(
+    test_mul_backward_gpu,
+    ElemwiseMulBackward::<f32>,
+    "mul",
+    "mul"
+);
+gpu_backward_test_2!(
+    test_div_backward_gpu,
+    ElemwiseDivBackward::<f32>,
+    "div",
+    "div"
+);
+gpu_backward_test_2!(
+    test_pow_backward_gpu,
+    ElemwisePowBackward::<f32>,
+    "pow",
+    "pow"
+);
+gpu_backward_test_2!(
+    test_min_backward_gpu,
+    ElemwiseMinBackward::<f32>,
+    "min",
+    "min"
+);
+gpu_backward_test_2!(
+    test_max_backward_gpu,
+    ElemwiseMaxBackward::<f32>,
+    "max",
+    "max"
+);
 
 // Sub/Sum/Mean backward: (dy_ptr, da_ptr, db_ptr, n) — no a,b saved
-gpu_backward_test_dyonly!(test_sub_backward_gpu,  ElemwiseSubBackward::<f32>,  "sub",  "sub");
-gpu_backward_test_dyonly!(test_sum_backward_gpu,  ElemwiseSumBackward::<f32>,  "sum",  "sum");
-gpu_backward_test_dyonly!(test_mean_backward_gpu, ElemwiseMeanBackward::<f32>, "mean", "mean");
+gpu_backward_test_dyonly!(
+    test_sub_backward_gpu,
+    ElemwiseSubBackward::<f32>,
+    "sub",
+    "sub"
+);
+gpu_backward_test_dyonly!(
+    test_sum_backward_gpu,
+    ElemwiseSumBackward::<f32>,
+    "sum",
+    "sum"
+);
+gpu_backward_test_dyonly!(
+    test_mean_backward_gpu,
+    ElemwiseMeanBackward::<f32>,
+    "mean",
+    "mean"
+);
 
 // Where backward: (dy_ptr, cond_ptr, dx_ptr, dy_in_ptr, n)
 #[cfg(feature = "cuda")]
@@ -397,24 +638,31 @@ fn test_where_backward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ElemwiseWhereBackward<f32>>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        cond_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        dy_in_buf.as_device_ptr() as *mut f32,
-        n as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            cond_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            dy_in_buf.as_device_ptr() as *mut f32,
+            n as i32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     dy_in_buf.to_host(&mut dy_in_out)?;
     for i in 0..n {
         assert!(
             (dx_out[i] - expected_dx[i]).abs() < TOL,
-            "where bwd dx mismatch at i={i}: gpu={} expected={}", dx_out[i], expected_dx[i]
+            "where bwd dx mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected_dx[i]
         );
         assert!(
             (dy_in_out[i] - expected_dy_in[i]).abs() < TOL,
             "where bwd dy_in mismatch at i={i}: gpu={} expected={}",
-            dy_in_out[i], expected_dy_in[i]
+            dy_in_out[i],
+            expected_dy_in[i]
         );
     }
     Ok(())
@@ -442,19 +690,25 @@ fn test_clip_backward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ElemwiseClipBackward<f32>>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        n as i32,
-        -1.0f32,
-        1.0f32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            n as i32,
+            -1.0f32,
+            1.0f32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     for i in 0..n {
         assert!(
             (dx_out[i] - expected[i]).abs() < TOL,
-            "clip bwd mismatch at i={i}: gpu={} expected={}", dx_out[i], expected[i]
+            "clip bwd mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected[i]
         );
     }
     Ok(())

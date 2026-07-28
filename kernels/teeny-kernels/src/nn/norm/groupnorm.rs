@@ -71,7 +71,11 @@ pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
 
     let zeros = T::zeros::<D>(&[BLOCK_NL]);
     let zero_1 = T::zeros::<D>(&[1]);
-    let gs_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (group_size as f32)), None, false);
+    let gs_inv = T::cast::<f32, D>(
+        T::full::<f32>(&[1], 1.0f32 / (group_size as f32)),
+        None,
+        false,
+    );
 
     // ── Pass 1: mean ─────────────────────────────────────────────────────────
     let mut sum = zero_1;
@@ -137,10 +141,35 @@ pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let beta = T::load(bias_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let beta = T::load(
+            bias_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(y_ptr.add_offsets(offs + group_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(offs + group_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         t += BLOCK_NL;
     }
 }
@@ -179,7 +208,11 @@ pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
 
     let zeros = T::zeros::<D>(&[BLOCK_NL]);
     let zero_1 = T::zeros::<D>(&[1]);
-    let gs_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (group_size as f32)), None, false);
+    let gs_inv = T::cast::<f32, D>(
+        T::full::<f32>(&[1], 1.0f32 / (group_size as f32)),
+        None,
+        false,
+    );
 
     // ── Pass 1: mean ─────────────────────────────────────────────────────────
     let mut sum = zero_1;
@@ -229,8 +262,22 @@ pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
     let rstd_1 = T::rsqrt(var_sum * gs_inv + eps_t);
     let rstd = T::broadcast_to(rstd_1, &[BLOCK_NL]);
 
-    T::store(mean_ptr.add_offsets(stat_idx), mean_1, None, &[], None, None);
-    T::store(rstd_ptr.add_offsets(stat_idx), rstd_1, None, &[], None, None);
+    T::store(
+        mean_ptr.add_offsets(stat_idx),
+        mean_1,
+        None,
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        rstd_ptr.add_offsets(stat_idx),
+        rstd_1,
+        None,
+        &[],
+        None,
+        None,
+    );
 
     // ── Pass 3: normalise ─────────────────────────────────────────────────────
     t = 0;
@@ -248,10 +295,35 @@ pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let beta = T::load(bias_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let beta = T::load(
+            bias_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(y_ptr.add_offsets(offs + group_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(offs + group_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         t += BLOCK_NL;
     }
 }
@@ -291,10 +363,32 @@ pub fn group_norm_backward<T: Triton, D: Float, const BLOCK_NL: i32>(
 
     let zeros = T::zeros::<D>(&[BLOCK_NL]);
     let zero_1 = T::zeros::<D>(&[1]);
-    let gs_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (group_size as f32)), None, false);
+    let gs_inv = T::cast::<f32, D>(
+        T::full::<f32>(&[1], 1.0f32 / (group_size as f32)),
+        None,
+        false,
+    );
 
-    let rstd_1 = T::load(rstd_ptr.add_offsets(stat_idx), None, None, &[], None, None, None, false);
-    let mean_1 = T::load(mean_ptr.add_offsets(stat_idx), None, None, &[], None, None, None, false);
+    let rstd_1 = T::load(
+        rstd_ptr.add_offsets(stat_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let mean_1 = T::load(
+        mean_ptr.add_offsets(stat_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let rstd = T::broadcast_to(rstd_1, &[BLOCK_NL]);
     let mean = T::broadcast_to(mean_1, &[BLOCK_NL]);
 
@@ -326,7 +420,16 @@ pub fn group_norm_backward<T: Triton, D: Float, const BLOCK_NL: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let xhat = (x_tile - mean) * rstd;
         sum_dy_gamma = sum_dy_gamma + T::sum(dy_tile * gamma, None, true);
         sum_dy_gamma_xhat = sum_dy_gamma_xhat + T::sum(dy_tile * gamma * xhat, None, true);
@@ -361,16 +464,64 @@ pub fn group_norm_backward<T: Triton, D: Float, const BLOCK_NL: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let dw_old = T::load(dweight_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let db_old = T::load(dbias_ptr.add_offsets(chan_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let dw_old = T::load(
+            dweight_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let db_old = T::load(
+            dbias_ptr.add_offsets(chan_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
 
         let xhat = (x_tile - mean) * rstd;
         let dx_tile = rstd * gamma * (dy_tile - c1 - xhat * c2);
 
-        T::store(dx_ptr.add_offsets(offs + group_start), dx_tile, Some(mask), &[], None, None);
-        T::store(dweight_ptr.add_offsets(chan_offs), dw_old + dy_tile * xhat, Some(mask), &[], None, None);
-        T::store(dbias_ptr.add_offsets(chan_offs), db_old + dy_tile, Some(mask), &[], None, None);
+        T::store(
+            dx_ptr.add_offsets(offs + group_start),
+            dx_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dweight_ptr.add_offsets(chan_offs),
+            dw_old + dy_tile * xhat,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dbias_ptr.add_offsets(chan_offs),
+            db_old + dy_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         t += BLOCK_NL;
     }
 }

@@ -251,7 +251,9 @@ pub fn linear_backward<
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
         // input_shapes[0] = [M, K], output_shape = [M, N]
@@ -286,23 +288,29 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         let m = output_shape[0] as i32;
         let n = output_shape[1] as i32;
         let k = inputs[0].1[1] as i32;
-        let b_ptr = if self.use_bias { params[1] } else { core::ptr::null_mut() };
-        visitor.visit_ptr(inputs[0].0);   // x_ptr
-        visitor.visit_ptr(params[0]);     // w_ptr
-        visitor.visit_ptr(b_ptr);         // b_ptr
-        visitor.visit_ptr(output);        // y_ptr
-        visitor.visit_i32(m);             // M
-        visitor.visit_i32(n);             // N
-        visitor.visit_i32(k);             // K
-        visitor.visit_i32(k);             // stride_xm = K (row-major)
-        visitor.visit_i32(1);             // stride_xk = 1
-        visitor.visit_i32(k);             // stride_wn = K (w is [N,K])
-        visitor.visit_i32(1);             // stride_wk = 1
+        let b_ptr = if self.use_bias {
+            params[1]
+        } else {
+            core::ptr::null_mut()
+        };
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(params[0]); // w_ptr
+        visitor.visit_ptr(b_ptr); // b_ptr
+        visitor.visit_ptr(output); // y_ptr
+        visitor.visit_i32(m); // M
+        visitor.visit_i32(n); // N
+        visitor.visit_i32(k); // K
+        visitor.visit_i32(k); // stride_xm = K (row-major)
+        visitor.visit_i32(1); // stride_xk = 1
+        visitor.visit_i32(k); // stride_wn = K (w is [N,K])
+        visitor.visit_i32(1); // stride_wk = 1
         visitor.visit_i32(output_row_stride); // stride_ym (may be padded for TMA alignment)
-        visitor.visit_i32(1);             // stride_yn = 1
+        visitor.visit_i32(1); // stride_yn = 1
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid encodes (pid_m, pid_n) grouped by GROUP_M
@@ -312,7 +320,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     // TMA requires 16-byte aligned row strides. Round N up to the nearest
     // multiple of (16 / sizeof(D)) elements so the dy tensor descriptor is valid.
@@ -345,32 +355,38 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         let m = output_shape[0] as i32;
         let n = output_shape[1] as i32;
         let k = inputs[0].1[1] as i32;
-        let db_ptr = if self.use_bias { grad_params[1] } else { core::ptr::null_mut() };
+        let db_ptr = if self.use_bias {
+            grad_params[1]
+        } else {
+            core::ptr::null_mut()
+        };
 
-        visitor.visit_ptr(inputs[0].0);    // x_ptr
-        visitor.visit_ptr(params[0]);      // w_ptr
-        visitor.visit_ptr(grad_output);    // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(params[0]); // w_ptr
+        visitor.visit_ptr(grad_output); // dy_ptr
         visitor.visit_ptr(grad_inputs[0]); // dx_ptr
         visitor.visit_ptr(grad_params[0]); // dw_ptr
-        visitor.visit_ptr(db_ptr);         // db_ptr (null if no bias)
-        visitor.visit_i32(m);              // M
-        visitor.visit_i32(n);              // N
-        visitor.visit_i32(k);              // K
-        visitor.visit_i32(k);              // stride_xm = K (x is [M,K] row-major)
-        visitor.visit_i32(1);              // stride_xk = 1
-        visitor.visit_i32(1);              // stride_wk = 1
-        visitor.visit_i32(k);              // stride_wn = K (w is [N,K])
-        visitor.visit_i32(grad_output_row_stride);  // stride_dym (may be padded for TMA alignment)
-        visitor.visit_i32(1);              // stride_dyn = 1
-        visitor.visit_i32(k);              // stride_dxm = K
-        visitor.visit_i32(1);              // stride_dxk = 1
-        visitor.visit_i32(1);              // stride_dwk = 1
-        visitor.visit_i32(k);              // stride_dwn = K
-        visitor.visit_i32(1);              // stride_dbn = 1
+        visitor.visit_ptr(db_ptr); // db_ptr (null if no bias)
+        visitor.visit_i32(m); // M
+        visitor.visit_i32(n); // N
+        visitor.visit_i32(k); // K
+        visitor.visit_i32(k); // stride_xm = K (x is [M,K] row-major)
+        visitor.visit_i32(1); // stride_xk = 1
+        visitor.visit_i32(1); // stride_wk = 1
+        visitor.visit_i32(k); // stride_wn = K (w is [N,K])
+        visitor.visit_i32(grad_output_row_stride); // stride_dym (may be padded for TMA alignment)
+        visitor.visit_i32(1); // stride_dyn = 1
+        visitor.visit_i32(k); // stride_dxm = K
+        visitor.visit_i32(1); // stride_dxk = 1
+        visitor.visit_i32(1); // stride_dwk = 1
+        visitor.visit_i32(k); // stride_dwn = K
+        visitor.visit_i32(1); // stride_dbn = 1
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     // Grid: ceil(M/BM) * ceil(N/BN) * ceil(K/BK) CTAs
     #[cfg(feature = "training")]

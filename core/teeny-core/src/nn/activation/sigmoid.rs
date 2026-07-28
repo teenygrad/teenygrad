@@ -62,9 +62,7 @@ impl<D: Float, T, const RANK: usize> Default for Silu<D, T, RANK> {
     }
 }
 
-impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
-    for Silu<D, T, RANK>
-{
+impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Silu<D, T, RANK> {
     type Output = T;
     fn call(&self, _input: T) -> Self::Output {
         todo!()

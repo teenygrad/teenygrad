@@ -42,12 +42,28 @@ pub fn swish_forward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let x = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full::<f32>(&[BLOCK_SIZE], 1.0_f32);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full::<f32>(&[BLOCK_SIZE], 1.0_f32);
     let neg1 = T::full::<f32>(&[BLOCK_SIZE], -1.0_f32);
     let sig = one / (one + T::exp(neg1 * x));
     let y = x * sig;
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = (sigmoid(x) + x * sigmoid(x) * (1 - sigmoid(x))) * dy
@@ -55,7 +71,7 @@ pub fn swish_forward<T: Triton, const BLOCK_SIZE: i32>(
 #[kernel]
 pub fn swish_backward<T: Triton, const BLOCK_SIZE: i32>(
     dy_ptr: T::Pointer<f32>,
-    x_ptr:  T::Pointer<f32>,
+    x_ptr: T::Pointer<f32>,
     dx_ptr: T::Pointer<f32>,
     n_elements: i32,
 ) where
@@ -67,18 +83,47 @@ pub fn swish_backward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full::<f32>(&[BLOCK_SIZE], 1.0_f32);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full::<f32>(&[BLOCK_SIZE], 1.0_f32);
     let neg1 = T::full::<f32>(&[BLOCK_SIZE], -1.0_f32);
     let sig = one / (one + T::exp(neg1 * x));
     let dx = (sig + x * sig * (one - sig)) * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 impl teeny_core::model::RuntimeOp for SwishForward {
-    fn n_activation_inputs(&self) -> usize { 1 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -93,13 +138,17 @@ impl teeny_core::model::RuntimeOp for SwishForward {
         visitor.visit_ptr(output);
         visitor.visit_i32(n as i32);
     }
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
     #[cfg(feature = "training")]
     fn pack_backward_args(
         &self,
@@ -120,7 +169,9 @@ impl teeny_core::model::RuntimeOp for SwishForward {
         visitor.visit_i32(n as i32);
     }
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -134,9 +185,9 @@ impl teeny_core::model::RuntimeOp for SwishForward {
 /// The slope tensor has the same shape as x (or broadcastable; kernel assumes same shape here).
 #[kernel]
 pub fn prelu_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr:     T::Pointer<f32>,
+    x_ptr: T::Pointer<f32>,
     slope_ptr: T::Pointer<f32>,
-    y_ptr:     T::Pointer<f32>,
+    y_ptr: T::Pointer<f32>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -147,23 +198,48 @@ pub fn prelu_forward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let x     = T::load(x_ptr.add_offsets(offsets),     Some(in_bounds), None, &[], None, None, None, false);
-    let slope = T::load(slope_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let zero  = T::zeros_like(x);
-    let pos   = T::maximum(x, zero);
-    let neg   = slope * T::minimum(x, zero);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let slope = T::load(
+        slope_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let zero = T::zeros_like(x);
+    let pos = T::maximum(x, zero);
+    let neg = slope * T::minimum(x, zero);
     let y = pos + neg;
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if x >= 0 else slope * dy;
 ///           dslope = dy * min(x, 0) = dy * x if x < 0 else 0
 #[kernel]
 pub fn prelu_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr:     T::Pointer<f32>,
-    x_ptr:      T::Pointer<f32>,
-    slope_ptr:  T::Pointer<f32>,
-    dx_ptr:     T::Pointer<f32>,
+    dy_ptr: T::Pointer<f32>,
+    x_ptr: T::Pointer<f32>,
+    slope_ptr: T::Pointer<f32>,
+    dx_ptr: T::Pointer<f32>,
     dslope_ptr: T::Pointer<f32>,
     n_elements: i32,
 ) where
@@ -175,20 +251,65 @@ pub fn prelu_backward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let dy    = T::load(dy_ptr.add_offsets(offsets),    Some(in_bounds), None, &[], None, None, None, false);
-    let x     = T::load(x_ptr.add_offsets(offsets),     Some(in_bounds), None, &[], None, None, None, false);
-    let slope = T::load(slope_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let zero  = T::zeros_like(x);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let slope = T::load(
+        slope_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let zero = T::zeros_like(x);
     let x_pos = T::ge(x, zero);
-    let dx     = T::where_(x_pos, dy, slope * dy);
+    let dx = T::where_(x_pos, dy, slope * dy);
     let dslope = T::where_(x_pos, zero, x * dy);
-    T::store(dx_ptr.add_offsets(offsets),     dx,     Some(in_bounds), &[], None, None);
-    T::store(dslope_ptr.add_offsets(offsets), dslope, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        dslope_ptr.add_offsets(offsets),
+        dslope,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 impl teeny_core::model::RuntimeOp for PreluForward {
-    fn n_activation_inputs(&self) -> usize { 2 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -204,13 +325,17 @@ impl teeny_core::model::RuntimeOp for PreluForward {
         visitor.visit_ptr(output);
         visitor.visit_i32(n as i32);
     }
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
     #[cfg(feature = "training")]
     fn pack_backward_args(
         &self,
@@ -233,7 +358,9 @@ impl teeny_core::model::RuntimeOp for PreluForward {
         visitor.visit_i32(n as i32);
     }
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -259,18 +386,34 @@ pub fn thresholded_relu_forward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let x     = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let alpha_t = T::full::<f32>(&[BLOCK_SIZE], alpha);
     let above = T::gt(x, alpha_t);
     let y = T::where_(above, x, T::zeros_like(x));
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if x > alpha else 0
 #[kernel]
 pub fn thresholded_relu_backward<T: Triton, const BLOCK_SIZE: i32>(
     dy_ptr: T::Pointer<f32>,
-    x_ptr:  T::Pointer<f32>,
+    x_ptr: T::Pointer<f32>,
     dx_ptr: T::Pointer<f32>,
     n_elements: i32,
     alpha: f32,
@@ -283,12 +426,37 @@ pub fn thresholded_relu_backward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x  = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let alpha_t = T::full::<f32>(&[BLOCK_SIZE], alpha);
     let above = T::gt(x, alpha_t);
     let dx = T::where_(above, dy, T::zeros_like(dy));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// RuntimeOp wrapper for ThresholdedRelu that stores the alpha scalar.
@@ -306,14 +474,24 @@ impl ThresholdedReluRuntimeOp {
             alpha,
         }
     }
-    pub fn forward_source(&self) -> &str { &self.kernel.source }
-    pub fn backward_source(&self) -> &str { &self.backward_kernel.source }
-    pub fn kernel_name(&self) -> &str { &self.kernel.name }
+    pub fn forward_source(&self) -> &str {
+        &self.kernel.source
+    }
+    pub fn backward_source(&self) -> &str {
+        &self.backward_kernel.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        &self.kernel.name
+    }
 }
 
 impl teeny_core::model::RuntimeOp for ThresholdedReluRuntimeOp {
-    fn n_activation_inputs(&self) -> usize { 1 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -329,13 +507,17 @@ impl teeny_core::model::RuntimeOp for ThresholdedReluRuntimeOp {
         visitor.visit_i32(n as i32);
         visitor.visit_f32(self.alpha);
     }
-    fn block(&self) -> [u32; 3] { [self.kernel.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.kernel.block_size as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.kernel.block_size as usize) as u32, 1, 1]
     }
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
     #[cfg(feature = "training")]
     fn pack_backward_args(
         &self,
@@ -357,7 +539,9 @@ impl teeny_core::model::RuntimeOp for ThresholdedReluRuntimeOp {
         visitor.visit_f32(self.alpha);
     }
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.kernel.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.kernel.block_size as u32, 1, 1]
+    }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -384,24 +568,40 @@ pub fn shrink_forward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let x       = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let lam     = T::full::<f32>(&[BLOCK_SIZE], lambd);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let lam = T::full::<f32>(&[BLOCK_SIZE], lambd);
     let neg_lam = T::full::<f32>(&[BLOCK_SIZE], -lambd);
-    let b       = T::full::<f32>(&[BLOCK_SIZE], bias);
-    let x_gt    = T::gt(x, lam);
-    let x_lt    = T::lt(x, neg_lam);
+    let b = T::full::<f32>(&[BLOCK_SIZE], bias);
+    let x_gt = T::gt(x, lam);
+    let x_lt = T::lt(x, neg_lam);
     let y_upper = x - b;
     let y_lower = x + b;
-    let y_mid   = T::where_(x_lt, y_lower, T::zeros_like(x));
-    let y       = T::where_(x_gt, y_upper, y_mid);
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let y_mid = T::where_(x_lt, y_lower, T::zeros_like(x));
+    let y = T::where_(x_gt, y_upper, y_mid);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if |x| > lambd else 0
 #[kernel]
 pub fn shrink_backward<T: Triton, const BLOCK_SIZE: i32>(
     dy_ptr: T::Pointer<f32>,
-    x_ptr:  T::Pointer<f32>,
+    x_ptr: T::Pointer<f32>,
     dx_ptr: T::Pointer<f32>,
     n_elements: i32,
     lambd: f32,
@@ -414,12 +614,37 @@ pub fn shrink_backward<T: Triton, const BLOCK_SIZE: i32>(
     let block_start = pid * BLOCK_SIZE;
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
-    let dy      = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x       = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let lam     = T::full::<f32>(&[BLOCK_SIZE], lambd);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let lam = T::full::<f32>(&[BLOCK_SIZE], lambd);
     let outside = T::gt(T::abs(x), lam);
-    let dx      = T::where_(outside, dy, T::zeros_like(dy));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx = T::where_(outside, dy, T::zeros_like(dy));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// RuntimeOp wrapper for Shrink that stores lambd and bias.
@@ -439,14 +664,24 @@ impl ShrinkRuntimeOp {
             bias,
         }
     }
-    pub fn forward_source(&self) -> &str { &self.kernel.source }
-    pub fn backward_source(&self) -> &str { &self.backward_kernel.source }
-    pub fn kernel_name(&self) -> &str { &self.kernel.name }
+    pub fn forward_source(&self) -> &str {
+        &self.kernel.source
+    }
+    pub fn backward_source(&self) -> &str {
+        &self.backward_kernel.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        &self.kernel.name
+    }
 }
 
 impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
-    fn n_activation_inputs(&self) -> usize { 1 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -463,13 +698,17 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
         visitor.visit_f32(self.lambd);
         visitor.visit_f32(self.bias);
     }
-    fn block(&self) -> [u32; 3] { [self.kernel.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.kernel.block_size as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.kernel.block_size as usize) as u32, 1, 1]
     }
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
     #[cfg(feature = "training")]
     fn pack_backward_args(
         &self,
@@ -491,7 +730,9 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
         visitor.visit_f32(self.lambd);
     }
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.kernel.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.kernel.block_size as u32, 1, 1]
+    }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -506,10 +747,10 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
 /// Forward: y = x - log(sum(exp(x)))  [numerically stable: subtract max first]
 #[kernel]
 pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr:   T::Pointer<f32>,
-    y_ptr:   T::Pointer<f32>,
+    x_ptr: T::Pointer<f32>,
+    y_ptr: T::Pointer<f32>,
     _n_rows: i32,
-    n_cols:  i32,
+    n_cols: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -519,8 +760,17 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
     let row_offset = pid * n_cols;
     let col_offsets = T::arange(0, BLOCK_SIZE);
     let offsets = col_offsets + row_offset;
-    let x = T::load(x_ptr.add_offsets(offsets), None, None, &[], None, None, None, false);
-    let m   = T::max(x, Some(0), true);   // max for numerical stability
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let m = T::max(x, Some(0), true); // max for numerical stability
     let x_m = x - m;
     let log_sum = T::log(T::sum(T::exp(x_m), Some(0), true));
     let y = x_m - log_sum;
@@ -530,11 +780,11 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy - softmax(x) * sum(dy)
 #[kernel]
 pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr:  T::Pointer<f32>,
-    y_ptr:   T::Pointer<f32>,
-    dx_ptr:  T::Pointer<f32>,
+    dy_ptr: T::Pointer<f32>,
+    y_ptr: T::Pointer<f32>,
+    dx_ptr: T::Pointer<f32>,
     _n_rows: i32,
-    n_cols:  i32,
+    n_cols: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -544,8 +794,26 @@ pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
     let row_offset = pid * n_cols;
     let col_offsets = T::arange(0, BLOCK_SIZE);
     let offsets = col_offsets + row_offset;
-    let dy = T::load(dy_ptr.add_offsets(offsets), None, None, &[], None, None, None, false);
-    let y  = T::load(y_ptr.add_offsets(offsets),  None, None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     // softmax(x) = exp(log_softmax(x))
     let sm = T::exp(y);
     let sum_dy = T::sum(dy, Some(0), true);
@@ -554,8 +822,12 @@ pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
 }
 
 impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
-    fn n_activation_inputs(&self) -> usize { 1 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -572,12 +844,16 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
         visitor.visit_i32(n_rows);
         visitor.visit_i32(n_cols);
     }
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape.first().copied().unwrap_or(1) as u32, 1, 1]
     }
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
     #[cfg(feature = "training")]
     fn pack_backward_args(
         &self,
@@ -600,7 +876,9 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
         visitor.visit_i32(n_cols);
     }
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         [output_shape.first().copied().unwrap_or(1) as u32, 1, 1]

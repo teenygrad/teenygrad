@@ -61,8 +61,8 @@ impl<D: Dtype, IT, OT, const RANK: usize> GroupNorm<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for GroupNorm<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for GroupNorm<D, IT, OT, RANK>
 {
     type Output = OT;
 

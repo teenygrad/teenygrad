@@ -56,7 +56,13 @@ pub fn nll_loss_forward<T: Triton>(
     let tgt_off: T::I32Tensor = T::arange(0, 1) + pid;
     let tgt: T::Tensor<i32> = T::load(
         targets_ptr.add_offsets(tgt_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // flat index: pid * n_cols + target — purely in T::Tensor<i32> space
@@ -66,7 +72,13 @@ pub fn nll_loss_forward<T: Triton>(
     // Load log_prob at target class (unmasked — index is always valid)
     let lp: T::Tensor<f32> = T::load(
         log_probs_ptr.add_offsets(flat_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     let loss = T::full(&[1], -1.0_f32) * lp;
@@ -99,13 +111,25 @@ pub fn nll_loss_backward<T: Triton>(
     let dy_off: T::I32Tensor = T::arange(0, 1) + pid;
     let dy: T::Tensor<f32> = T::load(
         dy_ptr.add_offsets(dy_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     let tgt_off: T::I32Tensor = T::arange(0, 1) + pid;
     let tgt: T::Tensor<i32> = T::load(
         targets_ptr.add_offsets(tgt_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // flat index: pid * n_cols + target
@@ -149,21 +173,33 @@ pub fn cross_entropy_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 
     let row = T::load(
         input_ptr.add_offsets(row_offs),
-        Some(in_row), Some(neg_inf), &[], None, None, None, false,
+        Some(in_row),
+        Some(neg_inf),
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // log-sum-exp: subtract row max for numerical stability
-    let row_max = T::max(row, Some(0), true);     // shape [1]
-    let row_shifted = row - row_max;              // broadcast
+    let row_max = T::max(row, Some(0), true); // shape [1]
+    let row_shifted = row - row_max; // broadcast
     let exp_row = T::exp(row_shifted);
     let sum_exp = T::sum(exp_row, Some(0), true); // shape [1]
-    let log_sum_exp = T::log(sum_exp) + row_max;  // shape [1]
+    let log_sum_exp = T::log(sum_exp) + row_max; // shape [1]
 
     // Load target index (unmasked — always in-bounds)
     let tgt_off: T::I32Tensor = T::arange(0, 1) + pid;
     let tgt: T::Tensor<i32> = T::load(
         targets_ptr.add_offsets(tgt_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // flat index for x[target]: pid * n_cols + target
@@ -171,7 +207,13 @@ pub fn cross_entropy_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let flat_off: T::Tensor<i32> = base + tgt;
     let x_target: T::Tensor<f32> = T::load(
         input_ptr.add_offsets(flat_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // CE = log_sum_exp - x[target]
@@ -213,14 +255,26 @@ pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dy_off: T::I32Tensor = T::arange(0, 1) + pid;
     let dy: T::Tensor<f32> = T::load(
         dy_ptr.add_offsets(dy_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load the row and compute softmax
     let neg_inf = T::full(&[BLOCK_SIZE], -3.4028235e38_f32);
     let row = T::load(
         input_ptr.add_offsets(row_offs),
-        Some(in_row), Some(neg_inf), &[], None, None, None, false,
+        Some(in_row),
+        Some(neg_inf),
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sm = T::softmax(row, None, false, false);
 
@@ -228,7 +282,13 @@ pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let tgt_off: T::I32Tensor = T::arange(0, 1) + pid;
     let tgt: T::Tensor<i32> = T::load(
         targets_ptr.add_offsets(tgt_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Step 1: store dy * softmax(x) to the full row (uses T::I32Tensor offsets)
@@ -237,7 +297,10 @@ pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     T::store(
         dx_ptr.add_offsets(row_offs),
         dx_row,
-        Some(in_row), &[], None, None,
+        Some(in_row),
+        &[],
+        None,
+        None,
     );
 
     // Step 2: subtract dy at target position via atomic_add(-dy)
@@ -245,11 +308,7 @@ pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let base: T::Tensor<i32> = T::full::<i32>(&[1], row_base);
     let flat_off: T::Tensor<i32> = base + tgt;
     let neg_dy = T::full(&[1], -1.0_f32) * dy;
-    T::atomic_add(
-        dx_ptr.add_offsets(flat_off),
-        neg_dy,
-        None, None, None,
-    );
+    T::atomic_add(dx_ptr.add_offsets(flat_off), neg_dy, None, None, None);
 }
 
 // ── MultiLabelSoftMarginLoss ──────────────────────────────────────────────────
@@ -279,8 +338,26 @@ pub fn multilabel_soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
@@ -288,7 +365,14 @@ pub fn multilabel_soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let relu_x = T::maximum(inp, zeros);
     let neg_abs_x = neg_one * T::abs(inp);
     let loss = relu_x - inp * tgt + T::log(one + T::exp(neg_abs_x));
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Multi-label soft-margin loss backward (element-wise).
@@ -312,14 +396,48 @@ pub fn multilabel_soft_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     // sigmoid(x) manually to avoid __nv_sigmoidf
     let sig = one / (one + T::exp(neg_one * inp));
     let dx = (sig - tgt) * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }

@@ -56,7 +56,7 @@ fn test_bce_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("bce_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("bce_loss_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("bce_loss_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -68,7 +68,7 @@ fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("bce_with_logits_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("bce_with_logits_loss_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("bce_with_logits_loss_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -80,7 +80,7 @@ fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("soft_margin_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("soft_margin_loss_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("soft_margin_loss_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -92,7 +92,7 @@ fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("kl_div_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("kl_div_loss_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("kl_div_loss_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -104,7 +104,7 @@ fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("poisson_nll_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("poisson_nll_loss_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("poisson_nll_loss_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -116,7 +116,7 @@ fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("gaussian_nll_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("gaussian_nll_loss_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("gaussian_nll_loss_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -131,7 +131,7 @@ fn test_bce_loss_forward_cuda() -> Result<()> {
 
     let inp_host = load_fixture("loss_bce/bce_input.bin");
     let tgt_host = load_fixture("loss_bce/bce_target.bin");
-    let expected  = load_fixture("loss_bce/bce_expected_forward.bin");
+    let expected = load_fixture("loss_bce/bce_expected_forward.bin");
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -143,10 +143,15 @@ fn test_bce_loss_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::BceLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceLossForward>(&ptx)?;
+    let program =
+        testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceLossForward>(&ptx)?;
 
-    let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                out_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        out_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     out_buf.to_host(&mut out_host)?;
 
@@ -154,7 +159,8 @@ fn test_bce_loss_forward_cuda() -> Result<()> {
         assert!(
             (out_host[i] - expected[i]).abs() < 1e-4,
             "bce_loss_forward mismatch at {i}: gpu={}, expected={}",
-            out_host[i], expected[i]
+            out_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -167,13 +173,13 @@ fn test_bce_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("loss_bce/bce_dy.bin");
+    let dy_host = load_fixture("loss_bce/bce_dy.bin");
     let inp_host = load_fixture("loss_bce/bce_input.bin");
     let tgt_host = load_fixture("loss_bce/bce_target.bin");
-    let expected  = load_fixture("loss_bce/bce_expected_backward.bin");
+    let expected = load_fixture("loss_bce/bce_expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    let mut dy_buf  = device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
     let mut inp_buf = device.buffer::<f32>(N)?;
     let mut tgt_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
@@ -184,10 +190,16 @@ fn test_bce_loss_backward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::BceLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceLossBackward>(&ptx)?;
+    let program =
+        testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceLossBackward>(&ptx)?;
 
-    let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
-                tgt_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     dx_buf.to_host(&mut dx_host)?;
 
@@ -195,7 +207,8 @@ fn test_bce_loss_backward_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-4,
             "bce_loss_backward mismatch at {i}: gpu={}, expected={}",
-            dx_host[i], expected[i]
+            dx_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -210,7 +223,7 @@ fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
 
     let inp_host = load_fixture("loss_bce/bwl_input.bin");
     let tgt_host = load_fixture("loss_bce/bwl_target.bin");
-    let expected  = load_fixture("loss_bce/bwl_expected_forward.bin");
+    let expected = load_fixture("loss_bce/bwl_expected_forward.bin");
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -222,10 +235,16 @@ fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceWithLogitsLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::BceWithLogitsLossForward,
+    >(&ptx)?;
 
-    let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                out_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        out_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     out_buf.to_host(&mut out_host)?;
 
@@ -233,7 +252,8 @@ fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
         assert!(
             (out_host[i] - expected[i]).abs() < 1e-5,
             "bce_with_logits_forward mismatch at {i}: gpu={}, expected={}",
-            out_host[i], expected[i]
+            out_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -246,13 +266,13 @@ fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("loss_bce/bwl_dy.bin");
+    let dy_host = load_fixture("loss_bce/bwl_dy.bin");
     let inp_host = load_fixture("loss_bce/bwl_input.bin");
     let tgt_host = load_fixture("loss_bce/bwl_target.bin");
-    let expected  = load_fixture("loss_bce/bwl_expected_backward.bin");
+    let expected = load_fixture("loss_bce/bwl_expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    let mut dy_buf  = device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
     let mut inp_buf = device.buffer::<f32>(N)?;
     let mut tgt_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
@@ -263,10 +283,17 @@ fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceWithLogitsLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::BceWithLogitsLossBackward,
+    >(&ptx)?;
 
-    let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
-                tgt_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     dx_buf.to_host(&mut dx_host)?;
 
@@ -274,7 +301,8 @@ fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-5,
             "bce_with_logits_backward mismatch at {i}: gpu={}, expected={}",
-            dx_host[i], expected[i]
+            dx_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -289,7 +317,7 @@ fn test_soft_margin_loss_forward_cuda() -> Result<()> {
 
     let inp_host = load_fixture("loss_bce/sml_input.bin");
     let tgt_host = load_fixture("loss_bce/sml_target.bin");
-    let expected  = load_fixture("loss_bce/sml_expected_forward.bin");
+    let expected = load_fixture("loss_bce/sml_expected_forward.bin");
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -301,10 +329,16 @@ fn test_soft_margin_loss_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::SoftMarginLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::SoftMarginLossForward,
+    >(&ptx)?;
 
-    let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                out_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        out_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     out_buf.to_host(&mut out_host)?;
 
@@ -312,7 +346,8 @@ fn test_soft_margin_loss_forward_cuda() -> Result<()> {
         assert!(
             (out_host[i] - expected[i]).abs() < 1e-5,
             "soft_margin_loss_forward mismatch at {i}: gpu={}, expected={}",
-            out_host[i], expected[i]
+            out_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -325,13 +360,13 @@ fn test_soft_margin_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("loss_bce/sml_dy.bin");
+    let dy_host = load_fixture("loss_bce/sml_dy.bin");
     let inp_host = load_fixture("loss_bce/sml_input.bin");
     let tgt_host = load_fixture("loss_bce/sml_target.bin");
-    let expected  = load_fixture("loss_bce/sml_expected_backward.bin");
+    let expected = load_fixture("loss_bce/sml_expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    let mut dy_buf  = device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
     let mut inp_buf = device.buffer::<f32>(N)?;
     let mut tgt_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
@@ -342,10 +377,17 @@ fn test_soft_margin_loss_backward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::SoftMarginLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::SoftMarginLossBackward,
+    >(&ptx)?;
 
-    let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
-                tgt_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     dx_buf.to_host(&mut dx_host)?;
 
@@ -353,7 +395,8 @@ fn test_soft_margin_loss_backward_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-5,
             "soft_margin_loss_backward mismatch at {i}: gpu={}, expected={}",
-            dx_host[i], expected[i]
+            dx_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -368,7 +411,7 @@ fn test_kl_div_loss_forward_cuda() -> Result<()> {
 
     let inp_host = load_fixture("loss_bce/kl_input.bin");
     let tgt_host = load_fixture("loss_bce/kl_target.bin");
-    let expected  = load_fixture("loss_bce/kl_expected_forward.bin");
+    let expected = load_fixture("loss_bce/kl_expected_forward.bin");
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -380,10 +423,15 @@ fn test_kl_div_loss_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::KlDivLossForward>(&ptx)?;
+    let program =
+        testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::KlDivLossForward>(&ptx)?;
 
-    let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                out_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        out_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     out_buf.to_host(&mut out_host)?;
 
@@ -391,7 +439,8 @@ fn test_kl_div_loss_forward_cuda() -> Result<()> {
         assert!(
             (out_host[i] - expected[i]).abs() < 1e-4,
             "kl_div_loss_forward mismatch at {i}: gpu={}, expected={}",
-            out_host[i], expected[i]
+            out_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -404,12 +453,12 @@ fn test_kl_div_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("loss_bce/kl_dy.bin");
+    let dy_host = load_fixture("loss_bce/kl_dy.bin");
     let tgt_host = load_fixture("loss_bce/kl_target.bin");
-    let expected  = load_fixture("loss_bce/kl_expected_backward.bin");
+    let expected = load_fixture("loss_bce/kl_expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    let mut dy_buf  = device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
     let mut tgt_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
@@ -418,10 +467,15 @@ fn test_kl_div_loss_backward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::KlDivLossBackward>(&ptx)?;
+    let program =
+        testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::KlDivLossBackward>(&ptx)?;
 
-    let args = (dy_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                dx_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     dx_buf.to_host(&mut dx_host)?;
 
@@ -429,7 +483,8 @@ fn test_kl_div_loss_backward_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-5,
             "kl_div_loss_backward mismatch at {i}: gpu={}, expected={}",
-            dx_host[i], expected[i]
+            dx_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -444,7 +499,7 @@ fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
 
     let inp_host = load_fixture("loss_bce/pnll_input.bin");
     let tgt_host = load_fixture("loss_bce/pnll_target.bin");
-    let expected  = load_fixture("loss_bce/pnll_expected_forward.bin");
+    let expected = load_fixture("loss_bce/pnll_expected_forward.bin");
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -456,10 +511,16 @@ fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::PoissonNllLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::PoissonNllLossForward,
+    >(&ptx)?;
 
-    let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                out_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        out_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     out_buf.to_host(&mut out_host)?;
 
@@ -467,7 +528,8 @@ fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
         assert!(
             (out_host[i] - expected[i]).abs() < 1e-4,
             "poisson_nll_loss_forward mismatch at {i}: gpu={}, expected={}",
-            out_host[i], expected[i]
+            out_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -480,13 +542,13 @@ fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("loss_bce/pnll_dy.bin");
+    let dy_host = load_fixture("loss_bce/pnll_dy.bin");
     let inp_host = load_fixture("loss_bce/pnll_input.bin");
     let tgt_host = load_fixture("loss_bce/pnll_target.bin");
-    let expected  = load_fixture("loss_bce/pnll_expected_backward.bin");
+    let expected = load_fixture("loss_bce/pnll_expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    let mut dy_buf  = device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
     let mut inp_buf = device.buffer::<f32>(N)?;
     let mut tgt_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
@@ -497,10 +559,17 @@ fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::PoissonNllLossBackward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::PoissonNllLossBackward,
+    >(&ptx)?;
 
-    let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
-                tgt_buf.as_device_ptr() as *mut f32, dx_buf.as_device_ptr() as *mut f32, N as i32);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     dx_buf.to_host(&mut dx_host)?;
 
@@ -508,7 +577,8 @@ fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-4,
             "poisson_nll_loss_backward mismatch at {i}: gpu={}, expected={}",
-            dx_host[i], expected[i]
+            dx_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -524,7 +594,7 @@ fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
     let inp_host = load_fixture("loss_bce/gnll_input.bin");
     let tgt_host = load_fixture("loss_bce/gnll_target.bin");
     let var_host = load_fixture("loss_bce/gnll_var.bin");
-    let expected  = load_fixture("loss_bce/gnll_expected_forward.bin");
+    let expected = load_fixture("loss_bce/gnll_expected_forward.bin");
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -538,12 +608,19 @@ fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::GaussianNllLossForward>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::GaussianNllLossForward,
+    >(&ptx)?;
 
     let cfg = launch_cfg();
-    let args = (inp_buf.as_device_ptr() as *mut f32, tgt_buf.as_device_ptr() as *mut f32,
-                var_buf.as_device_ptr() as *mut f32, out_buf.as_device_ptr() as *mut f32,
-                N as i32, 1e-6_f32);
+    let args = (
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        var_buf.as_device_ptr() as *mut f32,
+        out_buf.as_device_ptr() as *mut f32,
+        N as i32,
+        1e-6_f32,
+    );
     device.launch(&program, &cfg, args)?;
     out_buf.to_host(&mut out_host)?;
 
@@ -551,7 +628,8 @@ fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
         assert!(
             (out_host[i] - expected[i]).abs() < 1e-4,
             "gaussian_nll_loss_forward mismatch at {i}: gpu={}, expected={}",
-            out_host[i], expected[i]
+            out_host[i],
+            expected[i]
         );
     }
     Ok(())
@@ -564,14 +642,14 @@ fn test_gaussian_nll_loss_backward_input_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("loss_bce/gnll_dy.bin");
+    let dy_host = load_fixture("loss_bce/gnll_dy.bin");
     let inp_host = load_fixture("loss_bce/gnll_input.bin");
     let tgt_host = load_fixture("loss_bce/gnll_target.bin");
     let var_host = load_fixture("loss_bce/gnll_var.bin");
-    let expected  = load_fixture("loss_bce/gnll_expected_backward.bin");
+    let expected = load_fixture("loss_bce/gnll_expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
-    let mut dy_buf  = device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
     let mut inp_buf = device.buffer::<f32>(N)?;
     let mut tgt_buf = device.buffer::<f32>(N)?;
     let mut var_buf = device.buffer::<f32>(N)?;
@@ -584,11 +662,19 @@ fn test_gaussian_nll_loss_backward_input_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossBackwardInput::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::GaussianNllLossBackwardInput>(&ptx)?;
+    let program = testing::load_program_from_ptx::<
+        teeny_kernels::nn::loss::bce::GaussianNllLossBackwardInput,
+    >(&ptx)?;
 
-    let args = (dy_buf.as_device_ptr() as *mut f32, inp_buf.as_device_ptr() as *mut f32,
-                tgt_buf.as_device_ptr() as *mut f32, var_buf.as_device_ptr() as *mut f32,
-                dx_buf.as_device_ptr() as *mut f32, N as i32, 1e-6_f32);
+    let args = (
+        dy_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr() as *mut f32,
+        tgt_buf.as_device_ptr() as *mut f32,
+        var_buf.as_device_ptr() as *mut f32,
+        dx_buf.as_device_ptr() as *mut f32,
+        N as i32,
+        1e-6_f32,
+    );
     device.launch(&program, &launch_cfg(), args)?;
     dx_buf.to_host(&mut dx_host)?;
 
@@ -596,7 +682,8 @@ fn test_gaussian_nll_loss_backward_input_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-4,
             "gaussian_nll_loss_backward mismatch at {i}: gpu={}, expected={}",
-            dx_host[i], expected[i]
+            dx_host[i],
+            expected[i]
         );
     }
     Ok(())

@@ -22,18 +22,15 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-#[cfg(feature = "cuda")]
 use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
+#[cfg(feature = "cuda")]
+use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 use teeny_kernels::nn::activation::extra::{
-    SwishForward, SwishBackward,
-    PreluForward, PreluBackward,
-    LogSoftmaxForward, LogSoftmaxBackward,
-    ThresholdedReluForward, ThresholdedReluBackward,
-    ShrinkForward, ShrinkBackward,
+    LogSoftmaxBackward, LogSoftmaxForward, PreluBackward, PreluForward, ShrinkBackward,
+    ShrinkForward, SwishBackward, SwishForward, ThresholdedReluBackward, ThresholdedReluForward,
 };
 
 const BLOCK_SIZE: i32 = 1024;
@@ -42,7 +39,10 @@ const TOL: f32 = 1e-4;
 fn load_fixture(rel: &str) -> Vec<f32> {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect()
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
 }
 
 // ── Source + MLIR snapshots ───────────────────────────────────────────────────
@@ -191,16 +191,22 @@ fn test_swish_forward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<SwishForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        n as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            n as i32,
+        ),
+    )?;
     y_buf.to_host(&mut y_out)?;
     for i in 0..n {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
-            "swish fwd mismatch at i={i}: gpu={} expected={}", y_out[i], expected[i]
+            "swish fwd mismatch at i={i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -228,17 +234,23 @@ fn test_swish_backward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<SwishBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        n as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            n as i32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     for i in 0..n {
         assert!(
             (dx_out[i] - expected[i]).abs() < TOL,
-            "swish bwd mismatch at i={i}: gpu={} expected={}", dx_out[i], expected[i]
+            "swish bwd mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -266,17 +278,23 @@ fn test_prelu_forward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<PreluForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        slope_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        n as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            slope_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            n as i32,
+        ),
+    )?;
     y_buf.to_host(&mut y_out)?;
     for i in 0..n {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
-            "prelu fwd mismatch at i={i}: gpu={} expected={}", y_out[i], expected[i]
+            "prelu fwd mismatch at i={i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -310,25 +328,32 @@ fn test_prelu_backward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<PreluBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        slope_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        dslope_buf.as_device_ptr() as *mut f32,
-        n as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            slope_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            dslope_buf.as_device_ptr() as *mut f32,
+            n as i32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     dslope_buf.to_host(&mut dslope_out)?;
     for i in 0..n {
         assert!(
             (dx_out[i] - expected_dx[i]).abs() < TOL,
-            "prelu bwd dx mismatch at i={i}: gpu={} expected={}", dx_out[i], expected_dx[i]
+            "prelu bwd dx mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected_dx[i]
         );
         assert!(
             (dslope_out[i] - expected_dslope[i]).abs() < TOL,
             "prelu bwd dslope mismatch at i={i}: gpu={} expected={}",
-            dslope_out[i], expected_dslope[i]
+            dslope_out[i],
+            expected_dslope[i]
         );
     }
     Ok(())
@@ -363,17 +388,23 @@ fn test_log_softmax_forward_gpu() -> Result<()> {
         block: [n_cols as u32, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        n_rows as i32,
-        n_cols as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            n_rows as i32,
+            n_cols as i32,
+        ),
+    )?;
     y_buf.to_host(&mut y_out)?;
     for i in 0..n_total {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
-            "log_softmax fwd mismatch at i={i}: gpu={} expected={}", y_out[i], expected[i]
+            "log_softmax fwd mismatch at i={i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -408,18 +439,24 @@ fn test_log_softmax_backward_gpu() -> Result<()> {
         block: [n_cols as u32, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        n_rows as i32,
-        n_cols as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            n_rows as i32,
+            n_cols as i32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     for i in 0..n_total {
         assert!(
             (dx_out[i] - expected[i]).abs() < TOL,
-            "log_softmax bwd mismatch at i={i}: gpu={} expected={}", dx_out[i], expected[i]
+            "log_softmax bwd mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -446,17 +483,23 @@ fn test_thresholded_relu_forward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ThresholdedReluForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        n as i32,
-        THRELU_ALPHA,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            n as i32,
+            THRELU_ALPHA,
+        ),
+    )?;
     y_buf.to_host(&mut y_out)?;
     for i in 0..n {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
-            "thresholded_relu fwd mismatch at i={i}: gpu={} expected={}", y_out[i], expected[i]
+            "thresholded_relu fwd mismatch at i={i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -484,18 +527,24 @@ fn test_thresholded_relu_backward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ThresholdedReluBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        n as i32,
-        THRELU_ALPHA,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            n as i32,
+            THRELU_ALPHA,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     for i in 0..n {
         assert!(
             (dx_out[i] - expected[i]).abs() < TOL,
-            "thresholded_relu bwd mismatch at i={i}: gpu={} expected={}", dx_out[i], expected[i]
+            "thresholded_relu bwd mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -523,18 +572,24 @@ fn test_shrink_forward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ShrinkForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        n as i32,
-        SHRINK_LAMBD,
-        SHRINK_BIAS,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            n as i32,
+            SHRINK_LAMBD,
+            SHRINK_BIAS,
+        ),
+    )?;
     y_buf.to_host(&mut y_out)?;
     for i in 0..n {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
-            "shrink fwd mismatch at i={i}: gpu={} expected={}", y_out[i], expected[i]
+            "shrink fwd mismatch at i={i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -562,18 +617,24 @@ fn test_shrink_backward_gpu() -> Result<()> {
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<ShrinkBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        n as i32,
-        SHRINK_LAMBD,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            n as i32,
+            SHRINK_LAMBD,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_out)?;
     for i in 0..n {
         assert!(
             (dx_out[i] - expected[i]).abs() < TOL,
-            "shrink bwd mismatch at i={i}: gpu={} expected={}", dx_out[i], expected[i]
+            "shrink bwd mismatch at i={i}: gpu={} expected={}",
+            dx_out[i],
+            expected[i]
         );
     }
     Ok(())

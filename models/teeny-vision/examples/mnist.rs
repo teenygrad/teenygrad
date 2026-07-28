@@ -55,7 +55,12 @@ use teeny_core::{
 };
 use teeny_cuda::{
     compiler::{graph::CudaGraphCompiler, target::capability_from_device_info},
-    device::{CudaArgPacker, CudaLaunchConfig, context::Cuda, mem, program::{CudaProgram, ErasedKernel}},
+    device::{
+        CudaArgPacker, CudaLaunchConfig,
+        context::Cuda,
+        mem,
+        program::{CudaProgram, ErasedKernel},
+    },
     model::{AdamwKernel, TensorRef},
 };
 use teeny_kernels::{
@@ -95,7 +100,7 @@ async fn main() -> Result<()> {
     );
     download_data(&data_dir).await?;
     let train_path = data_dir.join("mnist/mnist-train.parquet");
-    let test_path  = data_dir.join("mnist/mnist-test.parquet");
+    let test_path = data_dir.join("mnist/mnist-test.parquet");
 
     // ── 2. Load all data into host memory ─────────────────────────────────────
     println!("[1/8] loading MNIST (PNG decode) …");
@@ -107,15 +112,17 @@ async fn main() -> Result<()> {
     println!("      test : {} samples", test_ds.len());
 
     let train_all = train_ds.read_batch(0, train_ds.len())?;
-    let test_all  = test_ds.read_batch(0, test_ds.len())?;
+    let test_all = test_ds.read_batch(0, test_ds.len())?;
 
     // Round down to the nearest complete batch.
     let n_train_batches = train_all.batch_size / BATCH_SIZE;
-    let n_test_batches  = test_all.batch_size  / BATCH_SIZE;
+    let n_test_batches = test_all.batch_size / BATCH_SIZE;
     let n_train = n_train_batches * BATCH_SIZE;
-    let n_test  = n_test_batches  * BATCH_SIZE;
-    println!("      using {} train / {} test samples ({} / {} batches)",
-             n_train, n_test, n_train_batches, n_test_batches);
+    let n_test = n_test_batches * BATCH_SIZE;
+    println!(
+        "      using {} train / {} test samples ({} / {} batches)",
+        n_train, n_test, n_train_batches, n_test_batches
+    );
 
     // ── 3. Initialise CUDA ────────────────────────────────────────────────────
     println!("[2/8] initialising CUDA …");
@@ -127,13 +134,12 @@ async fn main() -> Result<()> {
 
     // ── 4. Trace + compile LeNet-5 ───────────────────────────────────────────
     println!("[3/8] tracing + compiling LeNet-5 graph …");
-    let teenyc_path = env::var("TEENYC_PATH")
-        .context("TEENYC_PATH must point to the teenyc binary")?;
+    let teenyc_path =
+        env::var("TEENYC_PATH").context("TEENYC_PATH must point to the teenyc binary")?;
     let ptx_cache =
         env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 
-    let (input, graph) =
-        SymTensor::input(DtypeRepr::F32, vec![None, Some(1), Some(28), Some(28)]);
+    let (input, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(1), Some(28), Some(28)]);
     let _output = Layer::call(&mnist_lenet5::<f32>(), input);
     let graph = graph.borrow();
     println!("      graph: {} nodes", graph.nodes.len());
@@ -142,7 +148,8 @@ async fn main() -> Result<()> {
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(capability);
     let lowering = TritonLowering::new();
-    let cuda_model = graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
+    let cuda_model =
+        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
     println!("      compiled {} DAG nodes", cuda_model.dag.len());
 
     // ── 5. Load model + initialise weights ───────────────────────────────────
@@ -164,13 +171,13 @@ async fn main() -> Result<()> {
 
     // ── 6. Compile standalone CE loss + AdamW kernels ─────────────────────────
     println!("[5/8] compiling CE loss + AdamW kernels …");
-    let ce_fwd_spec  = CrossEntropyLossForward::new(CE_BLOCK_SIZE);
-    let ce_bwd_spec  = CrossEntropyLossBackward::new(CE_BLOCK_SIZE);
-    let adamw_spec   = AdamwStep::new(ADAMW_BLOCK_SIZE);
+    let ce_fwd_spec = CrossEntropyLossForward::new(CE_BLOCK_SIZE);
+    let ce_bwd_spec = CrossEntropyLossBackward::new(CE_BLOCK_SIZE);
+    let adamw_spec = AdamwStep::new(ADAMW_BLOCK_SIZE);
 
-    let ptx_ce_fwd  = std::fs::read(compile_kernel(&ce_fwd_spec,  &target, false)?)?;
-    let ptx_ce_bwd  = std::fs::read(compile_kernel(&ce_bwd_spec,  &target, false)?)?;
-    let ptx_adamw   = std::fs::read(compile_kernel(&adamw_spec,   &target, false)?)?;
+    let ptx_ce_fwd = std::fs::read(compile_kernel(&ce_fwd_spec, &target, false)?)?;
+    let ptx_ce_bwd = std::fs::read(compile_kernel(&ce_bwd_spec, &target, false)?)?;
+    let ptx_adamw = std::fs::read(compile_kernel(&adamw_spec, &target, false)?)?;
 
     let ce_fwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_fwd)?;
     let ce_bwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_bwd)?;
@@ -180,9 +187,9 @@ async fn main() -> Result<()> {
     // ── 7. Pre-allocate fixed device buffers ──────────────────────────────────
     // img_ptr is allocated fresh each batch (owned by the ActivationCache).
     let img_numel = BATCH_SIZE * 784; // 1 × 28 × 28
-    let tgt_ptr      = mem::alloc(BATCH_SIZE * size_of::<i32>())?;
-    let loss_ptr     = mem::alloc(BATCH_SIZE * size_of::<f32>())?;
-    let dy_ptr       = mem::alloc(BATCH_SIZE * size_of::<f32>())?;
+    let tgt_ptr = mem::alloc(BATCH_SIZE * size_of::<i32>())?;
+    let loss_ptr = mem::alloc(BATCH_SIZE * size_of::<f32>())?;
+    let dy_ptr = mem::alloc(BATCH_SIZE * size_of::<f32>())?;
     let dx_logit_ptr = mem::alloc(BATCH_SIZE * N_CLASSES * size_of::<f32>())?;
 
     // Upstream CE gradient: 1/BATCH_SIZE for mean reduction (constant for all steps).
@@ -191,8 +198,8 @@ async fn main() -> Result<()> {
 
     // CE loss launch config: one CTA per row (batch element), block from kernel metadata.
     let ce_cfg = CudaLaunchConfig {
-        grid:    [BATCH_SIZE as u32, 1, 1],
-        block:   [ce_fwd_prog.threads_per_block(), 1, 1],
+        grid: [BATCH_SIZE as u32, 1, 1],
+        block: [ce_fwd_prog.threads_per_block(), 1, 1],
         cluster: [ce_fwd_prog.num_ctas().max(1), 1, 1],
     };
 
@@ -205,8 +212,8 @@ async fn main() -> Result<()> {
 
         for batch_idx in 0..n_train_batches {
             let start = batch_idx * BATCH_SIZE;
-            let img_slice  = &train_all.images[start * 784 .. (start + BATCH_SIZE) * 784];
-            let lbl_slice  = &train_all.labels[start .. start + BATCH_SIZE];
+            let img_slice = &train_all.images[start * 784..(start + BATCH_SIZE) * 784];
+            let lbl_slice = &train_all.labels[start..start + BATCH_SIZE];
             let labels_i32: Vec<i32> = lbl_slice.iter().map(|&l| l as i32).collect();
 
             // Allocate image buffer for this batch.
@@ -219,17 +226,16 @@ async fn main() -> Result<()> {
             model.zero_grad();
 
             // Forward pass (retain all activations for backward).
-            let (logits, cache) =
-                model.forward_train(&device, BATCH_SIZE, &[img_ref])?;
+            let (logits, cache) = model.forward_train(&device, BATCH_SIZE, &[img_ref])?;
 
             // CE forward: compute per-sample loss for reporting.
             {
                 let mut packer = CudaArgPacker::new();
                 packer.visit_ptr(logits.ptr as *mut c_void);
-                packer.visit_ptr(tgt_ptr   as *mut c_void);
-                packer.visit_ptr(loss_ptr  as *mut c_void);
+                packer.visit_ptr(tgt_ptr as *mut c_void);
+                packer.visit_ptr(loss_ptr as *mut c_void);
                 packer.visit_i32(BATCH_SIZE as i32);
-                packer.visit_i32(N_CLASSES  as i32);
+                packer.visit_i32(N_CLASSES as i32);
                 device.launch_with_packer(&ce_fwd_prog, &ce_cfg, &mut packer)?;
             }
             let mut loss_host = vec![0.0_f32; BATCH_SIZE];
@@ -241,12 +247,12 @@ async fn main() -> Result<()> {
             // The result is written to dx_logit_ptr and used as model's grad_output.
             {
                 let mut packer = CudaArgPacker::new();
-                packer.visit_ptr(dy_ptr      as *mut c_void);
-                packer.visit_ptr(logits.ptr  as *mut c_void);
-                packer.visit_ptr(tgt_ptr     as *mut c_void);
+                packer.visit_ptr(dy_ptr as *mut c_void);
+                packer.visit_ptr(logits.ptr as *mut c_void);
+                packer.visit_ptr(tgt_ptr as *mut c_void);
                 packer.visit_ptr(dx_logit_ptr as *mut c_void);
                 packer.visit_i32(BATCH_SIZE as i32);
-                packer.visit_i32(N_CLASSES  as i32);
+                packer.visit_i32(N_CLASSES as i32);
                 device.launch_with_packer(&ce_bwd_prog, &ce_cfg, &mut packer)?;
             }
 
@@ -264,14 +270,16 @@ async fn main() -> Result<()> {
             if (batch_idx + 1) % 200 == 0 || batch_idx + 1 == n_train_batches {
                 println!(
                     "  epoch {}/{N_EPOCHS}  step {:>4}/{n_train_batches}  loss={batch_loss:.4}",
-                    epoch + 1, batch_idx + 1,
+                    epoch + 1,
+                    batch_idx + 1,
                 );
             }
         }
 
         println!(
             "  ─── epoch {}/{N_EPOCHS} complete: avg_loss={:.4} ───",
-            epoch + 1, epoch_loss / n_train_batches as f32,
+            epoch + 1,
+            epoch_loss / n_train_batches as f32,
         );
         println!();
     }
@@ -282,9 +290,9 @@ async fn main() -> Result<()> {
     let mut total_correct = 0usize;
 
     for batch_idx in 0..n_test_batches {
-        let start     = batch_idx * BATCH_SIZE;
-        let img_slice = &test_all.images[start * 784 .. (start + BATCH_SIZE) * 784];
-        let lbl_slice = &test_all.labels[start .. start + BATCH_SIZE];
+        let start = batch_idx * BATCH_SIZE;
+        let img_slice = &test_all.images[start * 784..(start + BATCH_SIZE) * 784];
+        let lbl_slice = &test_all.labels[start..start + BATCH_SIZE];
 
         unsafe { mem::copy_h_to_d(test_img_ptr, img_slice.as_ptr(), img_numel) }?;
         let img_ref = TensorRef::new(test_img_ptr, vec![BATCH_SIZE, 1, 28, 28]);
@@ -297,7 +305,7 @@ async fn main() -> Result<()> {
         mem::free(logits.ptr)?;
 
         for i in 0..BATCH_SIZE {
-            let row = &logits_host[i * N_CLASSES .. (i + 1) * N_CLASSES];
+            let row = &logits_host[i * N_CLASSES..(i + 1) * N_CLASSES];
             if argmax(row) == lbl_slice[i] as usize {
                 total_correct += 1;
             }
@@ -310,8 +318,10 @@ async fn main() -> Result<()> {
     // ── 10. Results ───────────────────────────────────────────────────────────
     println!("[8/8] done.");
     println!();
-    println!("  Test accuracy: {total_correct}/{total_test}  ({:.2}%)",
-             100.0 * total_correct as f32 / total_test as f32);
+    println!(
+        "  Test accuracy: {total_correct}/{total_test}  ({:.2}%)",
+        100.0 * total_correct as f32 / total_test as f32
+    );
     println!();
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
@@ -327,11 +337,17 @@ async fn main() -> Result<()> {
 
 /// Kaiming-uniform initialisation: `bound = sqrt(6 / fan_in)`, uniform in `[-bound, bound]`.
 fn kaiming_uniform(shape: &[usize]) -> Vec<f32> {
-    let fan_in: usize = if shape.len() >= 2 { shape[1..].iter().product() } else { shape[0] };
+    let fan_in: usize = if shape.len() >= 2 {
+        shape[1..].iter().product()
+    } else {
+        shape[0]
+    };
     let bound = (6.0_f32 / fan_in as f32).sqrt();
     let n: usize = shape.iter().product();
     let mut rng = rand::rng();
-    (0..n).map(|_| rng.random::<f32>() * 2.0 * bound - bound).collect()
+    (0..n)
+        .map(|_| rng.random::<f32>() * 2.0 * bound - bound)
+        .collect()
 }
 
 fn argmax(v: &[f32]) -> usize {
@@ -348,32 +364,42 @@ async fn download_data(cache_dir: &Path) -> Result<()> {
     const TEST_URL: &str = "https://huggingface.co/datasets/ylecun/mnist/resolve/main/mnist/test-00000-of-00001.parquet?download=true";
     const TRAIN_URL: &str = "https://huggingface.co/datasets/ylecun/mnist/resolve/main/mnist/train-00000-of-00001.parquet?download=true";
 
-    download_if_not_exists(TEST_URL,  &cache_dir.join("mnist/mnist-test.parquet")).await?;
+    download_if_not_exists(TEST_URL, &cache_dir.join("mnist/mnist-test.parquet")).await?;
     download_if_not_exists(TRAIN_URL, &cache_dir.join("mnist/mnist-train.parquet")).await?;
     Ok(())
 }
 
 async fn download_if_not_exists(url: &str, path: &Path) -> Result<()> {
-    if path.exists() { return Ok(()); }
+    if path.exists() {
+        return Ok(());
+    }
 
     let mut response = reqwest::get(url).await?;
     response.error_for_status_ref()?;
 
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("download");
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("download");
     let total = response.content_length().unwrap_or(0);
     let bar = if total > 0 {
         let b = ProgressBar::new(total);
         b.set_style(
             ProgressStyle::with_template(
                 "{msg} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, ETA {eta})",
-            )?.progress_chars("##-"),
+            )?
+            .progress_chars("##-"),
         );
         b
     } else {
         let b = ProgressBar::new_spinner();
-        b.set_style(ProgressStyle::with_template("{msg} {spinner} {bytes} downloaded")?);
+        b.set_style(ProgressStyle::with_template(
+            "{msg} {spinner} {bytes} downloaded",
+        )?);
         b.enable_steady_tick(std::time::Duration::from_millis(120));
         b
     };

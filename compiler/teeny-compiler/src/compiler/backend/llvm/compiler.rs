@@ -80,7 +80,10 @@ impl Compiler for LlvmCompiler {
             if let Some(ptx_version) = self.ptx_version {
                 h.update(ptx_version.to_le_bytes());
             }
-            h.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
+            h.finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
         };
         let kernel_file_name = format!("{}_{}", kernel.name(), effective_id);
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");

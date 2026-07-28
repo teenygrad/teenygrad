@@ -167,7 +167,9 @@ impl CudaGraphCompiler {
 
         // Propagate graph-level node names (from name_scope annotations) into the
         // compiled DAG using the graph_node → dag_node index mapping.
-        let mut dag_names: HashMap<usize, String> = graph.names.iter()
+        let mut dag_names: HashMap<usize, String> = graph
+            .names
+            .iter()
             .filter_map(|(&graph_idx, name)| {
                 let dag_idx = *graph_to_dag.get(graph_idx)?;
                 Some((dag_idx, name.clone()))

@@ -65,17 +65,56 @@ pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
 
     // Load per-channel scalars (shape [1]) and broadcast to [BLOCK_N].
     let mean = T::broadcast_to(
-        T::load(running_mean_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            running_mean_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
-    let var = T::load(running_var_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
-    let rstd = T::broadcast_to(T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)), &[BLOCK_N]);
+    let var = T::load(
+        running_var_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let rstd = T::broadcast_to(
+        T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)),
+        &[BLOCK_N],
+    );
     let gamma = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
     let beta = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
 
@@ -87,10 +126,26 @@ pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = gamma * (x_tile - mean) * rstd + beta;
 
-        T::store(y_ptr.add_offsets(elem_offsets), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(elem_offsets),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
 
         n_start += BLOCK_N;
     }
@@ -137,7 +192,16 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros_blk),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         acc_sum = acc_sum + x_tile;
         acc_sum_sq = acc_sum_sq + x_tile * x_tile;
 
@@ -162,11 +226,43 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     // Exponential moving average: running = (1 - m) * running + m * batch.
     let m = T::cast::<f32, D>(T::full::<f32>(&[1], momentum), None, false);
     let one_m = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 - momentum), None, false);
-    let running_mean_old = T::load(running_mean_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
-    let running_var_old = T::load(running_var_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
+    let running_mean_old = T::load(
+        running_mean_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let running_var_old = T::load(
+        running_var_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    T::store(running_mean_ptr.add_offsets(c_idx), one_m * running_mean_old + m * mean_1, None, &[], None, None);
-    T::store(running_var_ptr.add_offsets(c_idx), one_m * running_var_old + m * var_1, None, &[], None, None);
+    T::store(
+        running_mean_ptr.add_offsets(c_idx),
+        one_m * running_mean_old + m * mean_1,
+        None,
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        running_var_ptr.add_offsets(c_idx),
+        one_m * running_var_old + m * var_1,
+        None,
+        &[],
+        None,
+        None,
+    );
 }
 
 // ─── Training: kernel 2 — normalise using saved statistics ───────────────────
@@ -195,19 +291,55 @@ pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 
     // Load per-channel scalars and broadcast to [BLOCK_N].
     let mean = T::broadcast_to(
-        T::load(mean_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            mean_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
     let rstd = T::broadcast_to(
-        T::load(rstd_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            rstd_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
     let gamma = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
     let beta = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
 
@@ -218,10 +350,26 @@ pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = gamma * (x_tile - mean) * rstd + beta;
 
-        T::store(y_ptr.add_offsets(elem_offsets), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(elem_offsets),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
 
         n_start += BLOCK_N;
     }
@@ -244,7 +392,12 @@ pub struct BatchNormStatsRuntimeOp<D: teeny_core::dtype::Float + Send + Sync + '
 #[cfg(feature = "training")]
 impl<D: teeny_core::dtype::Float + Send + Sync + 'static> BatchNormStatsRuntimeOp<D> {
     pub fn new(block_n: i32, eps: f32, momentum: f32) -> Self {
-        Self { block_n, eps, momentum, _phantom: core::marker::PhantomData }
+        Self {
+            block_n,
+            eps,
+            momentum,
+            _phantom: core::marker::PhantomData,
+        }
     }
 }
 
@@ -252,7 +405,9 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> BatchNormStatsRuntimeO
 impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     for BatchNormStatsRuntimeOp<D>
 {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         let c = input_shapes[0][1];
@@ -284,7 +439,9 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_f32(self.momentum);
     }
 
-    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [1, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let c = output_shape[0] / 2;
@@ -313,14 +470,18 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> BatchNormNormalizeRunt
         }
     }
 
-    pub fn backward_source(&self) -> &str { &self.bwd_source }
+    pub fn backward_source(&self) -> &str {
+        &self.bwd_source
+    }
 }
 
 #[cfg(feature = "training")]
 impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     for BatchNormNormalizeRuntimeOp<D>
 {
-    fn n_activation_inputs(&self) -> usize { 2 }
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         let c = input_shapes[1][0] / 2;
@@ -355,14 +516,18 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_i32(c as i32);
     }
 
-    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [1, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let c = output_shape.get(1).copied().unwrap_or(output_shape[0]);
         [c as u32, 1, 1]
     }
 
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     fn pack_backward_args(
         &self,
@@ -385,19 +550,21 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         let n = (n_total / c) as i32;
         let mean_ptr = inputs[1].0;
         let rstd_ptr = unsafe { (inputs[1].0 as *mut D).add(c) } as teeny_core::model::RawPtr;
-        visitor.visit_ptr(grad_output);      // dy_ptr
-        visitor.visit_ptr(inputs[0].0);      // x_ptr
-        visitor.visit_ptr(grad_inputs[0]);   // dx_ptr
-        visitor.visit_ptr(params[0]);        // weight_ptr
-        visitor.visit_ptr(mean_ptr);         // mean_ptr
-        visitor.visit_ptr(rstd_ptr);         // rstd_ptr
-        visitor.visit_ptr(grad_params[0]);   // dweight_ptr
-        visitor.visit_ptr(grad_params[1]);   // dbias_ptr
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_ptr(params[0]); // weight_ptr
+        visitor.visit_ptr(mean_ptr); // mean_ptr
+        visitor.visit_ptr(rstd_ptr); // rstd_ptr
+        visitor.visit_ptr(grad_params[0]); // dweight_ptr
+        visitor.visit_ptr(grad_params[1]); // dbias_ptr
         visitor.visit_i32(n);
         visitor.visit_i32(c as i32);
     }
 
-    fn backward_block(&self) -> [u32; 3] { [1, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [1, 1, 1]
+    }
 
     fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
         // input_shapes[1] = [2*C] (stats); one CTA per channel
@@ -437,17 +604,56 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
 
     // Load per-channel scalars and broadcast to [BLOCK_HW].
     let mean = T::broadcast_to(
-        T::load(running_mean_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            running_mean_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_HW],
     );
-    let var = T::load(running_var_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
-    let rstd = T::broadcast_to(T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)), &[BLOCK_HW]);
+    let var = T::load(
+        running_var_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let rstd = T::broadcast_to(
+        T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)),
+        &[BLOCK_HW],
+    );
     let gamma = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_HW],
     );
     let beta = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_HW],
     );
 
@@ -460,9 +666,25 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
         let mask = offsets.lt(HW);
         let elem_offsets = offsets + batch_channel_offset;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros), &[], None, None, None, false);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = gamma * (x_tile - mean) * rstd + beta;
-        T::store(y_ptr.add_offsets(elem_offsets), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(elem_offsets),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
 
         hw_start += BLOCK_HW;
     }
@@ -489,8 +711,12 @@ impl<D: Float + Send + Sync + 'static> BatchNorm2dNchwInferenceRuntimeOp<D> {
         }
     }
 
-    pub fn forward_source(&self) -> &str { &self.fwd.source }
-    pub fn kernel_name(&self) -> &str { self.fwd.name }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        self.fwd.name
+    }
 
     #[cfg(feature = "training")]
     pub fn backward_source(&self) -> String {
@@ -501,7 +727,9 @@ impl<D: Float + Send + Sync + 'static> BatchNorm2dNchwInferenceRuntimeOp<D> {
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     for BatchNorm2dNchwInferenceRuntimeOp<D>
 {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         let c = input_shapes[0][1];
@@ -534,14 +762,18 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_f32(self.eps);
     }
 
-    fn block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_hw as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[1] as u32, output_shape[0] as u32, 1]
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -561,14 +793,14 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         let b = in_shape[0] as i32;
         let c = in_shape[1] as i32;
         let hw = (in_shape[2] * in_shape[3]) as i32;
-        visitor.visit_ptr(grad_output);      // dy_ptr
-        visitor.visit_ptr(inputs[0].0);      // x_ptr
-        visitor.visit_ptr(grad_inputs[0]);   // dx_ptr
-        visitor.visit_ptr(params[0]);        // weight_ptr
-        visitor.visit_ptr(params[2]);        // running_mean_ptr
-        visitor.visit_ptr(params[3]);        // running_var_ptr
-        visitor.visit_ptr(grad_params[0]);   // dweight_ptr
-        visitor.visit_ptr(grad_params[1]);   // dbias_ptr
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_ptr(params[0]); // weight_ptr
+        visitor.visit_ptr(params[2]); // running_mean_ptr
+        visitor.visit_ptr(params[3]); // running_var_ptr
+        visitor.visit_ptr(grad_params[0]); // dweight_ptr
+        visitor.visit_ptr(grad_params[1]); // dbias_ptr
         visitor.visit_i32(b);
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
@@ -576,7 +808,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_hw as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_hw as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
@@ -624,30 +858,75 @@ pub fn batch_norm_2d_nchw_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
     let c_idx = T::arange(0, 1) + c;
 
     // Load per-channel scalars as [1]-shaped tensors to match element-wise loop.
-    let mean  = T::load(running_mean_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
-    let var   = T::load(running_var_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
-    let rstd  = T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false));
-    let gamma = T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
+    let mean = T::load(
+        running_mean_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let var = T::load(
+        running_var_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let rstd = T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false));
+    let gamma = T::load(
+        weight_ptr.add_offsets(c_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     // Use a single flat loop over B*HW with one element per iteration.
     // Scalar b_idx/hw_idx arithmetic avoids tensor-level division/modulo,
     // and a single-level loop with [1] accumulators is correctly lowered
     // (same pattern as batch_norm_stats_forward).
-    let mut sum_dy      = T::zeros::<D>(&[1]);
+    let mut sum_dy = T::zeros::<D>(&[1]);
     let mut sum_dy_xhat = T::zeros::<D>(&[1]);
     let total_bhw = B * HW;
     let mut n: i32 = 0;
     while n < total_bhw {
-        let b_idx  = n / HW;             // scalar division — always valid
-        let hw_idx = n % HW;             // scalar modulo
+        let b_idx = n / HW; // scalar division — always valid
+        let hw_idx = n % HW; // scalar modulo
         let offset: i32 = b_idx * C * HW + c * HW + hw_idx;
-        let off_1 = T::arange(0, 1) + offset;   // [1] pointing at this element
+        let off_1 = T::arange(0, 1) + offset; // [1] pointing at this element
 
-        let x_elem  = T::load(x_ptr.add_offsets(off_1),  None, None, &[], None, None, None, false);
-        let dy_elem = T::load(dy_ptr.add_offsets(off_1), None, None, &[], None, None, None, false);
+        let x_elem = T::load(
+            x_ptr.add_offsets(off_1),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let dy_elem = T::load(
+            dy_ptr.add_offsets(off_1),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
 
         let xhat = (x_elem - mean) * rstd;
-        sum_dy      = sum_dy      + dy_elem;
+        sum_dy = sum_dy + dy_elem;
         sum_dy_xhat = sum_dy_xhat + dy_elem * xhat;
 
         // dx = gamma * rstd * dy (frozen-stats: mean/rstd are constants)
@@ -657,7 +936,14 @@ pub fn batch_norm_2d_nchw_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
         n += 1;
     }
 
-    T::store(dweight_ptr.add_offsets(c_idx), sum_dy_xhat, None, &[], None, None);
+    T::store(
+        dweight_ptr.add_offsets(c_idx),
+        sum_dy_xhat,
+        None,
+        &[],
+        None,
+        None,
+    );
     T::store(dbias_ptr.add_offsets(c_idx), sum_dy, None, &[], None, None);
 }
 
@@ -702,15 +988,42 @@ pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
 
     // Load per-channel scalars; broadcast to [BLOCK_N] for element-wise ops.
     let mean = T::broadcast_to(
-        T::load(mean_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            mean_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
     let rstd = T::broadcast_to(
-        T::load(rstd_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            rstd_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
     let weight = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_N],
     );
 
@@ -727,8 +1040,26 @@ pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
-        let dy_tile = T::load(dy_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros_blk),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let dy_tile = T::load(
+            dy_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros_blk),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let xhat = (x_tile - mean) * rstd;
 
         acc_dy = acc_dy + dy_tile;
@@ -742,11 +1073,21 @@ pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     let sum_dy_xhat = T::sum(acc_dy_xhat, None, true);
 
     // Save dweight and dbias (shape [1] → stored as scalars).
-    T::store(dweight_ptr.add_offsets(c_idx), sum_dy_xhat, None, &[], None, None);
+    T::store(
+        dweight_ptr.add_offsets(c_idx),
+        sum_dy_xhat,
+        None,
+        &[],
+        None,
+        None,
+    );
     T::store(dbias_ptr.add_offsets(c_idx), sum_dy, None, &[], None, None);
 
     // Broadcast reduction results and 1/N for pass 2.
-    let n_inv = T::broadcast_to(T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false), &[BLOCK_N]);
+    let n_inv = T::broadcast_to(
+        T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false),
+        &[BLOCK_N],
+    );
     let sum_dy_bcast = T::broadcast_to(sum_dy, &[BLOCK_N]);
     let sum_dy_xhat_bcast = T::broadcast_to(sum_dy_xhat, &[BLOCK_N]);
 
@@ -757,13 +1098,39 @@ pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
         let mask = offsets_n.lt(N);
         let elem_offsets = offsets_n * C + c;
 
-        let x_tile = T::load(x_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
-        let dy_tile = T::load(dy_ptr.add_offsets(elem_offsets), Some(mask), Some(zeros_blk), &[], None, None, None, false);
+        let x_tile = T::load(
+            x_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros_blk),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let dy_tile = T::load(
+            dy_ptr.add_offsets(elem_offsets),
+            Some(mask),
+            Some(zeros_blk),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let xhat = (x_tile - mean) * rstd;
 
-        let dx_tile = weight * rstd * (dy_tile - sum_dy_bcast * n_inv - xhat * sum_dy_xhat_bcast * n_inv);
+        let dx_tile =
+            weight * rstd * (dy_tile - sum_dy_bcast * n_inv - xhat * sum_dy_xhat_bcast * n_inv);
 
-        T::store(dx_ptr.add_offsets(elem_offsets), dx_tile, Some(mask), &[], None, None);
+        T::store(
+            dx_ptr.add_offsets(elem_offsets),
+            dx_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
 
         n_start += BLOCK_N;
     }

@@ -111,7 +111,14 @@ pub fn constant_pad3d_forward<
     let result = T::where_(combined_mask, tile, value_vec);
 
     let out_offsets = ow_range + out_bc_base;
-    T::store(output_ptr.add_offsets(out_offsets), result, Some(ow_mask), &[], None, None);
+    T::store(
+        output_ptr.add_offsets(out_offsets),
+        result,
+        Some(ow_mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// 3-D constant padding backward pass.

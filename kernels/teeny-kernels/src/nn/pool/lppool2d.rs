@@ -213,8 +213,16 @@ pub fn lppool2d_backward<
         let abs_x = T::abs(x_f32);
         let safe_abs = T::maximum(abs_x, eps_vec);
 
-        let pos = T::where_(T::gt(x_f32, zeros_f32), T::full(&[BLOCK_OW], 1.0_f32), zeros_f32);
-        let neg = T::where_(T::gt(zeros_f32, x_f32), T::full(&[BLOCK_OW], 1.0_f32), zeros_f32);
+        let pos = T::where_(
+            T::gt(x_f32, zeros_f32),
+            T::full(&[BLOCK_OW], 1.0_f32),
+            zeros_f32,
+        );
+        let neg = T::where_(
+            T::gt(zeros_f32, x_f32),
+            T::full(&[BLOCK_OW], 1.0_f32),
+            zeros_f32,
+        );
         let sign_x = pos - neg;
 
         let ratio = safe_abs / safe_y;

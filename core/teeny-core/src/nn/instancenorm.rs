@@ -55,17 +55,31 @@ impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm1d<D, IT, OT, RANK> {
         }
     }
 
-    pub fn with_eps(mut self, eps: f64) -> Self { self.eps = eps; self }
-    pub fn with_momentum(mut self, m: f64) -> Self { self.momentum = m; self }
-    pub fn with_affine(mut self, a: bool) -> Self { self.affine = a; self }
-    pub fn with_track_running_stats(mut self, t: bool) -> Self { self.track_running_stats = t; self }
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+    pub fn with_momentum(mut self, m: f64) -> Self {
+        self.momentum = m;
+        self
+    }
+    pub fn with_affine(mut self, a: bool) -> Self {
+        self.affine = a;
+        self
+    }
+    pub fn with_track_running_stats(mut self, t: bool) -> Self {
+        self.track_running_stats = t;
+        self
+    }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for InstanceNorm1d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for InstanceNorm1d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output { todo!() }
+    fn call(&self, _input: IT) -> Self::Output {
+        todo!()
+    }
 }
 
 // ─── InstanceNorm2d ──────────────────────────────────────────────────────────
@@ -92,17 +106,31 @@ impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm2d<D, IT, OT, RANK> {
         }
     }
 
-    pub fn with_eps(mut self, eps: f64) -> Self { self.eps = eps; self }
-    pub fn with_momentum(mut self, m: f64) -> Self { self.momentum = m; self }
-    pub fn with_affine(mut self, a: bool) -> Self { self.affine = a; self }
-    pub fn with_track_running_stats(mut self, t: bool) -> Self { self.track_running_stats = t; self }
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+    pub fn with_momentum(mut self, m: f64) -> Self {
+        self.momentum = m;
+        self
+    }
+    pub fn with_affine(mut self, a: bool) -> Self {
+        self.affine = a;
+        self
+    }
+    pub fn with_track_running_stats(mut self, t: bool) -> Self {
+        self.track_running_stats = t;
+        self
+    }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for InstanceNorm2d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for InstanceNorm2d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output { todo!() }
+    fn call(&self, _input: IT) -> Self::Output {
+        todo!()
+    }
 }
 
 // ─── InstanceNorm3d ──────────────────────────────────────────────────────────
@@ -129,15 +157,29 @@ impl<D: Dtype, IT, OT, const RANK: usize> InstanceNorm3d<D, IT, OT, RANK> {
         }
     }
 
-    pub fn with_eps(mut self, eps: f64) -> Self { self.eps = eps; self }
-    pub fn with_momentum(mut self, m: f64) -> Self { self.momentum = m; self }
-    pub fn with_affine(mut self, a: bool) -> Self { self.affine = a; self }
-    pub fn with_track_running_stats(mut self, t: bool) -> Self { self.track_running_stats = t; self }
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+    pub fn with_momentum(mut self, m: f64) -> Self {
+        self.momentum = m;
+        self
+    }
+    pub fn with_affine(mut self, a: bool) -> Self {
+        self.affine = a;
+        self
+    }
+    pub fn with_track_running_stats(mut self, t: bool) -> Self {
+        self.track_running_stats = t;
+        self
+    }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for InstanceNorm3d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for InstanceNorm3d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output { todo!() }
+    fn call(&self, _input: IT) -> Self::Output {
+        todo!()
+    }
 }

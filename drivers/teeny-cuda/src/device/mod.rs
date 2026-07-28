@@ -70,17 +70,39 @@ impl ArgVisitor for CudaArgPacker {
     fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void) {
         self.push_bytes(&(ptr as usize).to_ne_bytes());
     }
-    fn visit_bool(&mut self, val: bool) { self.push_bytes(&[val as u8]); }
-    fn visit_i8(&mut self, val: i8)     { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_i16(&mut self, val: i16)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_i32(&mut self, val: i32)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_i64(&mut self, val: i64)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_u8(&mut self, val: u8)     { self.push_bytes(&[val]); }
-    fn visit_u16(&mut self, val: u16)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_u32(&mut self, val: u32)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_u64(&mut self, val: u64)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_f32(&mut self, val: f32)   { self.push_bytes(&val.to_ne_bytes()); }
-    fn visit_f64(&mut self, val: f64)   { self.push_bytes(&val.to_ne_bytes()); }
+    fn visit_bool(&mut self, val: bool) {
+        self.push_bytes(&[val as u8]);
+    }
+    fn visit_i8(&mut self, val: i8) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_i16(&mut self, val: i16) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_i32(&mut self, val: i32) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_i64(&mut self, val: i64) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_u8(&mut self, val: u8) {
+        self.push_bytes(&[val]);
+    }
+    fn visit_u16(&mut self, val: u16) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_u32(&mut self, val: u32) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_u64(&mut self, val: u64) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_f32(&mut self, val: f32) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
+    fn visit_f64(&mut self, val: f64) {
+        self.push_bytes(&val.to_ne_bytes());
+    }
 }
 
 pub struct CudaLaunchConfig {
@@ -260,7 +282,7 @@ impl<'a> Device<'a> for CudaDevice<'a> {
                 cfg.block[1],
                 cfg.block[2],
                 program.metadata.shared, // dynamic shared memory required by Triton kernel
-                std::ptr::null_mut(),     // hStream (default/null stream)
+                std::ptr::null_mut(),    // hStream (default/null stream)
                 ptrs.as_mut_ptr(),
                 std::ptr::null_mut(), // extra
             )
@@ -288,7 +310,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
 
         Ok(())
     }
-
 }
 
 impl<'a> CudaDevice<'a> {
@@ -307,8 +328,12 @@ impl<'a> CudaDevice<'a> {
         let status = unsafe {
             cuda::cuLaunchKernel(
                 program.function,
-                cfg.grid[0], cfg.grid[1], cfg.grid[2],
-                cfg.block[0], cfg.block[1], cfg.block[2],
+                cfg.grid[0],
+                cfg.grid[1],
+                cfg.grid[2],
+                cfg.block[0],
+                cfg.block[1],
+                cfg.block[2],
                 program.metadata.shared,
                 stream,
                 ptrs.as_mut_ptr(),
@@ -352,8 +377,12 @@ impl<'a> CudaDevice<'a> {
         let status = unsafe {
             cuda::cuLaunchKernel(
                 program.function,
-                cfg.grid[0], cfg.grid[1], cfg.grid[2],
-                cfg.block[0], cfg.block[1], cfg.block[2],
+                cfg.grid[0],
+                cfg.grid[1],
+                cfg.grid[2],
+                cfg.block[0],
+                cfg.block[1],
+                cfg.block[2],
                 program.metadata.shared,
                 std::ptr::null_mut(),
                 ptrs.as_mut_ptr(),
@@ -362,12 +391,16 @@ impl<'a> CudaDevice<'a> {
         };
 
         if status != cuda::cudaError_enum_CUDA_SUCCESS {
-            if scratch_ptr != 0 { unsafe { cuda::cuMemFree_v2(scratch_ptr) }; }
+            if scratch_ptr != 0 {
+                unsafe { cuda::cuMemFree_v2(scratch_ptr) };
+            }
             return Err(Error::from_cuda_error(status).into());
         }
 
         let sync_status = unsafe { cuda::cuCtxSynchronize() };
-        if scratch_ptr != 0 { unsafe { cuda::cuMemFree_v2(scratch_ptr) }; }
+        if scratch_ptr != 0 {
+            unsafe { cuda::cuMemFree_v2(scratch_ptr) };
+        }
 
         if sync_status != cuda::cudaError_enum_CUDA_SUCCESS {
             return Err(Error::from_cuda_error(sync_status).into());

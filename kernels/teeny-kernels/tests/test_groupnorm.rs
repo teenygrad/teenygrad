@@ -25,10 +25,10 @@ use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
-const N: usize = 4;   // batch size
-const C: usize = 8;   // channels
-const L: usize = 16;  // spatial length
-const G: usize = 4;   // number of groups (must divide C)
+const N: usize = 4; // batch size
+const C: usize = 8; // channels
+const L: usize = 16; // spatial length
+const G: usize = 4; // number of groups (must divide C)
 const EPS: f32 = 1e-5;
 const BLOCK_NL: i32 = 256;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
@@ -139,17 +139,21 @@ fn test_group_norm_inference_cuda() -> Result<()> {
         block: [PTX_LAUNCH_THREADS_X, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        N as i32,
-        C as i32,
-        L as i32,
-        G as i32,
-        EPS,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            C as i32,
+            L as i32,
+            G as i32,
+            EPS,
+        ),
+    )?;
 
     y_buf.to_host(&mut y_host)?;
     for i in 0..N * C * L {

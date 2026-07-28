@@ -64,30 +64,40 @@ pub fn matmul_forward<T: Triton, D: Float, const BLOCK_K: i32>(
     let n = pid % N;
     let m = pid / N;
 
-    if m >= M { return; }
+    if m >= M {
+        return;
+    }
 
     // Load row m of A: A[m, 0..K]
     let k_offsets = T::arange(0, BLOCK_K);
     let a_offsets = k_offsets + m * K;
-    let k_mask    = k_offsets.lt(K);
+    let k_mask = k_offsets.lt(K);
     let zero_fill = T::zeros::<D>(&[BLOCK_K]);
 
     let a_row = T::load(
         a_ptr.add_offsets(a_offsets),
         Some(k_mask),
         Some(zero_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load column n of B: B[0..K, n]  — stored in row-major so B[k, n] = B[k*N + n]
     // We must load with stride N: offsets = k*N + n  for k in 0..K
     let b_col_offsets = k_offsets * N + n;
-    let b_col_mask    = k_offsets.lt(K);
+    let b_col_mask = k_offsets.lt(K);
     let b_col = T::load(
         b_ptr.add_offsets(b_col_offsets),
         Some(b_col_mask),
         Some(zero_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // dot product: sum(a_row * b_col)
@@ -105,7 +115,7 @@ pub fn matmul_forward<T: Triton, D: Float, const BLOCK_K: i32>(
 #[kernel]
 pub fn matmul_backward_da<T: Triton, D: Float, const BLOCK_N: i32>(
     dc_ptr: T::Pointer<D>,
-    b_ptr:  T::Pointer<D>,
+    b_ptr: T::Pointer<D>,
     da_ptr: T::Pointer<D>,
     M: i32,
     N: i32,
@@ -118,19 +128,25 @@ pub fn matmul_backward_da<T: Triton, D: Float, const BLOCK_N: i32>(
     let pid = T::program_id(Axis::X);
     let k = pid % K;
     let m = pid / K;
-    if m >= M { return; }
+    if m >= M {
+        return;
+    }
 
     // Load row m of dC: dC[m, 0..N]
     let n_offsets = T::arange(0, BLOCK_N);
     let dc_offsets = n_offsets + m * N;
-    let n_mask     = n_offsets.lt(N);
-    let zero_fill  = T::zeros::<D>(&[BLOCK_N]);
+    let n_mask = n_offsets.lt(N);
+    let zero_fill = T::zeros::<D>(&[BLOCK_N]);
 
     let dc_row = T::load(
         dc_ptr.add_offsets(dc_offsets),
         Some(n_mask),
         Some(zero_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load row k of B (= column k of B^T): B[k, 0..N]
@@ -139,7 +155,11 @@ pub fn matmul_backward_da<T: Triton, D: Float, const BLOCK_N: i32>(
         b_ptr.add_offsets(b_row_offsets),
         Some(n_mask),
         Some(zero_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     let dot = T::sum(dc_row * b_row, Some(0), true);
@@ -153,7 +173,7 @@ pub fn matmul_backward_da<T: Triton, D: Float, const BLOCK_N: i32>(
 #[kernel]
 pub fn matmul_backward_db<T: Triton, D: Float, const BLOCK_M: i32>(
     dc_ptr: T::Pointer<D>,
-    a_ptr:  T::Pointer<D>,
+    a_ptr: T::Pointer<D>,
     db_ptr: T::Pointer<D>,
     M: i32,
     N: i32,
@@ -166,19 +186,25 @@ pub fn matmul_backward_db<T: Triton, D: Float, const BLOCK_M: i32>(
     let pid = T::program_id(Axis::X);
     let n = pid % N;
     let k = pid / N;
-    if k >= K { return; }
+    if k >= K {
+        return;
+    }
 
     // Load column n of dC: dC[0..M, n]
     let m_offsets = T::arange(0, BLOCK_M);
     let dc_col_offsets = m_offsets * N + n;
-    let m_mask     = m_offsets.lt(M);
-    let zero_fill  = T::zeros::<D>(&[BLOCK_M]);
+    let m_mask = m_offsets.lt(M);
+    let zero_fill = T::zeros::<D>(&[BLOCK_M]);
 
     let dc_col = T::load(
         dc_ptr.add_offsets(dc_col_offsets),
         Some(m_mask),
         Some(zero_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load column k of A: A[0..M, k]
@@ -187,7 +213,11 @@ pub fn matmul_backward_db<T: Triton, D: Float, const BLOCK_M: i32>(
         a_ptr.add_offsets(a_col_offsets),
         Some(m_mask),
         Some(zero_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     let dot = T::sum(dc_col * a_col, Some(0), true);
@@ -213,14 +243,22 @@ impl<D: Float + Send + Sync + 'static> MatMulRuntimeOp<D> {
         }
     }
 
-    pub fn forward_source(&self) -> &str { &self.fwd_kernel.source }
-    pub fn kernel_name(&self) -> &str { &self.fwd_kernel.name }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd_kernel.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        &self.fwd_kernel.name
+    }
 }
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRuntimeOp<D> {
-    fn n_activation_inputs(&self) -> usize { 2 }
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
 
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
 
     fn pack_args(
         &self,
@@ -237,13 +275,15 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
         let n = output_shape.last().copied().unwrap_or(1) as i32;
         visitor.visit_ptr(inputs[0].0); // a_ptr
         visitor.visit_ptr(inputs[1].0); // b_ptr
-        visitor.visit_ptr(output);      // c_ptr
+        visitor.visit_ptr(output); // c_ptr
         visitor.visit_i32(m);
         visitor.visit_i32(n);
         visitor.visit_i32(k);
     }
 
-    fn block(&self) -> [u32; 3] { [self.fwd_kernel.block_k as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.fwd_kernel.block_k as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let m = output_shape.first().copied().unwrap_or(1) as u32;
@@ -252,7 +292,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     // For backward we pack args for dA kernel. The lowering handles dB separately.
     // This is a simplified backward that only handles dA = dC @ B^T.
@@ -272,8 +314,8 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
         let m = inputs[0].1.first().copied().unwrap_or(1) as i32;
         let k = inputs[0].1.last().copied().unwrap_or(1) as i32;
         let n = output_shape.last().copied().unwrap_or(1) as i32;
-        visitor.visit_ptr(grad_output);    // dc_ptr
-        visitor.visit_ptr(inputs[1].0);    // b_ptr
+        visitor.visit_ptr(grad_output); // dc_ptr
+        visitor.visit_ptr(inputs[1].0); // b_ptr
         visitor.visit_ptr(grad_inputs[0]); // da_ptr
         visitor.visit_i32(m);
         visitor.visit_i32(n);
@@ -281,12 +323,22 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.bwd_da_kernel.block_n as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.bwd_da_kernel.block_n as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, input_shapes: &[&[usize]], _: &[usize]) -> [u32; 3] {
-        let m = input_shapes.first().and_then(|s| s.first()).copied().unwrap_or(1) as u32;
-        let k = input_shapes.first().and_then(|s| s.last()).copied().unwrap_or(1) as u32;
+        let m = input_shapes
+            .first()
+            .and_then(|s| s.first())
+            .copied()
+            .unwrap_or(1) as u32;
+        let k = input_shapes
+            .first()
+            .and_then(|s| s.last())
+            .copied()
+            .unwrap_or(1) as u32;
         [m * k, 1, 1]
     }
 }

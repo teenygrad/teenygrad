@@ -45,7 +45,16 @@ pub fn muon_frob_norm_sq<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + pid * BLOCK_SIZE;
     let mask = offsets.lt(n_elements);
 
-    let x = T::load(x_ptr.add_offsets(offsets), Some(mask), Some(T::zeros::<f32>(&[BLOCK_SIZE])), &[], None, None, None, false);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(mask),
+        Some(T::zeros::<f32>(&[BLOCK_SIZE])),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     // Reduce x² within this block → scalar, then expand to tensor<1xf32> for atomic_add
     let partial = T::expand_dims(T::sum(x * x, Some(0), false), 0);
 
@@ -82,9 +91,9 @@ pub fn muon_ns_xtx<
     // R: dimension of the square output; K: contraction dim.
     // For !TRANSPOSE: A = X[M, N],   stride(N, 1),   R=M, K=N.
     // For  TRANSPOSE: A = Xᵀ[N, M], stride(1, N),   R=N, K=M.
-    let R            = if TRANSPOSE { N }        else { M };
-    let K            = if TRANSPOSE { M }        else { N };
-    let a_stride_row = if TRANSPOSE { 1 }        else { stride_xm };
+    let R = if TRANSPOSE { N } else { M };
+    let K = if TRANSPOSE { M } else { N };
+    let a_stride_row = if TRANSPOSE { 1 } else { stride_xm };
     let a_stride_col = if TRANSPOSE { stride_xm } else { 1 };
 
     let pid = T::program_id(Axis::X);
@@ -93,26 +102,48 @@ pub fn muon_ns_xtx<
     let group_id = pid / num_pid_in_group;
     let first_pid_r = group_id * GROUP_R;
     let remaining = num_pid_r - first_pid_r;
-    let group_size = if remaining < GROUP_R { remaining } else { GROUP_R };
+    let group_size = if remaining < GROUP_R {
+        remaining
+    } else {
+        GROUP_R
+    };
     let pid_in_group = pid % num_pid_in_group;
     let pid_rm = first_pid_r + (pid_in_group % group_size);
     let pid_rn = pid_in_group / group_size;
 
     // A and B both view the same matrix (symmetric Gram product)
-    let a_desc = T::make_tensor_descriptor(x_ptr, &[R, K], &[a_stride_row, a_stride_col], &[BLOCK_R, BLOCK_K], Some(PaddingOption::Zero));
-    let b_desc = T::make_tensor_descriptor(x_ptr, &[R, K], &[a_stride_row, a_stride_col], &[BLOCK_R, BLOCK_K], Some(PaddingOption::Zero));
+    let a_desc = T::make_tensor_descriptor(
+        x_ptr,
+        &[R, K],
+        &[a_stride_row, a_stride_col],
+        &[BLOCK_R, BLOCK_K],
+        Some(PaddingOption::Zero),
+    );
+    let b_desc = T::make_tensor_descriptor(
+        x_ptr,
+        &[R, K],
+        &[a_stride_row, a_stride_col],
+        &[BLOCK_R, BLOCK_K],
+        Some(PaddingOption::Zero),
+    );
 
     let mut acc = T::zeros::<f32>(&[BLOCK_R, BLOCK_R]);
     let k_tiles = T::cdiv(K, BLOCK_K);
     for k in 0..k_tiles {
-        let a   = T::load_tensor_descriptor(a_desc, &[pid_rm * BLOCK_R, k * BLOCK_K]);
-        let b   = T::load_tensor_descriptor(b_desc, &[pid_rn * BLOCK_R, k * BLOCK_K]);
+        let a = T::load_tensor_descriptor(a_desc, &[pid_rm * BLOCK_R, k * BLOCK_K]);
+        let b = T::load_tensor_descriptor(b_desc, &[pid_rn * BLOCK_R, k * BLOCK_K]);
         let b_t = T::trans(b, &[1, 0]);
         acc = T::dot::<f32, f32>(a, b_t, Some(acc), None, None);
     }
 
     // Output T: [R × R], row-major
-    let t_desc = T::make_tensor_descriptor(t_ptr, &[R, R], &[R, 1], &[BLOCK_R, BLOCK_R], Some(PaddingOption::Zero));
+    let t_desc = T::make_tensor_descriptor(
+        t_ptr,
+        &[R, R],
+        &[R, 1],
+        &[BLOCK_R, BLOCK_R],
+        Some(PaddingOption::Zero),
+    );
     T::store_tensor_descriptor(t_desc, &[pid_rm * BLOCK_R, pid_rn * BLOCK_R], acc);
 }
 
@@ -160,7 +191,11 @@ pub fn muon_ns_step<
     let group_id = pid / num_pid_in_group;
     let first_pid_m = group_id * GROUP_M;
     let remaining = num_pid_m - first_pid_m;
-    let group_size = if remaining < GROUP_M { remaining } else { GROUP_M };
+    let group_size = if remaining < GROUP_M {
+        remaining
+    } else {
+        GROUP_M
+    };
     let pid_in_group = pid % num_pid_in_group;
     let pid_m = first_pid_m + (pid_in_group % group_size);
     let pid_n = pid_in_group / group_size;
@@ -169,12 +204,36 @@ pub fn muon_ns_step<
     //   !TRANSPOSE: A = T[M, K] strides(stride_tm,1),  B = X[K, N] strides(stride_xm,1), K=M
     //    TRANSPOSE: A = X[M, K] strides(stride_xm,1),  B = T[K, N] strides(stride_tm,1), K=N
     let (a_desc, b_desc) = if TRANSPOSE {
-        let ad = T::make_tensor_descriptor(x_ptr, &[M, K], &[stride_xm, 1], &[BLOCK_M, BLOCK_K], Some(PaddingOption::Zero));
-        let bd = T::make_tensor_descriptor(t_ptr, &[K, N], &[stride_tm, 1], &[BLOCK_K, BLOCK_N], Some(PaddingOption::Zero));
+        let ad = T::make_tensor_descriptor(
+            x_ptr,
+            &[M, K],
+            &[stride_xm, 1],
+            &[BLOCK_M, BLOCK_K],
+            Some(PaddingOption::Zero),
+        );
+        let bd = T::make_tensor_descriptor(
+            t_ptr,
+            &[K, N],
+            &[stride_tm, 1],
+            &[BLOCK_K, BLOCK_N],
+            Some(PaddingOption::Zero),
+        );
         (ad, bd)
     } else {
-        let ad = T::make_tensor_descriptor(t_ptr, &[M, K], &[stride_tm, 1], &[BLOCK_M, BLOCK_K], Some(PaddingOption::Zero));
-        let bd = T::make_tensor_descriptor(x_ptr, &[K, N], &[stride_xm, 1], &[BLOCK_K, BLOCK_N], Some(PaddingOption::Zero));
+        let ad = T::make_tensor_descriptor(
+            t_ptr,
+            &[M, K],
+            &[stride_tm, 1],
+            &[BLOCK_M, BLOCK_K],
+            Some(PaddingOption::Zero),
+        );
+        let bd = T::make_tensor_descriptor(
+            x_ptr,
+            &[K, N],
+            &[stride_xm, 1],
+            &[BLOCK_K, BLOCK_N],
+            Some(PaddingOption::Zero),
+        );
         (ad, bd)
     };
 
@@ -187,11 +246,17 @@ pub fn muon_ns_step<
     }
 
     // Fused elementwise: X_new = a * X_tile + b * GEMM_result
-    let x_desc = T::make_tensor_descriptor(x_ptr, &[M, N], &[stride_xm, 1], &[BLOCK_M, BLOCK_N], Some(PaddingOption::Zero));
+    let x_desc = T::make_tensor_descriptor(
+        x_ptr,
+        &[M, N],
+        &[stride_xm, 1],
+        &[BLOCK_M, BLOCK_N],
+        Some(PaddingOption::Zero),
+    );
     let x_tile = T::load_tensor_descriptor(x_desc, &[pid_m * BLOCK_M, pid_n * BLOCK_N]);
 
-    let a_t    = T::full::<f32>(&[BLOCK_M, BLOCK_N], a);
-    let b_t    = T::full::<f32>(&[BLOCK_M, BLOCK_N], b);
+    let a_t = T::full::<f32>(&[BLOCK_M, BLOCK_N], a);
+    let b_t = T::full::<f32>(&[BLOCK_M, BLOCK_N], b);
     let result = a_t * x_tile + b_t * acc;
     T::store_tensor_descriptor(x_desc, &[pid_m * BLOCK_M, pid_n * BLOCK_N], result);
 }
@@ -216,9 +281,34 @@ pub fn muon_update<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + pid * BLOCK_SIZE;
     let mask = offsets.lt(n_elements);
 
-    let p    = T::load(params_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let g    = T::load(grad_ptr.add_offsets(offsets),   Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let lr_t = T::full::<f32>(&[BLOCK_SIZE], lr);
 
-    T::store(params_ptr.add_offsets(offsets), p - lr_t * g, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p - lr_t * g,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

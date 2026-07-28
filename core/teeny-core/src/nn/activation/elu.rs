@@ -28,7 +28,10 @@ pub struct Elu<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Elu<D, T, RANK> {
     pub fn new(alpha: f64) -> Self {
-        Self { alpha, _pd: PhantomData }
+        Self {
+            alpha,
+            _pd: PhantomData,
+        }
     }
 }
 
@@ -69,7 +72,10 @@ pub struct Celu<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Celu<D, T, RANK> {
     pub fn new(alpha: f64) -> Self {
-        Self { alpha, _pd: PhantomData }
+        Self {
+            alpha,
+            _pd: PhantomData,
+        }
     }
 }
 

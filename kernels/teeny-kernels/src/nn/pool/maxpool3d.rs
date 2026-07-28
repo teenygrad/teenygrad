@@ -92,7 +92,11 @@ pub fn maxpool3d_forward<
         let tile = T::load(
             input_ptr.add_offsets(in_offsets),
             Some(ow_mask),
-            Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)),
+            Some(T::cast::<f32, D>(
+                T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32),
+                None,
+                false,
+            )),
             &[],
             None,
             None,
@@ -201,7 +205,11 @@ pub fn maxpool3d_backward<
         let x_tile = T::load(
             x_ptr.add_offsets(in_offsets),
             Some(ow_mask),
-            Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)),
+            Some(T::cast::<f32, D>(
+                T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32),
+                None,
+                false,
+            )),
             &[],
             None,
             None,

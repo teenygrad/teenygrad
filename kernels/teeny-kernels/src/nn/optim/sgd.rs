@@ -46,14 +46,39 @@ pub fn sgd_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p = T::load(params_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let g = T::load(grad_ptr.add_offsets(offsets),   Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let lr_t = T::full(&[BLOCK_SIZE], lr);
     let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
     let p_new = p - lr_t * (g + wd_t * p);
-    T::store(params_ptr.add_offsets(offsets), p_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// SGD step with momentum (non-Nesterov).
@@ -84,21 +109,62 @@ pub fn sgd_momentum_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p   = T::load(params_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let g   = T::load(grad_ptr.add_offsets(offsets),   Some(mask), None, &[], None, None, None, false);
-    let buf = T::load(buf_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let buf = T::load(
+        buf_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t   = T::full(&[BLOCK_SIZE], lr);
-    let mu_t   = T::full(&[BLOCK_SIZE], momentum);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
+    let mu_t = T::full(&[BLOCK_SIZE], momentum);
     let damp_t = T::full(&[BLOCK_SIZE], 1.0_f32 - dampening);
-    let wd_t   = T::full(&[BLOCK_SIZE], weight_decay);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let g_eff   = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let buf_new = mu_t * buf + damp_t * g_eff;
-    let p_new   = p - lr_t * buf_new;
+    let p_new = p - lr_t * buf_new;
 
-    T::store(params_ptr.add_offsets(offsets), p_new,   Some(mask), &[], None, None);
-    T::store(buf_ptr.add_offsets(offsets),    buf_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        buf_ptr.add_offsets(offsets),
+        buf_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// SGD step with Nesterov momentum.
@@ -130,20 +196,61 @@ pub fn sgd_nesterov_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p   = T::load(params_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let g   = T::load(grad_ptr.add_offsets(offsets),   Some(mask), None, &[], None, None, None, false);
-    let buf = T::load(buf_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let buf = T::load(
+        buf_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t   = T::full(&[BLOCK_SIZE], lr);
-    let mu_t   = T::full(&[BLOCK_SIZE], momentum);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
+    let mu_t = T::full(&[BLOCK_SIZE], momentum);
     let damp_t = T::full(&[BLOCK_SIZE], 1.0_f32 - dampening);
-    let wd_t   = T::full(&[BLOCK_SIZE], weight_decay);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let g_eff   = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let buf_new = mu_t * buf + damp_t * g_eff;
-    let g_nes   = g_eff + mu_t * buf_new;
-    let p_new   = p - lr_t * g_nes;
+    let g_nes = g_eff + mu_t * buf_new;
+    let p_new = p - lr_t * g_nes;
 
-    T::store(params_ptr.add_offsets(offsets), p_new,   Some(mask), &[], None, None);
-    T::store(buf_ptr.add_offsets(offsets),    buf_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        buf_ptr.add_offsets(offsets),
+        buf_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

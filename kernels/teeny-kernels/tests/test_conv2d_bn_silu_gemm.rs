@@ -45,7 +45,15 @@ const BLOCK_N: i32 = 32;
 const BLOCK_K: i32 = 32;
 const GROUP_M: i32 = 8;
 
-fn conv1x1_reference(x: &[f32], w: &[f32], b: usize, c_in: usize, c_out: usize, h: usize, w_sz: usize) -> Vec<f32> {
+fn conv1x1_reference(
+    x: &[f32],
+    w: &[f32],
+    b: usize,
+    c_in: usize,
+    c_out: usize,
+    h: usize,
+    w_sz: usize,
+) -> Vec<f32> {
     let mut y = vec![0.0f32; b * c_out * h * w_sz];
     for bi in 0..b {
         for co in 0..c_out {
@@ -65,13 +73,24 @@ fn conv1x1_reference(x: &[f32], w: &[f32], b: usize, c_in: usize, c_out: usize, 
     y
 }
 
-fn bn_affine_silu_reference(conv_out: &[f32], bn_scale: &[f32], bn_shift: &[f32], c_out: usize, oh: usize, ow: usize) -> Vec<f32> {
+fn bn_affine_silu_reference(
+    conv_out: &[f32],
+    bn_scale: &[f32],
+    bn_shift: &[f32],
+    c_out: usize,
+    oh: usize,
+    ow: usize,
+) -> Vec<f32> {
     let hw = oh * ow;
-    conv_out.iter().enumerate().map(|(idx, &val)| {
-        let c = (idx / hw) % c_out;
-        let bn_out = bn_scale[c] * val + bn_shift[c];
-        bn_out / (1.0 + (-bn_out).exp())
-    }).collect()
+    conv_out
+        .iter()
+        .enumerate()
+        .map(|(idx, &val)| {
+            let c = (idx / hw) % c_out;
+            let bn_out = bn_scale[c] * val + bn_shift[c];
+            bn_out / (1.0 + (-bn_out).exp())
+        })
+        .collect()
 }
 
 fn build_gemm_graph() -> Graph {
@@ -82,21 +101,37 @@ fn build_gemm_graph() -> Graph {
     let conv_shape = vec![Some(NB), Some(C_OUT), Some(HH), Some(WW)];
     let conv_id = input.graph.borrow_mut().add_node(
         Op::Conv2d {
-            in_channels: C_IN, out_channels: C_OUT,
-            kernel_h: 1, kernel_w: 1,
-            stride_h: 1, stride_w: 1,
-            padding_h: 0, padding_w: 0,
-            groups: 1, has_bias: false,
+            in_channels: C_IN,
+            out_channels: C_OUT,
+            kernel_h: 1,
+            kernel_w: 1,
+            stride_h: 1,
+            stride_w: 1,
+            padding_h: 0,
+            padding_w: 0,
+            groups: 1,
+            has_bias: false,
         },
-        vec![input.node_id], DtypeRepr::F32, conv_shape.clone(),
+        vec![input.node_id],
+        DtypeRepr::F32,
+        conv_shape.clone(),
     );
     let bn_id = input.graph.borrow_mut().add_node(
-        Op::BatchNorm2d { num_features: C_OUT, eps: 1e-5, momentum: 0.1, affine: true, track_running_stats: true },
-        vec![conv_id], DtypeRepr::F32, conv_shape.clone(),
+        Op::BatchNorm2d {
+            num_features: C_OUT,
+            eps: 1e-5,
+            momentum: 0.1,
+            affine: true,
+            track_running_stats: true,
+        },
+        vec![conv_id],
+        DtypeRepr::F32,
+        conv_shape.clone(),
     );
-    let _ = input.graph.borrow_mut().add_node(
-        Op::Silu, vec![bn_id], DtypeRepr::F32, conv_shape,
-    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Silu, vec![bn_id], DtypeRepr::F32, conv_shape);
     drop(input);
     Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
 }
@@ -105,11 +140,14 @@ fn build_gemm_graph() -> Graph {
 fn test_gemm_lowering_selects_gemm_kernel() {
     let graph = build_gemm_graph().optimise();
     let lowering = TritonLowering::new();
-    let (dag, _) = lowering.lower_with_mapping(&graph, LoweringMode::Inference).expect("lowering");
+    let (dag, _) = lowering
+        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .expect("lowering");
     let fused = dag.node(1);
     assert!(
         fused.value.name().contains("conv2d_bn_silu_gemm"),
-        "expected GEMM kernel name, got: {}", fused.value.name()
+        "expected GEMM kernel name, got: {}",
+        fused.value.name()
     );
 }
 
@@ -117,7 +155,9 @@ fn test_gemm_lowering_selects_gemm_kernel() {
 fn test_gemm_kernel_source_snapshot() {
     let graph = build_gemm_graph().optimise();
     let lowering = TritonLowering::new();
-    let (dag, _) = lowering.lower_with_mapping(&graph, LoweringMode::Inference).expect("lowering");
+    let (dag, _) = lowering
+        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .expect("lowering");
     let src = dag.node(1).value.forward_kernel_source();
     insta::assert_snapshot!("test_conv2d_bn_silu_gemm__gemm_forward_source", src);
 }
@@ -129,9 +169,13 @@ fn test_conv2d_bn_silu_gemm_matches_reference() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host: Vec<f32> = (0..NB * C_IN * HH * WW).map(|i| (i as f32 % 17.0 - 8.0) * 0.1).collect();
+    let x_host: Vec<f32> = (0..NB * C_IN * HH * WW)
+        .map(|i| (i as f32 % 17.0 - 8.0) * 0.1)
+        .collect();
     // GEMM kernel expects weight shape [C_OUT, C_IN] (1×1 conv, no KH/KW dims)
-    let w_host: Vec<f32> = (0..C_OUT * C_IN).map(|i| (i as f32 % 13.0 - 6.0) * 0.05).collect();
+    let w_host: Vec<f32> = (0..C_OUT * C_IN)
+        .map(|i| (i as f32 % 13.0 - 6.0) * 0.05)
+        .collect();
     let bn_scale: Vec<f32> = (0..C_OUT).map(|i| 0.8 + i as f32 * 0.05).collect();
     let bn_shift: Vec<f32> = (0..C_OUT).map(|i| i as f32 * 0.1 - 0.15).collect();
     let mut y_gpu = vec![0.0f32; NB * C_OUT * HH * WW];
@@ -140,11 +184,11 @@ fn test_conv2d_bn_silu_gemm_matches_reference() -> Result<()> {
     let conv_out = conv1x1_reference(&x_host, &w_host, NB, C_IN, C_OUT, HH, WW);
     let expected = bn_affine_silu_reference(&conv_out, &bn_scale, &bn_shift, C_OUT, HH, WW);
 
-    let mut x_buf  = device.buffer::<f32>(NB * C_IN * HH * WW)?;
-    let mut w_buf  = device.buffer::<f32>(C_OUT * C_IN)?;
-    let mut s_buf  = device.buffer::<f32>(C_OUT)?;
+    let mut x_buf = device.buffer::<f32>(NB * C_IN * HH * WW)?;
+    let mut w_buf = device.buffer::<f32>(C_OUT * C_IN)?;
+    let mut s_buf = device.buffer::<f32>(C_OUT)?;
     let mut sh_buf = device.buffer::<f32>(C_OUT)?;
-    let y_buf      = device.buffer::<f32>(NB * C_OUT * HH * WW)?;
+    let y_buf = device.buffer::<f32>(NB * C_OUT * HH * WW)?;
 
     x_buf.to_device(&x_host)?;
     w_buf.to_device(&w_host)?;
@@ -164,19 +208,27 @@ fn test_conv2d_bn_silu_gemm_matches_reference() -> Result<()> {
     let num_pm = M.div_ceil(BLOCK_M as usize);
     let num_pn = C_OUT.div_ceil(BLOCK_N as usize);
     let grid = (NB * num_pm * num_pn) as u32;
-    let cfg = CudaLaunchConfig { grid: [grid, 1, 1], block: [128, 1, 1], cluster: [1, 1, 1] };
+    let cfg = CudaLaunchConfig {
+        grid: [grid, 1, 1],
+        block: [128, 1, 1],
+        cluster: [1, 1, 1],
+    };
 
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr()  as *mut f32,
-        w_buf.as_device_ptr()  as *mut f32,
-        s_buf.as_device_ptr()  as *mut f32,
-        sh_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr()  as *mut f32,
-        NB as i32,
-        C_IN as i32,
-        C_OUT as i32,
-        M as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            s_buf.as_device_ptr() as *mut f32,
+            sh_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            NB as i32,
+            C_IN as i32,
+            C_OUT as i32,
+            M as i32,
+        ),
+    )?;
     y_buf.to_host(&mut y_gpu)?;
 
     // TF32 has reduced mantissa precision (10-bit vs 23-bit for fp32).
@@ -184,7 +236,10 @@ fn test_conv2d_bn_silu_gemm_matches_reference() -> Result<()> {
     for i in 0..NB * C_OUT * HH * WW {
         assert!(
             (y_gpu[i] - expected[i]).abs() < 1e-2,
-            "mismatch at [{}]: gpu={:.6} ref={:.6}", i, y_gpu[i], expected[i],
+            "mismatch at [{}]: gpu={:.6} ref={:.6}",
+            i,
+            y_gpu[i],
+            expected[i],
         );
     }
     Ok(())
@@ -202,7 +257,7 @@ fn test_conv2d_bn_silu_gemm_c_out32_c_in64_m1600() -> Result<()> {
     const NB2: usize = 1;
     const C_IN2: usize = 64;
     const C_OUT2: usize = 32; // exactly 1 N-tile — the failing case
-    const M2: usize = 1600;   // 40×40 spatial
+    const M2: usize = 1600; // 40×40 spatial
 
     let x_host: Vec<f32> = (0..NB2 * C_IN2 * M2)
         .map(|i| (i as f32 % 17.0 - 8.0) * 0.1)
@@ -212,7 +267,13 @@ fn test_conv2d_bn_silu_gemm_c_out32_c_in64_m1600() -> Result<()> {
         .collect();
     // Large bn_scale (like channel 2 of model.6.m.0.cv2) to amplify errors
     let bn_scale: Vec<f32> = (0..C_OUT2)
-        .map(|i| if i == 2 { 8.216f32 } else { 1.0 + i as f32 * 0.05 })
+        .map(|i| {
+            if i == 2 {
+                8.216f32
+            } else {
+                1.0 + i as f32 * 0.05
+            }
+        })
         .collect();
     let bn_shift: Vec<f32> = (0..C_OUT2).map(|i| i as f32 * 0.1 - 0.15).collect();
     let mut y_gpu = vec![0.0f32; NB2 * C_OUT2 * M2];
@@ -220,11 +281,11 @@ fn test_conv2d_bn_silu_gemm_c_out32_c_in64_m1600() -> Result<()> {
     let conv_out = conv1x1_reference(&x_host, &w_host, NB2, C_IN2, C_OUT2, 1, M2);
     let expected = bn_affine_silu_reference(&conv_out, &bn_scale, &bn_shift, C_OUT2, 1, M2);
 
-    let mut x_buf  = device.buffer::<f32>(NB2 * C_IN2 * M2)?;
-    let mut w_buf  = device.buffer::<f32>(C_OUT2 * C_IN2)?;
-    let mut s_buf  = device.buffer::<f32>(C_OUT2)?;
+    let mut x_buf = device.buffer::<f32>(NB2 * C_IN2 * M2)?;
+    let mut w_buf = device.buffer::<f32>(C_OUT2 * C_IN2)?;
+    let mut s_buf = device.buffer::<f32>(C_OUT2)?;
     let mut sh_buf = device.buffer::<f32>(C_OUT2)?;
-    let y_buf      = device.buffer::<f32>(NB2 * C_OUT2 * M2)?;
+    let y_buf = device.buffer::<f32>(NB2 * C_OUT2 * M2)?;
 
     x_buf.to_device(&x_host)?;
     w_buf.to_device(&w_host)?;
@@ -244,32 +305,45 @@ fn test_conv2d_bn_silu_gemm_c_out32_c_in64_m1600() -> Result<()> {
     let num_pm = M2.div_ceil(BLOCK_M as usize);
     let num_pn = C_OUT2.div_ceil(BLOCK_N as usize);
     let grid = (NB2 * num_pm * num_pn) as u32;
-    let cfg = CudaLaunchConfig { grid: [grid, 1, 1], block: [128, 1, 1], cluster: [1, 1, 1] };
+    let cfg = CudaLaunchConfig {
+        grid: [grid, 1, 1],
+        block: [128, 1, 1],
+        cluster: [1, 1, 1],
+    };
 
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr()  as *mut f32,
-        w_buf.as_device_ptr()  as *mut f32,
-        s_buf.as_device_ptr()  as *mut f32,
-        sh_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr()  as *mut f32,
-        NB2 as i32,
-        C_IN2 as i32,
-        C_OUT2 as i32,
-        M2 as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            s_buf.as_device_ptr() as *mut f32,
+            sh_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            NB2 as i32,
+            C_IN2 as i32,
+            C_OUT2 as i32,
+            M2 as i32,
+        ),
+    )?;
     y_buf.to_host(&mut y_gpu)?;
 
     let mut max_err = 0.0f32;
     for i in 0..NB2 * C_OUT2 * M2 {
         let err = (y_gpu[i] - expected[i]).abs();
-        if err > max_err { max_err = err; }
+        if err > max_err {
+            max_err = err;
+        }
     }
     eprintln!("C_OUT=32/C_IN=64/M=1600 max_err={max_err:.6e}");
     for i in 0..NB2 * C_OUT2 * M2 {
         assert!(
             (y_gpu[i] - expected[i]).abs() < 1e-2,
             "mismatch at [{}]: gpu={:.6} ref={:.6} diff={:.6e}",
-            i, y_gpu[i], expected[i], (y_gpu[i] - expected[i]).abs()
+            i,
+            y_gpu[i],
+            expected[i],
+            (y_gpu[i] - expected[i]).abs()
         );
     }
     Ok(())

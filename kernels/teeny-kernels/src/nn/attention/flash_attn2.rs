@@ -139,7 +139,14 @@ pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
     let l_save_sum = T::sum(m_i + T::log(l_i), Some(0), false);
     let l_save = l_save_sum / T::full(&[1], D::from_f64(HEAD_DIM as f64));
 
-    T::store(o_ptr.add_offsets(d + o_row_base), o_row, None, &[], None, None);
+    T::store(
+        o_ptr.add_offsets(d + o_row_base),
+        o_row,
+        None,
+        &[],
+        None,
+        None,
+    );
     T::store(
         l_ptr.add_offsets(T::arange(0, 1) + l_row_base),
         l_save,

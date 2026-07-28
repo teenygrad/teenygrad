@@ -35,7 +35,11 @@ macro_rules! pool_layer_1d {
 
         impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
             pub fn new(kernel_size: usize, stride: usize) -> Self {
-                Self { kernel_l: kernel_size, stride, _pd: PhantomData }
+                Self {
+                    kernel_l: kernel_size,
+                    stride,
+                    _pd: PhantomData,
+                }
             }
         }
 
@@ -43,7 +47,9 @@ macro_rules! pool_layer_1d {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output { todo!() }
+            fn call(&self, _input: IT) -> Self::Output {
+                todo!()
+            }
         }
     };
 }
@@ -73,7 +79,11 @@ macro_rules! pool_layer_2d {
                 }
             }
 
-            pub fn with_padding(kernel_size: (usize, usize), stride: (usize, usize), padding: (usize, usize)) -> Self {
+            pub fn with_padding(
+                kernel_size: (usize, usize),
+                stride: (usize, usize),
+                padding: (usize, usize),
+            ) -> Self {
                 Self {
                     kernel_h: kernel_size.0,
                     kernel_w: kernel_size.1,
@@ -90,7 +100,9 @@ macro_rules! pool_layer_2d {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output { todo!() }
+            fn call(&self, _input: IT) -> Self::Output {
+                todo!()
+            }
         }
     };
 }
@@ -108,10 +120,7 @@ macro_rules! pool_layer_3d {
         }
 
         impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
-            pub fn new(
-                kernel_size: (usize, usize, usize),
-                stride: (usize, usize, usize),
-            ) -> Self {
+            pub fn new(kernel_size: (usize, usize, usize), stride: (usize, usize, usize)) -> Self {
                 Self {
                     kernel_d: kernel_size.0,
                     kernel_h: kernel_size.1,
@@ -128,7 +137,9 @@ macro_rules! pool_layer_3d {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output { todo!() }
+            fn call(&self, _input: IT) -> Self::Output {
+                todo!()
+            }
         }
     };
 }
@@ -162,15 +173,22 @@ pub struct LpPool1d<D: Dtype, IT, OT, const RANK: usize> {
 
 impl<D: Dtype, IT, OT, const RANK: usize> LpPool1d<D, IT, OT, RANK> {
     pub fn new(kernel_size: usize, stride: usize, p: f64) -> Self {
-        Self { kernel_l: kernel_size, stride, p, _pd: PhantomData }
+        Self {
+            kernel_l: kernel_size,
+            stride,
+            p,
+            _pd: PhantomData,
+        }
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for LpPool1d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for LpPool1d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output { todo!() }
+    fn call(&self, _input: IT) -> Self::Output {
+        todo!()
+    }
 }
 
 pub struct LpPool2d<D: Dtype, IT, OT, const RANK: usize> {
@@ -195,11 +213,13 @@ impl<D: Dtype, IT, OT, const RANK: usize> LpPool2d<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for LpPool2d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for LpPool2d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output { todo!() }
+    fn call(&self, _input: IT) -> Self::Output {
+        todo!()
+    }
 }
 
 pub struct LpPool3d<D: Dtype, IT, OT, const RANK: usize> {
@@ -228,9 +248,11 @@ impl<D: Dtype, IT, OT, const RANK: usize> LpPool3d<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for LpPool3d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for LpPool3d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output { todo!() }
+    fn call(&self, _input: IT) -> Self::Output {
+        todo!()
+    }
 }

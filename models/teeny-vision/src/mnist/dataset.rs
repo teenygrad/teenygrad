@@ -20,9 +20,12 @@
 //!   - `image`: struct<bytes: binary, path: utf8>  — PNG-encoded 28×28 grayscale
 //!   - `label`: int64                              — class 0-9
 
-use std::{fs::File, path::{Path, PathBuf}};
+use std::{
+    fs::File,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use arrow_array::{Array, BinaryArray, Int64Array, LargeBinaryArray, StructArray};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
@@ -121,12 +124,16 @@ fn decode_batch(batch: &arrow_array::RecordBatch, n: usize) -> Result<MnistBatch
     let mut labels = Vec::with_capacity(n);
 
     for i in 0..n {
-        let png_bytes: &[u8] = if let Some(col) = bytes_field.as_any().downcast_ref::<BinaryArray>() {
+        let png_bytes: &[u8] = if let Some(col) = bytes_field.as_any().downcast_ref::<BinaryArray>()
+        {
             col.value(i)
         } else if let Some(col) = bytes_field.as_any().downcast_ref::<LargeBinaryArray>() {
             col.value(i)
         } else {
-            return Err(anyhow!("'bytes' field has unexpected Arrow type: {:?}", bytes_field.data_type()));
+            return Err(anyhow!(
+                "'bytes' field has unexpected Arrow type: {:?}",
+                bytes_field.data_type()
+            ));
         };
 
         let img = image::load_from_memory(png_bytes)
@@ -136,7 +143,8 @@ fn decode_batch(batch: &arrow_array::RecordBatch, n: usize) -> Result<MnistBatch
         if img.width() != 28 || img.height() != 28 {
             return Err(anyhow!(
                 "unexpected image dimensions for sample {i}: {}×{}",
-                img.width(), img.height()
+                img.width(),
+                img.height()
             ));
         }
 
@@ -147,5 +155,9 @@ fn decode_batch(batch: &arrow_array::RecordBatch, n: usize) -> Result<MnistBatch
         labels.push(label_col.value(i) as u8);
     }
 
-    Ok(MnistBatch { images, labels, batch_size: n })
+    Ok(MnistBatch {
+        images,
+        labels,
+        batch_size: n,
+    })
 }

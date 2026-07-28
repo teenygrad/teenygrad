@@ -77,8 +77,8 @@ pub fn circular_pad1d_forward<
     let cond_right = ip_raw.ge(L);
     let in_bounds = ip_raw.ge(0) & ip_raw.lt(L);
 
-    let ip_wrapped_left = ip_raw + L;   // ip_raw + L for left pad
-    let ip_wrapped_right = ip_raw - L;  // ip_raw - L for right pad
+    let ip_wrapped_left = ip_raw + L; // ip_raw + L for left pad
+    let ip_wrapped_right = ip_raw - L; // ip_raw - L for right pad
 
     let zeros = T::zeros::<D>(&[BLOCK_OL]);
     let val_center = T::load(
@@ -112,7 +112,11 @@ pub fn circular_pad1d_forward<
         false,
     );
 
-    let result = T::where_(cond_left, val_left, T::where_(cond_right, val_right, val_center));
+    let result = T::where_(
+        cond_left,
+        val_left,
+        T::where_(cond_right, val_right, val_center),
+    );
 
     let out_offsets = ol_range + out_bc_base;
     T::store(

@@ -103,8 +103,9 @@ where
             let _ = model.call(input);
             let graph = graph.borrow();
 
-            let options =
-                teeny_cuda::compiler::options::Options::parse(args.options.as_deref().unwrap_or(""))?;
+            let options = teeny_cuda::compiler::options::Options::parse(
+                args.options.as_deref().unwrap_or(""),
+            )?;
 
             let cache_dir = args.resolve_cache_dir();
             std::fs::create_dir_all(&cache_dir)?;

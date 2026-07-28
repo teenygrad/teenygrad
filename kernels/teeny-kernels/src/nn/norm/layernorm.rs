@@ -120,10 +120,35 @@ pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let beta = T::load(bias_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let beta = T::load(
+            bias_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(y_ptr.add_offsets(col_offs + row_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(col_offs + row_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         n_start += BLOCK_N;
     }
 }
@@ -223,10 +248,35 @@ pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let beta = T::load(bias_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let beta = T::load(
+            bias_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(y_ptr.add_offsets(col_offs + row_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(col_offs + row_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         n_start += BLOCK_N;
     }
 }
@@ -272,8 +322,26 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     let zero_1 = T::zeros::<D>(&[1]);
     let n_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false);
 
-    let rstd_1 = T::load(rstd_ptr.add_offsets(row_idx), None, None, &[], None, None, None, false);
-    let mean_1 = T::load(mean_ptr.add_offsets(row_idx), None, None, &[], None, None, None, false);
+    let rstd_1 = T::load(
+        rstd_ptr.add_offsets(row_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let mean_1 = T::load(
+        mean_ptr.add_offsets(row_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let rstd = T::broadcast_to(rstd_1, &[BLOCK_N]);
     let mean = T::broadcast_to(mean_1, &[BLOCK_N]);
 
@@ -304,7 +372,16 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let xhat = (x_tile - mean) * rstd;
         sum_dy_gamma = sum_dy_gamma + T::sum(dy_tile * gamma, None, true);
         sum_dy_gamma_xhat = sum_dy_gamma_xhat + T::sum(dy_tile * gamma * xhat, None, true);
@@ -338,16 +415,64 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let dw_old = T::load(dweight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let db_old = T::load(dbias_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let dw_old = T::load(
+            dweight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let db_old = T::load(
+            dbias_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
 
         let xhat = (x_tile - mean) * rstd;
         let dx_tile = rstd * gamma * (dy_tile - c1 - xhat * c2);
 
-        T::store(dx_ptr.add_offsets(col_offs + row_start), dx_tile, Some(mask), &[], None, None);
-        T::store(dweight_ptr.add_offsets(col_offs), dw_old + dy_tile * xhat, Some(mask), &[], None, None);
-        T::store(dbias_ptr.add_offsets(col_offs), db_old + dy_tile, Some(mask), &[], None, None);
+        T::store(
+            dx_ptr.add_offsets(col_offs + row_start),
+            dx_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dweight_ptr.add_offsets(col_offs),
+            dw_old + dy_tile * xhat,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dbias_ptr.add_offsets(col_offs),
+            db_old + dy_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         n_start += BLOCK_N;
     }
 }
@@ -359,25 +484,35 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
 /// Parameter layout (2 params): `[weight, bias]`, each of shape `[N]` where
 /// N is the last (normalized) dimension of the input.
 pub struct LayerNormForwardInferenceRuntimeOp<D: Float + Send + Sync + 'static> {
-    fwd:                    LayerNormForwardInference<D>,
+    fwd: LayerNormForwardInference<D>,
     #[allow(dead_code)]
-    block_n:                i32,
-    eps:                    f32,
+    block_n: i32,
+    eps: f32,
 }
 
 impl<D: Float + Send + Sync + 'static> LayerNormForwardInferenceRuntimeOp<D> {
     pub fn new(block_n: i32, eps: f32) -> Self {
-        Self { fwd: LayerNormForwardInference::<D>::new(block_n), block_n, eps }
+        Self {
+            fwd: LayerNormForwardInference::<D>::new(block_n),
+            block_n,
+            eps,
+        }
     }
 
-    pub fn forward_source(&self) -> &str { &self.fwd.source }
-    pub fn kernel_name(&self)    -> &str { self.fwd.name }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        self.fwd.name
+    }
 }
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     for LayerNormForwardInferenceRuntimeOp<D>
 {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         // N = last dim of input
@@ -385,7 +520,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         vec![vec![n], vec![n]]
     }
 
-    fn param_names(&self) -> &'static [&'static str] { &["weight", "bias"] }
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight", "bias"]
+    }
 
     fn pack_args(
         &self,
@@ -401,16 +538,18 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         let total: usize = shape.iter().product();
         let m = (total as i32) / n;
 
-        visitor.visit_ptr(inputs[0].0);  // x
-        visitor.visit_ptr(output);       // y
-        visitor.visit_ptr(params[0]);    // weight (gamma)
-        visitor.visit_ptr(params[1]);    // bias (beta)
-        visitor.visit_i32(m);            // M
-        visitor.visit_i32(n);            // N
-        visitor.visit_f32(self.eps);     // eps
+        visitor.visit_ptr(inputs[0].0); // x
+        visitor.visit_ptr(output); // y
+        visitor.visit_ptr(params[0]); // weight (gamma)
+        visitor.visit_ptr(params[1]); // bias (beta)
+        visitor.visit_i32(m); // M
+        visitor.visit_i32(n); // N
+        visitor.visit_f32(self.eps); // eps
     }
 
-    fn block(&self) -> [u32; 3] { [1, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [1, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // one CTA per row; M = product of all dims except last
@@ -420,5 +559,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         [m as u32, 1, 1]
     }
 
-    fn has_backward(&self) -> bool { false }
+    fn has_backward(&self) -> bool {
+        false
+    }
 }

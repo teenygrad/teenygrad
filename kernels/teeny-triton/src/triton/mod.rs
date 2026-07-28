@@ -123,13 +123,17 @@ where
 {
     type BoolTensor: Copy + Clone;
     type I32Tensor: Copy + Clone;
-    type Tensor<D: ty::Dtype>: Copy + Clone
+    type Tensor<D: ty::Dtype>: Copy
+        + Clone
         + Add<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Sub<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Mul<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Div<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Neg<Output = Self::Tensor<D>>;
-    type Pointer<D: ty::Dtype>: Copy + Clone + ty::Dtype + Add<Self::Pointer<D>, Output = Self::Pointer<D>>;
+    type Pointer<D: ty::Dtype>: Copy
+        + Clone
+        + ty::Dtype
+        + Add<Self::Pointer<D>, Output = Self::Pointer<D>>;
 
     /*------------------------------ Programming Model ------------------------------*/
 

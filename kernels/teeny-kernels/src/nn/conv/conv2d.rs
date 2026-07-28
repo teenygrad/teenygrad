@@ -99,8 +99,8 @@ pub fn conv2d_forward<
         let kw = idx % KW;
         let kh_cin = idx / KW;
         let kh = kh_cin % KH;
-        let c_in_local = kh_cin / KH;           // index within the group
-        let c_in = c_in_start + c_in_local;     // absolute input channel
+        let c_in_local = kh_cin / KH; // index within the group
+        let c_in = c_in_start + c_in_local; // absolute input channel
 
         // Compute padded input coordinates; OOB height rows contribute zero via mask.
         let ih = oh * STRIDE_H + kh - PAD_H;
@@ -410,8 +410,8 @@ pub fn conv2d_backward<
     const BLOCK_OW: i32,
 >(
     dy_ptr: T::Pointer<D>,
-    x_ptr:  T::Pointer<D>,
-    w_ptr:  T::Pointer<D>,
+    x_ptr: T::Pointer<D>,
+    w_ptr: T::Pointer<D>,
     dx_ptr: T::Pointer<D>,
     dw_ptr: T::Pointer<D>,
     B: i32,
@@ -448,7 +448,10 @@ pub fn conv2d_backward<
         Some(ow_mask),
         Some(T::zeros::<D>(&[BLOCK_OW])),
         &[],
-        None, None, None, false,
+        None,
+        None,
+        None,
+        false,
     );
 
     let c_in_per_group = C_IN / G;
@@ -466,7 +469,16 @@ pub fn conv2d_backward<
         // Load weight scalar and broadcast.
         let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
         let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(w_ptr.add_offsets(w_off), None, None, &[], None, None, None, false);
+        let w_1 = T::load(
+            w_ptr.add_offsets(w_off),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
 
         let ih = oh * STRIDE_H + kh - PAD_H;
@@ -482,7 +494,13 @@ pub fn conv2d_backward<
 
         // dx: scatter dy * w to input positions.
         let grad_tile = dy_tile * w_tile;
-        T::atomic_add(dx_ptr.add_offsets(dx_offsets), grad_tile, Some(in_mask), None, None);
+        T::atomic_add(
+            dx_ptr.add_offsets(dx_offsets),
+            grad_tile,
+            Some(in_mask),
+            None,
+            None,
+        );
 
         // dw: load x tile, compute partial = sum(dy * x), scatter to weight.
         let x_tile = T::load(
@@ -490,7 +508,10 @@ pub fn conv2d_backward<
             Some(in_mask),
             Some(T::zeros::<D>(&[BLOCK_OW])),
             &[],
-            None, None, None, false,
+            None,
+            None,
+            None,
+            false,
         );
         let partial = T::sum(dy_tile * x_tile, Some(0), false);
         let partial_1 = T::expand_dims(partial, 0);
@@ -500,12 +521,19 @@ pub fn conv2d_backward<
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
         let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
-        vec![vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize]]
+        vec![vec![
+            c_out,
+            c_in / self.g as usize,
+            self.kh as usize,
+            self.kw as usize,
+        ]]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
@@ -534,15 +562,23 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         visitor.visit_i32(output_shape[3] as i32);
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
-        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+        [
+            (output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32,
+            1,
+            1,
+        ]
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     /// kernel args: dy, x, w, dx, dw, B, C_IN, C_OUT, H, W, OH, OW
     #[cfg(feature = "training")]
@@ -559,28 +595,34 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let in_shape = inputs[0].1; // [B, C_IN, H, W]
-        visitor.visit_ptr(grad_output);       // dy_ptr
-        visitor.visit_ptr(inputs[0].0);       // x_ptr
-        visitor.visit_ptr(params[0]);         // w_ptr
-        visitor.visit_ptr(grad_inputs[0]);    // dx_ptr
-        visitor.visit_ptr(grad_params[0]);    // dw_ptr
-        visitor.visit_i32(in_shape[0] as i32);      // B
-        visitor.visit_i32(in_shape[1] as i32);      // C_IN
-        visitor.visit_i32(output_shape[1] as i32);  // C_OUT
-        visitor.visit_i32(in_shape[2] as i32);      // H
-        visitor.visit_i32(in_shape[3] as i32);      // W
-        visitor.visit_i32(output_shape[2] as i32);  // OH
-        visitor.visit_i32(output_shape[3] as i32);  // OW
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(params[0]); // w_ptr
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_ptr(grad_params[0]); // dw_ptr
+        visitor.visit_i32(in_shape[0] as i32); // B
+        visitor.visit_i32(in_shape[1] as i32); // C_IN
+        visitor.visit_i32(output_shape[1] as i32); // C_OUT
+        visitor.visit_i32(in_shape[2] as i32); // H
+        visitor.visit_i32(in_shape[3] as i32); // W
+        visitor.visit_i32(output_shape[2] as i32); // OH
+        visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     /// Grid over forward-output positions (same formula as forward).
     #[cfg(feature = "training")]
     fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
-        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+        [
+            (output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32,
+            1,
+            1,
+        ]
     }
 }
 

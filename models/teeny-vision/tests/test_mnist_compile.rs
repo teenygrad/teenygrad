@@ -40,8 +40,7 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
 
     // ── Trace the MNIST (LeNet-5) graph ───────────────────────────────────────
     // Input: batch of single-channel 28×28 images (batch dim is dynamic).
-    let (input, graph) =
-        SymTensor::input(DtypeRepr::F32, vec![None, Some(1), Some(28), Some(28)]);
+    let (input, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(1), Some(28), Some(28)]);
     let _output = Layer::call(&mnist::mnist::<f32>(), input);
     let graph = graph.borrow();
 
@@ -50,8 +49,8 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     println!("[1/3] traced MNIST graph: {} nodes", graph.nodes.len());
 
     // ── Build the compiler ────────────────────────────────────────────────────
-    let teenyc_path = std::env::var("TEENYC_PATH")
-        .expect("TEENYC_PATH must be set to run this test");
+    let teenyc_path =
+        std::env::var("TEENYC_PATH").expect("TEENYC_PATH must be set to run this test");
     let cache_dir =
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
@@ -60,14 +59,19 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
 
     // ── Compile ───────────────────────────────────────────────────────────────
     let lowering = TritonLowering::new();
-    let model = graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
+    let model =
+        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
     println!("[3/3] compiled all kernels");
 
     // ── Verify compiled DAG ───────────────────────────────────────────────────
     // Every node except the Input placeholder must have a non-empty ptx_path
     // pointing to a file that actually exists on disk.
     let dag = &model.dag;
-    assert_eq!(dag.len(), 14, "compiled DAG should have same node count as graph");
+    assert_eq!(
+        dag.len(),
+        14,
+        "compiled DAG should have same node count as graph"
+    );
 
     let topo = dag.topological_sort();
     let mut compiled_count = 0;
@@ -85,16 +89,15 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
                 "PTX file not found for node {idx}: {}",
                 cn.ptx_path,
             );
-            println!(
-                "  node {idx}: {} → {}",
-                cn.entry_point,
-                cn.ptx_path,
-            );
+            println!("  node {idx}: {} → {}", cn.entry_point, cn.ptx_path,);
             compiled_count += 1;
         }
     }
 
-    assert_eq!(compiled_count, 13, "expected 13 compiled kernels (all ops except Input)");
+    assert_eq!(
+        compiled_count, 13,
+        "expected 13 compiled kernels (all ops except Input)"
+    );
 
     Ok(())
 }

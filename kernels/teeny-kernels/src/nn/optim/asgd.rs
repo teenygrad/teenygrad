@@ -51,18 +51,59 @@ pub fn asgd_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p  = T::load(params_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let g  = T::load(grad_ptr.add_offsets(offsets),   Some(mask), None, &[], None, None, None, false);
-    let ax = T::load(ax_ptr.add_offsets(offsets),     Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let ax = T::load(
+        ax_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t   = T::full(&[BLOCK_SIZE], lr);
-    let wd_t   = T::full(&[BLOCK_SIZE], weight_decay);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
     let d_ax_t = T::full(&[BLOCK_SIZE], d_ax);
 
-    let g_eff  = g + wd_t * p;
-    let p_new  = p - lr_t * g_eff;
+    let g_eff = g + wd_t * p;
+    let p_new = p - lr_t * g_eff;
     let ax_new = ax + (p_new - ax) / d_ax_t;
 
-    T::store(params_ptr.add_offsets(offsets), p_new,  Some(mask), &[], None, None);
-    T::store(ax_ptr.add_offsets(offsets),     ax_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        ax_ptr.add_offsets(offsets),
+        ax_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

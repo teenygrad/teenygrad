@@ -41,9 +41,34 @@ pub fn elemwise_add_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let a = T::load(a_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let b = T::load(b_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    T::store(out_ptr.add_offsets(offsets), a + b, Some(in_bounds), &[], None, None);
+    let a = T::load(
+        a_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let b = T::load(
+        b_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    T::store(
+        out_ptr.add_offsets(offsets),
+        a + b,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── Backward: grad_a[i] = dy[i],  grad_b[i] = dy[i] ─────────────────────────
@@ -53,7 +78,7 @@ pub fn elemwise_add_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 
 #[kernel]
 pub fn elemwise_add_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr:     T::Pointer<D>,
+    dy_ptr: T::Pointer<D>,
     grad_a_ptr: T::Pointer<D>,
     grad_b_ptr: T::Pointer<D>,
     n_elements: i32,
@@ -67,15 +92,40 @@ pub fn elemwise_add_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    T::store(grad_a_ptr.add_offsets(offsets), dy, Some(in_bounds), &[], None, None);
-    T::store(grad_b_ptr.add_offsets(offsets), dy, Some(in_bounds), &[], None, None);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    T::store(
+        grad_a_ptr.add_offsets(offsets),
+        dy,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        grad_b_ptr.add_offsets(offsets),
+        dy,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── RuntimeOp ─────────────────────────────────────────────────────────────────
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseAddForward<D> {
-    fn n_activation_inputs(&self) -> usize { 2 }
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         Vec::new()
@@ -93,11 +143,13 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseAd
         let n: usize = output_shape.iter().product();
         visitor.visit_ptr(inputs[0].0); // a_ptr
         visitor.visit_ptr(inputs[1].0); // b_ptr
-        visitor.visit_ptr(output);      // out_ptr
-        visitor.visit_i32(n as i32);    // n_elements
+        visitor.visit_ptr(output); // out_ptr
+        visitor.visit_i32(n as i32); // n_elements
     }
 
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -105,7 +157,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseAd
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -121,14 +175,16 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseAd
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let n: usize = output_shape.iter().product();
-        visitor.visit_ptr(grad_output);    // dy_ptr
+        visitor.visit_ptr(grad_output); // dy_ptr
         visitor.visit_ptr(grad_inputs[0]); // grad_a_ptr
         visitor.visit_ptr(grad_inputs[1]); // grad_b_ptr
-        visitor.visit_i32(n as i32);       // n_elements
+        visitor.visit_i32(n as i32); // n_elements
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {

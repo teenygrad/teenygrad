@@ -41,11 +41,7 @@ use teeny_core::{
     device::context::Context as DeviceContext,
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,
-    nn::{
-        Layer,
-        activation::relu::Relu,
-        linear::Linear,
-    },
+    nn::{Layer, activation::relu::Relu, linear::Linear},
     sequential,
 };
 use teeny_cuda::{
@@ -82,7 +78,10 @@ fn transpose(a: &[f32], rows: usize, cols: usize) -> Vec<f32> {
 }
 
 fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0_f32, f32::max)
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0_f32, f32::max)
 }
 
 // ── network factories ─────────────────────────────────────────────────────────
@@ -103,8 +102,7 @@ fn net_linear_relu_linear<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let teenyc_path = env::var("TEENYC_PATH")
-        .context("TEENYC_PATH must be set")?;
+    let teenyc_path = env::var("TEENYC_PATH").context("TEENYC_PATH must be set")?;
     let ptx_cache =
         env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 
@@ -126,24 +124,24 @@ async fn main() -> Result<()> {
     println!("Test 1: single Linear(4→2), no bias");
     println!("═══════════════════════════════════════");
 
-    const B: usize = 2;  // batch size
-    const K: usize = 4;  // in_features
-    const N: usize = 2;  // out_features
+    const B: usize = 2; // batch size
+    const K: usize = 4; // in_features
+    const N: usize = 2; // out_features
 
     // x[B, K] — input activation
     let x: Vec<f32> = vec![
-        1.0, 2.0, 3.0, 4.0,   // row 0
-        5.0, 6.0, 7.0, 8.0,   // row 1
+        1.0, 2.0, 3.0, 4.0, // row 0
+        5.0, 6.0, 7.0, 8.0, // row 1
     ];
     // W[N, K] — weight matrix
     let w: Vec<f32> = vec![
-        0.1, 0.2, 0.3, 0.4,   // row 0
-        0.5, 0.6, 0.7, 0.8,   // row 1
+        0.1, 0.2, 0.3, 0.4, // row 0
+        0.5, 0.6, 0.7, 0.8, // row 1
     ];
     // grad_output[B, N] — upstream gradient (injected directly, no loss kernel)
     let grad_out_host: Vec<f32> = vec![
-        1.0, 0.0,   // row 0
-        0.0, 1.0,   // row 1
+        1.0, 0.0, // row 0
+        0.0, 1.0, // row 1
     ];
 
     // Expected dW = grad_output^T @ x
@@ -152,12 +150,12 @@ async fn main() -> Result<()> {
     let expected_dw = matmul(&grad_out_t, &x, N, B, K);
     println!("expected dW = {:?}", expected_dw);
 
-    let (input_sym, graph) =
-        SymTensor::input(DtypeRepr::F32, vec![None, Some(K)]);
+    let (input_sym, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(K)]);
     let _output = Layer::call(&net_linear_only::<f32>(), input_sym);
     let graph = graph.borrow();
 
-    let cuda_model = graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
+    let cuda_model =
+        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
     let mut model = cuda_model.load(&device, B)?;
 
     let param_info: Vec<(usize, Vec<Vec<usize>>)> = model
@@ -206,28 +204,21 @@ async fn main() -> Result<()> {
     println!("═══════════════════════════════════════");
 
     const K2: usize = 4;
-    const H: usize = 4;   // hidden
+    const H: usize = 4; // hidden
     const N2: usize = 2;
     const B2: usize = 2;
 
     // Known weights
     // W1[H, K2]
     let w1: Vec<f32> = vec![
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ];
     // W2[N2, H]
-    let w2: Vec<f32> = vec![
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-    ];
+    let w2: Vec<f32> = vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
     // x[B2, K2]
     let x2: Vec<f32> = vec![
-        1.0,  2.0,  3.0,  4.0,
-        5.0, -6.0,  7.0, -8.0,   // some negatives to exercise ReLU masking
+        1.0, 2.0, 3.0, 4.0, 5.0, -6.0, 7.0, -8.0, // some negatives to exercise ReLU masking
     ];
 
     // Compute forward pass analytically:
@@ -235,9 +226,9 @@ async fn main() -> Result<()> {
     // h = ReLU(h_pre)     → zero out negatives
     // y = h @ W2^T        (W2 selects first 2 features from h)
 
-    let h_pre = matmul(&x2, &transpose(&w1, H, K2), B2, K2, H);  // [B2, H]
+    let h_pre = matmul(&x2, &transpose(&w1, H, K2), B2, K2, H); // [B2, H]
     let h: Vec<f32> = h_pre.iter().map(|&v| v.max(0.0)).collect();
-    let y = matmul(&h, &transpose(&w2, N2, H), B2, H, N2);        // [B2, N2]
+    let y = matmul(&h, &transpose(&w2, N2, H), B2, H, N2); // [B2, N2]
     println!("h_pre = {h_pre:?}");
     println!("h     = {h:?}");
     println!("y     = {y:?}");
@@ -253,18 +244,27 @@ async fn main() -> Result<()> {
     // dh = grad_output @ W2 (shape [B2, H])
     let dh = matmul(&grad_out2_host, &w2, B2, N2, H);
     // dh_pre = dh * (h_pre > 0)  (ReLU backward)
-    let dh_pre: Vec<f32> = dh.iter().zip(h_pre.iter()).map(|(&g, &a)| if a > 0.0 { g } else { 0.0 }).collect();
+    let dh_pre: Vec<f32> = dh
+        .iter()
+        .zip(h_pre.iter())
+        .map(|(&g, &a)| if a > 0.0 { g } else { 0.0 })
+        .collect();
     // Expected dW1 = dh_pre^T @ x2  (shape [H, K2])
     let dh_pre_t = transpose(&dh_pre, B2, H);
     let expected_dw1 = matmul(&dh_pre_t, &x2, H, B2, K2);
     println!("expected dW1 = {expected_dw1:?}");
 
-    let (input_sym2, graph2) =
-        SymTensor::input(DtypeRepr::F32, vec![None, Some(K2)]);
+    let (input_sym2, graph2) = SymTensor::input(DtypeRepr::F32, vec![None, Some(K2)]);
     let _output2 = Layer::call(&net_linear_relu_linear::<f32>(), input_sym2);
     let graph2 = graph2.borrow();
 
-    let cuda_model2 = graph_compiler.compile_model(&graph2, &lowering, &target, LoweringMode::Inference, false)?;
+    let cuda_model2 = graph_compiler.compile_model(
+        &graph2,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+    )?;
     let mut model2 = cuda_model2.load(&device, B2)?;
 
     // Identify which node is W1 (smaller index) and W2 (larger index).

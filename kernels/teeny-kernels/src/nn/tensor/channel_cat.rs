@@ -36,11 +36,11 @@ use teeny_triton::triton::{
 /// Grid: `n_spatial * cdiv(chunk_c, BLOCK_SIZE)` CTAs.
 #[kernel]
 pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,  // one input: n_spatial * chunk_c  (narrow NC)
-    y_ptr: T::Pointer<D>,  // output:    n_spatial * c_total  (wide NC)
-    chunk_c: i32,          // input channels for this chunk
-    c_total: i32,          // total output channels
-    chunk_offset: i32,     // first output channel index: k * chunk_c
+    x_ptr: T::Pointer<D>, // one input: n_spatial * chunk_c  (narrow NC)
+    y_ptr: T::Pointer<D>, // output:    n_spatial * c_total  (wide NC)
+    chunk_c: i32,         // input channels for this chunk
+    c_total: i32,         // total output channels
+    chunk_offset: i32,    // first output channel index: k * chunk_c
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -55,7 +55,7 @@ pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     let ci_offsets = T::arange(0, BLOCK_SIZE) + ci_start;
     let in_bounds = ci_offsets.lt(chunk_c);
 
-    let in_offsets  = ci_offsets + (pid_n * chunk_c);
+    let in_offsets = ci_offsets + (pid_n * chunk_c);
     let out_offsets = ci_offsets + (pid_n * c_total + chunk_offset);
 
     let x = T::load(
@@ -68,7 +68,14 @@ pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(y_ptr.add_offsets(out_offsets), x, Some(in_bounds), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(out_offsets),
+        x,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Channel-wise cat backward — extracts the gradient slice for one input
@@ -83,8 +90,8 @@ pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 /// Grid: same as `channel_cat_forward`.
 #[kernel]
 pub fn channel_cat_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,  // upstream grad: n_spatial * c_total  (wide NC)
-    dx_ptr: T::Pointer<D>,  // input grad:    n_spatial * chunk_c  (narrow NC)
+    dy_ptr: T::Pointer<D>, // upstream grad: n_spatial * c_total  (wide NC)
+    dx_ptr: T::Pointer<D>, // input grad:    n_spatial * chunk_c  (narrow NC)
     chunk_c: i32,
     c_total: i32,
     chunk_offset: i32,
@@ -115,7 +122,14 @@ pub fn channel_cat_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(dx_ptr.add_offsets(dx_offsets), grad, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(dx_offsets),
+        grad,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 pub struct ChannelCatOp<'a, D: Num> {
@@ -148,15 +162,23 @@ impl<D: Num + Send + Sync + 'static> ChannelCatRuntimeOp<D> {
     }
 
     /// Returns the compiled forward kernel source for embedding in KernelExecutable.
-    pub fn forward_source(&self) -> &str { &self.fwd.source }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd.source
+    }
     /// Returns the compiled backward kernel source.
-    pub fn backward_source(&self) -> &str { &self.bwd.source }
+    pub fn backward_source(&self) -> &str {
+        &self.bwd.source
+    }
     /// Returns the kernel name (for the forward kernel).
-    pub fn kernel_name(&self) -> &str { self.fwd.name }
+    pub fn kernel_name(&self) -> &str {
+        self.fwd.name
+    }
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCatRuntimeOp<D> {
-    fn n_activation_inputs(&self) -> usize { self.n_inputs }
+    fn n_activation_inputs(&self) -> usize {
+        self.n_inputs
+    }
 
     fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
         Vec::new()
@@ -172,10 +194,20 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-        self.pack_args_for_launch(0, inputs, params, output, output_shape, output_row_stride, visitor);
+        self.pack_args_for_launch(
+            0,
+            inputs,
+            params,
+            output,
+            output_shape,
+            output_row_stride,
+            visitor,
+        );
     }
 
-    fn n_launches(&self) -> usize { self.n_inputs }
+    fn n_launches(&self) -> usize {
+        self.n_inputs
+    }
 
     fn pack_args_for_launch(
         &self,
@@ -188,13 +220,17 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         // Each input is NCHW [B, C_i, H, W]. Treat as NC where N=B, C=C_i*H*W.
-        let chunk_offset: i32 = inputs[..launch_idx].iter()
+        let chunk_offset: i32 = inputs[..launch_idx]
+            .iter()
             .map(|(_, s)| (s[1] * s[2] * s[3]) as i32)
             .sum();
         let x_ptr = inputs[launch_idx].0;
         let input_shape = inputs[launch_idx].1;
         let chunk_c = (input_shape[1] * input_shape[2] * input_shape[3]) as i32;
-        let c_total: i32 = inputs.iter().map(|(_, s)| (s[1] * s[2] * s[3]) as i32).sum();
+        let c_total: i32 = inputs
+            .iter()
+            .map(|(_, s)| (s[1] * s[2] * s[3]) as i32)
+            .sum();
 
         visitor.visit_ptr(x_ptr);
         visitor.visit_ptr(output);
@@ -216,7 +252,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         [(n_spatial * num_tiles) as u32, 1, 1]
     }
 
-    fn block(&self) -> [u32; 3] { [self.fwd.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.fwd.block_size as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n_spatial = output_shape[0];
@@ -226,10 +264,14 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
-    fn n_backward_launches(&self) -> usize { self.n_inputs }
+    fn n_backward_launches(&self) -> usize {
+        self.n_inputs
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -245,8 +287,16 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         self.pack_backward_args_for_launch(
-            0, inputs, params, output, output_shape,
-            grad_output, grad_output_row_stride, grad_inputs, grad_params, visitor,
+            0,
+            inputs,
+            params,
+            output,
+            output_shape,
+            grad_output,
+            grad_output_row_stride,
+            grad_inputs,
+            grad_params,
+            visitor,
         );
     }
 
@@ -265,12 +315,16 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         _grad_params: &[teeny_core::model::RawPtr],
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-        let chunk_offset: i32 = inputs[..launch_idx].iter()
+        let chunk_offset: i32 = inputs[..launch_idx]
+            .iter()
             .map(|(_, s)| (s[1] * s[2] * s[3]) as i32)
             .sum();
         let input_shape = inputs[launch_idx].1;
         let chunk_c = (input_shape[1] * input_shape[2] * input_shape[3]) as i32;
-        let c_total: i32 = inputs.iter().map(|(_, s)| (s[1] * s[2] * s[3]) as i32).sum();
+        let c_total: i32 = inputs
+            .iter()
+            .map(|(_, s)| (s[1] * s[2] * s[3]) as i32)
+            .sum();
 
         visitor.visit_ptr(grad_output);
         visitor.visit_ptr(grad_inputs[launch_idx]);

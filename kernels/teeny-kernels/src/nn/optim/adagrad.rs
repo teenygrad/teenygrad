@@ -49,20 +49,61 @@ pub fn adagrad_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p   = T::load(params_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let g   = T::load(grad_ptr.add_offsets(offsets),   Some(mask), None, &[], None, None, None, false);
-    let sum = T::load(sum_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let sum = T::load(
+        sum_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t  = T::full(&[BLOCK_SIZE], lr);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
     let eps_t = T::full(&[BLOCK_SIZE], eps);
-    let wd_t  = T::full(&[BLOCK_SIZE], weight_decay);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let g_eff   = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let sum_new = sum + g_eff * g_eff;
-    let p_new   = p - lr_t * g_eff / (T::sqrt_rn(sum_new) + eps_t);
+    let p_new = p - lr_t * g_eff / (T::sqrt_rn(sum_new) + eps_t);
 
-    T::store(params_ptr.add_offsets(offsets), p_new,   Some(mask), &[], None, None);
-    T::store(sum_ptr.add_offsets(offsets),    sum_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        sum_ptr.add_offsets(offsets),
+        sum_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Adadelta step.
@@ -96,25 +137,82 @@ pub fn adadelta_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p          = T::load(params_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let g          = T::load(grad_ptr.add_offsets(offsets),      Some(mask), None, &[], None, None, None, false);
-    let square_avg = T::load(square_avg_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let acc_delta  = T::load(acc_delta_ptr.add_offsets(offsets),  Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let square_avg = T::load(
+        square_avg_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let acc_delta = T::load(
+        acc_delta_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t        = T::full(&[BLOCK_SIZE], lr);
-    let rho_t       = T::full(&[BLOCK_SIZE], rho);
-    let one_m_rho   = T::full(&[BLOCK_SIZE], 1.0_f32 - rho);
-    let eps_t       = T::full(&[BLOCK_SIZE], eps);
-    let wd_t        = T::full(&[BLOCK_SIZE], weight_decay);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
+    let rho_t = T::full(&[BLOCK_SIZE], rho);
+    let one_m_rho = T::full(&[BLOCK_SIZE], 1.0_f32 - rho);
+    let eps_t = T::full(&[BLOCK_SIZE], eps);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let g_eff          = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let square_avg_new = rho_t * square_avg + one_m_rho * g_eff * g_eff;
-    let std            = T::sqrt_rn(square_avg_new + eps_t);
-    let delta          = T::sqrt_rn(acc_delta + eps_t) / std * g_eff;
-    let p_new          = p - lr_t * delta;
-    let acc_delta_new  = rho_t * acc_delta + one_m_rho * delta * delta;
+    let std = T::sqrt_rn(square_avg_new + eps_t);
+    let delta = T::sqrt_rn(acc_delta + eps_t) / std * g_eff;
+    let p_new = p - lr_t * delta;
+    let acc_delta_new = rho_t * acc_delta + one_m_rho * delta * delta;
 
-    T::store(params_ptr.add_offsets(offsets),    p_new,          Some(mask), &[], None, None);
-    T::store(square_avg_ptr.add_offsets(offsets), square_avg_new, Some(mask), &[], None, None);
-    T::store(acc_delta_ptr.add_offsets(offsets),  acc_delta_new,  Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        square_avg_ptr.add_offsets(offsets),
+        square_avg_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        acc_delta_ptr.add_offsets(offsets),
+        acc_delta_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

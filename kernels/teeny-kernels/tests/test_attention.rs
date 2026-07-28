@@ -27,13 +27,14 @@ use teeny_core::{
 use teeny_kernels::graph::TritonLowering;
 
 fn build_attention_graph(c: usize, num_heads: usize, key_dim: usize) -> teeny_core::graph::Graph {
-    let (x, graph) = SymTensor::input(
-        DtypeRepr::F32,
-        vec![Some(2), Some(c), Some(4), Some(4)],
-    );
+    let (x, graph) = SymTensor::input(DtypeRepr::F32, vec![Some(2), Some(c), Some(4), Some(4)]);
     let shape = x.shape.clone();
     let _ = x.graph.borrow_mut().add_node(
-        Op::Attention { c, num_heads, key_dim },
+        Op::Attention {
+            c,
+            num_heads,
+            key_dim,
+        },
         vec![x.node_id],
         x.dtype,
         shape,

@@ -33,7 +33,10 @@ use teeny_kernels::graph::TritonLowering;
 use teeny_vision::mnist::mnist_lenet5;
 
 #[derive(Parser)]
-#[command(name = "teeny-cli", about = "Ahead-of-time compile a model's kernels for a given device/config.")]
+#[command(
+    name = "teeny-cli",
+    about = "Ahead-of-time compile a model's kernels for a given device/config."
+)]
 struct Cli {
     #[command(flatten)]
     aot: teeny_cli::AotArgs,

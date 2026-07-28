@@ -77,8 +77,8 @@ impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm1d<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for BatchNorm1d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for BatchNorm1d<D, IT, OT, RANK>
 {
     type Output = OT;
 
@@ -135,8 +135,8 @@ impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm2d<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for BatchNorm2d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for BatchNorm2d<D, IT, OT, RANK>
 {
     type Output = OT;
 
@@ -193,8 +193,8 @@ impl<D: Dtype, IT, OT, const RANK: usize> BatchNorm3d<D, IT, OT, RANK> {
     }
 }
 
-impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize>
-    Layer<IT> for BatchNorm3d<D, IT, OT, RANK>
+impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RANK: usize> Layer<IT>
+    for BatchNorm3d<D, IT, OT, RANK>
 {
     type Output = OT;
 

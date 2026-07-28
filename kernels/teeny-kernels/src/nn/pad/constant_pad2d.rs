@@ -76,7 +76,14 @@ pub fn constant_pad2d_forward<
     let out_offsets = ow_range + ((b * C + c) * OH + oh) * OW;
 
     if ih < 0 || ih >= H {
-        T::store(output_ptr.add_offsets(out_offsets), value_vec, Some(ow_mask), &[], None, None);
+        T::store(
+            output_ptr.add_offsets(out_offsets),
+            value_vec,
+            Some(ow_mask),
+            &[],
+            None,
+            None,
+        );
         return;
     }
 
@@ -96,7 +103,14 @@ pub fn constant_pad2d_forward<
         false,
     );
     let result = T::where_(combined_mask, tile, value_vec);
-    T::store(output_ptr.add_offsets(out_offsets), result, Some(ow_mask), &[], None, None);
+    T::store(
+        output_ptr.add_offsets(out_offsets),
+        result,
+        Some(ow_mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// 2-D constant padding backward pass.
@@ -140,7 +154,9 @@ pub fn constant_pad2d_backward<
     let ow_mask = ow_range.lt(OW);
 
     let ih = oh - PT;
-    if ih < 0 || ih >= H { return; }
+    if ih < 0 || ih >= H {
+        return;
+    }
     let iw_range = ow_range - PL;
 
     let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);

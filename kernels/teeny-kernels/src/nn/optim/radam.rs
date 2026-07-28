@@ -58,31 +58,88 @@ pub fn radam_adaptive_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p          = T::load(params_ptr.add_offsets(offsets),     Some(mask), None, &[], None, None, None, false);
-    let g          = T::load(grad_ptr.add_offsets(offsets),       Some(mask), None, &[], None, None, None, false);
-    let exp_avg    = T::load(exp_avg_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let exp_avg_sq = T::load(exp_avg_sq_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let exp_avg = T::load(
+        exp_avg_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let exp_avg_sq = T::load(
+        exp_avg_sq_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let beta1_t     = T::full(&[BLOCK_SIZE], beta1);
-    let beta2_t     = T::full(&[BLOCK_SIZE], beta2);
+    let beta1_t = T::full(&[BLOCK_SIZE], beta1);
+    let beta2_t = T::full(&[BLOCK_SIZE], beta2);
     let one_m_beta1 = T::full(&[BLOCK_SIZE], 1.0_f32 - beta1);
     let one_m_beta2 = T::full(&[BLOCK_SIZE], 1.0_f32 - beta2);
-    let eps_t       = T::full(&[BLOCK_SIZE], eps);
-    let step_t      = T::full(&[BLOCK_SIZE], step_size);
-    let bc2sqrt_t   = T::full(&[BLOCK_SIZE], bias_corr2_sqrt);
-    let wd_t        = T::full(&[BLOCK_SIZE], weight_decay);
+    let eps_t = T::full(&[BLOCK_SIZE], eps);
+    let step_t = T::full(&[BLOCK_SIZE], step_size);
+    let bc2sqrt_t = T::full(&[BLOCK_SIZE], bias_corr2_sqrt);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
     let g_eff = g + wd_t * p;
 
-    let exp_avg_new    = beta1_t * exp_avg    + one_m_beta1 * g_eff;
+    let exp_avg_new = beta1_t * exp_avg + one_m_beta1 * g_eff;
     let exp_avg_sq_new = beta2_t * exp_avg_sq + one_m_beta2 * g_eff * g_eff;
 
     let denom = T::sqrt_rn(exp_avg_sq_new) / bc2sqrt_t + eps_t;
     let p_new = p - step_t * exp_avg_new / denom;
 
-    T::store(params_ptr.add_offsets(offsets),     p_new,          Some(mask), &[], None, None);
-    T::store(exp_avg_ptr.add_offsets(offsets),    exp_avg_new,    Some(mask), &[], None, None);
-    T::store(exp_avg_sq_ptr.add_offsets(offsets), exp_avg_sq_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        exp_avg_ptr.add_offsets(offsets),
+        exp_avg_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        exp_avg_sq_ptr.add_offsets(offsets),
+        exp_avg_sq_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// RAdam step — SGD fallback phase (rho_t <= 5).
@@ -117,25 +174,82 @@ pub fn radam_sgd_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p          = T::load(params_ptr.add_offsets(offsets),     Some(mask), None, &[], None, None, None, false);
-    let g          = T::load(grad_ptr.add_offsets(offsets),       Some(mask), None, &[], None, None, None, false);
-    let exp_avg    = T::load(exp_avg_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let exp_avg_sq = T::load(exp_avg_sq_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let exp_avg = T::load(
+        exp_avg_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let exp_avg_sq = T::load(
+        exp_avg_sq_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let beta1_t     = T::full(&[BLOCK_SIZE], beta1);
-    let beta2_t     = T::full(&[BLOCK_SIZE], beta2);
+    let beta1_t = T::full(&[BLOCK_SIZE], beta1);
+    let beta2_t = T::full(&[BLOCK_SIZE], beta2);
     let one_m_beta1 = T::full(&[BLOCK_SIZE], 1.0_f32 - beta1);
     let one_m_beta2 = T::full(&[BLOCK_SIZE], 1.0_f32 - beta2);
-    let step_t      = T::full(&[BLOCK_SIZE], step_size);
-    let wd_t        = T::full(&[BLOCK_SIZE], weight_decay);
+    let step_t = T::full(&[BLOCK_SIZE], step_size);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
     let g_eff = g + wd_t * p;
 
-    let exp_avg_new    = beta1_t * exp_avg    + one_m_beta1 * g_eff;
+    let exp_avg_new = beta1_t * exp_avg + one_m_beta1 * g_eff;
     let exp_avg_sq_new = beta2_t * exp_avg_sq + one_m_beta2 * g_eff * g_eff;
-    let p_new          = p - step_t * exp_avg_new;
+    let p_new = p - step_t * exp_avg_new;
 
-    T::store(params_ptr.add_offsets(offsets),     p_new,          Some(mask), &[], None, None);
-    T::store(exp_avg_ptr.add_offsets(offsets),    exp_avg_new,    Some(mask), &[], None, None);
-    T::store(exp_avg_sq_ptr.add_offsets(offsets), exp_avg_sq_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        exp_avg_ptr.add_offsets(offsets),
+        exp_avg_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        exp_avg_sq_ptr.add_offsets(offsets),
+        exp_avg_sq_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

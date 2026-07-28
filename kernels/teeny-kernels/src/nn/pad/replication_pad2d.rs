@@ -69,7 +69,13 @@ pub fn replication_pad2d_forward<
 
     // Clamp height index
     let ih_raw = oh - PT;
-    let ih = if ih_raw < 0 { 0 } else if ih_raw >= H { H - 1 } else { ih_raw };
+    let ih = if ih_raw < 0 {
+        0
+    } else if ih_raw >= H {
+        H - 1
+    } else {
+        ih_raw
+    };
 
     let in_bc_base = (b * C + c) * H * W + ih * W;
     let out_bc_base = ((b * C + c) * OH + oh) * OW;
@@ -117,7 +123,11 @@ pub fn replication_pad2d_forward<
         false,
     );
 
-    let result = T::where_(cond_left, val_left, T::where_(cond_right, val_right, val_center));
+    let result = T::where_(
+        cond_left,
+        val_left,
+        T::where_(cond_right, val_right, val_center),
+    );
 
     let out_offsets = ow_range + out_bc_base;
     T::store(
@@ -171,7 +181,13 @@ pub fn replication_pad2d_backward<
     let ow_mask = ow_range.lt(OW);
 
     let ih_raw = oh - PT;
-    let ih = if ih_raw < 0 { 0 } else if ih_raw >= H { H - 1 } else { ih_raw };
+    let ih = if ih_raw < 0 {
+        0
+    } else if ih_raw >= H {
+        H - 1
+    } else {
+        ih_raw
+    };
 
     let dy_bc_base = ((b * C + c) * OH + oh) * OW;
     let dx_bc_base = (b * C + c) * H * W + ih * W;

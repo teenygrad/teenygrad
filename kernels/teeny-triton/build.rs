@@ -120,7 +120,15 @@ fn process_module(
                 continue;
             }
 
-            process_file(base_path, &path, file_name, true, depth, result, dtype_for_dsl)?;
+            process_file(
+                base_path,
+                &path,
+                file_name,
+                true,
+                depth,
+                result,
+                dtype_for_dsl,
+            )?;
         }
     }
 

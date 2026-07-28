@@ -25,9 +25,9 @@ use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
-const N: usize = 4;   // batch size
-const C: usize = 8;   // channels
-const L: usize = 16;  // spatial length
+const N: usize = 4; // batch size
+const C: usize = 8; // channels
+const L: usize = 16; // spatial length
 const EPS: f32 = 1e-5;
 const BLOCK_L: i32 = 256;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
@@ -62,8 +62,7 @@ fn test_instance_norm_inference_source() -> anyhow::Result<()> {
 fn test_instance_norm_forward_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability as Cap;
-    let kernel =
-        teeny_kernels::nn::norm::instancenorm::InstanceNormForward::<f32>::new(BLOCK_L);
+    let kernel = teeny_kernels::nn::norm::instancenorm::InstanceNormForward::<f32>::new(BLOCK_L);
     let target = Target::new(Cap::Sm90);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("instance_norm_forward_source", kernel.source());
@@ -75,8 +74,7 @@ fn test_instance_norm_forward_source() -> anyhow::Result<()> {
 fn test_instance_norm_backward_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability as Cap;
-    let kernel =
-        teeny_kernels::nn::norm::instancenorm::InstanceNormBackward::<f32>::new(BLOCK_L);
+    let kernel = teeny_kernels::nn::norm::instancenorm::InstanceNormBackward::<f32>::new(BLOCK_L);
     let target = Target::new(Cap::Sm90);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("instance_norm_backward_source", kernel.source());
@@ -140,16 +138,20 @@ fn test_instance_norm_inference_cuda() -> Result<()> {
         block: [PTX_LAUNCH_THREADS_X, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        N as i32,
-        C as i32,
-        L as i32,
-        EPS,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            C as i32,
+            L as i32,
+            EPS,
+        ),
+    )?;
 
     y_buf.to_host(&mut y_host)?;
     for i in 0..N * C * L {

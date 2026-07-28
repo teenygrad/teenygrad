@@ -42,11 +42,27 @@ pub fn leaky_relu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x      = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let slope  = T::full(&[BLOCK_SIZE], D::from_f64(negative_slope as f64));
-    let x_pos  = T::gt(x, T::zeros_like(x));
-    let y      = T::where_(x_pos, x, slope * x);
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let slope = T::full(&[BLOCK_SIZE], D::from_f64(negative_slope as f64));
+    let x_pos = T::gt(x, T::zeros_like(x));
+    let y = T::where_(x_pos, x, slope * x);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if x > 0 else negative_slope * dy
@@ -67,12 +83,37 @@ pub fn leaky_relu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy     = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x      = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let slope  = T::full(&[BLOCK_SIZE], D::from_f64(negative_slope as f64));
-    let x_pos  = T::gt(x, T::zeros_like(x));
-    let dx     = T::where_(x_pos, dy, slope * dy);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let slope = T::full(&[BLOCK_SIZE], D::from_f64(negative_slope as f64));
+    let x_pos = T::gt(x, T::zeros_like(x));
+    let dx = T::where_(x_pos, dy, slope * dy);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── Threshold ────────────────────────────────────────────────────────────────
@@ -95,12 +136,28 @@ pub fn threshold_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x      = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let thr    = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
-    let val    = T::full(&[BLOCK_SIZE], D::from_f64(value as f64));
-    let above  = T::gt(x, thr);
-    let y      = T::where_(above, x, val);
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let thr = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
+    let val = T::full(&[BLOCK_SIZE], D::from_f64(value as f64));
+    let above = T::gt(x, thr);
+    let y = T::where_(above, x, val);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if x > threshold else 0
@@ -121,12 +178,37 @@ pub fn threshold_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy     = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x      = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let thr    = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
-    let above  = T::gt(x, thr);
-    let dx     = T::where_(above, dy, T::zeros_like(dy));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let thr = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
+    let above = T::gt(x, thr);
+    let dx = T::where_(above, dy, T::zeros_like(dy));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── Softsign ─────────────────────────────────────────────────────────────────
@@ -147,11 +229,27 @@ pub fn softsign_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x   = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let d   = one + T::abs(x);
-    let y   = x / d;
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let d = one + T::abs(x);
+    let y = x / d;
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy / (1 + |x|)²
@@ -171,12 +269,37 @@ pub fn softsign_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x   = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let d   = one + T::abs(x);
-    let dx  = dy / (d * d);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let d = one + T::abs(x);
+    let dx = dy / (d * d);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── Softshrink ───────────────────────────────────────────────────────────────
@@ -198,16 +321,32 @@ pub fn softshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x        = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let lam      = T::full(&[BLOCK_SIZE], D::from_f64(lambda as f64));
-    let neg_lam  = T::full(&[BLOCK_SIZE], D::from_f64(-(lambda as f64)));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let lam = T::full(&[BLOCK_SIZE], D::from_f64(lambda as f64));
+    let neg_lam = T::full(&[BLOCK_SIZE], D::from_f64(-(lambda as f64)));
     let x_gt_lam = T::gt(x, lam);
     let x_lt_neg = T::lt(x, neg_lam);
-    let y_upper  = x - lam;
-    let y_lower  = x + lam;
-    let y_mid    = T::where_(x_lt_neg, y_lower, T::zeros_like(x));
-    let y        = T::where_(x_gt_lam, y_upper, y_mid);
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let y_upper = x - lam;
+    let y_lower = x + lam;
+    let y_mid = T::where_(x_lt_neg, y_lower, T::zeros_like(x));
+    let y = T::where_(x_gt_lam, y_upper, y_mid);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if |x| > lambda else 0
@@ -228,12 +367,37 @@ pub fn softshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy      = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x       = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let lam     = T::full(&[BLOCK_SIZE], D::from_f64(lambda as f64));
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let lam = T::full(&[BLOCK_SIZE], D::from_f64(lambda as f64));
     let outside = T::gt(T::abs(x), lam);
-    let dx      = T::where_(outside, dy, T::zeros_like(dy));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx = T::where_(outside, dy, T::zeros_like(dy));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── Softplus ─────────────────────────────────────────────────────────────────
@@ -257,16 +421,32 @@ pub fn softplus_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x         = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let beta_t    = T::full(&[BLOCK_SIZE], D::from_f64(beta as f64));
-    let inv_beta  = T::full(&[BLOCK_SIZE], D::from_f64(1.0 / beta as f64));
-    let thr       = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
-    let one       = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let bx        = beta_t * x;
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let beta_t = T::full(&[BLOCK_SIZE], D::from_f64(beta as f64));
+    let inv_beta = T::full(&[BLOCK_SIZE], D::from_f64(1.0 / beta as f64));
+    let thr = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let bx = beta_t * x;
     let above_thr = T::gt(bx, thr);
-    let y_safe    = inv_beta * T::log(one + T::exp(bx));
-    let y         = T::where_(above_thr, x, y_safe);
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let y_safe = inv_beta * T::log(one + T::exp(bx));
+    let y = T::where_(above_thr, x, y_safe);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy * sigmoid(beta*x)
@@ -289,21 +469,45 @@ pub fn softplus_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy        = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x         = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let beta_t    = T::full(&[BLOCK_SIZE], D::from_f64(beta as f64));
-    let neg_beta  = T::full(&[BLOCK_SIZE], D::from_f64(-(beta as f64)));
-    let thr       = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
-    let one       = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let bx        = beta_t * x;
-    let neg_bx    = neg_beta * x;
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let beta_t = T::full(&[BLOCK_SIZE], D::from_f64(beta as f64));
+    let neg_beta = T::full(&[BLOCK_SIZE], D::from_f64(-(beta as f64)));
+    let thr = T::full(&[BLOCK_SIZE], D::from_f64(threshold as f64));
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let bx = beta_t * x;
+    let neg_bx = neg_beta * x;
     let above_thr = T::gt(bx, thr);
     // sigmoid(bx) = 1 / (1 + exp(-bx))
-    let dx_safe   = dy * (one / (one + T::exp(neg_bx)));
-    let dx        = T::where_(above_thr, dy, dx_safe);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx_safe = dy * (one / (one + T::exp(neg_bx)));
+    let dx = T::where_(above_thr, dy, dx_safe);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
-
 
 pub struct LeakyReluOp<D: Float> {
     pub forward: LeakyReluForward<D>,

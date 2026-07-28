@@ -198,7 +198,9 @@ pub fn avgpool2d_backward<
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Avgpool2dForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         Vec::new()
@@ -218,20 +220,26 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Avgpool2dF
         let input_shape = inputs[0].1;
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
-        visitor.visit_i32(input_shape[0] as i32);   // B
-        visitor.visit_i32(input_shape[1] as i32);   // C
-        visitor.visit_i32(input_shape[2] as i32);   // H
-        visitor.visit_i32(input_shape[3] as i32);   // W
-        visitor.visit_i32(output_shape[2] as i32);  // OH
-        visitor.visit_i32(output_shape[3] as i32);  // OW
+        visitor.visit_i32(input_shape[0] as i32); // B
+        visitor.visit_i32(input_shape[1] as i32); // C
+        visitor.visit_i32(input_shape[2] as i32); // H
+        visitor.visit_i32(input_shape[3] as i32); // W
+        visitor.visit_i32(output_shape[2] as i32); // OH
+        visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid = ((b * C + c) * OH + oh) * num_ow_tiles + ow_tile
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
-        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+        [
+            (output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32,
+            1,
+            1,
+        ]
     }
 }
 

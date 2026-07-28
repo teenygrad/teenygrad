@@ -87,7 +87,7 @@ pub fn maxpool2d_forward<
     let mut ih: i32 = oh * STRIDE_H - PAD_H;
     while ih < 0 {
         kh += 1;
-        ih += 1;  // each kh step advances ih by exactly 1
+        ih += 1; // each kh step advances ih by exactly 1
     }
     // Phase 2: clamp kh_hi = min(kh + (H - ih), KH) via countdown.
     let mut kh_hi: i32 = kh + (H - ih);
@@ -110,7 +110,11 @@ pub fn maxpool2d_forward<
         let tile = T::load(
             input_ptr.add_offsets(in_offsets),
             Some(valid_mask),
-            Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)),
+            Some(T::cast::<f32, D>(
+                T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32),
+                None,
+                false,
+            )),
             &[],
             None,
             None,
@@ -225,7 +229,11 @@ pub fn maxpool2d_backward<
         let x_tile = T::load(
             x_ptr.add_offsets(in_offsets),
             Some(valid_mask),
-            Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)),
+            Some(T::cast::<f32, D>(
+                T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32),
+                None,
+                false,
+            )),
             &[],
             None,
             None,
@@ -246,9 +254,13 @@ pub fn maxpool2d_backward<
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
 
     fn pack_args(
         &self,
@@ -262,23 +274,31 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dF
         let input_shape = inputs[0].1;
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
-        visitor.visit_i32(input_shape[0] as i32);  // B
-        visitor.visit_i32(input_shape[1] as i32);  // C
-        visitor.visit_i32(input_shape[2] as i32);  // H
-        visitor.visit_i32(input_shape[3] as i32);  // W
+        visitor.visit_i32(input_shape[0] as i32); // B
+        visitor.visit_i32(input_shape[1] as i32); // C
+        visitor.visit_i32(input_shape[2] as i32); // H
+        visitor.visit_i32(input_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
-        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+        [
+            (output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32,
+            1,
+            1,
+        ]
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     /// kernel args: dy, x, y, dx, B, C, H, W, OH, OW
     #[cfg(feature = "training")]
@@ -295,26 +315,32 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dF
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let in_shape = inputs[0].1; // [B, C, H, W]
-        visitor.visit_ptr(grad_output);       // dy_ptr
-        visitor.visit_ptr(inputs[0].0);       // x_ptr (saved activation)
-        visitor.visit_ptr(output);            // y_ptr (forward output = max values)
-        visitor.visit_ptr(grad_inputs[0]);    // dx_ptr
-        visitor.visit_i32(in_shape[0] as i32);      // B
-        visitor.visit_i32(in_shape[1] as i32);      // C
-        visitor.visit_i32(in_shape[2] as i32);      // H
-        visitor.visit_i32(in_shape[3] as i32);      // W
-        visitor.visit_i32(output_shape[2] as i32);  // OH
-        visitor.visit_i32(output_shape[3] as i32);  // OW
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr (saved activation)
+        visitor.visit_ptr(output); // y_ptr (forward output = max values)
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_i32(in_shape[0] as i32); // B
+        visitor.visit_i32(in_shape[1] as i32); // C
+        visitor.visit_i32(in_shape[2] as i32); // H
+        visitor.visit_i32(in_shape[3] as i32); // W
+        visitor.visit_i32(output_shape[2] as i32); // OH
+        visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     /// Grid over output positions (same formula as forward).
     #[cfg(feature = "training")]
     fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
-        [(output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32, 1, 1]
+        [
+            (output_shape[0] * output_shape[1] * output_shape[2] * num_ow_tiles) as u32,
+            1,
+            1,
+        ]
     }
 }
 

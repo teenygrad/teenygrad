@@ -28,7 +28,10 @@ pub struct LeakyRelu<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> LeakyRelu<D, T, RANK> {
     pub fn new(negative_slope: f64) -> Self {
-        Self { negative_slope, _pd: PhantomData }
+        Self {
+            negative_slope,
+            _pd: PhantomData,
+        }
     }
 }
 
@@ -49,7 +52,11 @@ pub struct Threshold<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Threshold<D, T, RANK> {
     pub fn new(threshold: f64, value: f64) -> Self {
-        Self { threshold, value, _pd: PhantomData }
+        Self {
+            threshold,
+            value,
+            _pd: PhantomData,
+        }
     }
 }
 
@@ -94,7 +101,10 @@ pub struct Softshrink<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Softshrink<D, T, RANK> {
     pub fn new(lambda: f64) -> Self {
-        Self { lambda, _pd: PhantomData }
+        Self {
+            lambda,
+            _pd: PhantomData,
+        }
     }
 }
 
@@ -115,7 +125,11 @@ pub struct Softplus<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Softplus<D, T, RANK> {
     pub fn new(beta: f64, threshold: f64) -> Self {
-        Self { beta, threshold, _pd: PhantomData }
+        Self {
+            beta,
+            threshold,
+            _pd: PhantomData,
+        }
     }
 }
 

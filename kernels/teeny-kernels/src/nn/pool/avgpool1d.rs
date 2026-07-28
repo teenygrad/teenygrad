@@ -32,13 +32,7 @@ use teeny_triton::triton::{
 ///
 /// **Constraints**: no padding; `OL = (L - KL) / STRIDE + 1`.
 #[kernel]
-pub fn avgpool1d_forward<
-    T: Triton,
-    D: Num,
-    const KL: i32,
-    const STRIDE: i32,
-    const BLOCK_OL: i32,
->(
+pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
     B: i32,

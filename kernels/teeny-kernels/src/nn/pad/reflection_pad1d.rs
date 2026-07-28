@@ -77,7 +77,7 @@ pub fn reflection_pad1d_forward<
     let right_cond = ip_raw.ge(L);
 
     // Reflected index for each case (safe to compute for all lanes)
-    let ip_left = ip_raw * (-1);          // -ip: always in [1, PAD_LEFT] for left pad
+    let ip_left = ip_raw * (-1); // -ip: always in [1, PAD_LEFT] for left pad
     let ip_right = ip_raw * (-1) + (2 * (L - 1)); // 2*(L-1) - ip for right pad
 
     // Load all three candidate positions. Masks keep each load safe:
@@ -118,7 +118,11 @@ pub fn reflection_pad1d_forward<
         false,
     );
 
-    let result = T::where_(left_cond, val_left, T::where_(right_cond, val_right, val_center));
+    let result = T::where_(
+        left_cond,
+        val_left,
+        T::where_(right_cond, val_right, val_center),
+    );
 
     let out_offsets = ol_range + out_bc_base;
     T::store(

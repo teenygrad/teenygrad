@@ -74,10 +74,22 @@ pub fn reflection_pad3d_forward<
     let ow_mask = ow_range.lt(OW);
 
     let id_raw = od - PD1;
-    let id = if id_raw < 0 { -id_raw } else if id_raw >= Dv { 2 * (Dv - 1) - id_raw } else { id_raw };
+    let id = if id_raw < 0 {
+        -id_raw
+    } else if id_raw >= Dv {
+        2 * (Dv - 1) - id_raw
+    } else {
+        id_raw
+    };
 
     let ih_raw = oh - PH1;
-    let ih = if ih_raw < 0 { -ih_raw } else if ih_raw >= H { 2 * (H - 1) - ih_raw } else { ih_raw };
+    let ih = if ih_raw < 0 {
+        -ih_raw
+    } else if ih_raw >= H {
+        2 * (H - 1) - ih_raw
+    } else {
+        ih_raw
+    };
 
     let in_bc_base = ((b * C + c) * Dv + id) * H * W + ih * W;
     let out_bc_base = (((b * C + c) * OD + od) * OH + oh) * OW;
@@ -122,7 +134,11 @@ pub fn reflection_pad3d_forward<
         false,
     );
 
-    let result = T::where_(left_cond, val_left, T::where_(right_cond, val_right, val_center));
+    let result = T::where_(
+        left_cond,
+        val_left,
+        T::where_(right_cond, val_right, val_center),
+    );
 
     let out_offsets = ow_range + out_bc_base;
     T::store(
@@ -182,10 +198,22 @@ pub fn reflection_pad3d_backward<
     let ow_mask = ow_range.lt(OW);
 
     let id_raw = od - PD1;
-    let id = if id_raw < 0 { -id_raw } else if id_raw >= Dv { 2 * (Dv - 1) - id_raw } else { id_raw };
+    let id = if id_raw < 0 {
+        -id_raw
+    } else if id_raw >= Dv {
+        2 * (Dv - 1) - id_raw
+    } else {
+        id_raw
+    };
 
     let ih_raw = oh - PH1;
-    let ih = if ih_raw < 0 { -ih_raw } else if ih_raw >= H { 2 * (H - 1) - ih_raw } else { ih_raw };
+    let ih = if ih_raw < 0 {
+        -ih_raw
+    } else if ih_raw >= H {
+        2 * (H - 1) - ih_raw
+    } else {
+        ih_raw
+    };
 
     let dy_bc_base = (((b * C + c) * OD + od) * OH + oh) * OW;
     let dx_bc_base = ((b * C + c) * Dv + id) * H * W + ih * W;

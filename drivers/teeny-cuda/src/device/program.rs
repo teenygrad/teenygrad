@@ -39,7 +39,12 @@ pub(crate) struct KernelMetadata {
 
 impl KernelMetadata {
     fn parse(ptx: &str) -> Self {
-        let mut m = KernelMetadata { num_ctas: 1, global_scratch_align: 1, profile_scratch_align: 1, ..Default::default() };
+        let mut m = KernelMetadata {
+            num_ctas: 1,
+            global_scratch_align: 1,
+            profile_scratch_align: 1,
+            ..Default::default()
+        };
         let mut reqntid: Option<u32> = None;
         let mut visible_entry_name = String::new();
 
@@ -50,15 +55,17 @@ impl KernelMetadata {
             if let Some(rest) = trimmed.strip_prefix("// meta:") {
                 if let Some((key, val)) = rest.split_once('=') {
                     match key {
-                        "name"                  => m.name                  = val.to_owned(),
-                        "num_warps"             => m.num_warps             = val.parse().unwrap_or(0),
-                        "num_ctas"              => m.num_ctas              = val.parse().unwrap_or(1),
-                        "shared"               => m.shared               = val.parse().unwrap_or(0),
-                        "tmem_size"             => m.tmem_size             = val.parse().unwrap_or(0),
-                        "global_scratch_size"   => m.global_scratch_size   = val.parse().unwrap_or(0),
-                        "global_scratch_align"  => m.global_scratch_align  = val.parse().unwrap_or(1),
-                        "profile_scratch_size"  => m.profile_scratch_size  = val.parse().unwrap_or(0),
-                        "profile_scratch_align" => m.profile_scratch_align = val.parse().unwrap_or(1),
+                        "name" => m.name = val.to_owned(),
+                        "num_warps" => m.num_warps = val.parse().unwrap_or(0),
+                        "num_ctas" => m.num_ctas = val.parse().unwrap_or(1),
+                        "shared" => m.shared = val.parse().unwrap_or(0),
+                        "tmem_size" => m.tmem_size = val.parse().unwrap_or(0),
+                        "global_scratch_size" => m.global_scratch_size = val.parse().unwrap_or(0),
+                        "global_scratch_align" => m.global_scratch_align = val.parse().unwrap_or(1),
+                        "profile_scratch_size" => m.profile_scratch_size = val.parse().unwrap_or(0),
+                        "profile_scratch_align" => {
+                            m.profile_scratch_align = val.parse().unwrap_or(1)
+                        }
                         _ => {}
                     }
                 }
@@ -78,7 +85,9 @@ impl KernelMetadata {
             // Used as a fallback when no `// meta:name=` comment is present.
             if visible_entry_name.is_empty() {
                 if let Some(rest) = trimmed.strip_prefix(".visible .entry ") {
-                    let name_end = rest.find('(').unwrap_or(rest.find(' ').unwrap_or(rest.len()));
+                    let name_end = rest
+                        .find('(')
+                        .unwrap_or(rest.find(' ').unwrap_or(rest.len()));
                     let parsed = rest[..name_end].trim();
                     if !parsed.is_empty() {
                         visible_entry_name = parsed.to_owned();
@@ -94,7 +103,8 @@ impl KernelMetadata {
                 if m.shared == 0 {
                     m.shared = v.trim().parse().unwrap_or(0);
                 }
-            } else if let Some(v) = trimmed.strip_prefix("// TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA: ") {
+            } else if let Some(v) = trimmed.strip_prefix("// TRITON_GLOBAL_SCRATCH_BYTES_PER_CTA: ")
+            {
                 if m.global_scratch_size == 0 {
                     m.global_scratch_size = v.trim().parse().unwrap_or(0);
                 }
@@ -313,8 +323,16 @@ pub struct ErasedKernel;
 
 impl Kernel for ErasedKernel {
     type Args<'a> = ();
-    fn name(&self) -> &str { "" }
-    fn source(&self) -> &str { "" }
-    fn kernel_source(&self) -> &str { "" }
-    fn entry_point_source(&self) -> &str { "" }
+    fn name(&self) -> &str {
+        ""
+    }
+    fn source(&self) -> &str {
+        ""
+    }
+    fn kernel_source(&self) -> &str {
+        ""
+    }
+    fn entry_point_source(&self) -> &str {
+        ""
+    }
 }

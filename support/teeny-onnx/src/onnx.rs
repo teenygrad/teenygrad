@@ -206,18 +206,18 @@ fn dims_to_shape(dims: &[i64]) -> Shape {
 
 fn tensor_dtype_to_dtype(dtype: i32) -> Result<DtypeRepr> {
     Ok(match tensor_proto::DataType::from_i32(dtype) {
-        Some(tensor_proto::DataType::BOOL)    => DtypeRepr::Bool,
-        Some(tensor_proto::DataType::INT8)    => DtypeRepr::I8,
-        Some(tensor_proto::DataType::INT16)   => DtypeRepr::I16,
-        Some(tensor_proto::DataType::INT32)   => DtypeRepr::I32,
-        Some(tensor_proto::DataType::INT64)   => DtypeRepr::I64,
-        Some(tensor_proto::DataType::UINT8)   => DtypeRepr::U8,
-        Some(tensor_proto::DataType::UINT16)  => DtypeRepr::U16,
-        Some(tensor_proto::DataType::UINT32)  => DtypeRepr::U32,
-        Some(tensor_proto::DataType::UINT64)  => DtypeRepr::U64,
+        Some(tensor_proto::DataType::BOOL) => DtypeRepr::Bool,
+        Some(tensor_proto::DataType::INT8) => DtypeRepr::I8,
+        Some(tensor_proto::DataType::INT16) => DtypeRepr::I16,
+        Some(tensor_proto::DataType::INT32) => DtypeRepr::I32,
+        Some(tensor_proto::DataType::INT64) => DtypeRepr::I64,
+        Some(tensor_proto::DataType::UINT8) => DtypeRepr::U8,
+        Some(tensor_proto::DataType::UINT16) => DtypeRepr::U16,
+        Some(tensor_proto::DataType::UINT32) => DtypeRepr::U32,
+        Some(tensor_proto::DataType::UINT64) => DtypeRepr::U64,
         Some(tensor_proto::DataType::FLOAT16) => DtypeRepr::F16,
-        Some(tensor_proto::DataType::BFLOAT16)=> DtypeRepr::BF16,
-        Some(tensor_proto::DataType::DOUBLE)  => DtypeRepr::F64,
+        Some(tensor_proto::DataType::BFLOAT16) => DtypeRepr::BF16,
+        Some(tensor_proto::DataType::DOUBLE) => DtypeRepr::F64,
         Some(tensor_proto::DataType::FLOAT) | None => DtypeRepr::F32,
         // STRING tensors — represent as U8 (byte storage) for graph purposes.
         Some(tensor_proto::DataType::STRING) => DtypeRepr::U8,
@@ -278,12 +278,12 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         "Sigmoid" => Op::Sigmoid,
         "Tanh" => Op::Tanh,
         "Add" => Op::Add,
-        "Flatten" => {
-            Op::Flatten
-        }
+        "Flatten" => Op::Flatten,
         "Softmax" => {
             let axis = get_attr_int(node, "axis", 1);
-            Op::Softmax { dim: axis.max(0) as usize }
+            Op::Softmax {
+                dim: axis.max(0) as usize,
+            }
         }
 
         "Conv" => {
@@ -354,17 +354,17 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
 
         "ConvTranspose" => {
             let weight_name = node.input.get(1).map(|s| s.as_str()).unwrap_or("");
-            let (out_channels, kernel_h, kernel_w) =
-                if let Some(w) = initializers.get(weight_name) {
-                    let nd = w.dims.len();
-                    if nd >= 4 {
-                        (w.dims[1] as usize, w.dims[2] as usize, w.dims[3] as usize)
-                    } else {
-                        (0, 1, 1)
-                    }
+            let (out_channels, kernel_h, kernel_w) = if let Some(w) = initializers.get(weight_name)
+            {
+                let nd = w.dims.len();
+                if nd >= 4 {
+                    (w.dims[1] as usize, w.dims[2] as usize, w.dims[3] as usize)
                 } else {
                     (0, 1, 1)
-                };
+                }
+            } else {
+                (0, 1, 1)
+            };
             let has_bias = node.input.get(2).is_some_and(|s| !s.is_empty());
             let strides = get_attr_ints(node, "strides").unwrap_or(&[1, 1]);
             let pads = get_attr_ints(node, "pads").unwrap_or(&[0, 0, 0, 0]);
@@ -445,7 +445,7 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         }
 
         "GlobalAveragePool" => Op::GlobalAvgPool,
-        "GlobalMaxPool"     => Op::GlobalMaxPool,
+        "GlobalMaxPool" => Op::GlobalMaxPool,
 
         "LpPool" => {
             let kernel = get_attr_ints(node, "kernel_shape").unwrap_or(&[1, 1]);
@@ -505,18 +505,31 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
 
         "LayerNormalization" | "LayerNorm" => {
             let eps = get_attr_float(node, "epsilon", 1e-5) as f64;
-            Op::LayerNorm { normalized_shape: vec![], eps, affine: true }
+            Op::LayerNorm {
+                normalized_shape: vec![],
+                eps,
+                affine: true,
+            }
         }
 
         "RMSNormalization" => {
             let eps = get_attr_float(node, "epsilon", 1e-5) as f64;
-            Op::RmsNorm { normalized_shape: vec![], eps, affine: true }
+            Op::RmsNorm {
+                normalized_shape: vec![],
+                eps,
+                affine: true,
+            }
         }
 
         "GroupNormalization" => {
             let num_groups = get_attr_int(node, "num_groups", 1).max(1) as usize;
             let eps = get_attr_float(node, "epsilon", 1e-5) as f64;
-            Op::GroupNorm { num_groups, num_channels: 0, eps, affine: true }
+            Op::GroupNorm {
+                num_groups,
+                num_channels: 0,
+                eps,
+                affine: true,
+            }
         }
 
         "InstanceNormalization" => {
@@ -532,10 +545,15 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
 
         "LRN" => {
             let alpha = get_attr_float(node, "alpha", 0.0001) as f64;
-            let beta  = get_attr_float(node, "beta",  0.75)   as f64;
-            let bias  = get_attr_float(node, "bias",  1.0)    as f64;
-            let size  = get_attr_int(node, "size", 1).max(1) as usize;
-            Op::LRN { alpha, beta, bias, size }
+            let beta = get_attr_float(node, "beta", 0.75) as f64;
+            let bias = get_attr_float(node, "bias", 1.0) as f64;
+            let size = get_attr_int(node, "size", 1).max(1) as usize;
+            Op::LRN {
+                alpha,
+                beta,
+                bias,
+                size,
+            }
         }
 
         "MeanVarianceNormalization" => {
@@ -545,93 +563,106 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
 
         "LpNormalization" => {
             let axis = get_attr_int(node, "axis", -1);
-            let p    = get_attr_int(node, "p", 2);
+            let p = get_attr_int(node, "p", 2);
             Op::LpNormalization { axis, p }
         }
 
         // ---------------------------------------------------------------
         // Activations
         // ---------------------------------------------------------------
-        "Elu"  => Op::Elu  { alpha: get_attr_float(node, "alpha", 1.0) as f64 },
+        "Elu" => Op::Elu {
+            alpha: get_attr_float(node, "alpha", 1.0) as f64,
+        },
         "Selu" => Op::Selu,
-        "Celu" => Op::Celu { alpha: get_attr_float(node, "alpha", 1.0) as f64 },
+        "Celu" => Op::Celu {
+            alpha: get_attr_float(node, "alpha", 1.0) as f64,
+        },
         "Gelu" => Op::Gelu,
         "Mish" => Op::Mish,
         "HardSigmoid" => Op::Hardsigmoid,
-        "HardSwish"   => Op::Hardswish,
-        "Swish"       => Op::Swish,
-        "LeakyRelu"   => Op::LeakyRelu {
+        "HardSwish" => Op::Hardswish,
+        "Swish" => Op::Swish,
+        "LeakyRelu" => Op::LeakyRelu {
             negative_slope: get_attr_float(node, "alpha", 0.01) as f64,
         },
-        "Softplus"    => Op::Softplus { beta: 1.0, threshold: 20.0 },
-        "Softsign"    => Op::Softsign,
-        "LogSoftmax"  => Op::LogSoftmax { axis: get_attr_int(node, "axis", -1) },
-        "Hardmax"     => Op::Hardmax    { axis: get_attr_int(node, "axis", -1) },
-        "PRelu"       => Op::PRelu,
+        "Softplus" => Op::Softplus {
+            beta: 1.0,
+            threshold: 20.0,
+        },
+        "Softsign" => Op::Softsign,
+        "LogSoftmax" => Op::LogSoftmax {
+            axis: get_attr_int(node, "axis", -1),
+        },
+        "Hardmax" => Op::Hardmax {
+            axis: get_attr_int(node, "axis", -1),
+        },
+        "PRelu" => Op::PRelu,
         "ThresholdedRelu" => Op::ThresholdedRelu {
             alpha: get_attr_float(node, "alpha", 1.0) as f64,
         },
         "Shrink" => Op::Shrink {
             lambd: get_attr_float(node, "lambd", 0.5) as f64,
-            bias:  get_attr_float(node, "bias",  0.0) as f64,
+            bias: get_attr_float(node, "bias", 0.0) as f64,
         },
         "Clip" => Op::Clip,
 
         // ---------------------------------------------------------------
         // Element-wise unary
         // ---------------------------------------------------------------
-        "Abs"        => Op::Abs,
-        "Neg"        => Op::Neg,
-        "Ceil"       => Op::Ceil,
-        "Floor"      => Op::Floor,
-        "Round"      => Op::Round,
-        "Sqrt"       => Op::Sqrt,
+        "Abs" => Op::Abs,
+        "Neg" => Op::Neg,
+        "Ceil" => Op::Ceil,
+        "Floor" => Op::Floor,
+        "Round" => Op::Round,
+        "Sqrt" => Op::Sqrt,
         "Reciprocal" => Op::Reciprocal,
-        "Exp"        => Op::Exp,
-        "Log"        => Op::Log,
-        "Erf"        => Op::Erf,
-        "Sign"       => Op::Sign,
-        "IsNaN"      => Op::IsNaN,
-        "IsInf"      => Op::IsInf {
+        "Exp" => Op::Exp,
+        "Log" => Op::Log,
+        "Erf" => Op::Erf,
+        "Sign" => Op::Sign,
+        "IsNaN" => Op::IsNaN,
+        "IsInf" => Op::IsInf {
             detect_negative: get_attr_int(node, "detect_negative", 1) != 0,
             detect_positive: get_attr_int(node, "detect_positive", 1) != 0,
         },
-        "Not"        => Op::Not,
+        "Not" => Op::Not,
         "BitwiseNot" => Op::BitwiseNot,
-        "Sin"        => Op::Sin,
-        "Cos"        => Op::Cos,
-        "Tan"        => Op::Tan,
-        "Asin"       => Op::Asin,
-        "Acos"       => Op::Acos,
-        "Atan"       => Op::Atan,
-        "Sinh"       => Op::Sinh,
-        "Cosh"       => Op::Cosh,
-        "Asinh"      => Op::Asinh,
-        "Acosh"      => Op::Acosh,
-        "Atanh"      => Op::Atanh,
+        "Sin" => Op::Sin,
+        "Cos" => Op::Cos,
+        "Tan" => Op::Tan,
+        "Asin" => Op::Asin,
+        "Acos" => Op::Acos,
+        "Atan" => Op::Atan,
+        "Sinh" => Op::Sinh,
+        "Cosh" => Op::Cosh,
+        "Asinh" => Op::Asinh,
+        "Acosh" => Op::Acosh,
+        "Atanh" => Op::Atanh,
 
         // ---------------------------------------------------------------
         // Element-wise binary / variadic
         // ---------------------------------------------------------------
-        "Mul"  => Op::Mul,
-        "Sub"  => Op::Sub,
-        "Div"  => Op::Div,
-        "Pow"  => Op::Pow,
-        "Mod"  => Op::Mod { fmod: get_attr_int(node, "fmod", 0) != 0 },
-        "Min"  => Op::ElemMin,
-        "Max"  => Op::ElemMax,
+        "Mul" => Op::Mul,
+        "Sub" => Op::Sub,
+        "Div" => Op::Div,
+        "Pow" => Op::Pow,
+        "Mod" => Op::Mod {
+            fmod: get_attr_int(node, "fmod", 0) != 0,
+        },
+        "Min" => Op::ElemMin,
+        "Max" => Op::ElemMax,
         "Mean" => Op::ElemMean,
-        "Sum"  => Op::ElemSum,
-        "Equal"          => Op::Equal,
-        "Greater"        => Op::Greater,
+        "Sum" => Op::ElemSum,
+        "Equal" => Op::Equal,
+        "Greater" => Op::Greater,
         "GreaterOrEqual" => Op::GreaterOrEqual,
-        "Less"           => Op::Less,
-        "LessOrEqual"    => Op::LessOrEqual,
-        "And"  => Op::And,
-        "Or"   => Op::Or,
-        "Xor"  => Op::Xor,
+        "Less" => Op::Less,
+        "LessOrEqual" => Op::LessOrEqual,
+        "And" => Op::And,
+        "Or" => Op::Or,
+        "Xor" => Op::Xor,
         "BitwiseAnd" => Op::BitwiseAnd,
-        "BitwiseOr"  => Op::BitwiseOr,
+        "BitwiseOr" => Op::BitwiseOr,
         "BitwiseXor" => Op::BitwiseXor,
         "BitShift" => Op::BitShift {
             direction: get_attr_string(node, "direction", "LEFT").to_string(),
@@ -640,7 +671,7 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // ---------------------------------------------------------------
         // Tensor structural
         // ---------------------------------------------------------------
-        "Reshape"  => Op::Reshape,
+        "Reshape" => Op::Reshape,
         "Transpose" => Op::Transpose {
             perm: get_attr_ints(node, "perm")
                 .map(|v| v.iter().map(|&i| i.max(0) as usize).collect())
@@ -652,47 +683,62 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         "Unsqueeze" => Op::Unsqueeze {
             axes: get_attr_ints(node, "axes").unwrap_or_default().to_vec(),
         },
-        "Concat" => Op::Concat { axis: get_attr_int(node, "axis", 0) },
-        "Split"  => Op::Split  {
+        "Concat" => Op::Concat {
+            axis: get_attr_int(node, "axis", 0),
+        },
+        "Split" => Op::Split {
             axis: get_attr_int(node, "axis", 0),
             num_outputs: node.output.len().max(1),
         },
-        "Slice"         => Op::Slice,
-        "Gather"        => Op::Gather        { axis: get_attr_int(node, "axis", 0) },
-        "GatherElements"=> Op::GatherElements{ axis: get_attr_int(node, "axis", 0) },
-        "GatherND"      => Op::GatherND      { batch_dims: get_attr_int(node, "batch_dims", 0) },
+        "Slice" => Op::Slice,
+        "Gather" => Op::Gather {
+            axis: get_attr_int(node, "axis", 0),
+        },
+        "GatherElements" => Op::GatherElements {
+            axis: get_attr_int(node, "axis", 0),
+        },
+        "GatherND" => Op::GatherND {
+            batch_dims: get_attr_int(node, "batch_dims", 0),
+        },
         "ScatterElements" => Op::ScatterElements {
             axis: get_attr_int(node, "axis", 0),
         },
-        "ScatterND"      => Op::ScatterND,
-        "Scatter"        => Op::Scatter { axis: get_attr_int(node, "axis", 0) },
-        "TensorScatter"  => Op::TensorScatter,
-        "Tile"           => Op::Tile,
-        "Expand"         => Op::Expand,
-        "Shape"          => Op::ShapeOf {
-            start: get_attr_int(node, "start", 0),
-            end:   get_attr_int(node, "end",   i64::MAX),
+        "ScatterND" => Op::ScatterND,
+        "Scatter" => Op::Scatter {
+            axis: get_attr_int(node, "axis", 0),
         },
-        "Size"           => Op::SizeOf,
-        "Identity"       => Op::Identity,
-        "Cast"           => {
+        "TensorScatter" => Op::TensorScatter,
+        "Tile" => Op::Tile,
+        "Expand" => Op::Expand,
+        "Shape" => Op::ShapeOf {
+            start: get_attr_int(node, "start", 0),
+            end: get_attr_int(node, "end", i64::MAX),
+        },
+        "Size" => Op::SizeOf,
+        "Identity" => Op::Identity,
+        "Cast" => {
             let to = get_attr_int(node, "to", 1);
             let dtype = tensor_dtype_to_dtype(to as i32)?;
             Op::Cast { to: dtype }
         }
-        "CastLike"       => Op::CastLike,
-        "Where"          => Op::Where,
-        "Compress"       => Op::Compress { axis: get_attr_int(node, "axis", 0) },
-        "Range"          => Op::Range,
-        "Constant"       => {
+        "CastLike" => Op::CastLike,
+        "Where" => Op::Where,
+        "Compress" => Op::Compress {
+            axis: get_attr_int(node, "axis", 0),
+        },
+        "Range" => Op::Range,
+        "Constant" => {
             // Shape/dtype extracted from the tensor attribute.
             if let Some(attr) = node.attribute.iter().find(|a| a.name == "value") {
                 let tensor = &attr.t;
-                let dtype  = tensor_dtype_to_dtype(tensor.data_type)?;
-                let shape  = dims_to_shape(&tensor.dims);
+                let dtype = tensor_dtype_to_dtype(tensor.data_type)?;
+                let shape = dims_to_shape(&tensor.dims);
                 Op::Constant { dtype, shape }
             } else {
-                Op::Constant { dtype: DtypeRepr::F32, shape: vec![] }
+                Op::Constant {
+                    dtype: DtypeRepr::F32,
+                    shape: vec![],
+                }
             }
         }
         "ConstantOfShape" => {
@@ -703,7 +749,9 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
             };
             Op::ConstantOfShape { dtype }
         }
-        "Trilu" => Op::Trilu { upper: get_attr_int(node, "upper", 1) != 0 },
+        "Trilu" => Op::Trilu {
+            upper: get_attr_int(node, "upper", 1) != 0,
+        },
         "BitCast" => {
             let to = get_attr_int(node, "to", 1);
             let dtype = tensor_dtype_to_dtype(to as i32)?;
@@ -714,7 +762,7 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         },
         "ReverseSequence" => Op::ReverseSequence {
             batch_axis: get_attr_int(node, "batch_axis", 1),
-            time_axis:  get_attr_int(node, "time_axis",  0),
+            time_axis: get_attr_int(node, "time_axis", 0),
         },
         "NonZero" => Op::NonZero,
 
@@ -722,26 +770,26 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // Matrix
         // ---------------------------------------------------------------
         "Gemm" => Op::Gemm {
-            alpha:   get_attr_float(node, "alpha",   1.0) as f64,
-            beta:    get_attr_float(node, "beta",    1.0) as f64,
+            alpha: get_attr_float(node, "alpha", 1.0) as f64,
+            beta: get_attr_float(node, "beta", 1.0) as f64,
             trans_a: get_attr_int(node, "transA", 0) != 0,
             trans_b: get_attr_int(node, "transB", 0) != 0,
         },
-        "MatMul"        => Op::MatMul,
+        "MatMul" => Op::MatMul,
         "MatMulInteger" => Op::MatMulInteger,
-        "Einsum"        => Op::Einsum {
+        "Einsum" => Op::Einsum {
             equation: get_attr_string(node, "equation", "").to_string(),
         },
-        "Det"           => Op::Det,
+        "Det" => Op::Det,
         "QLinearMatMul" => Op::QLinearMatMul,
-        "ConvInteger"   => Op::ConvInteger {
+        "ConvInteger" => Op::ConvInteger {
             groups: get_attr_int(node, "group", 1).max(1) as usize,
         },
-        "DeformConv"    => Op::DeformConv {
-            group:        get_attr_int(node, "group",        1).max(1) as usize,
+        "DeformConv" => Op::DeformConv {
+            group: get_attr_int(node, "group", 1).max(1) as usize,
             offset_group: get_attr_int(node, "offset_group", 1).max(1) as usize,
         },
-        "QLinearConv"   => Op::QLinearConv {
+        "QLinearConv" => Op::QLinearConv {
             groups: get_attr_int(node, "group", 1).max(1) as usize,
         },
         "Col2Im" => {
@@ -756,61 +804,61 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // Reductions
         // ---------------------------------------------------------------
         "ReduceSum" => Op::ReduceSum {
-            keepdims:              get_attr_int(node, "keepdims",              1) != 0,
-            noop_with_empty_axes:  get_attr_int(node, "noop_with_empty_axes",  0) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
+            noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceMean" => Op::ReduceMean {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceMax" => Op::ReduceMax {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceMin" => Op::ReduceMin {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceProd" => Op::ReduceProd {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceL1" => Op::ReduceL1 {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceL2" => Op::ReduceL2 {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceLogSum" => Op::ReduceLogSum {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceLogSumExp" => Op::ReduceLogSumExp {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceSumSquare" => Op::ReduceSumSquare {
-            keepdims:             get_attr_int(node, "keepdims",             1) != 0,
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
-        "CumSum"  => Op::CumSum {
+        "CumSum" => Op::CumSum {
             exclusive: get_attr_int(node, "exclusive", 0) != 0,
-            reverse:   get_attr_int(node, "reverse",   0) != 0,
+            reverse: get_attr_int(node, "reverse", 0) != 0,
         },
         "CumProd" => Op::CumProd {
             exclusive: get_attr_int(node, "exclusive", 0) != 0,
-            reverse:   get_attr_int(node, "reverse",   0) != 0,
+            reverse: get_attr_int(node, "reverse", 0) != 0,
         },
         "ArgMax" => Op::ArgMax {
-            axis:              get_attr_int(node, "axis", 0),
-            keepdims:          get_attr_int(node, "keepdims",          1) != 0,
+            axis: get_attr_int(node, "axis", 0),
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             select_last_index: get_attr_int(node, "select_last_index", 0) != 0,
         },
         "ArgMin" => Op::ArgMin {
-            axis:              get_attr_int(node, "axis", 0),
-            keepdims:          get_attr_int(node, "keepdims",          1) != 0,
+            axis: get_attr_int(node, "axis", 0),
+            keepdims: get_attr_int(node, "keepdims", 1) != 0,
             select_last_index: get_attr_int(node, "select_last_index", 0) != 0,
         },
 
@@ -820,13 +868,16 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         "Upsample" | "Resize" => Op::Resize {
             mode: get_attr_string(node, "mode", "nearest").to_string(),
             coordinate_transformation_mode: get_attr_string(
-                node, "coordinate_transformation_mode", "asymmetric",
-            ).to_string(),
+                node,
+                "coordinate_transformation_mode",
+                "asymmetric",
+            )
+            .to_string(),
             antialias: get_attr_int(node, "antialias", 0) != 0,
         },
 
         "GridSample" => Op::GridSample {
-            mode:         get_attr_string(node, "mode",         "bilinear").to_string(),
+            mode: get_attr_string(node, "mode", "bilinear").to_string(),
             padding_mode: get_attr_string(node, "padding_mode", "zeros").to_string(),
             align_corners: get_attr_int(node, "align_corners", 0) != 0,
         },
@@ -836,13 +887,13 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         },
         "DepthToSpace" => Op::DepthToSpace {
             blocksize: get_attr_int(node, "blocksize", 2).max(1) as usize,
-            mode:      get_attr_string(node, "mode", "DCR").to_string(),
+            mode: get_attr_string(node, "mode", "DCR").to_string(),
         },
 
         "RoiAlign" => Op::RoiAlign {
-            output_h:      get_attr_int(node, "output_height",  1).max(1) as usize,
-            output_w:      get_attr_int(node, "output_width",   1).max(1) as usize,
-            sampling_ratio:get_attr_int(node, "sampling_ratio", 0),
+            output_h: get_attr_int(node, "output_height", 1).max(1) as usize,
+            output_w: get_attr_int(node, "output_width", 1).max(1) as usize,
+            sampling_ratio: get_attr_int(node, "sampling_ratio", 0),
             spatial_scale: get_attr_float(node, "spatial_scale", 1.0) as f64,
         },
 
@@ -862,29 +913,41 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // Recurrent
         // ---------------------------------------------------------------
         "LSTM" => {
-            let hidden_size  = get_attr_int(node, "hidden_size", 1).max(1) as usize;
-            let direction    = get_attr_string(node, "direction", "forward").to_string();
+            let hidden_size = get_attr_int(node, "hidden_size", 1).max(1) as usize;
+            let direction = get_attr_string(node, "direction", "forward").to_string();
             let bidirectional = direction == "bidirectional";
-            Op::Lstm { hidden_size, direction, bidirectional }
+            Op::Lstm {
+                hidden_size,
+                direction,
+                bidirectional,
+            }
         }
         "GRU" => {
-            let hidden_size  = get_attr_int(node, "hidden_size", 1).max(1) as usize;
-            let direction    = get_attr_string(node, "direction", "forward").to_string();
+            let hidden_size = get_attr_int(node, "hidden_size", 1).max(1) as usize;
+            let direction = get_attr_string(node, "direction", "forward").to_string();
             let bidirectional = direction == "bidirectional";
-            Op::Gru { hidden_size, direction, bidirectional }
+            Op::Gru {
+                hidden_size,
+                direction,
+                bidirectional,
+            }
         }
         "RNN" => {
-            let hidden_size  = get_attr_int(node, "hidden_size", 1).max(1) as usize;
-            let direction    = get_attr_string(node, "direction", "forward").to_string();
+            let hidden_size = get_attr_int(node, "hidden_size", 1).max(1) as usize;
+            let direction = get_attr_string(node, "direction", "forward").to_string();
             let bidirectional = direction == "bidirectional";
-            Op::Rnn { hidden_size, direction, bidirectional }
+            Op::Rnn {
+                hidden_size,
+                direction,
+                bidirectional,
+            }
         }
 
         // ---------------------------------------------------------------
         // Attention
         // ---------------------------------------------------------------
         "Attention" => Op::MultiHeadAttention {
-            q_num_heads:  get_attr_int(node, "q_num_heads",  1).max(1) as usize,
+            q_num_heads: get_attr_int(node, "q_num_heads", 1).max(1) as usize,
             kv_num_heads: get_attr_int(node, "kv_num_heads", 1).max(1) as usize,
         },
         "RotaryEmbedding" => Op::RotaryEmbedding,
@@ -893,9 +956,9 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // Misc
         // ---------------------------------------------------------------
         "TopK" => Op::TopK {
-            axis:    get_attr_int(node, "axis",   -1),
+            axis: get_attr_int(node, "axis", -1),
             largest: get_attr_int(node, "largest", 1) != 0,
-            sorted:  get_attr_int(node, "sorted",  1) != 0,
+            sorted: get_attr_int(node, "sorted", 1) != 0,
         },
         "Unique" => Op::Unique {
             sorted: get_attr_int(node, "sorted", 1) != 0,
@@ -905,22 +968,39 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         },
         "EyeLike" => {
             let to = get_attr_int(node, "dtype", -1);
-            let dtype = if to >= 0 { Some(tensor_dtype_to_dtype(to as i32)?) } else { None };
-            Op::EyeLike { dtype, k: get_attr_int(node, "k", 0) }
+            let dtype = if to >= 0 {
+                Some(tensor_dtype_to_dtype(to as i32)?)
+            } else {
+                None
+            };
+            Op::EyeLike {
+                dtype,
+                k: get_attr_int(node, "k", 0),
+            }
         }
-        "OneHot" => Op::OneHot { axis: get_attr_int(node, "axis", -1) },
+        "OneHot" => Op::OneHot {
+            axis: get_attr_int(node, "axis", -1),
+        },
         "Bernoulli" => {
             let to = get_attr_int(node, "dtype", -1);
-            let dtype = if to >= 0 { Some(tensor_dtype_to_dtype(to as i32)?) } else { None };
+            let dtype = if to >= 0 {
+                Some(tensor_dtype_to_dtype(to as i32)?)
+            } else {
+                None
+            };
             Op::Bernoulli { dtype }
         }
         "RandomUniformLike" => {
             let to = get_attr_int(node, "dtype", -1);
-            let dtype = if to >= 0 { Some(tensor_dtype_to_dtype(to as i32)?) } else { None };
+            let dtype = if to >= 0 {
+                Some(tensor_dtype_to_dtype(to as i32)?)
+            } else {
+                None
+            };
             Op::RandomUniformLike {
                 dtype,
                 high: get_attr_float(node, "high", 1.0) as f64,
-                low:  get_attr_float(node, "low",  0.0) as f64,
+                low: get_attr_float(node, "low", 0.0) as f64,
             }
         }
 
@@ -928,7 +1008,7 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // Quantisation
         // ---------------------------------------------------------------
         "QuantizeLinear" => Op::QuantizeLinear {
-            axis:     get_attr_int(node, "axis", 1),
+            axis: get_attr_int(node, "axis", 1),
             saturate: get_attr_int(node, "saturate", 1) != 0,
         },
         "DequantizeLinear" => Op::DequantizeLinear {
@@ -939,15 +1019,21 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // ---------------------------------------------------------------
         // Signal
         // ---------------------------------------------------------------
-        "DFT"  => Op::Dft {
-            inverse:  get_attr_int(node, "inverse",  0) != 0,
+        "DFT" => Op::Dft {
+            inverse: get_attr_int(node, "inverse", 0) != 0,
             onesided: get_attr_int(node, "onesided", 0) != 0,
         },
-        "STFT"             => Op::Stft,
-        "MelWeightMatrix"  => Op::MelWeightMatrix,
-        "HannWindow"       => Op::HannWindow    { periodic: get_attr_int(node, "periodic", 1) != 0 },
-        "BlackmanWindow"   => Op::BlackmanWindow{ periodic: get_attr_int(node, "periodic", 1) != 0 },
-        "HammingWindow"    => Op::HammingWindow { periodic: get_attr_int(node, "periodic", 1) != 0 },
+        "STFT" => Op::Stft,
+        "MelWeightMatrix" => Op::MelWeightMatrix,
+        "HannWindow" => Op::HannWindow {
+            periodic: get_attr_int(node, "periodic", 1) != 0,
+        },
+        "BlackmanWindow" => Op::BlackmanWindow {
+            periodic: get_attr_int(node, "periodic", 1) != 0,
+        },
+        "HammingWindow" => Op::HammingWindow {
+            periodic: get_attr_int(node, "periodic", 1) != 0,
+        },
 
         // ---------------------------------------------------------------
         // Loss
@@ -962,36 +1048,38 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // ---------------------------------------------------------------
         // Sequences / optionals
         // ---------------------------------------------------------------
-        "SequenceAt"       => Op::SequenceAt,
-        "SequenceConstruct"=> Op::SequenceConstruct,
-        "SequenceEmpty"    => Op::SequenceEmpty,
-        "SequenceErase"    => Op::SequenceErase,
-        "SequenceInsert"   => Op::SequenceInsert,
-        "SequenceLength"   => Op::SequenceLength,
-        "SequenceMap"      => Op::SequenceMap,
-        "SplitToSequence"  => Op::SplitToSequence {
-            axis:     get_attr_int(node, "axis",     0),
+        "SequenceAt" => Op::SequenceAt,
+        "SequenceConstruct" => Op::SequenceConstruct,
+        "SequenceEmpty" => Op::SequenceEmpty,
+        "SequenceErase" => Op::SequenceErase,
+        "SequenceInsert" => Op::SequenceInsert,
+        "SequenceLength" => Op::SequenceLength,
+        "SequenceMap" => Op::SequenceMap,
+        "SplitToSequence" => Op::SplitToSequence {
+            axis: get_attr_int(node, "axis", 0),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
         },
         "ConcatFromSequence" => Op::ConcatFromSequence {
-            axis:     get_attr_int(node, "axis",     0),
+            axis: get_attr_int(node, "axis", 0),
             new_axis: get_attr_int(node, "new_axis", 0) != 0,
         },
-        "OptionalGetElement"  => Op::OptionalGetElement,
-        "OptionalHasElement"  => Op::OptionalHasElement,
+        "OptionalGetElement" => Op::OptionalGetElement,
+        "OptionalHasElement" => Op::OptionalHasElement,
 
         // ---------------------------------------------------------------
         // Control flow
         // ---------------------------------------------------------------
         "Loop" => Op::Loop,
-        "Scan" => Op::Scan { num_scan_inputs: get_attr_int(node, "num_scan_inputs", 0) },
-        "If"   => Op::If,
+        "Scan" => Op::Scan {
+            num_scan_inputs: get_attr_int(node, "num_scan_inputs", 0),
+        },
+        "If" => Op::If,
 
         // ---------------------------------------------------------------
         // Optimiser ops
         // ---------------------------------------------------------------
-        "Adagrad"  => Op::Adagrad,
-        "Adam"     => Op::Adam,
+        "Adagrad" => Op::Adagrad,
+        "Adam" => Op::Adam,
         "Momentum" => Op::Momentum,
         "Gradient" => Op::Gradient,
 
@@ -999,13 +1087,13 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // String / NLP
         // ---------------------------------------------------------------
         "StringNormalizer" => Op::StringNormalizer,
-        "RegexFullMatch"   => Op::RegexFullMatch {
+        "RegexFullMatch" => Op::RegexFullMatch {
             pattern: get_attr_string(node, "pattern", "").to_string(),
         },
         "StringConcat" => Op::StringConcat,
-        "StringSplit"  => Op::StringSplit,
+        "StringSplit" => Op::StringSplit,
         "TfIdfVectorizer" => Op::TfIdfVectorizer,
-        "LabelEncoder"    => Op::LabelEncoder,
+        "LabelEncoder" => Op::LabelEncoder,
 
         // ---------------------------------------------------------------
         // Other ML / deprecated
@@ -1014,8 +1102,8 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         "Binarizer" => Op::Binarizer {
             threshold: get_attr_float(node, "threshold", 0.0) as f64,
         },
-        "TreeEnsemble"     => Op::TreeEnsemble,
-        "ImageDecoder"     => Op::ImageDecoder,
+        "TreeEnsemble" => Op::TreeEnsemble,
+        "ImageDecoder" => Op::ImageDecoder,
 
         other => {
             return Err(Error::InvalidModel(format!(

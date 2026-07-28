@@ -38,11 +38,11 @@ use teeny_triton::triton::{
 /// no tensor-level division or modulo is required.
 #[kernel]
 pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,  // input:  n_spatial * c_total  (wide NC)
-    y_ptr: T::Pointer<D>,  // output: n_spatial * chunk_c  (narrow NC)
-    c_total: i32,          // total input channels
-    chunk_c: i32,          // output channels per chunk
-    chunk_offset: i32,     // first input channel index: k * chunk_c
+    x_ptr: T::Pointer<D>, // input:  n_spatial * c_total  (wide NC)
+    y_ptr: T::Pointer<D>, // output: n_spatial * chunk_c  (narrow NC)
+    c_total: i32,         // total input channels
+    chunk_c: i32,         // output channels per chunk
+    chunk_offset: i32,    // first input channel index: k * chunk_c
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -57,7 +57,7 @@ pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     let ci_offsets = T::arange(0, BLOCK_SIZE) + ci_start;
     let in_bounds = ci_offsets.lt(chunk_c);
 
-    let in_offsets  = ci_offsets + (pid_n * c_total + chunk_offset);
+    let in_offsets = ci_offsets + (pid_n * c_total + chunk_offset);
     let out_offsets = ci_offsets + (pid_n * chunk_c);
 
     let x = T::load(
@@ -70,7 +70,14 @@ pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(y_ptr.add_offsets(out_offsets), x, Some(in_bounds), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(out_offsets),
+        x,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Channel-wise chunk backward — propagates the gradient of one chunk
@@ -85,8 +92,8 @@ pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 /// Grid: same as `channel_chunk_forward`.
 #[kernel]
 pub fn channel_chunk_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,  // upstream grad: n_spatial * chunk_c  (narrow NC)
-    dx_ptr: T::Pointer<D>,  // input grad:    n_spatial * c_total  (wide NC)
+    dy_ptr: T::Pointer<D>, // upstream grad: n_spatial * chunk_c  (narrow NC)
+    dx_ptr: T::Pointer<D>, // input grad:    n_spatial * c_total  (wide NC)
     c_total: i32,
     chunk_c: i32,
     chunk_offset: i32,
@@ -117,7 +124,14 @@ pub fn channel_chunk_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(dx_ptr.add_offsets(dx_offsets), grad, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(dx_offsets),
+        grad,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 pub struct ChannelChunkOp<'a, D: Num> {
@@ -148,15 +162,25 @@ impl<D: Num + Send + Sync + 'static> ChannelChunkRuntimeOp<D> {
         }
     }
 
-    pub fn forward_source(&self) -> &str { &self.fwd.source }
-    pub fn backward_source(&self) -> &str { &self.bwd.source }
-    pub fn kernel_name(&self) -> &str { self.fwd.name }
+    pub fn forward_source(&self) -> &str {
+        &self.fwd.source
+    }
+    pub fn backward_source(&self) -> &str {
+        &self.bwd.source
+    }
+    pub fn kernel_name(&self) -> &str {
+        self.fwd.name
+    }
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelChunkRuntimeOp<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
 
     fn pack_args(
         &self,
@@ -179,11 +203,13 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelChu
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(c_total);
-        visitor.visit_i32(chunk_c * (h as i32) * (w as i32));  // chunk_c in NC units
+        visitor.visit_i32(chunk_c * (h as i32) * (w as i32)); // chunk_c in NC units
         visitor.visit_i32(chunk_offset);
     }
 
-    fn block(&self) -> [u32; 3] { [self.fwd.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.fwd.block_size as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // Grid over n_spatial * ceil(chunk_c_nc / block_size)
@@ -195,7 +221,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelChu
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -213,7 +241,7 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelChu
         // channel_chunk_backward: (dy_ptr, dx_ptr, c_total, chunk_c, chunk_offset)
         // dy = grad_output (narrow [B, chunk_c, H, W])
         // dx = grad_inputs[0] (wide [B, C_total, H, W])
-        let input_shape = inputs[0].1;  // original input shape [B, C_total, H, W]
+        let input_shape = inputs[0].1; // original input shape [B, C_total, H, W]
         let h = input_shape[2];
         let w = input_shape[3];
         let c_total = (input_shape[1] * h * w) as i32;

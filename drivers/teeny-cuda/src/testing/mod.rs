@@ -50,9 +50,11 @@ pub fn setup_cuda_env() -> Result<CudaTestEnv> {
             .strip_prefix("sm_")
             .and_then(|s| s.parse::<i32>().ok())
             .and_then(|n| Capability::from_major_minor(n / 10, n % 10))
-            .ok_or_else(|| crate::errors::Error::UnknownCapability(
-                format!("TEENYC_CAPABILITY={val:?} is not a recognised sm version")
-            ))?;
+            .ok_or_else(|| {
+                crate::errors::Error::UnknownCapability(format!(
+                    "TEENYC_CAPABILITY={val:?} is not a recognised sm version"
+                ))
+            })?;
         println!(
             "[3/9] device: {} (capability overridden: {device_capability} → {parsed})",
             device.info.name

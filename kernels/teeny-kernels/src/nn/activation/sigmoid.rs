@@ -41,11 +41,27 @@ pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
-    let y    = one / (one + T::exp(neg1 * x));
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let y = one / (one + T::exp(neg1 * x));
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy * y * (1 - y) = dy * (y - y²)
@@ -65,11 +81,36 @@ pub fn sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let y  = T::load(y_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let dx = dy * (y - y * y);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── SiLU (Swish) ─────────────────────────────────────────────────────────────
@@ -90,12 +131,28 @@ pub fn silu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
-    let s    = one / (one + T::exp(neg1 * x));
-    let y    = x * s;
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let s = one / (one + T::exp(neg1 * x));
+    let y = x * s;
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy * (sigmoid(x) + y * (1 - sigmoid(x)))
@@ -116,15 +173,40 @@ pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy   = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x    = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
-    let s    = one / (one + T::exp(neg1 * x));
-    let y    = x * s;
+    let s = one / (one + T::exp(neg1 * x));
+    let y = x * s;
     // d(silu)/dx = s + x*s*(1-s) = s + y - y*s
-    let dx   = dy * (s + y - y * s);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx = dy * (s + y - y * s);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── LogSigmoid ────────────────────────────────────────────────────────────────
@@ -145,8 +227,17 @@ pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
     // -log(1 + exp(-x)) = log(1/(1+exp(-x))) = log(sigmoid(x))
     // But we want to avoid negating the result: use (neg1 * log(1 + exp(neg1*x)))
@@ -154,8 +245,15 @@ pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     // But neg1 * log(...) would require negating a tensor result.
     // Use subtraction: y = T::zeros_like(x) - T::log(one + T::exp(neg1 * x))
     let zeros = T::zeros_like(x);
-    let y     = zeros - T::log(one + T::exp(neg1 * x));
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let y = zeros - T::log(one + T::exp(neg1 * x));
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy * sigmoid(-x) = dy / (1 + exp(x))
@@ -175,14 +273,38 @@ pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x   = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     // sigmoid(-x) = 1 / (1 + exp(x))
-    let dx  = dy / (one + T::exp(x));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx = dy / (one + T::exp(x));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
-
 
 pub struct SigmoidOp<D: Float> {
     pub forward: SigmoidForward<D>,
@@ -202,9 +324,13 @@ pub struct LogsigmoidOp<D: Float> {
 // ── RuntimeOp for Sigmoid forward ────────────────────────────────────────────
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
 
     fn pack_args(
         &self,
@@ -221,7 +347,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidF
         visitor.visit_i32(n as i32);
     }
 
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -229,7 +357,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidF
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -245,14 +375,16 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidF
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let n: usize = output_shape.iter().product();
-        visitor.visit_ptr(grad_output);    // dy_ptr
-        visitor.visit_ptr(output);         // y_ptr (saved output, not x)
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(output); // y_ptr (saved output, not x)
         visitor.visit_ptr(grad_inputs[0]); // dx_ptr
         visitor.visit_i32(n as i32);
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -264,9 +396,13 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidF
 // ── RuntimeOp for SiLU forward ────────────────────────────────────────────────
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
 
     fn pack_args(
         &self,
@@ -283,7 +419,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForw
         visitor.visit_i32(n as i32);
     }
 
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -291,7 +429,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForw
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -307,14 +447,16 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForw
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let n: usize = output_shape.iter().product();
-        visitor.visit_ptr(grad_output);    // dy_ptr
-        visitor.visit_ptr(inputs[0].0);    // x_ptr (saved activation)
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr (saved activation)
         visitor.visit_ptr(grad_inputs[0]); // dx_ptr
         visitor.visit_i32(n as i32);
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {

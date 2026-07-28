@@ -120,7 +120,11 @@ pub fn reflection_pad2d_forward<
         false,
     );
 
-    let result = T::where_(left_cond, val_left, T::where_(right_cond, val_right, val_center));
+    let result = T::where_(
+        left_cond,
+        val_left,
+        T::where_(right_cond, val_right, val_center),
+    );
 
     let out_offsets = ow_range + out_bc_base;
     T::store(

@@ -50,8 +50,26 @@ pub fn bce_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     // Clamp to (eps, 1-eps) to avoid log(0)
@@ -59,8 +77,16 @@ pub fn bce_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let one_minus_eps = T::full(&[BLOCK_SIZE], 1.0_f32 - 1e-7_f32);
     let inp_c = T::clamp(inp, eps, one_minus_eps);
 
-    let loss = T::full(&[BLOCK_SIZE], -1.0_f32) * (tgt * T::log(inp_c) + (one - tgt) * T::log(one - inp_c));
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    let loss = T::full(&[BLOCK_SIZE], -1.0_f32)
+        * (tgt * T::log(inp_c) + (one - tgt) * T::log(one - inp_c));
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Element-wise BCE backward.
@@ -86,9 +112,36 @@ pub fn bce_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     let eps = T::full(&[BLOCK_SIZE], 1e-7_f32);
@@ -99,7 +152,14 @@ pub fn bce_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     let dx_raw = neg_one * (tgt / inp_c - (one - tgt) / (one - inp_c));
     let dx = dx_raw * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── BCEWithLogitsLoss ─────────────────────────────────────────────────────────
@@ -127,15 +187,40 @@ pub fn bce_with_logits_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     // Numerically stable: max(x,0) - x*t + log(1+exp(-|x|))
     let relu_x = T::maximum(inp, zeros);
     let neg_abs_x = T::full(&[BLOCK_SIZE], -1.0_f32) * T::abs(inp);
     let loss = relu_x - inp * tgt + T::log(one + T::exp(neg_abs_x));
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Element-wise BCE-with-logits backward.
@@ -159,16 +244,50 @@ pub fn bce_with_logits_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     // sigmoid(x) = 1 / (1 + exp(-x))
     let sig = one / (one + T::exp(neg_one * inp));
     let dx = (sig - tgt) * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── SoftMarginLoss ────────────────────────────────────────────────────────────
@@ -197,14 +316,40 @@ pub fn soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     // log(1 + exp(-t*x)) — numerically stable softplus of (-t*x)
     let neg_tx = T::full(&[BLOCK_SIZE], -1.0_f32) * tgt * inp;
-    let loss = T::maximum(neg_tx, zeros) + T::log(one + T::exp(T::full(&[BLOCK_SIZE], -1.0_f32) * T::abs(tgt * inp)));
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    let loss = T::maximum(neg_tx, zeros)
+        + T::log(one + T::exp(T::full(&[BLOCK_SIZE], -1.0_f32) * T::abs(tgt * inp)));
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Element-wise soft margin loss backward.
@@ -230,9 +375,36 @@ pub fn soft_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
@@ -241,7 +413,14 @@ pub fn soft_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let sig_neg_tx = one / (one + T::exp(neg_one * neg_tx));
     // dx = -t * sigmoid(-t*x) * dy
     let dx = neg_one * tgt * sig_neg_tx * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── KLDivLoss ─────────────────────────────────────────────────────────────────
@@ -272,8 +451,26 @@ pub fn kl_div_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     // out = target * (log(target) - input), masked to 0 where target <= 0
     let eps = T::full(&[BLOCK_SIZE], 1e-10_f32);
@@ -281,7 +478,14 @@ pub fn kl_div_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let loss_raw = tgt * (T::log(tgt_safe) - inp);
     let positive = T::gt(tgt, zeros);
     let loss = T::where_(positive, loss_raw, zeros);
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Element-wise KL-divergence backward w.r.t. log-input.
@@ -304,12 +508,37 @@ pub fn kl_div_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     let dx = neg_one * tgt * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── PoissonNLLLoss ────────────────────────────────────────────────────────────
@@ -336,12 +565,37 @@ pub fn poisson_nll_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     // loss = exp(input) - target * input  (log_input mode)
     let loss = T::exp(inp) - tgt * inp;
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Element-wise Poisson NLL loss backward (log_input=True).
@@ -365,12 +619,46 @@ pub fn poisson_nll_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let dx = (T::exp(inp) - tgt) * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── GaussianNLLLoss ───────────────────────────────────────────────────────────
@@ -401,16 +689,50 @@ pub fn gaussian_nll_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let var = T::load(var_ptr.add_offsets(offsets),    Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let var = T::load(
+        var_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let eps_t = T::full(&[BLOCK_SIZE], eps_var);
-    let half  = T::full(&[BLOCK_SIZE], 0.5_f32);
+    let half = T::full(&[BLOCK_SIZE], 0.5_f32);
     let var_c = T::maximum(var, eps_t);
-    let diff  = inp - tgt;
-    let loss  = half * (T::log(var_c) + diff * diff / var_c);
-    T::store(out_ptr.add_offsets(offsets), loss, Some(in_bounds), &[], None, None);
+    let diff = inp - tgt;
+    let loss = half * (T::log(var_c) + diff * diff / var_c);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        loss,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Element-wise Gaussian NLL backward w.r.t. input (mean prediction).
@@ -436,13 +758,56 @@ pub fn gaussian_nll_loss_backward_input<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),     Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(input_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let tgt = T::load(target_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let var = T::load(var_ptr.add_offsets(offsets),    Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        input_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let tgt = T::load(
+        target_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let var = T::load(
+        var_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let eps_t = T::full(&[BLOCK_SIZE], eps_var);
     let var_c = T::maximum(var, eps_t);
     let dx = (inp - tgt) / var_c * dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }

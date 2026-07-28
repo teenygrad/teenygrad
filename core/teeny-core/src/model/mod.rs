@@ -16,7 +16,12 @@
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec, vec::Vec};
 
-use crate::{device::program::ArgVisitor, errors::Result, graph::{DtypeRepr, Graph, Shape}, utils::dag::Dag};
+use crate::{
+    device::program::ArgVisitor,
+    errors::Result,
+    graph::{DtypeRepr, Graph, Shape},
+    utils::dag::Dag,
+};
 
 pub type NodeId = usize;
 /// Raw device pointer alias used by runtime arg-packing.
@@ -136,7 +141,9 @@ pub trait RuntimeOp: Send + Sync {
     /// need one kernel call per chunk. The executor loops `n_launches()` times,
     /// calling `pack_args_for_launch` and `grid_for_launch` on each iteration.
     /// The default is 1, which delegates to `pack_args` / `grid`.
-    fn n_launches(&self) -> usize { 1 }
+    fn n_launches(&self) -> usize {
+        1
+    }
 
     /// Pack kernel arguments for launch `i` (0-indexed).
     ///
@@ -153,7 +160,14 @@ pub trait RuntimeOp: Send + Sync {
         visitor: &mut dyn ArgVisitor,
     ) {
         let _ = launch_idx;
-        self.pack_args(inputs, params, output, output_shape, output_row_stride, visitor);
+        self.pack_args(
+            inputs,
+            params,
+            output,
+            output_shape,
+            output_row_stride,
+            visitor,
+        );
     }
 
     /// Grid for launch `i`. Receives concrete input shapes so that per-chunk
@@ -172,7 +186,9 @@ pub trait RuntimeOp: Send + Sync {
 
     /// Returns true if this op has a backward (gradient) kernel.
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { false }
+    fn has_backward(&self) -> bool {
+        false
+    }
 
     /// Returns the required row stride (in elements) for the grad_output buffer
     /// passed to `pack_backward_args`. The default is the natural row-major
@@ -208,12 +224,24 @@ pub trait RuntimeOp: Send + Sync {
         grad_params: &[RawPtr],
         visitor: &mut dyn ArgVisitor,
     ) {
-        let _ = (inputs, params, output, output_shape, grad_output, grad_output_row_stride, grad_inputs, grad_params, visitor);
+        let _ = (
+            inputs,
+            params,
+            output,
+            output_shape,
+            grad_output,
+            grad_output_row_stride,
+            grad_inputs,
+            grad_params,
+            visitor,
+        );
     }
 
     /// Threads-per-CTA for the backward kernel.
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     /// Number of CTAs for the backward kernel.
     ///
@@ -229,7 +257,9 @@ pub trait RuntimeOp: Send + Sync {
     /// For ops like channel-cat where the backward must write separate gradient
     /// buffers per input chunk, this should return `n_inputs`. Default is 1.
     #[cfg(feature = "training")]
-    fn n_backward_launches(&self) -> usize { 1 }
+    fn n_backward_launches(&self) -> usize {
+        1
+    }
 
     /// Pack backward kernel arguments for launch `i` (0-indexed).
     ///
@@ -251,7 +281,17 @@ pub trait RuntimeOp: Send + Sync {
         visitor: &mut dyn ArgVisitor,
     ) {
         let _ = launch_idx;
-        self.pack_backward_args(inputs, params, output, output_shape, grad_output, grad_output_row_stride, grad_inputs, grad_params, visitor);
+        self.pack_backward_args(
+            inputs,
+            params,
+            output,
+            output_shape,
+            grad_output,
+            grad_output_row_stride,
+            grad_inputs,
+            grad_params,
+            visitor,
+        );
     }
 
     /// Grid for backward launch `i`.
@@ -291,11 +331,15 @@ pub trait ExecutableOp {
 
     /// Returns the backward kernel source, or `""` if no backward is available.
     #[cfg(feature = "training")]
-    fn backward_kernel_source(&self) -> &str { "" }
+    fn backward_kernel_source(&self) -> &str {
+        ""
+    }
 
     /// Returns the backward kernel entry point name.
     #[cfg(feature = "training")]
-    fn backward_kernel_entry_point(&self) -> &str { "entry_point" }
+    fn backward_kernel_entry_point(&self) -> &str {
+        "entry_point"
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -23,9 +23,7 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{
-    compiler::target::Capability, errors::Result, testing, device::CudaLaunchConfig,
-};
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
 const B: usize = 64;
 const N: usize = 96;

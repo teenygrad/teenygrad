@@ -41,14 +41,30 @@ pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x    = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let two  = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
     let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     // sigmoid(2x) = 1 / (1 + exp(-2x))
-    let s2x  = one / (one + T::exp(neg2 * x));
-    let y    = two * s2x - one;
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let s2x = one / (one + T::exp(neg2 * x));
+    let y = two * s2x - one;
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy * (1 - y²)  — sech²(x) expressed via saved output
@@ -68,11 +84,36 @@ pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy   = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let y    = T::load(y_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let one  = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let dx   = dy * (one - y * y);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let dx = dy * (one - y * y);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── Tanhshrink ───────────────────────────────────────────────────────────────
@@ -93,14 +134,30 @@ pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x     = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one   = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let two   = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
-    let neg2  = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
-    let s2x   = one / (one + T::exp(neg2 * x));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
+    let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
+    let s2x = one / (one + T::exp(neg2 * x));
     let tanh_x = two * s2x - one;
-    let y      = x - tanh_x;
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let y = x - tanh_x;
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy * tanh²(x)
@@ -122,14 +179,47 @@ pub fn tanhshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy     = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x      = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let y      = T::load(y_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let tanh_x = x - y;
-    let dx     = dy * tanh_x * tanh_x;
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx = dy * tanh_x * tanh_x;
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
-
 
 pub struct TanhOp<D: Float> {
     pub forward: TanhForward<D>,

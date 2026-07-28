@@ -111,11 +111,29 @@ pub fn instance_norm_forward_inference<T: Triton, D: Float, const BLOCK_L: i32>(
     let rstd = T::broadcast_to(T::rsqrt(var_sum * l_inv + eps_t), &[BLOCK_L]);
 
     let gamma = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_L],
     );
     let beta = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_L],
     );
 
@@ -135,7 +153,14 @@ pub fn instance_norm_forward_inference<T: Triton, D: Float, const BLOCK_L: i32>(
             false,
         );
         let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(y_ptr.add_offsets(col_offs + row_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(col_offs + row_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         l_start += BLOCK_L;
     }
 }
@@ -221,15 +246,47 @@ pub fn instance_norm_forward<T: Triton, D: Float, const BLOCK_L: i32>(
     let rstd_1 = T::rsqrt(var_sum * l_inv + eps_t);
     let rstd = T::broadcast_to(rstd_1, &[BLOCK_L]);
 
-    T::store(mean_ptr.add_offsets(stat_idx), mean_1, None, &[], None, None);
-    T::store(rstd_ptr.add_offsets(stat_idx), rstd_1, None, &[], None, None);
+    T::store(
+        mean_ptr.add_offsets(stat_idx),
+        mean_1,
+        None,
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        rstd_ptr.add_offsets(stat_idx),
+        rstd_1,
+        None,
+        &[],
+        None,
+        None,
+    );
 
     let gamma = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_L],
     );
     let beta = T::broadcast_to(
-        T::load(bias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            bias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_L],
     );
 
@@ -249,7 +306,14 @@ pub fn instance_norm_forward<T: Triton, D: Float, const BLOCK_L: i32>(
             false,
         );
         let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(y_ptr.add_offsets(col_offs + row_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(col_offs + row_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         l_start += BLOCK_L;
     }
 }
@@ -289,13 +353,40 @@ pub fn instance_norm_backward<T: Triton, D: Float, const BLOCK_L: i32>(
     let zero_1 = T::zeros::<D>(&[1]);
     let l_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (L as f32)), None, false);
 
-    let rstd_1 = T::load(rstd_ptr.add_offsets(stat_idx), None, None, &[], None, None, None, false);
-    let mean_1 = T::load(mean_ptr.add_offsets(stat_idx), None, None, &[], None, None, None, false);
+    let rstd_1 = T::load(
+        rstd_ptr.add_offsets(stat_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let mean_1 = T::load(
+        mean_ptr.add_offsets(stat_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let rstd = T::broadcast_to(rstd_1, &[BLOCK_L]);
     let mean = T::broadcast_to(mean_1, &[BLOCK_L]);
 
     let gamma = T::broadcast_to(
-        T::load(weight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false),
+        T::load(
+            weight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         &[BLOCK_L],
     );
 
@@ -359,15 +450,54 @@ pub fn instance_norm_backward<T: Triton, D: Float, const BLOCK_L: i32>(
             None,
             false,
         );
-        let dw_old = T::load(dweight_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
-        let db_old = T::load(dbias_ptr.add_offsets(c_idx), None, None, &[], None, None, None, false);
+        let dw_old = T::load(
+            dweight_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let db_old = T::load(
+            dbias_ptr.add_offsets(c_idx),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
 
         let xhat = (x_tile - mean) * rstd;
         let dx_tile = rstd * gamma * (dy_tile - c1 - xhat * c2);
 
-        T::store(dx_ptr.add_offsets(col_offs + row_start), dx_tile, Some(mask), &[], None, None);
-        T::store(dweight_ptr.add_offsets(c_idx), dw_old + T::sum(dy_tile * xhat, None, true), None, &[], None, None);
-        T::store(dbias_ptr.add_offsets(c_idx), db_old + T::sum(dy_tile, None, true), None, &[], None, None);
+        T::store(
+            dx_ptr.add_offsets(col_offs + row_start),
+            dx_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dweight_ptr.add_offsets(c_idx),
+            dw_old + T::sum(dy_tile * xhat, None, true),
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dbias_ptr.add_offsets(c_idx),
+            db_old + T::sum(dy_tile, None, true),
+            None,
+            &[],
+            None,
+            None,
+        );
         l_start += BLOCK_L;
     }
 }

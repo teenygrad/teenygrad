@@ -107,7 +107,9 @@ pub fn flatten_backward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i3
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for FlattenForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         Vec::new()
@@ -131,11 +133,13 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for FlattenFor
         visitor.visit_ptr(output);
         visitor.visit_i32(b);
         visitor.visit_i32(n);
-        visitor.visit_i32(n);  // stride_ib = N
-        visitor.visit_i32(1);  // stride_in = 1
+        visitor.visit_i32(n); // stride_ib = N
+        visitor.visit_i32(1); // stride_in = 1
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid encodes (pid_b, pid_n) = (pid / num_pid_n, pid % num_pid_n)

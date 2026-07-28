@@ -42,23 +42,18 @@ use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors:
 
 // ── Dimensions ───────────────────────────────────────────────────────────────
 const N_SPATIAL: usize = 64;
-const C_TOTAL:   usize = 32;
-const CHUNK_C:   usize = 16;
-const BLOCK_SIZE: i32  = 128;
+const C_TOTAL: usize = 32;
+const CHUNK_C: usize = 16;
+const BLOCK_SIZE: i32 = 128;
 
-const N_ELEM_IN:    usize = N_SPATIAL * C_TOTAL;  // 2048
-const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C;  // 1024
+const N_ELEM_IN: usize = N_SPATIAL * C_TOTAL; // 2048
+const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C; // 1024
 
 // ── Fixture loader ────────────────────────────────────────────────────────────
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -71,7 +66,8 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_channel_chunk_forward_snapshot() -> Result<()> {
     dotenv().ok();
 
-    let kernel = teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -86,7 +82,8 @@ fn test_channel_chunk_forward_snapshot() -> Result<()> {
 fn test_channel_chunk_backward_snapshot() -> Result<()> {
     dotenv().ok();
 
-    let kernel = teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -106,19 +103,20 @@ fn test_channel_chunk_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host          = load_fixture("channel_chunk/x.bin");
+    let x_host = load_fixture("channel_chunk/x.bin");
     let expected_chunk0 = load_fixture("channel_chunk/expected_chunk0.bin");
     let expected_chunk1 = load_fixture("channel_chunk/expected_chunk1.bin");
 
     assert_eq!(x_host.len(), N_ELEM_IN);
     assert_eq!(expected_chunk0.len(), N_ELEM_CHUNK);
 
-    let mut x_buf  = device.buffer::<f32>(N_ELEM_IN)?;
+    let mut x_buf = device.buffer::<f32>(N_ELEM_IN)?;
     let y0_buf = device.buffer::<f32>(N_ELEM_CHUNK)?;
     let y1_buf = device.buffer::<f32>(N_ELEM_CHUNK)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<
@@ -128,28 +126,36 @@ fn test_channel_chunk_forward_cuda() -> Result<()> {
     // Grid: N_SPATIAL * cdiv(CHUNK_C, BLOCK_SIZE) CTAs.
     let num_c_tiles = CHUNK_C.div_ceil(BLOCK_SIZE as usize);
     let cfg = CudaLaunchConfig {
-        grid:    [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
-        block:   [BLOCK_SIZE as u32, 1, 1],
+        grid: [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
+        block: [BLOCK_SIZE as u32, 1, 1],
         cluster: [1, 1, 1],
     };
 
     // Chunk 0: channels [0, CHUNK_C)
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y0_buf.as_device_ptr() as *mut f32,
-        C_TOTAL as i32,
-        CHUNK_C as i32,
-        0i32,  // chunk_offset = 0
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y0_buf.as_device_ptr() as *mut f32,
+            C_TOTAL as i32,
+            CHUNK_C as i32,
+            0i32, // chunk_offset = 0
+        ),
+    )?;
 
     // Chunk 1: channels [CHUNK_C, C_TOTAL)
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y1_buf.as_device_ptr() as *mut f32,
-        C_TOTAL as i32,
-        CHUNK_C as i32,
-        CHUNK_C as i32,  // chunk_offset = 16
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y1_buf.as_device_ptr() as *mut f32,
+            C_TOTAL as i32,
+            CHUNK_C as i32,
+            CHUNK_C as i32, // chunk_offset = 16
+        ),
+    )?;
 
     let mut y0_host = vec![0.0f32; N_ELEM_CHUNK];
     let mut y1_host = vec![0.0f32; N_ELEM_CHUNK];
@@ -181,7 +187,7 @@ fn test_channel_chunk_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("channel_chunk/dy.bin");
+    let dy_host = load_fixture("channel_chunk/dy.bin");
     let expected = load_fixture("channel_chunk/expected_dx.bin");
 
     assert_eq!(dy_host.len(), N_ELEM_CHUNK);
@@ -192,7 +198,8 @@ fn test_channel_chunk_backward_cuda() -> Result<()> {
     let dx_buf = device.buffer::<f32>(N_ELEM_IN)?;
     dy_buf.to_device(&dy_host)?;
 
-    let kernel = teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<
@@ -201,19 +208,23 @@ fn test_channel_chunk_backward_cuda() -> Result<()> {
 
     let num_c_tiles = CHUNK_C.div_ceil(BLOCK_SIZE as usize);
     let cfg = CudaLaunchConfig {
-        grid:    [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
-        block:   [BLOCK_SIZE as u32, 1, 1],
+        grid: [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
+        block: [BLOCK_SIZE as u32, 1, 1],
         cluster: [1, 1, 1],
     };
 
     // Backward for chunk 0 (chunk_offset = 0).
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        C_TOTAL as i32,
-        CHUNK_C as i32,
-        0i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            C_TOTAL as i32,
+            CHUNK_C as i32,
+            0i32,
+        ),
+    )?;
 
     let mut dx_host = vec![0.0f32; N_ELEM_IN];
     dx_buf.to_host(&mut dx_host)?;

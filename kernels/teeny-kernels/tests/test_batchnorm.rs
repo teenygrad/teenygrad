@@ -30,7 +30,7 @@ use {
     teeny_core::{
         graph::{DtypeRepr, SymTensor},
         model::LoweringMode,
-        nn::{batchnorm::BatchNorm1d, Layer},
+        nn::{Layer, batchnorm::BatchNorm1d},
     },
     teeny_cuda::{compiler::graph::CudaGraphCompiler, device::mem},
     teeny_kernels::graph::TritonLowering,
@@ -58,8 +58,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_batch_norm_inference_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability;
-    let kernel =
-        teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_inference_source", kernel.source());
@@ -71,8 +70,7 @@ fn test_batch_norm_inference_source() -> anyhow::Result<()> {
 fn test_batch_norm_stats_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability;
-    let kernel =
-        teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_stats_source", kernel.source());
@@ -84,8 +82,7 @@ fn test_batch_norm_stats_source() -> anyhow::Result<()> {
 fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability;
-    let kernel =
-        teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_normalize_source", kernel.source());
@@ -108,7 +105,11 @@ fn test_batch_norm_backward_source() -> anyhow::Result<()> {
 
 #[cfg(feature = "cuda")]
 fn bn_cfg() -> CudaLaunchConfig {
-    CudaLaunchConfig { grid: [C as u32, 1, 1], block: [1, 1, 1], cluster: [1, 1, 1] }
+    CudaLaunchConfig {
+        grid: [C as u32, 1, 1],
+        block: [1, 1, 1],
+        cluster: [1, 1, 1],
+    }
 }
 
 #[test]
@@ -139,30 +140,36 @@ fn test_batch_norm_inference_gpu() -> Result<()> {
     rm_buf.to_device(&running_mean)?;
     rv_buf.to_device(&running_var)?;
 
-    let kernel =
-        teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference<f32>,
     >(&ptx)?;
 
-    device.launch(&program, &bn_cfg(), (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        rm_buf.as_device_ptr() as *mut f32,
-        rv_buf.as_device_ptr() as *mut f32,
-        N as i32, C as i32, EPS,
-    ))?;
+    device.launch(
+        &program,
+        &bn_cfg(),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            rm_buf.as_device_ptr() as *mut f32,
+            rv_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            C as i32,
+            EPS,
+        ),
+    )?;
 
     y_buf.to_host(&mut y_out)?;
     for i in 0..N * C {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
             "inference mismatch at i={i}: gpu={} expected={}",
-            y_out[i], expected[i]
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -206,14 +213,21 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
     let stats_prog = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward<f32>,
     >(&stats_ptx)?;
-    device.launch(&stats_prog, &bn_cfg(), (
-        x_buf.as_device_ptr() as *mut f32,
-        mean_buf.as_device_ptr() as *mut f32,
-        rstd_buf.as_device_ptr() as *mut f32,
-        rm_buf.as_device_ptr() as *mut f32,
-        rv_buf.as_device_ptr() as *mut f32,
-        N as i32, C as i32, EPS, MOMENTUM,
-    ))?;
+    device.launch(
+        &stats_prog,
+        &bn_cfg(),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            mean_buf.as_device_ptr() as *mut f32,
+            rstd_buf.as_device_ptr() as *mut f32,
+            rm_buf.as_device_ptr() as *mut f32,
+            rv_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            C as i32,
+            EPS,
+            MOMENTUM,
+        ),
+    )?;
 
     let norm_kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
@@ -221,22 +235,28 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
     let norm_prog = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward<f32>,
     >(&norm_ptx)?;
-    device.launch(&norm_prog, &bn_cfg(), (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        b_buf.as_device_ptr() as *mut f32,
-        mean_buf.as_device_ptr() as *mut f32,
-        rstd_buf.as_device_ptr() as *mut f32,
-        N as i32, C as i32,
-    ))?;
+    device.launch(
+        &norm_prog,
+        &bn_cfg(),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            b_buf.as_device_ptr() as *mut f32,
+            mean_buf.as_device_ptr() as *mut f32,
+            rstd_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            C as i32,
+        ),
+    )?;
 
     y_buf.to_host(&mut y_out)?;
     for i in 0..N * C {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
             "training fwd mismatch at i={i}: gpu={} expected={}",
-            y_out[i], expected[i]
+            y_out[i],
+            expected[i]
         );
     }
     Ok(())
@@ -283,17 +303,22 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
         teeny_kernels::nn::norm::batchnorm::BatchNormBackward<f32>,
     >(&ptx)?;
 
-    device.launch(&program, &bn_cfg(), (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        mean_buf.as_device_ptr() as *mut f32,
-        rstd_buf.as_device_ptr() as *mut f32,
-        dw_buf.as_device_ptr() as *mut f32,
-        db_buf.as_device_ptr() as *mut f32,
-        N as i32, C as i32,
-    ))?;
+    device.launch(
+        &program,
+        &bn_cfg(),
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            mean_buf.as_device_ptr() as *mut f32,
+            rstd_buf.as_device_ptr() as *mut f32,
+            dw_buf.as_device_ptr() as *mut f32,
+            db_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            C as i32,
+        ),
+    )?;
 
     dx_buf.to_host(&mut dx_out)?;
     dw_buf.to_host(&mut dw_out)?;
@@ -303,19 +328,22 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
         assert!(
             (dx_out[i] - expected_dx[i]).abs() < TOL,
             "dx mismatch at i={i}: gpu={} expected={}",
-            dx_out[i], expected_dx[i]
+            dx_out[i],
+            expected_dx[i]
         );
     }
     for ch in 0..C {
         assert!(
             (dw_out[ch] - expected_dweight[ch]).abs() < TOL,
             "dweight mismatch at ch={ch}: gpu={} expected={}",
-            dw_out[ch], expected_dweight[ch]
+            dw_out[ch],
+            expected_dweight[ch]
         );
         assert!(
             (db_out[ch] - expected_dbias[ch]).abs() < TOL,
             "dbias mismatch at ch={ch}: gpu={} expected={}",
-            db_out[ch], expected_dbias[ch]
+            db_out[ch],
+            expected_dbias[ch]
         );
     }
     Ok(())
@@ -328,8 +356,7 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
 fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
     dotenv()?;
     use teeny_cuda::compiler::target::Capability;
-    let kernel =
-        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
     compile_kernel(&kernel, &target, true)?;
     assert_debug_snapshot!("batch_norm_2d_nchw_backward_source", kernel.source());
@@ -392,20 +419,24 @@ fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
         block: [BN_BLOCK_HW as u32, 1, 1],
         cluster: [1, 1, 1],
     };
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        rm_buf.as_device_ptr() as *mut f32,
-        rv_buf.as_device_ptr() as *mut f32,
-        dw_buf.as_device_ptr() as *mut f32,
-        db_buf.as_device_ptr() as *mut f32,
-        BN_B as i32,
-        BN_C as i32,
-        BN_HW as i32,
-        BN_EPS,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            rm_buf.as_device_ptr() as *mut f32,
+            rv_buf.as_device_ptr() as *mut f32,
+            dw_buf.as_device_ptr() as *mut f32,
+            db_buf.as_device_ptr() as *mut f32,
+            BN_B as i32,
+            BN_C as i32,
+            BN_HW as i32,
+            BN_EPS,
+        ),
+    )?;
 
     let mut dx_out = vec![0.0_f32; BN_ELEM];
     let mut dw_out = vec![0.0_f32; BN_C];
@@ -447,8 +478,7 @@ fn test_batch_norm_training_graph() -> anyhow::Result<()> {
     let env = testing::setup_cuda_env()?;
     let target = Target::new(env.capability);
 
-    let (input, graph) =
-        SymTensor::input(DtypeRepr::F32, vec![None, Some(C)]);
+    let (input, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(C)]);
     let _output = Layer::call(
         &BatchNorm1d::<f32, SymTensor, SymTensor, 2>::new(C)
             .with_eps(EPS as f64)
@@ -457,18 +487,20 @@ fn test_batch_norm_training_graph() -> anyhow::Result<()> {
     );
     let graph = graph.borrow();
 
-    let teenyc_path = std::env::var("TEENYC_PATH")
-        .expect("TEENYC_PATH must be set");
+    let teenyc_path = std::env::var("TEENYC_PATH").expect("TEENYC_PATH must be set");
     let cache_dir =
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let lowering = TritonLowering::new();
-    let model = graph_compiler.compile_model(
-        &graph, &lowering, &target, LoweringMode::Training, false,
-    )?;
+    let model =
+        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Training, false)?;
 
-    assert_eq!(model.dag.len(), 3, "expected Input + Stats + Normalize nodes");
+    assert_eq!(
+        model.dag.len(),
+        3,
+        "expected Input + Stats + Normalize nodes"
+    );
 
     let mut loaded = model.load(&env.device, N)?;
 
@@ -499,7 +531,8 @@ fn test_batch_norm_training_graph() -> anyhow::Result<()> {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
             "graph training mismatch at i={i}: gpu={} expected={}",
-            y_out[i], expected[i]
+            y_out[i],
+            expected[i]
         );
     }
 

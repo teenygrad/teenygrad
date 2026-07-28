@@ -29,7 +29,11 @@ pub struct Hardtanh<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Hardtanh<D, T, RANK> {
     pub fn new(min_val: f64, max_val: f64) -> Self {
-        Self { min_val, max_val, _pd: PhantomData }
+        Self {
+            min_val,
+            max_val,
+            _pd: PhantomData,
+        }
     }
 }
 
@@ -58,9 +62,7 @@ impl<D: Float, T, const RANK: usize> Default for Relu6<D, T, RANK> {
     }
 }
 
-impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
-    for Relu6<D, T, RANK>
-{
+impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Relu6<D, T, RANK> {
     type Output = T;
     fn call(&self, _input: T) -> Self::Output {
         todo!()
@@ -124,7 +126,10 @@ pub struct Hardshrink<D: Float, T, const RANK: usize> {
 
 impl<D: Float, T, const RANK: usize> Hardshrink<D, T, RANK> {
     pub fn new(lambda: f64) -> Self {
-        Self { lambda, _pd: PhantomData }
+        Self {
+            lambda,
+            _pd: PhantomData,
+        }
     }
 }
 

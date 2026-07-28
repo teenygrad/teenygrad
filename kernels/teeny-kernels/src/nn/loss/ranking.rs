@@ -48,15 +48,49 @@ pub fn margin_ranking_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let x1 = T::load(x1_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let x2 = T::load(x2_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let y  = T::load(y_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let x1 = T::load(
+        x1_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x2 = T::load(
+        x2_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let margin_t = T::full(&[BLOCK_SIZE], margin);
-    let neg_one  = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     // hinge = max(0, -y*(x1-x2) + margin)
     let hinge = T::maximum(neg_one * y * (x1 - x2) + margin_t, zeros);
-    T::store(out_ptr.add_offsets(offsets), hinge, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        hinge,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Margin ranking loss backward (element-wise).
@@ -84,20 +118,70 @@ pub fn margin_ranking_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let x1 = T::load(x1_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let x2 = T::load(x2_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let y  = T::load(y_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x1 = T::load(
+        x1_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x2 = T::load(
+        x2_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let margin_t = T::full(&[BLOCK_SIZE], margin);
-    let neg_one  = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     let pre_hinge = neg_one * y * (x1 - x2) + margin_t;
     let active = T::gt(pre_hinge, zeros);
 
     let dx1 = T::where_(active, neg_one * y * dy, zeros);
     let dx2 = T::where_(active, y * dy, zeros);
-    T::store(dx1_ptr.add_offsets(offsets), dx1, Some(in_bounds), &[], None, None);
-    T::store(dx2_ptr.add_offsets(offsets), dx2, Some(in_bounds), &[], None, None);
+    T::store(
+        dx1_ptr.add_offsets(offsets),
+        dx1,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        dx2_ptr.add_offsets(offsets),
+        dx2,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── HingeEmbeddingLoss ────────────────────────────────────────────────────────
@@ -128,15 +212,40 @@ pub fn hinge_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(inp_ptr.add_offsets(offsets), Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let y   = T::load(y_ptr.add_offsets(offsets),   Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let inp = T::load(
+        inp_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let margin_t = T::full(&[BLOCK_SIZE], margin);
     // y > 0 means y == 1
     let y_is_pos = T::gt(y, zeros);
     let hinge = T::maximum(margin_t - inp, zeros);
     let out = T::where_(y_is_pos, inp, hinge);
-    T::store(out_ptr.add_offsets(offsets), out, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(offsets),
+        out,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Hinge embedding loss backward (element-wise).
@@ -165,18 +274,52 @@ pub fn hinge_embedding_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let dy  = T::load(dy_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let inp = T::load(inp_ptr.add_offsets(offsets),  Some(in_bounds), Some(zeros), &[], None, None, None, false);
-    let y   = T::load(y_ptr.add_offsets(offsets),    Some(in_bounds), Some(zeros), &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let inp = T::load(
+        inp_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let y = T::load(
+        y_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     let margin_t = T::full(&[BLOCK_SIZE], margin);
-    let neg_one  = T::full(&[BLOCK_SIZE], -1.0_f32);
+    let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     let y_is_pos = T::gt(y, zeros);
     // Active for y == -1: margin - x > 0
     let neg_active = T::gt(margin_t - inp, zeros);
     let dx_neg = T::where_(neg_active, neg_one * dy, zeros);
     let dx = T::where_(y_is_pos, dy, dx_neg);
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── MultiMarginLoss ───────────────────────────────────────────────────────────
@@ -215,14 +358,26 @@ pub fn multi_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 
     let row = T::load(
         input_ptr.add_offsets(row_offs),
-        Some(in_row), Some(zeros), &[], None, None, None, false,
+        Some(in_row),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load target index
     let tgt_off: T::I32Tensor = T::arange(0, 1) + pid;
     let tgt: T::Tensor<i32> = T::load(
         targets_ptr.add_offsets(tgt_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load x[target] using flat index
@@ -230,7 +385,13 @@ pub fn multi_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     let flat_off: T::Tensor<i32> = base + tgt;
     let x_t: T::Tensor<f32> = T::load(
         input_ptr.add_offsets(flat_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // hinge for all j (including t): max(0, margin - x_t + x_j)
@@ -285,19 +446,37 @@ pub fn multi_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let dy_off: T::I32Tensor = T::arange(0, 1) + pid;
     let dy: T::Tensor<f32> = T::load(
         dy_ptr.add_offsets(dy_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     let row = T::load(
         input_ptr.add_offsets(row_offs),
-        Some(in_row), Some(zeros), &[], None, None, None, false,
+        Some(in_row),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load target index
     let tgt_off: T::I32Tensor = T::arange(0, 1) + pid;
     let tgt: T::Tensor<i32> = T::load(
         targets_ptr.add_offsets(tgt_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     // Load x[target] using flat index
@@ -305,7 +484,13 @@ pub fn multi_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     let flat_off: T::Tensor<i32> = base + tgt;
     let x_t: T::Tensor<f32> = T::load(
         input_ptr.add_offsets(flat_off),
-        None, None, &[], None, None, None, false,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
 
     let margin_t = T::full(&[BLOCK_SIZE], margin);
@@ -328,7 +513,10 @@ pub fn multi_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     T::store(
         dx_ptr.add_offsets(row_offs),
         dx_row,
-        Some(in_row), &[], None, None,
+        Some(in_row),
+        &[],
+        None,
+        None,
     );
 
     // Step 2: atomic_add correction at target to fix target position
@@ -336,9 +524,5 @@ pub fn multi_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
     // correction = -(dy/n_cols)*sum_active_all
     let neg_one = T::full(&[1], -1.0_f32);
     let correction = neg_one * dy_over_n * sum_active;
-    T::atomic_add(
-        dx_ptr.add_offsets(flat_off),
-        correction,
-        None, None, None,
-    );
+    T::atomic_add(dx_ptr.add_offsets(flat_off), correction, None, None, None);
 }

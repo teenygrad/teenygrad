@@ -50,22 +50,63 @@ pub fn rmsprop_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p          = T::load(params_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let g          = T::load(grad_ptr.add_offsets(offsets),      Some(mask), None, &[], None, None, None, false);
-    let square_avg = T::load(square_avg_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let square_avg = T::load(
+        square_avg_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t       = T::full(&[BLOCK_SIZE], lr);
-    let alpha_t    = T::full(&[BLOCK_SIZE], alpha);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
+    let alpha_t = T::full(&[BLOCK_SIZE], alpha);
     let one_m_alpha = T::full(&[BLOCK_SIZE], 1.0_f32 - alpha);
-    let eps_t      = T::full(&[BLOCK_SIZE], eps);
-    let wd_t       = T::full(&[BLOCK_SIZE], weight_decay);
+    let eps_t = T::full(&[BLOCK_SIZE], eps);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
 
-    let g_eff          = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let square_avg_new = alpha_t * square_avg + one_m_alpha * g_eff * g_eff;
-    let p_new          = p - lr_t * g_eff / (T::sqrt_rn(square_avg_new) + eps_t);
+    let p_new = p - lr_t * g_eff / (T::sqrt_rn(square_avg_new) + eps_t);
 
-    T::store(params_ptr.add_offsets(offsets),    p_new,          Some(mask), &[], None, None);
-    T::store(square_avg_ptr.add_offsets(offsets), square_avg_new, Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        square_avg_ptr.add_offsets(offsets),
+        square_avg_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// RMSprop step with momentum.
@@ -99,24 +140,81 @@ pub fn rmsprop_momentum_step<T: Triton, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let mask = offsets.lt(n_elements);
 
-    let p          = T::load(params_ptr.add_offsets(offsets),    Some(mask), None, &[], None, None, None, false);
-    let g          = T::load(grad_ptr.add_offsets(offsets),      Some(mask), None, &[], None, None, None, false);
-    let square_avg = T::load(square_avg_ptr.add_offsets(offsets), Some(mask), None, &[], None, None, None, false);
-    let buf        = T::load(buf_ptr.add_offsets(offsets),        Some(mask), None, &[], None, None, None, false);
+    let p = T::load(
+        params_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let g = T::load(
+        grad_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let square_avg = T::load(
+        square_avg_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let buf = T::load(
+        buf_ptr.add_offsets(offsets),
+        Some(mask),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
-    let lr_t        = T::full(&[BLOCK_SIZE], lr);
-    let alpha_t     = T::full(&[BLOCK_SIZE], alpha);
+    let lr_t = T::full(&[BLOCK_SIZE], lr);
+    let alpha_t = T::full(&[BLOCK_SIZE], alpha);
     let one_m_alpha = T::full(&[BLOCK_SIZE], 1.0_f32 - alpha);
-    let eps_t       = T::full(&[BLOCK_SIZE], eps);
-    let wd_t        = T::full(&[BLOCK_SIZE], weight_decay);
-    let mu_t        = T::full(&[BLOCK_SIZE], momentum);
+    let eps_t = T::full(&[BLOCK_SIZE], eps);
+    let wd_t = T::full(&[BLOCK_SIZE], weight_decay);
+    let mu_t = T::full(&[BLOCK_SIZE], momentum);
 
-    let g_eff          = g + wd_t * p;
+    let g_eff = g + wd_t * p;
     let square_avg_new = alpha_t * square_avg + one_m_alpha * g_eff * g_eff;
-    let buf_new        = mu_t * buf + g_eff / T::sqrt_rn(square_avg_new + eps_t);
-    let p_new          = p - lr_t * buf_new;
+    let buf_new = mu_t * buf + g_eff / T::sqrt_rn(square_avg_new + eps_t);
+    let p_new = p - lr_t * buf_new;
 
-    T::store(params_ptr.add_offsets(offsets),     p_new,          Some(mask), &[], None, None);
-    T::store(square_avg_ptr.add_offsets(offsets),  square_avg_new, Some(mask), &[], None, None);
-    T::store(buf_ptr.add_offsets(offsets),         buf_new,        Some(mask), &[], None, None);
+    T::store(
+        params_ptr.add_offsets(offsets),
+        p_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        square_avg_ptr.add_offsets(offsets),
+        square_avg_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        buf_ptr.add_offsets(offsets),
+        buf_new,
+        Some(mask),
+        &[],
+        None,
+        None,
+    );
 }

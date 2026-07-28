@@ -240,7 +240,6 @@ pub fn mish_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
 }
 
-
 pub struct GeluOp<D: Float> {
     pub forward: GeluForward<D>,
     pub backward: GeluBackward<D>,
@@ -254,9 +253,13 @@ pub struct MishOp<D: Float> {
 // ── RuntimeOp for GELU forward ────────────────────────────────────────────────
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for GeluForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { Vec::new() }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
 
     fn pack_args(
         &self,
@@ -273,7 +276,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for GeluForw
         visitor.visit_i32(n as i32);
     }
 
-    fn block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
@@ -281,7 +286,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for GeluForw
     }
 
     #[cfg(feature = "training")]
-    fn has_backward(&self) -> bool { true }
+    fn has_backward(&self) -> bool {
+        true
+    }
 
     #[cfg(feature = "training")]
     fn pack_backward_args(
@@ -297,14 +304,16 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for GeluForw
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let n: usize = output_shape.iter().product();
-        visitor.visit_ptr(grad_output);    // dy_ptr
-        visitor.visit_ptr(inputs[0].0);    // x_ptr (saved activation)
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(inputs[0].0); // x_ptr (saved activation)
         visitor.visit_ptr(grad_inputs[0]); // dx_ptr
         visitor.visit_i32(n as i32);
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] { [self.block_size as u32, 1, 1] }
+    fn backward_block(&self) -> [u32; 3] {
+        [self.block_size as u32, 1, 1]
+    }
 
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {

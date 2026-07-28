@@ -355,9 +355,14 @@ impl Options {
             match key.as_str() {
                 "capability" | "gpu-name" => {
                     let v = require_value(input, &key, value)?;
-                    capability = Some(v.parse::<Capability>().map_err(|reason| {
-                        Error::InvalidOptions { input: input.to_string(), reason }
-                    })?);
+                    capability =
+                        Some(
+                            v.parse::<Capability>()
+                                .map_err(|reason| Error::InvalidOptions {
+                                    input: input.to_string(),
+                                    reason,
+                                })?,
+                        );
                 }
                 "ptx-version" => {
                     builder.ptx_version(Some(parse_u32(input, &key, value)?));
@@ -495,7 +500,11 @@ impl Options {
         builder.gpu_name(capability);
 
         builder.build().map_err(|e| {
-            Error::InvalidOptions { input: input.to_string(), reason: e.to_string() }.into()
+            Error::InvalidOptions {
+                input: input.to_string(),
+                reason: e.to_string(),
+            }
+            .into()
         })
     }
 }

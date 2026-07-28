@@ -33,13 +33,12 @@ use crate::{
         },
         batchnorm::{BatchNorm1d, BatchNorm2d, BatchNorm3d},
         conv1d::Conv1d,
-        groupnorm::GroupNorm,
-        instancenorm::{InstanceNorm1d, InstanceNorm2d, InstanceNorm3d},
-        layernorm::LayerNorm,
-        rmsnorm::RmsNorm,
         conv2d::Conv2d,
         conv3d::Conv3d,
         flatten::Flatten,
+        groupnorm::GroupNorm,
+        instancenorm::{InstanceNorm1d, InstanceNorm2d, InstanceNorm3d},
+        layernorm::LayerNorm,
         linear::Linear,
         pad::{
             CircularPad1d, CircularPad2d, CircularPad3d, ConstantPad1d, ConstantPad2d,
@@ -50,6 +49,7 @@ use crate::{
             AvgPool1d, AvgPool2d, AvgPool3d, LpPool1d, LpPool2d, LpPool3d, MaxPool1d, MaxPool2d,
             MaxPool3d,
         },
+        rmsnorm::RmsNorm,
     },
 };
 
@@ -278,15 +278,65 @@ pub enum Op {
     },
 
     // --- Pooling ---
-    AvgPool1d { kernel_l: usize, stride: usize },
-    AvgPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
-    AvgPool3d { kernel_d: usize, kernel_h: usize, kernel_w: usize, stride_d: usize, stride_h: usize, stride_w: usize },
-    MaxPool1d { kernel_l: usize, stride: usize },
-    MaxPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize, pad_h: usize, pad_w: usize },
-    MaxPool3d { kernel_d: usize, kernel_h: usize, kernel_w: usize, stride_d: usize, stride_h: usize, stride_w: usize },
-    LpPool1d { kernel_l: usize, stride: usize, p: f64 },
-    LpPool2d { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize, p: f64 },
-    LpPool3d { kernel_d: usize, kernel_h: usize, kernel_w: usize, stride_d: usize, stride_h: usize, stride_w: usize, p: f64 },
+    AvgPool1d {
+        kernel_l: usize,
+        stride: usize,
+    },
+    AvgPool2d {
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+    },
+    AvgPool3d {
+        kernel_d: usize,
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_d: usize,
+        stride_h: usize,
+        stride_w: usize,
+    },
+    MaxPool1d {
+        kernel_l: usize,
+        stride: usize,
+    },
+    MaxPool2d {
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+        pad_h: usize,
+        pad_w: usize,
+    },
+    MaxPool3d {
+        kernel_d: usize,
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_d: usize,
+        stride_h: usize,
+        stride_w: usize,
+    },
+    LpPool1d {
+        kernel_l: usize,
+        stride: usize,
+        p: f64,
+    },
+    LpPool2d {
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+        p: f64,
+    },
+    LpPool3d {
+        kernel_d: usize,
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_d: usize,
+        stride_h: usize,
+        stride_w: usize,
+        p: f64,
+    },
 
     // --- Upsample ---
     /// Nearest-neighbour 2-D upsampling.
@@ -297,42 +347,126 @@ pub enum Op {
     },
 
     // --- Padding ---
-    ConstantPad1d { pad_left: usize, pad_right: usize, value: f64 },
-    ConstantPad2d { pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize, value: f64 },
-    ConstantPad3d { pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize, value: f64 },
-    ReflectionPad1d { pad_left: usize, pad_right: usize },
-    ReflectionPad2d { pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize },
-    ReflectionPad3d { pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize },
-    ReplicationPad1d { pad_left: usize, pad_right: usize },
-    ReplicationPad2d { pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize },
-    ReplicationPad3d { pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize },
-    CircularPad1d { pad_left: usize, pad_right: usize },
-    CircularPad2d { pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize },
-    CircularPad3d { pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize },
+    ConstantPad1d {
+        pad_left: usize,
+        pad_right: usize,
+        value: f64,
+    },
+    ConstantPad2d {
+        pad_l: usize,
+        pad_r: usize,
+        pad_t: usize,
+        pad_b: usize,
+        value: f64,
+    },
+    ConstantPad3d {
+        pad_d1: usize,
+        pad_d2: usize,
+        pad_h1: usize,
+        pad_h2: usize,
+        pad_w1: usize,
+        pad_w2: usize,
+        value: f64,
+    },
+    ReflectionPad1d {
+        pad_left: usize,
+        pad_right: usize,
+    },
+    ReflectionPad2d {
+        pad_l: usize,
+        pad_r: usize,
+        pad_t: usize,
+        pad_b: usize,
+    },
+    ReflectionPad3d {
+        pad_d1: usize,
+        pad_d2: usize,
+        pad_h1: usize,
+        pad_h2: usize,
+        pad_w1: usize,
+        pad_w2: usize,
+    },
+    ReplicationPad1d {
+        pad_left: usize,
+        pad_right: usize,
+    },
+    ReplicationPad2d {
+        pad_l: usize,
+        pad_r: usize,
+        pad_t: usize,
+        pad_b: usize,
+    },
+    ReplicationPad3d {
+        pad_d1: usize,
+        pad_d2: usize,
+        pad_h1: usize,
+        pad_h2: usize,
+        pad_w1: usize,
+        pad_w2: usize,
+    },
+    CircularPad1d {
+        pad_left: usize,
+        pad_right: usize,
+    },
+    CircularPad2d {
+        pad_l: usize,
+        pad_r: usize,
+        pad_t: usize,
+        pad_b: usize,
+    },
+    CircularPad3d {
+        pad_d1: usize,
+        pad_d2: usize,
+        pad_h1: usize,
+        pad_h2: usize,
+        pad_w1: usize,
+        pad_w2: usize,
+    },
 
     // --- Activation ---
     Relu,
-    Elu { alpha: f64 },
+    Elu {
+        alpha: f64,
+    },
     Selu,
-    Celu { alpha: f64 },
+    Celu {
+        alpha: f64,
+    },
     Gelu,
     Mish,
-    Hardtanh { min_val: f64, max_val: f64 },
+    Hardtanh {
+        min_val: f64,
+        max_val: f64,
+    },
     Relu6,
     Hardsigmoid,
     Hardswish,
-    Hardshrink { lambda: f64 },
-    LeakyRelu { negative_slope: f64 },
-    Threshold { threshold: f64, value: f64 },
+    Hardshrink {
+        lambda: f64,
+    },
+    LeakyRelu {
+        negative_slope: f64,
+    },
+    Threshold {
+        threshold: f64,
+        value: f64,
+    },
     Softsign,
-    Softshrink { lambda: f64 },
-    Softplus { beta: f64, threshold: f64 },
+    Softshrink {
+        lambda: f64,
+    },
+    Softplus {
+        beta: f64,
+        threshold: f64,
+    },
     Sigmoid,
     Silu,
     Logsigmoid,
     Tanh,
     Tanhshrink,
-    Softmax { dim: usize },
+    Softmax {
+        dim: usize,
+    },
 
     // --- Attention ---
     /// Multi-head self-attention with Flash Attention 2 and position encoding.
@@ -340,9 +474,9 @@ pub enum Op {
     ///   qkv conv → FA2 → pe depthwise conv → proj conv → residual add.
     /// Input/output shape: `[N, c, H, W]`.
     Attention {
-        c:         usize,
+        c: usize,
         num_heads: usize,
-        key_dim:   usize,
+        key_dim: usize,
     },
 
     // --- Tensor structural ops ---
@@ -362,7 +496,9 @@ pub enum Op {
     },
     /// Adds a (C,) bias vector to a (B, C, H, W) feature map — NC layout (N=B*H*W).
     /// Output shape equals input shape.
-    ChannelBiasAdd { c: usize },
+    ChannelBiasAdd {
+        c: usize,
+    },
 
     /// User-defined op.  Shape and dtype must be provided via [`Graph::add_node`]
     /// or [`SymTensor::record_custom`] — the base system cannot infer them.
@@ -388,7 +524,10 @@ pub enum Op {
     Erf,
     Sign,
     IsNaN,
-    IsInf { detect_negative: bool, detect_positive: bool },
+    IsInf {
+        detect_negative: bool,
+        detect_positive: bool,
+    },
     Not,
     BitwiseNot,
     Sin,
@@ -408,7 +547,9 @@ pub enum Op {
     Sub,
     Div,
     Pow,
-    Mod { fmod: bool },
+    Mod {
+        fmod: bool,
+    },
     ElemMin,
     ElemMax,
     ElemMean,
@@ -424,47 +565,98 @@ pub enum Op {
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,
-    BitShift { direction: alloc::string::String },
+    BitShift {
+        direction: alloc::string::String,
+    },
 
     // --- Tensor structural ---
     Reshape,
-    Transpose { perm: alloc::vec::Vec<usize> },
-    Squeeze { axes: alloc::vec::Vec<i64> },
-    Unsqueeze { axes: alloc::vec::Vec<i64> },
-    Concat { axis: i64 },
-    Split { axis: i64, num_outputs: usize },
+    Transpose {
+        perm: alloc::vec::Vec<usize>,
+    },
+    Squeeze {
+        axes: alloc::vec::Vec<i64>,
+    },
+    Unsqueeze {
+        axes: alloc::vec::Vec<i64>,
+    },
+    Concat {
+        axis: i64,
+    },
+    Split {
+        axis: i64,
+        num_outputs: usize,
+    },
     Slice,
-    Gather { axis: i64 },
-    GatherElements { axis: i64 },
-    GatherND { batch_dims: i64 },
-    ScatterElements { axis: i64 },
+    Gather {
+        axis: i64,
+    },
+    GatherElements {
+        axis: i64,
+    },
+    GatherND {
+        batch_dims: i64,
+    },
+    ScatterElements {
+        axis: i64,
+    },
     ScatterND,
     Tile,
     Expand,
-    ShapeOf { start: i64, end: i64 },
+    ShapeOf {
+        start: i64,
+        end: i64,
+    },
     SizeOf,
     Identity,
-    Cast { to: DtypeRepr },
+    Cast {
+        to: DtypeRepr,
+    },
     CastLike,
     Where,
-    Compress { axis: i64 },
+    Compress {
+        axis: i64,
+    },
     Range,
     /// Constant tensor (value embedded in the ONNX model).
-    Constant { dtype: DtypeRepr, shape: Shape },
-    ConstantOfShape { dtype: DtypeRepr },
-    Trilu { upper: bool },
-    BitCast { to: DtypeRepr },
-    Pad { mode: alloc::string::String },
-    ReverseSequence { batch_axis: i64, time_axis: i64 },
+    Constant {
+        dtype: DtypeRepr,
+        shape: Shape,
+    },
+    ConstantOfShape {
+        dtype: DtypeRepr,
+    },
+    Trilu {
+        upper: bool,
+    },
+    BitCast {
+        to: DtypeRepr,
+    },
+    Pad {
+        mode: alloc::string::String,
+    },
+    ReverseSequence {
+        batch_axis: i64,
+        time_axis: i64,
+    },
     NonZero,
-    Scatter { axis: i64 },
+    Scatter {
+        axis: i64,
+    },
     TensorScatter,
 
     // --- Matrix ---
-    Gemm { alpha: f64, beta: f64, trans_a: bool, trans_b: bool },
+    Gemm {
+        alpha: f64,
+        beta: f64,
+        trans_a: bool,
+        trans_b: bool,
+    },
     MatMul,
     MatMulInteger,
-    Einsum { equation: alloc::string::String },
+    Einsum {
+        equation: alloc::string::String,
+    },
     Det,
     QLinearMatMul,
 
@@ -483,48 +675,136 @@ pub enum Op {
         groups: usize,
         has_bias: bool,
     },
-    ConvInteger { groups: usize },
-    DeformConv { group: usize, offset_group: usize },
-    QLinearConv { groups: usize },
-    Col2Im { kernel_h: usize, kernel_w: usize },
+    ConvInteger {
+        groups: usize,
+    },
+    DeformConv {
+        group: usize,
+        offset_group: usize,
+    },
+    QLinearConv {
+        groups: usize,
+    },
+    Col2Im {
+        kernel_h: usize,
+        kernel_w: usize,
+    },
 
     // --- Reductions ---
-    ReduceSum { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceMean { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceMax { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceMin { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceProd { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceL1 { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceL2 { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceLogSum { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceLogSumExp { keepdims: bool, noop_with_empty_axes: bool },
-    ReduceSumSquare { keepdims: bool, noop_with_empty_axes: bool },
-    CumSum { exclusive: bool, reverse: bool },
-    CumProd { exclusive: bool, reverse: bool },
-    ArgMax { axis: i64, keepdims: bool, select_last_index: bool },
-    ArgMin { axis: i64, keepdims: bool, select_last_index: bool },
+    ReduceSum {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceMean {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceMax {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceMin {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceProd {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceL1 {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceL2 {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceLogSum {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceLogSumExp {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    ReduceSumSquare {
+        keepdims: bool,
+        noop_with_empty_axes: bool,
+    },
+    CumSum {
+        exclusive: bool,
+        reverse: bool,
+    },
+    CumProd {
+        exclusive: bool,
+        reverse: bool,
+    },
+    ArgMax {
+        axis: i64,
+        keepdims: bool,
+        select_last_index: bool,
+    },
+    ArgMin {
+        axis: i64,
+        keepdims: bool,
+        select_last_index: bool,
+    },
     GlobalAvgPool,
     GlobalMaxPool,
-    LpNormalization { axis: i64, p: i64 },
-    MeanVarianceNormalization { axes: alloc::vec::Vec<i64> },
+    LpNormalization {
+        axis: i64,
+        p: i64,
+    },
+    MeanVarianceNormalization {
+        axes: alloc::vec::Vec<i64>,
+    },
 
     // --- Additional activations ---
-    LogSoftmax { axis: i64 },
-    Hardmax { axis: i64 },
+    LogSoftmax {
+        axis: i64,
+    },
+    Hardmax {
+        axis: i64,
+    },
     PRelu,
-    ThresholdedRelu { alpha: f64 },
-    Shrink { lambd: f64, bias: f64 },
+    ThresholdedRelu {
+        alpha: f64,
+    },
+    Shrink {
+        lambd: f64,
+        bias: f64,
+    },
     Clip,
     Swish,
-    MultiHeadAttention { q_num_heads: usize, kv_num_heads: usize },
+    MultiHeadAttention {
+        q_num_heads: usize,
+        kv_num_heads: usize,
+    },
 
     // --- Normalisation (generic) ---
-    LRN { alpha: f64, beta: f64, bias: f64, size: usize },
+    LRN {
+        alpha: f64,
+        beta: f64,
+        bias: f64,
+        size: usize,
+    },
 
     // --- Recurrent ---
-    Lstm { hidden_size: usize, direction: alloc::string::String, bidirectional: bool },
-    Gru { hidden_size: usize, direction: alloc::string::String, bidirectional: bool },
-    Rnn { hidden_size: usize, direction: alloc::string::String, bidirectional: bool },
+    Lstm {
+        hidden_size: usize,
+        direction: alloc::string::String,
+        bidirectional: bool,
+    },
+    Gru {
+        hidden_size: usize,
+        direction: alloc::string::String,
+        bidirectional: bool,
+    },
+    Rnn {
+        hidden_size: usize,
+        direction: alloc::string::String,
+        bidirectional: bool,
+    },
 
     // --- Resize / spatial ---
     Resize {
@@ -532,41 +812,103 @@ pub enum Op {
         coordinate_transformation_mode: alloc::string::String,
         antialias: bool,
     },
-    GridSample { mode: alloc::string::String, padding_mode: alloc::string::String, align_corners: bool },
-    SpaceToDepth { blocksize: usize },
-    DepthToSpace { blocksize: usize, mode: alloc::string::String },
-    RoiAlign { output_h: usize, output_w: usize, sampling_ratio: i64, spatial_scale: f64 },
-    AffineGrid { align_corners: bool },
-    MaxUnpool { kernel_h: usize, kernel_w: usize, stride_h: usize, stride_w: usize },
-    CenterCropPad { axes: alloc::vec::Vec<i64> },
-    NonMaxSuppression { center_point_box: bool },
+    GridSample {
+        mode: alloc::string::String,
+        padding_mode: alloc::string::String,
+        align_corners: bool,
+    },
+    SpaceToDepth {
+        blocksize: usize,
+    },
+    DepthToSpace {
+        blocksize: usize,
+        mode: alloc::string::String,
+    },
+    RoiAlign {
+        output_h: usize,
+        output_w: usize,
+        sampling_ratio: i64,
+        spatial_scale: f64,
+    },
+    AffineGrid {
+        align_corners: bool,
+    },
+    MaxUnpool {
+        kernel_h: usize,
+        kernel_w: usize,
+        stride_h: usize,
+        stride_w: usize,
+    },
+    CenterCropPad {
+        axes: alloc::vec::Vec<i64>,
+    },
+    NonMaxSuppression {
+        center_point_box: bool,
+    },
 
     // --- Misc ---
-    TopK { axis: i64, largest: bool, sorted: bool },
-    Unique { sorted: bool },
-    Dropout { training_mode: bool },
-    EyeLike { dtype: Option<DtypeRepr>, k: i64 },
-    OneHot { axis: i64 },
-    Bernoulli { dtype: Option<DtypeRepr> },
-    RandomUniformLike { dtype: Option<DtypeRepr>, high: f64, low: f64 },
+    TopK {
+        axis: i64,
+        largest: bool,
+        sorted: bool,
+    },
+    Unique {
+        sorted: bool,
+    },
+    Dropout {
+        training_mode: bool,
+    },
+    EyeLike {
+        dtype: Option<DtypeRepr>,
+        k: i64,
+    },
+    OneHot {
+        axis: i64,
+    },
+    Bernoulli {
+        dtype: Option<DtypeRepr>,
+    },
+    RandomUniformLike {
+        dtype: Option<DtypeRepr>,
+        high: f64,
+        low: f64,
+    },
     RotaryEmbedding,
 
     // --- Quantisation ---
-    QuantizeLinear { axis: i64, saturate: bool },
-    DequantizeLinear { axis: i64 },
+    QuantizeLinear {
+        axis: i64,
+        saturate: bool,
+    },
+    DequantizeLinear {
+        axis: i64,
+    },
     DynamicQuantizeLinear,
 
     // --- Signal ---
-    Dft { inverse: bool, onesided: bool },
+    Dft {
+        inverse: bool,
+        onesided: bool,
+    },
     Stft,
     MelWeightMatrix,
-    HannWindow { periodic: bool },
-    BlackmanWindow { periodic: bool },
-    HammingWindow { periodic: bool },
+    HannWindow {
+        periodic: bool,
+    },
+    BlackmanWindow {
+        periodic: bool,
+    },
+    HammingWindow {
+        periodic: bool,
+    },
 
     // --- Loss ---
-    NegativeLogLikelihoodLoss { reduction: alloc::string::String },
-    SoftmaxCrossEntropyLoss { reduction: alloc::string::String },
+    NegativeLogLikelihoodLoss {
+        reduction: alloc::string::String,
+    },
+    SoftmaxCrossEntropyLoss {
+        reduction: alloc::string::String,
+    },
 
     // --- Sequences ---
     SequenceAt,
@@ -576,14 +918,22 @@ pub enum Op {
     SequenceInsert,
     SequenceLength,
     SequenceMap,
-    SplitToSequence { axis: i64, keepdims: bool },
-    ConcatFromSequence { axis: i64, new_axis: bool },
+    SplitToSequence {
+        axis: i64,
+        keepdims: bool,
+    },
+    ConcatFromSequence {
+        axis: i64,
+        new_axis: bool,
+    },
     OptionalGetElement,
     OptionalHasElement,
 
     // --- Control flow ---
     Loop,
-    Scan { num_scan_inputs: i64 },
+    Scan {
+        num_scan_inputs: i64,
+    },
     If,
 
     // --- Optimiser ops ---
@@ -594,7 +944,9 @@ pub enum Op {
 
     // --- String / NLP ---
     StringNormalizer,
-    RegexFullMatch { pattern: alloc::string::String },
+    RegexFullMatch {
+        pattern: alloc::string::String,
+    },
     StringConcat,
     StringSplit,
     TfIdfVectorizer,
@@ -602,7 +954,9 @@ pub enum Op {
 
     // --- Other ML ---
     ArrayFeatureExtractor,
-    Binarizer { threshold: f64 },
+    Binarizer {
+        threshold: f64,
+    },
     TreeEnsemble,
     ImageDecoder,
 }
@@ -638,7 +992,12 @@ impl Graph {
         shape: Shape,
     ) -> usize {
         let id = self.nodes.len();
-        self.nodes.push(GraphNode { op, inputs, dtype, shape });
+        self.nodes.push(GraphNode {
+            op,
+            inputs,
+            dtype,
+            shape,
+        });
         #[cfg(feature = "std")]
         if let Some(name) = crate::name_scope::current_scope() {
             self.names.insert(id, name);
@@ -701,41 +1060,96 @@ impl Graph {
         let mut node_override: Vec<Option<(Op, Vec<usize>)>> = vec![None; n];
 
         for silu_idx in 0..n {
-            if !matches!(self.nodes[silu_idx].op, Op::Silu) { continue; }
-            if self.nodes[silu_idx].inputs.len() != 1 { continue; }
+            if !matches!(self.nodes[silu_idx].op, Op::Silu) {
+                continue;
+            }
+            if self.nodes[silu_idx].inputs.len() != 1 {
+                continue;
+            }
 
             let bn_idx = self.nodes[silu_idx].inputs[0];
-            if !matches!(self.nodes[bn_idx].op, Op::BatchNorm2d { .. }) { continue; }
-            if n_consumers[bn_idx] != 1 { continue; }
-            if self.nodes[bn_idx].inputs.len() != 1 { continue; }
+            if !matches!(self.nodes[bn_idx].op, Op::BatchNorm2d { .. }) {
+                continue;
+            }
+            if n_consumers[bn_idx] != 1 {
+                continue;
+            }
+            if self.nodes[bn_idx].inputs.len() != 1 {
+                continue;
+            }
 
             let conv_idx = self.nodes[bn_idx].inputs[0];
-            if !matches!(self.nodes[conv_idx].op, Op::Conv2d { has_bias: false, .. }) { continue; }
-            if n_consumers[conv_idx] != 1 { continue; }
+            if !matches!(
+                self.nodes[conv_idx].op,
+                Op::Conv2d {
+                    has_bias: false,
+                    ..
+                }
+            ) {
+                continue;
+            }
+            if n_consumers[conv_idx] != 1 {
+                continue;
+            }
 
-            let (in_channels, out_channels, kernel_h, kernel_w,
-                 stride_h, stride_w, padding_h, padding_w, groups) =
-                if let Op::Conv2d { in_channels, out_channels, kernel_h, kernel_w,
-                                    stride_h, stride_w, padding_h, padding_w, groups, .. } =
-                    self.nodes[conv_idx].op
-                {
-                    (in_channels, out_channels, kernel_h, kernel_w,
-                     stride_h, stride_w, padding_h, padding_w, groups)
-                } else { unreachable!() };
+            let (
+                in_channels,
+                out_channels,
+                kernel_h,
+                kernel_w,
+                stride_h,
+                stride_w,
+                padding_h,
+                padding_w,
+                groups,
+            ) = if let Op::Conv2d {
+                in_channels,
+                out_channels,
+                kernel_h,
+                kernel_w,
+                stride_h,
+                stride_w,
+                padding_h,
+                padding_w,
+                groups,
+                ..
+            } = self.nodes[conv_idx].op
+            {
+                (
+                    in_channels,
+                    out_channels,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                    groups,
+                )
+            } else {
+                unreachable!()
+            };
 
             let bn_eps = if let Op::BatchNorm2d { eps, .. } = self.nodes[bn_idx].op {
                 eps
-            } else { unreachable!() };
+            } else {
+                unreachable!()
+            };
 
             dead[conv_idx] = true;
             dead[bn_idx] = true;
             node_override[silu_idx] = Some((
                 Op::Conv2dBnSilu {
-                    in_channels, out_channels,
-                    kernel_h, kernel_w,
-                    stride_h, stride_w,
-                    padding_h, padding_w,
-                    groups, bn_eps,
+                    in_channels,
+                    out_channels,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                    groups,
+                    bn_eps,
                 },
                 self.nodes[conv_idx].inputs.clone(),
             ));
@@ -754,17 +1168,18 @@ impl Graph {
         // Emit new graph in topological order (original ordering is already valid).
         let mut new_graph = Graph::new();
         for old_idx in 0..n {
-            if dead[old_idx] { continue; }
+            if dead[old_idx] {
+                continue;
+            }
             let node = &self.nodes[old_idx];
-            let (op, inputs) = if let Some((fused_op, fused_inputs)) =
-                node_override[old_idx].clone()
-            {
-                let mapped = fused_inputs.iter().map(|&i| old_to_new[i]).collect();
-                (fused_op, mapped)
-            } else {
-                let mapped = node.inputs.iter().map(|&i| old_to_new[i]).collect();
-                (node.op.clone(), mapped)
-            };
+            let (op, inputs) =
+                if let Some((fused_op, fused_inputs)) = node_override[old_idx].clone() {
+                    let mapped = fused_inputs.iter().map(|&i| old_to_new[i]).collect();
+                    (fused_op, mapped)
+                } else {
+                    let mapped = node.inputs.iter().map(|&i| old_to_new[i]).collect();
+                    (node.op.clone(), mapped)
+                };
             let new_idx = new_graph.nodes.len();
             new_graph.nodes.push(GraphNode {
                 op,
@@ -848,21 +1263,57 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         }
 
         // --- Convolution ---
-        Op::Conv1d { out_channels, kernel_l, stride, padding, .. } => {
+        Op::Conv1d {
+            out_channels,
+            kernel_l,
+            stride,
+            padding,
+            ..
+        } => {
             // [N, C_in, L] → [N, C_out, L_out]
             let l_out = input[2].map(|l| (l + 2 * padding - kernel_l) / stride + 1);
             vec![input[0], Some(*out_channels), l_out]
         }
 
-        Op::Conv2d { out_channels, kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. }
-        | Op::Conv2dBnSilu { out_channels, kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, .. } => {
+        Op::Conv2d {
+            out_channels,
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+            padding_h,
+            padding_w,
+            ..
+        }
+        | Op::Conv2dBnSilu {
+            out_channels,
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+            padding_h,
+            padding_w,
+            ..
+        } => {
             // [N, C_in, H, W] → [N, C_out, H_out, W_out]
             let h_out = input[2].map(|h| (h + 2 * padding_h - kernel_h) / stride_h + 1);
             let w_out = input[3].map(|w| (w + 2 * padding_w - kernel_w) / stride_w + 1);
             vec![input[0], Some(*out_channels), h_out, w_out]
         }
 
-        Op::Conv3d { out_channels, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, padding_d, padding_h, padding_w, .. } => {
+        Op::Conv3d {
+            out_channels,
+            kernel_d,
+            kernel_h,
+            kernel_w,
+            stride_d,
+            stride_h,
+            stride_w,
+            padding_d,
+            padding_h,
+            padding_w,
+            ..
+        } => {
             // [N, C_in, D, H, W] → [N, C_out, D_out, H_out, W_out]
             let d_out = input[2].map(|d| (d + 2 * padding_d - kernel_d) / stride_d + 1);
             let h_out = input[3].map(|h| (h + 2 * padding_h - kernel_h) / stride_h + 1);
@@ -876,38 +1327,80 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             vec![input[0], input[1], l_out]
         }
 
-        Op::LpPool1d { kernel_l, stride, .. } => {
+        Op::LpPool1d {
+            kernel_l, stride, ..
+        } => {
             let l_out = input[2].map(|l| (l - kernel_l) / stride + 1);
             vec![input[0], input[1], l_out]
         }
 
-        Op::AvgPool2d { kernel_h, kernel_w, stride_h, stride_w } => {
+        Op::AvgPool2d {
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+        } => {
             let h_out = input[2].map(|h| (h - kernel_h) / stride_h + 1);
             let w_out = input[3].map(|w| (w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], h_out, w_out]
         }
 
-        Op::MaxPool2d { kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w } => {
+        Op::MaxPool2d {
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+            pad_h,
+            pad_w,
+        } => {
             let h_out = input[2].map(|h| (h + 2 * pad_h - kernel_h) / stride_h + 1);
             let w_out = input[3].map(|w| (w + 2 * pad_w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], h_out, w_out]
         }
 
-        Op::LpPool2d { kernel_h, kernel_w, stride_h, stride_w, .. } => {
+        Op::LpPool2d {
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+            ..
+        } => {
             let h_out = input[2].map(|h| (h - kernel_h) / stride_h + 1);
             let w_out = input[3].map(|w| (w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], h_out, w_out]
         }
 
-        Op::AvgPool3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w }
-        | Op::MaxPool3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w } => {
+        Op::AvgPool3d {
+            kernel_d,
+            kernel_h,
+            kernel_w,
+            stride_d,
+            stride_h,
+            stride_w,
+        }
+        | Op::MaxPool3d {
+            kernel_d,
+            kernel_h,
+            kernel_w,
+            stride_d,
+            stride_h,
+            stride_w,
+        } => {
             let d_out = input[2].map(|d| (d - kernel_d) / stride_d + 1);
             let h_out = input[3].map(|h| (h - kernel_h) / stride_h + 1);
             let w_out = input[4].map(|w| (w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], d_out, h_out, w_out]
         }
 
-        Op::LpPool3d { kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, .. } => {
+        Op::LpPool3d {
+            kernel_d,
+            kernel_h,
+            kernel_w,
+            stride_d,
+            stride_h,
+            stride_w,
+            ..
+        } => {
             let d_out = input[2].map(|d| (d - kernel_d) / stride_d + 1);
             let h_out = input[3].map(|h| (h - kernel_h) / stride_h + 1);
             let w_out = input[4].map(|w| (w - kernel_w) / stride_w + 1);
@@ -923,29 +1416,92 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         }
 
         // --- Padding ---
-        Op::ConstantPad1d { pad_left, pad_right, .. }
-        | Op::ReflectionPad1d { pad_left, pad_right }
-        | Op::ReplicationPad1d { pad_left, pad_right }
-        | Op::CircularPad1d { pad_left, pad_right } => {
+        Op::ConstantPad1d {
+            pad_left,
+            pad_right,
+            ..
+        }
+        | Op::ReflectionPad1d {
+            pad_left,
+            pad_right,
+        }
+        | Op::ReplicationPad1d {
+            pad_left,
+            pad_right,
+        }
+        | Op::CircularPad1d {
+            pad_left,
+            pad_right,
+        } => {
             // [N, C, L] → [N, C, L + pad_left + pad_right]
             let l_out = input[2].map(|l| l + pad_left + pad_right);
             vec![input[0], input[1], l_out]
         }
 
-        Op::ConstantPad2d { pad_l, pad_r, pad_t, pad_b, .. }
-        | Op::ReflectionPad2d { pad_l, pad_r, pad_t, pad_b }
-        | Op::ReplicationPad2d { pad_l, pad_r, pad_t, pad_b }
-        | Op::CircularPad2d { pad_l, pad_r, pad_t, pad_b } => {
+        Op::ConstantPad2d {
+            pad_l,
+            pad_r,
+            pad_t,
+            pad_b,
+            ..
+        }
+        | Op::ReflectionPad2d {
+            pad_l,
+            pad_r,
+            pad_t,
+            pad_b,
+        }
+        | Op::ReplicationPad2d {
+            pad_l,
+            pad_r,
+            pad_t,
+            pad_b,
+        }
+        | Op::CircularPad2d {
+            pad_l,
+            pad_r,
+            pad_t,
+            pad_b,
+        } => {
             // [N, C, H, W] → [N, C, H + pad_t + pad_b, W + pad_l + pad_r]
             let h_out = input[2].map(|h| h + pad_t + pad_b);
             let w_out = input[3].map(|w| w + pad_l + pad_r);
             vec![input[0], input[1], h_out, w_out]
         }
 
-        Op::ConstantPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2, .. }
-        | Op::ReflectionPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2 }
-        | Op::ReplicationPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2 }
-        | Op::CircularPad3d { pad_d1, pad_d2, pad_h1, pad_h2, pad_w1, pad_w2 } => {
+        Op::ConstantPad3d {
+            pad_d1,
+            pad_d2,
+            pad_h1,
+            pad_h2,
+            pad_w1,
+            pad_w2,
+            ..
+        }
+        | Op::ReflectionPad3d {
+            pad_d1,
+            pad_d2,
+            pad_h1,
+            pad_h2,
+            pad_w1,
+            pad_w2,
+        }
+        | Op::ReplicationPad3d {
+            pad_d1,
+            pad_d2,
+            pad_h1,
+            pad_h2,
+            pad_w1,
+            pad_w2,
+        }
+        | Op::CircularPad3d {
+            pad_d1,
+            pad_d2,
+            pad_h1,
+            pad_h2,
+            pad_w1,
+            pad_w2,
+        } => {
             // [N, C, D, H, W] → padded on each spatial dim
             let d_out = input[2].map(|d| d + pad_d1 + pad_d2);
             let h_out = input[3].map(|h| h + pad_h1 + pad_h2);
@@ -980,67 +1536,142 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         // -------------------------------------------------------------------
 
         // Unary element-wise — output shape = input shape
-        Op::Abs | Op::Neg | Op::Ceil | Op::Floor | Op::Round | Op::Sqrt
-        | Op::Reciprocal | Op::Exp | Op::Log | Op::Erf | Op::Sign | Op::IsNaN
-        | Op::IsInf { .. } | Op::Not | Op::BitwiseNot
-        | Op::Sin | Op::Cos | Op::Tan | Op::Asin | Op::Acos | Op::Atan
-        | Op::Sinh | Op::Cosh | Op::Asinh | Op::Acosh | Op::Atanh
-        | Op::PRelu | Op::ThresholdedRelu { .. } | Op::Shrink { .. } | Op::Clip
-        | Op::Swish | Op::LogSoftmax { .. } | Op::Hardmax { .. }
-        | Op::Dropout { .. } | Op::Identity
-        | Op::LRN { .. } | Op::MeanVarianceNormalization { .. }
+        Op::Abs
+        | Op::Neg
+        | Op::Ceil
+        | Op::Floor
+        | Op::Round
+        | Op::Sqrt
+        | Op::Reciprocal
+        | Op::Exp
+        | Op::Log
+        | Op::Erf
+        | Op::Sign
+        | Op::IsNaN
+        | Op::IsInf { .. }
+        | Op::Not
+        | Op::BitwiseNot
+        | Op::Sin
+        | Op::Cos
+        | Op::Tan
+        | Op::Asin
+        | Op::Acos
+        | Op::Atan
+        | Op::Sinh
+        | Op::Cosh
+        | Op::Asinh
+        | Op::Acosh
+        | Op::Atanh
+        | Op::PRelu
+        | Op::ThresholdedRelu { .. }
+        | Op::Shrink { .. }
+        | Op::Clip
+        | Op::Swish
+        | Op::LogSoftmax { .. }
+        | Op::Hardmax { .. }
+        | Op::Dropout { .. }
+        | Op::Identity
+        | Op::LRN { .. }
+        | Op::MeanVarianceNormalization { .. }
         | Op::LpNormalization { .. }
-        | Op::Pad { .. } | Op::ReverseSequence { .. } | Op::Trilu { .. }
-        | Op::CumSum { .. } | Op::CumProd { .. }
-        | Op::QuantizeLinear { .. } | Op::DequantizeLinear { .. } | Op::DynamicQuantizeLinear
-        | Op::Bernoulli { .. } | Op::RandomUniformLike { .. } | Op::EyeLike { .. }
-        | Op::RotaryEmbedding | Op::MultiHeadAttention { .. }
-        => input.clone(),
+        | Op::Pad { .. }
+        | Op::ReverseSequence { .. }
+        | Op::Trilu { .. }
+        | Op::CumSum { .. }
+        | Op::CumProd { .. }
+        | Op::QuantizeLinear { .. }
+        | Op::DequantizeLinear { .. }
+        | Op::DynamicQuantizeLinear
+        | Op::Bernoulli { .. }
+        | Op::RandomUniformLike { .. }
+        | Op::EyeLike { .. }
+        | Op::RotaryEmbedding
+        | Op::MultiHeadAttention { .. } => input.clone(),
 
         // Binary / variadic element-wise — approximate as first-input shape
-        Op::Mul | Op::Sub | Op::Div | Op::Pow | Op::Mod { .. }
-        | Op::ElemMin | Op::ElemMax | Op::ElemMean | Op::ElemSum
-        | Op::Equal | Op::Greater | Op::GreaterOrEqual | Op::Less | Op::LessOrEqual
-        | Op::And | Op::Or | Op::Xor
-        | Op::BitwiseAnd | Op::BitwiseOr | Op::BitwiseXor | Op::BitShift { .. }
-        | Op::Cast { .. } | Op::CastLike | Op::BitCast { .. } | Op::Where
-        => input.clone(),
+        Op::Mul
+        | Op::Sub
+        | Op::Div
+        | Op::Pow
+        | Op::Mod { .. }
+        | Op::ElemMin
+        | Op::ElemMax
+        | Op::ElemMean
+        | Op::ElemSum
+        | Op::Equal
+        | Op::Greater
+        | Op::GreaterOrEqual
+        | Op::Less
+        | Op::LessOrEqual
+        | Op::And
+        | Op::Or
+        | Op::Xor
+        | Op::BitwiseAnd
+        | Op::BitwiseOr
+        | Op::BitwiseXor
+        | Op::BitShift { .. }
+        | Op::Cast { .. }
+        | Op::CastLike
+        | Op::BitCast { .. }
+        | Op::Where => input.clone(),
 
         // Structural ops where output shape = input shape or is unknown at
         // static inference time (ONNX value_info carries the true shape).
-        Op::Reshape | Op::Squeeze { .. } | Op::Unsqueeze { .. }
-        | Op::Slice | Op::Gather { .. } | Op::GatherElements { .. }
-        | Op::GatherND { .. } | Op::ScatterElements { .. } | Op::ScatterND
-        | Op::Tile | Op::Expand | Op::Compress { .. } | Op::Range
-        | Op::ConstantOfShape { .. } | Op::NonZero
-        | Op::Scatter { .. } | Op::TensorScatter
-        | Op::Resize { .. } | Op::GridSample { .. }
-        | Op::AffineGrid { .. } | Op::CenterCropPad { .. }
-        => input.clone(),
+        Op::Reshape
+        | Op::Squeeze { .. }
+        | Op::Unsqueeze { .. }
+        | Op::Slice
+        | Op::Gather { .. }
+        | Op::GatherElements { .. }
+        | Op::GatherND { .. }
+        | Op::ScatterElements { .. }
+        | Op::ScatterND
+        | Op::Tile
+        | Op::Expand
+        | Op::Compress { .. }
+        | Op::Range
+        | Op::ConstantOfShape { .. }
+        | Op::NonZero
+        | Op::Scatter { .. }
+        | Op::TensorScatter
+        | Op::Resize { .. }
+        | Op::GridSample { .. }
+        | Op::AffineGrid { .. }
+        | Op::CenterCropPad { .. } => input.clone(),
 
         Op::Transpose { perm } => {
             if perm.is_empty() {
                 input.iter().rev().cloned().collect()
             } else {
-                perm.iter().map(|&i| input.get(i).copied().unwrap_or(None)).collect()
+                perm.iter()
+                    .map(|&i| input.get(i).copied().unwrap_or(None))
+                    .collect()
             }
         }
 
         Op::Concat { axis } => {
             let rank = input.len();
-            if rank == 0 { return input.clone(); }
+            if rank == 0 {
+                return input.clone();
+            }
             let ax = axis.rem_euclid(rank as i64) as usize;
             let mut out = input.clone();
             // Sum the concatenated axis across all inputs.
-            out[ax] = inputs.iter().try_fold(0usize, |acc, s| {
-                s.get(ax).copied().unwrap_or(None).map(|d| acc + d)
-            }).map(Some).unwrap_or(None);
+            out[ax] = inputs
+                .iter()
+                .try_fold(0usize, |acc, s| {
+                    s.get(ax).copied().unwrap_or(None).map(|d| acc + d)
+                })
+                .map(Some)
+                .unwrap_or(None);
             out
         }
 
         Op::Split { axis, num_outputs } => {
             let rank = input.len();
-            if rank == 0 { return input.clone(); }
+            if rank == 0 {
+                return input.clone();
+            }
             let ax = axis.rem_euclid(rank as i64) as usize;
             let mut out = input.clone();
             out[ax] = input[ax].map(|d| d / num_outputs.max(&1));
@@ -1056,12 +1687,21 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
 
         Op::SizeOf => vec![Some(1)],
 
-        Op::Gemm { trans_a, trans_b, .. } => {
-            let m = if *trans_a { input.get(1) } else { input.first() }
-                .copied().unwrap_or(None);
+        Op::Gemm {
+            trans_a, trans_b, ..
+        } => {
+            let m = if *trans_a {
+                input.get(1)
+            } else {
+                input.first()
+            }
+            .copied()
+            .unwrap_or(None);
             let n = if inputs.len() >= 2 {
                 let b = inputs[1];
-                if *trans_b { b.first() } else { b.get(1) }.copied().unwrap_or(None)
+                if *trans_b { b.first() } else { b.get(1) }
+                    .copied()
+                    .unwrap_or(None)
             } else {
                 None
             };
@@ -1079,36 +1719,55 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             }
         }
 
-        Op::Einsum { .. } | Op::Det | Op::Col2Im { .. }
-        | Op::ConvInteger { .. } | Op::DeformConv { .. } | Op::QLinearConv { .. }
-        => input.clone(),
+        Op::Einsum { .. }
+        | Op::Det
+        | Op::Col2Im { .. }
+        | Op::ConvInteger { .. }
+        | Op::DeformConv { .. }
+        | Op::QLinearConv { .. } => input.clone(),
 
         Op::ConvTranspose {
-            out_channels, kernel_h, kernel_w,
-            stride_h, stride_w, padding_h, padding_w,
-            output_padding_h, output_padding_w, ..
+            out_channels,
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+            padding_h,
+            padding_w,
+            output_padding_h,
+            output_padding_w,
+            ..
         } => {
-            let h_out = input[2].map(|h| {
-                (h - 1) * stride_h - 2 * padding_h + kernel_h + output_padding_h
-            });
-            let w_out = input[3].map(|w| {
-                (w - 1) * stride_w - 2 * padding_w + kernel_w + output_padding_w
-            });
+            let h_out =
+                input[2].map(|h| (h - 1) * stride_h - 2 * padding_h + kernel_h + output_padding_h);
+            let w_out =
+                input[3].map(|w| (w - 1) * stride_w - 2 * padding_w + kernel_w + output_padding_w);
             vec![input[0], Some(*out_channels), h_out, w_out]
         }
 
-        Op::ReduceSum { keepdims, .. } | Op::ReduceMean { keepdims, .. }
-        | Op::ReduceMax { keepdims, .. } | Op::ReduceMin { keepdims, .. }
-        | Op::ReduceProd { keepdims, .. } | Op::ReduceL1 { keepdims, .. }
-        | Op::ReduceL2 { keepdims, .. } | Op::ReduceLogSum { keepdims, .. }
-        | Op::ReduceLogSumExp { keepdims, .. } | Op::ReduceSumSquare { keepdims, .. } => {
+        Op::ReduceSum { keepdims, .. }
+        | Op::ReduceMean { keepdims, .. }
+        | Op::ReduceMax { keepdims, .. }
+        | Op::ReduceMin { keepdims, .. }
+        | Op::ReduceProd { keepdims, .. }
+        | Op::ReduceL1 { keepdims, .. }
+        | Op::ReduceL2 { keepdims, .. }
+        | Op::ReduceLogSum { keepdims, .. }
+        | Op::ReduceLogSumExp { keepdims, .. }
+        | Op::ReduceSumSquare { keepdims, .. } => {
             // Without axis info at static-inference time, approximate:
             // keepdims=true → same rank, keepdims=false → reduce all → scalar.
-            if *keepdims { input.clone() } else { vec![Some(1)] }
+            if *keepdims {
+                input.clone()
+            } else {
+                vec![Some(1)]
+            }
         }
 
         Op::ArgMax { axis, keepdims, .. } | Op::ArgMin { axis, keepdims, .. } => {
-            if input.is_empty() { return vec![]; }
+            if input.is_empty() {
+                return vec![];
+            }
             let ax = axis.rem_euclid(input.len() as i64) as usize;
             if *keepdims {
                 let mut out = input.clone();
@@ -1123,19 +1782,35 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
 
         Op::GlobalAvgPool | Op::GlobalMaxPool => {
             let mut out = input[..2.min(input.len())].to_vec();
-            for _ in 2..input.len() { out.push(Some(1)); }
+            for _ in 2..input.len() {
+                out.push(Some(1));
+            }
             out
         }
 
-        Op::Lstm { hidden_size, bidirectional, .. }
-        | Op::Gru { hidden_size, bidirectional, .. }
-        | Op::Rnn { hidden_size, bidirectional, .. } => {
+        Op::Lstm {
+            hidden_size,
+            bidirectional,
+            ..
+        }
+        | Op::Gru {
+            hidden_size,
+            bidirectional,
+            ..
+        }
+        | Op::Rnn {
+            hidden_size,
+            bidirectional,
+            ..
+        } => {
             let num_dirs: usize = if *bidirectional { 2 } else { 1 };
             // [seq_len, num_directions, batch, hidden_size] (approximate)
-            vec![input.first().copied().unwrap_or(None),
-                 Some(num_dirs),
-                 input.get(1).copied().unwrap_or(None),
-                 Some(*hidden_size)]
+            vec![
+                input.first().copied().unwrap_or(None),
+                Some(num_dirs),
+                input.get(1).copied().unwrap_or(None),
+                Some(*hidden_size),
+            ]
         }
 
         Op::SpaceToDepth { blocksize } => {
@@ -1152,11 +1827,18 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             vec![input[0], c_out, h_out, w_out]
         }
 
-        Op::RoiAlign { output_h, output_w, .. } => {
+        Op::RoiAlign {
+            output_h, output_w, ..
+        } => {
             vec![input[0], input[1], Some(*output_h), Some(*output_w)]
         }
 
-        Op::MaxUnpool { kernel_h, kernel_w, stride_h, stride_w } => {
+        Op::MaxUnpool {
+            kernel_h,
+            kernel_w,
+            stride_h,
+            stride_w,
+        } => {
             let h_out = input[2].map(|h| (h - 1) * stride_h + kernel_h);
             let w_out = input[3].map(|w| (w - 1) * stride_w + kernel_w);
             vec![input[0], input[1], h_out, w_out]
@@ -1188,20 +1870,38 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             }
         }
 
-        Op::Stft | Op::MelWeightMatrix
-        | Op::HannWindow { .. } | Op::BlackmanWindow { .. } | Op::HammingWindow { .. }
-        => input.clone(),
+        Op::Stft
+        | Op::MelWeightMatrix
+        | Op::HannWindow { .. }
+        | Op::BlackmanWindow { .. }
+        | Op::HammingWindow { .. } => input.clone(),
 
-        Op::SequenceAt | Op::SequenceConstruct | Op::SequenceErase | Op::SequenceInsert
-        | Op::SequenceLength | Op::SequenceMap
-        | Op::SplitToSequence { .. } | Op::ConcatFromSequence { .. }
+        Op::SequenceAt
+        | Op::SequenceConstruct
+        | Op::SequenceErase
+        | Op::SequenceInsert
+        | Op::SequenceLength
+        | Op::SequenceMap
+        | Op::SplitToSequence { .. }
+        | Op::ConcatFromSequence { .. }
         | Op::OptionalGetElement
-        | Op::Loop | Op::Scan { .. } | Op::If
-        | Op::Adagrad | Op::Adam | Op::Momentum | Op::Gradient
-        | Op::StringNormalizer | Op::RegexFullMatch { .. } | Op::StringConcat | Op::StringSplit
-        | Op::TfIdfVectorizer | Op::LabelEncoder
-        | Op::ArrayFeatureExtractor | Op::Binarizer { .. } | Op::TreeEnsemble | Op::ImageDecoder
-        => input.clone(),
+        | Op::Loop
+        | Op::Scan { .. }
+        | Op::If
+        | Op::Adagrad
+        | Op::Adam
+        | Op::Momentum
+        | Op::Gradient
+        | Op::StringNormalizer
+        | Op::RegexFullMatch { .. }
+        | Op::StringConcat
+        | Op::StringSplit
+        | Op::TfIdfVectorizer
+        | Op::LabelEncoder
+        | Op::ArrayFeatureExtractor
+        | Op::Binarizer { .. }
+        | Op::TreeEnsemble
+        | Op::ImageDecoder => input.clone(),
 
         // Handled by early returns above the match; arms required for exhaustiveness.
         Op::Constant { shape, .. } => shape.clone(),
@@ -1246,7 +1946,12 @@ impl SymTensor {
         let node_id = graph
             .borrow_mut()
             .add_node(Op::Input, vec![], dtype, shape.clone());
-        let tensor = Self { node_id, graph: graph.clone(), dtype, shape };
+        let tensor = Self {
+            node_id,
+            graph: graph.clone(),
+            dtype,
+            shape,
+        };
         (tensor, graph)
     }
 
@@ -1265,7 +1970,12 @@ impl SymTensor {
             self.graph
                 .borrow_mut()
                 .add_node(op, vec![self.node_id], self.dtype, shape.clone());
-        Self { node_id, graph: self.graph.clone(), dtype: self.dtype, shape }
+        Self {
+            node_id,
+            graph: self.graph.clone(),
+            dtype: self.dtype,
+            shape,
+        }
     }
 
     /// Record a custom op whose output shape is determined by [`CustomOp::infer_output_shape`].
@@ -1287,11 +1997,18 @@ impl SymTensor {
         input_ids.extend(other_inputs.iter().map(|t| t.node_id));
 
         let out_dtype = dtype.unwrap_or(self.dtype);
-        let node_id = self
-            .graph
-            .borrow_mut()
-            .add_node(Op::Custom { data }, input_ids, out_dtype, output_shape.clone());
-        Self { node_id, graph: self.graph.clone(), dtype: out_dtype, shape: output_shape }
+        let node_id = self.graph.borrow_mut().add_node(
+            Op::Custom { data },
+            input_ids,
+            out_dtype,
+            output_shape.clone(),
+        );
+        Self {
+            node_id,
+            graph: self.graph.clone(),
+            dtype: out_dtype,
+            shape: output_shape,
+        }
     }
 }
 
@@ -1498,7 +2215,10 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv3d<D, SymTensor, SymT
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::AvgPool1d { kernel_l: self.kernel_l, stride: self.stride })
+        input.record(Op::AvgPool1d {
+            kernel_l: self.kernel_l,
+            stride: self.stride,
+        })
     }
 }
 
@@ -1531,7 +2251,10 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool3d<D, SymTensor, S
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::MaxPool1d { kernel_l: self.kernel_l, stride: self.stride })
+        input.record(Op::MaxPool1d {
+            kernel_l: self.kernel_l,
+            stride: self.stride,
+        })
     }
 }
 
@@ -1566,7 +2289,11 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool3d<D, SymTensor, S
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LpPool1d { kernel_l: self.kernel_l, stride: self.stride, p: self.p })
+        input.record(Op::LpPool1d {
+            kernel_l: self.kernel_l,
+            stride: self.stride,
+            p: self.p,
+        })
     }
 }
 
@@ -1650,7 +2377,10 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
 {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReflectionPad1d { pad_left: self.pad_left, pad_right: self.pad_right })
+        input.record(Op::ReflectionPad1d {
+            pad_left: self.pad_left,
+            pad_right: self.pad_right,
+        })
     }
 }
 
@@ -1689,7 +2419,10 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
 {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReplicationPad1d { pad_left: self.pad_left, pad_right: self.pad_right })
+        input.record(Op::ReplicationPad1d {
+            pad_left: self.pad_left,
+            pad_right: self.pad_right,
+        })
     }
 }
 
@@ -1728,7 +2461,10 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
 {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::CircularPad1d { pad_left: self.pad_left, pad_right: self.pad_right })
+        input.record(Op::CircularPad1d {
+            pad_left: self.pad_left,
+            pad_right: self.pad_right,
+        })
     }
 }
 
@@ -1809,7 +2545,10 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Mish<D, SymTensor, RANK> 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardtanh<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Hardtanh { min_val: self.min_val, max_val: self.max_val })
+        input.record(Op::Hardtanh {
+            min_val: self.min_val,
+            max_val: self.max_val,
+        })
     }
 }
 
@@ -1837,21 +2576,28 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardswish<D, SymTensor, R
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardshrink<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Hardshrink { lambda: self.lambda })
+        input.record(Op::Hardshrink {
+            lambda: self.lambda,
+        })
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for LeakyRelu<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LeakyRelu { negative_slope: self.negative_slope })
+        input.record(Op::LeakyRelu {
+            negative_slope: self.negative_slope,
+        })
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Threshold<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Threshold { threshold: self.threshold, value: self.value })
+        input.record(Op::Threshold {
+            threshold: self.threshold,
+            value: self.value,
+        })
     }
 }
 
@@ -1865,14 +2611,19 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softsign<D, SymTensor, RA
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softshrink<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softshrink { lambda: self.lambda })
+        input.record(Op::Softshrink {
+            lambda: self.lambda,
+        })
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softplus<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softplus { beta: self.beta, threshold: self.threshold })
+        input.record(Op::Softplus {
+            beta: self.beta,
+            threshold: self.threshold,
+        })
     }
 }
 
@@ -1954,7 +2705,11 @@ mod tests {
 
         assert!(matches!(
             g.nodes[1].op,
-            Op::Linear { in_features: 784, out_features: 128, .. }
+            Op::Linear {
+                in_features: 784,
+                out_features: 128,
+                ..
+            }
         ));
         assert_eq!(g.nodes[1].shape, vec![None, Some(128)]);
 
@@ -1963,7 +2718,11 @@ mod tests {
 
         assert!(matches!(
             g.nodes[3].op,
-            Op::Linear { in_features: 128, out_features: 10, .. }
+            Op::Linear {
+                in_features: 128,
+                out_features: 10,
+                ..
+            }
         ));
         assert_eq!(g.nodes[3].shape, vec![None, Some(10)]);
 
@@ -2019,9 +2778,7 @@ mod tests {
         let (input, graph) =
             SymTensor::input(DtypeRepr::F32, vec![None, Some(3), Some(32), Some(32)]);
 
-        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(
-            3, 64, (3, 3), (1, 1), (1, 1), true,
-        );
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 64, (3, 3), (1, 1), (1, 1), true);
         let _out = Layer::call(&conv, input);
 
         let g = graph.borrow();

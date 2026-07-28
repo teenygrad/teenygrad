@@ -294,7 +294,9 @@ pub fn conv1d_backward_dw<
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv1dForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
         // input_shapes[0] = [B, C_IN, L], output_shape = [B, C_OUT, OL]
@@ -324,11 +326,17 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv1dForw
         visitor.visit_i32(output_shape[2] as i32); // OL
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ol_tiles = output_shape[2].div_ceil(self.block_ol as usize);
-        [(output_shape[0] * output_shape[1] * num_ol_tiles) as u32, 1, 1]
+        [
+            (output_shape[0] * output_shape[1] * num_ol_tiles) as u32,
+            1,
+            1,
+        ]
     }
 }
 

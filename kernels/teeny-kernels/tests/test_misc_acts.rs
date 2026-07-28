@@ -22,9 +22,9 @@ use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Targe
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-#[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
+#[cfg(feature = "cuda")]
+use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -32,7 +32,10 @@ const BLOCK_SIZE: i32 = 128;
 fn load_fixture(rel: &str) -> Vec<f32> {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect()
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
 }
 
 // ── MLIR snapshots ────────────────────────────────────────────────────────────
@@ -45,7 +48,7 @@ fn test_leaky_relu_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("leaky_relu_forward_source", kernel.source());
-    assert_debug_snapshot!("leaky_relu_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("leaky_relu_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -57,7 +60,7 @@ fn test_softsign_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("softsign_forward_source", kernel.source());
-    assert_debug_snapshot!("softsign_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("softsign_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -69,7 +72,7 @@ fn test_softplus_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("softplus_forward_source", kernel.source());
-    assert_debug_snapshot!("softplus_forward_mlir",   mlir.trim());
+    assert_debug_snapshot!("softplus_forward_mlir", mlir.trim());
     Ok(())
 }
 
@@ -80,7 +83,7 @@ fn test_softplus_mlir() -> anyhow::Result<()> {
 fn test_leaky_relu_forward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("leaky_relu/x.bin");
+    let x_host = load_fixture("leaky_relu/x.bin");
     let expected = load_fixture("leaky_relu/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
@@ -91,14 +94,26 @@ fn test_leaky_relu_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::activation::misc::LeakyReluForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::LeakyReluForward<f32>
+        teeny_kernels::nn::activation::misc::LeakyReluForward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
-        (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.01_f32))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            0.01_f32,
+        ),
+    )?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
-        assert!((y_host[i] - expected[i]).abs() < 1e-5,
-            "leaky_relu_forward at {i}: got={} expected={}", y_host[i], expected[i]);
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-5,
+            "leaky_relu_forward at {i}: got={} expected={}",
+            y_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -108,30 +123,41 @@ fn test_leaky_relu_forward_cuda() -> Result<()> {
 fn test_leaky_relu_backward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("leaky_relu/x.bin");
-    let dy_host  = load_fixture("leaky_relu/dy.bin");
+    let x_host = load_fixture("leaky_relu/x.bin");
+    let dy_host = load_fixture("leaky_relu/dy.bin");
     let expected = load_fixture("leaky_relu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut x_buf  = env.device.buffer::<f32>(N)?;
-    let dx_buf     = env.device.buffer::<f32>(N)?;
+    let mut x_buf = env.device.buffer::<f32>(N)?;
+    let dx_buf = env.device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::LeakyReluBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::LeakyReluBackward<f32>
+        teeny_kernels::nn::activation::misc::LeakyReluBackward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
-        dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32, N as i32, 0.01_f32,
-    ))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            0.01_f32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_host)?;
     for i in 0..N {
-        assert!((dx_host[i] - expected[i]).abs() < 1e-5,
-            "leaky_relu_backward at {i}: got={} expected={}", dx_host[i], expected[i]);
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-5,
+            "leaky_relu_backward at {i}: got={} expected={}",
+            dx_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -143,7 +169,7 @@ fn test_leaky_relu_backward_cuda() -> Result<()> {
 fn test_threshold_forward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("threshold/x.bin");
+    let x_host = load_fixture("threshold/x.bin");
     let expected = load_fixture("threshold/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
@@ -154,14 +180,27 @@ fn test_threshold_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::activation::misc::ThresholdForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::ThresholdForward<f32>
+        teeny_kernels::nn::activation::misc::ThresholdForward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
-        (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32, 0.0_f32))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            0.5_f32,
+            0.0_f32,
+        ),
+    )?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
-        assert!((y_host[i] - expected[i]).abs() < 1e-5,
-            "threshold_forward at {i}: got={} expected={}", y_host[i], expected[i]);
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-5,
+            "threshold_forward at {i}: got={} expected={}",
+            y_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -171,30 +210,41 @@ fn test_threshold_forward_cuda() -> Result<()> {
 fn test_threshold_backward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("threshold/x.bin");
-    let dy_host  = load_fixture("threshold/dy.bin");
+    let x_host = load_fixture("threshold/x.bin");
+    let dy_host = load_fixture("threshold/dy.bin");
     let expected = load_fixture("threshold/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut x_buf  = env.device.buffer::<f32>(N)?;
-    let dx_buf     = env.device.buffer::<f32>(N)?;
+    let mut x_buf = env.device.buffer::<f32>(N)?;
+    let dx_buf = env.device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::ThresholdBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::ThresholdBackward<f32>
+        teeny_kernels::nn::activation::misc::ThresholdBackward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
-        dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32,
-    ))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            0.5_f32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_host)?;
     for i in 0..N {
-        assert!((dx_host[i] - expected[i]).abs() < 1e-5,
-            "threshold_backward at {i}: got={} expected={}", dx_host[i], expected[i]);
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-5,
+            "threshold_backward at {i}: got={} expected={}",
+            dx_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -206,7 +256,7 @@ fn test_threshold_backward_cuda() -> Result<()> {
 fn test_softsign_forward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("softsign/x.bin");
+    let x_host = load_fixture("softsign/x.bin");
     let expected = load_fixture("softsign/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
@@ -217,14 +267,25 @@ fn test_softsign_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::activation::misc::SoftsignForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::SoftsignForward<f32>
+        teeny_kernels::nn::activation::misc::SoftsignForward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
-        (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            N as i32,
+        ),
+    )?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
-        assert!((y_host[i] - expected[i]).abs() < 1e-5,
-            "softsign_forward at {i}: got={} expected={}", y_host[i], expected[i]);
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-5,
+            "softsign_forward at {i}: got={} expected={}",
+            y_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -234,30 +295,40 @@ fn test_softsign_forward_cuda() -> Result<()> {
 fn test_softsign_backward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("softsign/x.bin");
-    let dy_host  = load_fixture("softsign/dy.bin");
+    let x_host = load_fixture("softsign/x.bin");
+    let dy_host = load_fixture("softsign/dy.bin");
     let expected = load_fixture("softsign/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut x_buf  = env.device.buffer::<f32>(N)?;
-    let dx_buf     = env.device.buffer::<f32>(N)?;
+    let mut x_buf = env.device.buffer::<f32>(N)?;
+    let dx_buf = env.device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftsignBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::SoftsignBackward<f32>
+        teeny_kernels::nn::activation::misc::SoftsignBackward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
-        dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32, N as i32,
-    ))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            N as i32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_host)?;
     for i in 0..N {
-        assert!((dx_host[i] - expected[i]).abs() < 1e-5,
-            "softsign_backward at {i}: got={} expected={}", dx_host[i], expected[i]);
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-5,
+            "softsign_backward at {i}: got={} expected={}",
+            dx_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -269,7 +340,7 @@ fn test_softsign_backward_cuda() -> Result<()> {
 fn test_softshrink_forward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("softshrink/x.bin");
+    let x_host = load_fixture("softshrink/x.bin");
     let expected = load_fixture("softshrink/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
@@ -280,14 +351,26 @@ fn test_softshrink_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::activation::misc::SoftshrinkForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::SoftshrinkForward<f32>
+        teeny_kernels::nn::activation::misc::SoftshrinkForward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
-        (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            0.5_f32,
+        ),
+    )?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
-        assert!((y_host[i] - expected[i]).abs() < 1e-5,
-            "softshrink_forward at {i}: got={} expected={}", y_host[i], expected[i]);
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-5,
+            "softshrink_forward at {i}: got={} expected={}",
+            y_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -297,30 +380,41 @@ fn test_softshrink_forward_cuda() -> Result<()> {
 fn test_softshrink_backward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("softshrink/x.bin");
-    let dy_host  = load_fixture("softshrink/dy.bin");
+    let x_host = load_fixture("softshrink/x.bin");
+    let dy_host = load_fixture("softshrink/dy.bin");
     let expected = load_fixture("softshrink/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut x_buf  = env.device.buffer::<f32>(N)?;
-    let dx_buf     = env.device.buffer::<f32>(N)?;
+    let mut x_buf = env.device.buffer::<f32>(N)?;
+    let dx_buf = env.device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftshrinkBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::SoftshrinkBackward<f32>
+        teeny_kernels::nn::activation::misc::SoftshrinkBackward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
-        dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32, N as i32, 0.5_f32,
-    ))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            0.5_f32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_host)?;
     for i in 0..N {
-        assert!((dx_host[i] - expected[i]).abs() < 1e-5,
-            "softshrink_backward at {i}: got={} expected={}", dx_host[i], expected[i]);
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-5,
+            "softshrink_backward at {i}: got={} expected={}",
+            dx_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -332,7 +426,7 @@ fn test_softshrink_backward_cuda() -> Result<()> {
 fn test_softplus_forward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("softplus/x.bin");
+    let x_host = load_fixture("softplus/x.bin");
     let expected = load_fixture("softplus/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
@@ -343,14 +437,27 @@ fn test_softplus_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::activation::misc::SoftplusForward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::SoftplusForward<f32>
+        teeny_kernels::nn::activation::misc::SoftplusForward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program),
-        (x_buf.as_device_ptr() as *mut f32, y_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32, 20.0_f32))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            1.0_f32,
+            20.0_f32,
+        ),
+    )?;
     y_buf.to_host(&mut y_host)?;
     for i in 0..N {
-        assert!((y_host[i] - expected[i]).abs() < 1e-5,
-            "softplus_forward at {i}: got={} expected={}", y_host[i], expected[i]);
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-5,
+            "softplus_forward at {i}: got={} expected={}",
+            y_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }
@@ -360,30 +467,42 @@ fn test_softplus_forward_cuda() -> Result<()> {
 fn test_softplus_backward_cuda() -> Result<()> {
     dotenv()?;
     let env = testing::setup_cuda_env()?;
-    let x_host   = load_fixture("softplus/x.bin");
-    let dy_host  = load_fixture("softplus/dy.bin");
+    let x_host = load_fixture("softplus/x.bin");
+    let dy_host = load_fixture("softplus/dy.bin");
     let expected = load_fixture("softplus/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut x_buf  = env.device.buffer::<f32>(N)?;
-    let dx_buf     = env.device.buffer::<f32>(N)?;
+    let mut x_buf = env.device.buffer::<f32>(N)?;
+    let dx_buf = env.device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftplusBackward::<f32>::new(BLOCK_SIZE);
     let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::activation::misc::SoftplusBackward<f32>
+        teeny_kernels::nn::activation::misc::SoftplusBackward<f32>,
     >(&ptx)?;
-    env.device.launch(&program, &testing::launch_config_from_program(N, &program), (
-        dy_buf.as_device_ptr() as *mut f32, x_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32, N as i32, 1.0_f32, 20.0_f32,
-    ))?;
+    env.device.launch(
+        &program,
+        &testing::launch_config_from_program(N, &program),
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            N as i32,
+            1.0_f32,
+            20.0_f32,
+        ),
+    )?;
     dx_buf.to_host(&mut dx_host)?;
     for i in 0..N {
-        assert!((dx_host[i] - expected[i]).abs() < 1e-5,
-            "softplus_backward at {i}: got={} expected={}", dx_host[i], expected[i]);
+        assert!(
+            (dx_host[i] - expected[i]).abs() < 1e-5,
+            "softplus_backward at {i}: got={} expected={}",
+            dx_host[i],
+            expected[i]
+        );
     }
     Ok(())
 }

@@ -31,13 +31,7 @@ use teeny_triton::triton::{
 ///
 /// **Constraints**: no padding; `OL = (L - KL) / STRIDE + 1`.
 #[kernel]
-pub fn maxpool1d_forward<
-    T: Triton,
-    D: Num,
-    const KL: i32,
-    const STRIDE: i32,
-    const BLOCK_OL: i32,
->(
+pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
     B: i32,
@@ -73,7 +67,11 @@ pub fn maxpool1d_forward<
         let tile = T::load(
             input_ptr.add_offsets(in_offsets),
             Some(ol_mask),
-            Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32), None, false)),
+            Some(T::cast::<f32, D>(
+                T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32),
+                None,
+                false,
+            )),
             &[],
             None,
             None,
@@ -165,7 +163,11 @@ pub fn maxpool1d_backward<
         let x_tile = T::load(
             x_ptr.add_offsets(in_offsets),
             Some(ol_mask),
-            Some(T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32), None, false)),
+            Some(T::cast::<f32, D>(
+                T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32),
+                None,
+                false,
+            )),
             &[],
             None,
             None,

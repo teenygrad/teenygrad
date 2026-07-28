@@ -37,8 +37,12 @@ use teeny_triton::triton::{
 macro_rules! impl_reduce_num_runtime_op {
     ($Fwd:ident) => {
         impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for $Fwd<D> {
-            fn n_activation_inputs(&self) -> usize { 1 }
-            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+            fn n_activation_inputs(&self) -> usize {
+                1
+            }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+                vec![]
+            }
             fn pack_args(
                 &self,
                 inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -53,13 +57,19 @@ macro_rules! impl_reduce_num_runtime_op {
                 // n_inner = product of input dims / n_outer
                 let n_outer: usize = output_shape.iter().product::<usize>().max(1);
                 let n_total: usize = inputs[0].1.iter().product();
-                let n_inner: usize = if n_outer > 0 { n_total / n_outer } else { n_total };
+                let n_inner: usize = if n_outer > 0 {
+                    n_total / n_outer
+                } else {
+                    n_total
+                };
                 visitor.visit_ptr(inputs[0].0);
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n_inner as i32);
                 visitor.visit_i32(n_outer as i32);
             }
-            fn block(&self) -> [u32; 3] { [self.block_inner as u32, 1, 1] }
+            fn block(&self) -> [u32; 3] {
+                [self.block_inner as u32, 1, 1]
+            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n_outer: usize = output_shape.iter().product::<usize>().max(1);
                 [n_outer as u32, 1, 1]
@@ -71,8 +81,12 @@ macro_rules! impl_reduce_num_runtime_op {
 macro_rules! impl_reduce_float_runtime_op {
     ($Fwd:ident) => {
         impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for $Fwd<D> {
-            fn n_activation_inputs(&self) -> usize { 1 }
-            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+            fn n_activation_inputs(&self) -> usize {
+                1
+            }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+                vec![]
+            }
             fn pack_args(
                 &self,
                 inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -84,13 +98,19 @@ macro_rules! impl_reduce_float_runtime_op {
             ) {
                 let n_outer: usize = output_shape.iter().product::<usize>().max(1);
                 let n_total: usize = inputs[0].1.iter().product();
-                let n_inner: usize = if n_outer > 0 { n_total / n_outer } else { n_total };
+                let n_inner: usize = if n_outer > 0 {
+                    n_total / n_outer
+                } else {
+                    n_total
+                };
                 visitor.visit_ptr(inputs[0].0);
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n_inner as i32);
                 visitor.visit_i32(n_outer as i32);
             }
-            fn block(&self) -> [u32; 3] { [self.block_inner as u32, 1, 1] }
+            fn block(&self) -> [u32; 3] {
+                [self.block_inner as u32, 1, 1]
+            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n_outer: usize = output_shape.iter().product::<usize>().max(1);
                 [n_outer as u32, 1, 1]
@@ -114,7 +134,9 @@ pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -122,7 +144,11 @@ pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sum = T::sum(x, Some(0), true); // [1] or scalar
     let row_offsets = T::arange(0, 1) + row;
@@ -146,7 +172,9 @@ pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -154,7 +182,11 @@ pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sum = T::sum(x, Some(0), true);
     let n_f = T::cast::<i32, D>(T::full::<i32>(&[1], n_inner), None, false);
@@ -180,17 +212,27 @@ pub fn reduce_max_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
     // Load with a very small fill value for masked lanes
-    let neg_inf = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32), None, false);
+    let neg_inf = T::cast::<f32, D>(
+        T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32),
+        None,
+        false,
+    );
     let x = T::load(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(neg_inf),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let val = T::max(x, Some(0), true);
     let row_offsets = T::arange(0, 1) + row;
@@ -214,16 +256,26 @@ pub fn reduce_min_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
-    let pos_inf = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], 3.4028235e38_f32), None, false);
+    let pos_inf = T::cast::<f32, D>(
+        T::full::<f32>(&[BLOCK_INNER], 3.4028235e38_f32),
+        None,
+        false,
+    );
     let x = T::load(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(pos_inf),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let val = T::min(x, Some(0), true);
     let row_offsets = T::arange(0, 1) + row;
@@ -247,7 +299,9 @@ pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -255,7 +309,11 @@ pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let val = T::sum(T::abs(x), Some(0), true);
     let row_offsets = T::arange(0, 1) + row;
@@ -279,7 +337,9 @@ pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -287,7 +347,11 @@ pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sum_sq = T::sum(x * x, Some(0), true);
     let val = T::sqrt(sum_sq);
@@ -312,7 +376,9 @@ pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -320,7 +386,11 @@ pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let val = T::sum(x * x, Some(0), true);
     let row_offsets = T::arange(0, 1) + row;
@@ -344,7 +414,9 @@ pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -352,7 +424,11 @@ pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sum = T::sum(x, Some(0), true);
     let val = T::log(sum);
@@ -377,16 +453,26 @@ pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
-    let neg_inf = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32), None, false);
+    let neg_inf = T::cast::<f32, D>(
+        T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32),
+        None,
+        false,
+    );
     let x = T::load(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(neg_inf),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     // Numerically stable: log(sum(exp(x))) = m + log(sum(exp(x - m)))
     // where m = max(x)
@@ -396,7 +482,11 @@ pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sum_exp = T::sum(T::exp(x_adj - m), Some(0), true);
     let val = m + T::log(sum_exp);
@@ -423,7 +513,9 @@ pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -433,7 +525,11 @@ pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(one_fill),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     // exp(sum(log(x))) approximates product for positive x.
     let val = T::exp(T::sum(T::log(x), Some(0), true));
@@ -459,7 +555,9 @@ pub fn cum_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -467,7 +565,11 @@ pub fn cum_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     // Use Triton's cumsum: axis=0 over the 1-D block, not reversed.
     let y = T::cumsum(x, 0, false);
@@ -475,8 +577,12 @@ pub fn cum_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumSumForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -495,7 +601,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumSumForw
         visitor.visit_i32(n_inner as i32);
         visitor.visit_i32(n_outer as i32);
     }
-    fn block(&self) -> [u32; 3] { [self.block_inner as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_inner as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n_total: usize = output_shape.iter().product();
         let n_inner = output_shape.last().copied().unwrap_or(1);
@@ -519,7 +627,9 @@ pub fn cum_prod_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -527,15 +637,23 @@ pub fn cum_prod_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let y = T::cumprod(x, 0, false);
     T::store(y_ptr.add_offsets(offsets), y, Some(mask), &[], None, None);
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
-    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> { vec![] }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
@@ -553,7 +671,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdFor
         visitor.visit_i32(n_inner as i32);
         visitor.visit_i32(n_outer as i32);
     }
-    fn block(&self) -> [u32; 3] { [self.block_inner as u32, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [self.block_inner as u32, 1, 1]
+    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n_total: usize = output_shape.iter().product();
         let n_inner = output_shape.last().copied().unwrap_or(1);
@@ -584,7 +704,9 @@ pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
@@ -592,7 +714,11 @@ pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(T::zeros::<D>(&[BLOCK_INNER])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let sum = T::sum(x, Some(0), true);
     let n_f = T::cast::<i32, D>(T::full::<i32>(&[1], n_inner), None, false);
@@ -618,16 +744,26 @@ pub fn global_max_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let row = T::program_id(Axis::X);
-    if row >= n_outer { return; }
+    if row >= n_outer {
+        return;
+    }
     let col_offsets = T::arange(0, BLOCK_INNER);
     let offsets = col_offsets + row * n_inner;
     let mask = col_offsets.lt(n_inner);
-    let neg_inf = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32), None, false);
+    let neg_inf = T::cast::<f32, D>(
+        T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32),
+        None,
+        false,
+    );
     let x = T::load(
         x_ptr.add_offsets(offsets),
         Some(mask),
         Some(neg_inf),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let val = T::max(x, Some(0), true);
     let row_offsets = T::arange(0, 1) + row;

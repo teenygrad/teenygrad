@@ -114,8 +114,7 @@ pub fn conv3d_forward<
         let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
         let load_mask = ow_mask & d_in_bounds & h_in_bounds & w_in_bounds;
 
-        let x_offsets =
-            iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
+        let x_offsets = iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
             Some(load_mask),
@@ -210,8 +209,7 @@ pub fn conv3d_backward_dx<
     let ow_range = T::arange(0, BLOCK_OW) + ow_start;
     let ow_mask = ow_range.lt(OW);
 
-    let dy_offsets =
-        ow_range + ((b * C_OUT + c_out) * OD * OH * OW + od * OH * OW + oh * OW);
+    let dy_offsets = ow_range + ((b * C_OUT + c_out) * OD * OH * OW + od * OH * OW + oh * OW);
     let dy_tile = T::load(
         dy_ptr.add_offsets(dy_offsets),
         Some(ow_mask),
@@ -260,8 +258,7 @@ pub fn conv3d_backward_dx<
         let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
         let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
 
-        let dx_offsets =
-            iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
+        let dx_offsets = iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
         T::atomic_add(
             dx_ptr.add_offsets(dx_offsets),
             grad_tile,
@@ -326,8 +323,7 @@ pub fn conv3d_backward_dw<
     let ow_range = T::arange(0, BLOCK_OW) + ow_start;
     let ow_mask = ow_range.lt(OW);
 
-    let dy_offsets =
-        ow_range + ((b * C_OUT + c_out) * OD * OH * OW + od * OH * OW + oh * OW);
+    let dy_offsets = ow_range + ((b * C_OUT + c_out) * OD * OH * OW + od * OH * OW + oh * OW);
     let dy_tile = T::load(
         dy_ptr.add_offsets(dy_offsets),
         Some(ow_mask),
@@ -364,8 +360,7 @@ pub fn conv3d_backward_dw<
         let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
         let load_mask = ow_mask & d_in_bounds & h_in_bounds & w_in_bounds;
 
-        let x_offsets =
-            iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
+        let x_offsets = iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
         let x_tile = T::load(
             x_ptr.add_offsets(x_offsets),
             Some(load_mask),

@@ -97,11 +97,11 @@ pub fn conv2d_bn_silu_tiled_forward<
     let c_out_start = n_tile * BLOCK_N;
 
     // 1-D lane ranges
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;      // [BLOCK_OW]
+    let ow_range = T::arange(0, BLOCK_OW) + ow_start; // [BLOCK_OW]
     let c_out_range = T::arange(0, BLOCK_N) + c_out_start; // [BLOCK_N]
 
-    let ow_mask = ow_range.lt(OW);          // [BLOCK_OW] bool
-    let n_mask = c_out_range.lt(C_OUT);     // [BLOCK_N] bool
+    let ow_mask = ow_range.lt(OW); // [BLOCK_OW] bool
+    let n_mask = c_out_range.lt(C_OUT); // [BLOCK_N] bool
 
     // 2-D accumulator [BLOCK_N, BLOCK_OW]  (channel dim first — matches NCHW output).
     let mut acc = T::zeros::<f32>(&[BLOCK_N, BLOCK_OW]);
@@ -131,7 +131,10 @@ pub fn conv2d_bn_silu_tiled_forward<
             Some(x_load_mask),
             Some(T::zeros::<f32>(&[BLOCK_OW])),
             &[],
-            None, None, None, false,
+            None,
+            None,
+            None,
+            false,
         );
 
         // ── w_row [BLOCK_N]: weights for BLOCK_N output channels at this k ─────
@@ -144,7 +147,10 @@ pub fn conv2d_bn_silu_tiled_forward<
             Some(n_mask),
             Some(T::zeros::<f32>(&[BLOCK_N])),
             &[],
-            None, None, None, false,
+            None,
+            None,
+            None,
+            false,
         );
 
         // ── Outer product: w_row[:,None] * x_col[None,:] → [BLOCK_N, BLOCK_OW] ─
@@ -158,13 +164,21 @@ pub fn conv2d_bn_silu_tiled_forward<
         bn_scale_ptr.add_offsets(c_out_range),
         Some(n_mask),
         Some(T::zeros::<f32>(&[BLOCK_N])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let bn_shift = T::load(
         bn_shift_ptr.add_offsets(c_out_range),
         Some(n_mask),
         Some(T::zeros::<f32>(&[BLOCK_N])),
-        &[], None, None, None, false,
+        &[],
+        None,
+        None,
+        None,
+        false,
     );
     let scale_2d = T::broadcast_to(T::expand_dims(bn_scale, 1), &[BLOCK_N, BLOCK_OW]);
     let shift_2d = T::broadcast_to(T::expand_dims(bn_shift, 1), &[BLOCK_N, BLOCK_OW]);
@@ -203,10 +217,12 @@ pub fn conv2d_bn_silu_tiled_forward<
 //                  B, C_IN, C_OUT, H, W, OH, OW, y_col_stride
 
 impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
-        let c_in  = input_shapes[0][1];
+        let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
         vec![
             vec![c_out, c_in, self.kh as usize, self.kw as usize],
@@ -250,29 +266,32 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
         let oh = output_shape[2] as i32;
         // output_row_stride == y_col_stride (the per-oh-row column stride).
         let y_col_stride = output_row_stride;
-        visitor.visit_ptr(inputs[0].0);              // x_ptr
-        visitor.visit_ptr(params[0]);                // w_ptr
-        visitor.visit_ptr(params[1]);                // bn_scale_ptr
-        visitor.visit_ptr(params[2]);                // bn_shift_ptr
-        visitor.visit_ptr(output);                   // y_ptr
-        visitor.visit_i32(input_shape[0] as i32);    // B
-        visitor.visit_i32(input_shape[1] as i32);    // C_IN
-        visitor.visit_i32(output_shape[1] as i32);   // C_OUT
-        visitor.visit_i32(input_shape[2] as i32);    // H
-        visitor.visit_i32(input_shape[3] as i32);    // W
-        visitor.visit_i32(oh);                       // OH
-        visitor.visit_i32(output_shape[3] as i32);   // OW
-        visitor.visit_i32(y_col_stride);             // y_col_stride
+        visitor.visit_ptr(inputs[0].0); // x_ptr
+        visitor.visit_ptr(params[0]); // w_ptr
+        visitor.visit_ptr(params[1]); // bn_scale_ptr
+        visitor.visit_ptr(params[2]); // bn_shift_ptr
+        visitor.visit_ptr(output); // y_ptr
+        visitor.visit_i32(input_shape[0] as i32); // B
+        visitor.visit_i32(input_shape[1] as i32); // C_IN
+        visitor.visit_i32(output_shape[1] as i32); // C_OUT
+        visitor.visit_i32(input_shape[2] as i32); // H
+        visitor.visit_i32(input_shape[3] as i32); // W
+        visitor.visit_i32(oh); // OH
+        visitor.visit_i32(output_shape[3] as i32); // OW
+        visitor.visit_i32(y_col_stride); // y_col_stride
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
-        let num_n_tiles  = output_shape[1].div_ceil(self.block_n as usize);
+        let num_n_tiles = output_shape[1].div_ceil(self.block_n as usize);
         [
             (output_shape[0] * output_shape[2] * num_n_tiles * num_ow_tiles) as u32,
-            1, 1,
+            1,
+            1,
         ]
     }
 }

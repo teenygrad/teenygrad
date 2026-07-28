@@ -39,32 +39,25 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{
-    compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing,
-};
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
 
-const B:       usize = 2;
-const C:       usize = 4;
-const H:       usize = 4;
-const W:       usize = 4;
-const SCALE_H: i32   = 2;
-const SCALE_W: i32   = 2;
-const OH:      usize = H * SCALE_H as usize;  // 8
-const OW:      usize = W * SCALE_W as usize;  // 8
-const BLOCK_OW: i32  = 4;
+const B: usize = 2;
+const C: usize = 4;
+const H: usize = 4;
+const W: usize = 4;
+const SCALE_H: i32 = 2;
+const SCALE_W: i32 = 2;
+const OH: usize = H * SCALE_H as usize; // 8
+const OW: usize = W * SCALE_W as usize; // 8
+const BLOCK_OW: i32 = 4;
 
 // ── Fixture loader ─────────────────────────────────────────────────────────────
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -77,9 +70,10 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
-        SCALE_H, SCALE_W, BLOCK_OW,
-    );
+    let kernel =
+        teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
+            SCALE_H, SCALE_W, BLOCK_OW,
+        );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -94,9 +88,10 @@ fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
 fn test_upsample_nearest2d_backward_snapshot() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
-        SCALE_H, SCALE_W, BLOCK_OW,
-    );
+    let kernel =
+        teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
+            SCALE_H, SCALE_W, BLOCK_OW,
+        );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -116,19 +111,20 @@ fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host    = load_fixture("upsample_nearest2d/x.bin");
-    let expected  = load_fixture("upsample_nearest2d/expected_forward.bin");
+    let x_host = load_fixture("upsample_nearest2d/x.bin");
+    let expected = load_fixture("upsample_nearest2d/expected_forward.bin");
 
-    assert_eq!(x_host.len(),   B * C * H * W);
+    assert_eq!(x_host.len(), B * C * H * W);
     assert_eq!(expected.len(), B * C * OH * OW);
 
     let mut x_buf = device.buffer::<f32>(B * C * H * W)?;
-    let y_buf     = device.buffer::<f32>(B * C * OH * OW)?;
+    let y_buf = device.buffer::<f32>(B * C * OH * OW)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
-        SCALE_H, SCALE_W, BLOCK_OW,
-    );
+    let kernel =
+        teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
+            SCALE_H, SCALE_W, BLOCK_OW,
+        );
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<
@@ -138,16 +134,25 @@ fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
     // Grid: B*C*OH * ceil(OW/BLOCK_OW)
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
     let cfg = CudaLaunchConfig {
-        grid:    [(B * C * OH * num_ow_tiles) as u32, 1, 1],
-        block:   [128, 1, 1],
+        grid: [(B * C * OH * num_ow_tiles) as u32, 1, 1],
+        block: [128, 1, 1],
         cluster: [1, 1, 1],
     };
 
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        B as i32, C as i32, H as i32, W as i32, OH as i32, OW as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            B as i32,
+            C as i32,
+            H as i32,
+            W as i32,
+            OH as i32,
+            OW as i32,
+        ),
+    )?;
 
     let mut y_host = vec![0.0f32; B * C * OH * OW];
     y_buf.to_host(&mut y_host)?;
@@ -172,19 +177,20 @@ fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host  = load_fixture("upsample_nearest2d/dy.bin");
+    let dy_host = load_fixture("upsample_nearest2d/dy.bin");
     let expected = load_fixture("upsample_nearest2d/expected_backward.bin");
 
     assert_eq!(dy_host.len(), B * C * OH * OW);
     assert_eq!(expected.len(), B * C * H * W);
 
     let mut dy_buf = device.buffer::<f32>(B * C * OH * OW)?;
-    let dx_buf     = device.buffer::<f32>(B * C * H * W)?;
+    let dx_buf = device.buffer::<f32>(B * C * H * W)?;
     dy_buf.to_device(&dy_host)?;
 
-    let kernel = teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
-        SCALE_H, SCALE_W, BLOCK_OW,
-    );
+    let kernel =
+        teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
+            SCALE_H, SCALE_W, BLOCK_OW,
+        );
     let target = Target::new(env.capability);
     let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
     let program = testing::load_program_from_ptx::<
@@ -194,16 +200,25 @@ fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
     // Grid: B*C*H * ceil(W/BLOCK_IW) — over input positions.
     let num_iw_tiles = W.div_ceil(BLOCK_OW as usize);
     let cfg = CudaLaunchConfig {
-        grid:    [(B * C * H * num_iw_tiles) as u32, 1, 1],
-        block:   [128, 1, 1],
+        grid: [(B * C * H * num_iw_tiles) as u32, 1, 1],
+        block: [128, 1, 1],
         cluster: [1, 1, 1],
     };
 
-    device.launch(&program, &cfg, (
-        dy_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        B as i32, C as i32, H as i32, W as i32, OH as i32, OW as i32,
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            dy_buf.as_device_ptr() as *mut f32,
+            dx_buf.as_device_ptr() as *mut f32,
+            B as i32,
+            C as i32,
+            H as i32,
+            W as i32,
+            OH as i32,
+            OW as i32,
+        ),
+    )?;
 
     let mut dx_host = vec![0.0f32; B * C * H * W];
     dx_buf.to_host(&mut dx_host)?;
@@ -212,7 +227,8 @@ fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-5,
             "upsample backward mismatch at {i}: got={} expected={}",
-            dx_host[i], expected[i],
+            dx_host[i],
+            expected[i],
         );
     }
 

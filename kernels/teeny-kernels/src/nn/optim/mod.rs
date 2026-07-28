@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-pub mod adam;
 pub mod adagrad;
+pub mod adam;
 pub mod adamax;
 pub mod asgd;
 pub mod muon;

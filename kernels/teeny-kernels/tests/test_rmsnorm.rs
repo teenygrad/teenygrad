@@ -116,16 +116,24 @@ fn test_rms_norm_forward_cuda() -> Result<()> {
         teeny_kernels::nn::norm::rmsnorm::RmsNormForward<f32>,
     >(&ptx)?;
 
-    let cfg = CudaLaunchConfig { grid: [M as u32, 1, 1], block: [PTX_LAUNCH_THREADS_X, 1, 1], cluster: [1, 1, 1] };
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        rrms_buf.as_device_ptr() as *mut f32,
-        M as i32,
-        N as i32,
-        EPS,
-    ))?;
+    let cfg = CudaLaunchConfig {
+        grid: [M as u32, 1, 1],
+        block: [PTX_LAUNCH_THREADS_X, 1, 1],
+        cluster: [1, 1, 1],
+    };
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr() as *mut f32,
+            y_buf.as_device_ptr() as *mut f32,
+            w_buf.as_device_ptr() as *mut f32,
+            rrms_buf.as_device_ptr() as *mut f32,
+            M as i32,
+            N as i32,
+            EPS,
+        ),
+    )?;
 
     y_buf.to_host(&mut y_host)?;
     rrms_buf.to_host(&mut rrms_host)?;

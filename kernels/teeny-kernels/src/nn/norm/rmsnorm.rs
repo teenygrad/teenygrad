@@ -98,9 +98,25 @@ pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         let y_tile = x_tile * rrms * gamma;
-        T::store(y_ptr.add_offsets(col_offs + row_start), y_tile, Some(mask), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(col_offs + row_start),
+            y_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         n_start += BLOCK_N;
     }
 }
@@ -139,7 +155,16 @@ pub fn rms_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     let zero_1 = T::zeros::<D>(&[1]);
     let n_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false);
 
-    let rrms_1 = T::load(rrms_ptr.add_offsets(row_idx), None, None, &[], None, None, None, false);
+    let rrms_1 = T::load(
+        rrms_ptr.add_offsets(row_idx),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let rrms = T::broadcast_to(rrms_1, &[BLOCK_N]);
 
     // ── Pass 1: Σ dy * γ * x ─────────────────────────────────────────────────
@@ -168,7 +193,16 @@ pub fn rms_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         dot = dot + T::sum(dy_tile * gamma * x_tile, None, true);
         n_start += BLOCK_N;
     }
@@ -200,12 +234,44 @@ pub fn rms_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
             None,
             false,
         );
-        let gamma = T::load(weight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
-        let dw_old = T::load(dweight_ptr.add_offsets(col_offs), Some(mask), Some(zeros), &[], None, None, None, false);
+        let gamma = T::load(
+            weight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let dw_old = T::load(
+            dweight_ptr.add_offsets(col_offs),
+            Some(mask),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
 
         let dx_tile = rrms * gamma * (dy_tile - x_tile * rrms_sq * scale);
-        T::store(dx_ptr.add_offsets(col_offs + row_start), dx_tile, Some(mask), &[], None, None);
-        T::store(dweight_ptr.add_offsets(col_offs), dw_old + dy_tile * x_tile * rrms, Some(mask), &[], None, None);
+        T::store(
+            dx_ptr.add_offsets(col_offs + row_start),
+            dx_tile,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            dweight_ptr.add_offsets(col_offs),
+            dw_old + dy_tile * x_tile * rrms,
+            Some(mask),
+            &[],
+            None,
+            None,
+        );
         n_start += BLOCK_N;
     }
 }

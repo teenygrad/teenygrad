@@ -23,9 +23,7 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{
-    compiler::target::Capability, errors::Result, testing, device::CudaLaunchConfig,
-};
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
 
 const B: usize = 2;
 const C: usize = 4;
@@ -59,7 +57,9 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_avgpool2d_forward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+    );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -74,7 +74,9 @@ fn test_avgpool2d_forward_mlir_output() -> Result<()> {
 fn test_avgpool2d_backward_mlir_output() -> Result<()> {
     dotenv()?;
 
-    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dBackward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dBackward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+    );
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -105,7 +107,9 @@ fn test_avgpool2d_forward_cuda() -> Result<()> {
 
     input_buf.to_device(&input_host)?;
 
-    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[avgpool2d_forward] compiled PTX: {ptx_path}");
@@ -168,7 +172,9 @@ fn test_avgpool2d_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
     dx_zero_buf.to_device(&zeros)?;
 
-    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dBackward::<f32>::new(KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW);
+    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dBackward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+    );
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[avgpool2d_backward] compiled PTX: {ptx_path}");

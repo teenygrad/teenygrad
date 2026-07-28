@@ -30,13 +30,8 @@ const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
 fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        rel
-    );
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
     bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))

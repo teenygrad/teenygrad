@@ -130,7 +130,9 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 }
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxForward<D> {
-    fn n_activation_inputs(&self) -> usize { 1 }
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         Vec::new()
@@ -154,7 +156,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxF
         visitor.visit_i32(n_cols);
     }
 
-    fn block(&self) -> [u32; 3] { [128, 1, 1] }
+    fn block(&self) -> [u32; 3] {
+        [128, 1, 1]
+    }
 
     // One CTA per row.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

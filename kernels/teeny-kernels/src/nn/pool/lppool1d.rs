@@ -204,8 +204,16 @@ pub fn lppool1d_backward<
         let safe_abs = T::maximum(abs_x, eps_vec);
 
         // sign(x): 1.0 if x > 0, -1.0 if x < 0, 0.0 if x == 0.
-        let pos = T::where_(T::gt(x_f32, zeros_f32), T::full(&[BLOCK_OL], 1.0_f32), zeros_f32);
-        let neg = T::where_(T::gt(zeros_f32, x_f32), T::full(&[BLOCK_OL], 1.0_f32), zeros_f32);
+        let pos = T::where_(
+            T::gt(x_f32, zeros_f32),
+            T::full(&[BLOCK_OL], 1.0_f32),
+            zeros_f32,
+        );
+        let neg = T::where_(
+            T::gt(zeros_f32, x_f32),
+            T::full(&[BLOCK_OL], 1.0_f32),
+            zeros_f32,
+        );
         let sign_x = pos - neg;
 
         // (|x| / y)^(p-1) = exp((p-1) * log(|x| / y))

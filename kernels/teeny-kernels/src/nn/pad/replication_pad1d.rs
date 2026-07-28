@@ -109,7 +109,11 @@ pub fn replication_pad1d_forward<
         false,
     );
 
-    let result = T::where_(cond_left, val_left, T::where_(cond_right, val_right, val_center));
+    let result = T::where_(
+        cond_left,
+        val_left,
+        T::where_(cond_right, val_right, val_center),
+    );
 
     let out_offsets = ol_range + out_bc_base;
     T::store(

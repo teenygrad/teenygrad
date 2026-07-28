@@ -42,12 +42,28 @@ pub fn elu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x       = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one     = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let alpha_t = T::full(&[BLOCK_SIZE], D::from_f64(alpha as f64));
-    let x_pos   = T::gt(x, T::zeros_like(x));
-    let y       = T::where_(x_pos, x, alpha_t * (T::exp(x) - one));
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let x_pos = T::gt(x, T::zeros_like(x));
+    let y = T::where_(x_pos, x, alpha_t * (T::exp(x) - one));
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if x > 0 else dy * alpha * exp(x)
@@ -68,12 +84,37 @@ pub fn elu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy      = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x       = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let alpha_t = T::full(&[BLOCK_SIZE], D::from_f64(alpha as f64));
-    let x_pos   = T::gt(x, T::zeros_like(x));
-    let dx      = T::where_(x_pos, dy, dy * alpha_t * T::exp(x));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let x_pos = T::gt(x, T::zeros_like(x));
+    let dx = T::where_(x_pos, dy, dy * alpha_t * T::exp(x));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── SELU ─────────────────────────────────────────────────────────────────────
@@ -94,13 +135,29 @@ pub fn selu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x       = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let one     = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let scale   = T::full(&[BLOCK_SIZE], D::from_f64(1.0507009873554804));
-    let alpha   = T::full(&[BLOCK_SIZE], D::from_f64(1.6732632423543772));
-    let x_pos   = T::gt(x, T::zeros_like(x));
-    let y       = scale * T::where_(x_pos, x, alpha * (T::exp(x) - one));
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let scale = T::full(&[BLOCK_SIZE], D::from_f64(1.0507009873554804));
+    let alpha = T::full(&[BLOCK_SIZE], D::from_f64(1.6732632423543772));
+    let x_pos = T::gt(x, T::zeros_like(x));
+    let y = scale * T::where_(x_pos, x, alpha * (T::exp(x) - one));
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = SCALE*dy if x > 0 else dy * SCALE*ALPHA*exp(x)
@@ -120,13 +177,38 @@ pub fn selu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy           = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x            = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
-    let scale        = T::full(&[BLOCK_SIZE], D::from_f64(1.0507009873554804));
-    let scale_alpha  = T::full(&[BLOCK_SIZE], D::from_f64(1.7580993408473766));
-    let x_pos        = T::gt(x, T::zeros_like(x));
-    let dx           = T::where_(x_pos, dy * scale, dy * scale_alpha * T::exp(x));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let scale = T::full(&[BLOCK_SIZE], D::from_f64(1.0507009873554804));
+    let scale_alpha = T::full(&[BLOCK_SIZE], D::from_f64(1.7580993408473766));
+    let x_pos = T::gt(x, T::zeros_like(x));
+    let dx = T::where_(x_pos, dy * scale, dy * scale_alpha * T::exp(x));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ── CELU ─────────────────────────────────────────────────────────────────────
@@ -148,14 +230,30 @@ pub fn celu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let x         = T::load(x_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let zero      = T::zeros_like(x);
-    let one       = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let alpha_t   = T::full(&[BLOCK_SIZE], D::from_f64(alpha as f64));
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let zero = T::zeros_like(x);
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let alpha_t = T::full(&[BLOCK_SIZE], D::from_f64(alpha as f64));
     let inv_alpha = T::full(&[BLOCK_SIZE], D::from_f64(1.0 / alpha as f64));
-    let elu_neg   = alpha_t * (T::exp(x * inv_alpha) - one);
-    let y         = T::maximum(zero, x) + T::minimum(zero, elu_neg);
-    T::store(y_ptr.add_offsets(offsets), y, Some(in_bounds), &[], None, None);
+    let elu_neg = alpha_t * (T::exp(x * inv_alpha) - one);
+    let y = T::maximum(zero, x) + T::minimum(zero, elu_neg);
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Backward: dx = dy if x >= 0 else dy * exp(x/alpha)
@@ -176,14 +274,38 @@ pub fn celu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let offsets = T::arange(0, BLOCK_SIZE) + block_start;
     let in_bounds = offsets.lt(n_elements);
 
-    let dy        = T::load(dy_ptr.add_offsets(offsets), Some(in_bounds), None, &[], None, None, None, false);
-    let x         = T::load(x_ptr.add_offsets(offsets),  Some(in_bounds), None, &[], None, None, None, false);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     let inv_alpha = T::full(&[BLOCK_SIZE], D::from_f64(1.0 / alpha as f64));
     let x_ge_zero = T::ge(x, T::zeros_like(x));
-    let dx        = T::where_(x_ge_zero, dy, dy * T::exp(x * inv_alpha));
-    T::store(dx_ptr.add_offsets(offsets), dx, Some(in_bounds), &[], None, None);
+    let dx = T::where_(x_ge_zero, dy, dy * T::exp(x * inv_alpha));
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
-
 
 pub struct EluOp<D: Float> {
     pub forward: EluForward<D>,
