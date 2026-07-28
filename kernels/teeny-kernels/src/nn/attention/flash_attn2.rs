@@ -30,6 +30,7 @@
 //! inner vector loads are always fully unmasked.
 
 use core::marker::PhantomData;
+use teeny_core::dtype::Float;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
@@ -49,12 +50,12 @@ use teeny_triton::triton::{
 ///
 /// Grid: `(N_CTX_Q, BH, 1)` — one CTA per `(batch_head, q_row)` pair.
 #[kernel]
-pub fn flash_attention2_forward<T: Triton, const HEAD_DIM: i32>(
-    q_ptr: T::Pointer<f32>,
-    k_ptr: T::Pointer<f32>,
-    v_ptr: T::Pointer<f32>,
-    o_ptr: T::Pointer<f32>,
-    l_ptr: T::Pointer<f32>,
+pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
+    q_ptr: T::Pointer<D>,
+    k_ptr: T::Pointer<D>,
+    v_ptr: T::Pointer<D>,
+    o_ptr: T::Pointer<D>,
+    l_ptr: T::Pointer<D>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32, // 1 / sqrt(HEAD_DIM)
@@ -62,7 +63,7 @@ pub fn flash_attention2_forward<T: Triton, const HEAD_DIM: i32>(
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid_m = T::program_id(Axis::X); // query-row index  [0, n_ctx_q)
     let pid_bh = T::program_id(Axis::Y); // (batch, head)    [0, BH)
@@ -89,10 +90,10 @@ pub fn flash_attention2_forward<T: Triton, const HEAD_DIM: i32>(
 
     // Online-softmax running state — all kept as [HEAD_DIM] tensors so that
     // all scf.for iter-args have the same shape (Triton requires this).
-    let mut acc = T::zeros::<f32>(&[HEAD_DIM]);
-    let mut m_i = T::full::<f32>(&[HEAD_DIM], neg_inf);
-    let mut l_i = T::zeros::<f32>(&[HEAD_DIM]);
-    let scale_t = T::full::<f32>(&[HEAD_DIM], softmax_scale);
+    let mut acc = T::zeros::<D>(&[HEAD_DIM]);
+    let mut m_i = T::full(&[HEAD_DIM], D::from_f64(neg_inf as f64));
+    let mut l_i = T::zeros::<D>(&[HEAD_DIM]);
+    let scale_t = T::full(&[HEAD_DIM], D::from_f64(softmax_scale as f64));
 
     for k_row in 0..n_ctx_k {
         let kv_row_base = kv_bh_base + k_row * HEAD_DIM;
@@ -134,9 +135,9 @@ pub fn flash_attention2_forward<T: Triton, const HEAD_DIM: i32>(
     // Normalise output and compute logsumexp for backward.
     let o_row = acc / l_i; // [HD] / [HD] → [HD]
     // All elements of m_i and l_i are equal (replicated scalar). Sum and divide
-    // by HEAD_DIM to recover the scalar as tensor<1xf32> for the l_ptr store.
-    let l_save_sum = T::sum(m_i + T::log(l_i), Some(0), false); // scalar f32
-    let l_save = l_save_sum / T::full::<f32>(&[1], HEAD_DIM as f32); // tensor<1xf32>
+    // by HEAD_DIM to recover the scalar as tensor<1xD> for the l_ptr store.
+    let l_save_sum = T::sum(m_i + T::log(l_i), Some(0), false);
+    let l_save = l_save_sum / T::full(&[1], D::from_f64(HEAD_DIM as f64));
 
     T::store(o_ptr.add_offsets(d + o_row_base), o_row, None, &[], None, None);
     T::store(
@@ -163,21 +164,21 @@ pub fn flash_attention2_forward<T: Triton, const HEAD_DIM: i32>(
 ///
 /// Grid: `(N_CTX_Q, BH, 1)` — same grid shape as the forward pass.
 #[kernel]
-pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
-    q_ptr: T::Pointer<f32>,
-    k_ptr: T::Pointer<f32>,
-    v_ptr: T::Pointer<f32>,
-    o_ptr: T::Pointer<f32>,
-    do_ptr: T::Pointer<f32>,
-    l_ptr: T::Pointer<f32>,
-    dq_ptr: T::Pointer<f32>,
+pub fn flash_attention2_backward_dq<T: Triton, D: Float, const HEAD_DIM: i32>(
+    q_ptr: T::Pointer<D>,
+    k_ptr: T::Pointer<D>,
+    v_ptr: T::Pointer<D>,
+    o_ptr: T::Pointer<D>,
+    do_ptr: T::Pointer<D>,
+    l_ptr: T::Pointer<D>,
+    dq_ptr: T::Pointer<D>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32,
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid_m = T::program_id(Axis::X);
     let pid_bh = T::program_id(Axis::Y);
@@ -187,7 +188,7 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
     let l_row_base = pid_bh * n_ctx_q + pid_m;
 
     let d = T::arange(0, HEAD_DIM);
-    let scale_t = T::full::<f32>(&[HEAD_DIM], softmax_scale);
+    let scale_t = T::full(&[HEAD_DIM], D::from_f64(softmax_scale as f64));
 
     let q_vec = T::load(
         q_ptr.add_offsets(d + q_row_base),
@@ -234,9 +235,9 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
         None,
         false,
     );
-    let l_q = T::sum(l_q_raw, Some(0), false); // scalar f32
+    let l_q = T::sum(l_q_raw, Some(0), false);
 
-    let mut dq_acc = T::zeros::<f32>(&[HEAD_DIM]);
+    let mut dq_acc = T::zeros::<D>(&[HEAD_DIM]);
 
     for k_row in 0..n_ctx_k {
         let kv_row_base = kv_bh_base + k_row * HEAD_DIM;
@@ -301,22 +302,22 @@ pub fn flash_attention2_backward_dq<T: Triton, const HEAD_DIM: i32>(
 ///
 /// Grid: `(N_CTX_K, BH, 1)`.
 #[kernel]
-pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
-    q_ptr: T::Pointer<f32>,
-    k_ptr: T::Pointer<f32>,
-    v_ptr: T::Pointer<f32>,
-    o_ptr: T::Pointer<f32>,
-    do_ptr: T::Pointer<f32>,
-    l_ptr: T::Pointer<f32>,
-    dk_ptr: T::Pointer<f32>,
-    dv_ptr: T::Pointer<f32>,
+pub fn flash_attention2_backward_dkv<T: Triton, D: Float, const HEAD_DIM: i32>(
+    q_ptr: T::Pointer<D>,
+    k_ptr: T::Pointer<D>,
+    v_ptr: T::Pointer<D>,
+    o_ptr: T::Pointer<D>,
+    do_ptr: T::Pointer<D>,
+    l_ptr: T::Pointer<D>,
+    dk_ptr: T::Pointer<D>,
+    dv_ptr: T::Pointer<D>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32,
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid_n = T::program_id(Axis::X); // key-row index  [0, n_ctx_k)
     let pid_bh = T::program_id(Axis::Y); // (batch, head)  [0, BH)
@@ -326,7 +327,7 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
     let l_bh_base = pid_bh * n_ctx_q;
 
     let d = T::arange(0, HEAD_DIM);
-    let scale_t = T::full::<f32>(&[HEAD_DIM], softmax_scale);
+    let scale_t = T::full(&[HEAD_DIM], D::from_f64(softmax_scale as f64));
 
     // Load K_n and V_n — fixed for this CTA.
     let k_vec = T::load(
@@ -350,8 +351,8 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
         false,
     );
 
-    let mut dk_acc = T::zeros::<f32>(&[HEAD_DIM]);
-    let mut dv_acc = T::zeros::<f32>(&[HEAD_DIM]);
+    let mut dk_acc = T::zeros::<D>(&[HEAD_DIM]);
+    let mut dv_acc = T::zeros::<D>(&[HEAD_DIM]);
 
     for q_row in 0..n_ctx_q {
         let q_row_base = q_bh_base + q_row * HEAD_DIM;
@@ -387,7 +388,7 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
             None,
             false,
         );
-        // Load logsumexp L_m; reduce tensor<1xf32> to scalar.
+        // Load logsumexp L_m; reduce tensor<1xD> to scalar.
         let l_m_raw = T::load(
             l_ptr.add_offsets(T::arange(0, 1) + l_row_base),
             None,
@@ -398,7 +399,7 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
             None,
             false,
         );
-        let l_m = T::sum(l_m_raw, Some(0), false); // scalar f32
+        let l_m = T::sum(l_m_raw, Some(0), false);
 
         // D_m = rowsum(O_m * dO_m) — scalar
         let d_m = T::sum(o_vec_m * do_vec_m, Some(0), false);
@@ -438,19 +439,19 @@ pub fn flash_attention2_backward_dkv<T: Triton, const HEAD_DIM: i32>(
 
 // ── Op wrapper ────────────────────────────────────────────────────────────────
 
-pub struct FlashAttention2Op<'a> {
-    pub forward: FlashAttention2Forward,
-    pub backward_dq: FlashAttention2BackwardDq,
-    pub backward_dkv: FlashAttention2BackwardDkv,
+pub struct FlashAttention2Op<'a, D: Float + Send + Sync + 'static> {
+    pub forward: FlashAttention2Forward<D>,
+    pub backward_dq: FlashAttention2BackwardDq<D>,
+    pub backward_dkv: FlashAttention2BackwardDkv<D>,
     _marker: PhantomData<&'a ()>,
 }
 
-impl<'a> FlashAttention2Op<'a> {
+impl<'a, D: Float + Send + Sync + 'static> FlashAttention2Op<'a, D> {
     pub fn new(head_dim: i32) -> Self {
         Self {
-            forward: FlashAttention2Forward::new(head_dim),
-            backward_dq: FlashAttention2BackwardDq::new(head_dim),
-            backward_dkv: FlashAttention2BackwardDkv::new(head_dim),
+            forward: FlashAttention2Forward::<D>::new(head_dim),
+            backward_dq: FlashAttention2BackwardDq::<D>::new(head_dim),
+            backward_dkv: FlashAttention2BackwardDkv::<D>::new(head_dim),
             _marker: PhantomData,
         }
     }

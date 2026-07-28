@@ -64,7 +64,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 fn test_flash_attention2_forward_snapshot() -> Result<()> {
     dotenv().ok();
 
-    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::new(HEAD_DIM);
+    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::<f32>::new(HEAD_DIM);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -104,14 +104,14 @@ fn test_flash_attention2_forward_cuda() -> Result<()> {
     k_buf.to_device(&k_host)?;
     v_buf.to_device(&v_host)?;
 
-    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::new(HEAD_DIM);
+    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::<f32>::new(HEAD_DIM);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[flash_attention2_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward,
+        teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward<f32>,
     >(&ptx)?;
 
     let cfg = CudaLaunchConfig {
@@ -162,7 +162,7 @@ fn test_flash_attention2_forward_cuda() -> Result<()> {
 fn test_flash_attention2_backward_dq_snapshot() -> Result<()> {
     dotenv().ok();
 
-    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::new(HEAD_DIM);
+    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::<f32>::new(HEAD_DIM);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -177,7 +177,7 @@ fn test_flash_attention2_backward_dq_snapshot() -> Result<()> {
 fn test_flash_attention2_backward_dkv_snapshot() -> Result<()> {
     dotenv().ok();
 
-    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::new(HEAD_DIM);
+    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::<f32>::new(HEAD_DIM);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
@@ -220,14 +220,14 @@ fn test_flash_attention2_backward_dq_cuda() -> Result<()> {
     do_buf.to_device(&do_host)?;
     l_buf.to_device(&l_host_f)?;
 
-    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::new(HEAD_DIM);
+    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::<f32>::new(HEAD_DIM);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[flash_attention2_backward_dq] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq,
+        teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq<f32>,
     >(&ptx)?;
 
     let cfg = CudaLaunchConfig {
@@ -297,14 +297,14 @@ fn test_flash_attention2_backward_dkv_cuda() -> Result<()> {
     do_buf.to_device(&do_host)?;
     l_buf.to_device(&l_host_f)?;
 
-    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::new(HEAD_DIM);
+    let kernel = teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::<f32>::new(HEAD_DIM);
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true)?;
     println!("[flash_attention2_backward_dkv] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv,
+        teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv<f32>,
     >(&ptx)?;
 
     let cfg = CudaLaunchConfig {

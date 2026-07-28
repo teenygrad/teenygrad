@@ -180,7 +180,14 @@ fn apply_filter(
 
     let filtered = contents
         .lines()
-        .filter(|line| !(line.starts_with("pub mod") && line.ends_with(";")))
+        // Drop submodule declarations — the DSL only embeds dtype/mod.rs itself,
+        // so host-only submodules like `bytes` (FloatBytes) must not appear.
+        .filter(|line| {
+            let t = line.trim_start();
+            !(t.starts_with("pub mod") && t.ends_with(';'))
+                && !t.starts_with("pub use bytes::")
+                && !t.starts_with("pub use self::bytes::")
+        })
         .collect::<Vec<&str>>()
         .join("\n")
         .to_string();
