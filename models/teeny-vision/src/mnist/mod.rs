@@ -41,6 +41,7 @@
 //! This example traces the model symbolically using `SymTensor`, extracts the
 //! computation graph, and prints every node in topological order.
 
+/// MNIST parquet dataset reading.
 pub mod dataset;
 pub use dataset::{MnistBatch, MnistDataset};
 
@@ -153,6 +154,8 @@ pub fn mnist_mlp<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
     ]
 }
 
+/// Another LeNet-5 pipeline (see [`mnist_lenet5`]), with biased convolutions and same-padding on
+/// the first layer.
 pub fn mnist<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
     // -----------------------------------------------------------------------
     // Build the LeNet-5 model as a sequential pipeline.

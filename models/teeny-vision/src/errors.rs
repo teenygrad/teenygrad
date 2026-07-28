@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
+/// `teeny-vision`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Errors produced by `teeny-vision`.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// An error that doesn't fit a more specific variant.
     #[error("Unknown error: {0}")]
     UnknownError(String),
 }

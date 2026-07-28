@@ -14,5 +14,7 @@
  * limitations under the License.
  */
 
+/// The LLVM/MLIR backend's [`compiler::LlvmCompiler`].
 pub mod compiler;
+/// The LLVM/MLIR backend's [`module::MlirModule`].
 pub mod module;

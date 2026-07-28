@@ -22,8 +22,13 @@
 //! *runtime* (via `TEENYC_PATH`) — not needed to build this crate itself. See the crate README
 //! for the `cargo-teeny`/`TEENYC_PATH` setup.
 
+#![warn(missing_docs)]
+
+/// Compilation backends and drivers (LLVM/MLIR, `ndarray`).
 pub mod compiler;
+/// Error types.
 pub mod errors;
+/// FXGraph, the compiler's intermediate representation.
 pub mod fxgraph;
 
 /// Initialize logging for the teeny-compiler

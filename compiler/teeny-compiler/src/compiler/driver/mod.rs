@@ -14,4 +14,5 @@
  * limitations under the License.
  */
 
+/// CUDA kernel compilation driver.
 pub mod cuda;

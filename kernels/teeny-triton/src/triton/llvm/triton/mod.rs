@@ -20,11 +20,20 @@ use super::super::{
     MemSem, PaddingOption, types as ty,
 };
 
+/// Numeric-kind marker types used by [`LlvmTriton`]'s `Tensor`/`Pointer` associated types.
 pub mod num;
+/// [`LlvmTriton`]'s `Pointer` implementation.
 pub mod pointer;
+/// [`LlvmTriton`]'s `Tensor`/`BoolTensor`/`I32Tensor` implementations.
 pub mod tensor;
+/// Type aliases used by [`LlvmTriton`]'s trait implementation.
 pub mod types;
 
+/// A host-side, type-check-only implementation of [`Triton`]: every method returns a dummy
+/// zero/null value rather than executing real logic. This lets kernel bodies written against the
+/// `Triton` trait compile and type-check on the host; the *real* computation only happens when
+/// the same DSL source is compiled through the `teenyc`/`--frontend=triton` path (see the crate
+/// docs).
 pub struct LlvmTriton {}
 
 impl Triton for LlvmTriton {

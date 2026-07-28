@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+/// The `ndarray`-backed CPU compilation backend.
 #[derive(Debug, Clone, Default)]
 pub struct NdarrayCompiler {}
 
 impl NdarrayCompiler {
+    /// Creates a new `ndarray` compiler.
     pub fn new() -> Self {
         Self {}
     }

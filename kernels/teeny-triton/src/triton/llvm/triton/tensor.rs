@@ -20,6 +20,8 @@ use super::super::super::types::{self as ty};
 
 /*--------------------------------- Tensor ---------------------------------*/
 
+/// [`super::LlvmTriton`]'s dummy `Tensor` type: a raw pointer wrapper, always null in practice
+/// (see [`super::LlvmTriton`]'s docs).
 pub struct LlvmTensor<D: ty::Dtype>(pub *mut D);
 impl<D: ty::Dtype> Clone for LlvmTensor<D> {
     fn clone(&self) -> Self {
@@ -83,6 +85,7 @@ impl<D: ty::Dtype> Neg for LlvmTensor<D> {
     }
 }
 
+/// [`super::LlvmTriton`]'s `BoolTensor` implementation.
 pub type LlvmBoolTensor = LlvmTensor<bool>;
 impl<const RANK: usize> ty::BoolTensor<RANK> for LlvmBoolTensor {}
 
@@ -104,6 +107,7 @@ impl BitOr for LlvmBoolTensor {
     }
 }
 
+/// [`super::LlvmTriton`]'s `I32Tensor` implementation.
 pub type LlvmI32Tensor = LlvmTensor<i32>;
 
 impl<const RANK: usize> ty::I32Tensor<RANK> for LlvmI32Tensor {}

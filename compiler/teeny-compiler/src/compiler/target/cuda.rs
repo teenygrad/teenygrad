@@ -19,11 +19,14 @@ use std::collections::HashMap;
 use crate::errors::{Error, Result};
 use teeny_core::compiler::Capability;
 
+/// A CUDA compilation target: a single GPU compute capability.
 pub struct Target {
+    /// The target GPU's compute capability.
     pub capability: Capability,
 }
 
 impl Target {
+    /// Creates a target for the given compute `capability`.
     pub fn new(capability: Capability) -> Self {
         Self { capability }
     }

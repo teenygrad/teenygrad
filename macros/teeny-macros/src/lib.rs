@@ -18,6 +18,8 @@
 //! [`macro@kernel`] attribute macro, used to mark functions as GPU/CPU kernel definitions
 //! consumed by `teeny-triton`/`teeny-kernels`.
 
+#![warn(missing_docs)]
+
 use proc_macro::TokenStream;
 
 mod macros;

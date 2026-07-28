@@ -62,10 +62,12 @@ impl MnistDataset {
         Ok(Self { path, num_rows })
     }
 
+    /// Total number of rows in the dataset.
     pub fn len(&self) -> usize {
         self.num_rows
     }
 
+    /// Whether the dataset has zero rows.
     pub fn is_empty(&self) -> bool {
         self.num_rows == 0
     }

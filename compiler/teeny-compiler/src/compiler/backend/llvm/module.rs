@@ -16,12 +16,14 @@
 
 use teeny_core::dtype;
 
+/// A module compiled by the LLVM/MLIR backend.
 #[derive(Debug, Clone, Default)]
 pub struct MlirModule<N: dtype::Dtype> {
     _marker: std::marker::PhantomData<N>,
 }
 
 impl<N: dtype::Dtype> MlirModule<N> {
+    /// Creates a new, empty MLIR module.
     pub fn new() -> Self {
         Self {
             _marker: std::marker::PhantomData,

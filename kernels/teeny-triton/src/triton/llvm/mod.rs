@@ -14,4 +14,5 @@
  * limitations under the License.
  */
 
+/// The `LlvmTriton` implementation of the [`super::Triton`] trait.
 pub mod triton;

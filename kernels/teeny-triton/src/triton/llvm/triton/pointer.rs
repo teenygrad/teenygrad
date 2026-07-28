@@ -20,6 +20,8 @@ use crate::triton::llvm::triton::tensor::{LlvmI32Tensor, LlvmTensor};
 
 use super::super::super::types::{self as ty};
 
+/// [`super::LlvmTriton`]'s dummy `Pointer` type: a raw pointer wrapper, always null in practice
+/// (see [`super::LlvmTriton`]'s docs).
 pub struct LlvmPointer<D: ty::Dtype>(pub *mut D);
 impl<D: ty::Dtype> Clone for LlvmPointer<D> {
     fn clone(&self) -> Self {

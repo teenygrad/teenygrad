@@ -18,5 +18,8 @@
 //! currently MNIST ([`mnist`], including a LeNet-5 definition used elsewhere in the workspace as
 //! a smoke test).
 
+#![warn(missing_docs)]
+
+/// Error types.
 pub mod errors;
 pub mod mnist;

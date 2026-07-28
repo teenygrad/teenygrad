@@ -16,12 +16,14 @@
 
 use teeny_core::dtype;
 
+/// A module compiled by the `ndarray` backend.
 #[derive(Debug, Clone, Default)]
 pub struct NdarrayModule<N: dtype::Dtype> {
     _marker: std::marker::PhantomData<N>,
 }
 
 impl<N: dtype::Dtype> NdarrayModule<N> {
+    /// Creates a new, empty `ndarray` module.
     pub fn new() -> Self {
         Self {
             _marker: std::marker::PhantomData,

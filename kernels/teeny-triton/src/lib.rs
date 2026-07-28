@@ -24,15 +24,22 @@
 // mirror Triton's own many-parameter, tensor-of-function-pointer signatures -- inherent to the
 // domain, not something to refactor away.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![warn(missing_docs)]
 
+/// Error types.
 pub mod error;
+/// The `Triton` DSL trait and its supporting types.
 pub mod triton;
+/// The generated DSL source text, embedded as [`triton_lang::TRITON`].
 pub mod triton_lang;
 
 /// A compiled kernel's identity: its name, type signature, and generated source block.
 #[derive(Debug)]
 pub struct TritonKernel {
+    /// The kernel's name.
     pub name: &'static str,
+    /// The kernel's type signature.
     pub sig: &'static str,
+    /// The generated DSL source block for this kernel.
     pub block_str: &'static str,
 }

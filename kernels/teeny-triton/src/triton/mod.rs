@@ -19,17 +19,24 @@ pub use core::ops::{BitAnd, BitOr};
 
 use self::types::{self as ty};
 
+/// LLVM-backend-facing DSL types (the compiled counterpart of this module's `Tensor`/`Pointer`).
 pub mod llvm;
+/// Dtype/numeric-kind trait hierarchy (`Dtype`, `Num`, `Int`, `Float`) used to bound the `Triton`
+/// trait's generic methods.
 pub mod types;
 
 pub use types::*;
 
 /*------------------------------ Parameter Enums ------------------------------*/
 
+/// A grid/program-ID axis.
 #[repr(i32)]
 pub enum Axis {
+    /// The first (fastest-varying) grid axis.
     X = 0,
+    /// The second grid axis.
     Y = 1,
+    /// The third grid axis.
     Z = 2,
 }
 
@@ -57,8 +64,11 @@ pub enum CacheModifier {
 
 /// Cache eviction priority hint for load and store instructions.
 pub enum EvictionPolicy {
+    /// Evict this data first (low reuse expected).
     EvictFirst,
+    /// Evict this data last (high reuse expected).
     EvictLast,
+    /// No eviction priority hint.
     NoEvict,
 }
 
@@ -82,19 +92,29 @@ pub enum FpDowncastRounding {
 
 /// Input format for scaled dot-product (`dot_scaled`).
 pub enum DotFormat {
+    /// 8-bit float, 4 exponent + 3 mantissa bits.
     E4M3,
+    /// 8-bit float, 5 exponent + 2 mantissa bits.
     E5M2,
+    /// 4-bit float (2 exponent + 1 mantissa bit), packed 2-per-byte.
     E2M1x2,
+    /// 4-bit float (2 exponent + 1 mantissa bit), packed 4-per-byte.
     E2M1x4,
+    /// `bfloat16`, packed 2-per-32-bits.
     BF16x2,
+    /// Signed 8-bit integer.
     Int8,
+    /// Unsigned 8-bit integer.
     UInt8,
 }
 
 /// Memory ordering semantics for atomic operations.
 pub enum MemSem {
+    /// No ordering constraint beyond atomicity.
     Relaxed,
+    /// Acquire ordering: subsequent operations can't be reordered before this one.
     Acquire,
+    /// Release ordering: prior operations can't be reordered after this one.
     Release,
     /// Acquire + Release (default).
     AcqRel,
@@ -112,6 +132,9 @@ pub enum MemScope {
 
 /*------------------------------ Triton Trait ------------------------------*/
 
+/// The Triton-like kernel DSL: tensor/pointer types and the operations (creation, shape
+/// manipulation, linear algebra, memory, math, reduction, scan/sort, atomics, RNG) available
+/// inside a `#[kernel]`-annotated function. See the module docs for how this compiles.
 pub trait Triton
 where
     Self::I32Tensor: Add<i32, Output = Self::I32Tensor>,
@@ -121,8 +144,11 @@ where
     Self::BoolTensor: BitAnd<Output = Self::BoolTensor>,
     Self::BoolTensor: BitOr<Output = Self::BoolTensor>,
 {
+    /// A tensor of `bool`, produced by comparisons and used as a mask.
     type BoolTensor: Copy + Clone;
+    /// A tensor of `i32`, e.g. produced by [`Triton::arange`].
     type I32Tensor: Copy + Clone;
+    /// A tensor of dtype `D`.
     type Tensor<D: ty::Dtype>: Copy
         + Clone
         + Add<Self::Tensor<D>, Output = Self::Tensor<D>>
@@ -130,6 +156,7 @@ where
         + Mul<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Div<Self::Tensor<D>, Output = Self::Tensor<D>>
         + Neg<Output = Self::Tensor<D>>;
+    /// A device pointer to elements of dtype `D`.
     type Pointer<D: ty::Dtype>: Copy
         + Clone
         + ty::Dtype
@@ -137,8 +164,10 @@ where
 
     /*------------------------------ Programming Model ------------------------------*/
 
+    /// The current program's index along `axis` within the launch grid.
     fn program_id(axis: Axis) -> i32;
 
+    /// The total number of programs launched along `axis`.
     fn num_programs(axis: Axis) -> i32;
 
     /// Scalar gather: load the `f32` at `ptr + offset`, truncate to `i32`,
@@ -150,6 +179,7 @@ where
 
     /*------------------------------ Creation Ops ------------------------------*/
 
+    /// Create a 1-D `i32` tensor with values `[start, start+1, ..., end-1]`.
     fn arange(start: impl Into<i32>, end: impl Into<i32>) -> Self::I32Tensor;
 
     /// Create a 1-D `f32` tensor with values `[start as f32, start+1, ..., end-1]`.
@@ -158,10 +188,13 @@ where
     /// intermediate I32Tensor copy that some backends cannot handle.
     fn arange_f32(start: impl Into<i32>, end: impl Into<i32>) -> Self::Tensor<f32>;
 
+    /// Create a tensor of the given `shape` filled with zeros.
     fn zeros<D: ty::Dtype>(shape: &[i32]) -> Self::Tensor<D>;
 
+    /// Create a zero-filled tensor with the same shape/dtype as `x`.
     fn zeros_like<D: ty::Dtype>(x: Self::Tensor<D>) -> Self::Tensor<D>;
 
+    /// Create a tensor of the given `shape` filled with `value`.
     fn full<D: ty::Dtype>(shape: &[i32], value: D) -> Self::Tensor<D>;
 
     /// Cast a tensor to a different dtype.
@@ -191,10 +224,13 @@ where
         b: Self::Tensor<D>,
     ) -> (Self::Tensor<D>, Self::Tensor<D>);
 
+    /// Broadcast `x` to `shape`.
     fn broadcast_to<D: ty::Dtype>(x: Self::Tensor<D>, shape: &[i32]) -> Self::Tensor<D>;
 
+    /// Insert a size-1 dimension at `axis`.
     fn expand_dims<D: ty::Dtype>(x: Self::Tensor<D>, axis: i32) -> Self::Tensor<D>;
 
+    /// Permute `x`'s dimensions according to `dims`.
     fn permute<D: ty::Dtype>(x: Self::Tensor<D>, dims: &[i32]) -> Self::Tensor<D>;
 
     /// Reshape a tensor.
@@ -371,6 +407,7 @@ where
     /// Reverse a tensor along `dim`. `None` reverses all dimensions.
     fn flip<D: ty::Dtype>(x: Self::Tensor<D>, dim: Option<i32>) -> Self::Tensor<D>;
 
+    /// Gather elements from `src` along `axis` using `index`.
     fn gather<D: ty::Dtype>(
         src: Self::Tensor<D>,
         index: Self::I32Tensor,
@@ -381,19 +418,33 @@ where
 
     /// Element-wise absolute value.
     fn abs<D: ty::Dtype>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise ceiling.
     fn ceil<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise floor.
     fn floor<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise cosine.
     fn cos<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise sine.
     fn sin<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise natural exponential (`e^x`).
     fn exp<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise base-2 exponential (`2^x`).
     fn exp2<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise natural logarithm.
     fn log<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise base-2 logarithm.
     fn log2<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise reciprocal square root (`1/sqrt(x)`).
     fn rsqrt<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise sigmoid (`1/(1+e^-x)`).
     fn sigmoid<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise square root.
     fn sqrt<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise square root, round-to-nearest.
     fn sqrt_rn<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise error function.
     fn erf<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise arctangent.
     fn atan<D: ty::Float>(x: Self::Tensor<D>) -> Self::Tensor<D>;
 
     /*------------------------------ Math Ops — Float (higher-level) ------------------------------*/
@@ -411,29 +462,38 @@ where
 
     /*------------------------------ Math Ops — Binary ------------------------------*/
 
+    /// Element-wise maximum of two tensors.
     fn maximum<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::Tensor<D>;
+    /// Element-wise minimum of two tensors.
     fn minimum<D: ty::Num>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::Tensor<D>;
 
+    /// Element-wise clamp of `x` to `[lo, hi]`.
     fn clamp<D: ty::Num>(
         x: Self::Tensor<D>,
         lo: Self::Tensor<D>,
         hi: Self::Tensor<D>,
     ) -> Self::Tensor<D>;
 
+    /// Element-wise fused multiply-add: `x * y + z`.
     fn fma<D: ty::Float>(
         x: Self::Tensor<D>,
         y: Self::Tensor<D>,
         z: Self::Tensor<D>,
     ) -> Self::Tensor<D>;
 
+    /// Element-wise floating-point division.
+    ///
+    /// - `ieee_rounding`: use IEEE-754 rounding (default `false`).
     fn fdiv<D: ty::Float>(
         x: Self::Tensor<D>,
         y: Self::Tensor<D>,
         ieee_rounding: bool,
     ) -> Self::Tensor<D>;
 
+    /// Element-wise division, round-to-nearest.
     fn div_rn<D: ty::Float>(x: Self::Tensor<D>, y: Self::Tensor<D>) -> Self::Tensor<D>;
 
+    /// Element-wise high 32 bits of an unsigned 32×32→64-bit multiply.
     fn umulhi(x: Self::Tensor<u32>, y: Self::Tensor<u32>) -> Self::Tensor<u32>;
 
     /// Ceiling integer division: `ceil(x / div)`.
@@ -503,8 +563,10 @@ where
 
     /*------------------------------ Scan / Sort Ops ------------------------------*/
 
+    /// Cumulative sum along `axis`.
     fn cumsum<D: ty::Num>(x: Self::Tensor<D>, axis: i32, reverse: bool) -> Self::Tensor<D>;
 
+    /// Cumulative product along `axis`.
     fn cumprod<D: ty::Num>(x: Self::Tensor<D>, axis: i32, reverse: bool) -> Self::Tensor<D>;
 
     /// Sort along `dim`. `dim = None` sorts along the last dimension.
@@ -555,6 +617,7 @@ where
         scope: Option<MemScope>,
     ) -> Self::Tensor<D>;
 
+    /// Atomic bitwise AND. Returns the previous value. See [`Triton::atomic_add`] for parameters.
     fn atomic_and<D: ty::Int>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         val: Self::Tensor<D>,
@@ -563,6 +626,7 @@ where
         scope: Option<MemScope>,
     ) -> Self::Tensor<D>;
 
+    /// Atomic bitwise OR. Returns the previous value. See [`Triton::atomic_add`] for parameters.
     fn atomic_or<D: ty::Int>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         val: Self::Tensor<D>,
@@ -571,6 +635,7 @@ where
         scope: Option<MemScope>,
     ) -> Self::Tensor<D>;
 
+    /// Atomic bitwise XOR. Returns the previous value. See [`Triton::atomic_add`] for parameters.
     fn atomic_xor<D: ty::Int>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         val: Self::Tensor<D>,
@@ -579,6 +644,7 @@ where
         scope: Option<MemScope>,
     ) -> Self::Tensor<D>;
 
+    /// Atomic maximum. Returns the previous value. See [`Triton::atomic_add`] for parameters.
     fn atomic_max<D: ty::Num>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         val: Self::Tensor<D>,
@@ -587,6 +653,7 @@ where
         scope: Option<MemScope>,
     ) -> Self::Tensor<D>;
 
+    /// Atomic minimum. Returns the previous value. See [`Triton::atomic_add`] for parameters.
     fn atomic_min<D: ty::Num>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         val: Self::Tensor<D>,
@@ -595,6 +662,7 @@ where
         scope: Option<MemScope>,
     ) -> Self::Tensor<D>;
 
+    /// Atomic exchange. Returns the previous value. See [`Triton::atomic_add`] for parameters.
     fn atomic_xchg<D: ty::Dtype>(
         ptr: Self::Tensor<Self::Pointer<D>>,
         val: Self::Tensor<D>,

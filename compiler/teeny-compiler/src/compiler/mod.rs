@@ -14,8 +14,11 @@
  * limitations under the License.
  */
 
+/// Compilation backends (LLVM/MLIR, `ndarray`).
 pub mod backend;
+/// Compiler drivers (invoking `teenyc` and friends per target).
 pub mod driver;
+/// Compilation target descriptions (device capability, etc).
 pub mod target;
 
 /// Resolve the effective kernel cache directory.

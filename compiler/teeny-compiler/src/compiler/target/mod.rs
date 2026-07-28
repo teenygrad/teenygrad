@@ -14,4 +14,5 @@
  * limitations under the License.
  */
 
+/// CUDA compilation target description (device [`cuda::Capability`]).
 pub mod cuda;

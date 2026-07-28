@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
+/// Errors produced by the `teeny-triton` DSL.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// A DSL operation was called with an invalid argument.
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
 }

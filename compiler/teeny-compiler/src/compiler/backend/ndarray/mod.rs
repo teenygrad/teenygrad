@@ -14,5 +14,7 @@
  * limitations under the License.
  */
 
+/// The `ndarray` backend's [`compiler::NdarrayCompiler`].
 pub mod compiler;
+/// The `ndarray` backend's [`module::NdarrayModule`].
 pub mod module;

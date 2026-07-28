@@ -21,22 +21,30 @@ use crate::compiler::backend::llvm::{compiler::LlvmCompiler, module::MlirModule}
 #[cfg(feature = "ndarray")]
 use crate::compiler::backend::ndarray::{compiler::NdarrayCompiler, module::NdarrayModule};
 
+/// The `ndarray`-backed CPU backend.
 #[cfg(feature = "ndarray")]
 pub mod ndarray;
 
+/// The LLVM/MLIR backend (compiles via the `teenyc` compiler at runtime).
 pub mod llvm;
 
+/// A compiled module, tagged by which backend produced it.
 #[derive(Debug, Clone)]
 pub enum Module<N: dtype::Dtype> {
+    /// A module compiled by the LLVM/MLIR backend.
     Mlir(MlirModule<N>),
 
+    /// A module compiled by the `ndarray` backend.
     #[cfg(feature = "ndarray")]
     Ndarray(NdarrayModule<N>),
 }
 
+/// A backend capable of compiling kernels, tagged by which one it is.
 pub enum Compiler {
+    /// The LLVM/MLIR backend.
     Llvm(LlvmCompiler),
 
+    /// The `ndarray` backend.
     #[cfg(feature = "ndarray")]
     Ndarray(NdarrayCompiler),
 }

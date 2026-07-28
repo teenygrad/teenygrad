@@ -26,6 +26,8 @@ use tracing::info;
 
 use crate::errors::Result;
 
+/// Compiles kernels by shelling out to the custom `teenyc` compiler (`-Zcodegen-backend=mlir`)
+/// at runtime. See the crate docs for the `TEENYC_PATH`/`cargo-teeny` setup this requires.
 #[derive(Debug, Clone)]
 pub struct LlvmCompiler {
     teenyc_path: PathBuf,
@@ -35,6 +37,8 @@ pub struct LlvmCompiler {
 }
 
 impl LlvmCompiler {
+    /// Creates a compiler that invokes the `teenyc` binary at `teenyc_path`, caching compiled
+    /// kernels under `cache_dir` (created if it doesn't exist).
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
         let teenyc_path = teenyc_path.into();
         let cache_dir = cache_dir.into();
@@ -51,6 +55,7 @@ impl LlvmCompiler {
         })
     }
 
+    /// Sets the target GPU architecture (e.g. `sm_90`) passed to `teenyc` as `-Ctarget-cpu`.
     pub fn with_target_cpu(mut self, cpu: impl Into<String>) -> Self {
         self.target_cpu = Some(cpu.into());
         self
