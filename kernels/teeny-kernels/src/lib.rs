@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
+//! CPU/GPU kernel implementations of [teenygrad](https://teenygrad.org)'s `nn` layers
+//! ([`nn`] — including a Flash Attention 2 forward/backward implementation, [`math`] ops, and
+//! [`graph`] lowering), written against the `teeny-triton` DSL and compiled via `teeny-compiler`.
+//!
+//! The `cuda` feature (on by default) enables the `teeny-cuda` backend, which requires the CUDA
+//! toolkit to build — see its crate README. Running/compiling kernels additionally needs the
+//! custom `teenyc` compiler at runtime; see `teeny-compiler`'s README.
+
 pub mod errors;
 pub mod graph;
 pub mod math;

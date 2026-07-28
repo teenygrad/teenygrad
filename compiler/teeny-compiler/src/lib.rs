@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
+//! Compiles a [teenygrad](https://teenygrad.org) computational graph (FXGraph, traced from
+//! `teeny-core`) down to a target backend — LLVM/MLIR object code today ([`compiler::backend`]),
+//! with an `ndarray`-backed CPU path behind the `ndarray` feature.
+//!
+//! Compiling kernels through the LLVM backend shells out to the custom `teenyc` compiler at
+//! *runtime* (via `TEENYC_PATH`) — not needed to build this crate itself. See the crate README
+//! for the `cargo-teeny`/`TEENYC_PATH` setup.
+
 pub mod compiler;
 pub mod errors;
 pub mod fxgraph;

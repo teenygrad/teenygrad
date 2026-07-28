@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+//! Key-value cache utilities for LLM inference in [teenygrad](https://teenygrad.org) — currently
+//! [`DynamicCache`], tracking sequence length and per-layer sliding-window/compileability state
+//! across generation steps.
+
+/// Tracks per-layer KV cache state (sequence length, sliding-window/compileability) across
+/// generation steps.
 #[derive(Debug, Clone, Default)]
 pub struct DynamicCache {}
 

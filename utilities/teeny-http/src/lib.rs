@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+//! Small HTTP download/fetch helpers for [teenygrad](https://teenygrad.org), built on `reqwest`
+//! with `indicatif` progress reporting — used for pulling models/datasets/assets.
+
 pub mod download;
 pub mod error;
 pub mod fetch;

@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+//! Dataset loading utilities for [teenygrad](https://teenygrad.org): downloading, CSV parsing,
+//! `safetensors` loading, and memory-mapped access.
+
 pub mod dataset;
 pub mod error;
 pub mod safetensors;

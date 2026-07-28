@@ -14,4 +14,7 @@
  * limitations under the License.
  */
 
+//! Text-processing/tokenizer utilities for [teenygrad](https://teenygrad.org), built on
+//! `fancy-regex`, `regex`, and `bstr`.
+
 pub mod tokenizer;

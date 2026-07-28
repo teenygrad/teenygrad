@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+//! ONNX model format support for [teenygrad](https://teenygrad.org) — parses `.onnx` protobuf
+//! files into a `teeny_core::graph::Graph` via [`Onnx`].
+
 pub mod errors;
 
 mod onnx;

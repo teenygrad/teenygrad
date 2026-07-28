@@ -14,5 +14,9 @@
  * limitations under the License.
  */
 
+//! Computer-vision model definitions and datasets for [teenygrad](https://teenygrad.org) —
+//! currently MNIST ([`mnist`], including a LeNet-5 definition used elsewhere in the workspace as
+//! a smoke test).
+
 pub mod errors;
 pub mod mnist;

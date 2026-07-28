@@ -14,6 +14,15 @@
  * limitations under the License.
  */
 
+//! The CUDA device backend for [teenygrad](https://teenygrad.org) — driver bindings (via
+//! `bindgen` against the CUDA headers), device/runtime abstraction ([`device`], [`runtime`]),
+//! and the AOT/JIT kernel-compilation path ([`compiler`]) used by `teeny-kernels`' `cuda`
+//! feature.
+//!
+//! Building this crate requires the CUDA toolkit headers/libs on the host (`build.rs` links
+//! against them unconditionally); see the crate README for `CUDA_INCLUDE_DIR`/`CUDA_LIB_DIR` and
+//! the separate, runtime-only `teenyc`/`TEENYC_PATH` requirement for actually compiling kernels.
+
 pub mod compiler;
 pub mod device;
 pub mod errors;

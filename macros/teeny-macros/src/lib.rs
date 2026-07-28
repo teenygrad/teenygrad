@@ -14,10 +14,15 @@
  * limitations under the License.
  */
 
+//! Procedural macros for [teenygrad](https://teenygrad.org). Currently provides the
+//! [`macro@kernel`] attribute macro, used to mark functions as GPU/CPU kernel definitions
+//! consumed by `teeny-triton`/`teeny-kernels`.
+
 use proc_macro::TokenStream;
 
 mod macros;
 
+/// Marks a function as a kernel definition for `teeny-triton`/`teeny-kernels`.
 #[proc_macro_attribute]
 pub fn kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
     macros::kernel::kernel(attr, item)

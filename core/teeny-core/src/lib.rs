@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
+//! Foundation crate of [teenygrad](https://teenygrad.org): tensor/graph types, the computational
+//! graph ([`graph::Graph`]/[`graph::Op`]/[`graph::Shape`]), neural network layers ([`nn`]), the
+//! dtype system ([`dtype`]), device abstraction ([`device`]), and name-scoping used by every
+//! other `teeny-*` crate.
+//!
+//! `no_std` by default (the `std` feature is not in the default feature set) — enable `std` if
+//! you need it. See the crate README for the full feature list.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
