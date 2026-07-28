@@ -25,18 +25,28 @@ jobs:
       # headers -- install the toolkit so docs-site/build.sh's `nvcc`
       # detection picks it up and includes teeny-cuda/teeny-kernels in the
       # deployed API docs (previously skipped for lack of a CUDA runner).
-      # Only the headers/stub libs are needed (no GPU/driver required for
-      # `cargo doc`); pinned to a widely-available CUDA 12.x release rather
-      # than matching any particular dev machine's version, since bindgen
-      # output only needs to be API-compatible, not an exact match.
-      # NOTE: unverified -- this repo has no way to test a live GitHub
-      # Actions run; if this action/version stops working, check
-      # https://github.com/Jimver/cuda-toolkit for current options.
+      # Only headers + stub libs are needed (no GPU/driver required for
+      # `cargo doc`); pinned to CUDA 13.2 (the newest release confirmed to
+      # actually exist -- 13.3 could not be verified as a real release).
+      #
+      # Installed directly via apt rather than the Jimver/cuda-toolkit
+      # action: (1) as of v0.2.35 its version table tops out at 13.2.0, so
+      # it can't target this release at all; (2) its default (empty)
+      # sub-packages selection installs the full `cuda`/`cuda-demo-suite`
+      # metapackages, which pull in the real nvidia-driver/nvidia-dkms
+      # packages and fail to `dpkg --configure` on hosted runners (no
+      # matching kernel to build DKMS modules against) -- confirmed via a
+      # real failed run on 2026-07-28. Installing only the specific -dev
+      # packages build.rs actually links against (cudart, nvrtc,
+      # nvptxcompiler_static via nvcc, and the libcuda.so *stub* via
+      # driver-dev) avoids the driver/dkms packages entirely.
       - name: Install CUDA toolkit
-        uses: Jimver/cuda-toolkit@v0.2.19
-        with:
-          cuda: '12.6.0'
-          method: network
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb
+          sudo dpkg -i /tmp/cuda-keyring.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2
 
       - name: Install mdbook + mdbook-mermaid
         run: |
