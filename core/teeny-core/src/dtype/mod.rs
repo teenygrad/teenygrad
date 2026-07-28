@@ -35,15 +35,21 @@ pub trait Float: Num {
     /// `from_f64` provides the one hook needed to construct arbitrary constants
     /// generically; each concrete float type narrows/keeps the value as needed.
     fn from_f64(value: f64) -> Self;
+}
 
+/// Host-side little-endian byte serialization for float dtypes.
+///
+/// Kept separate from [`Float`] so GPU kernels (compiled by teenyc in a
+/// no_core environment without `alloc`) never see this method. Bound
+/// RuntimeOps / host upload paths on `FloatBytes`; keep kernels on `Float`.
+pub trait FloatBytes: Float {
     /// Serialize this scalar to its little-endian byte representation.
     ///
-    /// The byte length equals `Num::BITS / 8`. This is the generic hook used to
-    /// upload host-side constant/parameter data (anchor grids, strides, …) into
-    /// a device buffer whose element type is an arbitrary `D: Float`, without
-    /// hard-coding `f32`.
+    /// The byte length equals `Num::BITS / 8`. Used to upload host-side
+    /// constant/parameter data into a device buffer of element type `D`.
     fn to_le_bytes(self) -> alloc::vec::Vec<u8>;
 }
+
 pub trait Int: Num {}
 pub trait Bool: Dtype + Copy {}
 
@@ -118,6 +124,8 @@ impl Float for f32 {
     fn from_f64(value: f64) -> Self {
         value as f32
     }
+}
+impl FloatBytes for f32 {
     fn to_le_bytes(self) -> alloc::vec::Vec<u8> {
         f32::to_le_bytes(self).to_vec()
     }
@@ -133,6 +141,8 @@ impl Float for f64 {
     fn from_f64(value: f64) -> Self {
         value
     }
+}
+impl FloatBytes for f64 {
     fn to_le_bytes(self) -> alloc::vec::Vec<u8> {
         f64::to_le_bytes(self).to_vec()
     }
