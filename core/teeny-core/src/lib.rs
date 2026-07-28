@@ -23,17 +23,31 @@
 //! you need it. See the crate README for the full feature list.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+// NOT #![warn(missing_docs)] yet: struct-field/variant/method-level doc coverage is still
+// incomplete (module/struct/trait/enum-level coverage is complete) -- see teenygrad-nov.21.
+// Enabling the lint now would make CI's `-D warnings` clippy step fail on the remaining gaps.
 extern crate alloc;
 
+/// Compiler-facing traits (targets, compiled kernels).
 pub mod compiler;
+/// Device abstraction (buffers, contexts, launch configuration).
 pub mod device;
+/// The dtype system: `Dtype`/`Float`/tensor traits kernel code is generic over.
 pub mod dtype;
+/// Error types.
 pub mod errors;
+/// The computational graph: `Graph`, `Op`, `Shape`, `SymTensor`.
 pub mod graph;
+/// Internal macro helpers.
 pub mod macros;
+/// Model execution traits (`Layer`, lowering, kernel-launch argument packing).
 pub mod model;
+/// Scoped naming for graph nodes/parameters (requires the `std` feature).
 #[cfg(feature = "std")]
 pub mod name_scope;
+/// Standard neural network layers.
 pub mod nn;
+/// Runtime execution traits.
 pub mod runtime;
+/// Miscellaneous utilities (e.g. the `Dag` type).
 pub mod utils;

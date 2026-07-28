@@ -16,6 +16,7 @@
 
 use crate::{dtype::Num, errors::Result};
 
+/// A device-side memory buffer holding elements of dtype `N`.
 pub trait Buffer<'a, N: Num>: Sized {
     /// Copy elements from a host slice into this device buffer.
     /// The slice length must not exceed the buffer's allocated element count.

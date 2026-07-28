@@ -14,11 +14,19 @@
  * limitations under the License.
  */
 
+/// ELU and SELU.
 pub mod elu;
+/// GELU (exact and tanh-approximate).
 pub mod gelu;
+/// "Hard" (piecewise-linear) activation approximations: hardtanh, hardsigmoid, hardswish.
 pub mod hard;
+/// Other activations that don't fit the other modules.
 pub mod misc;
+/// ReLU and leaky ReLU.
 pub mod relu;
+/// Sigmoid and related activations.
 pub mod sigmoid;
+/// Softmax and log-softmax.
 pub mod softmax;
+/// Tanh and related activations.
 pub mod tanh;

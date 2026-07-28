@@ -26,14 +26,18 @@ use crate::{
 // ---------------------------------------------------------------------------
 
 macro_rules! pool_layer_1d {
-    ($name:ident) => {
+    (#[doc = $doc:expr] $name:ident) => {
+        #[doc = $doc]
         pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
+            /// The pooling window length.
             pub kernel_l: usize,
+            /// The stride between pooling windows.
             pub stride: usize,
             _pd: PhantomData<(D, IT, OT)>,
         }
 
         impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            /// Creates a new layer with the given kernel size and stride.
             pub fn new(kernel_size: usize, stride: usize) -> Self {
                 Self {
                     kernel_l: kernel_size,
@@ -55,18 +59,26 @@ macro_rules! pool_layer_1d {
 }
 
 macro_rules! pool_layer_2d {
-    ($name:ident) => {
+    (#[doc = $doc:expr] $name:ident) => {
+        #[doc = $doc]
         pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
+            /// Pooling window height.
             pub kernel_h: usize,
+            /// Pooling window width.
             pub kernel_w: usize,
+            /// Vertical stride between pooling windows.
             pub stride_h: usize,
+            /// Horizontal stride between pooling windows.
             pub stride_w: usize,
+            /// Vertical padding applied before pooling.
             pub padding_h: usize,
+            /// Horizontal padding applied before pooling.
             pub padding_w: usize,
             _pd: PhantomData<(D, IT, OT)>,
         }
 
         impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            /// Creates a new layer with the given kernel size and stride, no padding.
             pub fn new(kernel_size: (usize, usize), stride: (usize, usize)) -> Self {
                 Self {
                     kernel_h: kernel_size.0,
@@ -79,6 +91,7 @@ macro_rules! pool_layer_2d {
                 }
             }
 
+            /// Creates a new layer with the given kernel size, stride, and padding.
             pub fn with_padding(
                 kernel_size: (usize, usize),
                 stride: (usize, usize),
@@ -108,18 +121,26 @@ macro_rules! pool_layer_2d {
 }
 
 macro_rules! pool_layer_3d {
-    ($name:ident) => {
+    (#[doc = $doc:expr] $name:ident) => {
+        #[doc = $doc]
         pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
+            /// Pooling window depth.
             pub kernel_d: usize,
+            /// Pooling window height.
             pub kernel_h: usize,
+            /// Pooling window width.
             pub kernel_w: usize,
+            /// Stride along the depth dimension.
             pub stride_d: usize,
+            /// Stride along the height dimension.
             pub stride_h: usize,
+            /// Stride along the width dimension.
             pub stride_w: usize,
             _pd: PhantomData<(D, IT, OT)>,
         }
 
         impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            /// Creates a new layer with the given kernel size and stride.
             pub fn new(kernel_size: (usize, usize, usize), stride: (usize, usize, usize)) -> Self {
                 Self {
                     kernel_d: kernel_size.0,
@@ -148,30 +169,53 @@ macro_rules! pool_layer_3d {
 // AvgPool
 // ---------------------------------------------------------------------------
 
-pool_layer_1d!(AvgPool1d);
-pool_layer_2d!(AvgPool2d);
-pool_layer_3d!(AvgPool3d);
+pool_layer_1d!(
+    #[doc = "1-D average pooling."]
+    AvgPool1d
+);
+pool_layer_2d!(
+    #[doc = "2-D average pooling."]
+    AvgPool2d
+);
+pool_layer_3d!(
+    #[doc = "3-D average pooling."]
+    AvgPool3d
+);
 
 // ---------------------------------------------------------------------------
 // MaxPool
 // ---------------------------------------------------------------------------
 
-pool_layer_1d!(MaxPool1d);
-pool_layer_2d!(MaxPool2d);
-pool_layer_3d!(MaxPool3d);
+pool_layer_1d!(
+    #[doc = "1-D max pooling."]
+    MaxPool1d
+);
+pool_layer_2d!(
+    #[doc = "2-D max pooling."]
+    MaxPool2d
+);
+pool_layer_3d!(
+    #[doc = "3-D max pooling."]
+    MaxPool3d
+);
 
 // ---------------------------------------------------------------------------
 // LpPool — like AvgPool but with a configurable p-norm
 // ---------------------------------------------------------------------------
 
+/// 1-D power-average (Lp) pooling: like average pooling, generalized to an arbitrary p-norm.
 pub struct LpPool1d<D: Dtype, IT, OT, const RANK: usize> {
+    /// The pooling window length.
     pub kernel_l: usize,
+    /// The stride between pooling windows.
     pub stride: usize,
+    /// The `p` in the p-norm.
     pub p: f64,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> LpPool1d<D, IT, OT, RANK> {
+    /// Creates a new layer with the given kernel size, stride, and `p`-norm.
     pub fn new(kernel_size: usize, stride: usize, p: f64) -> Self {
         Self {
             kernel_l: kernel_size,
@@ -191,16 +235,23 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     }
 }
 
+/// 2-D power-average (Lp) pooling: like average pooling, generalized to an arbitrary p-norm.
 pub struct LpPool2d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Pooling window height.
     pub kernel_h: usize,
+    /// Pooling window width.
     pub kernel_w: usize,
+    /// Vertical stride.
     pub stride_h: usize,
+    /// Horizontal stride.
     pub stride_w: usize,
+    /// The `p` in the p-norm.
     pub p: f64,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> LpPool2d<D, IT, OT, RANK> {
+    /// Creates a new layer with the given kernel size, stride, and `p`-norm.
     pub fn new(kernel_size: (usize, usize), stride: (usize, usize), p: f64) -> Self {
         Self {
             kernel_h: kernel_size.0,
@@ -222,18 +273,27 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     }
 }
 
+/// 3-D power-average (Lp) pooling: like average pooling, generalized to an arbitrary p-norm.
 pub struct LpPool3d<D: Dtype, IT, OT, const RANK: usize> {
+    /// Pooling window depth.
     pub kernel_d: usize,
+    /// Pooling window height.
     pub kernel_h: usize,
+    /// Pooling window width.
     pub kernel_w: usize,
+    /// Stride along the depth dimension.
     pub stride_d: usize,
+    /// Stride along the height dimension.
     pub stride_h: usize,
+    /// Stride along the width dimension.
     pub stride_w: usize,
+    /// The `p` in the p-norm.
     pub p: f64,
     _pd: PhantomData<(D, IT, OT)>,
 }
 
 impl<D: Dtype, IT, OT, const RANK: usize> LpPool3d<D, IT, OT, RANK> {
+    /// Creates a new layer with the given kernel size, stride, and `p`-norm.
     pub fn new(kernel_size: (usize, usize, usize), stride: (usize, usize, usize), p: f64) -> Self {
         Self {
             kernel_d: kernel_size.0,

@@ -21,6 +21,7 @@ use crate::{
     nn::Layer,
 };
 
+/// Sigmoid activation layer: `1 / (1 + e^-x)`.
 pub struct Sigmoid<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -46,6 +47,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// SiLU/Swish activation layer: `x * sigmoid(x)`.
 pub struct Silu<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -69,6 +71,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
     }
 }
 
+/// Log-sigmoid activation layer: `ln(sigmoid(x))`.
 pub struct Logsigmoid<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }

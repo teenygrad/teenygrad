@@ -18,11 +18,15 @@ use alloc::vec::Vec;
 
 /// A node in the DAG. Carries a boxed trait object and a list of children.
 pub struct Node<V> {
+    /// This node's payload.
     pub value: V,
+    /// Indices of this node's children in the owning `Dag`.
     pub children: Vec<usize>, // indices into Dag.nodes
-    pub parents: Vec<usize>,  // indices into Dag.nodes (needed for topological sort, etc)
+    /// Indices of this node's parents in the owning `Dag`.
+    pub parents: Vec<usize>, // indices into Dag.nodes (needed for topological sort, etc)
 }
 
+/// A directed acyclic graph of `V`-valued nodes.
 pub struct Dag<V> {
     nodes: Vec<Node<V>>,
 }

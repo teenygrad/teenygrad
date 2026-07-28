@@ -20,13 +20,18 @@ use alloc::string::String;
 use crate::device::program::Kernel;
 use crate::errors::Result;
 
+/// A compilation target (e.g. a GPU architecture).
 pub trait Target: Sized {
+    /// The `-Ctarget-cpu`-style string identifying this target, if applicable.
     fn target_cpu(&self) -> Option<String> {
         None
     }
 }
 
+/// Something capable of compiling a [`Kernel`] for a [`Target`].
 pub trait Compiler {
+    /// Compiles `kernel` for `target`, returning the path to the compiled artifact.
+    /// `force` recompiles even if a cached artifact exists.
     fn compile(&self, kernel: &impl Kernel, target: &impl Target, force: bool) -> Result<String>;
 }
 

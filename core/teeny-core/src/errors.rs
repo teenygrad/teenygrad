@@ -16,10 +16,13 @@
 
 use alloc::string::String;
 
+/// `teeny-core`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Errors produced by `teeny-core`.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// A context/name-scope error.
     #[error("Context error: {0}")]
     ContextError(String),
 }

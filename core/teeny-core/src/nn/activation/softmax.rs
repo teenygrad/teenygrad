@@ -21,7 +21,9 @@ use crate::{
     nn::Layer,
 };
 
+/// Softmax activation layer: normalizes along `dim` so values sum to 1.
 pub struct Softmax<D: Float, T, const RANK: usize> {
+    /// The dimension to normalize along.
     pub dim: usize,
     _pd: PhantomData<(D, T)>,
 }

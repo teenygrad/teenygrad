@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/// Chains a sequence of [`Layer`](crate::nn::Layer)s into a single closure, calling each in
+/// order and feeding each output into the next.
 #[macro_export]
 macro_rules! sequential {
     // Accepts: sequential![a, b, c, ...]

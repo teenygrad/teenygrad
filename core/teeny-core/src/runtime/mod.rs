@@ -16,11 +16,16 @@
 
 use crate::{dtype::Dtype, errors::Result, model::Model};
 
+/// Executes a [`Model`] on some backend.
 pub trait Runtime<'a> {
+    /// The model type this runtime executes.
     type Model: Model<'a>;
+    /// This runtime's input type.
     type Input;
+    /// This runtime's output type.
     type Output;
 
+    /// Runs `model` on `input`.
     fn forward<D: Dtype, const RANK: usize>(
         &self,
         model: &Self::Model,

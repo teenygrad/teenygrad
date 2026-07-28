@@ -14,4 +14,5 @@
  * limitations under the License.
  */
 
+/// A simple directed-acyclic-graph container, used for compiled node graphs.
 pub mod dag;

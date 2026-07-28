@@ -23,19 +23,29 @@ use crate::{
     errors::Result,
 };
 
+/// Device-side memory buffers.
 pub mod buffer;
+/// Device/context management.
 pub mod context;
+/// Compiled kernel programs.
 pub mod program;
 
+/// A device-specific kernel launch configuration (grid/block dimensions, etc).
 pub trait LaunchConfig: Sized {}
 
+/// A device capable of allocating buffers and launching kernels.
 pub trait Device<'a>: Sized {
+    /// This device's buffer type for elements of dtype `N`.
     type Buffer<N: Num>: Buffer<'a, N>;
+    /// This device's compiled-program type for kernel `K`.
     type Program<K: Kernel>: Program<'a, K>;
+    /// This device's launch configuration type.
     type LaunchConfig: LaunchConfig;
 
+    /// Allocates a buffer for `count` elements of `N`.
     fn buffer<N: Num>(&self, count: usize) -> Result<Self::Buffer<N>>;
 
+    /// Launches `program` with the given launch `cfg` and `args`.
     fn launch<K: Kernel>(
         &self,
         program: &Self::Program<K>,

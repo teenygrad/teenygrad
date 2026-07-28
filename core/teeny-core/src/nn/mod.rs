@@ -14,23 +14,39 @@
  * limitations under the License.
  */
 
+/// Activation layers (ReLU, GELU, sigmoid, etc).
 pub mod activation;
+/// Batch normalization.
 pub mod batchnorm;
+/// 1-D convolution.
 pub mod conv1d;
+/// 2-D convolution.
 pub mod conv2d;
+/// 3-D convolution.
 pub mod conv3d;
+/// Flattening a tensor to fewer dimensions.
 pub mod flatten;
+/// Group normalization.
 pub mod groupnorm;
+/// Instance normalization.
 pub mod instancenorm;
+/// Layer normalization.
 pub mod layernorm;
+/// Fully-connected (dense) layers.
 pub mod linear;
+/// Padding layers.
 pub mod pad;
+/// Pooling layers.
 pub mod pool;
+/// RMS normalization.
 pub mod rmsnorm;
 
+/// A neural network layer: something callable on an input `I`, producing `Output`.
 pub trait Layer<I> {
+    /// This layer's output type.
     type Output;
 
+    /// Applies this layer to `input`.
     fn call(&self, input: I) -> Self::Output;
 }
 

@@ -21,7 +21,9 @@ use crate::{
     nn::Layer,
 };
 
+/// ELU (Exponential Linear Unit) activation layer.
 pub struct Elu<D: Float, T, const RANK: usize> {
+    /// The `alpha` scaling factor for negative inputs.
     pub alpha: f64,
     _pd: PhantomData<(D, T)>,
 }
@@ -42,6 +44,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
     }
 }
 
+/// SELU (Scaled Exponential Linear Unit) activation layer.
 pub struct Selu<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -65,7 +68,9 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
     }
 }
 
+/// CELU (Continuously Differentiable Exponential Linear Unit) activation layer.
 pub struct Celu<D: Float, T, const RANK: usize> {
+    /// The `alpha` scaling factor.
     pub alpha: f64,
     _pd: PhantomData<(D, T)>,
 }

@@ -21,6 +21,7 @@ use crate::{
     nn::Layer,
 };
 
+/// GELU (Gaussian Error Linear Unit) activation layer.
 pub struct Gelu<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -44,6 +45,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
     }
 }
 
+/// Mish activation layer (`x * tanh(softplus(x))`).
 pub struct Mish<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }

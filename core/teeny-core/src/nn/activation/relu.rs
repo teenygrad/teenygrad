@@ -21,6 +21,7 @@ use crate::{
     nn::Layer,
 };
 
+/// ReLU (Rectified Linear Unit) activation layer: `max(0, x)`.
 pub struct Relu<D: Dtype, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }

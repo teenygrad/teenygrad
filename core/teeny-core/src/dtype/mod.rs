@@ -16,19 +16,25 @@
 
 use core::ops::Add;
 
+/// Host-only float byte-conversion helpers (kept separate from [`Float`] so the DSL-embedded
+/// `dtype/mod.rs` source doesn't need them — see `teeny-triton`'s crate docs).
 pub mod bytes;
 pub use bytes::FloatBytes;
 
-// Dtype — base marker trait for all types that can flow through the system
+/// Base marker trait for all types that can flow through the system as tensor elements.
 pub trait Dtype: Copy + Clone {}
 
-// Num — numeric scalars; BITS is used for device buffer allocation
+/// Numeric scalar dtypes; `BITS` is used for device buffer allocation sizing.
 pub trait Num: Dtype {
+    /// This type's bit width.
     const BITS: u8;
 }
 
+/// Floating-point dtypes.
 pub trait Float: Num {
+    /// The additive identity.
     const ZERO: Self;
+    /// The multiplicative identity.
     const ONE: Self;
 
     /// Materialize a scalar constant of this float type from an `f64` literal.
@@ -40,17 +46,25 @@ pub trait Float: Num {
     fn from_f64(value: f64) -> Self;
 }
 
+/// Integer dtypes.
 pub trait Int: Num {}
+/// The boolean dtype.
 pub trait Bool: Dtype + Copy {}
 
 // Floating-point specialisations
+/// 8-bit float, 4 exponent + 3 mantissa bits.
 pub trait F8E4M3FN: Float {}
+/// 8-bit float, 4 exponent + 3 mantissa bits, no infinities (unsigned zero variant).
 pub trait F8E4M3FNUZ: Float {}
+/// 8-bit float, 5 exponent + 2 mantissa bits.
 pub trait F8E5M2: Float {}
+/// 8-bit float, 5 exponent + 2 mantissa bits, no infinities (unsigned zero variant).
 pub trait F8E5M2FNUZ: Float {}
+/// `bfloat16`: 16-bit float with an 8-bit exponent (same range as f32, reduced precision).
 pub trait BF16: Float {}
 
 // Integer specialisations
+/// 4-bit integer.
 pub trait I4: Int {}
 
 // Primitive impls
@@ -129,10 +143,13 @@ impl Float for f64 {
 }
 
 // Tensor
+/// A tensor with a statically-known shape.
 pub trait RankedTensor<D: Dtype, const RANK: usize>: Clone {
+    /// This tensor's shape.
     const SHAPE: [usize; RANK];
 }
 
+/// A tensor of dtype `D` and rank `RANK`.
 pub trait Tensor<D: Dtype, const RANK: usize>: RankedTensor<D, RANK> {}
 
 /// Marker trait for eager (non-symbolic) tensors.
@@ -142,31 +159,45 @@ pub trait Tensor<D: Dtype, const RANK: usize>: RankedTensor<D, RANK> {}
 /// that the specific `Layer<SymTensor>` impls in `nn::graph` don't conflict.
 pub trait EagerTensor {}
 
+/// A tensor of `bool`.
 pub trait BoolTensor<const RANK: usize>: Tensor<bool, RANK> {}
 
+/// Element-wise comparison against `Rhs`, producing a boolean-valued tensor.
 pub trait Comparison<Rhs = Self> {
+    /// The boolean-valued tensor type produced by these comparisons.
     type BoolTensor;
 
+    /// Element-wise less-than.
     fn lt(self, other: Rhs) -> Self::BoolTensor;
+    /// Element-wise less-than-or-equal.
     fn le(self, other: Rhs) -> Self::BoolTensor;
+    /// Element-wise greater-than.
     fn gt(self, other: Rhs) -> Self::BoolTensor;
+    /// Element-wise greater-than-or-equal.
     fn ge(self, other: Rhs) -> Self::BoolTensor;
+    /// Element-wise equality.
     fn eq(self, other: Rhs) -> Self::BoolTensor;
+    /// Element-wise inequality.
     fn ne(self, other: Rhs) -> Self::BoolTensor;
 }
 
+/// A tensor of `i32`.
 pub trait I32Tensor<const RANK: usize>: Tensor<i32, RANK> + Add<i32> + Comparison<i32> {}
 
-// Offsets trait for adding tensor offsets to pointers
+/// Adding a tensor of integer offsets to `Self` (e.g. a pointer).
 pub trait AddOffsets<I: Int, const RANK: usize, T: Tensor<I, RANK>> {
+    /// The result of adding offsets.
     type Output;
 
+    /// Adds `offsets` to `self`.
     fn add_offsets(self, offsets: T) -> Self::Output;
 }
 
-// Pointer — Dtype itself (can be stored in tensors), no BITS needed
+/// A device pointer to elements of dtype `D`. A `Pointer` is itself a [`Dtype`] (so it can be
+/// stored in tensors), but has no `BITS` requirement.
 pub trait Pointer<D: Dtype, const RANK: usize>:
     Sized + Copy + Clone + Dtype + AddOffsets<i32, RANK, Self::I32Tensor> + Add<Self>
 {
+    /// The `i32` tensor type used to offset this pointer.
     type I32Tensor: I32Tensor<RANK>;
 }

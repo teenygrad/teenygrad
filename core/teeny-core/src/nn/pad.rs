@@ -23,16 +23,19 @@ use crate::{
 
 macro_rules! pad_layer {
     (
+        #[doc = $doc:expr]
         $name:ident,
         $( $field:ident : $fty:ty ),+
         $(,)?
     ) => {
+        #[doc = $doc]
         pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
-            $( pub $field: $fty, )+
+            $( #[doc = "Padding/config parameter; see the struct docs."] pub $field: $fty, )+
             _pd: PhantomData<(D, IT, OT)>,
         }
 
         impl<D: Dtype, IT, OT, const RANK: usize> $name<D, IT, OT, RANK> {
+            #[doc = "Creates a new layer with the given padding/config parameters."]
             pub fn new( $( $field: $fty ),+ ) -> Self {
                 Self { $( $field, )+ _pd: PhantomData }
             }
@@ -50,21 +53,21 @@ macro_rules! pad_layer {
 }
 
 // ConstantPad — adds a constant fill value on each side
-pad_layer!(ConstantPad1d, pad_left: usize, pad_right: usize, value: f64);
-pad_layer!(ConstantPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize, value: f64);
-pad_layer!(ConstantPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize, value: f64);
+pad_layer!(#[doc = "1-D constant padding: pads with a fixed value on each side."] ConstantPad1d, pad_left: usize, pad_right: usize, value: f64);
+pad_layer!(#[doc = "2-D constant padding: pads with a fixed value on each side."] ConstantPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize, value: f64);
+pad_layer!(#[doc = "3-D constant padding: pads with a fixed value on each side."] ConstantPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize, value: f64);
 
 // ReflectionPad — pads by reflecting the input at the boundary
-pad_layer!(ReflectionPad1d, pad_left: usize, pad_right: usize);
-pad_layer!(ReflectionPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize);
-pad_layer!(ReflectionPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize);
+pad_layer!(#[doc = "1-D reflection padding: pads by reflecting the input at the boundary."] ReflectionPad1d, pad_left: usize, pad_right: usize);
+pad_layer!(#[doc = "2-D reflection padding: pads by reflecting the input at the boundary."] ReflectionPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize);
+pad_layer!(#[doc = "3-D reflection padding: pads by reflecting the input at the boundary."] ReflectionPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize);
 
 // ReplicationPad — pads by replicating the edge values
-pad_layer!(ReplicationPad1d, pad_left: usize, pad_right: usize);
-pad_layer!(ReplicationPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize);
-pad_layer!(ReplicationPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize);
+pad_layer!(#[doc = "1-D replication padding: pads by replicating edge values."] ReplicationPad1d, pad_left: usize, pad_right: usize);
+pad_layer!(#[doc = "2-D replication padding: pads by replicating edge values."] ReplicationPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize);
+pad_layer!(#[doc = "3-D replication padding: pads by replicating edge values."] ReplicationPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize);
 
 // CircularPad — pads by wrapping around (circular/periodic boundary)
-pad_layer!(CircularPad1d, pad_left: usize, pad_right: usize);
-pad_layer!(CircularPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize);
-pad_layer!(CircularPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize);
+pad_layer!(#[doc = "1-D circular padding: pads by wrapping around (periodic boundary)."] CircularPad1d, pad_left: usize, pad_right: usize);
+pad_layer!(#[doc = "2-D circular padding: pads by wrapping around (periodic boundary)."] CircularPad2d, pad_l: usize, pad_r: usize, pad_t: usize, pad_b: usize);
+pad_layer!(#[doc = "3-D circular padding: pads by wrapping around (periodic boundary)."] CircularPad3d, pad_d1: usize, pad_d2: usize, pad_h1: usize, pad_h2: usize, pad_w1: usize, pad_w2: usize);

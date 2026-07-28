@@ -21,8 +21,11 @@ use crate::{
     nn::Layer,
 };
 
+/// Hardtanh activation layer: clamps input to `[min_val, max_val]`.
 pub struct Hardtanh<D: Float, T, const RANK: usize> {
+    /// Lower clamp bound.
     pub min_val: f64,
+    /// Upper clamp bound.
     pub max_val: f64,
     _pd: PhantomData<(D, T)>,
 }
@@ -46,6 +49,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// ReLU6 activation layer: `min(max(0, x), 6)`.
 pub struct Relu6<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -69,6 +73,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
     }
 }
 
+/// Hard-sigmoid activation layer: a piecewise-linear sigmoid approximation.
 pub struct Hardsigmoid<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -94,6 +99,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// Hard-swish activation layer: a piecewise-linear swish approximation.
 pub struct Hardswish<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -119,7 +125,9 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// Hardshrink activation layer: zeroes values in `[-lambda, lambda]`.
 pub struct Hardshrink<D: Float, T, const RANK: usize> {
+    /// The shrinkage threshold.
     pub lambda: f64,
     _pd: PhantomData<(D, T)>,
 }

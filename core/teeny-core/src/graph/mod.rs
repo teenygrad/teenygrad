@@ -53,6 +53,7 @@ use crate::{
     },
 };
 
+/// Graph-to-FXGraph lowering.
 pub mod compiler;
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,8 @@ pub type Shape = Vec<Option<usize>>;
 // Runtime dtype tag — used in the graph since D is erased at the node level
 // ---------------------------------------------------------------------------
 
+/// Runtime dtype tag: the graph-level (type-erased) representation of a tensor's dtype,
+/// mirroring `dtype::Dtype`'s implementors.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DtypeRepr {
     Bool,
@@ -123,14 +126,17 @@ pub trait CustomOp: Any + Send + Sync {
 pub struct CustomData(pub Arc<dyn CustomOp>);
 
 impl CustomData {
+    /// Wraps a [`CustomOp`] implementation.
     pub fn new<T: CustomOp>(op: T) -> Self {
         Self(Arc::new(op))
     }
 
+    /// The wrapped op's name.
     pub fn name(&self) -> &str {
         self.0.name()
     }
 
+    /// The wrapped op's inferred output shape.
     pub fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
         self.0.infer_output_shape(input_shapes)
     }
@@ -147,6 +153,9 @@ impl core::fmt::Debug for CustomData {
     }
 }
 
+/// A single computational-graph operation. Each variant corresponds to one `nn` layer or
+/// primitive op; variant fields are that op's configuration (mirroring the corresponding
+/// `nn::*` layer struct's fields).
 #[derive(Debug, Clone)]
 pub enum Op {
     /// Model input placeholder.
@@ -961,29 +970,36 @@ pub enum Op {
     ImageDecoder,
 }
 
+/// One node in a [`Graph`]: an [`Op`] plus its producer indices, dtype, and output shape.
 #[derive(Debug, Clone)]
 pub struct GraphNode {
+    /// This node's operation.
     pub op: Op,
     /// Indices of producer nodes in `Graph::nodes`; empty for `Input`.
     pub inputs: Vec<usize>,
+    /// This node's output dtype.
     pub dtype: DtypeRepr,
     /// Output shape of this node. `None` in a slot means a dynamic/unknown
     /// dimension (e.g. the batch axis).
     pub shape: Shape,
 }
 
+/// The traced computational graph: a list of [`GraphNode`]s plus optional node names.
 #[derive(Debug, Default, Clone)]
 pub struct Graph {
+    /// The graph's nodes, in the order they were recorded.
     pub nodes: Vec<GraphNode>,
     /// Node index → dotted name captured from [`crate::name_scope`] at recording time.
     pub names: BTreeMap<usize, String>,
 }
 
 impl Graph {
+    /// Creates an empty graph.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Appends a new node to the graph, returning its index.
     pub fn add_node(
         &mut self,
         op: Op,

@@ -23,6 +23,7 @@ use crate::{
     utils::dag::Dag,
 };
 
+/// A node index within a compiled model's DAG.
 pub type NodeId = usize;
 /// Raw device pointer alias used by runtime arg-packing.
 pub type RawPtr = *mut core::ffi::c_void;
@@ -54,6 +55,7 @@ pub struct KernelInstanceBackward {
     pub source: String,
 }
 
+/// A runtime execution context (device/stream handles, etc), threaded through arg-packing.
 pub trait RuntimeContext<'a> {}
 
 /// Encapsulates the runtime-dispatch behaviour for a compiled op node:
@@ -346,14 +348,20 @@ pub trait ExecutableOp {
     }
 }
 
+/// Whether a graph is being lowered for inference or training (training lowerings additionally
+/// wire up backward kernels).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LoweringMode {
+    /// Inference only; no backward kernels.
     #[default]
     Inference,
+    /// Training; backward kernels are wired up.
     Training,
 }
 
+/// Lowers a [`Graph`] into a DAG of [`ExecutableOp`]s, ready to compile/execute.
 pub trait Lowering<'a> {
+    /// Lowers `graph` for `mode`.
     fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>>;
 
     /// Like [`lower`] but also returns a `graph_node_idx → dag_node_idx` mapping
@@ -397,9 +405,13 @@ pub trait Lowering<'a> {
     }
 }
 
+/// A compiled, runnable model.
 pub trait Model<'a> {
+    /// This model's input type.
     type Input;
+    /// This model's output type.
     type Output;
 
+    /// Runs inference, producing `Output` from `input`.
     fn forward(&self, input: Self::Input) -> Result<Self::Output>;
 }

@@ -18,18 +18,27 @@ use alloc::vec::Vec;
 
 use crate::{device::Device, errors::Result};
 
+/// A device's identifying metadata.
 pub trait DeviceInfo: Sized {
+    /// This device's ID type.
     type Id;
 
+    /// This device's ID.
     fn id(&self) -> Self::Id;
+    /// This device's name.
     fn name(&self) -> &str;
 }
 
+/// The entry point for discovering and opening devices.
 pub trait Context<'a> {
+    /// The device type this context opens.
     type Device: Device<'a>;
+    /// The device-info type returned by [`Context::list_devices`].
     type DeviceInfo: DeviceInfo;
 
+    /// Lists all available devices.
     fn list_devices(&self) -> Result<Vec<Self::DeviceInfo>>;
 
+    /// Opens the device with the given ID.
     fn device(&self, id: &<Self::DeviceInfo as DeviceInfo>::Id) -> Result<Self::Device>;
 }

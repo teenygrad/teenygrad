@@ -21,7 +21,9 @@ use crate::{
     nn::Layer,
 };
 
+/// Leaky ReLU activation layer: `x` for `x >= 0`, `negative_slope * x` otherwise.
 pub struct LeakyRelu<D: Float, T, const RANK: usize> {
+    /// The slope applied to negative inputs.
     pub negative_slope: f64,
     _pd: PhantomData<(D, T)>,
 }
@@ -44,8 +46,11 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// Threshold activation layer: passes `x` through if `x > threshold`, else outputs `value`.
 pub struct Threshold<D: Float, T, const RANK: usize> {
+    /// The threshold.
     pub threshold: f64,
+    /// The replacement value for inputs at or below the threshold.
     pub value: f64,
     _pd: PhantomData<(D, T)>,
 }
@@ -69,6 +74,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// Softsign activation layer: `x / (1 + |x|)`.
 pub struct Softsign<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -94,7 +100,9 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// Softshrink activation layer: shrinks values toward zero by `lambda`.
 pub struct Softshrink<D: Float, T, const RANK: usize> {
+    /// The shrinkage threshold.
     pub lambda: f64,
     _pd: PhantomData<(D, T)>,
 }
@@ -117,8 +125,12 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     }
 }
 
+/// Softplus activation layer: a smooth ReLU approximation, `(1/beta) * ln(1 + e^(beta*x))`,
+/// reverting to linear above `threshold` for numerical stability.
 pub struct Softplus<D: Float, T, const RANK: usize> {
+    /// The `beta` sharpness parameter.
     pub beta: f64,
+    /// Above this value, the layer reverts to linear (`x`) to avoid overflow in `exp`.
     pub threshold: f64,
     _pd: PhantomData<(D, T)>,
 }

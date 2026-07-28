@@ -19,7 +19,10 @@ use crate::errors::Result;
 use crate::graph::Graph;
 use crate::model::{Lowering, LoweringMode, Model};
 
+/// Compiles a [`Graph`] into a runnable [`Model`], given a [`Lowering`] and [`Target`].
 pub trait GraphCompiler {
+    /// Compiles `graph` for `target` using `lowering`/`mode`. `force` recompiles even if a
+    /// cached artifact exists.
     fn compile<'a, L: Lowering<'a>, T: Target>(
         &self,
         graph: &Graph,

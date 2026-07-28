@@ -21,6 +21,7 @@ use crate::{
     nn::Layer,
 };
 
+/// Tanh (hyperbolic tangent) activation layer.
 pub struct Tanh<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
@@ -44,6 +45,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
     }
 }
 
+/// Tanhshrink activation layer: `x - tanh(x)`.
 pub struct Tanhshrink<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
