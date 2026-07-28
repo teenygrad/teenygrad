@@ -21,17 +21,28 @@ jobs:
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
+      # teeny-cuda's build.rs unconditionally runs bindgen against the CUDA
+      # headers -- install the toolkit so docs-site/build.sh's `nvcc`
+      # detection picks it up and includes teeny-cuda/teeny-kernels in the
+      # deployed API docs (previously skipped for lack of a CUDA runner).
+      # Only the headers/stub libs are needed (no GPU/driver required for
+      # `cargo doc`); pinned to a widely-available CUDA 12.x release rather
+      # than matching any particular dev machine's version, since bindgen
+      # output only needs to be API-compatible, not an exact match.
+      # NOTE: unverified -- this repo has no way to test a live GitHub
+      # Actions run; if this action/version stops working, check
+      # https://github.com/Jimver/cuda-toolkit for current options.
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.6.0'
+          method: network
+
       - name: Install mdbook + mdbook-mermaid
         run: |
           cargo install mdbook --locked
           cargo install mdbook-mermaid --locked
 
-      # docs-site/build.sh auto-detects whether the CUDA toolkit is
-      # available (`nvcc` on PATH) and skips teeny-cuda/teeny-kernels docs
-      # if not -- this runner doesn't have it provisioned yet, so the
-      # deployed site is currently missing those two crates' API docs.
-      # See teenygrad-nov.20: install a CUDA toolkit here (e.g. via
-      # Jimver/cuda-toolkit) for full parity with a local build.sh run.
       - name: Build docs site
         run: ./docs-site/build.sh
 

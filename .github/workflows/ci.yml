@@ -59,16 +59,10 @@ jobs:
         # (teeny-vision, transitively enabling teeny-cuda) only when building
         # test targets, which `cargo build`/`cargo clippy` (without
         # `--all-targets`) don't do.
-        #
-        # teeny-onnx is excluded here only (it builds and lints fine): its
-        # test_read_onnx_files test walks the full vendored ONNX test
-        # corpus and fails on ops the parser doesn't support yet (e.g.
-        # LinearAttention) — parser feature work, not a CI setup issue.
-        # See teenygrad-nov.19.
         run: >
           cargo test --workspace
           --exclude teeny-cuda --exclude teeny-kernels
-          --exclude teeny-torch --exclude teeny-onnx
+          --exclude teeny-torch
           --exclude teeny-triton --exclude teeny-vision
 
       - name: Check formatting

@@ -1103,6 +1103,12 @@ pub enum Op {
         /// Convolution/pooling kernel width.
         kernel_w: usize,
     },
+    /// Stateful causal 1-D convolution, carrying a sliding-window state between calls (ONNX
+    /// `CausalConvWithState`).
+    CausalConvWithState {
+        /// Name of the activation function applied after the convolution (empty = none).
+        activation: alloc::string::String,
+    },
 
     // --- Reductions ---
     /// Sum reduction along axes (ONNX `ReduceSum`).
@@ -1259,6 +1265,25 @@ pub enum Op {
         q_num_heads: usize,
         /// Number of key/value attention heads.
         kv_num_heads: usize,
+    },
+    /// Attention with a user-defined score-modification function (ONNX `FlexAttention`). The
+    /// score-modification subgraph itself is not captured (consistent with `Loop`/`If`/`Scan`
+    /// not capturing their subgraph bodies).
+    FlexAttention {
+        /// Attention score scale factor, if explicitly specified.
+        scale: f64,
+    },
+    /// Linear-complexity attention (e.g. gated delta rule variants), optionally carrying state
+    /// between calls (ONNX `LinearAttention`).
+    LinearAttention {
+        /// Number of query attention heads.
+        q_num_heads: usize,
+        /// Number of key/value attention heads.
+        kv_num_heads: usize,
+        /// Name of the state-update rule (e.g. a gated-delta variant).
+        update_rule: alloc::string::String,
+        /// Attention score scale factor, if explicitly specified.
+        scale: f64,
     },
 
     // --- Normalisation (generic) ---
@@ -2198,7 +2223,10 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         | Op::RandomUniformLike { .. }
         | Op::EyeLike { .. }
         | Op::RotaryEmbedding
-        | Op::MultiHeadAttention { .. } => input.clone(),
+        | Op::MultiHeadAttention { .. }
+        | Op::FlexAttention { .. }
+        | Op::LinearAttention { .. }
+        | Op::CausalConvWithState { .. } => input.clone(),
 
         // Binary / variadic element-wise — approximate as first-input shape
         Op::Mul

@@ -2320,6 +2320,21 @@ impl TritonLowering {
                         "TODO: Op::MultiHeadAttention — use flash attention or a custom MHA kernel"
                     ));
                 }
+                Op::FlexAttention { .. } => {
+                    return Err(anyhow::anyhow!(
+                        "TODO: Op::FlexAttention — implement a custom attention kernel supporting an arbitrary score-modification function"
+                    ));
+                }
+                Op::LinearAttention { .. } => {
+                    return Err(anyhow::anyhow!(
+                        "TODO: Op::LinearAttention — implement a linear-attention/gated-delta-rule kernel"
+                    ));
+                }
+                Op::CausalConvWithState { .. } => {
+                    return Err(anyhow::anyhow!(
+                        "TODO: Op::CausalConvWithState — implement a stateful causal-conv kernel"
+                    ));
+                }
                 Op::Reshape => {
                     return Err(anyhow::anyhow!(
                         "TODO: Op::Reshape — implement as a strided view or copy kernel"

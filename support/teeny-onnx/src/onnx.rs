@@ -951,6 +951,20 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
             kv_num_heads: get_attr_int(node, "kv_num_heads", 1).max(1) as usize,
         },
         "RotaryEmbedding" => Op::RotaryEmbedding,
+        // score_mod/prob_mod are GRAPH-typed attributes (a user-provided scoring subgraph) --
+        // not captured, consistent with Loop/If/Scan not capturing their subgraph bodies.
+        "FlexAttention" => Op::FlexAttention {
+            scale: get_attr_float(node, "scale", 0.0) as f64,
+        },
+        "LinearAttention" => Op::LinearAttention {
+            q_num_heads: get_attr_int(node, "q_num_heads", 1).max(1) as usize,
+            kv_num_heads: get_attr_int(node, "kv_num_heads", 1).max(1) as usize,
+            update_rule: get_attr_string(node, "update_rule", "").to_string(),
+            scale: get_attr_float(node, "scale", 0.0) as f64,
+        },
+        "CausalConvWithState" => Op::CausalConvWithState {
+            activation: get_attr_string(node, "activation", "").to_string(),
+        },
 
         // ---------------------------------------------------------------
         // Misc
