@@ -65,12 +65,6 @@ jobs:
         # test targets, which `cargo build`/`cargo clippy` (without
         # `--all-targets`) don't do.
         #
-        # teeny-compiler is also excluded: its insta snapshot test
-        # `test_compile` (elemwise_add_forward_sm90) currently fails against
-        # a stale snapshot (PTX .loc line numbers / a `.b8` byte differ from
-        # what's checked in) — pre-existing drift, not introduced by this
-        # workflow. See teenygrad-nov.18.
-        #
         # teeny-onnx is excluded here only (it builds and lints fine): its
         # test_read_onnx_files test walks the full vendored ONNX test
         # corpus and fails on ops the parser doesn't support yet (e.g.
@@ -81,7 +75,6 @@ jobs:
           --exclude teeny-cuda --exclude teeny-kernels
           --exclude teeny-torch --exclude teeny-onnx
           --exclude teeny-triton --exclude teeny-vision
-          --exclude teeny-compiler
 
       - name: Doc build
         run: >
