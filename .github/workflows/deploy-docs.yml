@@ -68,5 +68,6 @@ jobs:
           docker run --rm \
             -v "$PWD:/workdir" -w /workdir \
             -v "$SSH_AUTH_SOCK:/ssh-agent" -e SSH_AUTH_SOCK=/ssh-agent \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -e KAMAL_REGISTRY_PASSWORD \
             ghcr.io/basecamp/kamal:latest deploy
