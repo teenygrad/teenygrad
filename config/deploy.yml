@@ -23,3 +23,7 @@ proxy:
 builder:
   arch: amd64
   context: docs-site
+  # dockerfile resolves relative to the repo root (independently of
+  # context), not <context>/Dockerfile -- must be explicit or Kamal falls
+  # back to the unrelated root-level Dockerfile (full workspace CUDA build).
+  dockerfile: docs-site/Dockerfile
