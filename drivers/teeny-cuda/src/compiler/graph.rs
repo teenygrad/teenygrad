@@ -80,12 +80,14 @@ impl<'a> Kernel for BackwardKernelAdapter<'a> {
     }
 }
 
+/// Compiles a `teeny-core` [`Graph`] into a runnable CUDA model.
 #[derive(Debug, Clone)]
 pub struct CudaGraphCompiler {
     compiler: LlvmCompiler,
 }
 
 impl CudaGraphCompiler {
+    /// Wraps an [`LlvmCompiler`] as a graph compiler.
     pub fn new(compiler: LlvmCompiler) -> Self {
         Self { compiler }
     }

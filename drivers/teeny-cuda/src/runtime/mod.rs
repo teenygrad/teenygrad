@@ -21,7 +21,9 @@ use crate::{
     model::{CudaModel, TensorRef},
 };
 
+/// The CUDA [`Runtime`] implementation: executes a [`CudaModel`] on a [`CudaDevice`].
 pub struct CudaRuntime<'a> {
+    /// The device this runtime executes on.
     pub device: CudaDevice<'a>,
 }
 

@@ -24,16 +24,23 @@ use crate::cuda;
 use crate::device::program::CudaProgram;
 use crate::errors::{Error, Result};
 
+/// Ahead-of-time kernel compilation.
 pub mod aot;
+/// Compiling a `teeny-core` graph's kernels.
 pub mod graph;
+/// `nvptxcompiler` compile options.
 pub mod options;
+/// CUDA compilation target descriptions.
 pub mod target;
 
+/// Wraps `nvptxcompiler` (NVIDIA's standalone PTX-to-cubin compiler).
 pub struct PtxCompiler {
     compiler: cuda::nvPTXCompilerHandle,
 }
 
 impl PtxCompiler {
+    /// Creates a compiler for the given PTX source.
+    ///
     /// `ptx` is the raw PTX source bytes (ASCII; the C API takes a byte pointer
     /// and length, so no UTF-8 validation or null-termination is required).
     pub fn try_new(ptx: &[u8]) -> Result<Self> {
@@ -52,6 +59,7 @@ impl PtxCompiler {
         Ok(PtxCompiler { compiler })
     }
 
+    /// Compiles the PTX to a cubin binary using `options`.
     pub fn compile(&mut self, options: &Options) -> Result<Vec<u8>> {
         let compile_options = options.to_compile_options();
         let num_options = compile_options.len() as i32;

@@ -24,11 +24,13 @@ use crate::{
     errors::{Error, Result},
 };
 
+/// The CUDA [`Context`]: entry point for listing/opening devices.
 pub struct Cuda<'a> {
     _unused: PhantomData<&'a ()>,
 }
 
 impl<'a> Cuda<'a> {
+    /// Initializes the CUDA driver. Errors if no CUDA-capable device is available.
     pub fn try_new() -> Result<Self> {
         Self::is_available().and_then(|is_available| {
             if !is_available {
@@ -47,6 +49,7 @@ impl<'a> Cuda<'a> {
         })
     }
 
+    /// Whether at least one CUDA-capable device is present.
     pub fn is_available() -> Result<bool> {
         let mut device_count = 0;
         let err = unsafe { cuda::cudaGetDeviceCount(&mut device_count) };

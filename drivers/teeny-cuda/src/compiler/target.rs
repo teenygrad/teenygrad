@@ -19,6 +19,8 @@ use crate::errors::{Error, Result};
 
 pub use teeny_core::compiler::Capability;
 
+/// Derives a compute [`Capability`] from a device's major/minor version, erroring if it doesn't
+/// match a known architecture.
 pub fn capability_from_device_info(info: &CudaDeviceInfo) -> Result<Capability> {
     Capability::from_major_minor(info.major, info.minor)
         .ok_or_else(|| Error::UnknownCapability(format!("sm_{}{}", info.major, info.minor)).into())

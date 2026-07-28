@@ -16,39 +16,65 @@
 
 use crate::cuda;
 
+/// `teeny-cuda`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Errors produced by `teeny-cuda`.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// No CUDA-capable device/driver was found.
     #[error("CUDA not available")]
     CudaNotAvailable,
 
+    /// A CUDA runtime/driver API call failed.
     #[error("CUDA error: {code} ({message})")]
     CudaError {
+        /// The CUDA error code.
         code: cuda::cudaError_enum,
+        /// The human-readable message from `cudaGetErrorString`.
         message: String,
     },
 
+    /// A capability string didn't match any known GPU architecture.
     #[error("Unknown capability: {0}")]
     UnknownCapability(String),
 
+    /// A Rust string contained an interior NUL byte and couldn't convert to a C string.
     #[error("CString error: {0}")]
     CStringError(std::ffi::NulError),
 
+    /// `nvptxcompiler` failed to compile PTX.
     #[error("NVPTX Compile error {code}: {log}")]
     NvptxCompileError {
+        /// The `nvptxcompiler` result code.
         code: cuda::nvPTXCompileResult,
+        /// The compiler's error log.
         log: String,
     },
 
+    /// A source buffer had more elements than the destination buffer could hold.
     #[error("buffer overflow: source has {src} elements but buffer holds {buf}")]
-    BufferOverflow { src: usize, buf: usize },
+    BufferOverflow {
+        /// Number of elements in the source.
+        src: usize,
+        /// Capacity of the destination buffer.
+        buf: usize,
+    },
 
+    /// A `--options`-style compiler options string ([`crate::compiler::options::Options::parse`])
+    /// was malformed.
     #[error("invalid compiler options '{input}': {reason}")]
-    InvalidOptions { input: String, reason: String },
+    InvalidOptions {
+        /// The original, unparsed options string.
+        input: String,
+        /// Why parsing failed.
+        reason: String,
+    },
 }
 
 impl Error {
+    /// Builds a [`Error::CudaError`] from a raw CUDA error code, looking up its message via
+    /// `cudaGetErrorString`.
     pub fn from_cuda_error(code: cuda::cudaError_enum) -> Self {
         // SAFETY: cudaGetErrorString returns a valid C string for any cudaError_enum value.
         let err_str = unsafe {

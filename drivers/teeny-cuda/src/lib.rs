@@ -23,11 +23,19 @@
 //! against them unconditionally); see the crate README for `CUDA_INCLUDE_DIR`/`CUDA_LIB_DIR` and
 //! the separate, runtime-only `teenyc`/`TEENYC_PATH` requirement for actually compiling kernels.
 
+#![warn(missing_docs)]
+
+/// AOT/JIT kernel compilation.
 pub mod compiler;
+/// Device and context management.
 pub mod device;
+/// Error types.
 pub mod errors;
+/// Loaded-model execution.
 pub mod model;
+/// CUDA runtime abstraction (streams, memory, launches).
 pub mod runtime;
+/// Test helpers for `teeny-cuda`'s own test suite.
 pub mod testing;
 
 mod cuda;

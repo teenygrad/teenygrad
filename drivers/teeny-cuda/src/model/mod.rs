@@ -88,15 +88,19 @@ $L__return:\n\
 /// `shape` is always fully concrete (no `None` dims).
 #[derive(Clone, Debug)]
 pub struct TensorRef {
+    /// The device pointer to this tensor's data.
     pub ptr: DevicePtr,
+    /// This tensor's concrete shape.
     pub shape: Vec<usize>,
 }
 
 impl TensorRef {
+    /// Wraps an existing device pointer and shape as a `TensorRef`.
     pub fn new(ptr: DevicePtr, shape: Vec<usize>) -> Self {
         Self { ptr, shape }
     }
 
+    /// Total number of elements (product of `shape`).
     pub fn n_elements(&self) -> usize {
         self.shape.iter().product()
     }
@@ -152,11 +156,16 @@ fn resolve_shape(shape: &Shape, batch_size: usize) -> Vec<usize> {
 // CompiledNode — one PTX-compiled graph node
 // ---------------------------------------------------------------------------
 
+/// One PTX-compiled graph node: where its compiled kernel lives on disk, its output
+/// shape/dtype, and how to dispatch it at runtime.
 pub struct CompiledNode {
     /// Path to the compiled `.o` PTX file. Empty for `Input` placeholder nodes.
     pub ptx_path: String,
+    /// The kernel's entry point symbol name.
     pub entry_point: String,
+    /// This node's output shape.
     pub output_shape: Shape,
+    /// This node's output dtype.
     pub output_dtype: DtypeRepr,
     /// Runtime dispatch: arg-packing + grid computation. `None` for Input nodes.
     pub runtime_op: Option<Arc<dyn RuntimeOp>>,
@@ -172,7 +181,10 @@ pub struct CompiledNode {
 // CudaModel — compiled but not yet loaded into GPU memory
 // ---------------------------------------------------------------------------
 
+/// A compiled model: a DAG of [`CompiledNode`]s, not yet loaded into GPU memory. Call
+/// [`CudaModel::load`] to load it and get a runnable `LoadedModel`.
 pub struct CudaModel<'a> {
+    /// The compiled node DAG.
     pub dag: Dag<CompiledNode>,
     /// DAG node index → dotted name (e.g. `"model.0.conv"`), populated from the
     /// source `Graph::names` field during compilation.
@@ -192,6 +204,7 @@ impl<'a> Model<'a> for CudaModel<'a> {
 }
 
 impl<'a> CudaModel<'a> {
+    /// Wraps a compiled node DAG as a `CudaModel`, with no node names.
     pub fn new(dag: Dag<CompiledNode>) -> Result<Self> {
         Ok(Self {
             dag,
@@ -200,6 +213,7 @@ impl<'a> CudaModel<'a> {
         })
     }
 
+    /// Wraps a compiled node DAG as a `CudaModel`, with the given node-index → name mapping.
     pub fn with_names(dag: Dag<CompiledNode>, names: HashMap<usize, String>) -> Result<Self> {
         Ok(Self {
             dag,
@@ -395,6 +409,8 @@ impl Drop for LoadedNode {
 // LoadedModel — eager-loaded model ready for inference
 // ---------------------------------------------------------------------------
 
+/// A [`CudaModel`] with all kernels loaded into GPU memory and parameter buffers allocated,
+/// ready to run inference (and, with the `training` feature, training steps).
 pub struct LoadedModel {
     /// Per-DAG-node loaded kernel. `None` for `Input` placeholder nodes.
     nodes: Vec<Option<LoadedNode>>,
@@ -927,6 +943,7 @@ impl LoadedModel {
         self.names.get(&idx).map(|s| s.as_str())
     }
 
+    /// Terminal (no-consumer) node indices, sorted by output element count (largest last).
     pub fn terminal_node_indices_sorted_by_size(&self) -> Vec<usize> {
         let mut terminals = self.terminal_node_indices();
         terminals.sort_by_key(|&i| {
@@ -1631,6 +1648,8 @@ impl LoadedModel {
 /// Implements `Drop` so device buffers are freed automatically.
 #[cfg(feature = "training")]
 pub struct ActivationCache {
+    /// Per-node activation tensor, indexed by DAG node index. `None` for nodes with no cached
+    /// activation (e.g. `Input` placeholders).
     pub tensors: Vec<Option<TensorRef>>,
 }
 
@@ -1927,6 +1946,7 @@ pub struct AdamwKernel {
 
 #[cfg(feature = "training")]
 impl AdamwKernel {
+    /// Loads a pre-compiled `adamw_step` kernel from raw PTX bytes.
     pub fn from_ptx(ptx: &[u8]) -> Result<Self> {
         let program = CudaProgram::<ErasedKernel>::try_from_ptx(ptx)?;
         Ok(Self { program })

@@ -20,74 +20,101 @@ use derive_more::Display;
 use crate::compiler::target::Capability;
 use crate::errors::{Error, Result};
 
+/// `nvptxcompiler` `--sanitize` value.
 #[derive(Debug, Clone, Copy, Display)]
 pub enum Sanitizer {
+    /// Enable `memcheck`-style memory error detection.
     #[display("memcheck")]
     MemCheck,
 }
 
+/// `nvptxcompiler` `--opt-level` value.
 #[derive(Debug, Clone, Copy, Display)]
 pub enum OptLevel {
+    /// No optimization.
     #[display("0")]
     O0,
+    /// Light optimization.
     #[display("1")]
     O1,
+    /// Default optimization.
     #[display("2")]
     O2,
+    /// Aggressive optimization.
     #[display("3")]
     O3,
 }
 
+/// `nvptxcompiler` compile options, translated to CLI flags by [`Options::to_compile_options`].
+/// Each field corresponds 1:1 to an `nvptxcompiler`/`teenyc` flag of the same name (with `_`
+/// replaced by `-`) — see [`Options::parse`] for the string-based `--options` CLI encoding.
 #[derive(Builder)]
 pub struct Options {
+    /// `--allow-expensive-optimizations`.
     #[builder(default = "false")]
     pub allow_expensive_optimizations: bool,
 
+    /// `--compile-as-tools-patch`.
     #[builder(default = "false")]
     pub compile_as_tools_patch: bool,
 
+    /// `--compile-only`.
     #[builder(default = "false")]
     pub compile_only: bool,
 
+    /// `--def-load-cache`.
     #[builder(default = "false")]
     pub def_load_cache: bool,
 
+    /// `--def-store-cache`.
     #[builder(default = "false")]
     pub def_store_cache: bool,
 
+    /// `--device-debug`.
     #[builder(default = "false")]
     pub device_debug: bool,
 
+    /// `--device-function-maxrregcount`.
     #[builder(default = "None")]
     pub device_function_maxrregcount: Option<u32>,
 
+    /// `--disable-optimizer-constants`.
     #[builder(default = "false")]
     pub disable_optimizer_constants: bool,
 
+    /// `--disable-warnings`.
     #[builder(default = "false")]
     pub disable_warnings: bool,
 
+    /// `--dont-merge-basicblocks`.
     #[builder(default = "false")]
     pub dont_merge_basicblocks: bool,
 
+    /// `--entry`: the kernel entry point name.
     #[builder(default = "String::from(\"entry_point\")")]
     pub entry: String,
 
+    /// `--extensible-whole-program`.
     #[builder(default = "false")]
     pub extensible_whole_program: bool,
 
+    /// `--fmad`: enable fused multiply-add contraction.
     #[builder(default = "false")]
     pub fmad: bool,
 
+    /// `--force-load-cache`.
     #[builder(default = "false")]
     pub force_load_cache: bool,
 
+    /// `--force-store-cache`.
     #[builder(default = "false")]
     pub force_store_cache: bool,
 
+    /// `--generate-line-info`.
     #[builder(default = "false")]
     pub generate_line_info: bool,
 
+    /// `--gpu-name`: the target GPU's compute capability.
     #[builder]
     pub gpu_name: Capability,
 
@@ -101,74 +128,97 @@ pub struct Options {
     #[builder(default = "None")]
     pub ptx_version: Option<u32>,
 
+    /// `--maxrregcount` (alias `maxnreg` in [`Options::parse`]'s string encoding).
     #[builder(default = "None")]
     pub maxrregcount: Option<u32>,
 
+    /// `--opt-level`.
     #[builder(default = "None")]
     pub opt_level: Option<OptLevel>,
 
+    /// `--position-independent-code`.
     #[builder(default = "false")]
     pub position_independent_code: bool,
 
+    /// `--preserve-relocs`.
     #[builder(default = "false")]
     pub preserve_relocs: bool,
 
+    /// `--return-at-end`.
     #[builder(default = "false")]
     pub return_at_end: bool,
 
+    /// `--sanitize`.
     #[builder(default = "None")]
     pub sanitize: Option<Sanitizer>,
 
+    /// `--suppress-async-bulk-multicast-advisory-warning`.
     #[builder(default = "false")]
     pub suppress_async_bulk_multicast_advisory_warning: bool,
 
+    /// `--suppress-stack-size-warning`.
     #[builder(default = "false")]
     pub suppress_stack_size_warning: bool,
 
+    /// `--verbose`.
     #[builder(default = "false")]
     pub verbose: bool,
 
+    /// `--warn-on-double-precision-use`.
     #[builder(default = "false")]
     pub warn_on_double_precision_use: bool,
 
+    /// `--warn-on-local-memory-usage`.
     #[builder(default = "false")]
     pub warn_on_local_memory_usage: bool,
 
+    /// `--warn-on-spills`.
     #[builder(default = "false")]
     pub warn_on_spills: bool,
 
+    /// `--warning-as-error`.
     #[builder(default = "false")]
     pub warning_as_error: bool,
 
+    /// `--maxntid`.
     #[builder(default = "None")]
     pub maxntid: Option<u32>,
 
+    /// `--minnctapersm`.
     #[builder(default = "None")]
     pub minnctapersm: Option<u32>,
 
+    /// `--override-directive-values`.
     #[builder(default = "false")]
     pub override_directive_values: bool,
 
+    /// `--make-errors-visible-at-exit`.
     #[builder(default = "false")]
     pub make_errors_visible_at_exit: bool,
 
+    /// `--oFast-compile`.
     #[builder(default = "None")]
     pub ofast_compile: Option<u32>,
 
+    /// `--device-stack-protector`.
     #[builder(default = "false")]
     pub device_stack_protector: bool,
 
+    /// `--g-tensor-memory-access-check`.
     #[builder(default = "false")]
     pub g_tensor_memory_access_check: bool,
 
+    /// `--gno-tensor-memory-access-check`.
     #[builder(default = "false")]
     pub gno_tensor_memory_access_check: bool,
 
+    /// `--split-compile`.
     #[builder(default = "None")]
     pub split_compile: Option<u32>,
 }
 
 impl Options {
+    /// Renders these options as `nvptxcompiler`/`teenyc` CLI flags.
     pub fn to_compile_options(&self) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
 

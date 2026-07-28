@@ -32,9 +32,13 @@ use crate::{
     errors::{Error, Result},
 };
 
+/// Device memory buffers.
 pub mod buffer;
+/// Device/context management.
 pub mod context;
+/// Memory-related helpers.
 pub mod mem;
+/// Compiled kernel programs.
 pub mod program;
 
 /// Packs kernel arguments into the `void**` array expected by `cuLaunchKernel`.
@@ -53,6 +57,7 @@ impl Default for CudaArgPacker {
 }
 
 impl CudaArgPacker {
+    /// Creates an empty argument packer.
     pub fn new() -> Self {
         Self { values: Vec::new() }
     }
@@ -111,36 +116,60 @@ impl ArgVisitor for CudaArgPacker {
     }
 }
 
+/// A kernel launch's grid/block/cluster dimensions (in `(x, y, z)` order).
 pub struct CudaLaunchConfig {
+    /// Grid dimensions (number of blocks per dimension).
     pub grid: [u32; 3],
+    /// Block dimensions (number of threads per block, per dimension).
     pub block: [u32; 3],
+    /// Thread-block-cluster dimensions.
     pub cluster: [u32; 3],
 }
 
 impl LaunchConfig for CudaLaunchConfig {}
 
+/// A CUDA device's static properties, read from `cudaGetDeviceProperties` at
+/// [`CudaDevice::try_new`] time.
 #[derive(Debug, Clone)]
 pub struct CudaDeviceInfo {
+    /// The device's ordinal ID.
     pub id: i32,
+    /// The device's name (e.g. `"NVIDIA GeForce RTX 5070"`).
     pub name: String,
+    /// Compute capability major version.
     pub major: i32,
+    /// Compute capability minor version.
     pub minor: i32,
+    /// Number of streaming multiprocessors.
     pub multi_processor_count: i32,
+    /// Total global memory, in bytes.
     pub total_global_mem: usize,
+    /// Shared memory available per block, in bytes.
     pub shared_mem_per_block: usize,
+    /// Number of 32-bit registers available per block.
     pub regs_per_block: i32,
+    /// Warp size in threads.
     pub warp_size: i32,
+    /// Maximum threads per block.
     pub max_threads_per_block: i32,
+    /// Maximum resident threads per multiprocessor.
     pub max_threads_per_multi_processor: i32,
+    /// Maximum resident blocks per multiprocessor.
     pub max_blocks_per_multi_processor: i32,
+    /// Maximum block size, per dimension.
     pub max_threads_dim: [i32; 3],
+    /// Maximum grid size, per dimension.
     pub max_grid_size: [i32; 3],
+    /// Global memory bus width, in bits.
     pub memory_bus_width: i32,
+    /// L2 cache size, in bytes.
     pub l2_cache_size: i32,
+    /// Whether the device supports executing multiple kernels concurrently.
     pub concurrent_kernels: i32,
 }
 
 impl CudaDeviceInfo {
+    /// Builds a `CudaDeviceInfo` from a raw `cudaDeviceProp`.
     pub fn new(id: i32, props: cuda::cudaDeviceProp) -> Self {
         let name = unsafe { std::ffi::CStr::from_ptr(props.name.as_ptr()) };
         let name = name.to_string_lossy().to_string();
@@ -178,8 +207,10 @@ impl DeviceInfo for CudaDeviceInfo {
     }
 }
 
+/// An open CUDA device and its context. Destroys the context on drop.
 #[derive(Debug, Clone)]
 pub struct CudaDevice<'a> {
+    /// The device's static properties.
     pub info: CudaDeviceInfo,
     // Retained for future device-property queries; only `context` is currently used for CUDA
     // API calls.
@@ -190,6 +221,7 @@ pub struct CudaDevice<'a> {
 }
 
 impl<'a> CudaDevice<'a> {
+    /// Opens device `id`, creating a new CUDA context for it.
     pub fn try_new(id: i32) -> Result<Self> {
         let device_id = id;
         let mut device = cuda::CUdevice::default();
@@ -225,6 +257,7 @@ impl<'a> CudaDevice<'a> {
         })
     }
 
+    /// This device's static properties.
     pub fn info(&self) -> &CudaDeviceInfo {
         &self.info
     }

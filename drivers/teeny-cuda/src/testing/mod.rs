@@ -27,11 +27,17 @@ use crate::{
     errors::Result,
 };
 
+/// A device + capability pair set up for a test, via [`setup_cuda_env`].
 pub struct CudaTestEnv {
+    /// The opened test device.
     pub device: CudaDevice<'static>,
+    /// The device's (possibly `TEENYC_CAPABILITY`-overridden) compute capability.
     pub capability: Capability,
 }
 
+/// Asserts CUDA is available, opens the first device, and resolves its compute capability
+/// (overridable via the `TEENYC_CAPABILITY` env var, e.g. `sm_90`) — the standard setup for
+/// `teeny-cuda`'s own device-dependent tests.
 pub fn setup_cuda_env() -> Result<CudaTestEnv> {
     let cuda_available = Cuda::is_available()?;
     assert!(cuda_available, "CUDA is not available");
@@ -116,6 +122,8 @@ pub fn launch_config_with_grid<K: Kernel>(
     }
 }
 
+/// Loads a compiled program directly from raw PTX bytes via the driver's JIT loader (skipping
+/// `nvptxcompiler`) — useful in tests that already have PTX in hand.
 pub fn load_program_from_ptx<K: Kernel>(ptx: &[u8]) -> Result<CudaProgram<'static, K>> {
     println!("      loading PTX directly via driver JIT...");
     let program = CudaProgram::<K>::try_from_ptx(ptx)?;

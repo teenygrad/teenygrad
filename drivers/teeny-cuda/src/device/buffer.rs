@@ -33,6 +33,7 @@ pub struct CudaBuffer<'a, N: Num> {
 }
 
 impl<'a, N: Num> CudaBuffer<'a, N> {
+    /// Allocates a new device buffer for `count` elements of `N`.
     pub fn try_new(count: usize) -> Result<Self> {
         let byte_size = count * N::BITS as usize / 8;
         let ptr = mem::alloc(byte_size)?;
@@ -44,10 +45,12 @@ impl<'a, N: Num> CudaBuffer<'a, N> {
         })
     }
 
+    /// The underlying device pointer.
     pub fn as_device_ptr(&self) -> DevicePtr {
         self.ptr
     }
 
+    /// The number of elements this buffer holds.
     pub fn count(&self) -> usize {
         self.count
     }

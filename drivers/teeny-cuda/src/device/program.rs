@@ -186,15 +186,19 @@ pub struct CudaProgram<'a, K: Kernel> {
 }
 
 impl<'a, K: Kernel> CudaProgram<'a, K> {
+    /// The loaded module's raw `CUmodule` handle, as a `usize`.
     pub fn module_ptr(&self) -> usize {
         self.module as usize
     }
+    /// The resolved kernel entry point's raw `CUfunction` handle, as a `usize`.
     pub fn function_ptr(&self) -> usize {
         self.function as usize
     }
+    /// Threads per block, from the kernel's parsed metadata.
     pub fn threads_per_block(&self) -> u32 {
         self.metadata.threads_per_block()
     }
+    /// Number of CTAs (thread blocks), from the kernel's parsed metadata.
     pub fn num_ctas(&self) -> u32 {
         self.metadata.num_ctas
     }
