@@ -1,0 +1,51 @@
+name: Deploy docs site
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-docs:
+    name: Build and deploy docs.teenygrad.org
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # teeny-onnx vendors its ONNX proto schema as a submodule.
+          submodules: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install mdbook + mdbook-mermaid
+        run: |
+          cargo install mdbook --locked
+          cargo install mdbook-mermaid --locked
+
+      # docs-site/build.sh auto-detects whether the CUDA toolkit is
+      # available (`nvcc` on PATH) and skips teeny-cuda/teeny-kernels docs
+      # if not -- this runner doesn't have it provisioned yet, so the
+      # deployed site is currently missing those two crates' API docs.
+      # See teenygrad-nov.20: install a CUDA toolkit here (e.g. via
+      # Jimver/cuda-toolkit) for full parity with a local build.sh run.
+      - name: Build docs site
+        run: ./docs-site/build.sh
+
+      - name: Set up SSH agent for Kamal
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.KAMAL_SSH_PRIVATE_KEY }}
+
+      - name: Deploy via Kamal
+        env:
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/workdir" -w /workdir \
+            -v "$SSH_AUTH_SOCK:/ssh-agent" -e SSH_AUTH_SOCK=/ssh-agent \
+            -e KAMAL_REGISTRY_PASSWORD \
+            ghcr.io/basecamp/kamal:latest deploy

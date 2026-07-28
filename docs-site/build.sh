@@ -22,8 +22,21 @@ rm -rf target/doc
 # API reference for every publishable crate. teeny-torch and teeny-fxgraph
 # are excluded on purpose (publish = false -- PyTorch compat layer, not part
 # of the public Rust SDK).
-cargo doc --workspace --no-deps \
-  --exclude teeny-torch --exclude teeny-fxgraph
+doc_excludes="--exclude teeny-torch --exclude teeny-fxgraph"
+
+# teeny-cuda's build.rs hard-requires the CUDA toolkit; teeny-kernels'
+# default features enable teeny-cuda. If it's not on this machine (e.g. a
+# CI runner without it provisioned), skip both rather than fail the whole
+# build -- better an incomplete site than no site. Run this script on a
+# CUDA-capable host (as this repo's own dev sandbox is) to get full
+# coverage.
+if ! command -v nvcc >/dev/null 2>&1; then
+  echo "docs-site/build.sh: nvcc not found -- skipping teeny-cuda/teeny-kernels docs" >&2
+  doc_excludes="$doc_excludes --exclude teeny-cuda --exclude teeny-kernels"
+fi
+
+# shellcheck disable=SC2086
+cargo doc --workspace --no-deps $doc_excludes
 
 cp -r target/doc/. "$dist/api/"
 
