@@ -1,0 +1,27 @@
+[book]
+title = "The Teenygrad Book"
+description = "A guide to building and deploying with teenygrad, a high-performance, memory-safe Rust ML training and inference library."
+authors = ["Teenygrad contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/teenygrad/teenygrad"
+edit-url-template = "https://github.com/teenygrad/teenygrad/edit/main/book/{path}"
+site-url = "/book/"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+[output.html.playground]
+runnable = false
+
+# mdbook-linkcheck is currently incompatible with mdbook 0.5.x (fails parsing
+# the RenderContext: "missing field `sections`") -- dropped until it's
+# updated. Re-add `[output.linkcheck]` once mdbook-linkcheck supports this
+# mdbook version.
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html.fold]
+enable = true
+level = 1

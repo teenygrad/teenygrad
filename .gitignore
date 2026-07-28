@@ -1,5 +1,6 @@
 /target/
 Cargo.lock
+/book/book/
 teenygrad.code-workspace
 axm.out
 scratch/
