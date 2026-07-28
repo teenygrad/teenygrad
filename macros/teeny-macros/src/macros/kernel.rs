@@ -495,7 +495,10 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         .zip(const_field_idents.iter())
         .map(|(cp, field_name)| {
             let ty = &cp.ty;
-            quote! { pub #field_name: #ty, }
+            quote! {
+                /// Compile-time kernel constant, from the annotated fn's `const` generics.
+                pub #field_name: #ty,
+            }
         })
         .collect();
 
@@ -558,6 +561,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl #struct_generics_def #struct_ident #struct_generics_use {
+            /// Constructs a new kernel instance for these compile-time parameters.
             pub fn new( #(#const_constructor_args,)* ) -> Self {
                 // Declare runtime type-name variables for each type generic.
                 #(#type_name_decls)*
