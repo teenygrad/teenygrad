@@ -1085,12 +1085,11 @@ pub fn elemwise_erf_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    // 2/sqrt(pi) = 1.1283791670955126
-    let coeff = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_SIZE], 1.1283791670955126_f32),
-        None,
-        false,
-    );
+    // 2/sqrt(pi) = 1.1283791670955126. A literal (not `f32::consts::FRAC_2_SQRT_PI`) is
+    // deliberate: this function body is compiled through the `teenyc`/no_core Triton DSL
+    // frontend, which isn't guaranteed to evaluate arbitrary `std` const paths.
+    #[allow(clippy::approx_constant)]
+    let coeff = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.128_379_2_f32), None, false);
     let dx = coeff * T::exp(-(x * x)) * dy;
     T::store(
         dx_ptr.add_offsets(offsets),
@@ -1485,7 +1484,7 @@ pub fn elemwise_acos_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
     let one = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 1.0_f32), None, false);
     let half_pi = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_SIZE], 1.5707963267948966_f32), // π/2
+        T::full::<f32>(&[BLOCK_SIZE], 1.570_796_4_f32), // π/2
         None,
         false,
     );

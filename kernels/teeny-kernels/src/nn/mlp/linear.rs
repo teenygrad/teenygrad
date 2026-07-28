@@ -144,7 +144,7 @@ pub fn linear_backward<
     stride_dxk: i32,
     stride_dwk: i32,
     stride_dwn: i32,
-    stride_dbn: i32,
+    _stride_dbn: i32,
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -233,19 +233,17 @@ pub fn linear_backward<
         T::store_tensor_descriptor(dw_desc, &[pid_n * BLOCK_N, pid_k * BLOCK_K], acc_dw);
 
         // db = sum(dy, dim=0): computed alongside dw (pid_m == 0), only for pid_k == 0.
-        if USE_BIAS {
-            if pid_k == 0 {
-                let offs_bn = T::arange(0, BLOCK_N) + pid_n * BLOCK_N;
-                let bias_mask = offs_bn.lt(N);
-                let mut acc_db = T::zeros::<D>(&[BLOCK_N]);
-                for m in 0..m_tiles {
-                    let dy = T::load_tensor_descriptor(dy_desc, &[m * BLOCK_M, pid_n * BLOCK_N]);
-                    let sum = T::sum::<D>(dy, Some(0), false);
-                    acc_db = acc_db + sum;
-                }
-                let db_ptr_tile = db_ptr.add_offsets(offs_bn);
-                T::store(db_ptr_tile, acc_db, Some(bias_mask), &[], None, None);
+        if USE_BIAS && pid_k == 0 {
+            let offs_bn = T::arange(0, BLOCK_N) + pid_n * BLOCK_N;
+            let bias_mask = offs_bn.lt(N);
+            let mut acc_db = T::zeros::<D>(&[BLOCK_N]);
+            for m in 0..m_tiles {
+                let dy = T::load_tensor_descriptor(dy_desc, &[m * BLOCK_M, pid_n * BLOCK_N]);
+                let sum = T::sum::<D>(dy, Some(0), false);
+                acc_db = acc_db + sum;
             }
+            let db_ptr_tile = db_ptr.add_offsets(offs_bn);
+            T::store(db_ptr_tile, acc_db, Some(bias_mask), &[], None, None);
         }
     }
 }

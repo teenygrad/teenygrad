@@ -1059,6 +1059,9 @@ impl Graph {
         // node_override[i] — replacement (op, inputs) for node i.
         let mut node_override: Vec<Option<(Op, Vec<usize>)>> = vec![None; n];
 
+        // `silu_idx` indexes multiple parallel collections below (self.nodes, n_consumers,
+        // node_override), not just one -- an iterator/enumerate() rewrite wouldn't be clearer.
+        #[allow(clippy::needless_range_loop)]
         for silu_idx in 0..n {
             if !matches!(self.nodes[silu_idx].op, Op::Silu) {
                 continue;

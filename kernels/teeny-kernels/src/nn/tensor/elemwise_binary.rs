@@ -1902,7 +1902,7 @@ impl<D: Float + Send + Sync + 'static> ClipRuntimeOp<D> {
     }
 
     pub fn kernel_name(&self) -> &str {
-        &self.kernel.name
+        self.kernel.name
     }
 }
 

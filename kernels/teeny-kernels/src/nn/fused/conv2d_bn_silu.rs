@@ -54,7 +54,7 @@ pub fn conv2d_bn_silu_forward<
     bn_scale_ptr: T::Pointer<f32>,
     bn_shift_ptr: T::Pointer<f32>,
     y_ptr: T::Pointer<f32>,
-    B: i32,
+    _B: i32,
     C_IN: i32,
     C_OUT: i32,
     H: i32,

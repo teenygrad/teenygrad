@@ -46,16 +46,11 @@ jobs:
           --exclude teeny-torch
 
       - name: Clippy
-        # Not `-D warnings` yet: the codebase currently has pre-existing
-        # clippy warnings (teeny-core, teeny-macros, teeny-triton,
-        # teeny-compiler) that haven't been triaged/fixed. Denying warnings
-        # here would make this brand-new CI red on main from day one. Track
-        # cleanup separately (teenygrad-nov.17) and tighten this to
-        # `-D warnings` once clean.
         run: >
           cargo clippy --workspace
           --exclude teeny-cuda --exclude teeny-kernels
           --exclude teeny-torch
+          -- -D warnings
 
       - name: Test
         # teeny-triton and teeny-vision are additionally excluded here (but
@@ -75,6 +70,9 @@ jobs:
           --exclude teeny-cuda --exclude teeny-kernels
           --exclude teeny-torch --exclude teeny-onnx
           --exclude teeny-triton --exclude teeny-vision
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Doc build
         run: >

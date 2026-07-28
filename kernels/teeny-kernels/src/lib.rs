@@ -22,6 +22,12 @@
 //! toolkit to build — see its crate README. Running/compiling kernels additionally needs the
 //! custom `teenyc` compiler at runtime; see `teeny-compiler`'s README.
 
+// `#[kernel]`-annotated functions naturally take many parameters (pointers, strides, dims,
+// block-size const-generics) matching the CUDA/Triton kernel calling convention -- inherent to
+// the domain, not something to refactor away. `Dag<Box<dyn ExecutableOp>>`-style return types
+// (graph::lower) are similarly intentional, not accidental complexity.
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
 pub mod errors;
 pub mod graph;
 pub mod math;

@@ -46,6 +46,12 @@ pub struct CudaArgPacker {
     values: Vec<Vec<u8>>,
 }
 
+impl Default for CudaArgPacker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CudaArgPacker {
     pub fn new() -> Self {
         Self { values: Vec::new() }
@@ -175,6 +181,9 @@ impl DeviceInfo for CudaDeviceInfo {
 #[derive(Debug, Clone)]
 pub struct CudaDevice<'a> {
     pub info: CudaDeviceInfo,
+    // Retained for future device-property queries; only `context` is currently used for CUDA
+    // API calls.
+    #[allow(dead_code)]
     device: cuda::CUdevice,
     context: cuda::CUcontext,
     _unused: PhantomData<&'a ()>,
@@ -237,7 +246,7 @@ impl<'a> Device<'a> for CudaDevice<'a> {
     type LaunchConfig = CudaLaunchConfig;
 
     fn buffer<N: Num>(&self, count: usize) -> teeny_core::errors::Result<Self::Buffer<N>> {
-        Ok(CudaBuffer::try_new(count)?)
+        CudaBuffer::try_new(count)
     }
 
     fn launch<K: Kernel>(

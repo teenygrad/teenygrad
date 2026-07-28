@@ -553,8 +553,8 @@ impl TritonLowering {
             // BatchNorm2d uses NCHW-native kernels (falls through to the inference path below)
             // which already supports training via has_backward=true.
             #[cfg(feature = "training")]
-            if mode == LoweringMode::Training {
-                if let Op::BatchNorm1d {
+            if mode == LoweringMode::Training
+                && let Op::BatchNorm1d {
                     num_features,
                     eps,
                     momentum,
@@ -566,120 +566,113 @@ impl TritonLowering {
                     momentum,
                     ..
                 } = &node.op
-                {
-                    let c = *num_features;
-                    let eps_f32 = *eps as f32;
-                    let momentum_f32 = *momentum as f32;
-                    const BLOCK_N: i32 = 64;
+            {
+                let c = *num_features;
+                let eps_f32 = *eps as f32;
+                let momentum_f32 = *momentum as f32;
+                const BLOCK_N: i32 = 64;
 
-                    let (stats_name, stats_src, stats_rop): (String, String, Arc<dyn RuntimeOp>) =
-                        match node.dtype {
-                            DtypeRepr::F32 => {
-                                let k = BatchNormStatsForward::<f32>::new(BLOCK_N);
-                                let src = k.source.clone();
-                                let rop: Arc<dyn RuntimeOp> =
-                                    Arc::new(BatchNormStatsRuntimeOp::<f32>::new(
-                                        BLOCK_N,
-                                        eps_f32,
-                                        momentum_f32,
-                                    ));
-                                (k.name.to_string(), src, rop)
-                            }
-                            DtypeRepr::F64 => {
-                                let k = BatchNormStatsForward::<f64>::new(BLOCK_N);
-                                let src = k.source.clone();
-                                let rop: Arc<dyn RuntimeOp> =
-                                    Arc::new(BatchNormStatsRuntimeOp::<f64>::new(
-                                        BLOCK_N,
-                                        eps_f32,
-                                        momentum_f32,
-                                    ));
-                                (k.name.to_string(), src, rop)
-                            }
-                            other => {
-                                return Err(anyhow::anyhow!(
-                                    "{:?} is not a Float dtype for BatchNormStatsForward",
-                                    other
-                                ));
-                            }
-                        };
-
-                    let stats_node = Box::new(KernelExecutable {
-                        entry_point: format!("{}_entry_point", stats_name),
-                        name: stats_name,
-                        kernel_source: stats_src,
-                        shape: vec![Some(2 * c)],
-                        dtype: node.dtype,
-                        backward_kernel_source: String::new(),
-                        backward_entry_point: String::new(),
-                        runtime_op: stats_rop,
-                    }) as Box<dyn ExecutableOp>;
-
-                    let stats_dag_idx = dag.add_node(stats_node);
-                    for &input_graph_idx in &node.inputs {
-                        dag.add_edge(graph_to_dag[input_graph_idx], stats_dag_idx);
-                    }
-
-                    let (norm_name, norm_src, norm_bwd_src, norm_rop): (
-                        String,
-                        String,
-                        String,
-                        Arc<dyn RuntimeOp>,
-                    ) = match node.dtype {
+                let (stats_name, stats_src, stats_rop): (String, String, Arc<dyn RuntimeOp>) =
+                    match node.dtype {
                         DtypeRepr::F32 => {
-                            let k = BatchNormNormalizeForward::<f32>::new(BLOCK_N);
+                            let k = BatchNormStatsForward::<f32>::new(BLOCK_N);
                             let src = k.source.clone();
-                            let rop = BatchNormNormalizeRuntimeOp::<f32>::new(BLOCK_N);
-                            let bwd_src = rop.backward_source().to_string();
-                            (
-                                k.name.to_string(),
-                                src,
-                                bwd_src,
-                                Arc::new(rop) as Arc<dyn RuntimeOp>,
-                            )
+                            let rop: Arc<dyn RuntimeOp> = Arc::new(
+                                BatchNormStatsRuntimeOp::<f32>::new(BLOCK_N, eps_f32, momentum_f32),
+                            );
+                            (k.name.to_string(), src, rop)
                         }
                         DtypeRepr::F64 => {
-                            let k = BatchNormNormalizeForward::<f64>::new(BLOCK_N);
+                            let k = BatchNormStatsForward::<f64>::new(BLOCK_N);
                             let src = k.source.clone();
-                            let rop = BatchNormNormalizeRuntimeOp::<f64>::new(BLOCK_N);
-                            let bwd_src = rop.backward_source().to_string();
-                            (
-                                k.name.to_string(),
-                                src,
-                                bwd_src,
-                                Arc::new(rop) as Arc<dyn RuntimeOp>,
-                            )
+                            let rop: Arc<dyn RuntimeOp> = Arc::new(
+                                BatchNormStatsRuntimeOp::<f64>::new(BLOCK_N, eps_f32, momentum_f32),
+                            );
+                            (k.name.to_string(), src, rop)
                         }
                         other => {
                             return Err(anyhow::anyhow!(
-                                "{:?} is not a Float dtype for BatchNormNormalizeForward",
+                                "{:?} is not a Float dtype for BatchNormStatsForward",
                                 other
                             ));
                         }
                     };
 
-                    let norm_node = Box::new(KernelExecutable {
-                        entry_point: format!("{}_entry_point", norm_name),
-                        name: norm_name,
-                        kernel_source: norm_src,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                        backward_kernel_source: norm_bwd_src,
-                        backward_entry_point: String::new(),
-                        runtime_op: norm_rop,
-                    }) as Box<dyn ExecutableOp>;
+                let stats_node = Box::new(KernelExecutable {
+                    entry_point: format!("{}_entry_point", stats_name),
+                    name: stats_name,
+                    kernel_source: stats_src,
+                    shape: vec![Some(2 * c)],
+                    dtype: node.dtype,
+                    backward_kernel_source: String::new(),
+                    backward_entry_point: String::new(),
+                    runtime_op: stats_rop,
+                }) as Box<dyn ExecutableOp>;
 
-                    let norm_dag_idx = dag.add_node(norm_node);
-                    // normalize depends on x (same inputs as the BatchNorm graph node)
-                    for &input_graph_idx in &node.inputs {
-                        dag.add_edge(graph_to_dag[input_graph_idx], norm_dag_idx);
-                    }
-                    // normalize also depends on the stats node output
-                    dag.add_edge(stats_dag_idx, norm_dag_idx);
-
-                    graph_to_dag[node_index] = norm_dag_idx;
-                    continue;
+                let stats_dag_idx = dag.add_node(stats_node);
+                for &input_graph_idx in &node.inputs {
+                    dag.add_edge(graph_to_dag[input_graph_idx], stats_dag_idx);
                 }
+
+                let (norm_name, norm_src, norm_bwd_src, norm_rop): (
+                    String,
+                    String,
+                    String,
+                    Arc<dyn RuntimeOp>,
+                ) = match node.dtype {
+                    DtypeRepr::F32 => {
+                        let k = BatchNormNormalizeForward::<f32>::new(BLOCK_N);
+                        let src = k.source.clone();
+                        let rop = BatchNormNormalizeRuntimeOp::<f32>::new(BLOCK_N);
+                        let bwd_src = rop.backward_source().to_string();
+                        (
+                            k.name.to_string(),
+                            src,
+                            bwd_src,
+                            Arc::new(rop) as Arc<dyn RuntimeOp>,
+                        )
+                    }
+                    DtypeRepr::F64 => {
+                        let k = BatchNormNormalizeForward::<f64>::new(BLOCK_N);
+                        let src = k.source.clone();
+                        let rop = BatchNormNormalizeRuntimeOp::<f64>::new(BLOCK_N);
+                        let bwd_src = rop.backward_source().to_string();
+                        (
+                            k.name.to_string(),
+                            src,
+                            bwd_src,
+                            Arc::new(rop) as Arc<dyn RuntimeOp>,
+                        )
+                    }
+                    other => {
+                        return Err(anyhow::anyhow!(
+                            "{:?} is not a Float dtype for BatchNormNormalizeForward",
+                            other
+                        ));
+                    }
+                };
+
+                let norm_node = Box::new(KernelExecutable {
+                    entry_point: format!("{}_entry_point", norm_name),
+                    name: norm_name,
+                    kernel_source: norm_src,
+                    shape: node.shape.clone(),
+                    dtype: node.dtype,
+                    backward_kernel_source: norm_bwd_src,
+                    backward_entry_point: String::new(),
+                    runtime_op: norm_rop,
+                }) as Box<dyn ExecutableOp>;
+
+                let norm_dag_idx = dag.add_node(norm_node);
+                // normalize depends on x (same inputs as the BatchNorm graph node)
+                for &input_graph_idx in &node.inputs {
+                    dag.add_edge(graph_to_dag[input_graph_idx], norm_dag_idx);
+                }
+                // normalize also depends on the stats node output
+                dag.add_edge(stats_dag_idx, norm_dag_idx);
+
+                graph_to_dag[node_index] = norm_dag_idx;
+                continue;
             }
 
             // Conv2d with bias → split into Conv2d (weight only) + NchwBiasAdd (bias only).
@@ -2690,12 +2683,12 @@ impl<'a> Lowering<'a> for TritonLowering {
     fn extra_dag_names(&self, graph: &Graph, graph_to_dag: &[usize]) -> Vec<(usize, String)> {
         let mut extra = Vec::new();
         for (graph_idx, node) in graph.nodes.iter().enumerate() {
-            if let Op::Conv2d { has_bias: true, .. } = &node.op {
-                if let Some(name) = graph.names.get(&graph_idx) {
-                    let biasadd_dag_idx = graph_to_dag[graph_idx];
-                    if biasadd_dag_idx > 0 {
-                        extra.push((biasadd_dag_idx - 1, name.clone()));
-                    }
+            if let Op::Conv2d { has_bias: true, .. } = &node.op
+                && let Some(name) = graph.names.get(&graph_idx)
+            {
+                let biasadd_dag_idx = graph_to_dag[graph_idx];
+                if biasadd_dag_idx > 0 {
+                    extra.push((biasadd_dag_idx - 1, name.clone()));
                 }
             }
         }

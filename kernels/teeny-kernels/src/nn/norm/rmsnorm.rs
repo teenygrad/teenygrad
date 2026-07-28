@@ -42,7 +42,7 @@ pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     y_ptr: T::Pointer<D>,
     weight_ptr: T::Pointer<D>,
     rrms_ptr: T::Pointer<D>,
-    M: i32,
+    _M: i32,
     N: i32,
     eps: f32,
 ) where
@@ -140,7 +140,7 @@ pub fn rms_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     weight_ptr: T::Pointer<D>,
     dweight_ptr: T::Pointer<D>,
     rrms_ptr: T::Pointer<D>,
-    M: i32,
+    _M: i32,
     N: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

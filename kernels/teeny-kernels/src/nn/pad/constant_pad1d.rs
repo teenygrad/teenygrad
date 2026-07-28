@@ -41,7 +41,7 @@ pub fn constant_pad1d_forward<
 >(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
-    B: i32,
+    _B: i32,
     C: i32,
     L: i32,
     OL: i32,
@@ -111,7 +111,7 @@ pub fn constant_pad1d_backward<
 >(
     dy_ptr: T::Pointer<D>,
     dx_ptr: T::Pointer<D>,
-    B: i32,
+    _B: i32,
     C: i32,
     L: i32,
     OL: i32,

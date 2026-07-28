@@ -39,18 +39,17 @@ fn to_pascal_case(s: &str) -> String {
 
 /// If `ty` is `HW_IDENT::SomeName<Inner>`, return `Inner`.
 fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type> {
-    if let Type::Path(tp) = ty {
-        if tp.qself.is_none() {
-            let segs = &tp.path.segments;
-            if segs.len() == 2 && segs[0].ident == *hw_ident {
-                if let PathArguments::AngleBracketed(ab) = &segs[1].arguments {
-                    if ab.args.len() == 1 {
-                        if let GenericArgument::Type(inner) = &ab.args[0] {
-                            return Some(inner.clone());
-                        }
-                    }
-                }
-            }
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+    {
+        let segs = &tp.path.segments;
+        if segs.len() == 2
+            && segs[0].ident == *hw_ident
+            && let PathArguments::AngleBracketed(ab) = &segs[1].arguments
+            && ab.args.len() == 1
+            && let GenericArgument::Type(inner) = &ab.args[0]
+        {
+            return Some(inner.clone());
         }
     }
     None
@@ -58,12 +57,13 @@ fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type> {
 
 /// Extract the ident from a bare single-segment type, e.g. `D` → `Some(D)`.
 fn simple_type_ident(ty: &Type) -> Option<Ident> {
-    if let Type::Path(tp) = ty {
-        if tp.qself.is_none() && tp.path.segments.len() == 1 {
-            let seg = &tp.path.segments[0];
-            if matches!(seg.arguments, PathArguments::None) {
-                return Some(seg.ident.clone());
-            }
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && tp.path.segments.len() == 1
+    {
+        let seg = &tp.path.segments[0];
+        if matches!(seg.arguments, PathArguments::None) {
+            return Some(seg.ident.clone());
         }
     }
     None
@@ -343,11 +343,11 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         .params
         .iter()
         .filter_map(|p| {
-            if let GenericParam::Type(tp) = p {
-                if tp.ident != hw_ident {
-                    let var = format_ident!("__type_name_{}", tp.ident.to_string().to_lowercase());
-                    return Some((tp.ident.clone(), var));
-                }
+            if let GenericParam::Type(tp) = p
+                && tp.ident != hw_ident
+            {
+                let var = format_ident!("__type_name_{}", tp.ident.to_string().to_lowercase());
+                return Some((tp.ident.clone(), var));
             }
             None
         })

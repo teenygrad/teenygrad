@@ -83,15 +83,15 @@ impl KernelMetadata {
 
             // Parse `.visible .entry name(` — the PTX kernel symbol name emitted by NVPTX.
             // Used as a fallback when no `// meta:name=` comment is present.
-            if visible_entry_name.is_empty() {
-                if let Some(rest) = trimmed.strip_prefix(".visible .entry ") {
-                    let name_end = rest
-                        .find('(')
-                        .unwrap_or(rest.find(' ').unwrap_or(rest.len()));
-                    let parsed = rest[..name_end].trim();
-                    if !parsed.is_empty() {
-                        visible_entry_name = parsed.to_owned();
-                    }
+            if visible_entry_name.is_empty()
+                && let Some(rest) = trimmed.strip_prefix(".visible .entry ")
+            {
+                let name_end = rest
+                    .find('(')
+                    .unwrap_or(rest.find(' ').unwrap_or(rest.len()));
+                let parsed = rest[..name_end].trim();
+                if !parsed.is_empty() {
+                    visible_entry_name = parsed.to_owned();
                 }
             }
 
@@ -108,10 +108,10 @@ impl KernelMetadata {
                 if m.global_scratch_size == 0 {
                     m.global_scratch_size = v.trim().parse().unwrap_or(0);
                 }
-            } else if let Some(v) = trimmed.strip_prefix("// TRITON_GLOBAL_SCRATCH_ALIGN: ") {
-                if m.global_scratch_align == 1 {
-                    m.global_scratch_align = v.trim().parse::<u64>().unwrap_or(1).max(1);
-                }
+            } else if let Some(v) = trimmed.strip_prefix("// TRITON_GLOBAL_SCRATCH_ALIGN: ")
+                && m.global_scratch_align == 1
+            {
+                m.global_scratch_align = v.trim().parse::<u64>().unwrap_or(1).max(1);
             }
         }
 

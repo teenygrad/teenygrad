@@ -36,6 +36,7 @@ use crate::errors::Result;
 /// The teenyc backend (LLVM 20+) validates all SM versions up to sm_120.
 /// If a future architecture is released before the backend adds support,
 /// extend this constant and the match arm below.
+#[allow(dead_code)]
 const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm120;
 
 pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {

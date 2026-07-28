@@ -118,7 +118,7 @@ pub trait RuntimeOp: Send + Sync {
     /// - `output`            — raw pointer to the output buffer for this node
     /// - `output_shape`      — concrete output shape (batch dim resolved)
     /// - `output_row_stride` — actual memory row stride (elements) of the
-    ///                         output buffer (may be padded for TMA alignment)
+    ///   output buffer (may be padded for TMA alignment)
     fn pack_args(
         &self,
         inputs: &[(RawPtr, &[usize])],
@@ -149,6 +149,10 @@ pub trait RuntimeOp: Send + Sync {
     ///
     /// Only called by the executor when `n_launches() > 1`. The default
     /// delegates to `pack_args`, ignoring `launch_idx`.
+    // Kernel-launch argument list; each parameter corresponds to a distinct piece of the
+    // launch ABI (input/param/output buffers, shape, stride, launch index) and bundling them
+    // into a struct wouldn't be clearer at call sites.
+    #[allow(clippy::too_many_arguments)]
     fn pack_args_for_launch(
         &self,
         launch_idx: usize,
@@ -207,7 +211,7 @@ pub trait RuntimeOp: Send + Sync {
     /// - `output_shape` — concrete forward output shape
     /// - `grad_output`  — incoming gradient dL/dy from the consumer node
     /// - `grad_output_row_stride` — actual memory row stride (elements) of the
-    ///                              grad_output buffer (may be padded for TMA alignment)
+    ///   grad_output buffer (may be padded for TMA alignment)
     /// - `grad_inputs`  — output gradient buffers: dL/dx per activation parent
     /// - `grad_params`  — output gradient buffers: dL/dw, dL/db, etc.
     #[cfg(feature = "training")]
@@ -360,6 +364,7 @@ pub trait Lowering<'a> {
     /// topological order (which is always true for models built by sequential recording)
     /// and lowerings that do not reorder or split nodes.  Override this method in
     /// lowerings that reorder or split nodes to return the correct mapping.
+    #[allow(clippy::type_complexity)]
     fn lower_with_mapping(
         &self,
         graph: &Graph,

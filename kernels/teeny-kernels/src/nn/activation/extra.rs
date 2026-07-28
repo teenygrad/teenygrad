@@ -481,7 +481,7 @@ impl ThresholdedReluRuntimeOp {
         &self.backward_kernel.source
     }
     pub fn kernel_name(&self) -> &str {
-        &self.kernel.name
+        self.kernel.name
     }
 }
 
@@ -671,7 +671,7 @@ impl ShrinkRuntimeOp {
         &self.backward_kernel.source
     }
     pub fn kernel_name(&self) -> &str {
-        &self.kernel.name
+        self.kernel.name
     }
 }
 

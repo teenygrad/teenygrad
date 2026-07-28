@@ -44,7 +44,7 @@ pub fn maxpool3d_forward<
 >(
     input_ptr: T::Pointer<D>,
     output_ptr: T::Pointer<D>,
-    B: i32,
+    _B: i32,
     C: i32,
     Dv: i32,
     H: i32,
@@ -137,7 +137,7 @@ pub fn maxpool3d_backward<
     x_ptr: T::Pointer<D>,
     y_ptr: T::Pointer<D>,
     dx_ptr: T::Pointer<D>,
-    B: i32,
+    _B: i32,
     C: i32,
     Dv: i32,
     H: i32,

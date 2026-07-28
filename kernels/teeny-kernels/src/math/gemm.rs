@@ -247,7 +247,7 @@ impl<D: Float + Send + Sync + 'static> MatMulRuntimeOp<D> {
         &self.fwd_kernel.source
     }
     pub fn kernel_name(&self) -> &str {
-        &self.fwd_kernel.name
+        self.fwd_kernel.name
     }
 }
 

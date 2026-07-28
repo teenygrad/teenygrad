@@ -111,7 +111,7 @@ impl TensorRef {
             shape.iter().product::<usize>(),
             "data length must match shape product"
         );
-        let ptr = mem::alloc(data.len() * std::mem::size_of::<f32>())?;
+        let ptr = mem::alloc(std::mem::size_of_val(data))?;
         unsafe { mem::copy_h_to_d(ptr, data.as_ptr(), data.len()) }?;
         Ok(Self { ptr, shape })
     }
@@ -185,7 +185,9 @@ impl<'a> Model<'a> for CudaModel<'a> {
     type Output = TensorRef;
 
     fn forward(&self, _input: Self::Input) -> teeny_core::errors::Result<Self::Output> {
-        Err(anyhow!("call CudaModel::load() first, then LoadedModel::forward()").into())
+        Err(anyhow!(
+            "call CudaModel::load() first, then LoadedModel::forward()"
+        ))
     }
 }
 
@@ -843,7 +845,10 @@ impl LoadedModel {
     ///
     /// `kernel` — pre-compiled `adamw_step` PTX (compile with `AdamwStep::new(1024)` from
     ///            `teeny_kernels::nn::optim::adam`).
+    // AdamW's hyperparameters (lr, beta1, beta2, eps, weight_decay) are each independently
+    // meaningful at call sites; bundling them into a struct wouldn't be clearer.
     #[cfg(feature = "training")]
+    #[allow(clippy::too_many_arguments)]
     pub fn adamw_step(
         &mut self,
         device: &CudaDevice<'_>,
@@ -1892,17 +1897,17 @@ impl Drop for CudaGraphModel {
             }
         }
         for &ptr in &self.pinned_inputs {
-            if !ptr.is_null() {
-                if let Err(e) = unsafe { mem::free_host(ptr) } {
-                    eprintln!("CudaGraphModel::drop: failed to free pinned input: {e}");
-                }
+            if !ptr.is_null()
+                && let Err(e) = unsafe { mem::free_host(ptr) }
+            {
+                eprintln!("CudaGraphModel::drop: failed to free pinned input: {e}");
             }
         }
         for &ptr in &self.pinned_outputs {
-            if !ptr.is_null() {
-                if let Err(e) = unsafe { mem::free_host(ptr) } {
-                    eprintln!("CudaGraphModel::drop: failed to free pinned output: {e}");
-                }
+            if !ptr.is_null()
+                && let Err(e) = unsafe { mem::free_host(ptr) }
+            {
+                eprintln!("CudaGraphModel::drop: failed to free pinned output: {e}");
             }
         }
     }

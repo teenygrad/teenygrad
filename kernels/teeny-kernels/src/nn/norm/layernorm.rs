@@ -45,7 +45,7 @@ pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
     y_ptr: T::Pointer<D>,
     weight_ptr: T::Pointer<D>,
     bias_ptr: T::Pointer<D>,
-    M: i32,
+    _M: i32,
     N: i32,
     eps: f32,
 ) where
@@ -167,7 +167,7 @@ pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     bias_ptr: T::Pointer<D>,
     mean_ptr: T::Pointer<D>,
     rstd_ptr: T::Pointer<D>,
-    M: i32,
+    _M: i32,
     N: i32,
     eps: f32,
 ) where
@@ -307,7 +307,7 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
     dbias_ptr: T::Pointer<D>,
     mean_ptr: T::Pointer<D>,
     rstd_ptr: T::Pointer<D>,
-    M: i32,
+    _M: i32,
     N: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
