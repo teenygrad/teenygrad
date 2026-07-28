@@ -16,4 +16,5 @@
 
 //! Dataset loading (currently CSV, over HTTP).
 
+/// CSV dataset loading.
 pub mod loader;

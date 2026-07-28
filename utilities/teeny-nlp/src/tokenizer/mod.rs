@@ -22,7 +22,9 @@ use serde::{Deserialize, Serialize};
 /// with its `content`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
+    /// Who sent this turn (e.g. `"user"`, `"assistant"`, `"system"`).
     pub role: String,
+    /// The turn's text content.
     pub content: String,
 }
 

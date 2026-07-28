@@ -17,6 +17,9 @@
 //! ONNX model format support for [teenygrad](https://teenygrad.org) — parses `.onnx` protobuf
 //! files into a `teeny_core::graph::Graph` via [`Onnx`].
 
+#![warn(missing_docs)]
+
+/// Error types.
 pub mod errors;
 
 mod onnx;

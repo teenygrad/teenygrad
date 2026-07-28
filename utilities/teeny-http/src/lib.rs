@@ -17,6 +17,11 @@
 //! Small HTTP download/fetch helpers for [teenygrad](https://teenygrad.org), built on `reqwest`
 //! with `indicatif` progress reporting — used for pulling models/datasets/assets.
 
+#![warn(missing_docs)]
+
+/// Downloading a URL's content to a file.
 pub mod download;
+/// Error types.
 pub mod error;
+/// Fetching a URL's content into memory.
 pub mod fetch;

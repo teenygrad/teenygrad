@@ -17,6 +17,9 @@
 //! Dataset loading utilities for [teenygrad](https://teenygrad.org): downloading, CSV parsing,
 //! `safetensors` loading, and memory-mapped access.
 
+#![warn(missing_docs)]
+
 pub mod dataset;
+/// Error types.
 pub mod error;
 pub mod safetensors;

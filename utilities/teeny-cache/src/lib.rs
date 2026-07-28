@@ -18,6 +18,8 @@
 //! [`DynamicCache`], tracking sequence length and per-layer sliding-window/compileability state
 //! across generation steps.
 
+#![warn(missing_docs)]
+
 /// Tracks per-layer KV cache state (sequence length, sliding-window/compileability) across
 /// generation steps.
 #[derive(Debug, Clone, Default)]

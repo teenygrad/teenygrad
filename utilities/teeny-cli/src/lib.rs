@@ -25,6 +25,8 @@
 //! `--device cuda`. Adding a new backend means adding a match arm in
 //! [`aot_compile`], not touching [`AotArgs`].
 
+#![warn(missing_docs)]
+
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
