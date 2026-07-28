@@ -6,7 +6,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teeny-nlp/"
+keywords = ["nlp", "tokenizer", "text-processing", "regex"]
+categories = ["text-processing", "science"]
 
 [dependencies]
 fancy-regex.workspace = true

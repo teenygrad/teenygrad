@@ -6,7 +6,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teeny-vision/"
+keywords = ["computer-vision", "machine-learning", "mnist", "images"]
+categories = ["computer-vision", "science"]
 
 [dependencies]
 thiserror.workspace = true

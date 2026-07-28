@@ -6,7 +6,18 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teeny-cuda/"
+keywords = ["cuda", "gpu", "machine-learning", "kernels"]
+categories = ["hardware-support", "science", "external-ffi-bindings"]
+
+[package.metadata.docs.rs]
+# build.rs unconditionally links against the CUDA toolkit (bindgen against
+# /usr/local/cuda/include, links cuda/cudart/nvrtc/nvptxcompiler_static), which
+# docs.rs's sandbox does not provide. Disable the docs.rs build entirely rather
+# than emit a red "build failed" badge; API docs are self-hosted instead at
+# https://docs.teenygrad.org/api/teeny-cuda/.
+targets = []
 
 [features]
 default = ["training"]

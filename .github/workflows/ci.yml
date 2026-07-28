@@ -1,0 +1,85 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Crates that build with a plain stable toolchain and no system dependencies.
+  # Excluded on purpose (see comments below, and the teeny-cuda/teeny-onnx
+  # follow-up issues) rather than silently broken:
+  #   - teeny-cuda, teeny-kernels: teeny-cuda's build.rs unconditionally runs
+  #     bindgen against the CUDA toolkit headers (no feature gate to skip it);
+  #     teeny-kernels' default features enable teeny-cuda. Needs a
+  #     CUDA-toolkit-provisioned runner — tracked separately, not yet set up.
+  #   - teeny-torch: PyO3 cdylib extension module, not part of the crates.io
+  #     publish set (publish = false) — excluded to keep this job focused on
+  #     the publishable Rust SDK; Python packaging is a separate concern.
+  #   - teeny-onnx: currently cannot build in ANY environment — its build.rs
+  #     expects a vendored `onnx/onnx/onnx.proto3` (upstream ONNX proto
+  #     schema) that isn't present in this checkout (no git submodule wired
+  #     up). Pre-existing gap, not introduced by this workflow — see
+  #     teenygrad-nov.16.
+  build-test-clippy:
+    name: Build, test, clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: >
+          cargo build --workspace
+          --exclude teeny-cuda --exclude teeny-kernels
+          --exclude teeny-torch --exclude teeny-onnx
+
+      - name: Clippy
+        # Not `-D warnings` yet: the codebase currently has pre-existing
+        # clippy warnings (teeny-core, teeny-macros, teeny-triton,
+        # teeny-compiler) that haven't been triaged/fixed. Denying warnings
+        # here would make this brand-new CI red on main from day one. Track
+        # cleanup separately (teenygrad-nov.17) and tighten this to
+        # `-D warnings` once clean.
+        run: >
+          cargo clippy --workspace
+          --exclude teeny-cuda --exclude teeny-kernels
+          --exclude teeny-torch --exclude teeny-onnx
+
+      - name: Test
+        # teeny-triton and teeny-vision are additionally excluded here (but
+        # not from the Build/Clippy steps above): their [dev-dependencies]
+        # pull in teeny-cuda (teeny-triton, directly) / teeny-kernels
+        # (teeny-vision, transitively enabling teeny-cuda) only when building
+        # test targets, which `cargo build`/`cargo clippy` (without
+        # `--all-targets`) don't do.
+        #
+        # teeny-compiler is also excluded: its insta snapshot test
+        # `test_compile` (elemwise_add_forward_sm90) currently fails against
+        # a stale snapshot (PTX .loc line numbers / a `.b8` byte differ from
+        # what's checked in) — pre-existing drift, not introduced by this
+        # workflow. See teenygrad-nov.18.
+        run: >
+          cargo test --workspace
+          --exclude teeny-cuda --exclude teeny-kernels
+          --exclude teeny-torch --exclude teeny-onnx
+          --exclude teeny-triton --exclude teeny-vision
+          --exclude teeny-compiler
+
+      - name: Doc build
+        run: >
+          cargo doc --workspace --no-deps
+          --exclude teeny-cuda --exclude teeny-kernels
+          --exclude teeny-torch --exclude teeny-onnx

@@ -1,0 +1,20 @@
+[workspace]
+changelog_update = true
+git_release_enable = true
+git_tag_enable = true
+pr_labels = ["release"]
+repo_url = "https://github.com/teenygrad/teenygrad"
+semver_check = true
+
+# teeny-torch and teeny-fxgraph are the PyTorch compatibility layer: teeny-torch
+# is a PyO3 cdylib distributed via PyPI (not crates.io), and teeny-fxgraph only
+# exists to support it. Both already have `publish = false` in their Cargo.toml;
+# fully exclude them from release-plz's version-bump/changelog/tag flow too,
+# rather than just skipping `cargo publish`.
+[[package]]
+name = "teeny-torch"
+release = false
+
+[[package]]
+name = "teeny-fxgraph"
+release = false

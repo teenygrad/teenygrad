@@ -6,18 +6,13 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teeny-llm/"
+keywords = ["llm", "inference", "server", "openapi"]
+categories = ["science", "command-line-utilities", "web-programming::http-server"]
 
 [[bin]]
-name = "tllm"
+name = "teeny-llm"
 path = "src/server/main.rs"
-
-[[bin]]
-name = "tllm-agent"
-path = "src/agent/main.rs"
-
-[[bin]]
-name = "tllm-console"
-path = "src/console/main.rs"
 
 [dependencies]
