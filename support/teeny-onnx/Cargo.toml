@@ -11,6 +11,20 @@ documentation = "https://docs.teenygrad.org/api/teeny-onnx/"
 keywords = ["onnx", "machine-learning", "model-format", "protobuf"]
 categories = ["science", "parser-implementations", "encoding"]
 
+# The `onnx` git submodule (support/teeny-onnx/onnx) vendors the ENTIRE
+# upstream onnx/onnx repo (~80MB at time of writing: C++/Python source, docs,
+# and a large test-model corpus under onnx/onnx/backend/) so build.rs can
+# read onnx/onnx/onnx.proto3. Only the *.proto3 schema files are actually
+# needed at build time — without this allowlist, `cargo package` would
+# include the whole submodule in the published tarball.
+include = [
+  "src/**",
+  "build.rs",
+  "Cargo.toml",
+  "README.md",
+  "onnx/onnx/*.proto3",
+]
+
 [dependencies]
 thiserror.workspace = true
 anyhow.workspace = true

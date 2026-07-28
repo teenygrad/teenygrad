@@ -1,0 +1,4 @@
+[submodule "support/teeny-onnx/onnx"]
+	path = support/teeny-onnx/onnx
+	url = https://github.com/onnx/onnx.git
+	branch = v1.22.0
