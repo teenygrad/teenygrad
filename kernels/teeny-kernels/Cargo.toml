@@ -30,3 +30,9 @@ teeny-cuda = { workspace = true, optional = true }
 teeny-compiler.workspace = true
 dotenv.workspace = true
 insta.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "conv2d_bn_silu"
+harness = false
+required-features = ["cuda"]

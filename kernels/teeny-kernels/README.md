@@ -12,6 +12,22 @@ written against the `teeny-triton` DSL and compiled via `teeny-compiler`.
 - **Compiling/running kernels** at runtime needs the custom `teenyc` compiler — see
   [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for the
   `cargo-teeny`/`TEENYC_PATH` setup.
+- **On Blackwell (sm_120) GPUs**, `teenyc`'s default PTX version for `sm_120a` may be rejected by
+  the installed driver's JIT compiler (`PTX .version 8.6 does not support .target sm_120a`); if so,
+  set `TEENYC_PTX_VERSION=87` (see `teeny-compiler`'s `TEENYC_PTX_VERSION` env var).
+
+## Benchmarks
+
+`benches/conv2d_bn_silu.rs` compares the three fused Conv2d+BatchNorm+SiLU kernel variants
+(scalar, channel-tiled, GEMM/tensor-core) across shapes that straddle the shape-based dispatch
+thresholds in `graph/mod.rs`:
+
+```bash
+cargo bench -p teeny-kernels --features cuda,training --bench conv2d_bn_silu
+```
+
+Needs a real CUDA device (same runtime `teenyc` requirement as above); results are written to
+`target/criterion/report/index.html`.
 
 ## Features
 
