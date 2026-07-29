@@ -24,7 +24,9 @@ publish_allow_dirty = true
 [[package]]
 name = "teeny-torch"
 release = false
+publish = false
 
 [[package]]
 name = "teeny-fxgraph"
 release = false
+publish = false
