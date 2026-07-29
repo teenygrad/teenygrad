@@ -7,6 +7,9 @@ on:
   push:
     branches:
       - main
+  # TEMPORARY, for verifying the CUDA/submodule fix on this branch without
+  # risking a real crates.io publish -- revert once confirmed.
+  workflow_dispatch:
 
 jobs:
   # Publishes any packages whose version was already bumped by a merged
@@ -44,6 +47,10 @@ jobs:
         uses: release-plz/action@v0.5
         with:
           command: release
+          # TEMPORARY: exercises full package+build verification for every
+          # crate (including teeny-onnx/teeny-cuda) without uploading to
+          # crates.io. Revert once confirmed.
+          dry_run: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
