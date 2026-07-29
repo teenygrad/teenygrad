@@ -39,6 +39,11 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # release-plz.toml sets pr_labels = ["release"], which doesn't exist
+      # yet on this repo -- creating a missing label goes through the
+      # Issues API even for a PR, so pull-requests: write alone isn't
+      # enough.
+      issues: write
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
