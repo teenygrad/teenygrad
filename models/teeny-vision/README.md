@@ -10,13 +10,11 @@ test).
   system-library dependencies for the library itself.
 - **Running the examples** (`examples/mnist.rs`, `examples/autograd_debug.rs`) compiles kernels
   through `teeny-compiler`'s LLVM backend at runtime, which needs the custom `teenyc` compiler on
-  your machine:
-  ```bash
-  export TEENYC_PATH=/path/to/teenyc   # or have `teenyc` on $PATH
-  ```
-  The supported way to obtain `teenyc` is via `cargo-teeny` (`cargo teeny install-toolchain`) —
-  see [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for details.
-  This is only needed to *run* the examples, not to build the `teeny-vision` library.
+  your machine. The supported way to obtain it is via `cargo-teeny`
+  (`cargo teeny install-toolchain`), which is auto-detected from there — no env var needed. See
+  [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for details and the
+  `TEENYC_PATH` override. This is only needed to *run* the examples, not to build the
+  `teeny-vision` library.
 
 ## Getting started
 
@@ -26,7 +24,6 @@ teeny-vision = "0"
 ```
 
 ```bash
-export TEENYC_PATH=/path/to/teenyc
 cargo run --example mnist
 ```
 

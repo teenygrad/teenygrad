@@ -42,7 +42,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_leaky_relu_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::misc::LeakyReluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -54,7 +54,7 @@ fn test_leaky_relu_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_softsign_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::misc::SoftsignForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -66,7 +66,7 @@ fn test_softsign_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_softplus_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::misc::SoftplusForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -81,7 +81,7 @@ fn test_softplus_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_leaky_relu_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("leaky_relu/x.bin");
     let expected = load_fixture("leaky_relu/expected_forward.bin");
@@ -121,7 +121,7 @@ fn test_leaky_relu_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_leaky_relu_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("leaky_relu/x.bin");
     let dy_host = load_fixture("leaky_relu/dy.bin");
@@ -167,7 +167,7 @@ fn test_leaky_relu_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_threshold_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("threshold/x.bin");
     let expected = load_fixture("threshold/expected_forward.bin");
@@ -208,7 +208,7 @@ fn test_threshold_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_threshold_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("threshold/x.bin");
     let dy_host = load_fixture("threshold/dy.bin");
@@ -254,7 +254,7 @@ fn test_threshold_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softsign_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("softsign/x.bin");
     let expected = load_fixture("softsign/expected_forward.bin");
@@ -293,7 +293,7 @@ fn test_softsign_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softsign_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("softsign/x.bin");
     let dy_host = load_fixture("softsign/dy.bin");
@@ -338,7 +338,7 @@ fn test_softsign_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softshrink_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("softshrink/x.bin");
     let expected = load_fixture("softshrink/expected_forward.bin");
@@ -378,7 +378,7 @@ fn test_softshrink_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softshrink_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("softshrink/x.bin");
     let dy_host = load_fixture("softshrink/dy.bin");
@@ -424,7 +424,7 @@ fn test_softshrink_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softplus_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("softplus/x.bin");
     let expected = load_fixture("softplus/expected_forward.bin");
@@ -465,7 +465,7 @@ fn test_softplus_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softplus_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("softplus/x.bin");
     let dy_host = load_fixture("softplus/dy.bin");

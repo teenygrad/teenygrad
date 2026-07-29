@@ -31,8 +31,9 @@
 //!   6. Train for N_EPOCHS, printing loss every 200 steps.
 //!   7. Evaluate on the test set and print final accuracy.
 //!
-//! Required environment variables:
-//!   TEENYC_PATH  — path to the teenyc binary used by LlvmCompiler
+//! Environment variables:
+//!   TEENYC_PATH       — (optional) path to the teenyc binary; auto-detected via a
+//!                       `rustup`-linked toolchain otherwise (see `teeny_compiler::compiler::find_teenyc`)
 //!   TEENY_DATA_DIR    — (optional) cache dir for MNIST parquet  [/tmp/teenygrad_cache]
 //!   TEENYC_CACHE_DIR   — (optional) cache dir for compiled PTX   [/tmp/teenyc_cache]
 
@@ -134,8 +135,7 @@ async fn main() -> Result<()> {
 
     // ── 4. Trace + compile LeNet-5 ───────────────────────────────────────────
     println!("[3/8] tracing + compiling LeNet-5 graph …");
-    let teenyc_path =
-        env::var("TEENYC_PATH").context("TEENYC_PATH must point to the teenyc binary")?;
+    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let ptx_cache =
         env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 

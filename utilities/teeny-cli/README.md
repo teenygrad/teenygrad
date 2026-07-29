@@ -15,11 +15,9 @@ copies into its own binary.
   in `teeny-cuda`, `teeny-kernels`, and `teeny-vision`, and therefore needs the CUDA toolkit to
   build — see [`teeny-cuda`](https://docs.teenygrad.org/api/teeny-cuda/)'s README.
 - **Running** the binary (or `aot_compile` in your own binary) needs the custom `teenyc` compiler
-  on your machine — see [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s
-  README for the `cargo-teeny`/`TEENYC_PATH` setup:
-  ```bash
-  export TEENYC_PATH=/path/to/teenyc
-  ```
+  on your machine, installed via `cargo teeny install-toolchain` — it's auto-detected from there
+  (no env var needed). See [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s
+  README for the `cargo-teeny` setup and the `TEENYC_PATH` override.
 
 ## Getting started
 
@@ -38,10 +36,9 @@ struct Cli {
 }
 ```
 
-Or run the reference binary directly:
+Or run the reference binary directly (after `cargo teeny install-toolchain`):
 
 ```bash
-export TEENYC_PATH=/path/to/teenyc
 cargo run -p teeny-cli --features cuda --bin teeny-cli -- --device cuda --options "capability=sm_90"
 ```
 

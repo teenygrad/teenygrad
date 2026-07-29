@@ -39,11 +39,11 @@ use crate::errors::Result;
 #[allow(dead_code)]
 const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm120;
 
-/// Compiles `kernel` for `target` via the LLVM backend, using `TEENYC_PATH` (or `teenyc` on
-/// `$PATH`) and the default cache directory. Set `force` to recompile even if a cached artifact
-/// exists.
+/// Compiles `kernel` for `target` via the LLVM backend, using the `teenyc` binary resolved by
+/// [`crate::compiler::find_teenyc`] and the default cache directory. Set `force` to recompile
+/// even if a cached artifact exists.
 pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
-    let teenyc_path = std::env::var("TEENYC_PATH").unwrap_or_else(|_| "teenyc".to_string());
+    let teenyc_path = crate::compiler::find_teenyc()?;
     let cache_dir = crate::compiler::default_cache_dir();
 
     let effective_cpu = clamp_capability(target.capability).to_string();

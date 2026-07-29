@@ -21,10 +21,11 @@ fork of `rustc` with an MLIR codegen backend). This is *not* needed to `cargo bu
 any `teeny-*` crate, only to actually compile and run kernels.
 
 ```bash
-export TEENYC_PATH=/path/to/teenyc   # falls back to `teenyc` on $PATH if unset
+export TEENYC_PATH=/path/to/teenyc   # optional — see detection below
 ```
 
-The supported way to obtain it is via [`cargo-teeny`](https://github.com/spinorml/cargo-teeny):
+The supported way to obtain it is via [`cargo-teeny`](https://github.com/spinorml/cargo-teeny),
+which downloads a prebuilt release and links it as a named `rustup` toolchain:
 
 ```bash
 cargo install --git https://github.com/spinorml/cargo-teeny
@@ -33,6 +34,20 @@ cargo teeny install-toolchain
 
 This mirrors the toolchain setup used by downstream projects such as
 [`vision-rs`](https://github.com/spinorml/vision-rs).
+
+### How `teenyc` is located
+
+`teeny-compiler::compiler::find_teenyc` resolves the binary in two steps:
+
+1. `$TEENYC_PATH`, if set — used as-is.
+2. Otherwise, the sole `rustup`-linked toolchain whose name contains `teenyc` (the naming
+   convention `cargo teeny install-toolchain` uses — by default `<channel>-<host-triple>` with
+   `channel` defaulting to `stable-teenyc`), resolved to a binary path via
+   `rustup which --toolchain <name> teenyc`.
+
+If neither step finds a binary — no env var, and no matching `rustup` toolchain (or more than one,
+which is ambiguous) — this returns an error rather than silently guessing at a bare `teenyc` on
+`$PATH`.
 
 ## System setup (Ubuntu)
 

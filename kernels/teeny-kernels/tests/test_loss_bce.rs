@@ -50,7 +50,7 @@ fn launch_cfg() -> CudaLaunchConfig {
 
 #[test]
 fn test_bce_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::BceLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -62,7 +62,7 @@ fn test_bce_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -74,7 +74,7 @@ fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -86,7 +86,7 @@ fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -98,7 +98,7 @@ fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -110,7 +110,7 @@ fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -125,7 +125,7 @@ fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_bce_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -169,7 +169,7 @@ fn test_bce_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_bce_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -217,7 +217,7 @@ fn test_bce_loss_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -262,7 +262,7 @@ fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -311,7 +311,7 @@ fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_soft_margin_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -356,7 +356,7 @@ fn test_soft_margin_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_soft_margin_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -405,7 +405,7 @@ fn test_soft_margin_loss_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_kl_div_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -449,7 +449,7 @@ fn test_kl_div_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_kl_div_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -493,7 +493,7 @@ fn test_kl_div_loss_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -538,7 +538,7 @@ fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -587,7 +587,7 @@ fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -638,7 +638,7 @@ fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_gaussian_nll_loss_backward_input_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

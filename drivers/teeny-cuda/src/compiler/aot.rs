@@ -35,8 +35,8 @@ use crate::model::CudaModel;
 ///
 /// `cache_dir` is where compiled PTX is written/read. Passing the same
 /// directory a later run resolves via `TEENYC_CACHE_DIR` pre-warms that
-/// runtime JIT cache. `TEENYC_PATH` (falling back to `teenyc` on `$PATH`) is
-/// read from the environment, matching the existing JIT compile path.
+/// runtime JIT cache. The `teenyc` binary is resolved via
+/// [`teeny_compiler::compiler::find_teenyc`], matching the existing JIT compile path.
 pub fn compile_graph<'a, L: Lowering<'a>>(
     graph: &Graph,
     lowering: &L,
@@ -45,7 +45,7 @@ pub fn compile_graph<'a, L: Lowering<'a>>(
     cache_dir: &str,
     force: bool,
 ) -> Result<CudaModel<'a>> {
-    let teenyc_path = std::env::var("TEENYC_PATH").unwrap_or_else(|_| "teenyc".to_string());
+    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
 
     let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir.to_string())?;
     if let Some(ptx_version) = options.ptx_version {

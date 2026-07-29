@@ -50,7 +50,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_maxpool1d_forward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::pool::maxpool1d::Maxpool1dForward::<f32>::new(KL, STRIDE, BLOCK_OL);
@@ -66,7 +66,7 @@ fn test_maxpool1d_forward_mlir_output() -> Result<()> {
 
 #[test]
 fn test_maxpool1d_backward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::pool::maxpool1d::Maxpool1dBackward::<f32>::new(KL, STRIDE, BLOCK_OL);
@@ -87,7 +87,7 @@ fn test_maxpool1d_backward_mlir_output() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_maxpool1d_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -146,7 +146,7 @@ fn test_maxpool1d_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_maxpool1d_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

@@ -47,7 +47,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_asgd_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::asgd::AsgdStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -62,7 +62,7 @@ fn test_asgd_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_asgd_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let params_in = load_fixture("optim_asgd/asgd_params_in.bin");

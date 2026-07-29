@@ -48,7 +48,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_group_norm_inference_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel =
         teeny_kernels::nn::norm::groupnorm::GroupNormForwardInference::<f32>::new(BLOCK_NL);
@@ -61,7 +61,7 @@ fn test_group_norm_inference_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_group_norm_forward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::groupnorm::GroupNormForward::<f32>::new(BLOCK_NL);
     let target = Target::new(Cap::Sm90);
@@ -73,7 +73,7 @@ fn test_group_norm_forward_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_group_norm_backward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::groupnorm::GroupNormBackward::<f32>::new(BLOCK_NL);
     let target = Target::new(Cap::Sm90);
@@ -88,7 +88,7 @@ fn test_group_norm_backward_source() -> anyhow::Result<()> {
 
 #[test]
 fn test_group_norm_inference_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel =
         teeny_kernels::nn::norm::groupnorm::GroupNormForwardInference::<f32>::new(BLOCK_NL);
@@ -106,7 +106,7 @@ fn test_group_norm_inference_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_group_norm_inference_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

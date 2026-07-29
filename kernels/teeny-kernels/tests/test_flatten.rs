@@ -51,7 +51,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_flatten_forward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenForward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -66,7 +66,7 @@ fn test_flatten_forward_mlir_output() -> Result<()> {
 
 #[test]
 fn test_flatten_backward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenBackward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -94,7 +94,7 @@ fn test_flatten_backward_mlir_output() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_flatten_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -159,7 +159,7 @@ fn test_flatten_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_flatten_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

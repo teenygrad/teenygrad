@@ -42,7 +42,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_sgd_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::sgd::SgdStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -54,7 +54,7 @@ fn test_sgd_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_sgd_momentum_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::sgd::SgdMomentumStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -66,7 +66,7 @@ fn test_sgd_momentum_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_sgd_nesterov_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::sgd::SgdNesterovStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -81,7 +81,7 @@ fn test_sgd_nesterov_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_sgd_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let params_in = load_fixture("optim_sgd/sgd_params_in.bin");
@@ -126,7 +126,7 @@ fn test_sgd_step_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_sgd_momentum_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let params_in = load_fixture("optim_sgd/sgd_mom_params_in.bin");
@@ -187,7 +187,7 @@ fn test_sgd_momentum_step_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_sgd_nesterov_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let params_in = load_fixture("optim_sgd/sgd_nes_params_in.bin");

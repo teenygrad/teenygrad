@@ -52,7 +52,7 @@ fn row_launch_cfg() -> CudaLaunchConfig {
 
 #[test]
 fn test_cosine_embedding_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::embedding::CosineEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -64,7 +64,7 @@ fn test_cosine_embedding_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_triplet_margin_loss_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::loss::embedding::TripletMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -79,7 +79,7 @@ fn test_triplet_margin_loss_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_cosine_embedding_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -130,7 +130,7 @@ fn test_cosine_embedding_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_cosine_embedding_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -196,7 +196,7 @@ fn test_cosine_embedding_loss_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_triplet_margin_loss_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -248,7 +248,7 @@ fn test_triplet_margin_loss_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_triplet_margin_loss_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

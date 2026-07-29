@@ -68,7 +68,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
@@ -86,7 +86,7 @@ fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
 
 #[test]
 fn test_upsample_nearest2d_backward_snapshot() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(

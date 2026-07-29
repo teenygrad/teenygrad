@@ -65,7 +65,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_nadam_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::nadam::NadamStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -80,7 +80,7 @@ fn test_nadam_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_nadam_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let (bc2_sqrt, coeff_g, coeff_m) = nadam_scalars();
 

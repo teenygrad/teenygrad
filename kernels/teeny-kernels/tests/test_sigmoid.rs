@@ -42,7 +42,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_sigmoid_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::sigmoid::SigmoidForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -54,7 +54,7 @@ fn test_sigmoid_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_silu_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::sigmoid::SiluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -66,7 +66,7 @@ fn test_silu_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_logsigmoid_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::sigmoid::LogsigmoidForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -81,7 +81,7 @@ fn test_logsigmoid_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_sigmoid_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("sigmoid/x.bin");
     let expected = load_fixture("sigmoid/expected_forward.bin");
@@ -123,7 +123,7 @@ fn test_sigmoid_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_sigmoid_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("sigmoid/x.bin");
     let dy_host = load_fixture("sigmoid/dy.bin");
@@ -172,7 +172,7 @@ fn test_sigmoid_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_silu_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("silu/x.bin");
     let expected = load_fixture("silu/expected_forward.bin");
@@ -214,7 +214,7 @@ fn test_silu_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_silu_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("silu/x.bin");
     let dy_host = load_fixture("silu/dy.bin");
@@ -260,7 +260,7 @@ fn test_silu_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_logsigmoid_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("logsigmoid/x.bin");
     let expected = load_fixture("logsigmoid/expected_forward.bin");
@@ -302,7 +302,7 @@ fn test_logsigmoid_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_logsigmoid_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("logsigmoid/x.bin");
     let dy_host = load_fixture("logsigmoid/dy.bin");

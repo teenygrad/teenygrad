@@ -51,7 +51,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 #[test]
 fn test_reflection_pad2d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::pad::reflection_pad2d::ReflectionPad2dForward::<f32>::new(
         PT, PB, PL, PR, BLOCK_OW,
     );
@@ -66,7 +66,7 @@ fn test_reflection_pad2d_forward_mlir_output() -> std::result::Result<(), Box<dy
 #[test]
 fn test_reflection_pad2d_backward_mlir_output()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::pad::reflection_pad2d::ReflectionPad2dBackward::<f32>::new(
         PT, PB, PL, PR, BLOCK_OW,
     );
@@ -81,7 +81,7 @@ fn test_reflection_pad2d_backward_mlir_output()
 #[test]
 #[cfg(feature = "cuda")]
 fn test_reflection_pad2d_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -137,7 +137,7 @@ fn test_reflection_pad2d_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_reflection_pad2d_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

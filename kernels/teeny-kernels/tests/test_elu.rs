@@ -42,7 +42,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_elu_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::elu::EluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -54,7 +54,7 @@ fn test_elu_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_selu_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::elu::SeluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -66,7 +66,7 @@ fn test_selu_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_celu_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::elu::CeluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -81,7 +81,7 @@ fn test_celu_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_elu_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("elu/x.bin");
     let expected = load_fixture("elu/expected_forward.bin");
@@ -121,7 +121,7 @@ fn test_elu_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_elu_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("elu/x.bin");
     let dy_host = load_fixture("elu/dy.bin");
@@ -167,7 +167,7 @@ fn test_elu_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_selu_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("selu/x.bin");
     let expected = load_fixture("selu/expected_forward.bin");
@@ -206,7 +206,7 @@ fn test_selu_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_selu_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("selu/x.bin");
     let dy_host = load_fixture("selu/dy.bin");
@@ -251,7 +251,7 @@ fn test_selu_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_celu_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("celu/x.bin");
     let expected = load_fixture("celu/expected_forward.bin");
@@ -291,7 +291,7 @@ fn test_celu_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_celu_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("celu/x.bin");
     let dy_host = load_fixture("celu/dy.bin");

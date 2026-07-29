@@ -20,10 +20,10 @@
 //! `#[command(flatten)]` [`teeny_cli::AotArgs`] into your own `clap` struct,
 //! build your model + sample input, and call [`teeny_cli::aot_compile`].
 //!
-//! Requires `TEENYC_PATH` to point at the `teenyc` binary (or have it on
-//! `$PATH`). Typically driven via `cargo teeny aot --bin teeny-cli --device
-//! cuda --options "capability=sm_90"` (from `cargo-teeny`), but can also be
-//! run directly.
+//! Needs a `teenyc` binary, resolved via `teeny_compiler::compiler::find_teenyc`
+//! (`TEENYC_PATH`, or a `rustup`-linked toolchain otherwise). Typically driven via
+//! `cargo teeny aot --bin teeny-cli --device cuda --options "capability=sm_90"`
+//! (from `cargo-teeny`), but can also be run directly.
 
 use anyhow::Result;
 use clap::Parser;

@@ -64,7 +64,7 @@ fn cpu_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
 
 #[test]
 fn test_muon_frob_norm_sq_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::muon::MuonFrobNormSq::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -76,7 +76,7 @@ fn test_muon_frob_norm_sq_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
 
     // !TRANSPOSE: T = X @ X.T
@@ -98,7 +98,7 @@ fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
 
     // !TRANSPOSE: X ← a·X + b·(T·X)
@@ -122,7 +122,7 @@ fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_muon_update_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::muon::MuonUpdate::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -138,7 +138,7 @@ fn test_muon_update_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_muon_update_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let n = M * N;
 
@@ -187,7 +187,7 @@ fn test_muon_update_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_muon_frob_norm_sq_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let n = M * N;
 
@@ -231,7 +231,7 @@ fn test_muon_frob_norm_sq_cuda() -> Result<()> {
 #[ignore = "fails numerically on RTX 5070 (sm_120), see teenygrad-0mr"]
 #[cfg(feature = "cuda")]
 fn test_muon_ns_xtx_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     // X: [M, N], T_out: [M, M]
@@ -282,7 +282,7 @@ fn test_muon_ns_xtx_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_muon_ns_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     // X: [M, N], T: [M, M]

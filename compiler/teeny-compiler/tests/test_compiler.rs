@@ -24,7 +24,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 #[test]
 fn test_compile() -> Result<(), Box<dyn Error>> {
-    dotenv()?;
+    dotenv().ok();
 
     // Initialize logging for the test - only show warnings and errors by default
     // Set RUST_LOG=debug in environment to see debug output

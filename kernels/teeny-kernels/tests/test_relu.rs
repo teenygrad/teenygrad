@@ -40,7 +40,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_relu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(1024);
     let target = Target::new(Capability::Sm89);
@@ -56,7 +56,7 @@ fn test_relu() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_relu_forward_gpu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -122,7 +122,7 @@ fn test_relu_forward_gpu() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_relu_backward_gpu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

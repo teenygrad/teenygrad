@@ -47,7 +47,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_softmax_forward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
@@ -62,7 +62,7 @@ fn test_softmax_forward_mlir_output() -> Result<()> {
 
 #[test]
 fn test_softmax_backward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
@@ -83,7 +83,7 @@ fn test_softmax_backward_mlir_output() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softmax_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -147,7 +147,7 @@ fn test_softmax_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_softmax_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

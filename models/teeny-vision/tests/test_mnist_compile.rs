@@ -49,8 +49,7 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     println!("[1/3] traced MNIST graph: {} nodes", graph.nodes.len());
 
     // ── Build the compiler ────────────────────────────────────────────────────
-    let teenyc_path =
-        std::env::var("TEENYC_PATH").expect("TEENYC_PATH must be set to run this test");
+    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let cache_dir =
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;

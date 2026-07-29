@@ -19,8 +19,9 @@
 //! with an `ndarray`-backed CPU path behind the `ndarray` feature.
 //!
 //! Compiling kernels through the LLVM backend shells out to the custom `teenyc` compiler at
-//! *runtime* (via `TEENYC_PATH`) — not needed to build this crate itself. See the crate README
-//! for the `cargo-teeny`/`TEENYC_PATH` setup.
+//! *runtime*, resolved via [`compiler::find_teenyc`] (`TEENYC_PATH`, or a `rustup`-linked
+//! toolchain otherwise) — not needed to build this crate itself. See the crate README for the
+//! `cargo-teeny` setup.
 
 #![warn(missing_docs)]
 

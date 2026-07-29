@@ -46,7 +46,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_rms_norm_forward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormForward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -58,7 +58,7 @@ fn test_rms_norm_forward_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_rms_norm_backward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -73,7 +73,7 @@ fn test_rms_norm_backward_source() -> anyhow::Result<()> {
 
 #[test]
 fn test_rms_norm_forward_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormForward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -90,7 +90,7 @@ fn test_rms_norm_forward_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_rms_norm_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

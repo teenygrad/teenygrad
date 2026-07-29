@@ -58,7 +58,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_adam_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -70,7 +70,7 @@ fn test_adam_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_adamw_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamwStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -85,7 +85,7 @@ fn test_adamw_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_adam_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let (step_size, bc2_sqrt) = adam_scalars();
 
@@ -161,7 +161,7 @@ fn test_adam_step_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_adamw_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let (step_size, bc2_sqrt) = adam_scalars();
 

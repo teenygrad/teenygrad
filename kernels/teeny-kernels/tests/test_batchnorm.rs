@@ -56,7 +56,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_batch_norm_inference_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -68,7 +68,7 @@ fn test_batch_norm_inference_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_batch_norm_stats_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -80,7 +80,7 @@ fn test_batch_norm_stats_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -92,7 +92,7 @@ fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_batch_norm_backward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -115,7 +115,7 @@ fn bn_cfg() -> CudaLaunchConfig {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_batch_norm_inference_gpu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -178,7 +178,7 @@ fn test_batch_norm_inference_gpu() -> Result<()> {
 #[test]
 #[cfg(all(feature = "cuda", feature = "training"))]
 fn test_batch_norm_forward_training_gpu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -265,7 +265,7 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
 #[test]
 #[cfg(all(feature = "cuda", feature = "training"))]
 fn test_batch_norm_backward_gpu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -354,7 +354,7 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
@@ -372,7 +372,7 @@ fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
 #[test]
 #[cfg(all(feature = "cuda", feature = "training"))]
 fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -487,7 +487,7 @@ fn test_batch_norm_training_graph() -> anyhow::Result<()> {
     );
     let graph = graph.borrow();
 
-    let teenyc_path = std::env::var("TEENYC_PATH").expect("TEENYC_PATH must be set");
+    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let cache_dir =
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;

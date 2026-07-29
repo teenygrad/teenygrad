@@ -14,12 +14,94 @@
  * limitations under the License.
  */
 
+use std::path::PathBuf;
+use std::process::Command;
+
+use anyhow::Context;
+
+use crate::errors::Result;
+
 /// Compilation backends (LLVM/MLIR, `ndarray`).
 pub mod backend;
 /// Compiler drivers (invoking `teenyc` and friends per target).
 pub mod driver;
 /// Compilation target descriptions (device capability, etc).
 pub mod target;
+
+/// Resolve the `teenyc` binary to invoke.
+///
+/// Priority:
+/// 1. `$TEENYC_PATH`, if set.
+/// 2. The sole `rustup`-linked toolchain whose name contains `teenyc` — the naming convention
+///    `cargo teeny install-toolchain` uses (default toolchain name is `<channel>-<host>` with
+///    `channel` defaulting to `stable-teenyc`; see `cargo-teeny`'s `install_toolchain` module) —
+///    resolved to a binary path via `rustup which --toolchain <name> teenyc`.
+///
+/// This deliberately does not fall back further to a bare `teenyc` looked up on `$PATH`: that
+/// would only work by accident (most `$PATH`s don't have a `teenyc` on them at all) and produces
+/// a worse error than pointing at the two supported setup paths.
+pub fn find_teenyc() -> Result<PathBuf> {
+    if let Ok(path) = std::env::var("TEENYC_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+
+    let toolchain = sole_teenyc_toolchain()?;
+    which_in_toolchain(&toolchain)
+}
+
+/// Names of installed `rustup` toolchains containing `teenyc`, parsed from `rustup toolchain
+/// list` output (one name per line, optionally suffixed with ` (default)`/` (active)`).
+fn teenyc_toolchain_names(rustup_toolchain_list_output: &str) -> Vec<String> {
+    rustup_toolchain_list_output
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| name.contains("teenyc"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The single installed `rustup` toolchain whose name contains `teenyc`. Errors if none or more
+/// than one is found — in the latter case the caller needs `TEENYC_PATH` to disambiguate.
+fn sole_teenyc_toolchain() -> Result<String> {
+    let output = Command::new("rustup")
+        .args(["toolchain", "list"])
+        .output()
+        .context("spawn `rustup toolchain list` (is rustup installed and on PATH?)")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "`rustup toolchain list` exited with {}",
+        output.status
+    );
+
+    let names = teenyc_toolchain_names(&String::from_utf8_lossy(&output.stdout));
+    match names.as_slice() {
+        [] => anyhow::bail!(
+            "no teenyc rustup toolchain found; set TEENYC_PATH to the teenyc binary, or install \
+             one with `cargo teeny install-toolchain` (see cargo-teeny)"
+        ),
+        [name] => Ok(name.clone()),
+        multiple => anyhow::bail!(
+            "multiple teenyc rustup toolchains found ({}); set TEENYC_PATH to disambiguate",
+            multiple.join(", ")
+        ),
+    }
+}
+
+/// Resolves `toolchain`'s `teenyc` binary path via `rustup which --toolchain <toolchain> teenyc`.
+fn which_in_toolchain(toolchain: &str) -> Result<PathBuf> {
+    let output = Command::new("rustup")
+        .args(["which", "--toolchain", toolchain, "teenyc"])
+        .output()
+        .with_context(|| format!("spawn `rustup which --toolchain {toolchain} teenyc`"))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "`rustup which --toolchain {toolchain} teenyc` exited with {}",
+        output.status
+    );
+    Ok(PathBuf::from(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
 
 /// Resolve the effective kernel cache directory.
 ///
@@ -48,6 +130,40 @@ fn sibling_cache_dir(exe: &std::path::Path) -> Option<String> {
     candidate
         .is_dir()
         .then(|| candidate.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod find_teenyc_tests {
+    use super::*;
+
+    #[test]
+    fn finds_single_teenyc_toolchain() {
+        let output = "stable-x86_64-unknown-linux-gnu (default)\n\
+                       stable-teenyc-x86_64-unknown-linux-gnu\n";
+        assert_eq!(
+            teenyc_toolchain_names(output),
+            vec!["stable-teenyc-x86_64-unknown-linux-gnu"]
+        );
+    }
+
+    #[test]
+    fn empty_when_no_teenyc_toolchain() {
+        let output = "stable-x86_64-unknown-linux-gnu (default)\nnightly-x86_64-unknown-linux-gnu\n";
+        assert!(teenyc_toolchain_names(output).is_empty());
+    }
+
+    #[test]
+    fn finds_multiple_teenyc_toolchains() {
+        let output = "stable-teenyc-x86_64-unknown-linux-gnu (default)\n\
+                       my-teenyc-toolchain\n";
+        assert_eq!(
+            teenyc_toolchain_names(output),
+            vec![
+                "stable-teenyc-x86_64-unknown-linux-gnu",
+                "my-teenyc-toolchain"
+            ]
+        );
+    }
 }
 
 #[cfg(test)]

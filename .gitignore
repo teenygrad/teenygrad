@@ -8,4 +8,5 @@ scratch/
 todo.md
 kernel.py
 .env
+.env.dev
 .beads

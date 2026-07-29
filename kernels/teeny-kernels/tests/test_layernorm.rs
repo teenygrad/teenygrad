@@ -46,7 +46,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_layer_norm_inference_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::layernorm::LayerNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -58,7 +58,7 @@ fn test_layer_norm_inference_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_layer_norm_forward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::layernorm::LayerNormForward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -70,7 +70,7 @@ fn test_layer_norm_forward_source() -> anyhow::Result<()> {
 #[cfg(feature = "training")]
 #[test]
 fn test_layer_norm_backward_source() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::layernorm::LayerNormBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -85,7 +85,7 @@ fn test_layer_norm_backward_source() -> anyhow::Result<()> {
 
 #[test]
 fn test_layer_norm_inference_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::layernorm::LayerNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
@@ -102,7 +102,7 @@ fn test_layer_norm_inference_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_layer_norm_inference_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

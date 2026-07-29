@@ -47,7 +47,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_linear_mlir_without_bias_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
@@ -64,7 +64,7 @@ fn test_linear_mlir_without_bias_output() -> Result<()> {
 
 #[test]
 fn test_linear_mlir_with_bias_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
@@ -81,7 +81,7 @@ fn test_linear_mlir_with_bias_output() -> Result<()> {
 
 #[test]
 fn test_linear_backward_mlir_without_bias_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
@@ -98,7 +98,7 @@ fn test_linear_backward_mlir_without_bias_output() -> Result<()> {
 
 #[test]
 fn test_linear_backward_mlir_with_bias_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
@@ -116,7 +116,7 @@ fn test_linear_backward_mlir_with_bias_output() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_linear_forward_no_bias_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -199,7 +199,7 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_linear_forward_with_bias_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -282,7 +282,7 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_linear_backward_without_bias_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -378,7 +378,7 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_linear_backward_with_bias_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

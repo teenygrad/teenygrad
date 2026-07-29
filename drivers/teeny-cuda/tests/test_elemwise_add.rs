@@ -27,7 +27,7 @@ const BLOCK_SIZE: i32 = 128;
 
 #[test]
 fn test_tensor_add() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

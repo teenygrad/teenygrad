@@ -17,7 +17,9 @@ teenyc <kernel-source>.rs \
 
 A few details worth knowing:
 
-- **`TEENYC_PATH`** (env var) points at the `teenyc` binary; see
+- **Locating `teenyc`**: `compiler::find_teenyc` uses `TEENYC_PATH` (env var) if set, otherwise
+  auto-detects the sole `rustup`-linked toolchain whose name contains `teenyc` via
+  `rustup which --toolchain <name> teenyc` — see
   [Installation & Toolchain](../getting-started/installation.md). This is a *runtime* dependency
   of `teeny-compiler`, not a build-time one — `teeny-compiler` itself builds with a plain
   toolchain.

@@ -27,7 +27,8 @@ use tracing::info;
 use crate::errors::Result;
 
 /// Compiles kernels by shelling out to the custom `teenyc` compiler (`-Zcodegen-backend=mlir`)
-/// at runtime. See the crate docs for the `TEENYC_PATH`/`cargo-teeny` setup this requires.
+/// at runtime. See [`crate::compiler::find_teenyc`] for how its path is resolved, and the crate
+/// docs for the `cargo-teeny` setup this requires.
 #[derive(Debug, Clone)]
 pub struct LlvmCompiler {
     teenyc_path: PathBuf,

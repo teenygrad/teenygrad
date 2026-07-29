@@ -67,7 +67,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -79,7 +79,7 @@ fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -94,7 +94,7 @@ fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_radam_adaptive_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let (step_size, bc2_sqrt) = radam_adaptive_scalars(100);
 
@@ -171,7 +171,7 @@ fn test_radam_adaptive_step_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_radam_sgd_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let step_size = radam_sgd_scalars(1);
 

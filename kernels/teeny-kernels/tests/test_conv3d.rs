@@ -71,7 +71,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_conv3d_forward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::conv::conv3d::Conv3dForward::<f32>::new(
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
@@ -88,7 +88,7 @@ fn test_conv3d_forward_mlir_output() -> Result<()> {
 
 #[test]
 fn test_conv3d_backward_dx_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDx::<f32>::new(
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
@@ -105,7 +105,7 @@ fn test_conv3d_backward_dx_mlir_output() -> Result<()> {
 
 #[test]
 fn test_conv3d_backward_dw_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::conv::conv3d::Conv3dBackwardDw::<f32>::new(
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
@@ -127,7 +127,7 @@ fn test_conv3d_backward_dw_mlir_output() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_conv3d_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -196,7 +196,7 @@ fn test_conv3d_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_conv3d_backward_dx_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -264,7 +264,7 @@ fn test_conv3d_backward_dx_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_conv3d_backward_dw_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -336,7 +336,7 @@ fn test_conv3d_backward_dw_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_conv3d_padded_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -405,7 +405,7 @@ fn test_conv3d_padded_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_conv3d_padded_backward_dx_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -473,7 +473,7 @@ fn test_conv3d_padded_backward_dx_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_conv3d_padded_backward_dw_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

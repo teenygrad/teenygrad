@@ -50,7 +50,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_adamax_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adamax::AdamaxStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -65,7 +65,7 @@ fn test_adamax_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_adamax_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let bias_c1 = 1.0_f32 - BETA1.powi(STEP);

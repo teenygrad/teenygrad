@@ -34,7 +34,7 @@
 
 use std::env;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
@@ -102,7 +102,7 @@ fn net_linear_relu_linear<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let teenyc_path = env::var("TEENYC_PATH").context("TEENYC_PATH must be set")?;
+    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let ptx_cache =
         env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
 

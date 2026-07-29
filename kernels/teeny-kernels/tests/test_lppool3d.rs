@@ -59,7 +59,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_lppool3d_forward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::pool::lppool3d::Lppool3dForward::<f32>::new(
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW,
@@ -76,7 +76,7 @@ fn test_lppool3d_forward_mlir_output() -> Result<()> {
 
 #[test]
 fn test_lppool3d_backward_mlir_output() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let kernel = teeny_kernels::nn::pool::lppool3d::Lppool3dBackward::<f32>::new(
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW,
@@ -98,7 +98,7 @@ fn test_lppool3d_backward_mlir_output() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_lppool3d_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -163,7 +163,7 @@ fn test_lppool3d_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_lppool3d_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

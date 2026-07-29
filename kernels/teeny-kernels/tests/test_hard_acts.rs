@@ -44,7 +44,7 @@ macro_rules! mlir_snap {
     ($test:ident, $KernelTy:ty, $src_name:expr, $mlir_name:expr) => {
         #[test]
         fn $test() -> anyhow::Result<()> {
-            dotenv()?;
+            dotenv().ok();
             let kernel = <$KernelTy>::new(BLOCK_SIZE);
             let target = Target::new(Capability::Sm89);
             let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -92,7 +92,7 @@ mlir_snap!(
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardtanh_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardtanh/x.bin");
     let expected = load_fixture("hardtanh/expected_forward.bin");
@@ -133,7 +133,7 @@ fn test_hardtanh_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardtanh_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardtanh/x.bin");
     let dy_host = load_fixture("hardtanh/dy.bin");
@@ -180,7 +180,7 @@ fn test_hardtanh_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_relu6_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("relu6/x.bin");
     let expected = load_fixture("relu6/expected_forward.bin");
@@ -219,7 +219,7 @@ fn test_relu6_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_relu6_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("relu6/x.bin");
     let dy_host = load_fixture("relu6/dy.bin");
@@ -264,7 +264,7 @@ fn test_relu6_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardsigmoid_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardsigmoid/x.bin");
     let expected = load_fixture("hardsigmoid/expected_forward.bin");
@@ -303,7 +303,7 @@ fn test_hardsigmoid_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardsigmoid_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardsigmoid/x.bin");
     let dy_host = load_fixture("hardsigmoid/dy.bin");
@@ -348,7 +348,7 @@ fn test_hardsigmoid_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardswish_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardswish/x.bin");
     let expected = load_fixture("hardswish/expected_forward.bin");
@@ -387,7 +387,7 @@ fn test_hardswish_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardswish_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardswish/x.bin");
     let dy_host = load_fixture("hardswish/dy.bin");
@@ -432,7 +432,7 @@ fn test_hardswish_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardshrink_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardshrink/x.bin");
     let expected = load_fixture("hardshrink/expected_forward.bin");
@@ -472,7 +472,7 @@ fn test_hardshrink_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_hardshrink_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("hardshrink/x.bin");
     let dy_host = load_fixture("hardshrink/dy.bin");

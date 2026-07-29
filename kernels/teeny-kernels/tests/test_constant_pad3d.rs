@@ -56,7 +56,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 #[test]
 fn test_constant_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::pad::constant_pad3d::ConstantPad3dForward::<f32>::new(
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
     );
@@ -71,7 +71,7 @@ fn test_constant_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dyn 
 #[test]
 fn test_constant_pad3d_backward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::pad::constant_pad3d::ConstantPad3dBackward::<f32>::new(
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
     );
@@ -86,7 +86,7 @@ fn test_constant_pad3d_backward_mlir_output() -> std::result::Result<(), Box<dyn
 #[test]
 #[cfg(feature = "cuda")]
 fn test_constant_pad3d_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
@@ -145,7 +145,7 @@ fn test_constant_pad3d_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_constant_pad3d_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 

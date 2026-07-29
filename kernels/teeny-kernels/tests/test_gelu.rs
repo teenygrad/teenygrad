@@ -42,7 +42,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_gelu_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::gelu::GeluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -54,7 +54,7 @@ fn test_gelu_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_mish_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::activation::gelu::MishForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -69,7 +69,7 @@ fn test_mish_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_gelu_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("gelu/x.bin");
     let expected = load_fixture("gelu/expected_forward.bin");
@@ -109,7 +109,7 @@ fn test_gelu_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_gelu_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("gelu/x.bin");
     let dy_host = load_fixture("gelu/dy.bin");
@@ -155,7 +155,7 @@ fn test_gelu_backward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_mish_forward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("mish/x.bin");
     let expected = load_fixture("mish/expected_forward.bin");
@@ -195,7 +195,7 @@ fn test_mish_forward_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_mish_backward_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let x_host = load_fixture("mish/x.bin");
     let dy_host = load_fixture("mish/dy.bin");

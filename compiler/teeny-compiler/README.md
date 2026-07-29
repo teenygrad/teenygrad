@@ -11,12 +11,15 @@ behind a feature flag.
 - **Compiling kernels at runtime** (the LLVM backend, `compiler::backend::llvm`) shells out to a
   custom compiler binary, `teenyc` — a fork of `rustc` with an MLIR codegen backend
   (`-Zcodegen-backend=mlir`), distributed on the "stable" channel. It is **not** needed to build
-  `teeny-compiler` itself, only to actually compile/run kernels through it:
+  `teeny-compiler` itself, only to actually compile/run kernels through it. The binary is resolved
+  by [`compiler::find_teenyc`]: `$TEENYC_PATH` if set, otherwise the sole `rustup`-linked toolchain
+  whose name contains `teenyc`, resolved via `rustup which --toolchain <name> teenyc`.
   ```bash
-  export TEENYC_PATH=/path/to/teenyc   # falls back to `teenyc` on $PATH if unset
+  export TEENYC_PATH=/path/to/teenyc   # optional — auto-detected via rustup otherwise
   ```
   The supported way to obtain `teenyc` is via
-  [`cargo-teeny`](https://github.com/spinorml/cargo-teeny), which installs a prebuilt release:
+  [`cargo-teeny`](https://github.com/spinorml/cargo-teeny), which installs a prebuilt release and
+  links it as a `rustup` toolchain:
   ```bash
   cargo install --git https://github.com/spinorml/cargo-teeny
   cargo teeny install-toolchain

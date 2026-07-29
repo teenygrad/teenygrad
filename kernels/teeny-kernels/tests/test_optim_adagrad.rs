@@ -42,7 +42,7 @@ fn load_fixture(rel: &str) -> Vec<f32> {
 
 #[test]
 fn test_adagrad_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adagrad::AdagradStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -54,7 +54,7 @@ fn test_adagrad_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 fn test_adadelta_step_mlir() -> anyhow::Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adagrad::AdadeltaStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
     let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
@@ -69,7 +69,7 @@ fn test_adadelta_step_mlir() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_adagrad_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let params_in = load_fixture("optim_adagrad/adagrad_params_in.bin");
@@ -129,7 +129,7 @@ fn test_adagrad_step_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_adadelta_step_cuda() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
     let params_in = load_fixture("optim_adagrad/adadelta_params_in.bin");
