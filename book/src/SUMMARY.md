@@ -38,6 +38,10 @@
 - [`teeny-cli` and Ahead-of-Time Compilation](./cli-and-aot/teeny-cli.md)
 - [`teeny-llm`](./cli-and-aot/teeny-llm.md)
 
+# Deployment
+
+- [`teeny-quant` and Model Quantization](./deployment/teeny-quant.md)
+
 # Contributing
 
 - [Contributing to Teenygrad](./contributing/contributing.md)

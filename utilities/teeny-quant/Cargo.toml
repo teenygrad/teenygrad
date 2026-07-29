@@ -1,0 +1,29 @@
+[package]
+name = "teeny-quant"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teeny-quant/"
+keywords = ["quantization", "safetensors", "machine-learning", "deployment"]
+categories = ["science", "command-line-utilities"]
+
+[lib]
+
+[[bin]]
+name = "teeny-quant"
+path = "src/main.rs"
+
+[dependencies]
+teeny-core.workspace = true
+teeny-data = { path = "../teeny-data", version = "0.1.0" }
+safetensors.workspace = true
+half.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
