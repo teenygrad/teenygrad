@@ -6,6 +6,16 @@ pr_labels = ["release"]
 repo_url = "https://github.com/teenygrad/teenygrad"
 semver_check = true
 
+# The vendored onnx submodule (support/teeny-onnx/onnx) has 2 files that are
+# both tracked and gitignored by its own upstream .gitignore
+# (workflow_scripts/protobuf/build_protobuf_{unix.sh,win.ps1}, matching its
+# `build_*` pattern) -- a benign upstream quirk, but release-plz's dirty
+# check flags it as "uncommitted changes" on every single checkout,
+# regardless of how clean the working tree actually is. Confirmed via
+# `git ls-files -ci --exclude-standard` inside the submodule.
+allow_dirty = true
+publish_allow_dirty = true
+
 # teeny-torch and teeny-fxgraph are the PyTorch compatibility layer: teeny-torch
 # is a PyO3 cdylib distributed via PyPI (not crates.io), and teeny-fxgraph only
 # exists to support it. Both already have `publish = false` in their Cargo.toml;
@@ -14,7 +24,9 @@ semver_check = true
 [[package]]
 name = "teeny-torch"
 release = false
+publish = false
 
 [[package]]
 name = "teeny-fxgraph"
 release = false
+publish = false
