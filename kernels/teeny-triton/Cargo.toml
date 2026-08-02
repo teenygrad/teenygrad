@@ -21,9 +21,9 @@ dotenv.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 teeny-core.workspace = true
-teeny-compiler.workspace = true
+teeny-compiler = { path = "../../compiler/teeny-compiler" }
 teeny-macros.workspace = true
-teeny-cuda.workspace = true
+teeny-cuda = { path = "../../drivers/teeny-cuda" }
 
 [build-dependencies]
 cargo_metadata.workspace = true

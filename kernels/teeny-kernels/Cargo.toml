@@ -27,7 +27,7 @@ teeny-triton.workspace = true
 teeny-cuda = { workspace = true, optional = true }
 
 [dev-dependencies]
-teeny-compiler.workspace = true
+teeny-compiler = { path = "../../compiler/teeny-compiler" }
 dotenv.workspace = true
 insta.workspace = true
 criterion.workspace = true

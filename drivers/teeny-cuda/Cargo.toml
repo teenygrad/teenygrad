@@ -34,7 +34,7 @@ derive_more.workspace = true
 derive_builder.workspace = true
 
 [dev-dependencies]
-teeny-kernels.workspace = true
+teeny-kernels = { path = "../../kernels/teeny-kernels" }
 dotenv.workspace = true
 
 [build-dependencies]
