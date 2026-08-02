@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/teenygrad/teenygrad/compare/teeny-llm-v0.1.0...teeny-llm-v0.1.1) - 2026-08-02
+
+### Other
+
+- release v0.1.0 ([#10](https://github.com/teenygrad/teenygrad/pull/10))
+
 ## [0.1.0](https://github.com/teenygrad/teenygrad/releases/tag/teeny-llm-v0.1.0) - 2026-08-02
 
 ### Other
