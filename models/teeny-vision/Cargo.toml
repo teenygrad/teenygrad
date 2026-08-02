@@ -25,6 +25,6 @@ reqwest.workspace = true
 indicatif.workspace = true
 dotenv.workspace = true
 rand.workspace = true
-teeny-kernels.workspace = true
-teeny-cuda.workspace = true
-teeny-compiler.workspace = true
+teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-cuda = { path = "../../drivers/teeny-cuda" }
+teeny-compiler = { path = "../../compiler/teeny-compiler" }

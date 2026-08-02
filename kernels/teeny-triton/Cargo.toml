@@ -20,9 +20,9 @@ insta.workspace = true
 dotenv.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
-teeny-core.workspace = true
+teeny-core = { path = "../../core/teeny-core" }
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
-teeny-macros.workspace = true
+teeny-macros = { path = "../../macros/teeny-macros" }
 teeny-cuda = { path = "../../drivers/teeny-cuda" }
 
 [build-dependencies]
