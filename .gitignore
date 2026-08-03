@@ -10,3 +10,4 @@ kernel.py
 .env
 .env.dev
 .beads
+*.swp
