@@ -40,6 +40,16 @@ pub struct LlvmCompiler {
 impl LlvmCompiler {
     /// Creates a compiler that invokes the `teenyc` binary at `teenyc_path`, caching compiled
     /// kernels under `cache_dir` (created if it doesn't exist).
+    ///
+    /// `ptx_version` defaults from `$TEENYC_PTX_VERSION` if set (parse failures are ignored,
+    /// falling back to `None`/teenyc's own default). This matters beyond the compile itself:
+    /// [`Compiler::compile`]'s cache-key hash folds in `ptx_version`, so a JIT/runtime call site
+    /// that never explicitly calls [`Self::with_ptx_version`] — e.g. a deployed binary just
+    /// looking up an AOT-precompiled kernel cache, with no live `teenyc` to fall back to — must
+    /// still agree with whatever override `cargo teeny package --options ptx-version=NN` used at
+    /// AOT time, or every lookup misses. Reading the env var here means one `.env` entry (see
+    /// `TEENYC_PTX_VERSION` in the deployed package's env) keeps both sides in sync without every
+    /// call site having to thread the value through by hand.
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
         let teenyc_path = teenyc_path.into();
         let cache_dir = cache_dir.into();
@@ -48,11 +58,18 @@ impl LlvmCompiler {
             create_dir_all(&cache_dir)?;
         }
 
+        let ptx_version = std::env::var("TEENYC_PTX_VERSION").ok().and_then(|v| {
+            v.parse().ok().or_else(|| {
+                tracing::warn!(value = %v, "TEENYC_PTX_VERSION is not a valid u32; ignoring");
+                None
+            })
+        });
+
         Ok(Self {
             teenyc_path,
             cache_dir,
             target_cpu: None,
-            ptx_version: None,
+            ptx_version,
         })
     }
 
