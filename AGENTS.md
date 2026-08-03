@@ -1,5 +1,14 @@
 # Agent Instructions
 
+## Branching
+
+**Never work directly on `main`.** Check the current branch (`git branch --show-current`) before your first edit; if it is `main`, create and switch to a branch first.
+
+- `feature/<short-description>` for changes, fixes, and new work
+- `release/<version>` for release preparation
+
+Changes reach `main` only through a reviewed pull request. A `PreToolUse` hook in `.claude/settings.json` blocks file edits while the default branch is checked out.
+
 ## Rust Engineering Standards
 
 When making Rust changes, prefer correctness, clarity, and maintainability over cleverness.
