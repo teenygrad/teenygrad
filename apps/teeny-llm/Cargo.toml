@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-llm/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_llm/"
 keywords = ["llm", "inference", "server", "openapi"]
 categories = ["science", "command-line-utilities", "web-programming::http-server"]
 

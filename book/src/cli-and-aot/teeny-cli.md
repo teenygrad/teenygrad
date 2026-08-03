@@ -1,6 +1,6 @@
 # `teeny-cli` and Ahead-of-Time Compilation
 
-[`teeny-cli`](https://docs.teenygrad.org/api/teeny-cli/) provides ahead-of-time (AOT) kernel
+[`teeny-cli`](https://docs.teenygrad.org/api/teenygrad/teeny_cli/) provides ahead-of-time (AOT) kernel
 compilation as both a reusable library and a runnable reference binary.
 
 ## As a library

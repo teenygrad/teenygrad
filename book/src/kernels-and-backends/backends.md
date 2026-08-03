@@ -1,7 +1,7 @@
 # CPU, CUDA, and Vulkan Backends
 
 Device backends live under `drivers/` in the workspace. Today, only
-[`teeny-cuda`](https://docs.teenygrad.org/api/teeny-cuda/) (NVIDIA, via `bindgen`-generated
+[`teeny-cuda`](https://docs.teenygrad.org/api/teenygrad/teeny_cuda/) (NVIDIA, via `bindgen`-generated
 driver bindings) is implemented. `teeny-cpu` and `teeny-vulkan` are on the
 [roadmap](../appendix/faq-and-roadmap.md) but don't exist yet — the `ndarray`-backed CPU path in
 `teeny-compiler` (the `ndarray` feature, on by default) is the current CPU story, distinct from a

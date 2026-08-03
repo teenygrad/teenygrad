@@ -1,6 +1,6 @@
 # Writing a Triton Kernel
 
-[`teeny-triton`](https://docs.teenygrad.org/api/teeny-triton/) provides a Triton-like DSL for
+[`teeny-triton`](https://docs.teenygrad.org/api/teenygrad/teeny_triton/) provides a Triton-like DSL for
 writing kernels in Rust. A kernel is a function generic over the DSL's `Triton`/`Dtype`/`Float`
 traits, marked with the [`#[kernel]`](./kernel-macro.md) attribute macro:
 

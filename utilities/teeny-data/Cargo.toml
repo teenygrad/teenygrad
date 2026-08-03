@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-data/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_data/"
 keywords = ["dataset", "safetensors", "machine-learning", "data-loading"]
 categories = ["science", "filesystem"]
 

@@ -1,6 +1,6 @@
 # Name Scopes
 
-`teeny-core::name_scope` ([API docs](https://docs.teenygrad.org/api/teeny-core/name_scope/)),
+`teeny-core::name_scope` ([API docs](https://docs.teenygrad.org/api/teenygrad/teeny_core/name_scope/)),
 available under the `std` feature, provides scoped naming for graph nodes/parameters —
 useful for giving generated graphs (and, downstream, debug output, checkpoints, profiler traces)
 human-readable, hierarchical names instead of anonymous IDs.

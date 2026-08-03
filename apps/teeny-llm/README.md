@@ -12,7 +12,7 @@ LLM inference application for [teenygrad](https://teenygrad.org) — vLLM-style 
 - **Rust**: any stable or nightly toolchain to `cargo build` this crate.
 - Running real inference (once implemented) will need the same runtime toolchain as the rest of
   the workspace's GPU path — the custom `teenyc` compiler via `TEENYC_PATH`. See
-  [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for setup.
+  [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/)'s README for setup.
 
 ## Getting started
 

@@ -1,0 +1,39 @@
+name: Rebuild docs site
+
+# The book in book/ is published by docs.teenygrad.org, which is built in the
+# teenygrad/docs repo from a sparse clone of this directory (see that repo's
+# books.config.mjs). The markdown deliberately lives here, next to the code it
+# documents, and stays valid mdbook input — but that means a push here is
+# invisible to the site until something tells it to rebuild. This does.
+#
+# Without this the site still picks the change up on its daily 06:00 UTC
+# schedule, so a failure here delays the update rather than losing it.
+#
+# DOCS_DISPATCH_TOKEN must be a token with access to teenygrad/docs — a
+# fine-grained PAT with Contents: read and write on that repo, or a classic
+# token with `repo`. That is what the dispatches endpoint requires.
+
+on:
+  push:
+    branches: [main]
+    paths: ["book/**"]
+  workflow_dispatch:
+
+jobs:
+  rebuild-docs:
+    name: Tell docs.teenygrad.org to rebuild
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch docs-updated
+        env:
+          TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::DOCS_DISPATCH_TOKEN is not set — docs.teenygrad.org will not see this change until its daily rebuild"
+            exit 1
+          fi
+          curl --fail-with-body -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $TOKEN" \
+            https://api.github.com/repos/teenygrad/docs/dispatches \
+            -d '{"event_type":"docs-updated"}'

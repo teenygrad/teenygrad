@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-vision/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_vision/"
 keywords = ["computer-vision", "machine-learning", "mnist", "images"]
 categories = ["computer-vision", "science"]
 

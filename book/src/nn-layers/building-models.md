@@ -1,6 +1,6 @@
 # Building Models with `nn`
 
-`teeny-core::nn` ([API docs](https://docs.teenygrad.org/api/teeny-core/nn/)) provides the `Layer`
+`teeny-core::nn` ([API docs](https://docs.teenygrad.org/api/teenygrad/teeny_core/nn/)) provides the `Layer`
 trait and a set of standard layers:
 
 - **Convolution**: `conv1d`, `conv2d`, `conv3d`

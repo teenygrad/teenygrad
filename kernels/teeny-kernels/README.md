@@ -10,7 +10,7 @@ written against the `teeny-triton` DSL and compiled via `teeny-compiler`.
   system-library dependency at build time (the `cuda` feature pulls in `teeny-cuda`, which does
   have a CUDA toolkit build requirement — see its README).
 - **Compiling/running kernels** at runtime needs the custom `teenyc` compiler — see
-  [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for the
+  [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/)'s README for the
   `cargo-teeny`/`TEENYC_PATH` setup.
 - **On Blackwell (sm_120) GPUs**, `teenyc`'s default PTX version for `sm_120a` may be rejected by
   the installed driver's JIT compiler (`PTX .version 8.6 does not support .target sm_120a`); if so,

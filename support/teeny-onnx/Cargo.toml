@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-onnx/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_onnx/"
 keywords = ["onnx", "machine-learning", "model-format", "protobuf"]
 categories = ["science", "parser-implementations", "encoding"]
 
