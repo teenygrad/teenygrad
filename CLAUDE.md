@@ -149,10 +149,6 @@ FXGraph (traced computation) → Compiler → Backends (LLVM/ndarray/Triton)
 
 Contributions require a signed CLA. All contributions need an issue and a pull request with appropriate reviewers.
 
-## Git Commits
-
-Do not add "Co-Authored-By: Claude" or any Claude attribution lines to commit messages.
-
 ## Key reference material
 
 - This code uses a pre-installed version of the rust compiler (the source code can be found in ../rust)/
