@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-quant/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_quant/"
 keywords = ["quantization", "safetensors", "machine-learning", "deployment"]
 categories = ["science", "command-line-utilities"]
 

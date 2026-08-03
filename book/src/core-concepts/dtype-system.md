@@ -1,6 +1,6 @@
 # The Dtype System
 
-`teeny-core::dtype` ([API docs](https://docs.teenygrad.org/api/teeny-core/dtype/)) defines the
+`teeny-core::dtype` ([API docs](https://docs.teenygrad.org/api/teenygrad/teeny_core/dtype/)) defines the
 element-type traits used throughout the workspace — `Dtype`, `Float`, and tensor traits
 (`Tensor`, `RankedTensor`, `EagerTensor`, `Comparison`) that generic kernel/layer code is written
 against (e.g. `teeny-kernels`' attention kernels are generic over `D: Float`).

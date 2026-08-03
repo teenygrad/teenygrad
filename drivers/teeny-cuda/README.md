@@ -22,13 +22,13 @@ unconditionally generates bindings against the CUDA headers and links `cuda`/`cu
   ```
 - **Compiling kernels at runtime** (AOT/JIT, `compiler::aot`) additionally needs the custom
   `teenyc` compiler on your machine — see
-  [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for the
+  [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/)'s README for the
   `cargo-teeny`/`TEENYC_PATH` setup. This is a *runtime* requirement, separate from the CUDA
   toolkit needed to build this crate.
 
 Because of the CUDA header/lib requirement, this crate does not build on docs.rs — see
 [`package.metadata.docs.rs`] in `Cargo.toml`. API docs are published at
-<https://docs.teenygrad.org/api/teeny-cuda/> instead.
+<https://docs.teenygrad.org/api/teenygrad/teeny_cuda/> instead.
 
 ## Features
 

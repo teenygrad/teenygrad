@@ -16,13 +16,13 @@ graph LR
   recording a `teeny-core::graph::Graph` — see
   [Tensors & the Computational Graph](./tensors-and-graph.md).
 - **Lower**: the graph is lowered to FXGraph, `teeny-compiler`'s intermediate representation.
-- **Compile**: `teeny-compiler` ([API docs](https://docs.teenygrad.org/api/teeny-compiler/))
+- **Compile**: `teeny-compiler` ([API docs](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/))
   compiles FXGraph to a target backend:
   - The **LLVM/MLIR backend** shells out to the custom `teenyc` compiler at runtime
     (`-Zcodegen-backend=mlir`) — see [The LLVM/MLIR Backend](../compiler-internals/llvm-backend.md).
   - The **`ndarray` backend** (feature-gated, default-on) runs on CPU without `teenyc`.
 - **Device drivers**: compiled device code is loaded and run through a driver crate — today,
-  [`teeny-cuda`](https://docs.teenygrad.org/api/teeny-cuda/) for NVIDIA GPUs. `teeny-cpu` and
+  [`teeny-cuda`](https://docs.teenygrad.org/api/teenygrad/teeny_cuda/) for NVIDIA GPUs. `teeny-cpu` and
   `teeny-vulkan` are planned but not yet implemented (only `drivers/teeny-cuda` exists in the
   workspace today).
 

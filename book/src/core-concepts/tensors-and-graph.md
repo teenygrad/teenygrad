@@ -1,6 +1,6 @@
 # Tensors & the Computational Graph
 
-`teeny-core::graph` ([API docs](https://docs.teenygrad.org/api/teeny-core/graph/)) defines the
+`teeny-core::graph` ([API docs](https://docs.teenygrad.org/api/teenygrad/teeny_core/graph/)) defines the
 types every other crate builds on:
 
 - **`Shape`** — `Vec<Option<usize>>`; `None` entries are symbolic/dynamic dimensions (e.g. a batch
@@ -17,7 +17,7 @@ types every other crate builds on:
 
 Building a `Graph` from a model is "tracing": construct a `SymTensor::input(dtype, shape)`, call
 your model with it (via the `nn::Layer` trait), and read back the `Graph` that was recorded as a
-side effect. See [`teeny-cli`](https://docs.teenygrad.org/api/teeny-cli/)'s `aot_compile` for a
+side effect. See [`teeny-cli`](https://docs.teenygrad.org/api/teenygrad/teeny_cli/)'s `aot_compile` for a
 concrete example of this pattern.
 
 What happens to the `Graph` next is covered in [Compilation Flow](./compilation-flow.md).

@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-triton/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_triton/"
 keywords = ["gpu", "triton", "kernels", "compiler", "cuda"]
 categories = ["science", "compilers", "hardware-support"]
 

@@ -12,7 +12,7 @@ test).
   through `teeny-compiler`'s LLVM backend at runtime, which needs the custom `teenyc` compiler on
   your machine. The supported way to obtain it is via `cargo-teeny`
   (`cargo teeny install-toolchain`), which is auto-detected from there — no env var needed. See
-  [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for details and the
+  [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/)'s README for details and the
   `TEENYC_PATH` override. This is only needed to *run* the examples, not to build the
   `teeny-vision` library.
 

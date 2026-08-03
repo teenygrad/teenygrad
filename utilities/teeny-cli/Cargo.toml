@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-cli/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_cli/"
 keywords = ["cli", "machine-learning", "aot-compilation", "kernels"]
 categories = ["command-line-utilities", "science"]
 

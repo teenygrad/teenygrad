@@ -1,6 +1,6 @@
 # `teeny-quant` and Model Quantization
 
-[`teeny-quant`](https://docs.teenygrad.org/api/teeny-quant/) quantizes `.safetensors` model
+[`teeny-quant`](https://docs.teenygrad.org/api/teenygrad/teeny_quant/) quantizes `.safetensors` model
 checkpoints for deployment — smaller weights, faster inference — as both a reusable library and a
 `teeny-quant` binary. It's initially being validated against Ultralytics YOLO models.
 
@@ -8,7 +8,7 @@ checkpoints for deployment — smaller weights, faster inference — as both a r
 > checkpoint's weights alone. Static *activation* quantization (calibrating scales from a forward
 > pass over sample inputs, TensorRT-INT8-calibration style) is planned but not implemented yet —
 > it needs a model forward pass, which means running an ONNX export through
-> [`teeny-onnx`](https://docs.teenygrad.org/api/teeny-onnx/) and `teeny-compiler`'s `ndarray`
+> [`teeny-onnx`](https://docs.teenygrad.org/api/teenygrad/teeny_onnx/) and `teeny-compiler`'s `ndarray`
 > backend, and op coverage there hasn't been verified for a CNN detection model's op set (`Conv`,
 > `BatchNormalization`, `Concat`, ...).
 

@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 homepage.workspace = true
 readme = "README.md"
-documentation = "https://docs.teenygrad.org/api/teeny-macros/"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_macros/"
 keywords = ["macros", "proc-macro", "kernel", "codegen"]
 categories = ["development-tools::procedural-macro-helpers"]
 

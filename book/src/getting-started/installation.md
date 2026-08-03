@@ -4,7 +4,7 @@
 
 Most `teeny-*` crates build with a plain stable (or nightly) Rust toolchain and no system
 dependencies — see each crate's own README (linked from its
-[API docs](https://docs.teenygrad.org/api/)) for specifics. Two crates are exceptions:
+[API docs](https://docs.teenygrad.org/api/teenygrad/)) for specifics. Two crates are exceptions:
 
 - **`teeny-cuda`** requires the CUDA toolkit headers/libraries on the host at *build* time (its
   `build.rs` runs `bindgen` against them unconditionally). See its README for

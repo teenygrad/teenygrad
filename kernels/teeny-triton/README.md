@@ -13,7 +13,7 @@ which the custom `teenyc` compiler consumes at kernel-compile time to generate d
   custom-compiler dependency to build the crate itself.
 - **Compiling/running kernels** defined with this crate's DSL requires the custom `teenyc`
   compiler at runtime (via `teeny-compiler`'s LLVM backend), not at `teeny-triton`'s own build
-  time. See [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s README for the
+  time. See [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/)'s README for the
   `TEENYC_PATH`/`cargo-teeny` setup.
 
 ## Getting started

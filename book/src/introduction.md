@@ -22,7 +22,7 @@ Goals:
 - **Broad hardware support** — not just NVIDIA and AMD.
 - **Extensible** — build high-performance accelerators for your own hardware.
 - **Embedded-friendly** — core training/inference components are `no_std` compatible
-  ([`teeny-core`](https://docs.teenygrad.org/api/teeny-core/) builds `no_std` by default).
+  ([`teeny-core`](https://docs.teenygrad.org/api/teenygrad/teeny_core/) builds `no_std` by default).
 - **Full async support**, multi-threaded by default.
 
 ## How this book is organized
@@ -40,7 +40,7 @@ Goals:
 
 This book is a guide and mental model; it deliberately doesn't duplicate API reference material —
 for that, see the generated rustdoc at
-[docs.teenygrad.org/api](https://docs.teenygrad.org/api/teeny-core/) (or [docs.rs](https://docs.rs)
+[docs.teenygrad.org/api/teenygrad](https://docs.teenygrad.org/api/teenygrad/) (or [docs.rs](https://docs.rs)
 for the crates that build there).
 
 ## Community

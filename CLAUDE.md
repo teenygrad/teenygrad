@@ -145,13 +145,18 @@ FXGraph (traced computation) → Compiler → Backends (LLVM/ndarray/Triton)
 - Python files use flake8 with max-line-length = 120
 - Error messages should be specific, actionable, and include relevant values (see `contributing/ErrorMessageBestPractices.md`)
 
+## Branching
+
+**Never work directly on `main`.** All work happens on a feature or release branch:
+
+- `feature/<short-description>` for changes, fixes, and new work
+- `release/<version>` for release preparation
+
+Before making any edit, check the current branch (`git branch --show-current`). If it is `main`, create and switch to an appropriate branch first. Changes reach `main` only through a reviewed pull request. This is enforced by a `PreToolUse` hook in `.claude/settings.json`, which blocks file edits while the default branch is checked out.
+
 ## Contributing
 
 Contributions require a signed CLA. All contributions need an issue and a pull request with appropriate reviewers.
-
-## Git Commits
-
-Do not add "Co-Authored-By: Claude" or any Claude attribution lines to commit messages.
 
 ## Key reference material
 

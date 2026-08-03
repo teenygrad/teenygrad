@@ -34,9 +34,9 @@ is lowered and compiled.
 
 ## Related crates
 
-- [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/) — compiles a `teeny-core`
+- [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/) — compiles a `teeny-core`
   `Graph` (via FXGraph) down to a target backend.
-- [`teeny-kernels`](https://docs.teenygrad.org/api/teeny-kernels/) — CPU/GPU kernel
+- [`teeny-kernels`](https://docs.teenygrad.org/api/teenygrad/teeny_kernels/) — CPU/GPU kernel
   implementations of `teeny-core`'s `nn` layers.
 
 ## License

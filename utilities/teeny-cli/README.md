@@ -13,10 +13,10 @@ copies into its own binary.
   system-library dependency at build time unless the `cuda` feature is enabled.
 - **`cuda` feature** (required for the `teeny-cli` binary — `required-features = ["cuda"]`) pulls
   in `teeny-cuda`, `teeny-kernels`, and `teeny-vision`, and therefore needs the CUDA toolkit to
-  build — see [`teeny-cuda`](https://docs.teenygrad.org/api/teeny-cuda/)'s README.
+  build — see [`teeny-cuda`](https://docs.teenygrad.org/api/teenygrad/teeny_cuda/)'s README.
 - **Running** the binary (or `aot_compile` in your own binary) needs the custom `teenyc` compiler
   on your machine, installed via `cargo teeny install-toolchain` — it's auto-detected from there
-  (no env var needed). See [`teeny-compiler`](https://docs.teenygrad.org/api/teeny-compiler/)'s
+  (no env var needed). See [`teeny-compiler`](https://docs.teenygrad.org/api/teenygrad/teeny_compiler/)'s
   README for the `cargo-teeny` setup and the `TEENYC_PATH` override.
 
 ## Getting started

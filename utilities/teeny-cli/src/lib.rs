@@ -101,7 +101,14 @@ where
         "cuda" => {
             let (input, graph) = SymTensor::input(input_dtype, input_shape);
             let _ = model.call(input);
-            let graph = graph.borrow();
+            // Match the runtime inference path (e.g. `build_infer_fn` in vision-rs's
+            // parking-garage demo, and examples/yolo26.rs), which compiles the *optimised*
+            // graph — fusing op sequences like Conv2d+BatchNorm2d+Silu into single fused
+            // nodes. Compiling the raw unoptimised graph here would AOT-compile kernels
+            // under different cache keys than what the optimised runtime graph looks up,
+            // making this cache useless (forcing a JIT compile — which fails on devices
+            // with no `teenyc` installed, the whole point of AOT-compiling ahead of time).
+            let graph = graph.borrow().optimise();
 
             let options = teeny_cuda::compiler::options::Options::parse(
                 args.options.as_deref().unwrap_or(""),

@@ -1,6 +1,6 @@
 # The `#[kernel]` Macro
 
-[`teeny-macros`](https://docs.teenygrad.org/api/teeny-macros/) provides the `#[kernel]` attribute
+[`teeny-macros`](https://docs.teenygrad.org/api/teenygrad/teeny_macros/) provides the `#[kernel]` attribute
 macro (`teeny_macros::kernel`), which marks a function as a kernel definition consumed by
 `teeny-triton`/`teeny-kernels`:
 
