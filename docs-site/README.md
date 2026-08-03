@@ -27,5 +27,7 @@ Then visit `http://localhost:8080/` — `/api/` for rustdoc, `/book/` for the md
 
 ## Deployment
 
-Not yet wired up — see the deploy-CI and Kamal-config follow-up tasks. Intended to mirror
-`../../spinorml-cdn`'s Kamal setup (nginx serving static files, no application logic).
+Not currently wired up. The site was previously deployed to `docs.teenygrad.org` via Kamal
+(nginx serving static files, mirroring `../../spinorml-cdn`); that approach has been retired
+and its config removed. `build.sh` still produces a self-contained `dist/` that any static
+host can serve.
