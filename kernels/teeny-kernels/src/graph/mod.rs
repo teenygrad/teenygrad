@@ -523,11 +523,77 @@ impl RuntimeOp for InputRuntimeOp {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default)]
-pub struct TritonLowering {}
+pub struct TritonLowering {
+    /// Target device's SM count for shape-adaptive conv tile-size selection — see
+    /// `Options::sm_count`. `None` (the default from `new()`) preserves the fixed
+    /// tile-size behavior every version before this had.
+    sm_count: Option<u32>,
+}
 
 impl TritonLowering {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Enables shape-adaptive tile-size selection for conv kernels, targeting `sm_count`
+    /// thread blocks worth of parallelism per launch (see `pick_adaptive_block_n`).
+    /// `None` restores the default fixed-tile-size behavior.
+    pub fn with_sm_count(mut self, sm_count: Option<u32>) -> Self {
+        self.sm_count = sm_count;
+        self
+    }
+}
+
+/// Picks the largest tile size from `candidates` (checked largest-first, to keep maximum
+/// per-thread-block reuse whenever there's already enough grid) whose resulting block
+/// count — `fixed_blocks * ceil(tiled_dim / candidate)` — reaches `target_blocks`; falls
+/// back to the smallest candidate if none do (better to under-tile than to silently ignore
+/// a shape too small to ever hit the target).
+///
+/// `fixed_blocks` covers every grid dimension *not* being adapted here (e.g. `OH *
+/// ceil(OW/BLOCK_OW)` for the channel-tiled conv, batch omitted since it's usually unknown
+/// at lowering time — sizing for the batch=1 case only ever *under*-estimates grid size for
+/// larger batches, never over-estimates it).
+fn pick_adaptive_block_n(
+    tiled_dim: usize,
+    fixed_blocks: usize,
+    target_blocks: u32,
+    candidates: &[i32],
+) -> i32 {
+    for &c in candidates {
+        let n_tiles = tiled_dim.div_ceil(c.max(1) as usize);
+        if (fixed_blocks * n_tiles) as u64 >= target_blocks as u64 {
+            return c;
+        }
+    }
+    *candidates.last().expect("candidates must be non-empty")
+}
+
+#[cfg(test)]
+mod pick_adaptive_block_n_tests {
+    use super::pick_adaptive_block_n;
+
+    #[test]
+    fn keeps_largest_candidate_when_already_enough_blocks() {
+        // oh=80, ow=80, block_ow=16 -> fixed_blocks = 80 * ceil(80/16) = 400.
+        // c_out=256 at candidate 16 -> 400 * 16 = 6400 blocks, already >= target.
+        let picked = pick_adaptive_block_n(256, 400, 512, &[16, 8, 4]);
+        assert_eq!(picked, 16);
+    }
+
+    #[test]
+    fn shrinks_for_occupancy_starved_shapes() {
+        // oh=10, ow=10, block_ow=16 -> fixed_blocks = 10 * ceil(10/16) = 10.
+        // c_out=256: candidate 16 -> 10*16=160 blocks (< target); candidate 4 -> 10*64=640 (>= target).
+        let picked = pick_adaptive_block_n(256, 10, 512, &[16, 8, 4]);
+        assert_eq!(picked, 4);
+    }
+
+    #[test]
+    fn falls_back_to_smallest_candidate_when_target_unreachable() {
+        // Even the smallest candidate can't clear an absurdly high target.
+        let picked = pick_adaptive_block_n(16, 1, 1_000_000, &[16, 8, 4]);
+        assert_eq!(picked, 4);
     }
 }
 
@@ -1086,6 +1152,8 @@ impl TritonLowering {
                     let pw = *padding_w as i32;
                     let g = *groups as i32;
                     let c_out = node.shape[1].unwrap_or(0);
+                    let oh = node.shape[2].unwrap_or(1);
+                    let ow = node.shape[3].unwrap_or(1);
                     let is_depthwise = g as usize == *in_channels;
 
                     // ── Dispatch: select kernel based on op shape ─────────────────────────
@@ -1118,7 +1186,24 @@ impl TritonLowering {
                         const BLOCK_N: i32 = 32;
                         const BLOCK_K: i32 = 32;
                         const GROUP_M: i32 = 8;
-                        let k = Conv2dBnSiluGemmForward::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
+                        // BLOCK_N also sets this kernel's shared-memory-per-block footprint,
+                        // so shrinking it for occupancy-starved shapes helps twice over: more
+                        // blocks *and* a higher occupancy ceiling (shared mem is the binding
+                        // occupancy limiter for this kernel at the default tile size).
+                        let block_n = match self.sm_count {
+                            Some(sm_count) => {
+                                let m = oh * ow;
+                                let fixed_blocks = m.div_ceil(BLOCK_M as usize);
+                                pick_adaptive_block_n(
+                                    c_out,
+                                    fixed_blocks,
+                                    4 * sm_count,
+                                    &[BLOCK_N, 16, 8],
+                                )
+                            }
+                            None => BLOCK_N,
+                        };
+                        let k = Conv2dBnSiluGemmForward::new(BLOCK_M, block_n, BLOCK_K, GROUP_M);
                         let nm = k.name.to_string();
                         let ks = k.source.clone();
                         let rop: Arc<dyn RuntimeOp> = Arc::new(k);
@@ -1137,6 +1222,22 @@ impl TritonLowering {
                     } else if use_tiled {
                         const BLOCK_OW: i32 = 16;
                         const BLOCK_N_TILE: i32 = 16;
+                        // See the analogous comment in the GEMM branch above — BLOCK_N_TILE
+                        // is the tile dim adapted here since shrinking it costs less
+                        // arithmetic-intensity/reuse than shrinking BLOCK_OW would (per this
+                        // kernel's own doc comment on why BLOCK_N reuse matters).
+                        let block_n_tile = match self.sm_count {
+                            Some(sm_count) => {
+                                let fixed_blocks = oh * ow.div_ceil(BLOCK_OW as usize);
+                                pick_adaptive_block_n(
+                                    c_out,
+                                    fixed_blocks,
+                                    4 * sm_count,
+                                    &[BLOCK_N_TILE, 8, 4],
+                                )
+                            }
+                            None => BLOCK_N_TILE,
+                        };
                         let k = Conv2dBnSiluTiledForward::new(
                             kh,
                             kw,
@@ -1145,7 +1246,7 @@ impl TritonLowering {
                             ph,
                             pw,
                             BLOCK_OW,
-                            BLOCK_N_TILE,
+                            block_n_tile,
                         );
                         let nm = k.name.to_string();
                         let ks = k.source.clone();

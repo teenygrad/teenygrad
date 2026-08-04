@@ -128,6 +128,19 @@ pub struct Options {
     #[builder(default = "None")]
     pub ptx_version: Option<u32>,
 
+    /// Target device's SM (streaming multiprocessor) count, for shape-adaptive kernel
+    /// tile-size selection. Not an `nvptxcompiler` flag — excluded from
+    /// [`Options::to_compile_options`]; consumed by `teeny-kernels`' `TritonLowering` to
+    /// pick smaller tile sizes (larger grids) for conv layers whose default tile size
+    /// would otherwise launch too few thread blocks to occupy the target device (e.g.
+    /// deep layers with small spatial dims after repeated downsampling). Not auto-queried
+    /// from a live device: AOT compilation may target a device that isn't the one doing
+    /// the compiling (e.g. cross-compiling for a Jetson from an x86 host), so this must be
+    /// supplied explicitly when known (e.g. `sm-count=20` for a Jetson Orin Nano). Leaving
+    /// this unset (the default) preserves today's fixed tile-size behavior unchanged.
+    #[builder(default = "None")]
+    pub sm_count: Option<u32>,
+
     /// `--maxrregcount` (alias `maxnreg` in [`Options::parse`]'s string encoding).
     #[builder(default = "None")]
     pub maxrregcount: Option<u32>,
@@ -417,6 +430,9 @@ impl Options {
                 "ptx-version" => {
                     builder.ptx_version(Some(parse_u32(input, &key, value)?));
                 }
+                "sm-count" => {
+                    builder.sm_count(Some(parse_u32(input, &key, value)?));
+                }
                 "allow-expensive-optimizations" => {
                     builder.allow_expensive_optimizations(parse_bool(input, &key, value)?);
                 }
@@ -660,5 +676,18 @@ mod parse_tests {
     fn ptx_version_defaults_to_none() {
         let opts = Options::parse("capability=sm_87").unwrap();
         assert_eq!(opts.ptx_version, None);
+    }
+
+    #[test]
+    fn parses_sm_count_override() {
+        let opts = Options::parse("capability=sm_87,sm-count=20").unwrap();
+        assert_eq!(opts.gpu_name, Capability::Sm87);
+        assert_eq!(opts.sm_count, Some(20));
+    }
+
+    #[test]
+    fn sm_count_defaults_to_none() {
+        let opts = Options::parse("capability=sm_87").unwrap();
+        assert_eq!(opts.sm_count, None);
     }
 }
