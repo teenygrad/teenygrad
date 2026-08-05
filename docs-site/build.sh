@@ -4,7 +4,7 @@
 #
 # Requires the CUDA toolkit (teeny-cuda's build.rs hard-requires it) and
 # `mdbook`/`mdbook-mermaid` (`cargo install mdbook mdbook-mermaid`, then
-# `mdbook-mermaid install book` once, already done in this repo).
+# `mdbook-mermaid install books/teenygrad` once, already done in this repo).
 set -e
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -52,8 +52,8 @@ cp -r target/doc/. "$dist/api/"
 } > "$dist/api/index.html"
 
 # mdBook SDK book.
-( cd book && mdbook build )
-cp -r book/book "$dist/book"
+( cd books/teenygrad && mdbook build )
+cp -r books/teenygrad/book "$dist/book"
 
 cp docs-site/index.html "$dist/index.html"
 

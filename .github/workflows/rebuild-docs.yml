@@ -1,10 +1,11 @@
 name: Rebuild docs site
 
-# The book in book/ is published by docs.teenygrad.org, which is built in the
-# teenygrad/docs repo from a sparse clone of this directory (see that repo's
-# books.config.mjs). The markdown deliberately lives here, next to the code it
-# documents, and stays valid mdbook input — but that means a push here is
-# invisible to the site until something tells it to rebuild. This does.
+# This repo publishes two books to docs.teenygrad.org: books/teenygrad
+# (/teenygrad) and books/kernels (/kernels). The site is built in the docs repo from a
+# sparse clone of those directories (see that repo's books.config.mjs). The
+# markdown deliberately lives here, next to the code it documents, and stays
+# valid mdbook input — but that means a push here is invisible to the site until
+# something tells it to rebuild. This does.
 #
 # Without this the site still picks the change up on its daily 06:00 UTC
 # schedule, so a failure here delays the update rather than losing it.
@@ -16,7 +17,10 @@ name: Rebuild docs site
 on:
   push:
     branches: [main]
-    paths: ["book/**"]
+    # The examples too: the kernels book pulls its code samples out of
+    # kernels/teeny-triton/examples/ with {{#include}}, so an edit there changes
+    # the published pages without touching a single .md.
+    paths: ["books/**", "kernels/teeny-triton/examples/**"]
   workflow_dispatch:
 
 jobs:
