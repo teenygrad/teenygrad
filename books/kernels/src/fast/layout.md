@@ -34,6 +34,54 @@ This is why `T::arange(0, BLOCK_SIZE) + block_start` appears in every simple
 kernel. Consecutive lanes get consecutive addresses, which is the pattern the
 hardware is built for.
 
+## What it actually costs
+
+`examples/coalescing.rs` measures it with two kernels that read **exactly the
+same 64 MB** and do exactly the same arithmetic. One walks along rows, the other
+down columns of the same row-major matrix. The only line that differs:
+
+```rust,ignore
+let offsets = T::arange(0, BLOCK) + pid * BLOCK;   // rows:    stride 1
+let offsets = rows * COLS + col;                   // columns: stride COLS
+```
+
+```bash
+cargo run --release -p teeny-triton --features cuda --example coalescing
+```
+
+On an **RTX 5070 (sm_120), CUDA 13.3, driver 610.43.02**, over a 4096×4096
+matrix, 65536 programs of 256 elements each, identical for both:
+
+| access | time | bandwidth |
+|---|---:|---:|
+| row-major (stride 1) | 111.6 µs | 601.1 GB/s |
+| column (stride 4096) | 267.1 µs | 251.3 GB/s |
+
+**2.4× slower for the same bytes and the same arithmetic.** No extra work, no
+different algorithm — the order alone.
+
+Two things worth drawing out.
+
+**601 GB/s is the ceiling.** Chapter 16's block-size sweep plateaued at
+596 GB/s on the same card with a completely different kernel. Two unrelated
+memory-bound kernels landing within 1% of each other is what a hardware limit
+looks like — and it is the number to compare any new kernel against.
+
+**2.4× is smaller than the naive prediction, and that is instructive.** With
+128-byte lines and 4-byte elements, 32 elements share a line. A strided read
+where every lane lands in a different line should fetch 32× the data, so you
+might expect something near a 32× slowdown. You get 2.4×.
+
+The reason is reuse. Neighbouring programs read neighbouring columns, so a line
+fetched for column `c` still holds columns `c+1 … c+31`, and by the time those
+programs run it is often still in L2. The cache recovers most of what the access
+pattern threw away.
+
+That is worth internalising in both directions: a strided pattern is genuinely
+expensive, and a back-of-the-envelope traffic calculation will usually
+*overstate* it, because it ignores the cache. Which is the argument for
+measuring rather than predicting.
+
 ## Seeing it in a real kernel
 
 The naive matmul from Chapter 11 has both patterns, side by side:
@@ -180,7 +228,8 @@ something structural — a padded stride, an aligned base — and not otherwise.
 3. **If it is strided, can you tile?** Load once, reuse from fast memory.
 4. **If not, can you change the layout?** Sometimes the fix is upstream.
 5. **Use the passed row stride**, never the shape's last dimension.
-6. **Measure.** Chapter 18. Coalescing changes are usually dramatic and
-   occasionally do nothing, and the only way to tell is to time it.
+6. **Measure.** Chapter 18. A traffic calculation tells you the worst case; the
+   cache decides how much of it you actually pay. On this card the gap between
+   the two was 32× predicted against 2.4× measured.
 
 Next: how to time it.

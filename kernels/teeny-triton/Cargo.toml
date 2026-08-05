@@ -58,3 +58,7 @@ required-features = ["cuda"]
 [[example]]
 name = "block_size"
 required-features = ["cuda"]
+
+[[example]]
+name = "coalescing"
+required-features = ["cuda"]

@@ -223,8 +223,13 @@ table, and writing it exposed that `BLOCK_SIZE` and the launch thread count are
 independent, with the driver hard-erroring on a mismatch. See item 10 of
 `API-FRICTION.md`.
 
-**Still open:** the layout/coalescing comparison for Chapter 17, and the
-numerics measurements for Chapter 19.
+**Chapter 17 measured too** — `examples/coalescing.rs`, 601 GB/s contiguous
+against 251 GB/s strided for identical bytes. It also cross-checks Chapter 16:
+two unrelated memory-bound kernels both plateau near 600 GB/s on this card.
+
+**Still open:** the numerics measurements for Chapter 19. `f32` against `f64`
+throughput, and a precision-loss demonstration — the latter needs no timing at
+all, so it is not blocked on anything.
 
 ---
 
