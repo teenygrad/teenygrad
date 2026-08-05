@@ -120,6 +120,43 @@ are not exposed as a public API, so reading them means either the PTX itself or
 arithmetic intensity routinely beats one at 100% that is memory-starved.
 Occupancy is a diagnostic, not a target.
 
+### The other kind of occupancy problem
+
+Everything above is about *resources* — registers and shared memory limiting how
+many programs fit. There is a second, simpler failure that looks identical from
+a benchmark and is completely different underneath: **not launching enough
+programs to fill the machine.**
+
+A card has some number of streaming multiprocessors. If your grid is 40 programs
+and the card has 48 SMs, most of the machine is idle regardless of how efficient
+your kernel is. No amount of register tuning helps.
+
+This is a real case in this tree. Profiling YOLO26n found conv layers running at
+8% achieved occupancy with 100% *theoretical* occupancy — the giveaway that
+resources were not the limit. Deep layers have small spatial extent and many
+channels, and a fixed tile size produced as few as 40 blocks.
+
+The fix was to pick the tile size from the shape:
+
+```rust,ignore
+let lowering = TritonLowering::default().with_sm_count(Some(48));
+```
+
+With `sm_count` set, the lowering chooses the largest candidate tile whose
+resulting grid still clears a small multiple of the SM count — smaller tiles
+where that means more blocks, larger where the shape already provides enough.
+Left at `None`, the default, tile sizes stay fixed exactly as before.
+
+Two things to take from this.
+
+**Check your grid size before tuning anything else.** It is one division, and it
+rules out the most embarrassing cause.
+
+**The SM count is a parameter, not a query.** It sits alongside `ptx_version` in
+`Options` and is deliberately not read from the local device, because
+ahead-of-time compilation routinely targets a card that is not the one doing the
+compiling — Chapter 23.
+
 ## A procedure
 
 Given no autotuner, this is the honest loop:
@@ -144,7 +181,9 @@ alone.
 
 The shape-based dispatch thresholds in `kernels/teeny-kernels/src/graph/mod.rs`
 — GEMM kernel for 1×1 convolutions with at least 32 output channels, tiled above
-16 — are hand-picked constants from exactly this process.
+16 — are hand-picked constants from exactly this process. *Which* kernel runs is
+still a hand-picked threshold; only the tile size inside it is now derived, and
+only when `sm_count` is set.
 
 The bench beside them exists to check they still hold. Its doc comment says so:
 the shapes it benchmarks were chosen to straddle those thresholds, so the

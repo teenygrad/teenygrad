@@ -113,6 +113,13 @@ first time it sees a new input shape it runs them all and caches the winner.
 There is no equivalent here. Block sizes are chosen by a person, written into a
 constructor call, and stay there.
 
+One qualification. The conv lowering can now derive a tile size from the layer's
+shape and the target's SM count, rather than using a fixed one — Chapter 16.
+That is *adaptive*, not *autotuned*: the choice is made once, at lowering time,
+from a formula, with no measurement and no runtime search. It is the closest
+thing here to automatic tuning, and it is still a person's rule applied
+mechanically.
+
 That is not necessarily worse — an autotuner spends real time on its first call
 and can pick differently between runs, which makes benchmarking harder. But it
 does mean the numbers in your kernel are only as good as the last time somebody

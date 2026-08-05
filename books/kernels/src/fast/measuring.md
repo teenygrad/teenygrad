@@ -151,9 +151,23 @@ For that you need a profiler — NVIDIA's Nsight Compute reports achieved
 bandwidth, occupancy, warp stall reasons and instruction mix per kernel, which
 is the level at which "why" gets answered.
 
-Nothing in this SDK integrates with it, and no profile has been captured for
-these kernels, so this book cannot teach reading one. It is item 9 in
-`KNOWN-GAPS.md`.
+Nothing in this SDK integrates with it, so this book cannot teach reading one.
+It has been used on these kernels, though, and the result is a good example of
+what a profiler tells you that a stopwatch does not:
+
+> Profiling YOLO26n's conv layers showed occupancy as low as **8%** on deep
+> layers with small spatial extent and many output channels. Theoretical
+> occupancy was 100% in every case — so it was not register or shared-memory
+> pressure. It was purely a grid-size problem: the fixed tile size produced as
+> few as 40 thread blocks, which cannot fill the machine no matter how good the
+> kernel is.
+
+That distinction — achieved 8%, theoretical 100% — is the whole value of the
+tool. A benchmark would have told you the layer was slow. Only the profiler
+told you it was slow because there was not enough work to go around, which
+points at the tile size rather than at the kernel body.
+
+The fix was `sm_count`, described in Chapter 16.
 
 What you *can* do without a profiler, and should do first:
 

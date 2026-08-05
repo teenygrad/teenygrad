@@ -96,6 +96,10 @@ Two things worth taking from that.
 and writes the number down. The bench in `benches/conv2d_bn_silu.rs` exists
 specifically to check those thresholds still hold, and its doc comment says so.
 
+The tile size *inside* the chosen kernel can now be derived from the layer shape
+and the target's SM count instead of fixed — Chapter 16. Which kernel runs is
+still one of these hand-picked thresholds.
+
 **Shipping several kernels for one operation is normal too.** A single kernel
 that is good at every shape is usually worse than three that are each good at
 one.

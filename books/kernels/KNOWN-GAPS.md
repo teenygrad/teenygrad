@@ -213,8 +213,17 @@ assume this and document an sm_120 PTX-version workaround
 
 ---
 
-## 9. Nsight Compute output — **drops half of the brief's Ch 19**
+## 9. Nsight Compute integration — **limits Ch 18**
 
 **What.** The brief asks for a chapter reading Nsight Compute output. Nothing in
-the tree integrates with Nsight, and no profile has been captured. Chapter 18
-covers `criterion` only.
+the tree integrates with Nsight, so Chapter 18 teaches `criterion` and
+computing achieved bandwidth by hand.
+
+**Partly closed.** Nsight *has* been used on these kernels — the shape-adaptive
+conv tile-size work measured achieved occupancy as low as 8% against a
+theoretical 100% on YOLO26n, which is what motivated `Options::sm_count`.
+Chapter 18 now quotes that finding as a worked example of what a profiler
+reports that a benchmark cannot.
+
+What is still missing is a captured profile someone can walk through
+section by section, and any tooling that makes producing one routine.
