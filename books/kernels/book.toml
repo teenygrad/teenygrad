@@ -1,0 +1,29 @@
+[book]
+title = "Writing GPU Kernels in Rust"
+description = "Write Triton GPU kernels in Rust with teenygrad — from what a kernel is to a fused, measured kernel running inside a model."
+authors = ["Teenygrad contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/teenygrad/teenygrad"
+edit-url-template = "https://github.com/teenygrad/teenygrad/edit/main/books/kernels/{path}"
+site-url = "/kernels/"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+[output.html.playground]
+runnable = false
+
+# No `[output.linkcheck]`: mdbook-linkcheck does not support mdbook 0.5.x (it
+# fails parsing the RenderContext with "missing field `sections`"), the same
+# reason books/teenygrad/book.toml drops it. Internal links are checked by the
+# docs site build, which reports any link pointing at no chapter — see
+# scripts/build-books.mjs in teenygrad/docs. Re-add this once mdbook-linkcheck
+# catches up.
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html.fold]
+enable = true
+level = 1

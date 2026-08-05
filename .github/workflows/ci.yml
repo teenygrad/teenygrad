@@ -73,3 +73,31 @@ jobs:
           cargo doc --workspace --no-deps
           --exclude teeny-cuda --exclude teeny-kernels
           --exclude teeny-torch
+
+  # The books (books/*) keep their code samples in the crates they document and
+  # pull them in with {{#include}}, so a rename or a moved anchor breaks a
+  # published page without touching a .md file. This catches that here rather
+  # than on the docs deploy.
+  #
+  # It cannot build the examples themselves: they carry
+  # `required-features = ["cuda"]` and need the CUDA toolkit and a real device,
+  # which this runner has neither of — the same reason teeny-cuda and
+  # teeny-kernels are excluded above. Until there is a CUDA-provisioned runner,
+  # an example is verified by running it by hand:
+  #
+  #   cargo run -p teeny-triton --features cuda --example vector_add
+  book-includes:
+    name: Book stays in step with the code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check every {{#include}} points at a real file and anchor
+        run: python3 books/check-includes.py
+
+      # The kernels book's reference section documents every method on the
+      # `Triton` trait. Adding one without documenting it leaves a hole a
+      # reader finds before a maintainer does.
+      - name: Check the Triton translation table is complete
+        run: python3 books/check-triton-table.py
