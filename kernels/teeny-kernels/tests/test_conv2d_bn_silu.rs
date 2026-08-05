@@ -499,3 +499,87 @@ fn test_conv2d_bn_silu_matches_reference() -> Result<()> {
     }
     Ok(())
 }
+
+// ── Pipeline-stage logging ────────────────────────────────────────────────────
+//
+// Verifies `LlvmCompiler::with_log_level` end-to-end: at `Debug`, `teenyc` should
+// log every MLIR pipeline stage (ttir, ttgpuir, llir, llvmir, ptx/asm) for this
+// fused kernel, relayed through this process's own `tracing`.
+
+#[cfg(feature = "cuda")]
+mod pipeline_logging {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
+    use teeny_core::compiler::Compiler;
+
+    use super::*;
+
+    /// A `tracing_subscriber` writer that appends every formatted event into a
+    /// shared buffer instead of stdout/stderr, so the test can inspect what was
+    /// logged.
+    #[derive(Clone, Default)]
+    struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_conv2d_bn_silu_logs_pipeline_stages() {
+        dotenv().ok();
+        let env = testing::setup_cuda_env().expect("CUDA environment required for this test");
+
+        let kernel = teeny_kernels::nn::fused::conv2d_bn_silu::Conv2dBnSiluForward::new(
+            KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, G, BLOCK_OW,
+        );
+        let target = Target::new(env.capability);
+
+        let teenyc_path =
+            teeny_compiler::compiler::find_teenyc().expect("find_teenyc should locate teenyc");
+        let cache_dir = teeny_compiler::compiler::default_cache_dir();
+        let compiler = LlvmCompiler::new(teenyc_path, cache_dir)
+            .expect("construct LlvmCompiler")
+            .with_target_cpu(target.capability.to_string())
+            .with_log_level(LogLevel::Debug);
+
+        let captured = CapturingWriter::default();
+        let writer_for_subscriber = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || writer_for_subscriber.clone())
+            .finish();
+
+        // Scoped to this thread only, so it doesn't clobber a subscriber another
+        // test running concurrently in this binary may have installed. `force:
+        // true` guarantees `teenyc` actually runs (a cache hit would emit nothing).
+        let logs = tracing::subscriber::with_default(subscriber, || {
+            compiler
+                .compile(&kernel, &target, true)
+                .expect("compile should succeed");
+            String::from_utf8_lossy(&captured.0.lock().unwrap()).into_owned()
+        });
+
+        assert!(
+            logs.contains("tt.") || logs.contains("ttg."),
+            "expected Triton dialect ops (ttir/ttgpuir) in the logged pipeline stages:\n{logs}"
+        );
+        assert!(
+            logs.contains("define ") || logs.contains("llvm.func"),
+            "expected LLVM IR in the logged pipeline stages:\n{logs}"
+        );
+        assert!(
+            logs.contains(".visible .entry") || logs.contains(".version"),
+            "expected PTX/ASM in the logged pipeline stages:\n{logs}"
+        );
+    }
+}

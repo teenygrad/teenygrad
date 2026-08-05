@@ -16,6 +16,7 @@
 
 use derive_builder::Builder;
 use derive_more::Display;
+use teeny_compiler::compiler::backend::llvm::compiler::LogLevel;
 
 use crate::compiler::target::Capability;
 use crate::errors::{Error, Result};
@@ -127,6 +128,14 @@ pub struct Options {
     /// CUDA 12.2, since sm_87's own default floor is conservative).
     #[builder(default = "None")]
     pub ptx_version: Option<u32>,
+
+    /// `teenyc`'s diagnostic verbosity (see [`LogLevel`]). Not an `nvptxcompiler` flag —
+    /// excluded from [`Options::to_compile_options`]; consumed by
+    /// [`crate::compiler::aot::compile_graph`] to set `LlvmCompiler::with_log_level`, which in
+    /// turn sets `RUSTC_LOG` on the `teenyc` subprocess. Leaving this unset (the default)
+    /// preserves `teenyc`'s own default verbosity and skips capturing any pipeline-stage IR.
+    #[builder(default = "None")]
+    pub log_level: Option<LogLevel>,
 
     /// Target device's SM (streaming multiprocessor) count, for shape-adaptive kernel
     /// tile-size selection. Not an `nvptxcompiler` flag — excluded from
@@ -433,6 +442,15 @@ impl Options {
                 "sm-count" => {
                     builder.sm_count(Some(parse_u32(input, &key, value)?));
                 }
+                "log-level" => {
+                    let v = require_value(input, &key, value)?;
+                    builder.log_level(Some(v.parse::<LogLevel>().map_err(|reason| {
+                        Error::InvalidOptions {
+                            input: input.to_string(),
+                            reason,
+                        }
+                    })?));
+                }
                 "allow-expensive-optimizations" => {
                     builder.allow_expensive_optimizations(parse_bool(input, &key, value)?);
                 }
@@ -689,5 +707,22 @@ mod parse_tests {
     fn sm_count_defaults_to_none() {
         let opts = Options::parse("capability=sm_87").unwrap();
         assert_eq!(opts.sm_count, None);
+    }
+
+    #[test]
+    fn parses_log_level() {
+        let opts = Options::parse("capability=sm_87,log-level=debug").unwrap();
+        assert_eq!(opts.log_level, Some(LogLevel::Debug));
+    }
+
+    #[test]
+    fn log_level_defaults_to_none() {
+        let opts = Options::parse("capability=sm_87").unwrap();
+        assert_eq!(opts.log_level, None);
+    }
+
+    #[test]
+    fn invalid_log_level_errors() {
+        assert!(Options::parse("capability=sm_87,log-level=verbose").is_err());
     }
 }

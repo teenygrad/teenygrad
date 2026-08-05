@@ -51,6 +51,9 @@ pub fn compile_graph<'a, L: Lowering<'a>>(
     if let Some(ptx_version) = options.ptx_version {
         compiler = compiler.with_ptx_version(ptx_version);
     }
+    if let Some(log_level) = options.log_level {
+        compiler = compiler.with_log_level(log_level);
+    }
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(options.gpu_name);
 
