@@ -56,15 +56,21 @@ Conv2dBnSiluGemmForward::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M)
 
 Nothing checks the order. They are all `i32`.
 
-**`id` is the cache key.** It is the function name, the dtypes, and the const
-values, joined by double underscores — `vector_add__f32__128`. Change the block
-size and you get a different id, so a different cache entry, so a fresh
-compilation. That is why one kernel with two block sizes is two compiled
-kernels.
+**`id` identifies the kernel.** It is the function name, the dtypes, and the
+const values, joined by double underscores — `vector_add__f32__128`. Change the
+block size and you get a different id, so a different compilation. That is why
+one kernel with two block sizes is two compiled kernels.
 
-(The `Kernel` trait's default `id()` is a SHA-256 of the source. The macro
-overrides it with the readable version, which is what you see in cache
-filenames.)
+It is not, however, what names the files on disk. The cache uses a content hash:
+
+```text
+/tmp/teenyc_cache/vector_add_5f69418a643d1353dba2ce66de8ed3dc4e1644c0d9474da4517ed6e7d3f67ff9.o
+```
+
+`{name}_{sha256 of the source}`, with three files per kernel — `.o` (the PTX,
+despite the extension), `.mlir`, and `.rs` (the full generated source that
+`teenyc` was given). The readable `id` and the on-disk name are two different
+things, and it is the hash you will be looking at.
 
 The struct also implements `Kernel`, whose `Args` associated type is the
 launch-argument tuple — `(*mut f32, *mut f32, *mut f32, i32)` for this kernel,
@@ -80,9 +86,8 @@ everything else.
 a C calling convention. So the macro writes one, as text, with the generic
 parameters filled in.
 
-Here is a real one — the committed snapshot from `teeny-kernels`' own tests, for
-`elemwise_add_forward`, which is the same kernel as `vector_add` under the
-library's name:
+Here is the real one, taken from the `.rs` file the Chapter 5 run left in the
+cache — the actual text `teenyc` compiled:
 
 ```rust,ignore
 use triton::llvm::triton::num::*;
@@ -90,20 +95,22 @@ use triton::llvm::triton::pointer::LlvmPointer;
 type LlvmTriton = triton::llvm::triton::LlvmTriton;
 
 #[no_mangle]
-pub extern "C" fn elemwise_add_forward_entry_point(a_ptr: *mut f32, b_ptr: *mut f32, out_ptr: *mut f32, n_elements: i32) {
+pub extern "C" fn vector_add_entry_point(a_ptr: *mut f32, b_ptr: *mut f32, out_ptr: *mut f32, n_elements: i32) {
     let a_ptr = LlvmPointer(a_ptr as *mut _);
     let b_ptr = LlvmPointer(b_ptr as *mut _);
     let out_ptr = LlvmPointer(out_ptr as *mut _);
-    elemwise_add_forward::<LlvmTriton, f32, 128>(a_ptr, b_ptr, out_ptr, n_elements);
+    vector_add::<LlvmTriton, f32, 128>(a_ptr, b_ptr, out_ptr, n_elements);
 }
 ```
 
-*From `kernels/teeny-kernels/tests/snapshots/test_elemwise_add__elemwise_add_forward_source.snap`.*
+Those are the last eight lines of a 3,068-line file. The rest is the DSL itself,
+spliced in ahead of your kernel — which is what "compiled against a small
+generated environment" from Chapter 3 means in practice.
 
-Read the last line first:
+Read the last line of the wrapper first:
 
 ```rust,ignore
-elemwise_add_forward::<LlvmTriton, f32, 128>(...)
+vector_add::<LlvmTriton, f32, 128>(...)
 ```
 
 There it is. `T` is `LlvmTriton`, the implementation of the `Triton` trait that
@@ -138,6 +145,13 @@ cargo expand -p teeny-triton --example vector_add
 That prints everything the macro produced. It is worth doing once. The generated
 source strings appear as one long escaped literal, which is ugly but is exactly
 what gets compiled.
+
+The easier route is to run the kernel and read the `.rs` file it leaves in the
+cache — same content, already unescaped, alongside the `.mlir` and the PTX:
+
+```bash
+ls $TEENYC_CACHE_DIR    # or /tmp/teenyc_cache
+```
 
 ## The consequences, collected
 

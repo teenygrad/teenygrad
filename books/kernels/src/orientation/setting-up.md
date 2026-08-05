@@ -131,9 +131,13 @@ kernel for that exact card, and adds two vectors.
 ### If that fails
 
 **`PTX .version 8.6 does not support .target sm_120a`** — a Blackwell card, where
-`teenyc`'s default PTX version is newer than some drivers accept. Set
+`teenyc`'s default PTX version is newer than the driver accepts. Set
 `TEENYC_PTX_VERSION=87`. This is a `teenyc`-side default; the SDK cannot work
 around it.
+
+You may well not hit it. On an RTX 5070 with CUDA 13.3 and driver 610.43.02,
+everything in this book ran without the variable set. Newer drivers appear to
+accept the version; try it plain first.
 
 **A capability you want to override** — `TEENYC_CAPABILITY=sm_89` forces the
 target, regardless of what the device reports. Useful for reproducing someone

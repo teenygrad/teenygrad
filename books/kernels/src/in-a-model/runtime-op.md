@@ -192,29 +192,26 @@ fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
 }
 ```
 
-The third element is meant to be the PTX symbol to resolve. Here is the problem:
-**the tree is inconsistent about what it should be.**
+The third element is meant to be the PTX symbol to resolve, and the tree is
+inconsistent about it. The trait's documentation says "conventionally
+`{name}_entry_point`", which is what every built-in op in `teeny-kernels`
+produces. Every `CustomOp` in vision-rs passes the bare literal
+`"entry_point"`.
 
-The trait's own documentation says "conventionally `{name}_entry_point`". Every
-built-in op in `teeny-kernels` produces exactly that — `format!("{}_entry_point",
-name)`. Every `CustomOp` in vision-rs, including this one, passes the bare
-literal `"entry_point"`.
+**It does not matter, because the value is never read.** `LoadedModel` resolves
+kernels with `CudaProgram::<ErasedKernel>::try_from_ptx(&ptx)`, an overload that
+takes no entry-point argument — it parses the symbol out of the compiled PTX's
+`.visible .entry` directive instead. The only remaining consumer of the field
+anywhere in the workspace is a `println!` in a test.
 
-Meanwhile the PTX metadata parser extracts the real symbol from the compiled
-`.visible .entry` directive and falls back to `"entry_point"` when it cannot,
-and `CudaCompilerOptions` defaults the same field to `"entry_point"` too.
+So pass whatever you like and it will work. Pass
+`format!("{}_entry_point", name)` anyway: it matches what the macro actually
+emits, it matches `Kernel::entry_point_name()`, and it is what will still be
+right if the field is ever wired up.
 
-So either the declared string is authoritative and the vision-rs ops are wrong,
-or it is ignored in favour of the parsed symbol and the field is vestigial.
-Settling that needs a GPU, and this book has not had one.
-
-**What to do meanwhile:** follow the in-tree convention and pass
-`format!("{}_entry_point", name)`, which is what Chapter 8 showed the macro
-actually generating and what `Kernel::entry_point_name()` computes. If your op
-fails to resolve at load time, this is the first thing to try changing.
-
-It is item 1 in
-[`KNOWN-GAPS.md`](https://github.com/teenygrad/teenygrad/blob/main/books/kernels/KNOWN-GAPS.md),
-and the suggested fix is to delete the parameter and derive it from the name.
+This is worth knowing rather than just worth ignoring. A parameter that looks
+load-bearing and is not is a trap for the next person, which is why it stays in
+[`KNOWN-GAPS.md`](https://github.com/teenygrad/teenygrad/blob/main/books/kernels/KNOWN-GAPS.md)
+as item 1 with a suggested fix — delete it and derive it from the name.
 
 Next: making the op differentiable.

@@ -14,7 +14,7 @@ resolved · **limits** the chapter can be written, but narrower than intended ·
 
 ---
 
-## 1. `CustomOp::lower()`'s entry-point string is inconsistent — **blocks Ch 21**
+## 1. `CustomOp::lower()`'s entry-point string is dead — **RESOLVED, still worth fixing**
 
 **Where.** `core/teeny-core/src/graph/mod.rs:125` (the trait),
 `kernels/teeny-kernels/src/graph/mod.rs:2645` (the consumer),
@@ -34,17 +34,26 @@ Separately, `KernelMetadata` parses the real entry name out of the PTX's
 `CudaCompilerOptions` defaults an `entry_point` field to `"entry_point"` too
 (`drivers/teeny-cuda/src/compiler/options.rs:94`).
 
-So there are two plausible readings: either the declared string is authoritative
-and the `vision-rs` ops are wrong, or it is ignored in favour of the parsed PTX
-symbol and the field is vestigial.
+**Resolved: the value is never read.** Traced on a machine with a device.
+`LoadedModel` resolves kernels with
+`CudaProgram::<ErasedKernel>::try_from_ptx(&ptx)`
+(`drivers/teeny-cuda/src/model/mod.rs:288`), and *that* overload takes no
+entry-point argument at all — it calls `KernelMetadata::parse`, which reads the
+symbol out of the PTX's `.visible .entry` directive. The only remaining consumer
+of `CompiledNode.entry_point` anywhere in the workspace is a `println!` in
+`models/teeny-vision/tests/test_mnist_compile.rs`.
 
-**Why it blocks.** Chapter 21 tells a reader what to return from their own
-`lower()`. Getting this wrong produces a kernel that either fails to resolve at
-load time or silently resolves to the wrong function.
+So both spellings "work", because neither is used. There is a second
+`CudaProgram` in `drivers/teeny-cuda/src/program.rs` whose `try_from_ptx` *does*
+take the name, but the model path does not go through it.
 
-**Cannot be settled by reading.** No GPU was available; the question is what the
-loader does at runtime. Someone with a device should run a `vision-rs` YOLO
-inference and a `teeny-kernels` graph model and see which path resolves.
+A stale comment records the original intent, and is itself wrong:
+`drivers/teeny-cuda/src/compiler/mod.rs:133` says the entry point is "always
+`"entry_point"` (the name emitted by the `#[kernel]` proc macro)" — the macro
+emits `{name}_entry_point`, as the generated source in the kernel cache shows.
+
+**Still worth fixing**, because a parameter that looks load-bearing and is not
+will eventually be trusted by someone.
 
 **Suggested fix.** Drop the parameter and derive it. `Kernel::entry_point_name()`
 already computes `format!("{}_entry_point", name)` from the name, and `lower()`
@@ -189,7 +198,32 @@ not external ones. Re-add `[output.linkcheck]` once upstream catches up.
 
 ---
 
-## 8. No GPU was available — **limits Parts 3, 4 and 5**
+## 8. ~~No GPU was available~~ — **LARGELY CLOSED**
+
+**Closed.** The book was written without a device and later verified on an
+**RTX 5070 (sm_120), CUDA 13.3, driver 610.43.02**. On that machine:
+
+- The Chapter 5 example compiles and runs, producing exactly the output the
+  chapter had derived. Its transcript is now captured, not derived.
+- Chapter 8's generated entry point and Chapter 9's cache layout are taken from
+  the files that run left behind.
+- Chapter 18's table is real, and turned up a threshold worth re-examining.
+- All 180 CUDA tests in `teeny-kernels` pass.
+
+**Two things it exposed**, both recorded below and neither a book problem:
+
+1. Every one of the 228 MLIR/source snapshot tests fails on a second machine.
+   The `_mlir` ones embed rustc's crate disambiguator, which is environmental;
+   the `_source` ones predate the workspace-wide fmt/clippy commits. See item 10.
+2. No PTX-version workaround was needed on this Blackwell card, contrary to what
+   the bench's doc comment warns about. See item 11.
+
+**Still open:** everything in Part 4 beyond the conv bench. No block-size sweep,
+no layout comparison, and no numerics measurements have been run.
+
+---
+
+## 8b. The original gap, for reference — **limits Parts 3, 4 and 5**
 
 **What.** Every timing table, every "show the output" block, and every claim
 that an example *runs* is unverified.
@@ -227,3 +261,66 @@ reports that a benchmark cannot.
 
 What is still missing is a captured profile someone can walk through
 section by section, and any tooling that makes producing one routine.
+
+---
+
+## 10. MLIR snapshot tests are not portable between machines — **affects CI and contributors**
+
+**Where.** Every `*_mlir*.snap` under `kernels/teeny-kernels/tests/snapshots/`,
+and the equivalents in `teeny-triton`.
+
+**What.** The captured MLIR contains the mangled Rust symbol of the kernel
+function, which includes rustc's **crate disambiguator** — a hash of the crate's
+build environment, not of its source:
+
+```text
+-  tt.func private @_RINvCs94JuzPgfzVO_80softmax_forward_...
++  tt.func private @_RINvCs3Kr9epsN6Lv_80softmax_forward_...
+```
+
+Normalise that one token and the two are byte-identical. Check the tree out on a
+second machine and **all 119 `_mlir` snapshots fail**, with diffs that look
+alarming and mean nothing.
+
+Measured on an RTX 5070 box against snapshots committed elsewhere: 180/180 CUDA
+tests pass, 228/228 snapshot tests fail (119 `_mlir`, 109 `_source`).
+
+**The `_source` half is different and genuinely stale**: those capture
+`kernel.source()`, which changed under `d196463f3` (workspace-wide `cargo fmt`)
+and `47c0f9963` (clippy, which renamed unused parameters such as `B` to `_B`)
+without the snapshots being regenerated.
+
+**Suggested fix.** Two separate jobs:
+
+- For `_source`: run `cargo insta accept` and commit. They are simply out of
+  date.
+- For `_mlir`: add a redaction before asserting, so the disambiguator does not
+  participate in the comparison — `insta` supports filters, and
+  `Cs[A-Za-z0-9]+_` → `Cs<CRATE>_` is the whole rule.
+
+Until the second is done, a snapshot failure carries no information, and a
+contributor's first run of the suite looks like they broke 228 tests.
+
+---
+
+## 11. The PTX-version workaround may no longer be needed — **stale warning**
+
+**Where.** `kernels/teeny-kernels/benches/conv2d_bn_silu.rs`'s doc comment, and
+this book's Chapters 4 and 23, which repeat it.
+
+**What.** The bench warns that on Blackwell, `teenyc`'s default PTX version is
+rejected by the driver JIT:
+
+```text
+PTX .version 8.6 does not support .target sm_120a
+```
+
+with `TEENYC_PTX_VERSION=87` as the fix.
+
+On an RTX 5070 with CUDA 13.3 and driver 610.43.02, **no workaround was needed**
+— the example, the full test suite and the bench all ran without the variable
+set. Presumably a newer driver accepts the version.
+
+**Suggested fix.** Keep the note, since older drivers clearly need it, but date
+it and say which driver versions require it. The book already hedges with "on
+some Blackwell cards"; the bench's doc comment does not.

@@ -114,12 +114,19 @@ For `f32 × f32`, `T::dot` lets you choose what the hardware actually does:
 `TF32` keeps `f32`'s range and drops thirteen mantissa bits. For neural network
 training that is almost always fine, which is why it is the default.
 
-When it is not fine, say why. The fused conv kernel in this tree passes `IEEE`
-with a comment: it has to match cuDNN's `f32` accumulation. That is a real
-reason. "It felt safer" is not — it is a large, silent slowdown.
+> **`IEEE` turns off the Tensor Cores.** It is not a slightly slower, slightly
+> more accurate mode — Triton only routes a `dot` to the matrix hardware for the
+> reduced-precision modes, so `IEEE` falls back to software
+> fused-multiply-add. The fused conv kernel in this tree was written with
+> `IEEE` to match cuDNN's accumulation and silently lost its Tensor Cores;
+> it now uses `TF32`.
 
-`TF32x3` is the middle option, and is worth knowing about because most people do
-not know it exists.
+So "it felt safer" is an expensive instinct here. Choose `IEEE` when you need
+exact `f32` more than you need the hardware, knowing that is the trade.
+
+`TF32x3` is the middle option — three TF32 products recovering most of `f32`'s
+precision while staying on the Tensor Cores — and is worth knowing about because
+most people do not know it exists.
 
 ## Casting
 

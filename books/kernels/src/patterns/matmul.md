@@ -98,9 +98,25 @@ product to the existing accumulator in one operation instead of two.
 | `TF32x3` | Three TF32 products to recover most of `f32`'s precision |
 | `IEEE` | Full `f32`. Slowest, and exact |
 
-The fused conv kernel in this tree passes `IEEE` with a comment explaining why:
-it has to match cuDNN's `f32` accumulation, and TF32 would not. That is the
-right kind of reason. Absent one, `TF32` is what you want.
+Read that table again, because there is a trap in it. `IEEE` does not mean
+"Tensor Cores, but careful". It means **no Tensor Cores at all**: Triton's code
+generation only routes a `dot` to the MMA path for the reduced-precision modes,
+so `IEEE` silently drops you onto the software fused-multiply-add fallback.
+
+The fused conv kernel in this tree was written with `IEEE`, to match cuDNN's
+`f32` accumulation, and lost its Tensor Cores for it. It now passes `TF32`, with
+a comment naming the exact code path:
+
+```rust,ignore
+// TF32 precision is what actually routes this dot to the tensor-core MMA
+// path (see getMmaTypeDot in Triton's MMAv2.cpp) — IEEE forces the
+// software FMA fallback and silently disables tensor cores entirely.
+acc = T::dot::<f32, f32>(w_tile, x_tile, Some(acc), Some(InputPrecision::TF32), None);
+```
+
+`TF32` is the default and is what you want. Reach for `IEEE` only when you need
+exact `f32` more than you need the hardware — and know that you are giving up
+the hardware, not trading a little speed for a little accuracy.
 
 ## The real tiled loop
 

@@ -94,11 +94,17 @@ installed.
 cargo run -p teeny-triton --features cuda --example vector_add
 ```
 
-The program prints its own progress, after a few setup lines from
-`setup_cuda_env` naming your device:
+On an RTX 5070:
 
 ```text
-compiled vector_add → /tmp/teenyc_cache/vector_add__f32__128.ptx
+[1/9] CUDA available
+[2/9] found 1 device(s)
+[3/9] device: NVIDIA GeForce RTX 5070 (capability: sm_120)
+compiled vector_add → /tmp/teenyc_cache/vector_add_5f69418a643d1353dba2ce66de8ed3dc4e1644c0d9474da4517ed6e7d3f67ff9.o
+      loading PTX directly via driver JIT...
+[CUDA-JIT] info: ptxas warning : .loc directive without .file directive is found, line information in generated binary may not be complete
+
+[7/9] loaded PTX: module=0x60834a26a7e0 function=0x60834a958fd0 num_warps=4 num_ctas=1
 launching 8 programs of 128 threads
 out[0]   = 0
 out[1]   = 3
@@ -106,13 +112,15 @@ out[999] = 2997
 all 1000 elements match the CPU result
 ```
 
-`out[i]` is `3i`, because `a[i] + b[i]` is `i + 2i`. The cache path will differ
-on your machine, and so will the device name.
+`out[i]` is `3i`, because `a[i] + b[i]` is `i + 2i`. The numbered lines and the
+`ptxas` warning come from the setup helpers, not from this program.
 
-> The transcript above is derived from the program's own output statements and
-> its arithmetic, not captured from a run — this book does not yet have a
-> reference machine. See
-> [`KNOWN-GAPS.md`](https://github.com/teenygrad/teenygrad/blob/main/books/kernels/KNOWN-GAPS.md).
+Three things in that output are worth noticing now, and are explained later:
+
+- **`num_warps=4`.** 128 threads is four warps of 32. You did not choose that
+  number — it was read back out of the compiled PTX. Chapter 16.
+- **The cache filename is a hash**, not the readable kernel id. Chapter 8.
+- **The extension is `.o`, but the file is PTX text.** Chapter 9 opens it.
 
 ## What you just did
 

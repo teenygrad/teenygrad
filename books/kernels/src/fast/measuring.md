@@ -127,18 +127,43 @@ A measurement without its context is not reproducible. Record:
 - **The block sizes and tile shapes.**
 - **The date.** Driver and toolchain versions move.
 
-The format this book uses:
+## A worked result
 
-| Kernel | Shape | Block | Time | Card |
-|---|---|---|---|---|
-| *not yet measured* | | | | |
+The conv bench, run on an **RTX 5070 (sm_120), CUDA 13.3, driver 610.43.02**.
+Criterion means; the kernel the lowering actually picks for each shape is
+marked **✓**.
 
-> **No measurements in this book are real yet.** This book has had no reference
-> machine — every table like the one above is empty rather than filled with a
-> plausible number, and Chapter 5's transcript is derived from the program's own
-> arithmetic rather than captured from a run. When a machine exists, these
-> tables get filled in and named. See item 8 in
-> [`KNOWN-GAPS.md`](https://github.com/teenygrad/teenygrad/blob/main/books/kernels/KNOWN-GAPS.md).
+| Shape | scalar | tiled | gemm |
+|---|---|---|---|
+| 1×1, `c_out`=8, 32×32 | **11.8 µs ✓** | 13.3 µs | 12.7 µs |
+| 1×1, `c_out`=16, 32×32 | 16.7 µs | **13.2 µs ✓** | 12.4 µs |
+| 1×1, `c_out`=32, 40×40 | 42.4 µs | 14.5 µs | **12.8 µs ✓** |
+| 3×3, `c_out`=32, 40×40 | 871.4 µs | **92.0 µs ✓** | n/a |
+
+Read it as the bench's author intended — as a check on whether the dispatch
+thresholds from Chapter 12 still hold.
+
+**Three of the four are right.** At `c_out`=8 the scalar kernel wins and is
+chosen. At `c_out`=32 the GEMM kernel wins and is chosen, 3.3× faster than
+scalar. On the 3×3 convolution, where GEMM does not apply, tiled beats scalar by
+**9.5×** — the single biggest number here, and a good illustration of why the
+naive kernel from Chapter 11 is not the one you ship.
+
+**One is not.** At `c_out`=16 the lowering picks the tiled kernel at 13.2 µs,
+but the GEMM kernel does it in 12.4 µs — about 6% faster, with non-overlapping
+confidence intervals. The GEMM threshold is 32; on this card it could come down
+to 16.
+
+That is a real finding from one bench run, and it is worth being careful with
+it: 6% on one card at one shape is not enough to move a threshold that has to
+serve every card. What it justifies is measuring the same point on the other
+targets, which is exactly the argument a hand-picked constant needs to survive.
+
+## Recording a result
+
+The table above has everything a measurement needs: the card, the shapes, what
+was compared, and what was chosen. Add the date when you record one — driver
+and toolchain versions move, and these numbers came from a specific pairing.
 
 An invented number is worse than a blank one. A blank prompts someone to
 measure; an invented number gets quoted.
