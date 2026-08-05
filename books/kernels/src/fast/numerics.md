@@ -77,6 +77,39 @@ a value that fits in `f32` fits in `bf16` — you lose precision, not magnitude.
 `f16` has five exponent bits and overflows above about 65,504, which is why
 training in `f16` needs loss scaling and training in `bf16` mostly does not.
 
+## What `f64` actually costs
+
+`examples/numerics.rs` runs an elementwise add over 16M elements, once as `f32`
+and once as `f64`:
+
+```bash
+cargo run --release -p teeny-triton --features cuda --example numerics
+```
+
+On an **RTX 5070 (sm_120), CUDA 13.3, driver 610.43.02**:
+
+| dtype | time | bandwidth | moved |
+|---|---:|---:|---:|
+| `f32` | 339.5 µs | 593.1 GB/s | 201 MB |
+| `f64` | 676.7 µs | 595.0 GB/s | 403 MB |
+
+**`f64` costs 1.99× the time — and the same bandwidth.**
+
+That equality is the whole story. This kernel is memory-bound, so `f64` costs
+exactly what its extra bytes cost and not one thing more. Both runs saturate the
+card at ~594 GB/s, the same ceiling Chapters 16 and 17 hit with different
+kernels.
+
+Which means the folk wisdom "`f64` is catastrophically slow on a consumer GPU"
+is, for this kernel, wrong. It is catastrophically slow when *arithmetic* is the
+bottleneck — consumer cards run `f64` arithmetic at a small fraction of their
+`f32` rate — and this kernel barely does any. Move a byte, add once, move a
+byte.
+
+So the honest rule: **on a memory-bound kernel `f64` costs 2×; on a
+compute-bound one it costs far more.** Chapter 1's question — which kind is
+this? — decides which number applies.
+
 ## Accumulators
 
 Here is the rule that matters most:
@@ -100,6 +133,52 @@ bits, the same sequence stays accurate.
 
 The same applies to hand-written reductions. Summing a long `f16` row into an
 `f16` total loses precision that summing into `f32` does not.
+
+### Measured
+
+The same example sums 16M `f32` values four ways. The reference is the identical
+data summed in `f64`, so the only thing varying is how the sum is accumulated:
+
+| how | result | relative error |
+|---|---:|---:|
+| exact (`f64` reference) | 2181038.0593 | — |
+| GPU block reduction, `f64` accumulator | 2181037.9700 | **4.09e-8** |
+| GPU block reduction, `f32` accumulator | 2181055.7500 | 8.11e-6 |
+| sequential `f32` loop on the CPU | 2158069.0000 | **1.05e-2** |
+
+Read the last row first. **A plain `f32` loop is wrong in the fifth
+significant figure** — a 1% error, from nothing but adding numbers up in order.
+Once the running total reaches ~2 million, adding 0.1 to it barely moves it, and
+16 million such additions lose most of what they should have contributed.
+
+The GPU's block reduction is **over a thousand times more accurate** than that
+loop, and it is not because the GPU is careful. It is because a tree adds
+numbers of *similar magnitude* to each other: 16M values pair down through 24
+levels, and no partial sum ever dwarfs what is being added to it. The parallel
+algorithm is more accurate than the obvious sequential one, which is the
+opposite of what most people expect.
+
+Widening only the final accumulator — the host-side sum of the per-block
+partials — from `f32` to `f64` gains another **200×**. That is one cast, on
+16384 values, and it is free next to the kernel.
+
+So the practical shape of an accurate reduction is: reduce in blocks on the
+device, accumulate the partials in something wider. You get the tree for free
+and the wide accumulator for almost nothing.
+
+### And it is not reproducible
+
+The same data through the same kernel at two different block sizes:
+
+```text
+BLOCK=256   → 2181037.969997
+BLOCK=1024  → 2181037.969986
+```
+
+A different block size is a different tree shape, and floating-point addition is
+not associative, so the answers differ — here by 5.2e-12 relative. Tiny, real,
+and enough to break an exact-equality assertion. This is the concrete version of
+the warning below.
 
 ## `InputPrecision`
 
@@ -166,7 +245,8 @@ broken:
 
 **Floating-point addition is not associative.** A reduction combines in an
 unspecified order, so the last bits can differ between a GPU and a CPU
-reference, or between two block sizes.
+reference, or between two block sizes — measured above at 5.2e-12 relative for
+a block size change alone.
 
 **Atomics arrive in an unspecified order.** Chapter 14. So a backward pass using
 them is not bit-reproducible run to run.
@@ -180,18 +260,28 @@ digit is a bug.
 ## A checklist
 
 1. **Tightest bound that admits your operations.** `Float` if you use `exp`.
-2. **Accumulate in `f32`.** Always, whatever you multiply in.
-3. **Leave `InputPrecision` at `TF32`** unless you can say why not.
-4. **`Rtne` when narrowing**, not `Rtz`.
-5. **Subtract the max before exponentiating.**
-6. **Compare with a tolerance** in tests, and know which tolerance and why.
-7. **Half precision is not available yet.** Design for it; do not depend on it.
+2. **Accumulate wider than you store.** `f32` for `f16` inputs; `f64` for the
+   host-side sum of `f32` partials, which costs nothing and bought 200× above.
+3. **Reduce in a tree, not a loop.** You get this for free from `T::sum`, and it
+   was 1000× more accurate than the sequential version.
+4. **Leave `InputPrecision` at `TF32`** unless you can say why not — `IEEE`
+   turns the Tensor Cores off.
+5. **`Rtne` when narrowing**, not `Rtz`.
+6. **Subtract the max before exponentiating.**
+7. **Compare with a tolerance** in tests, and know which tolerance and why.
+8. **`f64` costs 2× on a memory-bound kernel** and far more on a compute-bound
+   one. Know which you have before ruling it out.
+9. **Half precision is not available yet.** Design for it; do not depend on it.
 
 ## End of Part 4
 
 You can choose a block size, reason about layout, measure honestly, and pick
 dtypes deliberately.
 
-The measurements are the part this book cannot give you. Everything here tells
-you what to measure and how to avoid measuring the wrong thing — the numbers
-have to come from your card.
+Every number in this part was measured on one card, an RTX 5070, and each
+chapter names it. Three independent kernels — the block-size sweep, the
+coalescing comparison, and the `f32`/`f64` add — all plateau within 1% of
+594 GB/s, which is the most useful single fact in these four chapters: it is
+this card's ceiling, and it is what a new kernel should be judged against.
+
+Your card's number will differ. The method will not.

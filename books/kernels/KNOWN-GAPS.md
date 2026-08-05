@@ -227,9 +227,18 @@ independent, with the driver hard-erroring on a mismatch. See item 10 of
 against 251 GB/s strided for identical bytes. It also cross-checks Chapter 16:
 two unrelated memory-bound kernels both plateau near 600 GB/s on this card.
 
-**Still open:** the numerics measurements for Chapter 19. `f32` against `f64`
-throughput, and a precision-loss demonstration — the latter needs no timing at
-all, so it is not blocked on anything.
+**Chapter 19 measured, closing Part 4.** `f64` costs 1.99x on a memory-bound
+kernel at identical bandwidth; a block-size change shifts a reduction by 5.2e-12
+relative; and a sequential `f32` sum is 1000x less accurate than the GPU's tree.
+
+**Part 4 is now fully measured**, all on the same card. Three independent
+kernels plateau within 1% of 594 GB/s, which is this card's ceiling and the
+number a new kernel should be judged against.
+
+**What is still unmeasured, and why:** half precision. `f16`/`bf16` remain
+unmonomorphizable (item 4), so the most valuable numerics comparison — mixed
+precision against `f32` — cannot be written at all. That is the one remaining
+hole in Part 4, and it is blocked on the SDK, not on hardware.
 
 ---
 
