@@ -15,11 +15,23 @@ determines the shape of every tensor inside the body.
 **The launch block** — `CudaLaunchConfig::block` — is how many *threads* the
 hardware gives that program.
 
-For an elementwise kernel these coincide. `vector_add` with `BLOCK_SIZE = 128`
-is launched with 128 threads, one per element, and that is the natural reading.
+**They are never the same thing, and you only choose one of them.** `teenyc`
+decides the thread count and records it in the PTX as a `.reqntid` directive.
+The driver enforces it: launch with any other block dimension and you get
 
-For a tiled kernel they do not. `conv2d_bn_silu` has `BLOCK_OW = 16` — sixteen
-output columns per tile — and its bench launches 128 threads:
+```text
+Error: CUDA error: 1 (invalid argument)
+```
+
+That is not a warning or a slowdown. It is a hard failure, and it is what you
+hit the first time you assume `BLOCK_SIZE` is a thread count.
+
+The sweep below makes it plain — six different `BLOCK_SIZE` values, and the
+compiler picks 128 threads for every one of them.
+
+For a tiled kernel the two are visibly different. `conv2d_bn_silu` has
+`BLOCK_OW = 16` — sixteen output columns per tile — and its bench launches 128
+threads:
 
 ```rust,ignore
 let cfg = CudaLaunchConfig {
@@ -51,12 +63,25 @@ in `teeny_cuda::testing` build a config for you:
 
 | Helper | Use |
 |---|---|
-| `launch_config(n_elements, block_size)` | Explicit block size, grid from the element count |
-| `launch_config_from_program(n, &program)` | Block size read from the compiled PTX |
-| `launch_config_with_grid(grid_x, &program)` | Grid you computed, block from PTX |
+| `launch_config_with_grid(grid_x, &program)` | **The safe one.** Grid you computed, threads from the PTX |
+| `launch_config_from_program(n, &program)` | Threads from the PTX, grid from the element count — correct only when one program handles exactly one thread's worth of data |
+| `launch_config(n_elements, block_size)` | Both from you. Fails unless `block_size` happens to equal what the compiler chose |
 
-The second is worth understanding. `teenyc` records the thread count it wants in
-the PTX, as a `.reqntid` directive, and the loader parses it back out:
+Prefer the first. You know how much data one program covers — that is your
+`BLOCK_SIZE` — so compute the grid from it and let the metadata supply the
+threads:
+
+```rust,ignore
+let grid = N.div_ceil(BLOCK_SIZE as usize);
+let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &program);
+```
+
+`launch_config` is a trap in waiting. It works whenever your `BLOCK_SIZE`
+coincides with the compiler's thread count, which for a simple elementwise
+kernel at 128 it usually does — and then silently stops working when you change
+the constant.
+
+The loader parses the thread count out of `.reqntid` like this:
 
 ```rust,ignore
 let threads = program.metadata.threads_per_block().max(1);
@@ -156,6 +181,50 @@ rules out the most embarrassing cause.
 `Options` and is deliberately not read from the local device, because
 ahead-of-time compilation routinely targets a card that is not the one doing the
 compiling — Chapter 23.
+
+## A measured sweep
+
+`examples/block_size.rs` compiles the vector-add kernel once per block size and
+times each on 32M elements — three 128 MB buffers, far past any cache, so this
+is memory and nothing else.
+
+```bash
+cargo run --release -p teeny-triton --features cuda --example block_size
+```
+
+On an **RTX 5070 (sm_120), CUDA 13.3, driver 610.43.02**:
+
+| `BLOCK_SIZE` | threads | time | bandwidth | grid |
+|---:|---:|---:|---:|---:|
+| 32 | 128 | 1089.0 µs | 369.8 GB/s | 1048576 |
+| 64 | 128 | 707.9 µs | 568.8 GB/s | 524288 |
+| 128 | 128 | 676.6 µs | 595.1 GB/s | 262144 |
+| 256 | 128 | 675.1 µs | **596.5 GB/s** | 131072 |
+| 512 | 128 | 677.0 µs | 594.8 GB/s | 65536 |
+| 1024 | 128 | 681.7 µs | 590.6 GB/s | 32768 |
+
+Three things to read off it.
+
+**The threads column never moves.** Six compilations, 128 threads every time.
+This is the distinction at the top of the chapter, measured.
+
+**32 is genuinely bad, and for a specific reason.** Each program has 128 threads
+but only 32 elements to work on, so three quarters of every program's threads
+have nothing to do. The bandwidth loss — 370 against 596 GB/s, a 38% drop — is
+almost exactly that idle fraction.
+
+**Everything from 128 up is the same.** 595, 596, 595, 591 GB/s: a 1% spread,
+which is noise. Once each program has enough work to occupy its threads, this
+kernel is limited by memory and nothing you do to the block size will change
+that.
+
+That flat plateau is the useful result. It says *stop tuning* — the kernel is at
+the card's practical limit for this access pattern, and effort is better spent
+somewhere else. Compare the plateau against your card's datasheet bandwidth; if
+you are near it, you are done.
+
+A sweep that looks like this is the common case for a simple memory-bound
+kernel. Sweeps that do *not* plateau are the interesting ones.
 
 ## A procedure
 

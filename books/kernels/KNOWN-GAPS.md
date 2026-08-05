@@ -218,8 +218,13 @@ not external ones. Re-add `[output.linkcheck]` once upstream catches up.
 2. No PTX-version workaround was needed on this Blackwell card, contrary to what
    the bench's doc comment warns about. See item 11.
 
-**Still open:** everything in Part 4 beyond the conv bench. No block-size sweep,
-no layout comparison, and no numerics measurements have been run.
+**Block-size sweep done too**, on the same machine — Chapter 16 now has a real
+table, and writing it exposed that `BLOCK_SIZE` and the launch thread count are
+independent, with the driver hard-erroring on a mismatch. See item 10 of
+`API-FRICTION.md`.
+
+**Still open:** the layout/coalescing comparison for Chapter 17, and the
+numerics measurements for Chapter 19.
 
 ---
 

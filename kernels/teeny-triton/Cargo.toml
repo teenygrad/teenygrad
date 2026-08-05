@@ -54,3 +54,7 @@ cargo_metadata.workspace = true
 [[example]]
 name = "vector_add"
 required-features = ["cuda"]
+
+[[example]]
+name = "block_size"
+required-features = ["cuda"]

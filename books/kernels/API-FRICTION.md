@@ -178,3 +178,34 @@ changes depending on feature flags, which the book has to explain twice.
 
 **Suggested fix.** Nothing structural, but a `RuntimeOp` doc example showing the
 minimal impl would save Chapter 21 a page.
+
+## 10. `launch_config` invites a launch that cannot work
+
+`teeny_cuda::testing` offers three ways to build a launch configuration, and the
+most obvious-looking one is the one that fails:
+
+```rust,ignore
+let cfg = launch_config(n_elements, block_size);      // both from you
+let cfg = launch_config_from_program(n, &program);    // threads from PTX
+let cfg = launch_config_with_grid(grid_x, &program);  // grid from you, threads from PTX
+```
+
+Only the third is generally correct. `teenyc` chooses the thread count and
+records it in the PTX as `.reqntid`; the driver rejects any other block
+dimension with a bare `CUDA error: 1 (invalid argument)` that names nothing.
+
+The trap is that `launch_config` *works* whenever your `BLOCK_SIZE` happens to
+equal the compiler's choice — 128 for a simple elementwise kernel, which is the
+first thing anybody writes. It then breaks the moment the constant changes. The
+book's own vector-add example was written this way and was correct only by
+coincidence until a block-size sweep exposed it.
+
+**Suggested fix.** Have `launch_config` validate against
+`program.metadata.threads_per_block()` and return a real error naming both
+numbers, or drop it in favour of the two program-aware forms. A helper whose
+correctness depends on a coincidence is worse than no helper.
+
+While there: `KernelMetadata` is `pub(crate)`, so a caller cannot ask what thread
+count the compiler picked except by going through these helpers. Exposing
+`threads_per_block()` on `CudaProgram` would make the constraint discoverable
+instead of folklore.

@@ -134,9 +134,14 @@ fn main() -> Result<()> {
     let program = teeny_cuda::testing::load_program_from_ptx::<VectorAdd<f32>>(&ptx)?;
 
     // One program per BLOCK_SIZE-wide slice, rounding up so the ragged tail
-    // still gets one.
-    let cfg = teeny_cuda::testing::launch_config(N, BLOCK_SIZE);
-    println!("launching {} programs of {BLOCK_SIZE} threads", cfg.grid[0]);
+    // still gets one. The threads-per-program is not ours to pick: teenyc
+    // records it in the PTX, and the driver rejects any other block dimension.
+    let grid = N.div_ceil(BLOCK_SIZE as usize);
+    let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &program);
+    println!(
+        "launching {} programs of {} threads",
+        cfg.grid[0], cfg.block[0]
+    );
 
     device.launch(
         &program,

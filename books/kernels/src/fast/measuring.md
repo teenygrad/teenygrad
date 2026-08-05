@@ -12,9 +12,18 @@ that is wrong by an order of magnitude.
 `teenyc` and caches the result. Time that call and you have measured the
 compiler. Compile outside the timing loop, always.
 
-**Launches are asynchronous.** Handing a kernel to the driver returns before it
-has run. A timing loop that launches and stops the clock has measured the cost
-of asking, not of doing. You must synchronise before reading the clock.
+**Launches are asynchronous — but this API already handles it.** `cuLaunchKernel`
+returns before the kernel has run, so in CUDA generally a timing loop that
+launches and stops the clock measures the cost of asking, not of doing.
+
+`Device::launch` calls `cuCtxSynchronize` immediately after launching, in both
+its typed and arg-packed paths. Its comment says why, and it is not about
+timing: synchronising there makes a GPU-side fault surface as a CUDA error code
+rather than as a SIGSEGV somewhere later.
+
+So a loop around `device.launch` measures real kernel time, and you do not need
+your own barrier. Worth knowing in both directions — it also means you cannot
+overlap launches or hide latency behind the host, because every launch waits.
 
 **The first run is never representative.** Caches are cold, clocks have not
 boosted, memory is not resident. Warm up.
