@@ -122,6 +122,7 @@ macro_rules! impl_reduce_float_runtime_op {
 // ── ReduceSum ─────────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = sum(x[row, :])
+// ANCHOR: reduce_sum_forward
 #[kernel]
 pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     x_ptr: T::Pointer<D>,
@@ -154,6 +155,8 @@ pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     let row_offsets = T::arange(0, 1) + row;
     T::store(y_ptr.add_offsets(row_offsets), sum, None, &[], None, None);
 }
+
+// ANCHOR_END: reduce_sum_forward
 
 impl_reduce_num_runtime_op!(ReduceSumForward);
 
