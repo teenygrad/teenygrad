@@ -211,7 +211,7 @@ impl Triton for LlvmTriton {
         _a: Self::Tensor<D>,
         _b: Self::Tensor<D>,
         _acc: Option<Self::Tensor<O>>,
-        _input_precision: Option<InputPrecision>,
+        _input_precision: InputPrecision,
         _max_num_imprecise_acc: Option<i32>,
     ) -> Self::Tensor<O> {
         tensor::LlvmTensor(0 as *mut O)

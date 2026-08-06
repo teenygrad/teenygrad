@@ -36,6 +36,16 @@ const GROUP_M: i32 = 8;
 /// Must match `.reqntid` in the generated PTX.
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
+// TF32 tensor-core precision, not full f32: error scales with the magnitude
+// of the accumulated sum (K=64 here), so atol + rtol * |expected| is used
+// instead of a flat absolute tolerance.
+const ATOL: f32 = 1e-1;
+const RTOL: f32 = 2e-2;
+
+fn tf32_close(actual: f32, expected: f32) -> bool {
+    (actual - expected).abs() < ATOL + RTOL * expected.abs()
+}
+
 fn load_fixture(rel: &str) -> Vec<f32> {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
@@ -214,7 +224,7 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
 
     for i in 0..(M * N) {
         assert!(
-            (output_host[i] - expected[i]).abs() < 5e-3,
+            tf32_close(output_host[i], expected[i]),
             "linear (no bias) mismatch at index {i}: gpu={}, expected={}",
             output_host[i],
             expected[i]
@@ -297,7 +307,7 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
 
     for i in 0..(M * N) {
         assert!(
-            (output_host[i] - expected[i]).abs() < 5e-3,
+            tf32_close(output_host[i], expected[i]),
             "linear (with bias) mismatch at index {i}: gpu={}, expected={}",
             output_host[i],
             expected[i]
@@ -404,7 +414,7 @@ fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
 
     for i in 0..(M * N) {
         assert!(
-            (output_host[i] - expected[i]).abs() < 5e-3,
+            tf32_close(output_host[i], expected[i]),
             "linear (inline data) mismatch at index {i}: gpu={}, expected={}",
             output_host[i],
             expected[i]
@@ -491,7 +501,7 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
 
     for i in 0..(M * K) {
         assert!(
-            (dx_host[i] - expected_dx[i]).abs() < 5e-3,
+            tf32_close(dx_host[i], expected_dx[i]),
             "linear_backward (dx, no bias) mismatch at index {i}: gpu={}, expected={}",
             dx_host[i],
             expected_dx[i]
@@ -500,7 +510,7 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
 
     for i in 0..(N * K) {
         assert!(
-            (dw_host[i] - expected_dw[i]).abs() < 5e-3,
+            tf32_close(dw_host[i], expected_dw[i]),
             "linear_backward (dw, no bias) mismatch at index {i}: gpu={}, expected={}",
             dw_host[i],
             expected_dw[i]
@@ -590,7 +600,7 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
 
     for i in 0..(M * K) {
         assert!(
-            (dx_host[i] - expected_dx[i]).abs() < 5e-3,
+            tf32_close(dx_host[i], expected_dx[i]),
             "linear_backward (dx, with bias) mismatch at index {i}: gpu={}, expected={}",
             dx_host[i],
             expected_dx[i]
@@ -599,7 +609,7 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
 
     for i in 0..(N * K) {
         assert!(
-            (dw_host[i] - expected_dw[i]).abs() < 5e-3,
+            tf32_close(dw_host[i], expected_dw[i]),
             "linear_backward (dw, with bias) mismatch at index {i}: gpu={}, expected={}",
             dw_host[i],
             expected_dw[i]
@@ -608,7 +618,7 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
 
     for i in 0..N {
         assert!(
-            (db_host[i] - expected_db[i]).abs() < 5e-3,
+            tf32_close(db_host[i], expected_db[i]),
             "linear_backward (db) mismatch at index {i}: gpu={}, expected={}",
             db_host[i],
             expected_db[i]

@@ -88,9 +88,9 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let il = T::interleave(jn, jn);
     let (sp0, sp1) = T::split(il);
 
-    let dot = T::dot::<D, D>(sp0, sp1, None, Some(InputPrecision::TF32), Some(1));
-    let _dot_tf32x3 = T::dot::<D, D>(dot, dot, None, Some(InputPrecision::TF32x3), None);
-    let _dot_ieee = T::dot::<D, D>(dot, dot, None, Some(InputPrecision::IEEE), None);
+    let dot = T::dot::<D, D>(sp0, sp1, None, InputPrecision::TF32, Some(1));
+    let _dot_tf32x3 = T::dot::<D, D>(dot, dot, None, InputPrecision::TF32x3, None);
+    let _dot_ieee = T::dot::<D, D>(dot, dot, None, InputPrecision::IEEE, None);
     let scale = zl;
     let _dot_scaled = T::dot_scaled::<D, D, D>(
         dot,

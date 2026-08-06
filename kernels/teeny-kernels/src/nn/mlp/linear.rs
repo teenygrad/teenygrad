@@ -16,7 +16,7 @@
 
 use teeny_core::dtype::{AddOffsets, Comparison, Num, Tensor};
 use teeny_macros::kernel;
-use teeny_triton::triton::{Axis, PaddingOption, Triton};
+use teeny_triton::triton::{Axis, InputPrecision, PaddingOption, Triton};
 
 #[kernel]
 pub fn linear_forward<
@@ -83,7 +83,7 @@ pub fn linear_forward<
         let x = T::load_tensor_descriptor(x_desc, &[pid_m * BLOCK_M, k * BLOCK_K]);
         let w = T::load_tensor_descriptor(w_desc, &[pid_n * BLOCK_N, k * BLOCK_K]);
         let w_t = T::trans(w, &[1, 0]);
-        acc = T::dot::<D, D>(x, w_t, Some(acc), None, None);
+        acc = T::dot::<D, D>(x, w_t, Some(acc), InputPrecision::TF32, None);
     }
 
     if USE_BIAS {
@@ -205,7 +205,7 @@ pub fn linear_backward<
         for n in 0..n_tiles {
             let dy = T::load_tensor_descriptor(dy_desc, &[pid_m * BLOCK_M, n * BLOCK_N]);
             let w = T::load_tensor_descriptor(w_desc, &[n * BLOCK_N, pid_k * BLOCK_K]);
-            acc_dx = T::dot::<D, D>(dy, w, Some(acc_dx), None, None);
+            acc_dx = T::dot::<D, D>(dy, w, Some(acc_dx), InputPrecision::TF32, None);
         }
         T::store_tensor_descriptor(dx_desc, &[pid_m * BLOCK_M, pid_k * BLOCK_K], acc_dx);
     }
@@ -228,7 +228,7 @@ pub fn linear_backward<
             let dy = T::load_tensor_descriptor(dy_desc, &[m * BLOCK_M, pid_n * BLOCK_N]);
             let x = T::load_tensor_descriptor(x_desc, &[m * BLOCK_M, pid_k * BLOCK_K]);
             let dy_t = T::trans(dy, &[1, 0]);
-            acc_dw = T::dot::<D, D>(dy_t, x, Some(acc_dw), None, None);
+            acc_dw = T::dot::<D, D>(dy_t, x, Some(acc_dw), InputPrecision::TF32, None);
         }
         T::store_tensor_descriptor(dw_desc, &[pid_n * BLOCK_N, pid_k * BLOCK_K], acc_dw);
 

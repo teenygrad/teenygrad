@@ -267,13 +267,16 @@ where
     /// Matrix (or batched matrix) multiply.
     ///
     /// - `acc`: optional accumulator tensor added to the result.
-    /// - `input_precision`: Tensor Core precision for `f32 × f32` (default `None` = TF32 on capable hardware).
+    /// - `input_precision`: Tensor Core precision for `f32 × f32`. No default — every call site must
+    ///   pick one explicitly. `IEEE` matches `tt.dot`'s own default (full-precision, no tensor cores);
+    ///   `TF32` routes through tensor cores at reduced mantissa precision. A silent default here is
+    ///   exactly what caused kernels to unknowingly run at `IEEE` instead of the intended `TF32`.
     /// - `max_num_imprecise_acc`: limit on imprecise accumulations (default `None`).
     fn dot<D: ty::Num, O: ty::Num>(
         a: Self::Tensor<D>,
         b: Self::Tensor<D>,
         acc: Option<Self::Tensor<O>>,
-        input_precision: Option<InputPrecision>,
+        input_precision: InputPrecision,
         max_num_imprecise_acc: Option<i32>,
     ) -> Self::Tensor<O>;
 

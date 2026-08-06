@@ -34,7 +34,7 @@ Tensor < T :: Pointer < f32 > > > ,
         [b * C_IN + k * BLOCK_K, pid_m * BLOCK_M]); let w_tile = T ::
         load_tensor_descriptor(w_desc, & [pid_n * BLOCK_N, k * BLOCK_K]); acc
         = T :: dot :: < f32, f32 >
-        (w_tile, x_tile, Some(acc), Some(InputPrecision :: TF32), None);
+        (w_tile, x_tile, Some(acc), InputPrecision :: TF32, None);
     } let bn_off = T :: arange(0, BLOCK_N) + pid_n * BLOCK_N; let bn_n_mask =
     bn_off.lt(C_OUT); let bn_scale = T ::
     load(bn_scale_ptr.add_offsets(bn_off), Some(bn_n_mask),

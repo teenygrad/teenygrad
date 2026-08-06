@@ -134,7 +134,7 @@ pub fn conv2d_bn_silu_gemm_forward<
         // TF32 precision is what actually routes this dot to the tensor-core MMA
         // path (see getMmaTypeDot in Triton's MMAv2.cpp) — IEEE forces the
         // software FMA fallback and silently disables tensor cores entirely.
-        acc = T::dot::<f32, f32>(w_tile, x_tile, Some(acc), Some(InputPrecision::TF32), None);
+        acc = T::dot::<f32, f32>(w_tile, x_tile, Some(acc), InputPrecision::TF32, None);
     }
 
     // ── BatchNorm epilog ──────────────────────────────────────────────────────

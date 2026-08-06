@@ -133,7 +133,10 @@ pub fn muon_ns_xtx<
         let a = T::load_tensor_descriptor(a_desc, &[pid_rm * BLOCK_R, k * BLOCK_K]);
         let b = T::load_tensor_descriptor(b_desc, &[pid_rn * BLOCK_R, k * BLOCK_K]);
         let b_t = T::trans(b, &[1, 0]);
-        acc = T::dot::<f32, f32>(a, b_t, Some(acc), None, None);
+        // IEEE, not TF32: this is Newton-Schulz orthogonalization, an iterative
+        // process where TF32's reduced mantissa would compound error across
+        // iterations. Explicit rather than relying on a default.
+        acc = T::dot::<f32, f32>(a, b_t, Some(acc), InputPrecision::IEEE, None);
     }
 
     // Output T: [R × R], row-major
@@ -242,7 +245,9 @@ pub fn muon_ns_step<
     for k in 0..k_tiles {
         let av = T::load_tensor_descriptor(a_desc, &[pid_m * BLOCK_M, k * BLOCK_K]);
         let bv = T::load_tensor_descriptor(b_desc, &[k * BLOCK_K, pid_n * BLOCK_N]);
-        acc = T::dot::<f32, f32>(av, bv, Some(acc), None, None);
+        // IEEE, not TF32: see the note on the other dot in this file — Newton-Schulz
+        // iteration accuracy depends on it.
+        acc = T::dot::<f32, f32>(av, bv, Some(acc), InputPrecision::IEEE, None);
     }
 
     // Fused elementwise: X_new = a * X_tile + b * GEMM_result

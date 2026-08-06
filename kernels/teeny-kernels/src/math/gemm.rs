@@ -92,7 +92,7 @@ pub fn matmul_forward<
     for k in 0..k_tiles {
         let a = T::load_tensor_descriptor(a_desc, &[pid_m * BLOCK_M, k * BLOCK_K]);
         let b = T::load_tensor_descriptor(b_desc, &[k * BLOCK_K, pid_n * BLOCK_N]);
-        acc = T::dot::<D, D>(a, b, Some(acc), None, None);
+        acc = T::dot::<D, D>(a, b, Some(acc), InputPrecision::TF32, None);
     }
 
     let c_desc = T::make_tensor_descriptor(
@@ -152,7 +152,7 @@ pub fn matmul_backward_da<
         let dc = T::load_tensor_descriptor(dc_desc, &[pid_m * BLOCK_M, n * BLOCK_N]);
         let b = T::load_tensor_descriptor(b_desc, &[pid_k * BLOCK_K, n * BLOCK_N]);
         let b_t = T::trans(b, &[1, 0]);
-        acc = T::dot::<D, D>(dc, b_t, Some(acc), None, None);
+        acc = T::dot::<D, D>(dc, b_t, Some(acc), InputPrecision::TF32, None);
     }
 
     let da_desc = T::make_tensor_descriptor(
@@ -211,7 +211,7 @@ pub fn matmul_backward_db<
         let dc = T::load_tensor_descriptor(dc_desc, &[m * BLOCK_M, pid_n * BLOCK_N]);
         let a = T::load_tensor_descriptor(a_desc, &[m * BLOCK_M, pid_k * BLOCK_K]);
         let a_t = T::trans(a, &[1, 0]);
-        acc = T::dot::<D, D>(a_t, dc, Some(acc), None, None);
+        acc = T::dot::<D, D>(a_t, dc, Some(acc), InputPrecision::TF32, None);
     }
 
     let db_desc = T::make_tensor_descriptor(

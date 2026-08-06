@@ -34,7 +34,17 @@ const BLOCK_M: i32 = 32;
 const BLOCK_N: i32 = 32;
 const BLOCK_K: i32 = 32;
 const GROUP_M: i32 = 8;
-const TOL: f32 = 1e-3;
+// TF32 tensor-core precision, not full f32: error scales with the magnitude
+// of the accumulated sum (K=64 here), so a flat absolute tolerance like
+// test_conv2d_bn_silu_gemm.rs's 1e-2 isn't quite enough once values grow
+// past ~10. atol + rtol * |expected| scales with it instead.
+const ATOL: f32 = 1e-2;
+const RTOL: f32 = 1e-3;
+
+#[cfg(feature = "cuda")]
+fn tf32_close(actual: f32, expected: f32) -> bool {
+    (actual - expected).abs() < ATOL + RTOL * expected.abs()
+}
 
 /// Must match `.reqntid` in the generated PTX (see linear_forward/backward).
 #[cfg(feature = "cuda")]
@@ -145,7 +155,7 @@ fn test_matmul_forward_gpu() -> Result<()> {
     c_buf.to_host(&mut c_out)?;
     for i in 0..m * n {
         assert!(
-            (c_out[i] - expected[i]).abs() < TOL,
+            tf32_close(c_out[i], expected[i]),
             "matmul fwd mismatch at i={i}: gpu={} expected={}",
             c_out[i],
             expected[i]
@@ -264,7 +274,7 @@ fn test_matmul_forward_logs_pipeline_stages() -> Result<()> {
 
     for i in 0..m * n {
         assert!(
-            (c_out[i] - expected[i]).abs() < TOL,
+            tf32_close(c_out[i], expected[i]),
             "matmul (inline data) mismatch at index {i}: gpu={}, expected={}",
             c_out[i],
             expected[i]
@@ -339,7 +349,7 @@ fn test_matmul_backward_da_gpu() -> Result<()> {
     da_buf.to_host(&mut da_out)?;
     for i in 0..m * k {
         assert!(
-            (da_out[i] - expected_da[i]).abs() < TOL,
+            tf32_close(da_out[i], expected_da[i]),
             "matmul bwd_da mismatch at i={i}: gpu={} expected={}",
             da_out[i],
             expected_da[i]
@@ -413,7 +423,7 @@ fn test_matmul_backward_db_gpu() -> Result<()> {
     db_buf.to_host(&mut db_out)?;
     for i in 0..k * n {
         assert!(
-            (db_out[i] - expected_db[i]).abs() < TOL,
+            tf32_close(db_out[i], expected_db[i]),
             "matmul bwd_db mismatch at i={i}: gpu={} expected={}",
             db_out[i],
             expected_db[i]
