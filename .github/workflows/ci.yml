@@ -49,6 +49,17 @@ jobs:
             cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2 cuda-profiler-api-13-2
           echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
 
+      # test_compile (compiler/teeny-compiler) shells out to the teenyc compiler
+      # (rustc's `-Zcodegen-backend=mlir`) to actually compile a kernel to PTX —
+      # it's a pure codegen test, no live GPU needed (see find_teenyc() /
+      # compile_kernel). cargo-teeny downloads a prebuilt teenyc release from
+      # the spinorml CDN and links it as a named rustup toolchain (see
+      # https://github.com/spinorml/cargo-teeny) — no from-source rustc build.
+      - name: Install teenyc toolchain
+        run: |
+          cargo install cargo-teeny
+          cargo teeny install-toolchain
+
       - name: Build
         run: cargo build --workspace --exclude teeny-torch
 
