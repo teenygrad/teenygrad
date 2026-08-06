@@ -7,15 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1](https://github.com/teenygrad/teenygrad/compare/teeny-quant-v0.1.0...teeny-quant-v0.1.1) - 2026-08-03
+## [0.1.1](https://github.com/teenygrad/teenygrad/compare/teeny-core-v0.1.0...teeny-core-v0.1.1) - 2026-08-03
 
 ### Other
 
 - merge release/0.1.1 into main
 - release v0.1.0 ([#10](https://github.com/teenygrad/teenygrad/pull/10))
-
-## [0.1.0](https://github.com/teenygrad/teenygrad/releases/tag/teeny-quant-v0.1.0) - 2026-08-02
-
-### Added
-
-- *(utilities)* add teeny-quant model quantization crate
