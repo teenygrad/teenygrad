@@ -36,9 +36,12 @@ pub struct InspectArgs {
 pub fn run(args: InspectArgs) -> Result<()> {
     let mapped = teeny_data::safetensors::SafeTensors::from_pretrained(&args.path)
         .with_context(|| format!("failed to open '{}'", args.path.display()))?;
-    let tensors = mapped
-        .tensors()
-        .with_context(|| format!("failed to read tensor headers from '{}'", args.path.display()))?;
+    let tensors = mapped.tensors().with_context(|| {
+        format!(
+            "failed to read tensor headers from '{}'",
+            args.path.display()
+        )
+    })?;
 
     let mut names = tensors.names();
     names.sort();
@@ -67,7 +70,10 @@ pub fn run(args: InspectArgs) -> Result<()> {
 
     let metadata = read_metadata(&args.path)?;
     if let Some(config) = format::config_from_metadata(&metadata)? {
-        println!("\nquantization_config:\n{}", serde_json::to_string_pretty(&config)?);
+        println!(
+            "\nquantization_config:\n{}",
+            serde_json::to_string_pretty(&config)?
+        );
     }
 
     Ok(())

@@ -163,7 +163,10 @@ fn int8_asymmetric_per_tensor_round_trips() {
 fn int4_group_round_trips_with_looser_tolerance() {
     assert_round_trips(
         Scheme::Int4 { symmetric: true },
-        Granularity::Group { axis: 1, group_size: 4 },
+        Granularity::Group {
+            axis: 1,
+            group_size: 4,
+        },
         0.5,
     );
 }
@@ -213,7 +216,8 @@ fn validate_checkpoint_decodes_fp8_e5m2_correctly() {
     );
     std::fs::write(&quantized_path, quantized_bytes).unwrap();
 
-    let reports = teeny_quant::validate::validate_checkpoint(&original_path, &quantized_path).unwrap();
+    let reports =
+        teeny_quant::validate::validate_checkpoint(&original_path, &quantized_path).unwrap();
     let weight_report = reports.iter().find(|r| r.name == "weight").unwrap();
     // A correctly-decoded E5M2 tensor should land well above 10dB SQNR for this data; the
     // pre-fix bug (decoding as E4M3) produced ~0dB.

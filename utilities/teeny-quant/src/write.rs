@@ -42,7 +42,10 @@ pub struct OutputTensor {
 fn build_views(tensors: &HashMap<String, OutputTensor>) -> Result<HashMap<String, TensorView<'_>>> {
     let mut views = HashMap::with_capacity(tensors.len());
     for (name, t) in tensors {
-        views.insert(name.clone(), TensorView::new(t.dtype, t.shape.clone(), &t.data)?);
+        views.insert(
+            name.clone(),
+            TensorView::new(t.dtype, t.shape.clone(), &t.data)?,
+        );
     }
     Ok(views)
 }

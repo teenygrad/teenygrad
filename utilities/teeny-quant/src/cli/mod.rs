@@ -24,7 +24,10 @@ use clap::{Parser, Subcommand};
 
 /// Quantize `.safetensors` model checkpoints for deployment.
 #[derive(Parser, Debug)]
-#[command(name = "teeny-quant", about = "Quantize .safetensors model checkpoints for deployment.")]
+#[command(
+    name = "teeny-quant",
+    about = "Quantize .safetensors model checkpoints for deployment."
+)]
 pub struct Cli {
     /// The subcommand to run.
     #[command(subcommand)]

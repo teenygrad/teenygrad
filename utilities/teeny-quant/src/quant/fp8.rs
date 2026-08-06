@@ -74,7 +74,7 @@ impl Fp8Variant {
     /// Largest unbiased exponent used by a *finite* value in this format.
     fn max_finite_unbiased_exp(self) -> i32 {
         match self {
-            Fp8Variant::E4M3 => 8, // biased 15, mantissa < 0b111 (448 = 1.75 * 2^8)
+            Fp8Variant::E4M3 => 8,  // biased 15, mantissa < 0b111 (448 = 1.75 * 2^8)
             Fp8Variant::E5M2 => 15, // biased 30, mantissa <= 0b11 (57344 = 1.75 * 2^15)
         }
     }
@@ -329,7 +329,10 @@ mod tests {
                 let byte = f32_to_f8(x, variant);
                 let back = f8_to_f32(byte, variant);
                 let tol = x.abs() * 0.2 + 0.01; // f8 has very few mantissa bits
-                assert!((x - back).abs() < tol, "{x} -> {back} (variant {variant:?})");
+                assert!(
+                    (x - back).abs() < tol,
+                    "{x} -> {back} (variant {variant:?})"
+                );
             }
         }
     }

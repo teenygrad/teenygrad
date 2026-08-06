@@ -148,7 +148,8 @@ mod find_teenyc_tests {
 
     #[test]
     fn empty_when_no_teenyc_toolchain() {
-        let output = "stable-x86_64-unknown-linux-gnu (default)\nnightly-x86_64-unknown-linux-gnu\n";
+        let output =
+            "stable-x86_64-unknown-linux-gnu (default)\nnightly-x86_64-unknown-linux-gnu\n";
         assert!(teenyc_toolchain_names(output).is_empty());
     }
 

@@ -33,7 +33,7 @@ pub use affine::{AffineParams, QuantizedAffine, dequantize_affine, quantize_affi
 pub fn compute_groups(shape: &[usize], granularity: Granularity) -> (Vec<u32>, usize) {
     groups::assign_groups(shape, granularity)
 }
-pub use fp8::{Fp8Variant, QuantizedFp8, dequantize_fp8, f32_to_f8, f8_to_f32, quantize_fp8};
+pub use fp8::{Fp8Variant, QuantizedFp8, dequantize_fp8, f8_to_f32, f32_to_f8, quantize_fp8};
 pub use granularity::Granularity;
 
 /// Which quantization scheme to apply to a tensor.
