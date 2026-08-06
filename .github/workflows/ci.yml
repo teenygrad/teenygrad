@@ -10,13 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Crates that build with a plain stable toolchain and no system dependencies.
-  # Excluded on purpose (see comments below, and the teeny-cuda follow-up
-  # issue) rather than silently broken:
-  #   - teeny-cuda, teeny-kernels: teeny-cuda's build.rs unconditionally runs
-  #     bindgen against the CUDA toolkit headers (no feature gate to skip it);
-  #     teeny-kernels' default features enable teeny-cuda. Needs a
-  #     CUDA-toolkit-provisioned runner — tracked separately, not yet set up.
+  # Crates that build with a plain stable toolchain (plus the CUDA toolkit
+  # installed below). Excluded on purpose rather than silently broken:
   #   - teeny-torch: PyO3 cdylib extension module, not part of the crates.io
   #     publish set (publish = false) — excluded to keep this job focused on
   #     the publishable Rust SDK; Python packaging is a separate concern.
@@ -39,26 +34,34 @@ jobs:
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
+      # teeny-cuda's build.rs unconditionally runs bindgen against the CUDA
+      # toolkit headers (no feature gate to skip it); teeny-kernels' default
+      # features enable teeny-cuda. Only the -dev packages actually linked
+      # against are installed here — no driver/dkms — since this runner has
+      # no GPU to run anything on, just needs the headers to compile. Same
+      # recipe as release-plz.yml.
+      - name: Install CUDA toolkit
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb
+          sudo dpkg -i /tmp/cuda-keyring.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2 cuda-profiler-api-13-2
+          echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
+
       - name: Build
-        run: >
-          cargo build --workspace
-          --exclude teeny-cuda --exclude teeny-kernels
-          --exclude teeny-torch
+        run: cargo build --workspace --exclude teeny-torch
 
       - name: Clippy
-        run: >
-          cargo clippy --workspace
-          --exclude teeny-cuda --exclude teeny-kernels
-          --exclude teeny-torch
-          -- -D warnings
+        run: cargo clippy --workspace --exclude teeny-torch -- -D warnings
 
       - name: Test
-        # teeny-triton and teeny-vision are additionally excluded here (but
-        # not from the Build/Clippy steps above): their [dev-dependencies]
-        # pull in teeny-cuda (teeny-triton, directly) / teeny-kernels
-        # (teeny-vision, transitively enabling teeny-cuda) only when building
-        # test targets, which `cargo build`/`cargo clippy` (without
-        # `--all-targets`) don't do.
+        # teeny-cuda, teeny-kernels, teeny-triton, and teeny-vision all have
+        # tests that open a real CUDA device (teeny_cuda::testing::setup_cuda_env)
+        # to compile and run kernels on — this runner has the toolkit to
+        # *compile* against (installed above) but no GPU to run anything on,
+        # so those crates stay excluded here even though Build/Clippy above
+        # now cover them.
         run: >
           cargo test --workspace
           --exclude teeny-cuda --exclude teeny-kernels
@@ -69,10 +72,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Doc build
-        run: >
-          cargo doc --workspace --no-deps
-          --exclude teeny-cuda --exclude teeny-kernels
-          --exclude teeny-torch
+        run: cargo doc --workspace --no-deps --exclude teeny-torch
 
   # The books (books/*) keep their code samples in the crates they document and
   # pull them in with {{#include}}, so a rename or a moved anchor breaks a
