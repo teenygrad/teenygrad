@@ -431,3 +431,71 @@ fn test_matmul_backward_db_gpu() -> Result<()> {
     }
     Ok(())
 }
+
+// ── Per-shape tile selection (spinorml-4gx.2) ─────────────────────────────────
+//
+// MatmulForward/MatmulBackwardDa/MatmulBackwardDb above are always exercised at a
+// fixed BLOCK_M/N/K, independent of graph lowering. These two tests instead go
+// through TritonLowering, the same path a real model uses, to confirm
+// Op::MatMul's dispatch actually asks pick_gemm_tile_sizes for a shape-appropriate
+// tile size rather than a single hardcoded one.
+
+fn build_matmul_graph(m: usize, k: usize, n: usize) -> teeny_core::graph::Graph {
+    use teeny_core::graph::{DtypeRepr, Op, SymTensor};
+
+    let (a, graph_rc) = SymTensor::input(DtypeRepr::F32, vec![Some(m), Some(k)]);
+    let b_id = a.graph.borrow_mut().add_node(
+        Op::Input,
+        vec![],
+        DtypeRepr::F32,
+        vec![Some(k), Some(n)],
+    );
+    let _ = a.graph.borrow_mut().add_node(
+        Op::MatMul,
+        vec![a.node_id, b_id],
+        DtypeRepr::F32,
+        vec![Some(m), Some(n)],
+    );
+    drop(a);
+    std::rc::Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn lowered_matmul_source(m: usize, k: usize, n: usize) -> String {
+    use teeny_core::model::LoweringMode;
+    use teeny_kernels::graph::TritonLowering;
+
+    let graph = build_matmul_graph(m, k, n);
+    let lowering = TritonLowering::new();
+    let (dag, _) = lowering
+        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .expect("lowering");
+    // Nodes: [a (Input), b (Input), matmul] -> matmul is index 2.
+    dag.node(2).value.forward_kernel_source().to_string()
+}
+
+#[test]
+fn test_matmul_lowering_picks_small_tile_for_small_shape() {
+    let src = lowered_matmul_source(64, 16, 64);
+    assert!(
+        src.contains("LlvmTriton, f32, 64, 64, 8, 8"),
+        "expected a 64x64x8 tile for a small (64,16,64) shape, got: {src}"
+    );
+}
+
+#[test]
+fn test_matmul_lowering_picks_larger_tile_for_large_shape() {
+    let src = lowered_matmul_source(512, 256, 256);
+    assert!(
+        src.contains("LlvmTriton, f32, 256, 128, 32"),
+        "expected a 256x128x32 tile for a large (512,256,256) shape, got: {src}"
+    );
+}
+
+#[test]
+fn test_matmul_lowering_differs_by_shape() {
+    // The actual point of this task: two different shapes must not collapse to the
+    // same hardcoded tile size.
+    let small = lowered_matmul_source(64, 16, 64);
+    let large = lowered_matmul_source(512, 256, 256);
+    assert_ne!(small, large);
+}

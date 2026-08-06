@@ -236,12 +236,11 @@ pub struct MatMulRuntimeOp<D: Num + Send + Sync + 'static> {
 }
 
 impl<D: Num + Send + Sync + 'static> MatMulRuntimeOp<D> {
-    /// `block_size` is used as BLOCK_M, BLOCK_N, and BLOCK_K alike.
-    pub fn new(block_size: i32) -> Self {
+    pub fn new(block_m: i32, block_n: i32, block_k: i32) -> Self {
         Self {
-            fwd_kernel: MatmulForward::<D>::new(block_size, block_size, block_size, GROUP_M),
-            bwd_da_kernel: MatmulBackwardDa::<D>::new(block_size, block_size, block_size, GROUP_M),
-            bwd_db_kernel: MatmulBackwardDb::<D>::new(block_size, block_size, block_size, GROUP_M),
+            fwd_kernel: MatmulForward::<D>::new(block_m, block_n, block_k, GROUP_M),
+            bwd_da_kernel: MatmulBackwardDa::<D>::new(block_m, block_n, block_k, GROUP_M),
+            bwd_db_kernel: MatmulBackwardDb::<D>::new(block_m, block_n, block_k, GROUP_M),
         }
     }
 

@@ -597,6 +597,95 @@ mod pick_adaptive_block_n_tests {
     }
 }
 
+/// Picks (BLOCK_M, BLOCK_N, BLOCK_K) for a GEMM of shape `[M, K] @ [K, N] -> [M, N]`
+/// based on its size, instead of one fixed tile size for every shape.
+///
+/// Per spinorml-4gx's ONNX Runtime profile, cuDNN/CUTLASS auto-tunes tile size per
+/// layer rather than using one fixed configuration — seven distinct configs were
+/// observed in active use for one model (64x64_16, 128x64_16, 256x64_16, 128x128_16,
+/// 256x128_16, 64x128_32, in `BLOCK_M x BLOCK_N _ BLOCK_K` terms). This mirrors that
+/// spirit with a small fixed table rather than the exact tuned values, which are
+/// specific to CUTLASS's own kernel templates:
+///
+/// - BLOCK_K grows with `k` (more reduction work amortizes each K-tile's load cost;
+///   a small `k` gets a small BLOCK_K instead of wasting shared memory tiling past
+///   the reduction dimension's actual extent). Never below 8: `T::dot`'s TF32 tensor
+///   core path needs at least that much K per MMA tile.
+/// - BLOCK_M/BLOCK_N grow with `m`/`n` for the same reason (bigger output tiles only
+///   pay off once there's enough output to fill many CTAs at that size; small outputs
+///   get finer tiles instead, for occupancy).
+///
+/// `m` is `None` when the batch dimension is dynamic (unknown at lowering time) — it's
+/// treated as small (64) rather than guessed large, so an unexpectedly small runtime
+/// batch doesn't end up under-occupied at a tile size chosen for a batch that never
+/// materializes. This under-estimates for large dynamic batches the same way
+/// `pick_adaptive_block_n`'s batch-omitted `fixed_blocks` does — see its doc comment.
+fn pick_gemm_tile_sizes(m: Option<usize>, n: usize, k: usize) -> (i32, i32, i32) {
+    let m = m.unwrap_or(64);
+    let block_k = if k >= 128 {
+        32
+    } else if k >= 32 {
+        16
+    } else {
+        8
+    };
+    let (block_m, block_n) = match (m, n) {
+        (m, n) if m >= 256 && n >= 128 => (256, 128),
+        (m, n) if m >= 128 && n >= 128 => (128, 128),
+        (m, _) if m >= 128 => (128, 64),
+        (_, n) if n >= 128 => (64, 128),
+        _ => (64, 64),
+    };
+    (block_m, block_n, block_k)
+}
+
+#[cfg(test)]
+mod pick_gemm_tile_sizes_tests {
+    use super::pick_gemm_tile_sizes;
+
+    #[test]
+    fn small_shape_gets_smallest_tiles() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
+    }
+
+    #[test]
+    fn large_m_and_n_get_the_largest_tile() {
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (256, 128, 32));
+    }
+
+    #[test]
+    fn large_m_only_widens_block_m_not_block_n() {
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
+    }
+
+    #[test]
+    fn large_n_only_widens_block_n_not_block_m() {
+        assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
+    }
+
+    #[test]
+    fn unknown_dynamic_batch_treated_as_small() {
+        // m=None should behave the same as an explicit small m, not a large one.
+        assert_eq!(
+            pick_gemm_tile_sizes(None, 64, 16),
+            pick_gemm_tile_sizes(Some(64), 64, 16)
+        );
+    }
+
+    #[test]
+    fn block_k_never_drops_below_the_tensor_core_minimum() {
+        let (_, _, block_k) = pick_gemm_tile_sizes(Some(64), 64, 1);
+        assert!(block_k >= 8);
+    }
+
+    #[test]
+    fn block_k_grows_with_k() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);
+    }
+}
+
 impl TritonLowering {
     /// Like `lower` but also returns the graph-node-index → DAG-node-index mapping.
     /// Useful for middleware lowerings that need to patch specific DAG nodes after
@@ -1182,28 +1271,33 @@ impl TritonLowering {
                     let use_tiled = !is_depthwise && g == 1 && c_out >= 16 && !use_gemm;
 
                     if use_gemm {
-                        const BLOCK_M: i32 = 32;
-                        const BLOCK_N: i32 = 32;
-                        const BLOCK_K: i32 = 32;
                         const GROUP_M: i32 = 8;
+                        let m = oh * ow;
+                        // Shape-appropriate starting tile size (spinorml-4gx.2) — see
+                        // pick_gemm_tile_sizes' doc comment. m is always statically known
+                        // here (derived from the conv's own OH/OW), unlike the general
+                        // MatMul case, so it's passed as Some rather than treated as dynamic.
+                        let (block_m, block_n_base, block_k) =
+                            pick_gemm_tile_sizes(Some(m), c_out, *in_channels);
                         // BLOCK_N also sets this kernel's shared-memory-per-block footprint,
                         // so shrinking it for occupancy-starved shapes helps twice over: more
                         // blocks *and* a higher occupancy ceiling (shared mem is the binding
-                        // occupancy limiter for this kernel at the default tile size).
+                        // occupancy limiter for this kernel at the default tile size). This
+                        // is a separate, hardware-occupancy-driven adjustment layered on top
+                        // of the shape-driven starting point above, not a replacement for it.
                         let block_n = match self.sm_count {
                             Some(sm_count) => {
-                                let m = oh * ow;
-                                let fixed_blocks = m.div_ceil(BLOCK_M as usize);
+                                let fixed_blocks = m.div_ceil(block_m as usize);
                                 pick_adaptive_block_n(
                                     c_out,
                                     fixed_blocks,
                                     4 * sm_count,
-                                    &[BLOCK_N, 16, 8],
+                                    &[block_n_base, 16, 8],
                                 )
                             }
-                            None => BLOCK_N,
+                            None => block_n_base,
                         };
-                        let k = Conv2dBnSiluGemmForward::new(BLOCK_M, block_n, BLOCK_K, GROUP_M);
+                        let k = Conv2dBnSiluGemmForward::new(block_m, block_n, block_k, GROUP_M);
                         let nm = k.name.to_string();
                         let ks = k.source.clone();
                         let rop: Arc<dyn RuntimeOp> = Arc::new(k);
@@ -2357,9 +2451,19 @@ impl TritonLowering {
 
                 // ── Matrix ops ────────────────────────────────────────────────
                 Op::MatMul | Op::Gemm { .. } => {
+                    // A: [M, K], B: [K, N], C (output): [M, N].
+                    let m = node.shape.first().copied().flatten();
+                    let n = node.shape.last().copied().flatten().unwrap_or(0);
+                    let k = node
+                        .inputs
+                        .first()
+                        .and_then(|&i| graph.nodes[i].shape.last().copied().flatten())
+                        .unwrap_or(0);
+                    let (block_m, block_n, block_k) = pick_gemm_tile_sizes(m, n, k);
+
                     let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
                         DtypeRepr::F32 => {
-                            let r = MatMulRuntimeOp::<f32>::new(128);
+                            let r = MatMulRuntimeOp::<f32>::new(block_m, block_n, block_k);
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -2367,7 +2471,7 @@ impl TritonLowering {
                             )
                         }
                         DtypeRepr::F64 => {
-                            let r = MatMulRuntimeOp::<f64>::new(128);
+                            let r = MatMulRuntimeOp::<f64>::new(block_m, block_n, block_k);
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
