@@ -59,7 +59,10 @@ pub fn run(args: ValidateArgs) -> Result<()> {
             "{:<55} {:>14.6} {:>14.6} {:>10.2}",
             r.name, r.max_abs_error, r.mean_abs_error, r.sqnr_db
         );
-        if args.max_abs_error_threshold.is_some_and(|t| r.max_abs_error > t) {
+        if args
+            .max_abs_error_threshold
+            .is_some_and(|t| r.max_abs_error > t)
+        {
             flagged += 1;
         }
     }

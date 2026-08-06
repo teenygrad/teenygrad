@@ -41,9 +41,9 @@ use safetensors::tensor::TensorView;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::quant::pack4::pack_i4;
 use crate::quant::{Fp8Variant, Granularity, Scheme, dequantize_affine, dequantize_fp8};
 use crate::quant::{quantize_affine, quantize_fp8};
-use crate::quant::pack4::pack_i4;
 use crate::read::is_quantizable_float;
 use crate::write::OutputTensor;
 
@@ -355,7 +355,9 @@ pub fn config_to_metadata(config: &QuantizationConfig) -> Result<HashMap<String,
 }
 
 /// Parses a `quantization_config` blob previously produced by [`config_to_metadata`].
-pub fn config_from_metadata(metadata: &HashMap<String, String>) -> Result<Option<QuantizationConfig>> {
+pub fn config_from_metadata(
+    metadata: &HashMap<String, String>,
+) -> Result<Option<QuantizationConfig>> {
     match metadata.get(QUANTIZATION_CONFIG_KEY) {
         Some(json) => Ok(Some(serde_json::from_str(json)?)),
         None => Ok(None),

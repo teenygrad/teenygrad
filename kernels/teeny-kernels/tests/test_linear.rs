@@ -368,9 +368,8 @@ fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
     // Scoped to this thread only, so it doesn't clobber a subscriber another
     // test running concurrently in this binary may have installed. `force:
     // true` guarantees `teenyc` actually runs (a cache hit would emit nothing).
-    let ptx_path = tracing::subscriber::with_default(subscriber, || {
-        compiler.compile(&kernel, &target, true)
-    })?;
+    let ptx_path =
+        tracing::subscriber::with_default(subscriber, || compiler.compile(&kernel, &target, true))?;
     println!("compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 

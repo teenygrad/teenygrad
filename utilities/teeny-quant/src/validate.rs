@@ -23,9 +23,9 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::format;
 use crate::quant::Scheme;
+use crate::quant::compute_groups;
 use crate::quant::fp8::Fp8Variant;
 use crate::quant::granularity::Granularity;
-use crate::quant::compute_groups;
 use crate::read::read_f32;
 
 /// Per-tensor quantization error metrics.
@@ -43,7 +43,11 @@ pub struct TensorReport {
 
 /// Compares `original` against `reconstructed` element-wise, computing [`TensorReport`] metrics.
 /// Both slices must be the same length (the caller is responsible for shape bookkeeping).
-pub fn compare_tensors(name: &str, original: &[f32], reconstructed: &[f32]) -> Result<TensorReport> {
+pub fn compare_tensors(
+    name: &str,
+    original: &[f32],
+    reconstructed: &[f32],
+) -> Result<TensorReport> {
     if original.len() != reconstructed.len() {
         return Err(Error::ShapeMismatch {
             name: name.to_string(),
@@ -125,7 +129,10 @@ fn scheme_from_config(weights: &format::WeightsConfig) -> Option<Scheme> {
 /// Compares every quantized tensor in `quantized_path` (as recorded by its embedded
 /// `quantization_config`) against the corresponding tensor in `original_path`, returning one
 /// [`TensorReport`] per quantized tensor, in the checkpoint's tensor order.
-pub fn validate_checkpoint(original_path: &Path, quantized_path: &Path) -> Result<Vec<TensorReport>> {
+pub fn validate_checkpoint(
+    original_path: &Path,
+    quantized_path: &Path,
+) -> Result<Vec<TensorReport>> {
     let original_mapped = teeny_data::safetensors::SafeTensors::from_pretrained(original_path)?;
     let original_tensors = original_mapped.tensors()?;
 
@@ -143,7 +150,9 @@ pub fn validate_checkpoint(original_path: &Path, quantized_path: &Path) -> Resul
     let weights = &config
         .config_groups
         .get("group_0")
-        .ok_or_else(|| Error::TensorNotFound("quantization_config.config_groups.group_0".to_string()))?
+        .ok_or_else(|| {
+            Error::TensorNotFound("quantization_config.config_groups.group_0".to_string())
+        })?
         .weights;
     let scheme = scheme_from_config(weights).ok_or_else(|| {
         Error::TensorNotFound(format!(

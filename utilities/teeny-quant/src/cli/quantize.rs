@@ -138,9 +138,12 @@ pub fn run(args: QuantizeArgs) -> Result<()> {
 
     let mapped = teeny_data::safetensors::SafeTensors::from_pretrained(&args.input)
         .with_context(|| format!("failed to open '{}'", args.input.display()))?;
-    let tensors = mapped
-        .tensors()
-        .with_context(|| format!("failed to read tensor headers from '{}'", args.input.display()))?;
+    let tensors = mapped.tensors().with_context(|| {
+        format!(
+            "failed to read tensor headers from '{}'",
+            args.input.display()
+        )
+    })?;
 
     let mut outputs: HashMap<String, OutputTensor> = HashMap::new();
     let mut ignored = Vec::new();

@@ -167,8 +167,7 @@ mod tests {
     fn per_tensor_symmetric_round_trip() {
         let data = vec![-1.0f32, -0.5, 0.0, 0.5, 1.0, 2.0];
         let shape = [6usize];
-        let q =
-            quantize_affine("t", &data, &shape, Granularity::PerTensor, true, 8).unwrap();
+        let q = quantize_affine("t", &data, &shape, Granularity::PerTensor, true, 8).unwrap();
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].zero_point, 0);
         let deq = dequantize_affine(&q);
@@ -182,8 +181,7 @@ mod tests {
         // All-positive data: asymmetric should use the full qmin..qmax range, unlike symmetric.
         let data = vec![0.0f32, 1.0, 2.0, 3.0, 4.0];
         let shape = [5usize];
-        let q =
-            quantize_affine("t", &data, &shape, Granularity::PerTensor, false, 8).unwrap();
+        let q = quantize_affine("t", &data, &shape, Granularity::PerTensor, false, 8).unwrap();
         let deq = dequantize_affine(&q);
         for (orig, back) in data.iter().zip(deq.iter()) {
             assert!((orig - back).abs() < 0.05, "{orig} vs {back}");
@@ -282,8 +280,7 @@ mod tests {
     fn int4_range_is_clamped() {
         let data = vec![-100.0f32, 100.0];
         let shape = [2usize];
-        let q =
-            quantize_affine("t", &data, &shape, Granularity::PerTensor, true, 4).unwrap();
+        let q = quantize_affine("t", &data, &shape, Granularity::PerTensor, true, 4).unwrap();
         for &v in &q.qvalues {
             assert!((-7..=7).contains(&v));
         }
