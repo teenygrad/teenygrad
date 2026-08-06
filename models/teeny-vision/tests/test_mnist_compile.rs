@@ -65,11 +65,16 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     // ── Verify compiled DAG ───────────────────────────────────────────────────
     // Every node except the Input placeholder must have a non-empty ptx_path
     // pointing to a file that actually exists on disk.
+    //
+    // The DAG has 2 more nodes than the traced graph: TritonLowering splits
+    // each biased Conv2d into a bias-free Conv2dForward kernel plus a
+    // separate NchwBiasAddRuntimeOp node, and LeNet-5 has two biased Conv2d
+    // layers.
     let dag = &model.dag;
     assert_eq!(
         dag.len(),
-        14,
-        "compiled DAG should have same node count as graph"
+        16,
+        "compiled DAG should have 2 extra nodes from Conv2d bias-add splitting"
     );
 
     let topo = dag.topological_sort();
@@ -94,8 +99,8 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     }
 
     assert_eq!(
-        compiled_count, 13,
-        "expected 13 compiled kernels (all ops except Input)"
+        compiled_count, 15,
+        "expected 15 compiled kernels (all ops except Input, including split bias-adds)"
     );
 
     Ok(())
