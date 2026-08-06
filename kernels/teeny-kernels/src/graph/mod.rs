@@ -52,7 +52,7 @@ use crate::nn::{
     },
     conv::{
         conv1d::Conv1dForward,
-        conv2d::{Conv2dBackward, Conv2dForward},
+        conv2d::{Conv2dBackward, Conv2dBiasForward, Conv2dForward},
         conv3d::Conv3dForward,
     },
     fused::{
@@ -741,7 +741,83 @@ impl TritonLowering {
                 continue;
             }
 
-            // Conv2d with bias → split into Conv2d (weight only) + NchwBiasAdd (bias only).
+            // Conv2d with bias, inference mode → one fused conv2d_bias_forward kernel
+            // instead of two separate launches (spinorml-ia5). conv2d_bias_forward has
+            // no backward pass, so training still takes the split path below.
+            if mode == LoweringMode::Inference
+                && let Op::Conv2d {
+                    has_bias: true,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                    groups,
+                    ..
+                } = &node.op
+            {
+                let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                    DtypeRepr::F32 => {
+                        let k = Conv2dBiasForward::<f32>::new(
+                            *kernel_h as i32,
+                            *kernel_w as i32,
+                            *stride_h as i32,
+                            *stride_w as i32,
+                            *padding_h as i32,
+                            *padding_w as i32,
+                            *groups as i32,
+                            16,
+                        );
+                        let nm = k.name.to_string();
+                        let src = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
+                        (nm, src, rop)
+                    }
+                    DtypeRepr::F64 => {
+                        let k = Conv2dBiasForward::<f64>::new(
+                            *kernel_h as i32,
+                            *kernel_w as i32,
+                            *stride_h as i32,
+                            *stride_w as i32,
+                            *padding_h as i32,
+                            *padding_w as i32,
+                            *groups as i32,
+                            16,
+                        );
+                        let nm = k.name.to_string();
+                        let src = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
+                        (nm, src, rop)
+                    }
+                    other => {
+                        return Err(anyhow::anyhow!(
+                            "{:?} is not supported for Conv2dBiasForward",
+                            other
+                        ));
+                    }
+                };
+                let dag_idx = dag.add_node(Box::new(KernelExecutable {
+                    entry_point: format!("{}_entry_point", name),
+                    name,
+                    kernel_source: ks,
+                    shape: node.shape.clone(),
+                    dtype: node.dtype,
+                    #[cfg(feature = "training")]
+                    backward_kernel_source: String::new(),
+                    #[cfg(feature = "training")]
+                    backward_entry_point: String::new(),
+                    runtime_op: rop,
+                }) as Box<dyn ExecutableOp>);
+                for &input_graph_idx in &node.inputs {
+                    dag.add_edge(graph_to_dag[input_graph_idx], dag_idx);
+                }
+                graph_to_dag[node_index] = dag_idx;
+                continue;
+            }
+
+            // Conv2d with bias (training mode) → split into Conv2d (weight only) +
+            // NchwBiasAdd (bias only), since each needs its own backward kernel.
             if let Op::Conv2d {
                 has_bias: true,
                 kernel_h,
