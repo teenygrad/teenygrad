@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.1.1...teeny-kernels-v0.1.2) - 2026-08-06
+
+### Other
+
+- merge release/0.1.2 into main
+
 ## [0.1.1](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.1.0...teeny-kernels-v0.1.1) - 2026-08-03
 
 ### Other
