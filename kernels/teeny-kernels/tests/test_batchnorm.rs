@@ -22,7 +22,7 @@ use teeny_core::device::program::Kernel;
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
 
 #[cfg(all(feature = "cuda", feature = "training"))]
 use {

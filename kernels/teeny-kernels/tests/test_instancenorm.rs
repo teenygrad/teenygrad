@@ -23,7 +23,7 @@ use teeny_core::device::program::Kernel;
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
 
 const N: usize = 4; // batch size
 const C: usize = 8; // channels

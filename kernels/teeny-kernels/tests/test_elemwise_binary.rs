@@ -26,7 +26,7 @@ use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
+use teeny_cuda::{errors::Result, testing};
 
 use teeny_kernels::nn::tensor::elemwise_binary::{
     ElemwiseClipBackward, ElemwiseClipForward, ElemwiseDivBackward, ElemwiseDivForward,
