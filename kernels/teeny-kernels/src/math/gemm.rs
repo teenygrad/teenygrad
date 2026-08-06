@@ -16,232 +16,232 @@
 
 //! 2-D matrix multiply (MatMul / Gemm) Triton kernels.
 //!
-//! This implementation is a simple row-per-CTA dot-product kernel. Each CTA
-//! computes one row of the output matrix C by loading a row of A and a column
-//! of B (both of length K) and reducing.
+//! Tiled GEMM using `T::make_tensor_descriptor` + `T::dot` for Tensor Core
+//! utilisation — one CTA computes one `[BLOCK_M, BLOCK_N]` (or `[BLOCK_M,
+//! BLOCK_K]` / `[BLOCK_K, BLOCK_N]` for the backward kernels) output tile,
+//! accumulating over `K`/`N`/`M`-tiles with `T::dot` rather than a scalar
+//! multiply-and-reduce per element. Same swizzled-pid / tensor-descriptor
+//! structure as [`crate::nn::mlp::linear`]'s `linear_forward`/`linear_backward`.
 //!
-//! Grid: [M, 1, 1] — one CTA per output row.
-//! Block: [BLOCK_K, 1, 1]
-//!
-//! For production use, replace with a tiled GEMM using `T::make_block_ptr` and
-//! `T::dot` for Tensor Core utilisation.
+//! Grid: one CTA per output tile. Block: `[128, 1, 1]`.
 
 #![allow(non_snake_case)]
 
-use teeny_core::dtype::Float;
+use teeny_core::dtype::Num;
 use teeny_macros::kernel;
-use teeny_triton::triton::{
-    types::{AddOffsets, Comparison},
-    *,
-};
+use teeny_triton::triton::{PaddingOption, *};
 
 // ── MatMul Forward ────────────────────────────────────────────────────────────
 //
 // C[M, N] = A[M, K] @ B[K, N]
 //
-// Kernel grid: [M * N, 1, 1]  — one CTA per output element.
-// BLOCK_K is the tile size over the K dimension.
-//
-// Per CTA:
-//   pid = m * N + n  (flat output index)
-//   C[m, n] = sum_k A[m, k] * B[k, n]
+// Kernel grid: one CTA per [BLOCK_M, BLOCK_N] output tile, pids swizzled by
+// GROUP_M for L2 locality (same scheme as linear_forward).
 
 /// Forward: C = A @ B
 // ANCHOR: matmul_forward
 #[kernel]
-pub fn matmul_forward<T: Triton, D: Float, const BLOCK_K: i32>(
+pub fn matmul_forward<
+    T: Triton,
+    D: Num,
+    const BLOCK_M: i32,
+    const BLOCK_N: i32,
+    const BLOCK_K: i32,
+    const GROUP_M: i32,
+>(
     a_ptr: T::Pointer<D>,
     b_ptr: T::Pointer<D>,
     c_ptr: T::Pointer<D>,
     M: i32,
     N: i32,
     K: i32,
-) where
-    T::I32Tensor: types::Tensor<i32, 1>,
-    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
-{
+) {
     let pid = T::program_id(Axis::X);
-    let n = pid % N;
-    let m = pid / N;
+    let num_pid_m = T::cdiv(M, BLOCK_M);
+    let num_pid_n = T::cdiv(N, BLOCK_N);
+    let num_pid_in_group = GROUP_M * num_pid_n;
+    let group_id = pid / num_pid_in_group;
+    let first_pid_m = group_id * GROUP_M;
+    let remaining_m = num_pid_m - first_pid_m;
+    let group_size_m = if remaining_m < GROUP_M {
+        remaining_m
+    } else {
+        GROUP_M
+    };
+    let pid_in_group = pid % num_pid_in_group;
+    let pid_m = first_pid_m + (pid_in_group % group_size_m);
+    let pid_n = pid_in_group / group_size_m;
 
-    if m >= M {
-        return;
+    let a_desc = T::make_tensor_descriptor(
+        a_ptr,
+        &[M, K],
+        &[K, 1],
+        &[BLOCK_M, BLOCK_K],
+        Some(PaddingOption::Zero),
+    );
+    let b_desc = T::make_tensor_descriptor(
+        b_ptr,
+        &[K, N],
+        &[N, 1],
+        &[BLOCK_K, BLOCK_N],
+        Some(PaddingOption::Zero),
+    );
+
+    let mut acc = T::zeros::<D>(&[BLOCK_M, BLOCK_N]);
+    let k_tiles = T::cdiv(K, BLOCK_K);
+    for k in 0..k_tiles {
+        let a = T::load_tensor_descriptor(a_desc, &[pid_m * BLOCK_M, k * BLOCK_K]);
+        let b = T::load_tensor_descriptor(b_desc, &[k * BLOCK_K, pid_n * BLOCK_N]);
+        acc = T::dot::<D, D>(a, b, Some(acc), None, None);
     }
 
-    // Load row m of A: A[m, 0..K]
-    let k_offsets = T::arange(0, BLOCK_K);
-    let a_offsets = k_offsets + m * K;
-    let k_mask = k_offsets.lt(K);
-    let zero_fill = T::zeros::<D>(&[BLOCK_K]);
-
-    let a_row = T::load(
-        a_ptr.add_offsets(a_offsets),
-        Some(k_mask),
-        Some(zero_fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
+    let c_desc = T::make_tensor_descriptor(
+        c_ptr,
+        &[M, N],
+        &[N, 1],
+        &[BLOCK_M, BLOCK_N],
+        Some(PaddingOption::Zero),
     );
-
-    // Load column n of B: B[0..K, n]  — stored in row-major so B[k, n] = B[k*N + n]
-    // We must load with stride N: offsets = k*N + n  for k in 0..K
-    let b_col_offsets = k_offsets * N + n;
-    let b_col_mask = k_offsets.lt(K);
-    let b_col = T::load(
-        b_ptr.add_offsets(b_col_offsets),
-        Some(b_col_mask),
-        Some(zero_fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-
-    // dot product: sum(a_row * b_col)
-    let dot = T::sum(a_row * b_col, Some(0), true);
-
-    let c_offset = T::arange(0, 1) + (m * N + n);
-    T::store(c_ptr.add_offsets(c_offset), dot, None, &[], None, None);
+    T::store_tensor_descriptor(c_desc, &[pid_m * BLOCK_M, pid_n * BLOCK_N], acc);
 }
 // ANCHOR_END: matmul_forward
 
-/// Backward: dA = dC @ B^T,  dB = A^T @ dC
+/// Backward: dA = dC @ B^T
 ///
-/// This kernel computes one element of dA per CTA.
-/// Grid: [M * K, 1, 1]
-/// dA[m, k] = sum_n dC[m, n] * B[k, n]  (B[k, n] = B^T[n, k])
+/// Grid: one CTA per `[BLOCK_M, BLOCK_K]` tile of dA.
+/// dA\[m, k\] = sum_n dC\[m, n\] * B\[k, n\]  (B\[k, n\] = B^T\[n, k\])
 #[kernel]
-pub fn matmul_backward_da<T: Triton, D: Float, const BLOCK_N: i32>(
+pub fn matmul_backward_da<
+    T: Triton,
+    D: Num,
+    const BLOCK_M: i32,
+    const BLOCK_N: i32,
+    const BLOCK_K: i32,
+    const GROUP_M: i32,
+>(
     dc_ptr: T::Pointer<D>,
     b_ptr: T::Pointer<D>,
     da_ptr: T::Pointer<D>,
     M: i32,
     N: i32,
     K: i32,
-) where
-    T::I32Tensor: types::Tensor<i32, 1>,
-    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
-{
+) {
     let pid = T::program_id(Axis::X);
-    let k = pid % K;
-    let m = pid / K;
-    if m >= M {
-        return;
+    let num_pid_k = T::cdiv(K, BLOCK_K);
+    let pid_k = pid % num_pid_k;
+    let pid_m = pid / num_pid_k;
+
+    let dc_desc = T::make_tensor_descriptor(
+        dc_ptr,
+        &[M, N],
+        &[N, 1],
+        &[BLOCK_M, BLOCK_N],
+        Some(PaddingOption::Zero),
+    );
+    let b_desc = T::make_tensor_descriptor(
+        b_ptr,
+        &[K, N],
+        &[N, 1],
+        &[BLOCK_K, BLOCK_N],
+        Some(PaddingOption::Zero),
+    );
+
+    let mut acc = T::zeros::<D>(&[BLOCK_M, BLOCK_K]);
+    let n_tiles = T::cdiv(N, BLOCK_N);
+    for n in 0..n_tiles {
+        let dc = T::load_tensor_descriptor(dc_desc, &[pid_m * BLOCK_M, n * BLOCK_N]);
+        let b = T::load_tensor_descriptor(b_desc, &[pid_k * BLOCK_K, n * BLOCK_N]);
+        let b_t = T::trans(b, &[1, 0]);
+        acc = T::dot::<D, D>(dc, b_t, Some(acc), None, None);
     }
 
-    // Load row m of dC: dC[m, 0..N]
-    let n_offsets = T::arange(0, BLOCK_N);
-    let dc_offsets = n_offsets + m * N;
-    let n_mask = n_offsets.lt(N);
-    let zero_fill = T::zeros::<D>(&[BLOCK_N]);
-
-    let dc_row = T::load(
-        dc_ptr.add_offsets(dc_offsets),
-        Some(n_mask),
-        Some(zero_fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
+    let da_desc = T::make_tensor_descriptor(
+        da_ptr,
+        &[M, K],
+        &[K, 1],
+        &[BLOCK_M, BLOCK_K],
+        Some(PaddingOption::Zero),
     );
-
-    // Load row k of B (= column k of B^T): B[k, 0..N]
-    let b_row_offsets = n_offsets + k * N;
-    let b_row = T::load(
-        b_ptr.add_offsets(b_row_offsets),
-        Some(n_mask),
-        Some(zero_fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-
-    let dot = T::sum(dc_row * b_row, Some(0), true);
-
-    let da_offset = T::arange(0, 1) + (m * K + k);
-    T::store(da_ptr.add_offsets(da_offset), dot, None, &[], None, None);
+    T::store_tensor_descriptor(da_desc, &[pid_m * BLOCK_M, pid_k * BLOCK_K], acc);
 }
 
-/// Backward: dB[k, n] = sum_m A[m, k] * dC[m, n]
-/// Grid: [K * N, 1, 1]
+/// Backward: dB = A^T @ dC
+///
+/// Grid: one CTA per `[BLOCK_K, BLOCK_N]` tile of dB.
+/// dB\[k, n\] = sum_m A\[m, k\] * dC\[m, n\]
 #[kernel]
-pub fn matmul_backward_db<T: Triton, D: Float, const BLOCK_M: i32>(
+pub fn matmul_backward_db<
+    T: Triton,
+    D: Num,
+    const BLOCK_M: i32,
+    const BLOCK_N: i32,
+    const BLOCK_K: i32,
+    const GROUP_M: i32,
+>(
     dc_ptr: T::Pointer<D>,
     a_ptr: T::Pointer<D>,
     db_ptr: T::Pointer<D>,
     M: i32,
     N: i32,
     K: i32,
-) where
-    T::I32Tensor: types::Tensor<i32, 1>,
-    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
-    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
-{
+) {
     let pid = T::program_id(Axis::X);
-    let n = pid % N;
-    let k = pid / N;
-    if k >= K {
-        return;
+    let num_pid_n = T::cdiv(N, BLOCK_N);
+    let pid_n = pid % num_pid_n;
+    let pid_k = pid / num_pid_n;
+
+    let dc_desc = T::make_tensor_descriptor(
+        dc_ptr,
+        &[M, N],
+        &[N, 1],
+        &[BLOCK_M, BLOCK_N],
+        Some(PaddingOption::Zero),
+    );
+    let a_desc = T::make_tensor_descriptor(
+        a_ptr,
+        &[M, K],
+        &[K, 1],
+        &[BLOCK_M, BLOCK_K],
+        Some(PaddingOption::Zero),
+    );
+
+    let mut acc = T::zeros::<D>(&[BLOCK_K, BLOCK_N]);
+    let m_tiles = T::cdiv(M, BLOCK_M);
+    for m in 0..m_tiles {
+        let dc = T::load_tensor_descriptor(dc_desc, &[m * BLOCK_M, pid_n * BLOCK_N]);
+        let a = T::load_tensor_descriptor(a_desc, &[m * BLOCK_M, pid_k * BLOCK_K]);
+        let a_t = T::trans(a, &[1, 0]);
+        acc = T::dot::<D, D>(a_t, dc, Some(acc), None, None);
     }
 
-    // Load column n of dC: dC[0..M, n]
-    let m_offsets = T::arange(0, BLOCK_M);
-    let dc_col_offsets = m_offsets * N + n;
-    let m_mask = m_offsets.lt(M);
-    let zero_fill = T::zeros::<D>(&[BLOCK_M]);
-
-    let dc_col = T::load(
-        dc_ptr.add_offsets(dc_col_offsets),
-        Some(m_mask),
-        Some(zero_fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
+    let db_desc = T::make_tensor_descriptor(
+        db_ptr,
+        &[K, N],
+        &[N, 1],
+        &[BLOCK_K, BLOCK_N],
+        Some(PaddingOption::Zero),
     );
-
-    // Load column k of A: A[0..M, k]
-    let a_col_offsets = m_offsets * K + k;
-    let a_col = T::load(
-        a_ptr.add_offsets(a_col_offsets),
-        Some(m_mask),
-        Some(zero_fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-
-    let dot = T::sum(dc_col * a_col, Some(0), true);
-
-    let db_offset = T::arange(0, 1) + (k * N + n);
-    T::store(db_ptr.add_offsets(db_offset), dot, None, &[], None, None);
+    T::store_tensor_descriptor(db_desc, &[pid_k * BLOCK_K, pid_n * BLOCK_N], acc);
 }
 
 // ── RuntimeOp for MatMul ──────────────────────────────────────────────────────
 
-pub struct MatMulRuntimeOp<D: Float + Send + Sync + 'static> {
+/// Swizzle group size for `matmul_forward`'s pid decomposition — see `linear_forward`.
+const GROUP_M: i32 = 8;
+
+pub struct MatMulRuntimeOp<D: Num + Send + Sync + 'static> {
     pub fwd_kernel: MatmulForward<D>,
     pub bwd_da_kernel: MatmulBackwardDa<D>,
     pub bwd_db_kernel: MatmulBackwardDb<D>,
 }
 
-impl<D: Float + Send + Sync + 'static> MatMulRuntimeOp<D> {
+impl<D: Num + Send + Sync + 'static> MatMulRuntimeOp<D> {
+    /// `block_size` is used as BLOCK_M, BLOCK_N, and BLOCK_K alike.
     pub fn new(block_size: i32) -> Self {
         Self {
-            fwd_kernel: MatmulForward::<D>::new(block_size),
-            bwd_da_kernel: MatmulBackwardDa::<D>::new(block_size),
-            bwd_db_kernel: MatmulBackwardDb::<D>::new(block_size),
+            fwd_kernel: MatmulForward::<D>::new(block_size, block_size, block_size, GROUP_M),
+            bwd_da_kernel: MatmulBackwardDa::<D>::new(block_size, block_size, block_size, GROUP_M),
+            bwd_db_kernel: MatmulBackwardDb::<D>::new(block_size, block_size, block_size, GROUP_M),
         }
     }
 
@@ -253,7 +253,7 @@ impl<D: Float + Send + Sync + 'static> MatMulRuntimeOp<D> {
     }
 }
 
-impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRuntimeOp<D> {
+impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
         2
     }
@@ -284,13 +284,15 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
     }
 
     fn block(&self) -> [u32; 3] {
-        [self.fwd_kernel.block_k as u32, 1, 1]
+        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let m = output_shape.first().copied().unwrap_or(1) as u32;
         let n = output_shape.last().copied().unwrap_or(1) as u32;
-        [m * n, 1, 1]
+        let pm = m.div_ceil(self.fwd_kernel.block_m as u32);
+        let pn = n.div_ceil(self.fwd_kernel.block_n as u32);
+        [pm * pn, 1, 1]
     }
 
     #[cfg(feature = "training")]
@@ -326,7 +328,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
 
     #[cfg(feature = "training")]
     fn backward_block(&self) -> [u32; 3] {
-        [self.bwd_da_kernel.block_n as u32, 1, 1]
+        [128, 1, 1]
     }
 
     #[cfg(feature = "training")]
@@ -341,6 +343,8 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRu
             .and_then(|s| s.last())
             .copied()
             .unwrap_or(1) as u32;
-        [m * k, 1, 1]
+        let pm = m.div_ceil(self.bwd_da_kernel.block_m as u32);
+        let pk = k.div_ceil(self.bwd_da_kernel.block_k as u32);
+        [pm * pk, 1, 1]
     }
 }
