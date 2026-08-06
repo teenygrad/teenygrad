@@ -19,12 +19,63 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
+use derive_more::Display;
 use sha2::{Digest, Sha256};
 use teeny_core::compiler::{Compiler, Target};
 use teeny_core::device::program::Kernel;
 use tracing::info;
 
 use crate::errors::Result;
+
+/// `teenyc`'s own diagnostic verbosity, from least to most verbose.
+///
+/// Passed to `teenyc` via `RUSTC_LOG` (its standard rustc-derived logging env var), scoped to
+/// just the MLIR backend's `tracing` target (`rustc_codegen_llvm::mlir`) so unrelated `rustc`
+/// internals stay quiet. At `Debug`, the MLIR backend logs each pipeline stage's IR once (ttir,
+/// ttgpuir, llir, llvmir, ptx/asm). At `Trace`, it additionally logs IR before/after every
+/// individual MLIR pass within ttir/ttgpuir/llir — much more output.
+///
+/// `teenyc`'s captured stderr is relayed back through this process's own `tracing` (see
+/// [`LlvmCompiler::compile`]), so it lands wherever the caller's subscriber routes `teeny_compiler`
+/// events — it is not printed directly to the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+pub enum LogLevel {
+    /// `error`.
+    #[display("error")]
+    Error,
+    /// `warn`.
+    #[display("warn")]
+    Warn,
+    /// `info`.
+    #[display("info")]
+    Info,
+    /// `debug`.
+    #[display("debug")]
+    Debug,
+    /// `trace`.
+    #[display("trace")]
+    Trace,
+}
+
+impl std::str::FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "error" => Ok(Self::Error),
+            "warn" => Ok(Self::Warn),
+            "info" => Ok(Self::Info),
+            "debug" => Ok(Self::Debug),
+            "trace" => Ok(Self::Trace),
+            other => Err(format!(
+                "unknown log level '{other}'; expected one of error, warn, info, debug, trace"
+            )),
+        }
+    }
+}
+
+/// `tracing` target `teenyc`'s MLIR backend logs pipeline-stage IR under; see [`LogLevel`].
+const TEENYC_MLIR_LOG_TARGET: &str = "rustc_codegen_llvm::mlir";
 
 /// Compiles kernels by shelling out to the custom `teenyc` compiler (`-Zcodegen-backend=mlir`)
 /// at runtime. See [`crate::compiler::find_teenyc`] for how its path is resolved, and the crate
@@ -35,6 +86,7 @@ pub struct LlvmCompiler {
     cache_dir: PathBuf,
     target_cpu: Option<String>,
     ptx_version: Option<u32>,
+    log_level: Option<LogLevel>,
 }
 
 impl LlvmCompiler {
@@ -50,6 +102,11 @@ impl LlvmCompiler {
     /// AOT time, or every lookup misses. Reading the env var here means one `.env` entry (see
     /// `TEENYC_PTX_VERSION` in the deployed package's env) keeps both sides in sync without every
     /// call site having to thread the value through by hand.
+    ///
+    /// `log_level` similarly defaults from `$TEENYC_LOG_LEVEL` if set (parse failures are
+    /// ignored, falling back to `None`) — this lets any call site, including ones that don't
+    /// (or can't, e.g. a fixed helper like [`crate::compiler::driver::cuda::compile_kernel`])
+    /// call [`Self::with_log_level`] directly, turn on pipeline-stage logging via the environment.
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
         let teenyc_path = teenyc_path.into();
         let cache_dir = cache_dir.into();
@@ -65,11 +122,19 @@ impl LlvmCompiler {
             })
         });
 
+        let log_level = std::env::var("TEENYC_LOG_LEVEL").ok().and_then(|v| {
+            v.parse().ok().or_else(|| {
+                tracing::warn!(value = %v, "TEENYC_LOG_LEVEL is not a valid log level; ignoring");
+                None
+            })
+        });
+
         Ok(Self {
             teenyc_path,
             cache_dir,
             target_cpu: None,
             ptx_version,
+            log_level,
         })
     }
 
@@ -86,6 +151,13 @@ impl LlvmCompiler {
     /// target's exact CUDA version is known and needs a precise match.
     pub fn with_ptx_version(mut self, ptx_version: u32) -> Self {
         self.ptx_version = Some(ptx_version);
+        self
+    }
+
+    /// Sets `teenyc`'s diagnostic verbosity (see [`LogLevel`]). Left unset (the default),
+    /// `teenyc` uses its own default (roughly `warn`) and no pipeline-stage IR is captured.
+    pub fn with_log_level(mut self, log_level: LogLevel) -> Self {
+        self.log_level = Some(log_level);
         self
     }
 }
@@ -152,7 +224,19 @@ impl Compiler for LlvmCompiler {
             if let Some(ptx_version) = self.ptx_version {
                 cmd.env("TEENYC_PTX_VERSION", ptx_version.to_string());
             }
+            if let Some(log_level) = self.log_level {
+                cmd.env("RUSTC_LOG", format!("{TEENYC_MLIR_LOG_TARGET}={log_level}"));
+            }
             let output = cmd.output()?;
+
+            // `teenyc`'s own tracing subscriber writes to its stderr; relay it through this
+            // process's tracing rather than printing directly, so it's filterable/routable like
+            // any other event here. Only worth the string conversion when logging was requested.
+            if self.log_level.is_some() {
+                for line in String::from_utf8_lossy(&output.stderr).lines() {
+                    tracing::debug!(target: "teeny_compiler::llvm::teenyc", "{line}");
+                }
+            }
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);

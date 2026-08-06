@@ -7,7 +7,7 @@ src = "src"
 
 [output.html]
 git-repository-url = "https://github.com/teenygrad/teenygrad"
-edit-url-template = "https://github.com/teenygrad/teenygrad/edit/main/book/{path}"
+edit-url-template = "https://github.com/teenygrad/teenygrad/edit/main/books/teenygrad/{path}"
 site-url = "/book/"
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 

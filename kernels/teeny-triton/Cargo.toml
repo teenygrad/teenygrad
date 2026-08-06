@@ -11,6 +11,19 @@ documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_triton/"
 keywords = ["gpu", "triton", "kernels", "compiler", "cuda"]
 categories = ["science", "compilers", "hardware-support"]
 
+[features]
+default = []
+# Gates the examples/ programs, which open a device and launch on it.
+#
+# It cannot gate the `teeny-cuda` dev-dependency below: cargo does not allow
+# optional dev-dependencies, and `teeny-cuda` cannot be a regular dependency
+# here because it depends on `teeny-compiler`, which depends on this crate. A
+# dev-dependency is the only edge cargo permits to close that cycle. So the
+# feature marks intent — "I have a GPU and the CUDA toolkit" — and every
+# example carries `required-features = ["cuda"]` so none of them is built,
+# checked or run without it.
+cuda = []
+
 [dependencies]
 teeny-core.workspace = true
 thiserror.workspace = true
@@ -27,3 +40,29 @@ teeny-cuda = { path = "../../drivers/teeny-cuda" }
 
 [build-dependencies]
 cargo_metadata.workspace = true
+
+# ── Book examples ────────────────────────────────────────────────────────────
+#
+# One program per chapter of the kernels book (books/kernels). Each is a
+# complete, runnable kernel; the book pulls the parts it discusses out of these
+# files by anchor, so the code a reader sees is the code that ran.
+#
+# All of them need a real device, so all of them are behind `cuda`:
+#
+#   cargo run -p teeny-triton --features cuda --example vector_add
+
+[[example]]
+name = "vector_add"
+required-features = ["cuda"]
+
+[[example]]
+name = "block_size"
+required-features = ["cuda"]
+
+[[example]]
+name = "coalescing"
+required-features = ["cuda"]
+
+[[example]]
+name = "numerics"
+required-features = ["cuda"]

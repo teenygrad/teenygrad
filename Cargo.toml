@@ -12,7 +12,7 @@ members = [
   "compiler/*"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Teenygrad is a high-performance, memory-safe Rust ML training and inference library. It targets devices from microcontrollers to traditional GPUs with statically-typed kernels and full async support."
@@ -21,14 +21,14 @@ homepage = "https://teenygrad.org"
 readme = "README.md"
 
 [workspace.dependencies]
-teeny-core = { path = "core/teeny-core", version = "0.1.1" }
-teeny-macros = { path = "macros/teeny-macros", version = "0.1.1" }
-teeny-triton = { path = "kernels/teeny-triton", version = "0.1.1" }
-teeny-kernels = { path = "kernels/teeny-kernels", version = "0.1.1" }
-teeny-fxgraph = { path = "support/teeny-fxgraph", version = "0.1.0" }
-teeny-compiler = { path = "compiler/teeny-compiler", version = "0.1.1" }
-teeny-cuda = { path = "drivers/teeny-cuda", version = "0.1.1" }
-teeny-vision = { path = "models/teeny-vision", version = "0.1.1" }
+teeny-core = { path = "core/teeny-core", version = "0.1.2" }
+teeny-macros = { path = "macros/teeny-macros", version = "0.1.2" }
+teeny-triton = { path = "kernels/teeny-triton", version = "0.1.2" }
+teeny-kernels = { path = "kernels/teeny-kernels", version = "0.1.2" }
+teeny-fxgraph = { path = "support/teeny-fxgraph", version = "0.1.2" }
+teeny-compiler = { path = "compiler/teeny-compiler", version = "0.1.2" }
+teeny-cuda = { path = "drivers/teeny-cuda", version = "0.1.2" }
+teeny-vision = { path = "models/teeny-vision", version = "0.1.2" }
 
 anyhow = { version = "1.0.100", default-features = false }
 thiserror = { version = "2.0.18", default-features = false }

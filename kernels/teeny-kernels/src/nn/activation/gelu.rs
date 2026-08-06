@@ -27,6 +27,7 @@ use teeny_triton::triton::{
 
 /// Forward: y = x / (1 + exp(-2 * c * (x + a*x³)))
 ///   where c = sqrt(2/pi), a = 0.044715 — the tanh GELU approximation.
+// ANCHOR: gelu_forward
 #[kernel(backward = GeluBackward)]
 pub fn gelu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     x_ptr: T::Pointer<D>,
@@ -70,6 +71,8 @@ pub fn gelu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         None,
     );
 }
+
+// ANCHOR_END: gelu_forward
 
 /// Backward of the tanh-GELU approximation.
 ///   Let inner = x + a*x³, s = sigmoid(2c*inner), t = tanh(c*inner) = 2s-1

@@ -47,6 +47,7 @@ use teeny_triton::triton::{
 //   C[m, n] = sum_k A[m, k] * B[k, n]
 
 /// Forward: C = A @ B
+// ANCHOR: matmul_forward
 #[kernel]
 pub fn matmul_forward<T: Triton, D: Float, const BLOCK_K: i32>(
     a_ptr: T::Pointer<D>,
@@ -106,6 +107,7 @@ pub fn matmul_forward<T: Triton, D: Float, const BLOCK_K: i32>(
     let c_offset = T::arange(0, 1) + (m * N + n);
     T::store(c_ptr.add_offsets(c_offset), dot, None, &[], None, None);
 }
+// ANCHOR_END: matmul_forward
 
 /// Backward: dA = dC @ B^T,  dB = A^T @ dC
 ///

@@ -1,6 +1,6 @@
 # docs-site
 
-Builds and serves teenygrad's self-hosted docs (API reference + the [mdBook](../book/) SDK book)
+Builds and serves teenygrad's self-hosted docs (API reference + the [mdBook](../books/teenygrad/) SDK book)
 as one static site — this is what's deployed to `docs.teenygrad.org`.
 
 Self-hosted (rather than relying solely on docs.rs) because `teeny-cuda` requires the CUDA

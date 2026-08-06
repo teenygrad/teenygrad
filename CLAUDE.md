@@ -38,6 +38,13 @@ cargo test -p teeny-macros
 cargo test -p teeny-core test_name
 ```
 
+Kernel-compiling tests share `$TEENYC_CACHE_DIR` (default `/tmp/teenyc_cache`) as a scratch
+directory, and can race each other there under `cargo test`'s default parallelism, producing
+spurious "could not copy ... No such file or directory" failures. Use `./scripts/test.sh` in
+place of `cargo test` (same arguments) to start from a clean cache dir; if one of those tests
+still fails, rerun it alone (`cargo test -p <pkg> --test <name> -- --test-threads=1`) before
+assuming it's a real regression.
+
 ## System Setup (Ubuntu)
 
 ```bash

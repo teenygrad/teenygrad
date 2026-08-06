@@ -34,6 +34,7 @@ use teeny_triton::triton::{
 /// **Constraint**: `BLOCK_SIZE` must equal `n_cols` for this kernel; the caller
 /// is responsible for rounding `n_cols` up to the next power of two and passing
 /// that as `BLOCK_SIZE`.  No masking is needed when `BLOCK_SIZE == n_cols`.
+// ANCHOR: softmax_forward
 #[kernel]
 pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     x_ptr: T::Pointer<D>,
@@ -66,6 +67,7 @@ pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 
     T::store(y_ptr.add_offsets(offsets), y, None, &[], None, None);
 }
+// ANCHOR_END: softmax_forward
 
 /// Row-wise softmax backward pass.
 ///
