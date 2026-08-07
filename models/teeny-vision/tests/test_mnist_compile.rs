@@ -66,15 +66,16 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     // Every node except the Input placeholder must have a non-empty ptx_path
     // pointing to a file that actually exists on disk.
     //
-    // The DAG has 2 more nodes than the traced graph: TritonLowering splits
-    // each biased Conv2d into a bias-free Conv2dForward kernel plus a
-    // separate NchwBiasAddRuntimeOp node, and LeNet-5 has two biased Conv2d
-    // layers.
+    // In LoweringMode::Inference, TritonLowering lowers each biased Conv2d to a
+    // single fused conv2d_bias_forward kernel (spinorml-ia5) rather than
+    // splitting it into a bias-free Conv2dForward kernel plus a separate
+    // NchwBiasAddRuntimeOp node, so the DAG has the same node count as the
+    // traced graph — no extra splitting nodes.
     let dag = &model.dag;
     assert_eq!(
         dag.len(),
-        16,
-        "compiled DAG should have 2 extra nodes from Conv2d bias-add splitting"
+        graph.nodes.len(),
+        "compiled DAG should have no extra nodes: inference-mode Conv2d+bias fuses into one kernel"
     );
 
     let topo = dag.topological_sort();
@@ -99,8 +100,9 @@ fn test_mnist_graph_compiles() -> anyhow::Result<()> {
     }
 
     assert_eq!(
-        compiled_count, 15,
-        "expected 15 compiled kernels (all ops except Input, including split bias-adds)"
+        compiled_count,
+        graph.nodes.len() - 1,
+        "expected one compiled kernel per traced op (all nodes except Input)"
     );
 
     Ok(())
