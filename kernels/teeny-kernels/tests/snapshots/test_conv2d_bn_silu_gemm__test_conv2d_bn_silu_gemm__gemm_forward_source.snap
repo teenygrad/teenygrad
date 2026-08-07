@@ -65,5 +65,5 @@ pub extern "C" fn conv2d_bn_silu_gemm_forward_entry_point(x_ptr: *mut f32, w_ptr
     let bn_scale_ptr = LlvmPointer(bn_scale_ptr as *mut _);
     let bn_shift_ptr = LlvmPointer(bn_shift_ptr as *mut _);
     let y_ptr = LlvmPointer(y_ptr as *mut _);
-    conv2d_bn_silu_gemm_forward::<LlvmTriton, 32, 32, 32, 8>(x_ptr, w_ptr, bn_scale_ptr, bn_shift_ptr, y_ptr, B, C_IN, C_OUT, M);
+    conv2d_bn_silu_gemm_forward::<LlvmTriton, 64, 64, 16, 8>(x_ptr, w_ptr, bn_scale_ptr, bn_shift_ptr, y_ptr, B, C_IN, C_OUT, M);
 }
