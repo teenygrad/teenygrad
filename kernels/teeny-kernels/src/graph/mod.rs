@@ -2765,6 +2765,20 @@ impl TritonLowering {
                         ));
                     }
                 },
+
+                Op::Fused { members } => {
+                    // Graph::fuse_elementwise_chains() (teeny-core) is opt-in and not
+                    // called by optimise(), specifically because lowering here doesn't
+                    // exist yet — see that method's doc comment. A graph only reaches
+                    // this arm if a caller explicitly asked for elementwise fusion
+                    // without yet having a backend that can compile the result.
+                    return Err(anyhow::anyhow!(
+                        "Op::Fused lowering is not implemented yet ({} member op(s)): \
+                         concatenate each member's kernel source and synthesize an \
+                         entry point that runs them in sequence (see spinorml-1fj.1)",
+                        members.len()
+                    ));
+                }
             };
 
             let dag_idx = dag.add_node(executable);
