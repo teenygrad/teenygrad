@@ -182,7 +182,10 @@ impl Compiler for LlvmCompiler {
         };
         let kernel_file_name = format!("{}_{}", kernel.name(), effective_id);
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
-        let output_file = self.cache_dir.join(kernel_file_name).with_extension("o");
+        let output_file = self
+            .cache_dir
+            .join(kernel_file_name.clone())
+            .with_extension("o");
 
         if !output_file.exists() || force {
             anyhow::ensure!(
@@ -192,55 +195,93 @@ impl Compiler for LlvmCompiler {
                 self.teenyc_path
             );
 
-            let mut file = File::create(&kernel_file)?;
+            // Two callers compiling the *same* kernel hash concurrently (e.g. under `cargo
+            // test`'s default parallelism) must not both write `kernel_file`/invoke `teenyc`
+            // at once -- that races on the shared source path and can corrupt the output.
+            // A lock file scoped to this exact hash serializes only that collision: unrelated
+            // hashes use different lock files and keep compiling fully in parallel. The lock
+            // file itself is intentionally never deleted -- unlinking it here would race a
+            // concurrent locker into flock'ing a since-replaced inode, defeating the lock.
+            let lock_path = self.cache_dir.join(format!("{kernel_file_name}.lock"));
+            let mut lock = fd_lock::RwLock::new(File::create(&lock_path)?);
+            let _guard = lock.write()?;
 
-            info!("Writing kernel code to file");
-            file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
-            file.write_all(kernel.source().as_bytes())?;
+            // Double-check after acquiring the lock: if another process compiled (and
+            // released the lock for) this exact hash while we were waiting, reuse its
+            // output rather than redundantly recompiling. This -- not just avoiding the
+            // corrupted-write symptom -- is the actual point of taking the lock.
+            if !output_file.exists() || force {
+                let mut file = File::create(&kernel_file)?;
 
-            let mut cmd = Command::new(&self.teenyc_path);
-            cmd.arg(&kernel_file)
-                .arg("-Copt-level=3")
-                .arg("-Zcodegen-backend=mlir")
-                .arg("--emit=obj")
-                .arg(format!("-o{}", output_file.display()))
-                .arg("--target=nvptx64-nvidia-cuda")
-                .arg("--crate-type=lib")
-                .arg("-C")
-                .arg("overflow-checks=off")
-                .arg("--frontend=triton")
-                .current_dir(&self.cache_dir)
-                // `-Zcodegen-backend` is an unstable flag; `teenyc` is distributed on the
-                // "stable" channel (real version numbers, normal feature-gating), so without
-                // this it refuses with "the option `Z` is only accepted on the nightly
-                // compiler". `RUSTC_BOOTSTRAP=1` is the standard, narrowly-scoped way to permit
-                // specific unstable flags against a stable-channel compiler (the same mechanism
-                // rustc's own bootstrap, bindgen, and miri's installer rely on) without needing
-                // to distribute `teenyc` itself as a nightly build.
-                .env("RUSTC_BOOTSTRAP", "1");
-            if let Some(cpu) = &self.target_cpu {
-                cmd.arg(format!("-Ctarget-cpu={cpu}"));
-            }
-            if let Some(ptx_version) = self.ptx_version {
-                cmd.env("TEENYC_PTX_VERSION", ptx_version.to_string());
-            }
-            if let Some(log_level) = self.log_level {
-                cmd.env("RUSTC_LOG", format!("{TEENYC_MLIR_LOG_TARGET}={log_level}"));
-            }
-            let output = cmd.output()?;
+                info!("Writing kernel code to file");
+                file.write_all(teeny_triton::triton_lang::TRITON.as_bytes())?;
+                file.write_all(kernel.source().as_bytes())?;
 
-            // `teenyc`'s own tracing subscriber writes to its stderr; relay it through this
-            // process's tracing rather than printing directly, so it's filterable/routable like
-            // any other event here. Only worth the string conversion when logging was requested.
-            if self.log_level.is_some() {
-                for line in String::from_utf8_lossy(&output.stderr).lines() {
-                    tracing::debug!(target: "teeny_compiler::llvm::teenyc", "{line}");
+                // Compile to a unique per-process temp path and atomically rename it into
+                // place afterwards (POSIX `rename` is atomic within the same directory), so
+                // any reader of `output_file` never observes a partial write.
+                let tmp_output_file = self
+                    .cache_dir
+                    .join(format!("{kernel_file_name}.o.tmp.{}", std::process::id()));
+
+                let mut cmd = Command::new(&self.teenyc_path);
+                cmd.arg(&kernel_file)
+                    .arg("-Copt-level=3")
+                    .arg("-Zcodegen-backend=mlir")
+                    .arg("--emit=obj")
+                    .arg(format!("-o{}", tmp_output_file.display()))
+                    .arg("--target=nvptx64-nvidia-cuda")
+                    .arg("--crate-type=lib")
+                    .arg("-C")
+                    .arg("overflow-checks=off")
+                    .arg("--frontend=triton")
+                    .current_dir(&self.cache_dir)
+                    // `-Zcodegen-backend` is an unstable flag; `teenyc` is distributed on the
+                    // "stable" channel (real version numbers, normal feature-gating), so without
+                    // this it refuses with "the option `Z` is only accepted on the nightly
+                    // compiler". `RUSTC_BOOTSTRAP=1` is the standard, narrowly-scoped way to permit
+                    // specific unstable flags against a stable-channel compiler (the same mechanism
+                    // rustc's own bootstrap, bindgen, and miri's installer rely on) without needing
+                    // to distribute `teenyc` itself as a nightly build.
+                    .env("RUSTC_BOOTSTRAP", "1");
+                if let Some(cpu) = &self.target_cpu {
+                    cmd.arg(format!("-Ctarget-cpu={cpu}"));
                 }
-            }
+                if let Some(ptx_version) = self.ptx_version {
+                    cmd.env("TEENYC_PTX_VERSION", ptx_version.to_string());
+                }
+                if let Some(log_level) = self.log_level {
+                    cmd.env("RUSTC_LOG", format!("{TEENYC_MLIR_LOG_TARGET}={log_level}"));
+                }
+                let output = cmd.output()?;
 
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("rustc exited with status {}\n{}", output.status, stderr);
+                // `teenyc`'s own tracing subscriber writes to its stderr; relay it through this
+                // process's tracing rather than printing directly, so it's filterable/routable like
+                // any other event here. Only worth the string conversion when logging was requested.
+                if self.log_level.is_some() {
+                    for line in String::from_utf8_lossy(&output.stderr).lines() {
+                        tracing::debug!(target: "teeny_compiler::llvm::teenyc", "{line}");
+                    }
+                }
+
+                if !output.status.success() {
+                    let _ = std::fs::remove_file(&tmp_output_file);
+                    let _ = std::fs::remove_file(tmp_output_file.with_extension("mlir"));
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    anyhow::bail!("rustc exited with status {}\n{}", output.status, stderr);
+                }
+
+                // `teenyc` also writes a `.mlir` sidecar next to the object file (the
+                // pre-Triton MLIR source, read back by e.g. the `*_mlir_output` snapshot
+                // tests) -- derived from the same `-o` path, so it needs the same
+                // temp-then-rename treatment. It may not exist for every invocation, hence
+                // the existence check rather than treating a missing file as an error.
+                let tmp_mlir_file = tmp_output_file.with_extension("mlir");
+                if tmp_mlir_file.exists() {
+                    std::fs::rename(&tmp_mlir_file, output_file.with_extension("mlir"))?;
+                }
+
+                std::fs::rename(&tmp_output_file, &output_file)?;
             }
         }
 
