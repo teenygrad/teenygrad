@@ -74,11 +74,15 @@ pub trait CoerceUnsized<T: ?Sized> {}
 // wires up the syntactic coercion for shared references.
 impl<'a, 'b: 'a, T: ?Sized + Unsize<U>, U: ?Sized> CoerceUnsized<&'a U> for &'b T {}
 
-#[lang = "drop_in_place"]
+#[lang = "drop_glue"]
 #[allow(unconditional_recursion)]
+pub unsafe fn drop_glue<T: ?Sized>(to_drop: &mut T) {
+    // This function is a shim that the compiler fills in with the real drop glue.
+    unsafe { drop_glue(to_drop) }
+}
+
 pub unsafe fn drop_in_place<T: ?Sized>(to_drop: *mut T) {
-    // This function is a shim that the compiler fills in
-    unsafe { drop_in_place(to_drop) }
+    unsafe { drop_glue(&mut *to_drop) }
 }
 
 // Required language items for arithmetic operations
