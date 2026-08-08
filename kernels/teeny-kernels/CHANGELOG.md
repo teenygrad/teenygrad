@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.1.2...teeny-kernels-v0.1.3) - 2026-08-08
+
+### Added
+
+- *(graph)* add Op::Fused and an opt-in elementwise-chain fusion pass ([#19](https://github.com/teenygrad/teenygrad/pull/19))
+
+### Fixed
+
+- *(kernels)* unblock kernel compilation under rustc 1.97.1/LLVM 22/Triton 3.7.1
+- *(ci)* install the CUDA toolkit so Build/Clippy/Doc cover teeny-cuda and teeny-kernels ([#18](https://github.com/teenygrad/teenygrad/pull/18))
+
+### Other
+
+- *(kernels)* bless MLIR snapshots for loop-detector simplification
+- *(kernels)* pick GEMM tile size (BLOCK_M/N/K) per shape ([#20](https://github.com/teenygrad/teenygrad/pull/20))
+- *(kernels)* fuse Conv2d+bias into one kernel for inference ([#21](https://github.com/teenygrad/teenygrad/pull/21))
+- *(kernels)* make T::dot's InputPrecision required, not optional
+- *(kernels)* remove unused Capability imports across test files
+- *(kernels)* rewrite gemm.rs as a tiled GEMM using T::dot for tensor cores
+- release v0.1.2 ([#16](https://github.com/teenygrad/teenygrad/pull/16))
+
 ## [0.1.2](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.1.1...teeny-kernels-v0.1.2) - 2026-08-06
 
 ### Other

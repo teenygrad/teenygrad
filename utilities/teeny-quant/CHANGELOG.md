@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/teenygrad/teenygrad/compare/teeny-quant-v0.1.2...teeny-quant-v0.1.3) - 2026-08-08
+
+### Fixed
+
+- *(ci)* install the CUDA toolkit so Build/Clippy/Doc cover teeny-cuda and teeny-kernels ([#18](https://github.com/teenygrad/teenygrad/pull/18))
+
+### Other
+
+- bump crate versions to 0.1.3
+- release v0.1.2 ([#16](https://github.com/teenygrad/teenygrad/pull/16))
+
 ## [0.1.2](https://github.com/teenygrad/teenygrad/compare/teeny-quant-v0.1.1...teeny-quant-v0.1.2) - 2026-08-06
 
 ### Other
