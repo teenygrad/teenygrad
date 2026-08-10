@@ -626,5 +626,18 @@ pub mod core {
                 false
             }
         }
+
+        #[lang = "deref"]
+        pub trait Deref {
+            // No `?Sized` here: `Sized` lives at the DSL crate root and is not
+            // in scope inside `core::ops` (see E0405 on embedded kernel compile).
+            type Target;
+            fn deref(&self) -> &Self::Target;
+        }
+
+        #[lang = "deref_mut"]
+        pub trait DerefMut: Deref {
+            fn deref_mut(&mut self) -> &mut Self::Target;
+        }
     }
 }
