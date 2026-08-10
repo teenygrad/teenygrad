@@ -42,8 +42,8 @@ pub fn upsample_nearest2d_forward<
     const SCALE_W: i32,
     const BLOCK_OW: i32,
 >(
-    x_ptr: T::Pointer<D>, // input  [B, C, H, W]
-    y_ptr: T::Pointer<D>, // output [B, C, OH, OW]
+    x_ptr: InPtr<T::Pointer<D>>, // input  [B, C, H, W]
+    y_ptr: OutPtr<T::Pointer<D>>, // output [B, C, OH, OW]
     _B: i32,
     C: i32,
     H: i32,
@@ -123,8 +123,8 @@ pub fn upsample_nearest2d_backward<
     const SCALE_W: i32,
     const BLOCK_IW: i32,
 >(
-    dy_ptr: T::Pointer<D>, // upstream grad [B, C, OH, OW]
-    dx_ptr: T::Pointer<D>, // input    grad [B, C, H,  W]
+    dy_ptr: InPtr<T::Pointer<D>>, // upstream grad [B, C, OH, OW]
+    dx_ptr: OutPtr<T::Pointer<D>>, // input    grad [B, C, H,  W]
     _B: i32,
     C: i32,
     H: i32,

@@ -29,9 +29,9 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`, block `[128, 1, 1]`.
 #[kernel]
 pub fn l1_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -81,10 +81,10 @@ pub fn l1_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `sign(0) = 0` by convention (no gradient at the kink).
 #[kernel]
 pub fn l1_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -150,9 +150,9 @@ pub fn l1_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// Element-wise MSE loss forward: `out = (x - y)^2`.
 #[kernel]
 pub fn mse_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -201,10 +201,10 @@ pub fn mse_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Element-wise MSE backward: `dx = 2 * (x - y) * dy`.
 #[kernel]
 pub fn mse_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -270,9 +270,9 @@ pub fn mse_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn huber_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     delta: f32,
 ) where
@@ -337,10 +337,10 @@ pub fn huber_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn huber_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     delta: f32,
 ) where
@@ -420,9 +420,9 @@ pub fn huber_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn smooth_l1_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     beta: f32,
 ) where
@@ -487,10 +487,10 @@ pub fn smooth_l1_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn smooth_l1_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     beta: f32,
 ) where

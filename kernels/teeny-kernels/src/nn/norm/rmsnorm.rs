@@ -38,10 +38,10 @@ use teeny_triton::triton::{
 /// Grid: `[M]` — one CTA per row.
 #[kernel]
 pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    rrms_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    rrms_ptr: OutPtr<T::Pointer<D>>,
     _M: i32,
     N: i32,
     eps: f32,
@@ -134,12 +134,12 @@ pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 #[cfg(feature = "training")]
 #[kernel]
 pub fn rms_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    dweight_ptr: T::Pointer<D>,
-    rrms_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    dweight_ptr: InOutPtr<T::Pointer<D>>,
+    rrms_ptr: InPtr<T::Pointer<D>>,
     _M: i32,
     N: i32,
 ) where

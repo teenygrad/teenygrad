@@ -42,8 +42,8 @@ pub fn constant_pad3d_forward<
     const PW2: i32,
     const BLOCK_OW: i32,
 >(
-    input_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    input_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     Dv: i32,
@@ -134,8 +134,8 @@ pub fn constant_pad3d_backward<
     const PW2: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     Dv: i32,

@@ -35,10 +35,10 @@ use teeny_triton::triton::{
 /// Grid: `[n_rows, 1, 1]`.  `BLOCK_SIZE` must equal `next_power_of_two(n_dim)`.
 #[kernel]
 pub fn cosine_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x1_ptr: T::Pointer<f32>,
-    x2_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    x1_ptr: InPtr<T::Pointer<f32>>,
+    x2_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_dim: i32,
     margin: f32,
@@ -129,12 +129,12 @@ pub fn cosine_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[n_rows, 1, 1]`.  `BLOCK_SIZE` must equal `next_power_of_two(n_dim)`.
 #[kernel]
 pub fn cosine_embedding_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x1_ptr: T::Pointer<f32>,
-    x2_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx1_ptr: T::Pointer<f32>,
-    dx2_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x1_ptr: InPtr<T::Pointer<f32>>,
+    x2_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    dx1_ptr: OutPtr<T::Pointer<f32>>,
+    dx2_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_dim: i32,
     margin: f32,
@@ -255,10 +255,10 @@ pub fn cosine_embedding_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[n_rows, 1, 1]`.  `BLOCK_SIZE` must equal `next_power_of_two(n_dim)`.
 #[kernel]
 pub fn triplet_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    anchor_ptr: T::Pointer<f32>,
-    positive_ptr: T::Pointer<f32>,
-    negative_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    anchor_ptr: InPtr<T::Pointer<f32>>,
+    positive_ptr: InPtr<T::Pointer<f32>>,
+    negative_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_dim: i32,
     margin: f32,
@@ -337,13 +337,13 @@ pub fn triplet_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[n_rows, 1, 1]`.  `BLOCK_SIZE` must equal `next_power_of_two(n_dim)`.
 #[kernel]
 pub fn triplet_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    anchor_ptr: T::Pointer<f32>,
-    positive_ptr: T::Pointer<f32>,
-    negative_ptr: T::Pointer<f32>,
-    da_ptr: T::Pointer<f32>,
-    dp_ptr: T::Pointer<f32>,
-    dn_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    anchor_ptr: InPtr<T::Pointer<f32>>,
+    positive_ptr: InPtr<T::Pointer<f32>>,
+    negative_ptr: InPtr<T::Pointer<f32>>,
+    da_ptr: OutPtr<T::Pointer<f32>>,
+    dp_ptr: OutPtr<T::Pointer<f32>>,
+    dn_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_dim: i32,
     margin: f32,

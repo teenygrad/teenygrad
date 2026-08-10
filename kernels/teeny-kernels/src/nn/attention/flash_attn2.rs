@@ -51,11 +51,11 @@ use teeny_triton::triton::{
 /// Grid: `(N_CTX_Q, BH, 1)` — one CTA per `(batch_head, q_row)` pair.
 #[kernel]
 pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
-    q_ptr: T::Pointer<D>,
-    k_ptr: T::Pointer<D>,
-    v_ptr: T::Pointer<D>,
-    o_ptr: T::Pointer<D>,
-    l_ptr: T::Pointer<D>,
+    q_ptr: InPtr<T::Pointer<D>>,
+    k_ptr: InPtr<T::Pointer<D>>,
+    v_ptr: InPtr<T::Pointer<D>>,
+    o_ptr: OutPtr<T::Pointer<D>>,
+    l_ptr: OutPtr<T::Pointer<D>>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32, // 1 / sqrt(HEAD_DIM)
@@ -172,13 +172,13 @@ pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
 /// Grid: `(N_CTX_Q, BH, 1)` — same grid shape as the forward pass.
 #[kernel]
 pub fn flash_attention2_backward_dq<T: Triton, D: Float, const HEAD_DIM: i32>(
-    q_ptr: T::Pointer<D>,
-    k_ptr: T::Pointer<D>,
-    v_ptr: T::Pointer<D>,
-    o_ptr: T::Pointer<D>,
-    do_ptr: T::Pointer<D>,
-    l_ptr: T::Pointer<D>,
-    dq_ptr: T::Pointer<D>,
+    q_ptr: InPtr<T::Pointer<D>>,
+    k_ptr: InPtr<T::Pointer<D>>,
+    v_ptr: InPtr<T::Pointer<D>>,
+    o_ptr: InPtr<T::Pointer<D>>,
+    do_ptr: InPtr<T::Pointer<D>>,
+    l_ptr: InPtr<T::Pointer<D>>,
+    dq_ptr: OutPtr<T::Pointer<D>>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32,
@@ -310,14 +310,14 @@ pub fn flash_attention2_backward_dq<T: Triton, D: Float, const HEAD_DIM: i32>(
 /// Grid: `(N_CTX_K, BH, 1)`.
 #[kernel]
 pub fn flash_attention2_backward_dkv<T: Triton, D: Float, const HEAD_DIM: i32>(
-    q_ptr: T::Pointer<D>,
-    k_ptr: T::Pointer<D>,
-    v_ptr: T::Pointer<D>,
-    o_ptr: T::Pointer<D>,
-    do_ptr: T::Pointer<D>,
-    l_ptr: T::Pointer<D>,
-    dk_ptr: T::Pointer<D>,
-    dv_ptr: T::Pointer<D>,
+    q_ptr: InPtr<T::Pointer<D>>,
+    k_ptr: InPtr<T::Pointer<D>>,
+    v_ptr: InPtr<T::Pointer<D>>,
+    o_ptr: InPtr<T::Pointer<D>>,
+    do_ptr: InPtr<T::Pointer<D>>,
+    l_ptr: InPtr<T::Pointer<D>>,
+    dk_ptr: OutPtr<T::Pointer<D>>,
+    dv_ptr: OutPtr<T::Pointer<D>>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32,

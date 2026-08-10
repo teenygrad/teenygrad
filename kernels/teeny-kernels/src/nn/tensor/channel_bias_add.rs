@@ -39,9 +39,9 @@ use teeny_triton::triton::{
 /// Grid: `[C]` — one CTA per channel.
 #[kernel]
 pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    x_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     N: i32,
     C: i32,
 ) where
@@ -106,9 +106,9 @@ pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 /// Grid: `[C]` — one CTA per channel.
 #[kernel]
 pub fn channel_bias_add_backward<T: Triton, D: Float, const BLOCK_N: i32>(
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    dbias_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    dbias_ptr: OutPtr<T::Pointer<D>>,
     N: i32,
     C: i32,
 ) where
@@ -167,9 +167,9 @@ pub fn channel_bias_add_backward<T: Triton, D: Float, const BLOCK_N: i32>(
 /// H*W spatial positions in `BLOCK_HW`-wide tiles.
 #[kernel]
 pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
-    x_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     C: i32,
     HW: i32,
 ) where
@@ -230,9 +230,9 @@ pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
 /// H*W to avoid nested loops (which ICE the teenyc compiler).
 #[kernel]
 pub fn nchw_bias_add_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    dbias_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    dbias_ptr: OutPtr<T::Pointer<D>>,
     C: i32,
     HW: i32,
 ) where

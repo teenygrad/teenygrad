@@ -26,8 +26,8 @@ use teeny_core::{
 };
 use teeny_macros::kernel;
 use teeny_triton::triton::{
-    Axis, CacheModifier, DotFormat, EvictionPolicy, FpDowncastRounding, InputPrecision, MemScope,
-    MemSem, PaddingOption, Triton,
+    Axis, CacheModifier, DotFormat, EvictionPolicy, FpDowncastRounding, InPtr, InputPrecision,
+    MemScope, MemSem, OutPtr, PaddingOption, Triton,
 };
 
 use teeny_cuda::compiler::target::Capability;
@@ -35,9 +35,9 @@ use teeny_cuda::compiler::target::Capability;
 #[kernel]
 #[allow(unused)]
 fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) {
     fn combine_num<TT: Triton, DD: Dtype>(

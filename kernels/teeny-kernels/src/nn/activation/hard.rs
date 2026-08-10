@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = clamp(x, min_val, max_val)
 #[kernel(backward = HardtanhBackward)]
 pub fn hardtanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     min_val: f32,
     max_val: f32,
@@ -69,9 +69,9 @@ pub fn hardtanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if min_val < x < max_val else 0
 #[kernel]
 pub fn hardtanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     min_val: f32,
     max_val: f32,
@@ -126,8 +126,8 @@ pub fn hardtanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = clamp(x, 0, 6)
 #[kernel(backward = Relu6Backward)]
 pub fn relu6_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -165,9 +165,9 @@ pub fn relu6_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if 0 < x < 6 else 0
 #[kernel]
 pub fn relu6_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -219,8 +219,8 @@ pub fn relu6_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = clamp((x + 3) / 6, 0, 1)
 #[kernel(backward = HardsigmoidBackward)]
 pub fn hardsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -260,9 +260,9 @@ pub fn hardsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy/6 if |x| < 3 else 0
 #[kernel]
 pub fn hardsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -314,8 +314,8 @@ pub fn hardsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x * clamp((x + 3) / 6, 0, 1)
 #[kernel(backward = HardswishBackward)]
 pub fn hardswish_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -359,9 +359,9 @@ pub fn hardswish_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///   dx = dy*(2x+3)/6 otherwise
 #[kernel]
 pub fn hardswish_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -421,8 +421,8 @@ pub fn hardswish_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x if |x| > lambda else 0
 #[kernel(backward = HardshrinkBackward)]
 pub fn hardshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     lambda: f32,
 ) where
@@ -461,9 +461,9 @@ pub fn hardshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if |x| > lambda else 0
 #[kernel]
 pub fn hardshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     lambda: f32,
 ) where
