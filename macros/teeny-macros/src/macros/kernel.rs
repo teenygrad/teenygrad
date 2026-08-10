@@ -671,6 +671,47 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // so it can be embedded as a string literal in the generated concat!/format! call.
     let entry_point_fn_name = format!("{}_entry_point", fn_name_str);
 
+    // Fusion capability markers (metadata only — probe logic is the blanket in teeny-triton).
+    let block_size_field = const_params
+        .iter()
+        .zip(const_field_idents.iter())
+        .find(|(cp, _)| cp.ident == "BLOCK_SIZE")
+        .map(|(_, field)| field.clone());
+
+    let block_sized_impl = if let Some(field) = &block_size_field {
+        quote! {
+            impl #struct_generics_def ::teeny_triton::BlockSized
+                for #struct_ident #struct_generics_use
+            {
+                fn block_size(&self) -> i32 {
+                    self.#field
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let last_arg_is_n_elements = fn_inputs.last().is_some_and(|pt| {
+        let name_ok = match &*pt.pat {
+            Pat::Ident(pi) => pi.ident == "n_elements",
+            _ => false,
+        };
+        let ty_ok = matches!(&*pt.ty, Type::Path(tp) if tp.path.is_ident("i32"));
+        name_ok && ty_ok
+    });
+
+    let n_elements_tiled_impl = if block_size_field.is_some() && last_arg_is_n_elements {
+        quote! {
+            impl #struct_generics_def ::teeny_triton::NElementsTiled
+                for #struct_ident #struct_generics_use
+            {
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let struct_stream: TokenStream2 = quote! {
         #(#doc_attrs)*
         pub struct #struct_ident #struct_generics_def {
@@ -768,6 +809,21 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
         }
+
+        // Thin ABI metadata for fusion probing. Probe *logic* lives on
+        // `PointwiseFuseProbeExt`'s blanket impl in `teeny-triton`, not here.
+        impl #struct_generics_def ::teeny_triton::KernelIoLayout
+            for #struct_ident #struct_generics_use
+        {
+            fn kernel_io() -> ::teeny_triton::KernelIo {
+                ::teeny_triton::KernelIo {
+                    roles: &[ #(#ptr_roles),* ],
+                }
+            }
+        }
+
+        #block_sized_impl
+        #n_elements_tiled_impl
 
         impl #struct_generics_def teeny_core::device::program::Kernel
             for #struct_ident #struct_generics_use

@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-//! Concrete [`super::optimizer::GraphOptimizer`] implementations (LotR river names).
+//! Custom ops emitted by graph optimizers (composed kernels, not first-class `Op`s).
 
-mod anduin;
+mod pointwise_fuse;
 
-pub use anduin::Anduin;
+pub use pointwise_fuse::{probe_pointwise_op, PointwiseFuse};

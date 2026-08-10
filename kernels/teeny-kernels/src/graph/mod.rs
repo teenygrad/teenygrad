@@ -21,11 +21,9 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
-mod optimizer;
-pub mod optimizers;
+pub mod optimizer;
 
-pub use optimizer::GraphOptimizer;
-pub use optimizers::Anduin;
+pub use optimizer::{Anduin, GraphOptimizer, PointwiseFuse};
 
 use crate::nn::{
     activation::extra::{

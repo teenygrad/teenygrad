@@ -132,6 +132,16 @@ pub trait CustomOp: Any + Send + Sync {
     fn lower_backward_source(&self) -> String {
         String::new()
     }
+
+    /// Opt into Anduin pointwise fusion: return the CTA `BLOCK_SIZE` when this
+    /// custom op is unary elementwise with the standard `n_elements` grid.
+    ///
+    /// Default `None` (not pointwise-fusable). Graph optimizers live in
+    /// `teeny-kernels` and combine this with kernel probes; keep the hook here
+    /// so customs can participate without an op-name allowlist.
+    fn pointwise_fuse_block_size(&self) -> Option<i32> {
+        None
+    }
 }
 
 /// Wrapper around `Arc<dyn CustomOp>` that implements `Debug` for [`Op`].

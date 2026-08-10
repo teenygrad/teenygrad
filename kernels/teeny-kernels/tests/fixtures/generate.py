@@ -1082,4 +1082,14 @@ save(f"{d}/bn_running_mean.bin", bn_mean)
 save(f"{d}/bn_running_var.bin", bn_var)
 save(f"{d}/expected_forward.bin", y_a)
 
+# ── anduin_pointwise_relu_sigmoid (Relu → Sigmoid via PointwiseFuse) ──────────
+print("anduin_pointwise_relu_sigmoid")
+d = os.path.join(BASE, "anduin_pointwise_relu_sigmoid")
+os.makedirs(d, exist_ok=True)
+N_PW = 64
+x_pw = torch.empty(N_PW).uniform_(-2, 2)
+y_pw = torch.sigmoid(torch.relu(x_pw))
+save(f"{d}/x.bin", x_pw)
+save(f"{d}/expected_forward.bin", y_pw)
+
 print("\nDone — all fixtures generated.")

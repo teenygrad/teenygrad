@@ -184,3 +184,27 @@ fn test_relu_forward_kernel_io_is_unary_elementwise() {
     assert_eq!(io.first_in(), Some(0));
     assert_eq!(io.first_out(), Some(1));
 }
+
+#[test]
+fn test_relu_forward_pointwise_fuse_probe() {
+    use teeny_triton::{PointwiseFuseProbe, PointwiseFuseProbeExt};
+
+    let k = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(1024);
+    assert_eq!(
+        k.pointwise_fuse_probe(),
+        Some(PointwiseFuseProbe { block_size: 1024 })
+    );
+}
+
+#[test]
+fn test_softmax_forward_is_not_pointwise_fuse_probed() {
+    // Softmax is unary In/Out with BLOCK_SIZE, but last arg is n_cols — the
+    // macro must not stamp NElementsTiled, so the probe blanket does not apply.
+    // SoftmaxForward therefore does not implement PointwiseFuseProbeExt.
+    use teeny_triton::BlockSized;
+
+    type Softmax = teeny_kernels::nn::activation::softmax::SoftmaxForward<f32>;
+    assert!(Softmax::kernel_io().is_unary_elementwise());
+    let k = Softmax::new(64);
+    assert_eq!(k.block_size(), 64);
+}
