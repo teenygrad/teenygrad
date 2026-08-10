@@ -21,6 +21,12 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
+mod optimizer;
+pub mod optimizers;
+
+pub use optimizer::GraphOptimizer;
+pub use optimizers::Anduin;
+
 use crate::nn::{
     activation::extra::{
         LogSoftmaxBackward, LogSoftmaxForward, PreluForward, ShrinkRuntimeOp, SwishBackward,
@@ -513,12 +519,34 @@ impl RuntimeOp for InputRuntimeOp {
 // TritonLowering
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default)]
 pub struct TritonLowering {
     /// Target device's SM count for shape-adaptive conv tile-size selection — see
     /// `Options::sm_count`. `None` (the default from `new()`) preserves the fixed
     /// tile-size behavior every version before this had.
     sm_count: Option<u32>,
+    /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]).
+    optimizer: Option<Arc<dyn GraphOptimizer>>,
+}
+
+impl Default for TritonLowering {
+    fn default() -> Self {
+        Self {
+            sm_count: None,
+            optimizer: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for TritonLowering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TritonLowering")
+            .field("sm_count", &self.sm_count)
+            .field(
+                "optimizer",
+                &self.optimizer.as_ref().map(|o| o.name()),
+            )
+            .finish()
+    }
 }
 
 impl TritonLowering {
@@ -531,6 +559,13 @@ impl TritonLowering {
     /// `None` restores the default fixed-tile-size behavior.
     pub fn with_sm_count(mut self, sm_count: Option<u32>) -> Self {
         self.sm_count = sm_count;
+        self
+    }
+
+    /// Selects a [`GraphOptimizer`] (e.g. [`Anduin`]) to rewrite the graph before
+    /// lowering. Without an optimizer, the input graph is lowered as-is.
+    pub fn with_optimizer(mut self, optimizer: impl GraphOptimizer + 'static) -> Self {
+        self.optimizer = Some(Arc::new(optimizer));
         self
     }
 }
@@ -687,6 +722,14 @@ impl TritonLowering {
         mode: LoweringMode,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
         let _ = mode; // used by #[cfg(feature = "training")] branch below
+        let optimized;
+        let graph = match &self.optimizer {
+            Some(opt) => {
+                optimized = opt.optimize(graph)?;
+                &optimized
+            }
+            None => graph,
+        };
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         // Maps graph node index → DAG node index (one-to-one since we add every node)
@@ -2936,20 +2979,6 @@ impl TritonLowering {
                         ));
                     }
                 },
-
-                Op::Fused { members } => {
-                    // Graph::fuse_elementwise_chains() (teeny-core) is opt-in and not
-                    // called by optimise(), specifically because lowering here doesn't
-                    // exist yet — see that method's doc comment. A graph only reaches
-                    // this arm if a caller explicitly asked for elementwise fusion
-                    // without yet having a backend that can compile the result.
-                    return Err(anyhow::anyhow!(
-                        "Op::Fused lowering is not implemented yet ({} member op(s)): \
-                         concatenate each member's kernel source and synthesize an \
-                         entry point that runs them in sequence (see spinorml-1fj.1)",
-                        members.len()
-                    ));
-                }
             };
 
             let dag_idx = dag.add_node(executable);

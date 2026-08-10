@@ -17,7 +17,7 @@
 //! Tests for the fused Conv2d + BatchNorm2d + SiLU op.
 //!
 //! These tests verify:
-//! 1. `Graph::optimise()` correctly detects the Conv2d→BN→SiLU pattern and
+//! 1. [`Anduin`] correctly detects the Conv2d→BN→SiLU pattern and
 //!    replaces it with a single `Op::Conv2dBnSilu` node.
 //! 2. `TritonLowering` can lower `Op::Conv2dBnSilu` to a `KernelExecutable`
 //!    with the expected kernel source.
@@ -30,7 +30,7 @@ use teeny_core::{
     graph::{DtypeRepr, Graph, Op, SymTensor},
     model::LoweringMode,
 };
-use teeny_kernels::graph::TritonLowering;
+use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
 
 // ── CUDA numerical test setup ─────────────────────────────────────────────────
 
@@ -203,7 +203,7 @@ fn test_conv_bn_silu_graph_has_four_nodes() {
 #[test]
 fn test_optimise_fuses_conv_bn_silu() {
     let graph = build_conv_bn_silu_graph();
-    let opt = graph.optimise();
+    let opt = Anduin.optimize(&graph).unwrap();
 
     assert_eq!(
         opt.nodes.len(),
@@ -232,7 +232,7 @@ fn test_optimise_preserves_output_shape() {
     let graph = build_conv_bn_silu_graph();
     let original_output_shape = graph.nodes.last().unwrap().shape.clone();
 
-    let opt = graph.optimise();
+    let opt = Anduin.optimize(&graph).unwrap();
     let fused_shape = &opt.nodes[1].shape;
 
     assert_eq!(
@@ -244,7 +244,7 @@ fn test_optimise_preserves_output_shape() {
 #[test]
 fn test_optimise_rewires_inputs() {
     let graph = build_conv_bn_silu_graph();
-    let opt = graph.optimise();
+    let opt = Anduin.optimize(&graph).unwrap();
 
     // The fused node should take the Input node (index 0) as its only input.
     assert_eq!(
@@ -257,7 +257,7 @@ fn test_optimise_rewires_inputs() {
 #[test]
 fn test_lowering_produces_fused_kernel() {
     let graph = build_conv_bn_silu_graph();
-    let opt = graph.optimise();
+    let opt = Anduin.optimize(&graph).unwrap();
 
     let lowering = TritonLowering::new();
     let (dag, _mapping) = lowering
@@ -324,7 +324,7 @@ fn test_optimise_no_fusion_when_conv_has_bias() {
     drop(input);
     let graph = Rc::try_unwrap(graph_rc).ok().unwrap().into_inner();
 
-    let opt = graph.optimise();
+    let opt = Anduin.optimize(&graph).unwrap();
     // No fusion; all 4 nodes survive.
     assert_eq!(opt.nodes.len(), 4, "Conv2d-with-bias should not be fused");
     assert!(
@@ -382,7 +382,7 @@ fn test_optimise_no_fusion_when_conv_has_multiple_consumers() {
     drop(input);
     let graph = Rc::try_unwrap(graph_rc).ok().unwrap().into_inner();
 
-    let opt = graph.optimise();
+    let opt = Anduin.optimize(&graph).unwrap();
     // Conv has 2 consumers — must not fuse.
     assert!(
         !opt.nodes

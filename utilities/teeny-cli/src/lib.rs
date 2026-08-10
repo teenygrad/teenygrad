@@ -104,11 +104,13 @@ where
             // Match the runtime inference path (e.g. `build_infer_fn` in vision-rs's
             // parking-garage demo, and examples/yolo26.rs), which compiles the *optimised*
             // graph — fusing op sequences like Conv2d+BatchNorm2d+Silu into single fused
-            // nodes. Compiling the raw unoptimised graph here would AOT-compile kernels
-            // under different cache keys than what the optimised runtime graph looks up,
-            // making this cache useless (forcing a JIT compile — which fails on devices
-            // with no `teenyc` installed, the whole point of AOT-compiling ahead of time).
-            let graph = graph.borrow().optimise();
+            // nodes via Anduin. Compiling the raw unoptimised graph here would AOT-compile
+            // kernels under different cache keys than what the optimised runtime graph
+            // looks up, making this cache useless (forcing a JIT compile — which fails on
+            // devices with no `teenyc` installed, the whole point of AOT-compiling ahead
+            // of time).
+            use teeny_kernels::graph::{Anduin, GraphOptimizer};
+            let graph = Anduin.optimize(&graph.borrow())?;
 
             let options = teeny_cuda::compiler::options::Options::parse(
                 args.options.as_deref().unwrap_or(""),

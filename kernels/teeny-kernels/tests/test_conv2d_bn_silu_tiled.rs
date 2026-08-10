@@ -22,7 +22,7 @@ use teeny_core::{
     graph::{DtypeRepr, Graph, Op, SymTensor},
     model::LoweringMode,
 };
-use teeny_kernels::graph::TritonLowering;
+use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
 
 #[cfg(feature = "cuda")]
 use dotenv::dotenv;
@@ -161,7 +161,7 @@ fn build_tiled_graph() -> Graph {
 
 #[test]
 fn test_tiled_lowering_produces_tiled_kernel() {
-    let graph = build_tiled_graph().optimise();
+    let graph = Anduin.optimize(&build_tiled_graph()).unwrap();
     let lowering = TritonLowering::new();
     let (dag, _) = lowering
         .lower_with_mapping(&graph, LoweringMode::Inference)
@@ -176,7 +176,7 @@ fn test_tiled_lowering_produces_tiled_kernel() {
 
 #[test]
 fn test_tiled_kernel_source_snapshot() {
-    let graph = build_tiled_graph().optimise();
+    let graph = Anduin.optimize(&build_tiled_graph()).unwrap();
     let lowering = TritonLowering::new();
     let (dag, _) = lowering
         .lower_with_mapping(&graph, LoweringMode::Inference)
