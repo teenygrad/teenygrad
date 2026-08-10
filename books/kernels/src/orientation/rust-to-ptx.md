@@ -106,7 +106,7 @@ with no GPU and no toolchain. Only running needs the rest.
 |---|---|---|
 | `#[kernel]` | `teeny-macros` | Captures the source, generates the struct and entry point |
 | `Triton` trait | `teeny-triton` | The operations a kernel body may use |
-| `compile_kernel` | `teeny-compiler` | Finds `teenyc`, runs it, caches the PTX |
+| `compile_kernel` | `teeny-cuda` | Finds `teenyc`, runs it, caches the PTX |
 | `teenyc` | separate toolchain | The modified rustc that emits GPU code |
 | `Device`, `launch` | `teeny-cuda` | Loads the PTX and runs it |
 

@@ -14,15 +14,5 @@
  * limitations under the License.
  */
 
-use thiserror::Error;
-
 /// `teeny-compiler`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
-
-/// Errors produced by `teeny-compiler`.
-#[derive(Error, Debug)]
-pub enum Error {
-    /// A target capability string didn't match any known GPU architecture.
-    #[error("Unknown capability: {0}")]
-    UnknownCapability(String),
-}
