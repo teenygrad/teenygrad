@@ -297,14 +297,6 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let doc_attrs: Vec<&syn::Attribute> =
         attrs.iter().filter(|a| a.path().is_ident("doc")).collect();
 
-    // 1. Emit the original function unchanged.
-    let function_stream: TokenStream2 = quote! {
-        #[allow(non_snake_case)]
-        #[allow(clippy::too_many_arguments)]
-        #(#attrs)*
-        #vis #sig #block
-    };
-
     // 2. Find the hardware type param — the one with a `Triton` bound.
     let hw_ident: Ident = input
         .sig
@@ -457,6 +449,22 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
+    // Pointer args must be InPtr / OutPtr / InOutPtr (required for KernelIo / fusion).
+    for pt in &fn_inputs {
+        if let Some((PtrArgKind::Raw, _)) = classify_pointer_arg(&pt.ty, &hw_ident) {
+            let name = pat_to_str(&pt.pat);
+            return syn::Error::new_spanned(
+                &pt.ty,
+                format!(
+                    "pointer argument `{name}` must be wrapped in `InPtr` / `OutPtr` / \
+                     `InOutPtr` so fusion can classify I/O by signature"
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
     // Args<'a> tuple element types for the Kernel impl.
     let args_types: Vec<TokenStream2> = fn_inputs
         .iter()
@@ -578,6 +586,33 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     let original_source_str = quote!(#vis #device_sig #block).to_string();
+
+    // Host fn: unwrap In/Out markers at body start so descriptor/load/store APIs
+    // see bare `T::Pointer` (by-value args do not autoderef through Deref).
+    let ptr_unwraps: Vec<TokenStream2> = fn_inputs
+        .iter()
+        .filter_map(|pt| {
+            let (kind, _) = classify_pointer_arg(&pt.ty, &hw_ident)?;
+            if matches!(kind, PtrArgKind::Raw) {
+                return None;
+            }
+            let Pat::Ident(pi) = &*pt.pat else {
+                return None;
+            };
+            let name = &pi.ident;
+            Some(quote! { let #name = *#name; })
+        })
+        .collect();
+    let block_stmts = &input.block.stmts;
+    let function_stream: TokenStream2 = quote! {
+        #[allow(non_snake_case)]
+        #[allow(clippy::too_many_arguments)]
+        #(#attrs)*
+        #vis #sig {
+            #(#ptr_unwraps)*
+            #(#block_stmts)*
+        }
+    };
 
     // Struct ident (PascalCase of the function name).
     let struct_ident = Ident::new(&to_pascal_case(&fn_name_str), fn_ident.span());

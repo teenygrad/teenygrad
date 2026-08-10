@@ -30,8 +30,8 @@ use teeny_triton::triton::{
 /// Forward: y = x * sigmoid(x) = x / (1 + exp(-x))
 #[kernel]
 pub fn swish_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -70,9 +70,9 @@ pub fn swish_forward<T: Triton, const BLOCK_SIZE: i32>(
 ///             = (sig + x * sig * (1 - sig)) * dy
 #[kernel]
 pub fn swish_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -178,9 +178,9 @@ impl teeny_core::model::RuntimeOp for SwishForward {
 /// The slope tensor has the same shape as x (or broadcastable; kernel assumes same shape here).
 #[kernel]
 pub fn prelu_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    slope_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    slope_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -229,11 +229,11 @@ pub fn prelu_forward<T: Triton, const BLOCK_SIZE: i32>(
 ///           dslope = dy * min(x, 0) = dy * x if x < 0 else 0
 #[kernel]
 pub fn prelu_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    slope_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
-    dslope_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    slope_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
+    dslope_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -359,8 +359,8 @@ impl teeny_core::model::RuntimeOp for PreluForward {
 /// Forward: y = x if x > alpha else 0
 #[kernel]
 pub fn thresholded_relu_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -398,9 +398,9 @@ pub fn thresholded_relu_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if x > alpha else 0
 #[kernel]
 pub fn thresholded_relu_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -533,8 +533,8 @@ impl teeny_core::model::RuntimeOp for ThresholdedReluRuntimeOp {
 /// Forward: y = x - bias if x > lambd, x + bias if x < -lambd, else 0
 #[kernel]
 pub fn shrink_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     lambd: f32,
     bias: f32,
@@ -579,9 +579,9 @@ pub fn shrink_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if |x| > lambd else 0
 #[kernel]
 pub fn shrink_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    x_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     lambd: f32,
 ) where
@@ -719,8 +719,8 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
 /// Forward: y = x - log(sum(exp(x)))  [numerically stable: subtract max first]
 #[kernel]
 pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -752,9 +752,9 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy - softmax(x) * sum(dy)
 #[kernel]
 pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where

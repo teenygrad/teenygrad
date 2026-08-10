@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = x if x > 0 else negative_slope * x
 #[kernel(backward = LeakyReluBackward)]
 pub fn leaky_relu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     negative_slope: f32,
 ) where
@@ -68,9 +68,9 @@ pub fn leaky_relu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if x > 0 else negative_slope * dy
 #[kernel]
 pub fn leaky_relu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     negative_slope: f32,
 ) where
@@ -121,8 +121,8 @@ pub fn leaky_relu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x if x > threshold else value
 #[kernel(backward = ThresholdBackward)]
 pub fn threshold_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     threshold: f32,
     value: f32,
@@ -163,9 +163,9 @@ pub fn threshold_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if x > threshold else 0
 #[kernel]
 pub fn threshold_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     threshold: f32,
 ) where
@@ -216,8 +216,8 @@ pub fn threshold_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x / (1 + |x|)
 #[kernel(backward = SoftsignBackward)]
 pub fn softsign_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -255,9 +255,9 @@ pub fn softsign_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / (1 + |x|)²
 #[kernel]
 pub fn softsign_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -307,8 +307,8 @@ pub fn softsign_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x - lambda if x > lambda, x + lambda if x < -lambda, else 0
 #[kernel(backward = SoftshrinkBackward)]
 pub fn softshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     lambda: f32,
 ) where
@@ -352,9 +352,9 @@ pub fn softshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if |x| > lambda else 0
 #[kernel]
 pub fn softshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     lambda: f32,
 ) where
@@ -406,8 +406,8 @@ pub fn softshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///   For beta*x > threshold: y ≈ x (numerically safe pass-through)
 #[kernel(backward = SoftplusBackward)]
 pub fn softplus_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     beta: f32,
     threshold: f32,
@@ -453,9 +453,9 @@ pub fn softplus_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///   For beta*x > threshold: dx ≈ dy
 #[kernel]
 pub fn softplus_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
     beta: f32,
     threshold: f32,

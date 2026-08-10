@@ -34,9 +34,9 @@ use teeny_triton::triton::{
 /// `T::Pointer<_>` for `T::Tensor<i32>` covers the indexed load and store.
 #[kernel]
 pub fn nll_loss_forward<T: Triton>(
-    log_probs_ptr: T::Pointer<f32>,
-    targets_ptr: T::Pointer<i32>,
-    out_ptr: T::Pointer<f32>,
+    log_probs_ptr: InPtr<T::Pointer<f32>>,
+    targets_ptr: InPtr<T::Pointer<i32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -93,9 +93,9 @@ pub fn nll_loss_forward<T: Triton>(
 /// The dx buffer must be zero-initialised before launch.
 #[kernel]
 pub fn nll_loss_backward<T: Triton>(
-    dy_ptr: T::Pointer<f32>,
-    targets_ptr: T::Pointer<i32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    targets_ptr: InPtr<T::Pointer<i32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -150,9 +150,9 @@ pub fn nll_loss_backward<T: Triton>(
 /// `BLOCK_SIZE` must equal `next_power_of_two(n_cols)`.
 #[kernel]
 pub fn cross_entropy_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    targets_ptr: T::Pointer<i32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    targets_ptr: InPtr<T::Pointer<i32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -231,10 +231,10 @@ pub fn cross_entropy_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `BLOCK_SIZE` must equal `next_power_of_two(n_cols)`.
 #[kernel]
 pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    targets_ptr: T::Pointer<i32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    targets_ptr: InPtr<T::Pointer<i32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -323,9 +323,9 @@ pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`, block `[128, 1, 1]`.
 #[kernel]
 pub fn multilabel_soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -380,10 +380,10 @@ pub fn multilabel_soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `dx = (sigmoid(x) - target) * dy`
 #[kernel]
 pub fn multilabel_soft_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

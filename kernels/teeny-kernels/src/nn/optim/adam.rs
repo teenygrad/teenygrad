@@ -38,10 +38,10 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn adam_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: T::Pointer<f32>,
-    grad_ptr: T::Pointer<f32>,
-    exp_avg_ptr: T::Pointer<f32>,
-    exp_avg_sq_ptr: T::Pointer<f32>,
+    params_ptr: InOutPtr<T::Pointer<f32>>,
+    grad_ptr: InPtr<T::Pointer<f32>>,
+    exp_avg_ptr: InOutPtr<T::Pointer<f32>>,
+    exp_avg_sq_ptr: InOutPtr<T::Pointer<f32>>,
     n_elements: i32,
     step_size: f32,
     bias_corr2_sqrt: f32,
@@ -156,10 +156,10 @@ pub fn adam_step<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn adamw_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: T::Pointer<f32>,
-    grad_ptr: T::Pointer<f32>,
-    exp_avg_ptr: T::Pointer<f32>,
-    exp_avg_sq_ptr: T::Pointer<f32>,
+    params_ptr: InOutPtr<T::Pointer<f32>>,
+    grad_ptr: InPtr<T::Pointer<f32>>,
+    exp_avg_ptr: InOutPtr<T::Pointer<f32>>,
+    exp_avg_sq_ptr: InOutPtr<T::Pointer<f32>>,
     n_elements: i32,
     step_size: f32,
     bias_corr2_sqrt: f32,
