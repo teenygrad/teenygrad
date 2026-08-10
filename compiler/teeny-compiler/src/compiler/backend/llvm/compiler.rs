@@ -105,7 +105,7 @@ impl LlvmCompiler {
     ///
     /// `log_level` similarly defaults from `$TEENYC_LOG_LEVEL` if set (parse failures are
     /// ignored, falling back to `None`) — this lets any call site, including ones that don't
-    /// (or can't, e.g. a fixed helper like [`crate::compiler::driver::cuda::compile_kernel`])
+    /// (or can't, e.g. the CUDA `compile_kernel` helper in `teeny-cuda`)
     /// call [`Self::with_log_level`] directly, turn on pipeline-stage logging via the environment.
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
         let teenyc_path = teenyc_path.into();

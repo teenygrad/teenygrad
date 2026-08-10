@@ -17,7 +17,8 @@
 use std::path::PathBuf;
 
 use insta::assert_debug_snapshot;
-use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
+use teeny_cuda::compiler::target::Target;
 use teeny_core::{
     compiler::Compiler,
     device::program::Kernel,

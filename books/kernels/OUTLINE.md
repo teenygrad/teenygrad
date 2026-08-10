@@ -34,7 +34,7 @@ pieces are enough, and all four are in
 2. **The generated struct** — `#[kernel]` emits `ElemwiseAddForward<D>` with a
    `new(block_size)` constructor and a `Kernel` impl.
 3. **Compilation** — `compile_kernel(&kernel, &Target::new(capability), force)`
-   returns a path to PTX (`teeny_compiler::compiler::driver::cuda`).
+   returns a path to PTX (`teeny_cuda::compiler`).
 4. **The launch** — `device.launch(&program, &cfg, (ptrs…, scalars…))` with
    buffers from `device.buffer::<f32>(n)`.
 
@@ -95,7 +95,7 @@ SM capability; the kernel cache.
 **Uses.** `teeny_macros::kernel` (source capture and entry-point generation,
 `macros/teeny-macros/src/macros/kernel.rs`); `teeny_compiler::compiler::find_teenyc`;
 `default_cache_dir`; `$TEENYC_PATH`, `$TEENYC_CACHE_DIR`, `$TEENYC_PTX_VERSION`;
-`Capability` (`drivers/teeny-cuda/src/target.rs`: `Sm75`…`Sm120`);
+`Capability` (`drivers/teeny-cuda/src/compiler/target.rs`: `Sm75`…`Sm120`);
 `kernels/teeny-triton/build.rs`, which embeds the DSL's own source as the
 `TRITON` string the kernel is compiled against.
 

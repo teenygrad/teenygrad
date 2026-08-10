@@ -24,8 +24,8 @@ backend that does not exist yet.
 | `#[kernel]` and the generated struct | Yes — device-independent |
 | `CustomOp`, the graph, `SymTensor` | Yes — no device concepts |
 | `RuntimeOp` | Mostly — `block`/`grid` are a CUDA-shaped model |
-| `compile_kernel`, `Target` | No — `driver::cuda`, `target::cuda` |
-| `Capability` | No — `sm_75`…`sm_120` |
+| `compile_kernel`, `Target` | No — `teeny_cuda::compiler` |
+| `Capability` | No — `sm_75`…`sm_120` in `teeny-cuda` |
 | `Device`, `Buffer`, `launch` | No — `teeny-cuda` is the only implementation |
 | PTX | No — NVIDIA's assembly |
 
