@@ -562,10 +562,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         visitor.visit_i32(output_shape[3] as i32);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
         [
@@ -607,11 +603,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         visitor.visit_i32(in_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     /// Grid over forward-output positions (same formula as forward).
@@ -812,10 +803,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dBias
         visitor.visit_i32(input_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

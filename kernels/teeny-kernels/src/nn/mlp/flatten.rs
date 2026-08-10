@@ -137,10 +137,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for FlattenFor
         visitor.visit_i32(1); // stride_in = 1
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid encodes (pid_b, pid_n) = (pid / num_pid_n, pid % num_pid_n)
         let pb = output_shape[0].div_ceil(self.block_b as usize);

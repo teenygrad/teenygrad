@@ -283,7 +283,6 @@ pub fn nchw_bias_add_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
 pub struct NchwBiasAddRuntimeOp<D: Float + Send + Sync + 'static> {
     fwd: NchwBiasAddForward<D>,
     bwd: NchwBiasAddBackward<D>,
-    block_hw: i32,
 }
 
 impl<D: Float + Send + Sync + 'static> NchwBiasAddRuntimeOp<D> {
@@ -291,7 +290,6 @@ impl<D: Float + Send + Sync + 'static> NchwBiasAddRuntimeOp<D> {
         Self {
             fwd: NchwBiasAddForward::<D>::new(block_hw),
             bwd: NchwBiasAddBackward::<D>::new(block_hw),
-            block_hw,
         }
     }
     pub fn forward_source(&self) -> &str {
@@ -337,10 +335,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for NchwBias
         visitor.visit_i32(hw);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.block_hw as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[1] as u32, output_shape[0] as u32, 1]
     }
@@ -372,11 +366,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for NchwBias
         // B is encoded in grid.y — not passed as a kernel arg.
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_hw as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]
@@ -457,10 +446,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelB
         visitor.visit_ptr(output); // y_ptr
         visitor.visit_i32(n_spatial); // N
         visitor.visit_i32(c as i32); // C
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

@@ -89,14 +89,12 @@ fn pack_backward_args(
 );
 
 #[cfg(feature = "training")]
-fn backward_block(&self) -> [u32; 3];
-
-#[cfg(feature = "training")]
 fn backward_grid(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3];
 ```
 
 Same contract as Chapter 21, same absence of checking, with more buffers to get
-in the right order.
+in the right order. Backward threads, like forward, come from the compiled PTX
+metadata — not from `RuntimeOp`.
 
 Two defaults are worth knowing because they fail quietly:
 
