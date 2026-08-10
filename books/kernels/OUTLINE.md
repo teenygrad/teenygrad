@@ -80,9 +80,10 @@ the CUDA SIMT model of one thread per element; why block sizes are powers of two
 **Example.** None — a diagram and a walk through `elemwise_add_forward`'s first
 three lines.
 
-**Note.** The word "thread" still appears in this SDK's API —
-`RuntimeOp::block()` is documented as "threads-per-CTA". The chapter has to name
-that seam rather than pretend the CUDA layer is invisible.
+**Note.** The word "thread" still appears at the CUDA launch boundary
+(`CudaLaunchConfig::block`, PTX `.reqntid`), but not on `RuntimeOp` — threads
+come from compiled metadata. The chapter has to name that seam rather than
+pretend the CUDA layer is invisible.
 
 ### 3. From Rust to PTX
 
@@ -441,7 +442,7 @@ the one item that should be resolved before Chapter 21 is written.**
 forward's saved output.
 
 **Uses.** `#[kernel(backward = …)]`; `LoweringMode::{Inference, Training}`;
-`RuntimeOp::{has_backward, pack_backward_args, backward_block, backward_grid,
+`RuntimeOp::{has_backward, pack_backward_args, backward_grid,
 backward_grad_output_row_stride, n_backward_launches}`;
 `CustomOp::lower_backward_source`; the `training` cargo feature;
 `elemwise_add_backward` and `softmax_backward` as references.

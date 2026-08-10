@@ -326,10 +326,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv1dForw
         visitor.visit_i32(output_shape[2] as i32); // OL
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ol_tiles = output_shape[2].div_ceil(self.block_ol as usize);
         [

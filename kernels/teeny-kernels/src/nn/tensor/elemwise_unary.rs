@@ -51,9 +51,6 @@ macro_rules! impl_float_unary_runtime_op {
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n as i32);
             }
-            fn block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
-            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n: usize = output_shape.iter().product();
                 [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -80,10 +77,6 @@ macro_rules! impl_float_unary_runtime_op {
                 visitor.visit_ptr(inputs[0].0);
                 visitor.visit_ptr(grad_inputs[0]);
                 visitor.visit_i32(n as i32);
-            }
-            #[cfg(feature = "training")]
-            fn backward_block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
             }
             #[cfg(feature = "training")]
             fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -117,9 +110,6 @@ macro_rules! impl_float_unary_runtime_op_no_bwd {
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n as i32);
             }
-            fn block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
-            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n: usize = output_shape.iter().product();
                 [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -150,9 +140,6 @@ macro_rules! impl_num_unary_runtime_op {
                 visitor.visit_ptr(inputs[0].0);
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n as i32);
-            }
-            fn block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
             }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n: usize = output_shape.iter().product();
@@ -185,9 +172,6 @@ macro_rules! impl_num_unary_runtime_op_with_bwd {
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n as i32);
             }
-            fn block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
-            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n: usize = output_shape.iter().product();
                 [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -214,10 +198,6 @@ macro_rules! impl_num_unary_runtime_op_with_bwd {
                 visitor.visit_ptr(inputs[0].0);
                 visitor.visit_ptr(grad_inputs[0]);
                 visitor.visit_i32(n as i32);
-            }
-            #[cfg(feature = "training")]
-            fn backward_block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
             }
             #[cfg(feature = "training")]
             fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -252,9 +232,6 @@ macro_rules! impl_num_neg_bwd_runtime_op {
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n as i32);
             }
-            fn block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
-            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n: usize = output_shape.iter().product();
                 [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -280,10 +257,6 @@ macro_rules! impl_num_neg_bwd_runtime_op {
                 visitor.visit_ptr(grad_output);
                 visitor.visit_ptr(grad_inputs[0]);
                 visitor.visit_i32(n as i32);
-            }
-            #[cfg(feature = "training")]
-            fn backward_block(&self) -> [u32; 3] {
-                [self.block_size as u32, 1, 1]
             }
             #[cfg(feature = "training")]
             fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -571,9 +544,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for Elemwise
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(n as i32);
-    }
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();

@@ -58,8 +58,8 @@ pub struct CudaLaunchConfig {
 Plus the const generics, chosen when you build the kernel. That is the whole
 surface.
 
-`RuntimeOp` exposes the same two through `block()` and `grid()`, and the helpers
-in `teeny_cuda::testing` build a config for you:
+`RuntimeOp` exposes the program count through `grid()`; thread count comes from
+the compiled PTX. The helpers in `teeny_cuda::testing` build a config for you:
 
 | Helper | Use |
 |---|---|

@@ -207,10 +207,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelChu
         visitor.visit_i32(chunk_offset);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.fwd.block_size as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // Grid over n_spatial * ceil(chunk_c_nc / block_size)
         // output_shape = [B, chunk_c, H, W]

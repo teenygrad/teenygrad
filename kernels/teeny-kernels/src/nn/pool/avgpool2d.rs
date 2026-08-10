@@ -228,10 +228,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Avgpool2dF
         visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid = ((b * C + c) * OH + oh) * num_ow_tiles + ow_tile
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);

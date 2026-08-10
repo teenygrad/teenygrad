@@ -4,15 +4,14 @@
 the thing that launches kernels: how many inputs, what buffers, which arguments
 in what order, and how big a grid.
 
-The trait has twenty methods. You need five.
+The trait has many methods. You need four.
 
-## The five
+## The four
 
 ```rust,ignore
 fn n_activation_inputs(&self) -> usize;
 fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>>;
 fn pack_args(&self, inputs, params, output, output_shape, output_row_stride, visitor);
-fn block(&self) -> [u32; 3];
 fn grid(&self, output_shape: &[usize]) -> [u32; 3];
 ```
 
@@ -115,11 +114,9 @@ Until that changes: write `pack_args` immediately after the kernel signature,
 keep the comments, and make the first test one that checks numbers rather than
 that it runs.
 
-## Block and grid
+## Grid (and where threads come from)
 
 ```rust,ignore
-fn block(&self) -> [u32; 3] { [self.block_a as u32, 1, 1] }
-
 fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
     let b = output_shape[0];
     let a = output_shape[2];
@@ -128,16 +125,16 @@ fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
 }
 ```
 
-`block` is threads per program. For an elementwise kernel that is the same
-number as its `BLOCK_SIZE` const generic, and your op has to keep the two in
-step because nothing else will.
+`grid` is how many programs to launch — Chapter 6's division, rounded up, with
+the real output shape. Compute it from the *data* one program covers (your
+`BLOCK_SIZE` / tile consts), not from CUDA thread counts.
 
-For a tiled kernel it is not. `conv2d_bn_silu`'s `BLOCK_OW` is 16 — the width of
-an output tile — while its bench launches with 128 threads. The const generic
-describes the *data* one program covers; the block describes the *threads* that
-cover it. Chapter 16 pulls those apart.
+Threads per program are not part of `RuntimeOp`. `teenyc` picks them and writes
+`.reqntid` into the PTX; the CUDA executor reads
+`program.metadata.threads_per_block()` at launch. For a tiled kernel the split
+is especially clear: `conv2d_bn_silu`'s `BLOCK_OW` is 16 (tile width) while the
+compiled kernel typically runs with 128 threads. Chapter 16 pulls those apart.
 
-`grid` is Chapter 6's division, rounded up, now with the real output shape.
 `detect_decode` launches a flat grid over both the batch and the anchor tiles,
 which the kernel then splits apart with a divide and a remainder — the pattern
 from Chapter 6.

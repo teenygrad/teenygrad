@@ -306,10 +306,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         visitor.visit_i32(1); // stride_yn = 1
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid encodes (pid_m, pid_n) grouped by GROUP_M
         let pm = output_shape[0].div_ceil(self.block_m as usize);
@@ -379,11 +375,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         visitor.visit_i32(1); // stride_dwk = 1
         visitor.visit_i32(k); // stride_dwn = K
         visitor.visit_i32(1); // stride_dbn = 1
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     // Grid: ceil(M/BM) * ceil(N/BN) * ceil(K/BK) CTAs

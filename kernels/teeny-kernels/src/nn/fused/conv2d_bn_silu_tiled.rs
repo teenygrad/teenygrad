@@ -281,10 +281,6 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
         visitor.visit_i32(y_col_stride); // y_col_stride
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
         let num_n_tiles = output_shape[1].div_ceil(self.block_n as usize);

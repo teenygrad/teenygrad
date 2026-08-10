@@ -252,10 +252,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         [(n_spatial * num_tiles) as u32, 1, 1]
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.fwd.block_size as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n_spatial = output_shape[0];
         let c = output_shape[1] * output_shape[2] * output_shape[3];

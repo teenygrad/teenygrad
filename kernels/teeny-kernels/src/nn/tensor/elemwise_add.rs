@@ -147,10 +147,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseAd
         visitor.visit_i32(n as i32); // n_elements
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -179,11 +175,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseAd
         visitor.visit_ptr(grad_inputs[0]); // grad_a_ptr
         visitor.visit_ptr(grad_inputs[1]); // grad_b_ptr
         visitor.visit_i32(n as i32); // n_elements
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]

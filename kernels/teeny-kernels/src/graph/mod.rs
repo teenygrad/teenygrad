@@ -394,9 +394,6 @@ macro_rules! impl_stub_runtime_op_num {
             ) {
                 unimplemented!()
             }
-            fn block(&self) -> [u32; 3] {
-                unimplemented!()
-            }
             fn grid(&self, _: &[usize]) -> [u32; 3] {
                 unimplemented!()
             }
@@ -422,9 +419,6 @@ macro_rules! impl_stub_runtime_op_float {
                 _: i32,
                 _: &mut dyn teeny_core::device::program::ArgVisitor,
             ) {
-                unimplemented!()
-            }
-            fn block(&self) -> [u32; 3] {
                 unimplemented!()
             }
             fn grid(&self, _: &[usize]) -> [u32; 3] {
@@ -509,9 +503,6 @@ impl RuntimeOp for InputRuntimeOp {
         _: i32,
         _: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-    }
-    fn block(&self) -> [u32; 3] {
-        [1, 1, 1]
     }
     fn grid(&self, _: &[usize]) -> [u32; 3] {
         [0, 0, 0]

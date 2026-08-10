@@ -282,10 +282,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRunt
         visitor.visit_i32(k);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let m = output_shape.first().copied().unwrap_or(1) as u32;
         let n = output_shape.last().copied().unwrap_or(1) as u32;
@@ -323,11 +319,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRunt
         visitor.visit_i32(m);
         visitor.visit_i32(n);
         visitor.visit_i32(k);
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     #[cfg(feature = "training")]

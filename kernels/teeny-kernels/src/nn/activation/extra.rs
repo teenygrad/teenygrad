@@ -138,9 +138,6 @@ impl teeny_core::model::RuntimeOp for SwishForward {
         visitor.visit_ptr(output);
         visitor.visit_i32(n as i32);
     }
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
-    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -167,10 +164,6 @@ impl teeny_core::model::RuntimeOp for SwishForward {
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(grad_inputs[0]);
         visitor.visit_i32(n as i32);
-    }
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -325,9 +318,6 @@ impl teeny_core::model::RuntimeOp for PreluForward {
         visitor.visit_ptr(output);
         visitor.visit_i32(n as i32);
     }
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
-    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -356,10 +346,6 @@ impl teeny_core::model::RuntimeOp for PreluForward {
         visitor.visit_ptr(grad_inputs[0]); // dx
         visitor.visit_ptr(grad_inputs[1]); // dslope
         visitor.visit_i32(n as i32);
-    }
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -507,9 +493,6 @@ impl teeny_core::model::RuntimeOp for ThresholdedReluRuntimeOp {
         visitor.visit_i32(n as i32);
         visitor.visit_f32(self.alpha);
     }
-    fn block(&self) -> [u32; 3] {
-        [self.kernel.block_size as u32, 1, 1]
-    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.kernel.block_size as usize) as u32, 1, 1]
@@ -537,10 +520,6 @@ impl teeny_core::model::RuntimeOp for ThresholdedReluRuntimeOp {
         visitor.visit_ptr(grad_inputs[0]);
         visitor.visit_i32(n as i32);
         visitor.visit_f32(self.alpha);
-    }
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.kernel.block_size as u32, 1, 1]
     }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -698,9 +677,6 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
         visitor.visit_f32(self.lambd);
         visitor.visit_f32(self.bias);
     }
-    fn block(&self) -> [u32; 3] {
-        [self.kernel.block_size as u32, 1, 1]
-    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.kernel.block_size as usize) as u32, 1, 1]
@@ -728,10 +704,6 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
         visitor.visit_ptr(grad_inputs[0]);
         visitor.visit_i32(n as i32);
         visitor.visit_f32(self.lambd);
-    }
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.kernel.block_size as u32, 1, 1]
     }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -844,9 +816,6 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
         visitor.visit_i32(n_rows);
         visitor.visit_i32(n_cols);
     }
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
-    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape.first().copied().unwrap_or(1) as u32, 1, 1]
     }
@@ -874,10 +843,6 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
         visitor.visit_ptr(grad_inputs[0]);
         visitor.visit_i32(n_rows);
         visitor.visit_i32(n_cols);
-    }
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {

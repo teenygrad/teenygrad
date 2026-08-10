@@ -547,10 +547,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_f32(self.eps); // eps
     }
 
-    fn block(&self) -> [u32; 3] {
-        [1, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // one CTA per row; M = product of all dims except last
         let n = *output_shape.last().unwrap();
