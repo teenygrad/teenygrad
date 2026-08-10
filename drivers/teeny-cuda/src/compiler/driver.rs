@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-use teeny_core::compiler::{Capability, Compiler};
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
+use teeny_core::compiler::Compiler;
 use teeny_core::device::program::Kernel;
 
-use crate::compiler::backend::llvm::compiler::LlvmCompiler;
-use crate::compiler::target::cuda::Target;
+use crate::compiler::target::{Capability, Target};
 use crate::errors::Result;
 
 /// Highest SM version our Triton MLIR codegen has validated support for.
@@ -40,11 +40,11 @@ use crate::errors::Result;
 const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm120;
 
 /// Compiles `kernel` for `target` via the LLVM backend, using the `teenyc` binary resolved by
-/// [`crate::compiler::find_teenyc`] and the default cache directory. Set `force` to recompile
-/// even if a cached artifact exists.
+/// [`teeny_compiler::compiler::find_teenyc`] and the default cache directory. Set `force` to
+/// recompile even if a cached artifact exists.
 pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
-    let teenyc_path = crate::compiler::find_teenyc()?;
-    let cache_dir = crate::compiler::default_cache_dir();
+    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
+    let cache_dir = teeny_compiler::compiler::default_cache_dir();
 
     let effective_cpu = clamp_capability(target.capability).to_string();
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?.with_target_cpu(effective_cpu);

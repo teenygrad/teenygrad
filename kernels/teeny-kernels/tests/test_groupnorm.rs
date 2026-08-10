@@ -17,7 +17,7 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::program::Kernel;
 
 #[cfg(feature = "cuda")]

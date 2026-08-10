@@ -36,7 +36,7 @@ use teeny_core::nn::Layer;
 
 /// Default fallback cache directory when neither `--cache-dir` nor
 /// `$TEENYC_CACHE_DIR` is set. Matches the default used by the runtime JIT
-/// compile path (`teeny_compiler::compiler::driver::cuda::compile_kernel`).
+/// compile path (`teeny_cuda::compiler::compile_kernel`).
 const DEFAULT_CACHE_DIR: &str = "/tmp/teenyc_cache";
 
 /// Shared AOT-compile CLI arguments. Flatten this into your own `clap`
