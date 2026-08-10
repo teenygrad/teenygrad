@@ -67,9 +67,6 @@ macro_rules! impl_reduce_num_runtime_op {
                 visitor.visit_i32(n_inner as i32);
                 visitor.visit_i32(n_outer as i32);
             }
-            fn block(&self) -> [u32; 3] {
-                [self.block_inner as u32, 1, 1]
-            }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n_outer: usize = output_shape.iter().product::<usize>().max(1);
                 [n_outer as u32, 1, 1]
@@ -107,9 +104,6 @@ macro_rules! impl_reduce_float_runtime_op {
                 visitor.visit_ptr(output);
                 visitor.visit_i32(n_inner as i32);
                 visitor.visit_i32(n_outer as i32);
-            }
-            fn block(&self) -> [u32; 3] {
-                [self.block_inner as u32, 1, 1]
             }
             fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
                 let n_outer: usize = output_shape.iter().product::<usize>().max(1);
@@ -604,9 +598,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumSumForw
         visitor.visit_i32(n_inner as i32);
         visitor.visit_i32(n_outer as i32);
     }
-    fn block(&self) -> [u32; 3] {
-        [self.block_inner as u32, 1, 1]
-    }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n_total: usize = output_shape.iter().product();
         let n_inner = output_shape.last().copied().unwrap_or(1);
@@ -673,9 +664,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdFor
         visitor.visit_ptr(output);
         visitor.visit_i32(n_inner as i32);
         visitor.visit_i32(n_outer as i32);
-    }
-    fn block(&self) -> [u32; 3] {
-        [self.block_inner as u32, 1, 1]
     }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n_total: usize = output_shape.iter().product();

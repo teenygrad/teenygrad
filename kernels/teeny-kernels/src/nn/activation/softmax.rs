@@ -158,10 +158,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxF
         visitor.visit_i32(n_cols);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     // One CTA per row.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[0] as u32, 1, 1]

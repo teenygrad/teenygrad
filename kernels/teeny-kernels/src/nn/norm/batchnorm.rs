@@ -439,10 +439,6 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_f32(self.momentum);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [1, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let c = output_shape[0] / 2;
         [c as u32, 1, 1]
@@ -516,10 +512,6 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_i32(c as i32);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [1, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let c = output_shape.get(1).copied().unwrap_or(output_shape[0]);
         [c as u32, 1, 1]
@@ -560,10 +552,6 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_ptr(grad_params[1]); // dbias_ptr
         visitor.visit_i32(n);
         visitor.visit_i32(c as i32);
-    }
-
-    fn backward_block(&self) -> [u32; 3] {
-        [1, 1, 1]
     }
 
     fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
@@ -762,10 +750,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_f32(self.eps);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.block_hw as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[1] as u32, output_shape[0] as u32, 1]
     }
@@ -805,11 +789,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
         visitor.visit_f32(self.eps);
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_hw as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]

@@ -249,10 +249,6 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
         visitor.visit_i32(output_row_stride); // y_row_stride
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let b = output_shape[0];
         let m = output_shape[2] * output_shape[3]; // OH * OW
