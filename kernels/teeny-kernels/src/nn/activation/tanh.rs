@@ -121,8 +121,8 @@ pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x - tanh(x)
 #[kernel(backward = TanhshrinkBackward)]
 pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -164,10 +164,10 @@ pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///   Since y = x - tanh(x), we have tanh(x) = x - y, so tanh²(x) = (x-y)².
 #[kernel]
 pub fn tanhshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

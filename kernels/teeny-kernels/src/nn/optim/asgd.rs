@@ -34,9 +34,9 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn asgd_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: T::Pointer<f32>,
-    grad_ptr: T::Pointer<f32>,
-    ax_ptr: T::Pointer<f32>,
+    params_ptr: InOutPtr<T::Pointer<f32>>,
+    grad_ptr: InPtr<T::Pointer<f32>>,
+    ax_ptr: InOutPtr<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     weight_decay: f32,

@@ -35,9 +35,9 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`, block `[128, 1, 1]`.
 #[kernel]
 pub fn bce_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -96,10 +96,10 @@ pub fn bce_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn bce_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -172,9 +172,9 @@ pub fn bce_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn bce_with_logits_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -228,10 +228,10 @@ pub fn bce_with_logits_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `dx = sigmoid(x) - target`
 #[kernel]
 pub fn bce_with_logits_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -301,9 +301,9 @@ pub fn bce_with_logits_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// Numerically stable via: `log(1 + exp(-t*x)) = max(-t*x, 0) + log(1 + exp(-|t*x|))`
 #[kernel]
 pub fn soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -359,10 +359,10 @@ pub fn soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn soft_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -436,9 +436,9 @@ pub fn soft_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// Masked: `out = 0` where `target <= 0`.
 #[kernel]
 pub fn kl_div_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -493,9 +493,9 @@ pub fn kl_div_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `dx = -target`
 #[kernel]
 pub fn kl_div_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -550,9 +550,9 @@ pub fn kl_div_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn poisson_nll_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -603,10 +603,10 @@ pub fn poisson_nll_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `dx = (exp(input) - target) * dy`
 #[kernel]
 pub fn poisson_nll_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -672,10 +672,10 @@ pub fn poisson_nll_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// `var` is clamped to `eps_var` from below for numerical stability.
 #[kernel]
 pub fn gaussian_nll_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    var_ptr: T::Pointer<f32>,
-    out_ptr: T::Pointer<f32>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    var_ptr: InPtr<T::Pointer<f32>>,
+    out_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     eps_var: f32,
 ) where
@@ -740,11 +740,11 @@ pub fn gaussian_nll_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `dx = (input - target) / var * dy`
 #[kernel]
 pub fn gaussian_nll_loss_backward_input<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<f32>,
-    input_ptr: T::Pointer<f32>,
-    target_ptr: T::Pointer<f32>,
-    var_ptr: T::Pointer<f32>,
-    dx_ptr: T::Pointer<f32>,
+    dy_ptr: InPtr<T::Pointer<f32>>,
+    input_ptr: InPtr<T::Pointer<f32>>,
+    target_ptr: InPtr<T::Pointer<f32>>,
+    var_ptr: InPtr<T::Pointer<f32>>,
+    dx_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
     eps_var: f32,
 ) where

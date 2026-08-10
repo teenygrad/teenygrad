@@ -214,8 +214,8 @@ pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = log(sigmoid(x)) = -log(1 + exp(-x))
 #[kernel(backward = LogsigmoidBackward)]
 pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -259,9 +259,9 @@ pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * sigmoid(-x) = dy / (1 + exp(x))
 #[kernel]
 pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

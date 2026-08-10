@@ -45,10 +45,10 @@ use teeny_triton::triton::{
 /// Grid: `[N * G]` — one CTA per (sample, group).
 #[kernel]
 pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -182,12 +182,12 @@ pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
 #[cfg(feature = "training")]
 #[kernel]
 pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    mean_ptr: T::Pointer<D>,
-    rstd_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    mean_ptr: OutPtr<T::Pointer<D>>,
+    rstd_ptr: OutPtr<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -336,14 +336,14 @@ pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
 #[cfg(feature = "training")]
 #[kernel]
 pub fn group_norm_backward<T: Triton, D: Float, const BLOCK_NL: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    dweight_ptr: T::Pointer<D>,
-    dbias_ptr: T::Pointer<D>,
-    mean_ptr: T::Pointer<D>,
-    rstd_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    dweight_ptr: InOutPtr<T::Pointer<D>>,
+    dbias_ptr: InOutPtr<T::Pointer<D>>,
+    mean_ptr: InPtr<T::Pointer<D>>,
+    rstd_ptr: InPtr<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
