@@ -34,7 +34,5 @@ criterion.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-[[bench]]
-name = "conv2d_bn_silu"
-harness = false
-required-features = ["cuda"]
+# `benches/conv2d_bn_silu.rs` kept on disk as reference; not registered while
+# `nn/fused` is unlinked from the crate.

@@ -363,39 +363,6 @@ pub enum Op {
         has_bias: bool,
     },
 
-    /// Fused Conv2d + BatchNorm2d (inference-only) + SiLU forward.
-    ///
-    /// The BN parameters (scale, shift) are stored as precomputed affine
-    /// constants — not raw mean/var/gamma/beta.  Produced by the Anduin graph
-    /// optimizer in `teeny-kernels` when it detects
-    /// `Conv2d(no bias) → BatchNorm2d → Silu`.
-    ///
-    /// `bn_eps` is carried forward only for reference; the BN affine constants
-    /// are passed at runtime via the `bn_scale` and `bn_shift` parameters.
-    Conv2dBnSilu {
-        /// Number of input channels.
-        in_channels: usize,
-        /// Number of output channels.
-        out_channels: usize,
-        /// Convolution/pooling kernel height.
-        kernel_h: usize,
-        /// Convolution/pooling kernel width.
-        kernel_w: usize,
-        /// Vertical stride.
-        stride_h: usize,
-        /// Horizontal stride.
-        stride_w: usize,
-        /// Vertical zero-padding.
-        padding_h: usize,
-        /// Horizontal zero-padding.
-        padding_w: usize,
-        /// Number of blocked/grouped connections (1 = standard).
-        groups: usize,
-        /// The fused BatchNorm's numerical stability constant (kept for reference only; the
-        /// affine constants are passed at runtime via `bn_scale`/`bn_shift`).
-        bn_eps: f64,
-    },
-
     // --- Pooling ---
     /// 1-D average pooling (see `nn::pool::AvgPool1d`).
     AvgPool1d {
@@ -1753,16 +1720,6 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         }
 
         Op::Conv2d {
-            out_channels,
-            kernel_h,
-            kernel_w,
-            stride_h,
-            stride_w,
-            padding_h,
-            padding_w,
-            ..
-        }
-        | Op::Conv2dBnSilu {
             out_channels,
             kernel_h,
             kernel_w,

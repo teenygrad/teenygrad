@@ -102,13 +102,8 @@ where
             let (input, graph) = SymTensor::input(input_dtype, input_shape);
             let _ = model.call(input);
             // Match the runtime inference path (e.g. `build_infer_fn` in vision-rs's
-            // parking-garage demo, and examples/yolo26.rs), which compiles the *optimised*
-            // graph — fusing op sequences like Conv2d+BatchNorm2d+Silu into single fused
-            // nodes via Anduin. Compiling the raw unoptimised graph here would AOT-compile
-            // kernels under different cache keys than what the optimised runtime graph
-            // looks up, making this cache useless (forcing a JIT compile — which fails on
-            // devices with no `teenyc` installed, the whole point of AOT-compiling ahead
-            // of time).
+            // parking-garage demo, and examples/yolo26.rs). Anduin is the Triton graph
+            // optimizer hook (currently identity until native fusion lands).
             use teeny_kernels::graph::{Anduin, GraphOptimizer};
             let graph = Anduin.optimize(&graph.borrow())?;
 
