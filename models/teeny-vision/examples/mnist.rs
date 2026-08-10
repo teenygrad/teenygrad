@@ -46,8 +46,8 @@ use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::RngExt;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_compiler::compiler::driver::cuda::compile_kernel;
-use teeny_compiler::compiler::target::cuda::Target;
+use teeny_cuda::compiler::compile_kernel;
+use teeny_cuda::compiler::target::Target;
 use teeny_core::{
     device::{context::Context as DeviceContext, program::ArgVisitor},
     graph::{DtypeRepr, SymTensor},

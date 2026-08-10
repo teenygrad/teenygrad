@@ -35,7 +35,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use dotenv::dotenv;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 use teeny_cuda::{device::CudaDevice, device::CudaLaunchConfig, testing};
 use teeny_kernels::nn::fused::{

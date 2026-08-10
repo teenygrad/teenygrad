@@ -30,7 +30,7 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::dtype::Float;

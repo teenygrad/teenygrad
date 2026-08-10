@@ -37,7 +37,7 @@ use teeny_kernels::graph::TritonLowering;
 #[cfg(feature = "cuda")]
 use dotenv::dotenv;
 #[cfg(feature = "cuda")]
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]

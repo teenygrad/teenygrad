@@ -23,7 +23,8 @@
 use std::mem::size_of;
 
 use dotenv::dotenv;
-use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
+use teeny_cuda::compiler::target::Target;
 use teeny_core::{
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,

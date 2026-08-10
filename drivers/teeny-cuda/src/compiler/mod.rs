@@ -26,12 +26,23 @@ use crate::errors::{Error, Result};
 
 /// Ahead-of-time kernel compilation.
 pub mod aot;
+/// CUDA kernel compilation driver (`teenyc` / LLVM path).
+pub mod driver;
 /// Compiling a `teeny-core` graph's kernels.
 pub mod graph;
 /// `nvptxcompiler` compile options.
 pub mod options;
 /// CUDA compilation target descriptions.
 pub mod target;
+
+/// Compiles a kernel to PTX via `teenyc` (see [`driver::compile_kernel`]).
+pub use driver::compile_kernel;
+/// CUDA SM version / compute capability.
+pub use target::Capability;
+/// CUDA compilation target wrapping a [`Capability`].
+pub use target::Target;
+/// Maps a live device's major/minor version to a [`Capability`].
+pub use target::capability_from_device_info;
 
 /// Wraps `nvptxcompiler` (NVIDIA's standalone PTX-to-cubin compiler).
 pub struct PtxCompiler {
