@@ -169,3 +169,18 @@ fn test_relu_backward_gpu() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_relu_forward_kernel_io_is_unary_elementwise() {
+    use teeny_triton::PtrRole;
+
+    let io = teeny_kernels::nn::activation::relu::ReluForward::<f32>::kernel_io();
+    assert!(io.is_unary_elementwise());
+    assert_eq!(io.roles, &[PtrRole::In, PtrRole::Out]);
+    assert_eq!(io.n_in(), 1);
+    assert_eq!(io.n_out(), 1);
+    assert_eq!(io.n_inout(), 0);
+    assert_eq!(io.n_unmarked(), 0);
+    assert_eq!(io.first_in(), Some(0));
+    assert_eq!(io.first_out(), Some(1));
+}
