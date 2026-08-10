@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = tanh(x) = 2*sigmoid(2x) - 1 = 2/(1+exp(-2x)) - 1
 #[kernel(backward = TanhBackward)]
 pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -70,9 +70,9 @@ pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * (1 - y²)  — sech²(x) expressed via saved output
 #[kernel]
 pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
