@@ -68,6 +68,20 @@ fn test_tensor_add() -> Result<()> {
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward<f32>,
     >(&ptx)?;
 
+    match program.ptxas_stats() {
+        Some(stats) => println!(
+            "[ptxas] num_regs={} spill_stores={} spill_loads={} stack_frame={} cmem_banks={:?}",
+            stats.num_regs,
+            stats.spill_stores,
+            stats.spill_loads,
+            stats.stack_frame,
+            stats.cmem_banks
+        ),
+        None => {
+            println!("[ptxas] no stats (set $TEENYC_GENERATE_BIN=1 when compiling to get them)")
+        }
+    }
+
     // ── Launch ─────────────────────────────────────────────────────────────
     let cfg = testing::launch_config_from_program(N, &program);
     println!(

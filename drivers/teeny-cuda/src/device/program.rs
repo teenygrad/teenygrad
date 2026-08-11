@@ -22,6 +22,25 @@ use teeny_core::device::program::{Kernel, Program};
 use crate::cuda;
 use crate::errors::{Error, Result};
 
+/// Register/spill/constant-memory statistics parsed from `ptxas -v`'s stderr by teenyc's
+/// `CudaBackend::makeBIN`, emitted as extra `// meta:key=value` PTX comments alongside the
+/// usual metadata block. Only present when the PTX was compiled with `$TEENYC_GENERATE_BIN`
+/// set (a real `ptxas` subprocess compile targeting a specific SM architecture, so it isn't
+/// run by default) — absence means "not measured", never a fabricated zero.
+#[derive(Debug, Default, Clone)]
+pub struct PtxasStats {
+    /// Registers used per thread.
+    pub num_regs: u32,
+    /// Bytes of register spill stores to local memory.
+    pub spill_stores: u32,
+    /// Bytes of register spill loads from local memory.
+    pub spill_loads: u32,
+    /// Bytes of stack frame per thread.
+    pub stack_frame: u32,
+    /// `(bank, bytes)` pairs, e.g. `(0, 384)` for `384 bytes cmem[0]`.
+    pub cmem_banks: Vec<(u32, u32)>,
+}
+
 /// Kernel resource metadata parsed from `// meta:key=value` PTX comments
 /// appended by the Triton CUDA backend during compilation.
 #[derive(Debug, Default, Clone)]
@@ -35,6 +54,9 @@ pub(crate) struct KernelMetadata {
     pub(crate) global_scratch_align: u64,
     pub(crate) profile_scratch_size: u32,
     pub(crate) profile_scratch_align: u32,
+    /// `None` unless the PTX was compiled with `$TEENYC_GENERATE_BIN` set and `ptxas`
+    /// produced usable `-v` output; see [`PtxasStats`].
+    pub(crate) ptxas_stats: Option<PtxasStats>,
 }
 
 impl KernelMetadata {
@@ -47,6 +69,11 @@ impl KernelMetadata {
         };
         let mut reqntid: Option<u32> = None;
         let mut visible_entry_name = String::new();
+        // Built up incrementally as num_regs/spill_stores/.../cmem lines are seen, then
+        // moved into `m.ptxas_stats` at the end. Its presence is exactly the "was a bin
+        // requested and did ptxas run" signal -- CudaBackend only ever emits these lines
+        // together, guarded by `has_ptxas_stats` on the C++ side.
+        let mut ptxas_stats: Option<PtxasStats> = None;
 
         for line in ptx.lines() {
             let trimmed = line.trim();
@@ -65,6 +92,31 @@ impl KernelMetadata {
                         "profile_scratch_size" => m.profile_scratch_size = val.parse().unwrap_or(0),
                         "profile_scratch_align" => {
                             m.profile_scratch_align = val.parse().unwrap_or(1)
+                        }
+                        "num_regs" => {
+                            ptxas_stats.get_or_insert_default().num_regs = val.parse().unwrap_or(0)
+                        }
+                        "spill_stores" => {
+                            ptxas_stats.get_or_insert_default().spill_stores =
+                                val.parse().unwrap_or(0)
+                        }
+                        "spill_loads" => {
+                            ptxas_stats.get_or_insert_default().spill_loads =
+                                val.parse().unwrap_or(0)
+                        }
+                        "stack_frame" => {
+                            ptxas_stats.get_or_insert_default().stack_frame =
+                                val.parse().unwrap_or(0)
+                        }
+                        "cmem" => {
+                            let banks = val
+                                .split(',')
+                                .filter_map(|pair| {
+                                    let (bank, bytes) = pair.split_once(':')?;
+                                    Some((bank.parse().ok()?, bytes.parse().ok()?))
+                                })
+                                .collect();
+                            ptxas_stats.get_or_insert_default().cmem_banks = banks;
                         }
                         _ => {}
                     }
@@ -128,6 +180,7 @@ impl KernelMetadata {
             m.num_warps = reqntid.unwrap_or(128).div_ceil(32);
         }
 
+        m.ptxas_stats = ptxas_stats;
         m
     }
 
@@ -201,6 +254,16 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     /// Number of CTAs (thread blocks), from the kernel's parsed metadata.
     pub fn num_ctas(&self) -> u32 {
         self.metadata.num_ctas
+    }
+    /// Register/spill/constant-memory statistics from `ptxas -v`, if available.
+    ///
+    /// `None` unless the PTX was compiled with `$TEENYC_GENERATE_BIN` set (see
+    /// teenyc's `CudaBackend::makeBIN`) — `ptxas` is a real subprocess compile
+    /// targeting a specific device architecture, so it isn't run by default, and
+    /// these numbers don't exist until it has been. Also `None` for programs
+    /// loaded via [`CudaProgram::try_new`] (a cubin has no PTX metadata to parse).
+    pub fn ptxas_stats(&self) -> Option<&PtxasStats> {
+        self.metadata.ptxas_stats.as_ref()
     }
 
     /// Load a cubin image into the current CUDA context and resolve `entry_point`.
