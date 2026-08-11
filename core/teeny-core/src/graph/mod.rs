@@ -1637,7 +1637,6 @@ impl Graph {
         assert_eq!(order.len(), n, "graph contains a cycle");
         order
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -3286,5 +3285,4 @@ mod tests {
         assert_eq!(g.nodes[12].shape, vec![None, Some(10)]);
         assert_eq!(g.nodes[13].shape, vec![None, Some(10)]);
     }
-
 }

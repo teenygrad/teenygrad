@@ -524,10 +524,7 @@ pub struct TritonLowering {
 impl std::fmt::Debug for TritonLowering {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TritonLowering")
-            .field(
-                "optimizer",
-                &self.optimizer.as_ref().map(|o| o.name()),
-            )
+            .field("optimizer", &self.optimizer.as_ref().map(|o| o.name()))
             .finish()
     }
 }

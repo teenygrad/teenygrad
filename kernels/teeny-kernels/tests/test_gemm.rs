@@ -18,8 +18,8 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::program::Kernel;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_core::device::Device;
@@ -444,12 +444,10 @@ fn build_matmul_graph(m: usize, k: usize, n: usize) -> teeny_core::graph::Graph 
     use teeny_core::graph::{DtypeRepr, Op, SymTensor};
 
     let (a, graph_rc) = SymTensor::input(DtypeRepr::F32, vec![Some(m), Some(k)]);
-    let b_id = a.graph.borrow_mut().add_node(
-        Op::Input,
-        vec![],
-        DtypeRepr::F32,
-        vec![Some(k), Some(n)],
-    );
+    let b_id =
+        a.graph
+            .borrow_mut()
+            .add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(k), Some(n)]);
     let _ = a.graph.borrow_mut().add_node(
         Op::MatMul,
         vec![a.node_id, b_id],
