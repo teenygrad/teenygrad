@@ -18,8 +18,8 @@ use std::error::Error;
 
 use dotenv::dotenv;
 use insta::assert_snapshot;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_cuda::compiler::target::Capability;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[test]

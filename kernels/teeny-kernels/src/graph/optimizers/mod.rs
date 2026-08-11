@@ -14,5 +14,8 @@
  * limitations under the License.
  */
 
-/// CUDA compilation target description (device [`cuda::Capability`]).
-pub mod cuda;
+//! Concrete [`super::optimizer::GraphOptimizer`] implementations (LotR river names).
+
+mod anduin;
+
+pub use anduin::Anduin;

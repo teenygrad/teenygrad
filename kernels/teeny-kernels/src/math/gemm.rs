@@ -49,9 +49,9 @@ pub fn matmul_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    a_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    c_ptr: T::Pointer<D>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    c_ptr: InOutPtr<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -119,9 +119,9 @@ pub fn matmul_backward_da<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    dc_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    da_ptr: T::Pointer<D>,
+    dc_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    da_ptr: InPtr<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -178,9 +178,9 @@ pub fn matmul_backward_db<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    dc_ptr: T::Pointer<D>,
-    a_ptr: T::Pointer<D>,
-    db_ptr: T::Pointer<D>,
+    dc_ptr: InPtr<T::Pointer<D>>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    db_ptr: OutPtr<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -282,10 +282,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRunt
         visitor.visit_i32(k);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let m = output_shape.first().copied().unwrap_or(1) as u32;
         let n = output_shape.last().copied().unwrap_or(1) as u32;
@@ -323,11 +319,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for MatMulRunt
         visitor.visit_i32(m);
         visitor.visit_i32(n);
         visitor.visit_i32(k);
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     #[cfg(feature = "training")]

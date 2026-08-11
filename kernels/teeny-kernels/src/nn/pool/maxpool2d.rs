@@ -42,8 +42,8 @@ pub fn maxpool2d_forward<
     const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
-    input_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    input_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -152,10 +152,10 @@ pub fn maxpool2d_backward<
     const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -282,10 +282,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dF
         visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
         [
@@ -325,11 +321,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Maxpool2dF
         visitor.visit_i32(in_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     /// Grid over output positions (same formula as forward).

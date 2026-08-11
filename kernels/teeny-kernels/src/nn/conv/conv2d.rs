@@ -53,9 +53,9 @@ pub fn conv2d_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    x_ptr: T::Pointer<D>,
-    w_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -181,9 +181,9 @@ pub fn conv2d_backward_dx<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    w_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -296,9 +296,9 @@ pub fn conv2d_backward_dw<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dw_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dw_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -409,11 +409,11 @@ pub fn conv2d_backward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    w_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    dw_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    dw_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -562,10 +562,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         visitor.visit_i32(output_shape[3] as i32);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
         [
@@ -609,11 +605,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dForw
         visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     /// Grid over forward-output positions (same formula as forward).
     #[cfg(feature = "training")]
     fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
@@ -641,8 +632,7 @@ pub struct Conv2dOp<'a, T: Num> {
 /// `conv2d_forward` already uses for weights, applied once after the loop instead
 /// of once per (c_in, kh, kw) tap.
 ///
-/// For `Conv2d(has_bias=true)` with no downstream BatchNorm/SiLU to fuse into (the
-/// `conv2d_bn_silu` family), this replaces what would otherwise lower to two
+/// For `Conv2d(has_bias=true)`, this replaces what would otherwise lower to two
 /// separate kernel launches — [`conv2d_forward`] then a standalone NCHW bias-add —
 /// with one. See spinorml-ia5.
 ///
@@ -662,10 +652,10 @@ pub fn conv2d_bias_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    x_ptr: T::Pointer<D>,
-    w_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -782,7 +772,12 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dBias
         let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
         vec![
-            vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize],
+            vec![
+                c_out,
+                c_in / self.g as usize,
+                self.kh as usize,
+                self.kw as usize,
+            ],
             vec![c_out],
         ]
     }
@@ -812,10 +807,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dBias
         visitor.visit_i32(input_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

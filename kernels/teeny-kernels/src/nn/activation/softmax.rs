@@ -37,8 +37,8 @@ use teeny_triton::triton::{
 // ANCHOR: softmax_forward
 #[kernel]
 pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -86,9 +86,9 @@ pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// **Constraint**: `BLOCK_SIZE` must equal `n_cols` (same as the forward pass).
 #[kernel]
 pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -156,10 +156,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxF
         visitor.visit_ptr(output);
         visitor.visit_i32(n_rows);
         visitor.visit_i32(n_cols);
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     // One CTA per row.

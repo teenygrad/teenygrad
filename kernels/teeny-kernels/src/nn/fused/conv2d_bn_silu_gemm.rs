@@ -59,11 +59,11 @@ pub fn conv2d_bn_silu_gemm_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    x_ptr: T::Pointer<f32>,
-    w_ptr: T::Pointer<f32>,
-    bn_scale_ptr: T::Pointer<f32>,
-    bn_shift_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    w_ptr: InPtr<T::Pointer<f32>>,
+    bn_scale_ptr: InPtr<T::Pointer<f32>>,
+    bn_shift_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -224,10 +224,6 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
         visitor.visit_i32(c_in);
         visitor.visit_i32(c_out);
         visitor.visit_i32(m);
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

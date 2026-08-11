@@ -42,8 +42,8 @@ pub fn upsample_nearest2d_forward<
     const SCALE_W: i32,
     const BLOCK_OW: i32,
 >(
-    x_ptr: T::Pointer<D>, // input  [B, C, H, W]
-    y_ptr: T::Pointer<D>, // output [B, C, OH, OW]
+    x_ptr: InPtr<T::Pointer<D>>,  // input  [B, C, H, W]
+    y_ptr: OutPtr<T::Pointer<D>>, // output [B, C, OH, OW]
     _B: i32,
     C: i32,
     H: i32,
@@ -123,8 +123,8 @@ pub fn upsample_nearest2d_backward<
     const SCALE_W: i32,
     const BLOCK_IW: i32,
 >(
-    dy_ptr: T::Pointer<D>, // upstream grad [B, C, OH, OW]
-    dx_ptr: T::Pointer<D>, // input    grad [B, C, H,  W]
+    dy_ptr: InPtr<T::Pointer<D>>,  // upstream grad [B, C, OH, OW]
+    dx_ptr: OutPtr<T::Pointer<D>>, // input    grad [B, C, H,  W]
     _B: i32,
     C: i32,
     H: i32,
@@ -219,10 +219,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for UpsampleNe
         visitor.visit_i32(output_shape[3] as i32); // OW
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid = ((b * C + c) * OH + oh) * num_ow_tiles + ow_tile
         let num_ow_tiles = output_shape[3].div_ceil(self.block_ow as usize);
@@ -261,11 +257,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for UpsampleNe
         visitor.visit_i32(in_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     /// Grid over input spatial positions: `pid = ((b * C + c) * H + ih) * num_iw_tiles + iw_tile`

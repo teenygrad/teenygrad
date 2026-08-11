@@ -28,10 +28,10 @@
 #![allow(non_snake_case)]
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::{Device, program::Kernel};
 use teeny_core::dtype::Num;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -42,9 +42,9 @@ use teeny_triton::triton::{
 /// Adds two vectors: `out[i] = a[i] + b[i]`.
 #[kernel]
 pub fn vector_add<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

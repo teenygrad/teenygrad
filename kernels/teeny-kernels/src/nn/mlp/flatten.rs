@@ -16,7 +16,7 @@
 
 use teeny_core::dtype::Num;
 use teeny_macros::kernel;
-use teeny_triton::triton::{Axis, PaddingOption, Triton};
+use teeny_triton::triton::{Axis, InPtr, OutPtr, PaddingOption, Triton};
 
 /// Copy a [B, N] tensor with arbitrary input strides to a contiguous row-major [B, N] output.
 ///
@@ -30,8 +30,8 @@ use teeny_triton::triton::{Axis, PaddingOption, Triton};
 /// Grid: one flat 1D pid that encodes (pid_b, pid_n) = (pid / num_pid_n, pid % num_pid_n).
 #[kernel]
 pub fn flatten_forward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i32>(
-    input_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    input_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     B: i32,
     N: i32,
     stride_ib: i32,
@@ -73,8 +73,8 @@ pub fn flatten_forward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i32
 /// performs the inverse reordering.
 #[kernel]
 pub fn flatten_backward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i32>(
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     B: i32,
     N: i32,
     stride_dxb: i32,
@@ -135,10 +135,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for FlattenFor
         visitor.visit_i32(n);
         visitor.visit_i32(n); // stride_ib = N
         visitor.visit_i32(1); // stride_in = 1
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

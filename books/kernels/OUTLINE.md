@@ -34,7 +34,7 @@ pieces are enough, and all four are in
 2. **The generated struct** — `#[kernel]` emits `ElemwiseAddForward<D>` with a
    `new(block_size)` constructor and a `Kernel` impl.
 3. **Compilation** — `compile_kernel(&kernel, &Target::new(capability), force)`
-   returns a path to PTX (`teeny_compiler::compiler::driver::cuda`).
+   returns a path to PTX (`teeny_cuda::compiler`).
 4. **The launch** — `device.launch(&program, &cfg, (ptrs…, scalars…))` with
    buffers from `device.buffer::<f32>(n)`.
 
@@ -80,9 +80,10 @@ the CUDA SIMT model of one thread per element; why block sizes are powers of two
 **Example.** None — a diagram and a walk through `elemwise_add_forward`'s first
 three lines.
 
-**Note.** The word "thread" still appears in this SDK's API —
-`RuntimeOp::block()` is documented as "threads-per-CTA". The chapter has to name
-that seam rather than pretend the CUDA layer is invisible.
+**Note.** The word "thread" still appears at the CUDA launch boundary
+(`CudaLaunchConfig::block`, PTX `.reqntid`), but not on `RuntimeOp` — threads
+come from compiled metadata. The chapter has to name that seam rather than
+pretend the CUDA layer is invisible.
 
 ### 3. From Rust to PTX
 
@@ -95,7 +96,7 @@ SM capability; the kernel cache.
 **Uses.** `teeny_macros::kernel` (source capture and entry-point generation,
 `macros/teeny-macros/src/macros/kernel.rs`); `teeny_compiler::compiler::find_teenyc`;
 `default_cache_dir`; `$TEENYC_PATH`, `$TEENYC_CACHE_DIR`, `$TEENYC_PTX_VERSION`;
-`Capability` (`drivers/teeny-cuda/src/target.rs`: `Sm75`…`Sm120`);
+`Capability` (`drivers/teeny-cuda/src/compiler/target.rs`: `Sm75`…`Sm120`);
 `kernels/teeny-triton/build.rs`, which embeds the DSL's own source as the
 `TRITON` string the kernel is compiled against.
 
@@ -441,7 +442,7 @@ the one item that should be resolved before Chapter 21 is written.**
 forward's saved output.
 
 **Uses.** `#[kernel(backward = …)]`; `LoweringMode::{Inference, Training}`;
-`RuntimeOp::{has_backward, pack_backward_args, backward_block, backward_grid,
+`RuntimeOp::{has_backward, pack_backward_args, backward_grid,
 backward_grad_output_row_stride, n_backward_launches}`;
 `CustomOp::lower_backward_source`; the `training` cargo feature;
 `elemwise_add_backward` and `softmax_backward` as references.

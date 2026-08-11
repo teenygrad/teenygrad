@@ -37,14 +37,35 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-/// If `ty` is `HW_IDENT::SomeName<Inner>`, return `Inner`.
-fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type> {
+/// Classification of a kernel pointer parameter for [`KernelIo`] / ABI wrapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PtrArgKind {
+    In,
+    Out,
+    InOut,
+    /// Bare `HW::Pointer<D>` with no In/Out marker.
+    Raw,
+}
+
+fn extract_single_generic_type(seg: &syn::PathSegment) -> Option<Type> {
+    if let PathArguments::AngleBracketed(ab) = &seg.arguments
+        && ab.args.len() == 1
+        && let GenericArgument::Type(inner) = &ab.args[0]
+    {
+        return Some(inner.clone());
+    }
+    None
+}
+
+/// If `ty` is `HW_IDENT::Pointer<Inner>` (two-segment path), return `Inner`.
+fn extract_hw_pointer_dtype(ty: &Type, hw_ident: &Ident) -> Option<Type> {
     if let Type::Path(tp) = ty
         && tp.qself.is_none()
     {
         let segs = &tp.path.segments;
         if segs.len() == 2
             && segs[0].ident == *hw_ident
+            && segs[1].ident == "Pointer"
             && let PathArguments::AngleBracketed(ab) = &segs[1].arguments
             && ab.args.len() == 1
             && let GenericArgument::Type(inner) = &ab.args[0]
@@ -53,6 +74,55 @@ fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type> {
         }
     }
     None
+}
+
+/// Classify `InPtr<HW::Pointer<D>>` / `OutPtr<…>` / `InOutPtr<…>` / bare `HW::Pointer<D>`.
+///
+/// Returns `(kind, dtype)` where `dtype` is the `D` in `Pointer<D>`.
+fn classify_pointer_arg(ty: &Type, hw_ident: &Ident) -> Option<(PtrArgKind, Type)> {
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && let Some(last) = tp.path.segments.last()
+    {
+        let kind = match last.ident.to_string().as_str() {
+            "InPtr" => Some(PtrArgKind::In),
+            "OutPtr" => Some(PtrArgKind::Out),
+            "InOutPtr" => Some(PtrArgKind::InOut),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            let wrapped = extract_single_generic_type(last)?;
+            let dtype = extract_hw_pointer_dtype(&wrapped, hw_ident)?;
+            return Some((kind, dtype));
+        }
+    }
+    extract_hw_pointer_dtype(ty, hw_ident).map(|dtype| (PtrArgKind::Raw, dtype))
+}
+
+/// If `ty` is a (possibly marked) pointer arg, return its element dtype.
+fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type> {
+    classify_pointer_arg(ty, hw_ident).map(|(_, dtype)| dtype)
+}
+
+/// Strip `InPtr` / `OutPtr` / `InOutPtr` wrappers for the device-side source string.
+///
+/// Markers are host-only metadata for [`KernelIo`]; the MLIR backend only knows
+/// about bare `T::Pointer<D>` / `LlvmPointer` and panics on unmarked ADTs.
+fn unwrap_pointer_marker(ty: &Type) -> Type {
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && let Some(last) = tp.path.segments.last()
+    {
+        match last.ident.to_string().as_str() {
+            "InPtr" | "OutPtr" | "InOutPtr" => {
+                if let Some(inner) = extract_single_generic_type(last) {
+                    return inner;
+                }
+            }
+            _ => {}
+        }
+    }
+    ty.clone()
 }
 
 /// Extract the ident from a bare single-segment type, e.g. `D` → `Some(D)`.
@@ -227,14 +297,6 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let doc_attrs: Vec<&syn::Attribute> =
         attrs.iter().filter(|a| a.path().is_ident("doc")).collect();
 
-    // 1. Emit the original function unchanged.
-    let function_stream: TokenStream2 = quote! {
-        #[allow(non_snake_case)]
-        #[allow(clippy::too_many_arguments)]
-        #(#attrs)*
-        #vis #sig #block
-    };
-
     // 2. Find the hardware type param — the one with a `Triton` bound.
     let hw_ident: Ident = input
         .sig
@@ -387,6 +449,22 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
+    // Pointer args must be InPtr / OutPtr / InOutPtr (required for KernelIo / fusion).
+    for pt in &fn_inputs {
+        if let Some((PtrArgKind::Raw, _)) = classify_pointer_arg(&pt.ty, &hw_ident) {
+            let name = pat_to_str(&pt.pat);
+            return syn::Error::new_spanned(
+                &pt.ty,
+                format!(
+                    "pointer argument `{name}` must be wrapped in `InPtr` / `OutPtr` / \
+                     `InOutPtr` so fusion can classify I/O by signature"
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
     // Args<'a> tuple element types for the Kernel impl.
     let args_types: Vec<TokenStream2> = fn_inputs
         .iter()
@@ -431,14 +509,30 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Pointer-wrapping lines, e.g. `let x_ptr = Pointer(x_ptr as *mut _);`
+    // Pointer-wrapping lines for the entry point.
+    // Device fns take bare pointers (markers stripped below); wrap as LlvmPointer only.
     let ptr_conv_exprs: Vec<TokenStream2> = fn_inputs
         .iter()
-        .filter(|pt| extract_pointer_inner(&pt.ty, &hw_ident).is_some())
-        .map(|pt| {
+        .filter_map(|pt| {
+            let _ = classify_pointer_arg(&pt.ty, &hw_ident)?;
             let name = pat_to_str(&pt.pat);
             let line = format!("let {name} = LlvmPointer({name} as *mut _);");
-            quote! { ::std::string::String::from(#line) }
+            Some(quote! { ::std::string::String::from(#line) })
+        })
+        .collect();
+
+    // Pointer roles in signature order for KernelIo (scalars omitted).
+    let ptr_roles: Vec<TokenStream2> = fn_inputs
+        .iter()
+        .filter_map(|pt| {
+            let (kind, _) = classify_pointer_arg(&pt.ty, &hw_ident)?;
+            let role = match kind {
+                PtrArgKind::In => quote! { ::teeny_triton::PtrRole::In },
+                PtrArgKind::Out => quote! { ::teeny_triton::PtrRole::Out },
+                PtrArgKind::InOut => quote! { ::teeny_triton::PtrRole::InOut },
+                PtrArgKind::Raw => quote! { ::teeny_triton::PtrRole::Raw },
+            };
+            Some(role)
         })
         .collect();
 
@@ -483,8 +577,42 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Original function source stored verbatim.
-    let original_source_str = quote!(#vis #sig #block).to_string();
+    // Device-side source: same body, but pointer markers stripped so MLIR sees
+    // bare `T::Pointer<D>`. Host keeps the marked signature for KernelIo / API.
+    let mut device_sig = sig.clone();
+    for input in device_sig.inputs.iter_mut() {
+        if let FnArg::Typed(pt) = input {
+            *pt.ty = unwrap_pointer_marker(&pt.ty);
+        }
+    }
+    let original_source_str = quote!(#vis #device_sig #block).to_string();
+
+    // Host fn: unwrap In/Out markers at body start so descriptor/load/store APIs
+    // see bare `T::Pointer` (by-value args do not autoderef through Deref).
+    let ptr_unwraps: Vec<TokenStream2> = fn_inputs
+        .iter()
+        .filter_map(|pt| {
+            let (kind, _) = classify_pointer_arg(&pt.ty, &hw_ident)?;
+            if matches!(kind, PtrArgKind::Raw) {
+                return None;
+            }
+            let Pat::Ident(pi) = &*pt.pat else {
+                return None;
+            };
+            let name = &pi.ident;
+            Some(quote! { let #name = *#name; })
+        })
+        .collect();
+    let block_stmts = &input.block.stmts;
+    let function_stream: TokenStream2 = quote! {
+        #[allow(non_snake_case)]
+        #[allow(clippy::too_many_arguments)]
+        #(#attrs)*
+        #vis #sig {
+            #(#ptr_unwraps)*
+            #(#block_stmts)*
+        }
+    };
 
     // Struct ident (PascalCase of the function name).
     let struct_ident = Ident::new(&to_pascal_case(&fn_name_str), fn_ident.span());
@@ -630,6 +758,13 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     entry_point_source: __entry_point,
                     source: __source,
                     #phantom_init
+                }
+            }
+
+            /// Pointer-parameter layout from this kernel's marked parameters.
+            pub const fn kernel_io() -> ::teeny_triton::KernelIo {
+                ::teeny_triton::KernelIo {
+                    roles: &[ #(#ptr_roles),* ],
                 }
             }
         }

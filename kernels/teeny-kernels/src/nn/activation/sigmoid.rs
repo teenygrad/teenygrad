@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = 1 / (1 + exp(-x))
 #[kernel(backward = SigmoidBackward)]
 pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -67,9 +67,9 @@ pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * y * (1 - y) = dy * (y - y²)
 #[kernel]
 pub fn sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -118,8 +118,8 @@ pub fn sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x * sigmoid(x)
 #[kernel(backward = SiluBackward)]
 pub fn silu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -159,9 +159,9 @@ pub fn silu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///         = dy * (s + y - y*s)   where s = sigmoid(x)
 #[kernel]
 pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -214,8 +214,8 @@ pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = log(sigmoid(x)) = -log(1 + exp(-x))
 #[kernel(backward = LogsigmoidBackward)]
 pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -259,9 +259,9 @@ pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * sigmoid(-x) = dy / (1 + exp(x))
 #[kernel]
 pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -347,10 +347,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidF
         visitor.visit_i32(n as i32);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -379,11 +375,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SigmoidF
         visitor.visit_ptr(output); // y_ptr (saved output, not x)
         visitor.visit_ptr(grad_inputs[0]); // dx_ptr
         visitor.visit_i32(n as i32);
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]
@@ -419,10 +410,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForw
         visitor.visit_i32(n as i32);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let n: usize = output_shape.iter().product();
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
@@ -451,11 +438,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForw
         visitor.visit_ptr(inputs[0].0); // x_ptr (saved activation)
         visitor.visit_ptr(grad_inputs[0]); // dx_ptr
         visitor.visit_i32(n as i32);
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_size as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]

@@ -36,7 +36,7 @@ use teeny_core::nn::Layer;
 
 /// Default fallback cache directory when neither `--cache-dir` nor
 /// `$TEENYC_CACHE_DIR` is set. Matches the default used by the runtime JIT
-/// compile path (`teeny_compiler::compiler::driver::cuda::compile_kernel`).
+/// compile path (`teeny_cuda::compiler::compile_kernel`).
 const DEFAULT_CACHE_DIR: &str = "/tmp/teenyc_cache";
 
 /// Shared AOT-compile CLI arguments. Flatten this into your own `clap`
@@ -102,13 +102,10 @@ where
             let (input, graph) = SymTensor::input(input_dtype, input_shape);
             let _ = model.call(input);
             // Match the runtime inference path (e.g. `build_infer_fn` in vision-rs's
-            // parking-garage demo, and examples/yolo26.rs), which compiles the *optimised*
-            // graph — fusing op sequences like Conv2d+BatchNorm2d+Silu into single fused
-            // nodes. Compiling the raw unoptimised graph here would AOT-compile kernels
-            // under different cache keys than what the optimised runtime graph looks up,
-            // making this cache useless (forcing a JIT compile — which fails on devices
-            // with no `teenyc` installed, the whole point of AOT-compiling ahead of time).
-            let graph = graph.borrow().optimise();
+            // parking-garage demo, and examples/yolo26.rs). Anduin is the Triton graph
+            // optimizer hook (currently identity until native fusion lands).
+            use teeny_kernels::graph::{Anduin, GraphOptimizer};
+            let graph = Anduin.optimize(&graph.borrow())?;
 
             let options = teeny_cuda::compiler::options::Options::parse(
                 args.options.as_deref().unwrap_or(""),

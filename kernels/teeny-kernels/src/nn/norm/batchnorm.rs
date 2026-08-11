@@ -46,12 +46,12 @@ use teeny_triton::triton::{
 /// Grid: `[C]` — one CTA per channel.
 #[kernel]
 pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    running_mean_ptr: T::Pointer<D>,
-    running_var_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    running_mean_ptr: InPtr<T::Pointer<D>>,
+    running_var_ptr: InPtr<T::Pointer<D>>,
     N: i32,
     C: i32,
     eps: f32,
@@ -163,11 +163,11 @@ pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
 #[cfg(feature = "training")]
 #[kernel]
 pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    x_ptr: T::Pointer<D>,
-    mean_ptr: T::Pointer<D>,
-    rstd_ptr: T::Pointer<D>,
-    running_mean_ptr: T::Pointer<D>,
-    running_var_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    mean_ptr: OutPtr<T::Pointer<D>>,
+    rstd_ptr: OutPtr<T::Pointer<D>>,
+    running_mean_ptr: InOutPtr<T::Pointer<D>>,
+    running_var_ptr: InOutPtr<T::Pointer<D>>,
     N: i32,
     C: i32,
     eps: f32,
@@ -273,12 +273,12 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 #[cfg(feature = "training")]
 #[kernel]
 pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    mean_ptr: T::Pointer<D>,
-    rstd_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    mean_ptr: InPtr<T::Pointer<D>>,
+    rstd_ptr: InPtr<T::Pointer<D>>,
     N: i32,
     C: i32,
 ) where
@@ -439,10 +439,6 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_f32(self.momentum);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [1, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let c = output_shape[0] / 2;
         [c as u32, 1, 1]
@@ -516,10 +512,6 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_i32(c as i32);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [1, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         let c = output_shape.get(1).copied().unwrap_or(output_shape[0]);
         [c as u32, 1, 1]
@@ -562,10 +554,6 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
         visitor.visit_i32(c as i32);
     }
 
-    fn backward_block(&self) -> [u32; 3] {
-        [1, 1, 1]
-    }
-
     fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
         // input_shapes[1] = [2*C] (stats); one CTA per channel
         let c = input_shapes[1][0] / 2;
@@ -584,12 +572,12 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
 /// H*W spatial positions in `BLOCK_HW`-wide tiles.
 #[kernel]
 pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    bias_ptr: T::Pointer<D>,
-    running_mean_ptr: T::Pointer<D>,
-    running_var_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    bias_ptr: InPtr<T::Pointer<D>>,
+    running_mean_ptr: InPtr<T::Pointer<D>>,
+    running_var_ptr: InPtr<T::Pointer<D>>,
     C: i32,
     HW: i32,
     eps: f32,
@@ -762,10 +750,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_f32(self.eps);
     }
 
-    fn block(&self) -> [u32; 3] {
-        [self.block_hw as u32, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[1] as u32, output_shape[0] as u32, 1]
     }
@@ -808,11 +792,6 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     }
 
     #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [self.block_hw as u32, 1, 1]
-    }
-
-    #[cfg(feature = "training")]
     fn backward_grid(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
         // input_shapes[0] = [B, C, H, W]; one CTA per channel
         [input_shapes[0][1] as u32, 1, 1]
@@ -837,14 +816,14 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
 #[cfg(feature = "training")]
 #[kernel]
 pub fn batch_norm_2d_nchw_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    running_mean_ptr: T::Pointer<D>,
-    running_var_ptr: T::Pointer<D>,
-    dweight_ptr: T::Pointer<D>,
-    dbias_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    running_mean_ptr: InPtr<T::Pointer<D>>,
+    running_var_ptr: InPtr<T::Pointer<D>>,
+    dweight_ptr: OutPtr<T::Pointer<D>>,
+    dbias_ptr: OutPtr<T::Pointer<D>>,
     B: i32,
     C: i32,
     HW: i32,
@@ -968,14 +947,14 @@ pub fn batch_norm_2d_nchw_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
 #[cfg(feature = "training")]
 #[kernel]
 pub fn batch_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    weight_ptr: T::Pointer<D>,
-    mean_ptr: T::Pointer<D>,
-    rstd_ptr: T::Pointer<D>,
-    dweight_ptr: T::Pointer<D>,
-    dbias_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    weight_ptr: InPtr<T::Pointer<D>>,
+    mean_ptr: InPtr<T::Pointer<D>>,
+    rstd_ptr: InPtr<T::Pointer<D>>,
+    dweight_ptr: OutPtr<T::Pointer<D>>,
+    dbias_ptr: OutPtr<T::Pointer<D>>,
     N: i32,
     C: i32,
 ) where

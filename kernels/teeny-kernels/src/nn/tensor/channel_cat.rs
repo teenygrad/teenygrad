@@ -36,11 +36,11 @@ use teeny_triton::triton::{
 /// Grid: `n_spatial * cdiv(chunk_c, BLOCK_SIZE)` CTAs.
 #[kernel]
 pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>, // one input: n_spatial * chunk_c  (narrow NC)
-    y_ptr: T::Pointer<D>, // output:    n_spatial * c_total  (wide NC)
-    chunk_c: i32,         // input channels for this chunk
-    c_total: i32,         // total output channels
-    chunk_offset: i32,    // first output channel index: k * chunk_c
+    x_ptr: InPtr<T::Pointer<D>>, // one input: n_spatial * chunk_c  (narrow NC)
+    y_ptr: OutPtr<T::Pointer<D>>, // output:    n_spatial * c_total  (wide NC)
+    chunk_c: i32,                // input channels for this chunk
+    c_total: i32,                // total output channels
+    chunk_offset: i32,           // first output channel index: k * chunk_c
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -90,8 +90,8 @@ pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 /// Grid: same as `channel_cat_forward`.
 #[kernel]
 pub fn channel_cat_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>, // upstream grad: n_spatial * c_total  (wide NC)
-    dx_ptr: T::Pointer<D>, // input grad:    n_spatial * chunk_c  (narrow NC)
+    dy_ptr: InPtr<T::Pointer<D>>, // upstream grad: n_spatial * c_total  (wide NC)
+    dx_ptr: OutPtr<T::Pointer<D>>, // input grad:    n_spatial * chunk_c  (narrow NC)
     chunk_c: i32,
     c_total: i32,
     chunk_offset: i32,
@@ -250,10 +250,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelCat
         let chunk_c = s[1] * s[2] * s[3];
         let num_tiles = chunk_c.div_ceil(self.fwd.block_size as usize);
         [(n_spatial * num_tiles) as u32, 1, 1]
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [self.fwd.block_size as u32, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

@@ -57,11 +57,11 @@ pub fn conv2d_bn_silu_tiled_forward<
     const BLOCK_OW: i32,
     const BLOCK_N: i32,
 >(
-    x_ptr: T::Pointer<f32>,
-    w_ptr: T::Pointer<f32>,
-    bn_scale_ptr: T::Pointer<f32>,
-    bn_shift_ptr: T::Pointer<f32>,
-    y_ptr: T::Pointer<f32>,
+    x_ptr: InPtr<T::Pointer<f32>>,
+    w_ptr: InPtr<T::Pointer<f32>>,
+    bn_scale_ptr: InPtr<T::Pointer<f32>>,
+    bn_shift_ptr: InPtr<T::Pointer<f32>>,
+    y_ptr: OutPtr<T::Pointer<f32>>,
     B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -279,10 +279,6 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluTiledForward {
         visitor.visit_i32(oh); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
         visitor.visit_i32(y_col_stride); // y_col_stride
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

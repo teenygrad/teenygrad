@@ -19,13 +19,13 @@
 
 use dotenv::dotenv;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,
     nn::Layer,
 };
 use teeny_cuda::compiler::graph::CudaGraphCompiler;
+use teeny_cuda::compiler::target::Target;
 use teeny_cuda::testing;
 use teeny_kernels::graph::TritonLowering;
 use teeny_vision::mnist;

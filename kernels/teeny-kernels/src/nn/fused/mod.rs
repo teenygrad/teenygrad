@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+//! Hand-written fused Conv2d+BN+SiLU kernels kept as reference.
+//!
+//! This module is **not** linked from [`crate::nn`] — Anduin should compose
+//! fusion natively rather than dispatching these special-cased ops.
+
 pub mod conv2d_bn_silu;
 pub mod conv2d_bn_silu_gemm;
 pub mod conv2d_bn_silu_tiled;

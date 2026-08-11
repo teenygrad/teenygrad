@@ -47,4 +47,4 @@ Typically driven via `cargo teeny aot --bin teeny-cli --device cuda --options "c
 
 ## License
 
-Apache-2.0. See [LICENSE-APACHE](https://github.com/teenygrad/teenygrad/blob/main/LICENSE-APACHE).
+Apache-2.0. See [LICENSE](https://github.com/teenygrad/teenygrad/blob/main/LICENSE).

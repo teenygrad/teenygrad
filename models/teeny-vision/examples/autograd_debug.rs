@@ -36,7 +36,6 @@ use std::env;
 
 use anyhow::Result;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
     device::context::Context as DeviceContext,
     graph::{DtypeRepr, SymTensor},
@@ -44,6 +43,7 @@ use teeny_core::{
     nn::{Layer, activation::relu::Relu, linear::Linear},
     sequential,
 };
+use teeny_cuda::compiler::target::Target;
 use teeny_cuda::{
     compiler::{graph::CudaGraphCompiler, target::capability_from_device_info},
     device::{context::Cuda, mem},

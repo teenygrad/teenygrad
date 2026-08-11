@@ -30,10 +30,10 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::dtype::Float;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -46,9 +46,9 @@ use teeny_triton::triton::{
 /// costs end to end.
 #[kernel]
 pub fn add_typed<T: Triton, D: Float, const BLOCK: i32>(
-    a_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -93,8 +93,8 @@ pub fn add_typed<T: Triton, D: Float, const BLOCK: i32>(
 /// `BLOCK`, which is what makes the result order-dependent.
 #[kernel]
 pub fn partial_sum<T: Triton, D: Float, const BLOCK: i32>(
-    in_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    in_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     _n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

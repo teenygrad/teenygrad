@@ -16,7 +16,7 @@
 
 use teeny_core::dtype::{AddOffsets, Comparison, Num, Tensor};
 use teeny_macros::kernel;
-use teeny_triton::triton::{Axis, InputPrecision, PaddingOption, Triton};
+use teeny_triton::triton::{Axis, InPtr, InputPrecision, OutPtr, PaddingOption, Triton};
 
 #[kernel]
 pub fn linear_forward<
@@ -28,10 +28,10 @@ pub fn linear_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    x_ptr: T::Pointer<D>,
-    w_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -125,12 +125,12 @@ pub fn linear_backward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    x_ptr: T::Pointer<D>,
-    w_ptr: T::Pointer<D>,
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
-    dw_ptr: T::Pointer<D>,
-    db_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    dw_ptr: OutPtr<T::Pointer<D>>,
+    db_ptr: OutPtr<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -306,10 +306,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         visitor.visit_i32(1); // stride_yn = 1
     }
 
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         // pid encodes (pid_m, pid_n) grouped by GROUP_M
         let pm = output_shape[0].div_ceil(self.block_m as usize);
@@ -379,11 +375,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for LinearForw
         visitor.visit_i32(1); // stride_dwk = 1
         visitor.visit_i32(k); // stride_dwn = K
         visitor.visit_i32(1); // stride_dbn = 1
-    }
-
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     // Grid: ceil(M/BM) * ceil(N/BN) * ceil(K/BK) CTAs

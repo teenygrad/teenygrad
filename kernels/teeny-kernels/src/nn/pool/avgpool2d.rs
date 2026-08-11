@@ -42,8 +42,8 @@ pub fn avgpool2d_forward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
-    input_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    input_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -132,8 +132,8 @@ pub fn avgpool2d_backward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -226,10 +226,6 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Avgpool2dF
         visitor.visit_i32(input_shape[3] as i32); // W
         visitor.visit_i32(output_shape[2] as i32); // OH
         visitor.visit_i32(output_shape[3] as i32); // OW
-    }
-
-    fn block(&self) -> [u32; 3] {
-        [128, 1, 1]
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
