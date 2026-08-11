@@ -137,9 +137,11 @@ other work to hide latency with — bad. The optimum is somewhere in the middle
 and it moves with the kernel and the card.
 
 Some of the inputs are visible in the PTX metadata the loader parses: the shared
-memory a kernel wants, its global scratch requirements, the thread count. They
-are not exposed as a public API, so reading them means either the PTX itself or
-`nvdisasm`.
+memory a kernel wants, its global scratch requirements, the thread count. These
+are exposed as a public API on `CudaProgram`. Registers are too, but only on
+request — `ptxas` has to actually run to know them, which
+[CUDA Diagnostics](../reference/cuda-diagnostics.md) covers. Short of that,
+reading them means either the PTX itself or `nvdisasm`.
 
 **Maximum occupancy is not the goal.** A kernel at 50% occupancy with good
 arithmetic intensity routinely beats one at 100% that is memory-starved.
