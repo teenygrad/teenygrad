@@ -19,23 +19,17 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use teeny_core::device::program::{ArgVisitor, Kernel};
+use teeny_core::device::program::ArgVisitor;
 use teeny_core::graph::{CustomOp, DtypeRepr, Op, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
-use teeny_triton::{PointwiseFuseProbe, PointwiseFuseProbeExt};
+use teeny_triton::PointwiseFuseProbe;
 
-use crate::nn::activation::{
-    relu::ReluForward,
-    sigmoid::{SigmoidForward, SiluForward},
-    tanh::TanhForward,
-};
-
-const BLOCK_SIZE: i32 = 1024;
+use crate::graph::TritonLowering;
 
 /// Probe whether `op` is pointwise-fusable at `dtype`.
 ///
-/// Fusability comes from [`PointwiseFuseProbeExt`] on the lowered kernel (or a
-/// prior [`PointwiseFuse`] / custom opt-in), not from an op-name allowlist.
+/// Instantiates the op through [`TritonLowering::lower_unary_op`] and keeps it
+/// only when the lowered kernel's pointwise-fuse probe succeeds.
 pub fn probe_pointwise_op(op: &Op, dtype: DtypeRepr) -> Option<PointwiseFuseProbe> {
     match op {
         Op::Custom { data } => {
@@ -47,23 +41,6 @@ pub fn probe_pointwise_op(op: &Op, dtype: DtypeRepr) -> Option<PointwiseFuseProb
                 .map(|block_size| PointwiseFuseProbe { block_size })
         }
         _ => member_kernel(op, dtype).ok().map(|m| m.probe),
-    }
-}
-
-fn member_tag(op: &Op) -> &'static str {
-    match op {
-        Op::Relu => "relu",
-        Op::Sigmoid => "sigmoid",
-        Op::Silu => "silu",
-        Op::Tanh => "tanh",
-        Op::Custom { data } => {
-            if data.downcast_ref::<PointwiseFuse>().is_some() {
-                "pointwise_fuse"
-            } else {
-                "custom"
-            }
-        }
-        _ => "op",
     }
 }
 
@@ -248,7 +225,11 @@ fn lower_pointwise_fuse(
         pieces.iter().map(|p| Arc::clone(&p.runtime_op)).collect();
     let fused_rop = PointwiseFuseRuntimeOp::new(&runtime_ops, probe.block_size)?;
 
-    let tag = members.iter().map(member_tag).collect::<Vec<_>>().join("_");
+    let tag = pieces
+        .iter()
+        .map(|p| p.fn_name.trim_end_matches("_forward"))
+        .collect::<Vec<_>>()
+        .join("_");
     let fused_name = format!("pointwise_fuse_{tag}");
     let entry_point = format!("{fused_name}_entry_point");
 
@@ -274,37 +255,29 @@ fn lower_pointwise_fuse(
     Ok((fused_name, kernel_source, entry_point, Arc::new(fused_rop)))
 }
 
+/// Resolve `op` via [`TritonLowering::lower_unary_op`], then keep it only if
+/// the pointwise-fuse probe succeeds.
 fn member_kernel(op: &Op, dtype: DtypeRepr) -> Result<MemberKernel, String> {
-    match (op, dtype) {
-        (Op::Relu, DtypeRepr::F32) => from_kernel(ReluForward::<f32>::new(BLOCK_SIZE)),
-        (Op::Relu, DtypeRepr::F64) => from_kernel(ReluForward::<f64>::new(BLOCK_SIZE)),
-        (Op::Sigmoid, DtypeRepr::F32) => from_kernel(SigmoidForward::<f32>::new(BLOCK_SIZE)),
-        (Op::Sigmoid, DtypeRepr::F64) => from_kernel(SigmoidForward::<f64>::new(BLOCK_SIZE)),
-        (Op::Silu, DtypeRepr::F32) => from_kernel(SiluForward::<f32>::new(BLOCK_SIZE)),
-        (Op::Silu, DtypeRepr::F64) => from_kernel(SiluForward::<f64>::new(BLOCK_SIZE)),
-        (Op::Tanh, DtypeRepr::F32) => from_kernel(TanhForward::<f32>::new(BLOCK_SIZE)),
-        (Op::Tanh, DtypeRepr::F64) => from_kernel(TanhForward::<f64>::new(BLOCK_SIZE)),
-        (op, dtype) => Err(format!(
-            "cannot lower PointwiseFuse member {op:?} at dtype {dtype:?}"
-        )),
-    }
-}
-
-fn from_kernel<K>(k: K) -> Result<MemberKernel, String>
-where
-    K: Kernel + RuntimeOp + PointwiseFuseProbeExt + 'static,
-{
-    let probe = k.pointwise_fuse_probe().ok_or_else(|| {
+    let exec = TritonLowering::new()
+        .lower_unary_op(op, dtype)
+        .map_err(|e| e.to_string())?;
+    let block_size = exec.pointwise_fuse_block_size.ok_or_else(|| {
         format!(
-            "kernel `{}` is not pointwise-fusable (failed PointwiseFuseProbeExt)",
-            k.name()
+            "kernel `{}` is not pointwise-fusable (failed pointwise fuse probe)",
+            exec.name
         )
     })?;
+    if exec.kernel_body.is_empty() {
+        return Err(format!(
+            "kernel `{}` has empty kernel_body; cannot compose into PointwiseFuse",
+            exec.name
+        ));
+    }
     Ok(MemberKernel {
-        fn_name: k.name().to_string(),
-        kernel_source: k.kernel_source().to_string(),
-        runtime_op: Arc::new(k),
-        probe,
+        fn_name: exec.name,
+        kernel_source: exec.kernel_body,
+        runtime_op: exec.runtime_op,
+        probe: PointwiseFuseProbe { block_size },
     })
 }
 

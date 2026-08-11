@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//! Anduin — first Triton graph optimizer (LotR river names).
+//! Anduin — first Triton graph optimizer
 
 use teeny_core::graph::{CustomData, DtypeRepr, Graph, GraphNode, Op};
 use teeny_triton::PointwiseFuseProbe;

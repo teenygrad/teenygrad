@@ -712,6 +712,16 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    // Inherent probe method so Dispatch (and fusion) can call it on every
+    // kernel struct. Logic stays on the PointwiseFuseProbeExt blanket.
+    let pointwise_probe_body = if block_size_field.is_some() && last_arg_is_n_elements {
+        quote! {
+            <Self as ::teeny_triton::PointwiseFuseProbeExt>::pointwise_fuse_probe(self)
+        }
+    } else {
+        quote! { ::core::option::Option::None }
+    };
+
     let struct_stream: TokenStream2 = quote! {
         #(#doc_attrs)*
         pub struct #struct_ident #struct_generics_def {
@@ -807,6 +817,13 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 ::teeny_triton::KernelIo {
                     roles: &[ #(#ptr_roles),* ],
                 }
+            }
+
+            /// Pointwise-fuse probe. Delegates to the
+            /// [`::teeny_triton::PointwiseFuseProbeExt`] blanket when this
+            /// kernel is `n_elements`-tiled unary elementwise; otherwise `None`.
+            pub fn pointwise_fuse_probe(&self) -> ::core::option::Option<::teeny_triton::PointwiseFuseProbe> {
+                #pointwise_probe_body
             }
         }
 
@@ -923,10 +940,14 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 quote! {
                     #repr => {
                         let __f = #fwd_new;
+                        let __probe_bs = __f.pointwise_fuse_probe().map(|p| p.block_size);
+                        let __body = __f.kernel_source.clone();
                         teeny_core::model::KernelInstance {
                             name: __f.name.to_string(),
                             source: __f.source.clone(),
+                            kernel_body: __body,
                             runtime_op: ::std::sync::Arc::new(__f),
+                            pointwise_fuse_block_size: __probe_bs,
                             backward: #backward_expr,
                         }
                     }
