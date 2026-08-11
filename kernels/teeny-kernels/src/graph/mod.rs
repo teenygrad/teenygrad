@@ -52,7 +52,7 @@ use crate::nn::{
             SiluForwardDispatch,
         },
         softmax::SoftmaxForward,
-        tanh::{TanhForward, TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
+        tanh::{TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
     },
     conv::{
         conv1d::Conv1dForward,
