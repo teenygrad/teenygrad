@@ -38,9 +38,9 @@ use teeny_triton::triton::{
 pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<D>>, // one input: n_spatial * chunk_c  (narrow NC)
     y_ptr: OutPtr<T::Pointer<D>>, // output:    n_spatial * c_total  (wide NC)
-    chunk_c: i32,         // input channels for this chunk
-    c_total: i32,         // total output channels
-    chunk_offset: i32,    // first output channel index: k * chunk_c
+    chunk_c: i32,                // input channels for this chunk
+    c_total: i32,                // total output channels
+    chunk_offset: i32,           // first output channel index: k * chunk_c
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,

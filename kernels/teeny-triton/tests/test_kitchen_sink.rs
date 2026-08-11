@@ -18,12 +18,12 @@ use std::path::PathBuf;
 
 use insta::assert_debug_snapshot;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_cuda::compiler::target::Target;
 use teeny_core::{
     compiler::Compiler,
     device::program::Kernel,
     dtype::{Dtype, Float},
 };
+use teeny_cuda::compiler::target::Target;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     Axis, CacheModifier, DotFormat, EvictionPolicy, FpDowncastRounding, InPtr, InputPrecision,
