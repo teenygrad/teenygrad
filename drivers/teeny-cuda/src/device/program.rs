@@ -27,6 +27,7 @@ use crate::errors::{Error, Result};
 /// usual metadata block. Only present when the PTX was compiled with `$TEENYC_GENERATE_BIN`
 /// set (a real `ptxas` subprocess compile targeting a specific SM architecture, so it isn't
 /// run by default) — absence means "not measured", never a fabricated zero.
+// ANCHOR: ptxas_stats_struct
 #[derive(Debug, Default, Clone)]
 pub struct PtxasStats {
     /// Registers used per thread.
@@ -40,6 +41,7 @@ pub struct PtxasStats {
     /// `(bank, bytes)` pairs, e.g. `(0, 384)` for `384 bytes cmem[0]`.
     pub cmem_banks: Vec<(u32, u32)>,
 }
+// ANCHOR_END: ptxas_stats_struct
 
 /// Kernel resource metadata parsed from `// meta:key=value` PTX comments
 /// appended by the Triton CUDA backend during compilation.
@@ -255,6 +257,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     pub fn num_ctas(&self) -> u32 {
         self.metadata.num_ctas
     }
+    // ANCHOR: ptxas_stats_accessor
     /// Register/spill/constant-memory statistics from `ptxas -v`, if available.
     ///
     /// `None` unless the PTX was compiled with `$TEENYC_GENERATE_BIN` set (see
@@ -265,6 +268,7 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     pub fn ptxas_stats(&self) -> Option<&PtxasStats> {
         self.metadata.ptxas_stats.as_ref()
     }
+    // ANCHOR_END: ptxas_stats_accessor
 
     /// Load a cubin image into the current CUDA context and resolve `entry_point`.
     ///

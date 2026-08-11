@@ -96,6 +96,11 @@ slice is yours. Chapter 6.
 **PTX** — NVIDIA's portable assembly, and what `compile_kernel` produces.
 Compiled to machine code by the driver at load time. Chapter 3.
 
+**ptxas** — NVIDIA's PTX-to-SASS assembler; the only place real (physical)
+register allocation happens, and so the only place a spill can be observed.
+Not run by `compile_kernel` unless `$TEENYC_GENERATE_BIN` is set. [CUDA
+Diagnostics](./cuda-diagnostics.md).
+
 **Race** — Two programs reading and writing the same address with no ordering,
 so one update is lost. Chapter 14.
 
@@ -103,6 +108,11 @@ so one update is lost. Chapter 14.
 
 **Register** — The fastest storage, private to a lane. Where tensors live inside
 a kernel. Chapter 11.
+
+**Register spill** — What happens when a kernel needs more registers than the
+hardware has: the excess overflows into local memory, which is off-chip and
+slow. Invisible until `ptxas` actually assembles the PTX. [CUDA
+Diagnostics](./cuda-diagnostics.md).
 
 **SASS** — The real machine code for a specific chip, produced from PTX by the
 driver. Never seen directly. Chapter 3.
