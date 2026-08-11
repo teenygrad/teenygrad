@@ -86,18 +86,15 @@ fn build_relu_sigmoid_tanh_graph() -> Graph {
         DtypeRepr::F32,
         shape_1d(N),
     );
-    let sigmoid = input.graph.borrow_mut().add_node(
-        Op::Sigmoid,
-        vec![relu],
-        DtypeRepr::F32,
-        shape_1d(N),
-    );
-    let _ = input.graph.borrow_mut().add_node(
-        Op::Tanh,
-        vec![sigmoid],
-        DtypeRepr::F32,
-        shape_1d(N),
-    );
+    let sigmoid =
+        input
+            .graph
+            .borrow_mut()
+            .add_node(Op::Sigmoid, vec![relu], DtypeRepr::F32, shape_1d(N));
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Tanh, vec![sigmoid], DtypeRepr::F32, shape_1d(N));
     drop(input);
     Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
 }

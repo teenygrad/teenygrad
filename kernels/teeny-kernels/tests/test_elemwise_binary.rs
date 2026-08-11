@@ -28,7 +28,6 @@ use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
 use teeny_cuda::{errors::Result, testing};
 
-use teeny_kernels::testing::load_fixture;
 use teeny_kernels::nn::tensor::elemwise_binary::{
     ElemwiseClipBackward, ElemwiseClipForward, ElemwiseDivBackward, ElemwiseDivForward,
     ElemwiseEqualForward, ElemwiseFmodForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
@@ -38,6 +37,7 @@ use teeny_kernels::nn::tensor::elemwise_binary::{
     ElemwiseSubBackward, ElemwiseSubForward, ElemwiseSumBackward, ElemwiseSumForward,
     ElemwiseWhereBackward, ElemwiseWhereForward,
 };
+use teeny_kernels::testing::load_fixture;
 
 const BLOCK_SIZE: i32 = 1024;
 const TOL: f32 = 1e-4;

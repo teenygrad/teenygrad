@@ -78,7 +78,12 @@ fn test_adagrad_step_cuda() -> Result<()> {
     sum_buf.to_device(&sum_in)?;
 
     let kernel = teeny_kernels::nn::optim::adagrad::AdagradStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::adagrad::AdagradStep>(&ptx)?;
     env.device.launch(
@@ -142,7 +147,12 @@ fn test_adadelta_step_cuda() -> Result<()> {
     acc_delta_buf.to_device(&acc_delta_in)?;
 
     let kernel = teeny_kernels::nn::optim::adagrad::AdadeltaStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::adagrad::AdadeltaStep>(&ptx)?;
     env.device.launch(

@@ -72,7 +72,12 @@ fn test_tanh_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhForward<f32>,
     >(&ptx)?;
@@ -118,7 +123,12 @@ fn test_tanh_backward_cuda() -> Result<()> {
     y_buf.to_device(&y_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhBackward<f32>,
     >(&ptx)?;
@@ -161,7 +171,12 @@ fn test_tanhshrink_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhshrinkForward<f32>,
     >(&ptx)?;
@@ -209,7 +224,12 @@ fn test_tanhshrink_backward_cuda() -> Result<()> {
     y_buf.to_device(&y_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::tanh::TanhshrinkBackward<f32>,
     >(&ptx)?;

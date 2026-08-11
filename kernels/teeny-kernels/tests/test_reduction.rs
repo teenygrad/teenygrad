@@ -28,13 +28,13 @@ use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
 use teeny_cuda::{errors::Result, testing};
 
-use teeny_kernels::testing::load_fixture;
 use teeny_kernels::nn::tensor::reduction::{
     CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward, ReduceL1Forward,
     ReduceL2Forward, ReduceLogSumExpForward, ReduceLogSumForward, ReduceMaxForward,
     ReduceMeanForward, ReduceMinForward, ReduceProdForward, ReduceSumForward,
     ReduceSumSquareForward,
 };
+use teeny_kernels::testing::load_fixture;
 
 // Reduction tests use a 2-D input: OUTER rows of INNER elements.
 const OUTER: usize = 32;

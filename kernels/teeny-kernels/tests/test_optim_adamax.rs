@@ -81,7 +81,12 @@ fn test_adamax_step_cuda() -> Result<()> {
     exp_inf_buf.to_device(&exp_inf_in)?;
 
     let kernel = teeny_kernels::nn::optim::adamax::AdamaxStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::adamax::AdamaxStep>(&ptx)?;
     env.device.launch(

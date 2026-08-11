@@ -85,7 +85,12 @@ fn test_rmsprop_step_cuda() -> Result<()> {
     sq_avg_buf.to_device(&sq_avg_in)?;
 
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::rmsprop::RmspropStep>(&ptx)?;
     env.device.launch(
@@ -150,7 +155,12 @@ fn test_rmsprop_momentum_step_cuda() -> Result<()> {
     buf_buf.to_device(&buf_in)?;
 
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropMomentumStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::optim::rmsprop::RmspropMomentumStep,
     >(&ptx)?;

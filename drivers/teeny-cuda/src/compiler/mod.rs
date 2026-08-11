@@ -35,10 +35,10 @@ pub mod options;
 /// CUDA compilation target descriptions.
 pub mod target;
 
-/// Compiles a kernel to PTX via `teenyc` (see [`driver::compile_kernel`]).
-pub use driver::compile_kernel;
 /// Compiles a graph to a [`crate::model::CudaModel`] via `teenyc` (see [`driver::compile_cuda_graph`]).
 pub use driver::compile_cuda_graph;
+/// Compiles a kernel to PTX via `teenyc` (see [`driver::compile_kernel`]).
+pub use driver::compile_kernel;
 /// CUDA SM version / compute capability.
 pub use target::Capability;
 /// CUDA compilation target wrapping a [`Capability`].

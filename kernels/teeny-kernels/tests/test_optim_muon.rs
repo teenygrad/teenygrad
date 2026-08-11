@@ -156,7 +156,12 @@ fn test_muon_update_cuda() -> Result<()> {
     grad_buf.to_device(&grad)?;
 
     let kernel = teeny_kernels::nn::optim::muon::MuonUpdate::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonUpdate>(&ptx)?;
     env.device.launch(
@@ -202,7 +207,12 @@ fn test_muon_frob_norm_sq_cuda() -> Result<()> {
     out_buf.to_device(&[0.0f32])?; // pre-zero the accumulator
 
     let kernel = teeny_kernels::nn::optim::muon::MuonFrobNormSq::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonFrobNormSq>(&ptx)?;
     env.device.launch(
@@ -247,7 +257,12 @@ fn test_muon_ns_xtx_cuda() -> Result<()> {
     x_buf.to_device(&x)?;
 
     let kernel = teeny_kernels::nn::optim::muon::MuonNsXtx::new(false, BLOCK_R, BLOCK_K, GROUP_R);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonNsXtx>(&ptx)?;
     env.device.launch(
@@ -308,7 +323,12 @@ fn test_muon_ns_step_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::optim::muon::MuonNsStep::new(false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::muon::MuonNsStep>(&ptx)?;
     env.device.launch(

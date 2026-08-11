@@ -71,7 +71,12 @@ fn test_asgd_step_cuda() -> Result<()> {
     ax_buf.to_device(&ax_in)?;
 
     let kernel = teeny_kernels::nn::optim::asgd::AsgdStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::asgd::AsgdStep>(&ptx)?;
     env.device.launch(
         &program,

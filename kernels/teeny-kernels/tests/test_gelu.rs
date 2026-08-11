@@ -72,7 +72,12 @@ fn test_gelu_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::GeluForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::GeluForward<f32>,
     >(&ptx)?;
@@ -115,7 +120,12 @@ fn test_gelu_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::GeluBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::GeluBackward<f32>,
     >(&ptx)?;
@@ -158,7 +168,12 @@ fn test_mish_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::MishForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::MishForward<f32>,
     >(&ptx)?;
@@ -201,7 +216,12 @@ fn test_mish_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::MishBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::MishBackward<f32>,
     >(&ptx)?;

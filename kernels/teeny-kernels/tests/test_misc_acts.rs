@@ -84,7 +84,12 @@ fn test_leaky_relu_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::LeakyReluForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::LeakyReluForward<f32>,
     >(&ptx)?;
@@ -127,7 +132,12 @@ fn test_leaky_relu_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::LeakyReluBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::LeakyReluBackward<f32>,
     >(&ptx)?;
@@ -170,7 +180,12 @@ fn test_threshold_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::ThresholdForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::ThresholdForward<f32>,
     >(&ptx)?;
@@ -214,7 +229,12 @@ fn test_threshold_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::ThresholdBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::ThresholdBackward<f32>,
     >(&ptx)?;
@@ -257,7 +277,12 @@ fn test_softsign_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftsignForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftsignForward<f32>,
     >(&ptx)?;
@@ -299,7 +324,12 @@ fn test_softsign_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftsignBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftsignBackward<f32>,
     >(&ptx)?;
@@ -341,7 +371,12 @@ fn test_softshrink_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftshrinkForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftshrinkForward<f32>,
     >(&ptx)?;
@@ -384,7 +419,12 @@ fn test_softshrink_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftshrinkBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftshrinkBackward<f32>,
     >(&ptx)?;
@@ -427,7 +467,12 @@ fn test_softplus_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftplusForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftplusForward<f32>,
     >(&ptx)?;
@@ -471,7 +516,12 @@ fn test_softplus_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::misc::SoftplusBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::misc::SoftplusBackward<f32>,
     >(&ptx)?;

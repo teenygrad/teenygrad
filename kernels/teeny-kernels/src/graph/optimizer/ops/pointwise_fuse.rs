@@ -380,12 +380,7 @@ fn lower_pointwise_fuse_backward(
     }
 
     let bwd_names: Vec<&str> = bwd_pieces.iter().map(|(n, _)| n.as_str()).collect();
-    let entry = synthesize_backward_entry(
-        &entry_point,
-        dtype_name,
-        probe.block_size,
-        &bwd_names,
-    );
+    let entry = synthesize_backward_entry(&entry_point, dtype_name, probe.block_size, &bwd_names);
     Ok(format!("{bodies}\n\n{entry}"))
 }
 
