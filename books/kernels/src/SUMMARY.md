@@ -45,5 +45,6 @@
 
 - [Python Triton to Rust](./reference/translation-table.md)
 - [Common Compile Errors](./reference/compile-errors.md)
+- [CUDA Diagnostics: Registers and Spills from `ptxas`](./reference/cuda-diagnostics.md)
 - [Glossary](./reference/glossary.md)
 - [Appendix: Porting a Python Triton Kernel](./reference/porting.md)
