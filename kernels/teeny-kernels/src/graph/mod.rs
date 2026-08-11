@@ -21,6 +21,12 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
+mod optimizer;
+pub mod optimizers;
+
+pub use optimizer::GraphOptimizer;
+pub use optimizers::Anduin;
+
 use crate::nn::{
     activation::extra::{
         LogSoftmaxBackward, LogSoftmaxForward, PreluForward, ShrinkRuntimeOp, SwishBackward,
@@ -54,10 +60,6 @@ use crate::nn::{
         conv1d::Conv1dForward,
         conv2d::{Conv2dBackward, Conv2dBiasForward, Conv2dForward},
         conv3d::Conv3dForward,
-    },
-    fused::{
-        conv2d_bn_silu::Conv2dBnSiluForward, conv2d_bn_silu_gemm::Conv2dBnSiluGemmForward,
-        conv2d_bn_silu_tiled::Conv2dBnSiluTiledForward,
     },
     mlp::{
         flatten::FlattenForward,
@@ -513,12 +515,18 @@ impl RuntimeOp for InputRuntimeOp {
 // TritonLowering
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct TritonLowering {
-    /// Target device's SM count for shape-adaptive conv tile-size selection — see
-    /// `Options::sm_count`. `None` (the default from `new()`) preserves the fixed
-    /// tile-size behavior every version before this had.
-    sm_count: Option<u32>,
+    /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]).
+    optimizer: Option<Arc<dyn GraphOptimizer>>,
+}
+
+impl std::fmt::Debug for TritonLowering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TritonLowering")
+            .field("optimizer", &self.optimizer.as_ref().map(|o| o.name()))
+            .finish()
+    }
 }
 
 impl TritonLowering {
@@ -526,65 +534,11 @@ impl TritonLowering {
         Self::default()
     }
 
-    /// Enables shape-adaptive tile-size selection for conv kernels, targeting `sm_count`
-    /// thread blocks worth of parallelism per launch (see `pick_adaptive_block_n`).
-    /// `None` restores the default fixed-tile-size behavior.
-    pub fn with_sm_count(mut self, sm_count: Option<u32>) -> Self {
-        self.sm_count = sm_count;
+    /// Selects a [`GraphOptimizer`] (e.g. [`Anduin`]) to rewrite the graph before
+    /// lowering. Without an optimizer, the input graph is lowered as-is.
+    pub fn with_optimizer(mut self, optimizer: impl GraphOptimizer + 'static) -> Self {
+        self.optimizer = Some(Arc::new(optimizer));
         self
-    }
-}
-
-/// Picks the largest tile size from `candidates` (checked largest-first, to keep maximum
-/// per-thread-block reuse whenever there's already enough grid) whose resulting block
-/// count — `fixed_blocks * ceil(tiled_dim / candidate)` — reaches `target_blocks`; falls
-/// back to the smallest candidate if none do (better to under-tile than to silently ignore
-/// a shape too small to ever hit the target).
-///
-/// `fixed_blocks` covers every grid dimension *not* being adapted here (e.g. `OH *
-/// ceil(OW/BLOCK_OW)` for the channel-tiled conv, batch omitted since it's usually unknown
-/// at lowering time — sizing for the batch=1 case only ever *under*-estimates grid size for
-/// larger batches, never over-estimates it).
-fn pick_adaptive_block_n(
-    tiled_dim: usize,
-    fixed_blocks: usize,
-    target_blocks: u32,
-    candidates: &[i32],
-) -> i32 {
-    for &c in candidates {
-        let n_tiles = tiled_dim.div_ceil(c.max(1) as usize);
-        if (fixed_blocks * n_tiles) as u64 >= target_blocks as u64 {
-            return c;
-        }
-    }
-    *candidates.last().expect("candidates must be non-empty")
-}
-
-#[cfg(test)]
-mod pick_adaptive_block_n_tests {
-    use super::pick_adaptive_block_n;
-
-    #[test]
-    fn keeps_largest_candidate_when_already_enough_blocks() {
-        // oh=80, ow=80, block_ow=16 -> fixed_blocks = 80 * ceil(80/16) = 400.
-        // c_out=256 at candidate 16 -> 400 * 16 = 6400 blocks, already >= target.
-        let picked = pick_adaptive_block_n(256, 400, 512, &[16, 8, 4]);
-        assert_eq!(picked, 16);
-    }
-
-    #[test]
-    fn shrinks_for_occupancy_starved_shapes() {
-        // oh=10, ow=10, block_ow=16 -> fixed_blocks = 10 * ceil(10/16) = 10.
-        // c_out=256: candidate 16 -> 10*16=160 blocks (< target); candidate 4 -> 10*64=640 (>= target).
-        let picked = pick_adaptive_block_n(256, 10, 512, &[16, 8, 4]);
-        assert_eq!(picked, 4);
-    }
-
-    #[test]
-    fn falls_back_to_smallest_candidate_when_target_unreachable() {
-        // Even the smallest candidate can't clear an absurdly high target.
-        let picked = pick_adaptive_block_n(16, 1, 1_000_000, &[16, 8, 4]);
-        assert_eq!(picked, 4);
     }
 }
 
@@ -609,8 +563,8 @@ mod pick_adaptive_block_n_tests {
 /// `m` is `None` when the batch dimension is dynamic (unknown at lowering time) — it's
 /// treated as small (64) rather than guessed large, so an unexpectedly small runtime
 /// batch doesn't end up under-occupied at a tile size chosen for a batch that never
-/// materializes. This under-estimates for large dynamic batches the same way
-/// `pick_adaptive_block_n`'s batch-omitted `fixed_blocks` does — see its doc comment.
+/// materializes. This under-estimates for large dynamic batches rather than
+/// over-tiling for a batch size that never appears.
 fn pick_gemm_tile_sizes(m: Option<usize>, n: usize, k: usize) -> (i32, i32, i32) {
     let m = m.unwrap_or(64);
     let block_k = if k >= 128 {
@@ -687,6 +641,14 @@ impl TritonLowering {
         mode: LoweringMode,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
         let _ = mode; // used by #[cfg(feature = "training")] branch below
+        let optimized;
+        let graph = match &self.optimizer {
+            Some(opt) => {
+                optimized = opt.optimize(graph)?;
+                &optimized
+            }
+            None => graph,
+        };
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         // Maps graph node index → DAG node index (one-to-one since we add every node)
@@ -1281,168 +1243,6 @@ impl TritonLowering {
                         ),
                         node
                     )
-                }
-
-                Op::Conv2dBnSilu {
-                    kernel_h,
-                    kernel_w,
-                    stride_h,
-                    stride_w,
-                    padding_h,
-                    padding_w,
-                    groups,
-                    in_channels,
-                    ..
-                } => {
-                    if node.dtype != DtypeRepr::F32 {
-                        return Err(anyhow::anyhow!(
-                            "Conv2dBnSilu only supports f32 (got {:?})",
-                            node.dtype
-                        ));
-                    }
-                    let kh = *kernel_h as i32;
-                    let kw = *kernel_w as i32;
-                    let sh = *stride_h as i32;
-                    let sw = *stride_w as i32;
-                    let ph = *padding_h as i32;
-                    let pw = *padding_w as i32;
-                    let g = *groups as i32;
-                    let c_out = node.shape[1].unwrap_or(0);
-                    let oh = node.shape[2].unwrap_or(1);
-                    let ow = node.shape[3].unwrap_or(1);
-                    let is_depthwise = g as usize == *in_channels;
-
-                    // ── Dispatch: select kernel based on op shape ─────────────────────────
-                    //
-                    // Case 1 — GEMM (TF32 tensor cores):
-                    //   1×1 kernel, stride=1, no padding, groups=1, C_OUT ≥ 32.
-                    //   Treats the convolution as Y[N,M] = W[N,K] @ X[K,M].
-                    //
-                    // Case 2 — Channel-tiled direct conv (outer-product accumulation):
-                    //   groups=1, C_OUT ≥ 16.
-                    //   Processes BLOCK_N output channels simultaneously per CTA.
-                    //
-                    // Case 3 — Scalar direct conv (existing kernel):
-                    //   Depthwise, tiny spatial, or any other fallback.
-
-                    let use_gemm = kh == 1
-                        && kw == 1
-                        && sh == 1
-                        && sw == 1
-                        && ph == 0
-                        && pw == 0
-                        && !is_depthwise
-                        && g == 1
-                        && c_out >= 32;
-
-                    let use_tiled = !is_depthwise && g == 1 && c_out >= 16 && !use_gemm;
-
-                    if use_gemm {
-                        const GROUP_M: i32 = 8;
-                        let m = oh * ow;
-                        // Shape-appropriate starting tile size (spinorml-4gx.2) — see
-                        // pick_gemm_tile_sizes' doc comment. m is always statically known
-                        // here (derived from the conv's own OH/OW), unlike the general
-                        // MatMul case, so it's passed as Some rather than treated as dynamic.
-                        let (block_m, block_n_base, block_k) =
-                            pick_gemm_tile_sizes(Some(m), c_out, *in_channels);
-                        // BLOCK_N also sets this kernel's shared-memory-per-block footprint,
-                        // so shrinking it for occupancy-starved shapes helps twice over: more
-                        // blocks *and* a higher occupancy ceiling (shared mem is the binding
-                        // occupancy limiter for this kernel at the default tile size). This
-                        // is a separate, hardware-occupancy-driven adjustment layered on top
-                        // of the shape-driven starting point above, not a replacement for it.
-                        let block_n = match self.sm_count {
-                            Some(sm_count) => {
-                                let fixed_blocks = m.div_ceil(block_m as usize);
-                                pick_adaptive_block_n(
-                                    c_out,
-                                    fixed_blocks,
-                                    4 * sm_count,
-                                    &[block_n_base, 16, 8],
-                                )
-                            }
-                            None => block_n_base,
-                        };
-                        let k = Conv2dBnSiluGemmForward::new(block_m, block_n, block_k, GROUP_M);
-                        let nm = k.name.to_string();
-                        let ks = k.source.clone();
-                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-                        Box::new(KernelExecutable {
-                            entry_point: format!("{}_entry_point", nm),
-                            name: nm,
-                            kernel_source: ks,
-                            shape: node.shape.clone(),
-                            dtype: node.dtype,
-                            #[cfg(feature = "training")]
-                            backward_kernel_source: String::new(),
-                            #[cfg(feature = "training")]
-                            backward_entry_point: String::new(),
-                            runtime_op: rop,
-                        })
-                    } else if use_tiled {
-                        const BLOCK_OW: i32 = 16;
-                        const BLOCK_N_TILE: i32 = 16;
-                        // See the analogous comment in the GEMM branch above — BLOCK_N_TILE
-                        // is the tile dim adapted here since shrinking it costs less
-                        // arithmetic-intensity/reuse than shrinking BLOCK_OW would (per this
-                        // kernel's own doc comment on why BLOCK_N reuse matters).
-                        let block_n_tile = match self.sm_count {
-                            Some(sm_count) => {
-                                let fixed_blocks = oh * ow.div_ceil(BLOCK_OW as usize);
-                                pick_adaptive_block_n(
-                                    c_out,
-                                    fixed_blocks,
-                                    4 * sm_count,
-                                    &[BLOCK_N_TILE, 8, 4],
-                                )
-                            }
-                            None => BLOCK_N_TILE,
-                        };
-                        let k = Conv2dBnSiluTiledForward::new(
-                            kh,
-                            kw,
-                            sh,
-                            sw,
-                            ph,
-                            pw,
-                            BLOCK_OW,
-                            block_n_tile,
-                        );
-                        let nm = k.name.to_string();
-                        let ks = k.source.clone();
-                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-                        Box::new(KernelExecutable {
-                            entry_point: format!("{}_entry_point", nm),
-                            name: nm,
-                            kernel_source: ks,
-                            shape: node.shape.clone(),
-                            dtype: node.dtype,
-                            #[cfg(feature = "training")]
-                            backward_kernel_source: String::new(),
-                            #[cfg(feature = "training")]
-                            backward_entry_point: String::new(),
-                            runtime_op: rop,
-                        })
-                    } else {
-                        const BLOCK_OW: i32 = 16;
-                        let k = Conv2dBnSiluForward::new(kh, kw, sh, sw, ph, pw, g, BLOCK_OW);
-                        let nm = k.name.to_string();
-                        let ks = k.source.clone();
-                        let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-                        Box::new(KernelExecutable {
-                            entry_point: format!("{}_entry_point", nm),
-                            name: nm,
-                            kernel_source: ks,
-                            shape: node.shape.clone(),
-                            dtype: node.dtype,
-                            #[cfg(feature = "training")]
-                            backward_kernel_source: String::new(),
-                            #[cfg(feature = "training")]
-                            backward_entry_point: String::new(),
-                            runtime_op: rop,
-                        })
-                    }
                 }
 
                 // --- Pooling ---
@@ -2936,20 +2736,6 @@ impl TritonLowering {
                         ));
                     }
                 },
-
-                Op::Fused { members } => {
-                    // Graph::fuse_elementwise_chains() (teeny-core) is opt-in and not
-                    // called by optimise(), specifically because lowering here doesn't
-                    // exist yet — see that method's doc comment. A graph only reaches
-                    // this arm if a caller explicitly asked for elementwise fusion
-                    // without yet having a backend that can compile the result.
-                    return Err(anyhow::anyhow!(
-                        "Op::Fused lowering is not implemented yet ({} member op(s)): \
-                         concatenate each member's kernel source and synthesize an \
-                         entry point that runs them in sequence (see spinorml-1fj.1)",
-                        members.len()
-                    ));
-                }
             };
 
             let dag_idx = dag.add_node(executable);

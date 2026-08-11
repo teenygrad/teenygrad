@@ -632,8 +632,7 @@ pub struct Conv2dOp<'a, T: Num> {
 /// `conv2d_forward` already uses for weights, applied once after the loop instead
 /// of once per (c_in, kh, kw) tap.
 ///
-/// For `Conv2d(has_bias=true)` with no downstream BatchNorm/SiLU to fuse into (the
-/// `conv2d_bn_silu` family), this replaces what would otherwise lower to two
+/// For `Conv2d(has_bias=true)`, this replaces what would otherwise lower to two
 /// separate kernel launches — [`conv2d_forward`] then a standalone NCHW bias-add —
 /// with one. See spinorml-ia5.
 ///
@@ -773,7 +772,12 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dBias
         let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
         vec![
-            vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize],
+            vec![
+                c_out,
+                c_in / self.g as usize,
+                self.kh as usize,
+                self.kw as usize,
+            ],
             vec![c_out],
         ]
     }
