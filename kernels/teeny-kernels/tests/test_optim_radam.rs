@@ -25,6 +25,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -54,15 +55,6 @@ fn radam_sgd_scalars(step: i32) -> f32 {
     LR / bc1
 }
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ── MLIR snapshots ────────────────────────────────────────────────────────────
 
 #[test]
@@ -70,7 +62,7 @@ fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("radam_adaptive_step_source", kernel.source());
     assert_debug_snapshot!("radam_adaptive_step_mlir", mlir.trim());
@@ -82,7 +74,7 @@ fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("radam_sgd_step_source", kernel.source());
     assert_debug_snapshot!("radam_sgd_step_mlir", mlir.trim());
@@ -116,7 +108,7 @@ fn test_radam_adaptive_step_cuda() -> Result<()> {
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::radam::RadamAdaptiveStep>(&ptx)?;
     env.device.launch(
@@ -193,7 +185,7 @@ fn test_radam_sgd_step_cuda() -> Result<()> {
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::radam::RadamSgdStep>(&ptx)?;
     env.device.launch(

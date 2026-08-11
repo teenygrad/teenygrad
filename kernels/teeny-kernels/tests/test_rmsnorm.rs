@@ -24,21 +24,13 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const M: usize = 16;
 const N: usize = 128;
 const EPS: f32 = 1e-8;
 const BLOCK_N: i32 = 256;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ---------------------------------------------------------------------------
 // Source snapshot tests (no CUDA required)
@@ -50,7 +42,7 @@ fn test_rms_norm_forward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormForward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("rms_norm_forward_source", kernel.source());
     Ok(())
 }
@@ -62,7 +54,7 @@ fn test_rms_norm_backward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("rms_norm_backward_source", kernel.source());
     Ok(())
 }
@@ -77,7 +69,7 @@ fn test_rms_norm_forward_mlir() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormForward::<f32>::new(BLOCK_N);
     let target = Target::new(Cap::Sm90);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("rms_norm_forward_mlir", mlir.trim());
     Ok(())
@@ -111,7 +103,7 @@ fn test_rms_norm_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormForward::<f32>::new(BLOCK_N);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::rmsnorm::RmsNormForward<f32>,
     >(&ptx)?;

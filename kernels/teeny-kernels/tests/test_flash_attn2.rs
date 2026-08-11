@@ -34,6 +34,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
 const BH: usize = 4; // BATCH=2 * N_HEADS=2
@@ -49,15 +50,6 @@ const N_L: usize = BH * N_CTX;
 
 // ── Fixture loader ─────────────────────────────────────────────────────────────
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
@@ -67,7 +59,7 @@ fn test_flash_attention2_forward_snapshot() -> Result<()> {
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::<f32>::new(HEAD_DIM);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("flash_attention2_forward_source", kernel.source());
@@ -108,7 +100,7 @@ fn test_flash_attention2_forward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::<f32>::new(HEAD_DIM);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[flash_attention2_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -173,7 +165,7 @@ fn test_flash_attention2_backward_dq_snapshot() -> Result<()> {
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::<f32>::new(HEAD_DIM);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("flash_attention2_backward_dq_source", kernel.source());
@@ -189,7 +181,7 @@ fn test_flash_attention2_backward_dkv_snapshot() -> Result<()> {
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::<f32>::new(HEAD_DIM);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("flash_attention2_backward_dkv_source", kernel.source());
@@ -233,7 +225,7 @@ fn test_flash_attention2_backward_dq_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::<f32>::new(HEAD_DIM);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[flash_attention2_backward_dq] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -316,7 +308,7 @@ fn test_flash_attention2_backward_dkv_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::<f32>::new(HEAD_DIM);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[flash_attention2_backward_dkv] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 

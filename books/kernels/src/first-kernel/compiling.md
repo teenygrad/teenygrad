@@ -6,7 +6,7 @@ up, because a kernel you can read the output of is a kernel you can debug.
 ## Compiling
 
 ```rust,ignore
-let ptx_path = compile_kernel(&kernel, &Target::new(env.capability), false)?;
+let ptx_path = compile_kernel(&kernel, &Target::new(env.capability), false, false)?;
 ```
 
 Three arguments:
@@ -117,7 +117,7 @@ pattern behind it is worth stealing:
 ```rust,ignore
 let kernel = ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
 let target = Target::new(Capability::Sm89);
-let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
 let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 assert_debug_snapshot!("elemwise_add_forward_mlir", mlir.trim());
 ```

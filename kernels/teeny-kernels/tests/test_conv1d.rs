@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 // ── No-padding constants ─────────────────────────────────────────────────────
 const B: usize = 1;
@@ -42,15 +43,6 @@ const OL_P: usize = (L + 2 * PAD_P as usize - KL as usize) / STRIDE as usize + 1
 
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // MLIR snapshot tests
 // ---------------------------------------------------------------------------
@@ -62,7 +54,7 @@ fn test_conv1d_forward_mlir_output() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dForward::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("conv1d_forward_source", kernel.source());
@@ -78,7 +70,7 @@ fn test_conv1d_backward_dx_mlir_output() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("conv1d_backward_dx_source", kernel.source());
@@ -94,7 +86,7 @@ fn test_conv1d_backward_dw_mlir_output() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("conv1d_backward_dw_source", kernel.source());
@@ -129,7 +121,7 @@ fn test_conv1d_forward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dForward::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[conv1d_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -193,7 +185,7 @@ fn test_conv1d_backward_dx_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
@@ -256,7 +248,7 @@ fn test_conv1d_backward_dw_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
@@ -323,7 +315,7 @@ fn test_conv1d_padded_forward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dForward::<f32>::new(KL, STRIDE, PAD_P, BLOCK_OL);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[conv1d_padded_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -387,7 +379,7 @@ fn test_conv1d_padded_backward_dx_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx::<f32>::new(KL, STRIDE, PAD_P, BLOCK_OL);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
@@ -450,7 +442,7 @@ fn test_conv1d_padded_backward_dw_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw::<f32>::new(KL, STRIDE, PAD_P, BLOCK_OL);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<

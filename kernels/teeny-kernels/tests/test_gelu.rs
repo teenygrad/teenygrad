@@ -25,18 +25,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ── MLIR snapshots ────────────────────────────────────────────────────────────
 
@@ -45,7 +37,7 @@ fn test_gelu_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::gelu::GeluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("gelu_forward_source", kernel.source());
     assert_debug_snapshot!("gelu_forward_mlir", mlir.trim());
@@ -57,7 +49,7 @@ fn test_mish_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::gelu::MishForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("mish_forward_source", kernel.source());
     assert_debug_snapshot!("mish_forward_mlir", mlir.trim());
@@ -80,7 +72,7 @@ fn test_gelu_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::GeluForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::GeluForward<f32>,
     >(&ptx)?;
@@ -123,7 +115,7 @@ fn test_gelu_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::GeluBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::GeluBackward<f32>,
     >(&ptx)?;
@@ -166,7 +158,7 @@ fn test_mish_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::MishForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::MishForward<f32>,
     >(&ptx)?;
@@ -209,7 +201,7 @@ fn test_mish_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::gelu::MishBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::gelu::MishBackward<f32>,
     >(&ptx)?;

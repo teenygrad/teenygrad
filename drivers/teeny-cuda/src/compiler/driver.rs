@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
+use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
 use teeny_core::compiler::Compiler;
 use teeny_core::device::program::Kernel;
+use teeny_core::graph::Graph;
+use teeny_core::model::{Lowering, LoweringMode};
 
+use crate::compiler::graph::CudaGraphCompiler;
 use crate::compiler::target::{Capability, Target};
 use crate::errors::Result;
+use crate::model::CudaModel;
 
 /// Highest SM version our Triton MLIR codegen has validated support for.
 ///
@@ -40,15 +44,75 @@ use crate::errors::Result;
 const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm120;
 
 /// Compiles `kernel` for `target` via the LLVM backend, using the `teenyc` binary resolved by
-/// [`teeny_compiler::compiler::find_teenyc`] and the default cache directory. Set `force` to
-/// recompile even if a cached artifact exists.
-pub fn compile_kernel(kernel: &impl Kernel, target: &Target, force: bool) -> Result<String> {
+/// [`teeny_compiler::compiler::find_teenyc`] and the default cache directory.
+///
+/// - `force`: recompile even if a cached artifact exists.
+/// - `debug`: when `true`, enable `teenyc` pipeline-stage logging (`ttir` / `ttgpuir` / `llir` /
+///   `llvmir` / `ptx`) to stderr via a thread-local `tracing` subscriber. Pair with
+///   `--nocapture` (and usually `force = true`, otherwise a cache hit emits nothing), e.g.:
+///
+///   ```text
+///   cargo test -p teeny-kernels --test test_relu --features cuda \
+///     test_relu -- --nocapture 2>pipeline.log
+///   ```
+pub fn compile_kernel(
+    kernel: &impl Kernel,
+    target: &Target,
+    force: bool,
+    debug: bool,
+) -> Result<String> {
+    let compiler = make_llvm_compiler(target, debug)?;
+    with_pipeline_logging(debug, || compiler.compile(kernel, target, force))
+}
+
+/// Compiles a lowered `graph` to a [`CudaModel`] via [`CudaGraphCompiler`], using the `teenyc`
+/// binary resolved by [`teeny_compiler::compiler::find_teenyc`] and the default cache directory.
+///
+/// This is the graph-level counterpart to [`compile_kernel`]: it handles `ExecutableOp` →
+/// `Kernel` adaptation internally so callers do not need an `ExecKernel`-style wrapper.
+///
+/// - `force`: recompile even if a cached artifact exists.
+/// - `debug`: when `true`, enable the same pipeline-stage logging as [`compile_kernel`].
+pub fn compile_cuda_graph<'a, L: Lowering<'a>>(
+    graph: &Graph,
+    lowering: &L,
+    target: &Target,
+    mode: LoweringMode,
+    force: bool,
+    debug: bool,
+) -> Result<CudaModel<'a>> {
+    let compiler = make_llvm_compiler(target, debug)?;
+    let graph_compiler = CudaGraphCompiler::new(compiler);
+    with_pipeline_logging(debug, || {
+        graph_compiler.compile_model(graph, lowering, target, mode, force)
+    })
+}
+
+fn make_llvm_compiler(target: &Target, debug: bool) -> Result<LlvmCompiler> {
     let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let cache_dir = teeny_compiler::compiler::default_cache_dir();
-
     let effective_cpu = clamp_capability(target.capability).to_string();
-    let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?.with_target_cpu(effective_cpu);
-    compiler.compile(kernel, target, force)
+    let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir)?.with_target_cpu(effective_cpu);
+    if debug {
+        compiler = compiler.with_log_level(LogLevel::Debug);
+    }
+    Ok(compiler)
+}
+
+/// When `debug` is set, install a thread-local stderr tracing subscriber for the duration of `f`
+/// so `teenyc` pipeline-stage IR is visible under `--nocapture`.
+fn with_pipeline_logging<T>(debug: bool, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    if !debug {
+        return f();
+    }
+    // Scoped to this thread only, so it doesn't clobber a subscriber another
+    // test running concurrently in this binary may have installed.
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .finish();
+    tracing::subscriber::with_default(subscriber, f)
 }
 
 /// Clamp `cap` to `MAX_CODEGEN_CAPABILITY` for any architecture newer than

@@ -57,7 +57,7 @@ fn test_matmul_forward_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = MatmulForward::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("matmul_forward_source", kernel.source());
     assert_debug_snapshot!("matmul_forward_mlir", mlir.trim());
@@ -69,7 +69,7 @@ fn test_matmul_backward_da_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = MatmulBackwardDa::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("matmul_backward_da_source", kernel.source());
     assert_debug_snapshot!("matmul_backward_da_mlir", mlir.trim());
@@ -81,7 +81,7 @@ fn test_matmul_backward_db_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = MatmulBackwardDb::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("matmul_backward_db_source", kernel.source());
     assert_debug_snapshot!("matmul_backward_db_mlir", mlir.trim());
@@ -128,7 +128,7 @@ fn test_matmul_forward_gpu() -> Result<()> {
 
     let kernel = MatmulForward::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<MatmulForward<f32>>(&ptx)?;
 
     use teeny_cuda::device::CudaLaunchConfig;
@@ -169,7 +169,7 @@ fn test_matmul_forward_gpu() -> Result<()> {
 // Same MatmulForward kernel as above (a tensor-core-eligible tl.dot call over
 // K-tiles — see MatmulForward's single T::dot call in the accumulation loop),
 // but with data generated inline instead of computed alongside the launch,
-// and compiled with LlvmCompiler::with_log_level(Debug) so teenyc's
+// and compiled with `compile_kernel(..., debug=true)` so teenyc's
 // ttir/ttgpuir/llir/llvmir/ptx pipeline stages are logged to stderr as the
 // compile runs. Run with `--nocapture` (and redirect stderr) to capture
 // them, e.g.:
@@ -197,9 +197,6 @@ fn matmul_reference(a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f
 #[test]
 #[cfg(feature = "cuda")]
 fn test_matmul_forward_logs_pipeline_stages() -> Result<()> {
-    use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
-    use teeny_core::compiler::Compiler as _;
-
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
@@ -225,25 +222,8 @@ fn test_matmul_forward_logs_pipeline_stages() -> Result<()> {
     let kernel = MatmulForward::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(env.capability);
 
-    // Build the compiler by hand (rather than the `compile_kernel` helper the
-    // other tests use) so we can turn on pipeline-stage logging.
-    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
-    let cache_dir = teeny_compiler::compiler::default_cache_dir();
-    let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?
-        .with_target_cpu(target.capability.to_string())
-        .with_log_level(LogLevel::Debug);
-
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(std::io::stderr)
-        .finish();
-
-    // Scoped to this thread only, so it doesn't clobber a subscriber another
-    // test running concurrently in this binary may have installed. `force:
-    // true` guarantees `teenyc` actually runs (a cache hit would emit nothing).
-    let ptx_path =
-        tracing::subscriber::with_default(subscriber, || compiler.compile(&kernel, &target, true))?;
+    // force=true so teenyc actually runs (a cache hit would emit no pipeline logs).
+    let ptx_path = compile_kernel(&kernel, &target, true, true)?;
     println!("compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -322,7 +302,7 @@ fn test_matmul_backward_da_gpu() -> Result<()> {
 
     let kernel = MatmulBackwardDa::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<MatmulBackwardDa<f32>>(&ptx)?;
 
     use teeny_cuda::device::CudaLaunchConfig;
@@ -396,7 +376,7 @@ fn test_matmul_backward_db_gpu() -> Result<()> {
 
     let kernel = MatmulBackwardDb::<f32>::new(BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<MatmulBackwardDb<f32>>(&ptx)?;
 
     use teeny_cuda::device::CudaLaunchConfig;

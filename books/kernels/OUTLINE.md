@@ -33,7 +33,7 @@ pieces are enough, and all four are in
    (`kernels/teeny-kernels/src/nn/tensor/elemwise_add.rs`).
 2. **The generated struct** — `#[kernel]` emits `ElemwiseAddForward<D>` with a
    `new(block_size)` constructor and a `Kernel` impl.
-3. **Compilation** — `compile_kernel(&kernel, &Target::new(capability), force)`
+3. **Compilation** — `compile_kernel(&kernel, &Target::new(capability), force, debug)`
    returns a path to PTX (`teeny_cuda::compiler`).
 4. **The launch** — `device.launch(&program, &cfg, (ptrs…, scalars…))` with
    buffers from `device.buffer::<f32>(n)`.
@@ -205,7 +205,7 @@ and nothing checks it for you. See [`API-FRICTION.md`](./API-FRICTION.md).
 **Introduces.** Reading MLIR; reading PTX; the snapshot-test pattern as a way to
 see what your change did to the generated code.
 
-**Uses.** `compile_kernel(&kernel, &target, force)` and the `.mlir` file it
+**Uses.** `compile_kernel(&kernel, &target, force, debug)` and the `.mlir` file it
 leaves beside the PTX; `insta::assert_debug_snapshot!`; `LlvmCompiler::new`,
 `with_target_cpu`, `with_ptx_version`; `$TEENYC_PTX_VERSION` and the sm_120
 driver-rejection case documented in

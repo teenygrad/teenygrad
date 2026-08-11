@@ -27,18 +27,16 @@ use std::rc::Rc;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_core::device::program::Kernel;
 use teeny_core::graph::{DtypeRepr, Graph, Op, SymTensor};
-use teeny_core::model::{ExecutableOp, LoweringMode};
-use teeny_cuda::compiler::compile_kernel;
-use teeny_cuda::compiler::graph::CudaGraphCompiler;
+use teeny_core::model::LoweringMode;
+use teeny_cuda::compiler::compile_cuda_graph;
 use teeny_cuda::compiler::target::{Capability, Target};
 use teeny_cuda::device::mem;
 use teeny_cuda::errors::Result;
 use teeny_cuda::model::TensorRef;
 use teeny_cuda::testing;
 use teeny_kernels::graph::{Anduin, TritonLowering};
+use teeny_kernels::testing::load_fixture;
 
 const NB: usize = 1;
 const C_IN: usize = 2;
@@ -53,15 +51,6 @@ const OH: usize = (HH + 2 * PAD - KH) / STRIDE + 1; // 6
 const OW: usize = (WW + 2 * PAD - KW) / STRIDE + 1; // 6
 const EPS: f64 = 1e-5;
 const TOL: f32 = 1e-4;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 /// Build `Input → Conv2d(no bias) → BatchNorm2d → Silu`.
 fn build_conv_bn_silu_graph() -> Graph {
@@ -111,54 +100,32 @@ fn build_conv_bn_silu_graph() -> Graph {
     Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
 }
 
-/// Adapts a lowered [`ExecutableOp`] to [`Kernel`] for [`compile_kernel`].
-struct ExecKernel<'a>(&'a dyn ExecutableOp);
-
-impl Kernel for ExecKernel<'_> {
-    type Args<'b> = ();
-
-    fn name(&self) -> &str {
-        self.0.name()
-    }
-
-    fn source(&self) -> &str {
-        self.0.forward_kernel_source()
-    }
-
-    fn kernel_source(&self) -> &str {
-        self.0.forward_kernel_source()
-    }
-
-    fn entry_point_source(&self) -> &str {
-        ""
-    }
-
-    fn entry_point_name(&self) -> String {
-        self.0.forward_kernel_entry_point().to_string()
-    }
-}
-
 #[test]
 fn test_anduin_conv_bn_silu_mlir() -> Result<()> {
     dotenv().ok();
 
     let graph = build_conv_bn_silu_graph();
     let lowering = TritonLowering::new().with_optimizer(Anduin);
-    let (dag, _) = lowering
-        .lower_with_mapping(&graph, LoweringMode::Inference)
-        .expect("Anduin lowering should succeed");
+    let target = Target::new(Capability::Sm89);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        true,
+        false,
+    )?;
 
     // Anduin is currently identity — expect Input + Conv2d + BN + Silu.
-    assert_eq!(dag.len(), 4);
-    assert!(dag.node(0).value.is_input());
+    assert_eq!(model.dag.len(), 4);
+    assert!(model.dag.node(0).value.ptx_path.is_empty());
 
-    let target = Target::new(Capability::Sm89);
     let mut mlir_blobs = Vec::new();
-    for i in 1..dag.len() {
-        let exec = dag.node(i).value.as_ref();
-        let ptx_path = PathBuf::from(compile_kernel(&ExecKernel(exec), &target, true)?);
-        let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-        mlir_blobs.push(format!("=== {} ===\n{}", exec.name(), mlir.trim()));
+    for i in 1..model.dag.len() {
+        let node = &model.dag.node(i).value;
+        let name = node.entry_point.trim_end_matches("_entry_point");
+        let mlir = std::fs::read_to_string(PathBuf::from(&node.ptx_path).with_extension("mlir"))?;
+        mlir_blobs.push(format!("=== {name} ===\n{}", mlir.trim()));
     }
 
     assert_debug_snapshot!("anduin_conv_bn_silu_mlir", mlir_blobs.join("\n\n"));
@@ -174,14 +141,14 @@ fn test_anduin_conv_bn_silu_matches_pytorch() -> Result<()> {
 
     let graph = build_conv_bn_silu_graph();
     let lowering = TritonLowering::new().with_optimizer(Anduin);
-
-    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
-    let cache_dir =
-        std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
-    let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
-    let graph_compiler = CudaGraphCompiler::new(compiler);
-    let model =
-        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        true,
+        true,
+    )?;
 
     assert_eq!(model.dag.len(), 4, "Input + Conv2d + BN + Silu");
 

@@ -482,7 +482,8 @@ impl_stub_runtime_op_num!(CircularPad2dForward);
 impl_stub_runtime_op_num!(CircularPad3dForward);
 
 // Activation — dtype-generic (D: Float) kernels without runtime support yet.
-// GeluForward and SiluForward have real RuntimeOp impls in their kernel modules.
+// GeluForward, SiluForward, and TanhForward have real RuntimeOp impls in their
+// kernel modules.
 impl_stub_runtime_op_float!(EluForward);
 impl_stub_runtime_op_float!(SeluForward);
 impl_stub_runtime_op_float!(CeluForward);
@@ -498,7 +499,6 @@ impl_stub_runtime_op_float!(SoftsignForward);
 impl_stub_runtime_op_float!(SoftshrinkForward);
 impl_stub_runtime_op_float!(SoftplusForward);
 impl_stub_runtime_op_float!(LogsigmoidForward);
-impl_stub_runtime_op_float!(TanhForward);
 impl_stub_runtime_op_float!(TanhshrinkForward);
 
 // ---------------------------------------------------------------------------
@@ -2799,6 +2799,14 @@ impl TritonLowering {
 
                 Op::Custom { data } => match data.0.lower() {
                     Some((name, kernel_source, entry_point, runtime_op)) => {
+                        #[cfg(feature = "training")]
+                        let backward_kernel_source = data.0.lower_backward_source();
+                        #[cfg(feature = "training")]
+                        let backward_entry_point = if backward_kernel_source.is_empty() {
+                            String::new()
+                        } else {
+                            format!("{name}_backward_entry_point")
+                        };
                         Box::new(KernelExecutable {
                             name,
                             kernel_source,
@@ -2807,11 +2815,11 @@ impl TritonLowering {
                             dtype: node.dtype,
                             runtime_op,
                             #[cfg(feature = "training")]
-                            backward_kernel_source: data.0.lower_backward_source(),
+                            backward_kernel_source,
                             kernel_body: String::new(),
                             pointwise_fuse_block_size: None,
                             #[cfg(feature = "training")]
-                            backward_entry_point: String::new(),
+                            backward_entry_point,
                         })
                     }
                     None => {

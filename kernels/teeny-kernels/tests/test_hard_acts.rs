@@ -25,18 +25,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ── MLIR snapshots ────────────────────────────────────────────────────────────
 
@@ -47,7 +39,7 @@ macro_rules! mlir_snap {
             dotenv().ok();
             let kernel = <$KernelTy>::new(BLOCK_SIZE);
             let target = Target::new(Capability::Sm89);
-            let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+            let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
             let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
             assert_debug_snapshot!($src_name, kernel.source());
             assert_debug_snapshot!($mlir_name, mlir.trim());
@@ -103,7 +95,7 @@ fn test_hardtanh_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardtanhForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardtanhForward<f32>,
     >(&ptx)?;
@@ -147,7 +139,7 @@ fn test_hardtanh_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardtanhBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardtanhBackward<f32>,
     >(&ptx)?;
@@ -191,7 +183,7 @@ fn test_relu6_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::Relu6Forward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::Relu6Forward<f32>,
     >(&ptx)?;
@@ -233,7 +225,7 @@ fn test_relu6_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::Relu6Backward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::Relu6Backward<f32>,
     >(&ptx)?;
@@ -275,7 +267,7 @@ fn test_hardsigmoid_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardsigmoidForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardsigmoidForward<f32>,
     >(&ptx)?;
@@ -317,7 +309,7 @@ fn test_hardsigmoid_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardsigmoidBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardsigmoidBackward<f32>,
     >(&ptx)?;
@@ -359,7 +351,7 @@ fn test_hardswish_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardswishForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardswishForward<f32>,
     >(&ptx)?;
@@ -401,7 +393,7 @@ fn test_hardswish_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardswishBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardswishBackward<f32>,
     >(&ptx)?;
@@ -443,7 +435,7 @@ fn test_hardshrink_forward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardshrinkForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardshrinkForward<f32>,
     >(&ptx)?;
@@ -486,7 +478,7 @@ fn test_hardshrink_backward_cuda() -> Result<()> {
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::hard::HardshrinkBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::activation::hard::HardshrinkBackward<f32>,
     >(&ptx)?;

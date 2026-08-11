@@ -40,6 +40,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
 
@@ -55,15 +56,6 @@ const BLOCK_OW: i32 = 4;
 
 // ── Fixture loader ─────────────────────────────────────────────────────────────
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
@@ -75,7 +67,7 @@ fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
             SCALE_H, SCALE_W, BLOCK_OW,
         );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("upsample_nearest2d_forward_source", kernel.source());
@@ -93,7 +85,7 @@ fn test_upsample_nearest2d_backward_snapshot() -> Result<()> {
             SCALE_H, SCALE_W, BLOCK_OW,
         );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("upsample_nearest2d_backward_source", kernel.source());
@@ -126,7 +118,7 @@ fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
             SCALE_H, SCALE_W, BLOCK_OW,
         );
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward<f32>,
     >(&ptx)?;
@@ -192,7 +184,7 @@ fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
             SCALE_H, SCALE_W, BLOCK_OW,
         );
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward<f32>,
     >(&ptx)?;
