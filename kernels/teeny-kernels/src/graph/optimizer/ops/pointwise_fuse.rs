@@ -190,8 +190,8 @@ impl RuntimeOp for PointwiseFuseRuntimeOp {
         let n: usize = output_shape.iter().product();
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
-        for i in 0..self.n_scratch {
-            visitor.visit_ptr(params[i]);
+        for &scratch in params.iter().take(self.n_scratch) {
+            visitor.visit_ptr(scratch);
         }
         visitor.visit_i32(n as i32);
     }
