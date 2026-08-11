@@ -23,13 +23,13 @@ use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::{Anduin, GraphOptimizer, PointwiseFuse, TritonLowering};
 
 #[cfg(feature = "cuda")]
-use std::mem::size_of;
-#[cfg(feature = "cuda")]
-use std::path::PathBuf;
-#[cfg(feature = "cuda")]
 use dotenv::dotenv;
 #[cfg(feature = "cuda")]
 use insta::assert_debug_snapshot;
+#[cfg(feature = "cuda")]
+use std::mem::size_of;
+#[cfg(feature = "cuda")]
+use std::path::PathBuf;
 #[cfg(feature = "cuda")]
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 #[cfg(feature = "cuda")]
@@ -66,12 +66,10 @@ fn build_relu_sigmoid_graph() -> Graph {
         DtypeRepr::F32,
         shape_1d(N),
     );
-    let _ = input.graph.borrow_mut().add_node(
-        Op::Sigmoid,
-        vec![relu],
-        DtypeRepr::F32,
-        shape_1d(N),
-    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Sigmoid, vec![relu], DtypeRepr::F32, shape_1d(N));
     drop(input);
     Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
 }
@@ -176,13 +174,8 @@ fn test_anduin_pointwise_relu_sigmoid_matches_pytorch() -> Result<()> {
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let graph_compiler = CudaGraphCompiler::new(compiler);
-    let model = graph_compiler.compile_model(
-        &graph,
-        &lowering,
-        &target,
-        LoweringMode::Inference,
-        false,
-    )?;
+    let model =
+        graph_compiler.compile_model(&graph, &lowering, &target, LoweringMode::Inference, false)?;
 
     assert_eq!(model.dag.len(), 2);
     let loaded = model.load(&env.device, 1)?;

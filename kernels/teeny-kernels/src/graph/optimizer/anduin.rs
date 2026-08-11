@@ -20,8 +20,8 @@ use teeny_core::graph::{CustomData, DtypeRepr, Graph, GraphNode, Op};
 use teeny_triton::PointwiseFuseProbe;
 
 use crate::errors::Result;
-use crate::graph::optimizer::ops::{probe_pointwise_op, PointwiseFuse};
 use crate::graph::optimizer::GraphOptimizer;
+use crate::graph::optimizer::ops::{PointwiseFuse, probe_pointwise_op};
 
 /// Anduin: Triton-side graph rewrites before lowering.
 ///
@@ -56,9 +56,9 @@ fn fuse_pointwise_chains(graph: &Graph) -> Graph {
 /// Expand a node into pointwise members + shared probe, if fusible.
 fn pointwise_parts(op: &Op, dtype: DtypeRepr) -> Option<(Vec<Op>, PointwiseFuseProbe)> {
     match op {
-        Op::Custom { data } => data.downcast_ref::<PointwiseFuse>().map(|pf| {
-            (pf.members.clone(), pf.probe)
-        }),
+        Op::Custom { data } => data
+            .downcast_ref::<PointwiseFuse>()
+            .map(|pf| (pf.members.clone(), pf.probe)),
         other => {
             let probe = probe_pointwise_op(other, dtype)?;
             Some((vec![other.clone()], probe))

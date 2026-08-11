@@ -18,4 +18,4 @@
 
 mod pointwise_fuse;
 
-pub use pointwise_fuse::{probe_pointwise_op, PointwiseFuse};
+pub use pointwise_fuse::{PointwiseFuse, probe_pointwise_op};

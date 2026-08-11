@@ -46,9 +46,7 @@ pub fn probe_pointwise_op(op: &Op, dtype: DtypeRepr) -> Option<PointwiseFuseProb
                 .pointwise_fuse_block_size()
                 .map(|block_size| PointwiseFuseProbe { block_size })
         }
-        _ => member_kernel(op, dtype)
-            .ok()
-            .map(|m| m.probe),
+        _ => member_kernel(op, dtype).ok().map(|m| m.probe),
     }
 }
 
@@ -250,11 +248,7 @@ fn lower_pointwise_fuse(
         pieces.iter().map(|p| Arc::clone(&p.runtime_op)).collect();
     let fused_rop = PointwiseFuseRuntimeOp::new(&runtime_ops, probe.block_size)?;
 
-    let tag = members
-        .iter()
-        .map(member_tag)
-        .collect::<Vec<_>>()
-        .join("_");
+    let tag = members.iter().map(member_tag).collect::<Vec<_>>().join("_");
     let fused_name = format!("pointwise_fuse_{tag}");
     let entry_point = format!("{fused_name}_entry_point");
 
@@ -277,12 +271,7 @@ fn lower_pointwise_fuse(
     );
     let kernel_source = format!("{bodies}\n\n{entry}");
 
-    Ok((
-        fused_name,
-        kernel_source,
-        entry_point,
-        Arc::new(fused_rop),
-    ))
+    Ok((fused_name, kernel_source, entry_point, Arc::new(fused_rop)))
 }
 
 fn member_kernel(op: &Op, dtype: DtypeRepr) -> Result<MemberKernel, String> {

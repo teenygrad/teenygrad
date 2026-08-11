@@ -155,11 +155,7 @@ impl PointwiseFuseProbe {
 
     /// Default grid for an `n_elements`-tiled pointwise kernel.
     pub fn grid(self, n_elements: usize) -> [u32; 3] {
-        [
-            n_elements.div_ceil(self.block_size as usize) as u32,
-            1,
-            1,
-        ]
+        [n_elements.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
 }
 
