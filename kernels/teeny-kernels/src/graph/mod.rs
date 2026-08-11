@@ -515,15 +515,10 @@ impl RuntimeOp for InputRuntimeOp {
 // TritonLowering
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
 pub struct TritonLowering {
     /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]).
     optimizer: Option<Arc<dyn GraphOptimizer>>,
-}
-
-impl Default for TritonLowering {
-    fn default() -> Self {
-        Self { optimizer: None }
-    }
 }
 
 impl std::fmt::Debug for TritonLowering {
