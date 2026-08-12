@@ -1132,4 +1132,25 @@ y_ans = torch.sign(torch.neg(torch.abs(x_ans)))
 save(f"{d}/x.bin", x_ans)
 save(f"{d}/expected_forward.bin", y_ans)
 
+# ── anduin_pointwise_exp_reciprocal (Exp → Reciprocal via PointwiseFuse) ──────
+# Case-1 transcendental batch (teenygrad-1bf.1.5): forward-only -- none of
+# Exp/Log/Sqrt/Erf/Reciprocal are y-style, so no fused backward exists yet.
+print("anduin_pointwise_exp_reciprocal")
+d = os.path.join(BASE, "anduin_pointwise_exp_reciprocal")
+os.makedirs(d, exist_ok=True)
+x_er = torch.empty(N_PW).uniform_(-2, 2)
+y_er = torch.reciprocal(torch.exp(x_er))
+save(f"{d}/x.bin", x_er)
+save(f"{d}/expected_forward.bin", y_er)
+
+# ── anduin_pointwise_log_sqrt (Log → Sqrt via PointwiseFuse) ──────────────────
+# x kept in (1, 5) so log(x) stays in [0, ~1.61) -- sqrt's domain.
+print("anduin_pointwise_log_sqrt")
+d = os.path.join(BASE, "anduin_pointwise_log_sqrt")
+os.makedirs(d, exist_ok=True)
+x_ls = torch.empty(N_PW).uniform_(1, 5)
+y_ls = torch.sqrt(torch.log(x_ls))
+save(f"{d}/x.bin", x_ls)
+save(f"{d}/expected_forward.bin", y_ls)
+
 print("\nDone — all fixtures generated.")

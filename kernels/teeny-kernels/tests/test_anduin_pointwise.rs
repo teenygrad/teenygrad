@@ -300,6 +300,135 @@ fn test_anduin_round_does_not_fuse() {
     assert_no_fusion(&graph);
 }
 
+fn build_exp_reciprocal_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let exp = input.graph.borrow_mut().add_node(
+        Op::Exp,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let _ =
+        input
+            .graph
+            .borrow_mut()
+            .add_node(Op::Reciprocal, vec![exp], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn build_log_sqrt_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let log = input.graph.borrow_mut().add_node(
+        Op::Log,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Sqrt, vec![log], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn build_exp_log_sqrt_erf_reciprocal_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let exp = input.graph.borrow_mut().add_node(
+        Op::Exp,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let log = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Log, vec![exp], DtypeRepr::F32, shape_1d(N));
+    let sqrt = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Sqrt, vec![log], DtypeRepr::F32, shape_1d(N));
+    let erf = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Erf, vec![sqrt], DtypeRepr::F32, shape_1d(N));
+    let _ =
+        input
+            .graph
+            .borrow_mut()
+            .add_node(Op::Reciprocal, vec![erf], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+#[test]
+fn test_anduin_fuses_exp_reciprocal_into_pointwise_fuse() {
+    let graph = build_exp_reciprocal_graph();
+    assert_eq!(graph.nodes.len(), 3);
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "Input + PointwiseFuse");
+    match &opt.nodes[1].op {
+        Op::Custom { data } => {
+            let pf = data
+                .downcast_ref::<PointwiseFuse>()
+                .expect("expected PointwiseFuse");
+            assert_eq!(pf.members.len(), 2);
+            assert!(matches!(pf.members[0], Op::Exp));
+            assert!(matches!(pf.members[1], Op::Reciprocal));
+            // Not y-style -- no fused backward exists for this batch yet.
+            assert!(!pf.supports_fused_backward());
+        }
+        other => panic!("expected Custom(PointwiseFuse), got {other:?}"),
+    }
+}
+
+#[test]
+fn test_anduin_fuses_log_sqrt_into_pointwise_fuse() {
+    let graph = build_log_sqrt_graph();
+    assert_eq!(graph.nodes.len(), 3);
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "Input + PointwiseFuse");
+    match &opt.nodes[1].op {
+        Op::Custom { data } => {
+            let pf = data
+                .downcast_ref::<PointwiseFuse>()
+                .expect("expected PointwiseFuse");
+            assert_eq!(pf.members.len(), 2);
+            assert!(matches!(pf.members[0], Op::Log));
+            assert!(matches!(pf.members[1], Op::Sqrt));
+            assert!(!pf.supports_fused_backward());
+        }
+        other => panic!("expected Custom(PointwiseFuse), got {other:?}"),
+    }
+}
+
+#[test]
+fn test_anduin_fuses_exp_log_sqrt_erf_reciprocal_into_pointwise_fuse() {
+    let graph = build_exp_log_sqrt_erf_reciprocal_graph();
+    assert_eq!(graph.nodes.len(), 6);
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "Input + PointwiseFuse");
+    match &opt.nodes[1].op {
+        Op::Custom { data } => {
+            let pf = data
+                .downcast_ref::<PointwiseFuse>()
+                .expect("expected PointwiseFuse");
+            assert_eq!(pf.members.len(), 5);
+            assert!(matches!(pf.members[0], Op::Exp));
+            assert!(matches!(pf.members[1], Op::Log));
+            assert!(matches!(pf.members[2], Op::Sqrt));
+            assert!(matches!(pf.members[3], Op::Erf));
+            assert!(matches!(pf.members[4], Op::Reciprocal));
+            assert!(!pf.supports_fused_backward());
+        }
+        other => panic!("expected Custom(PointwiseFuse), got {other:?}"),
+    }
+}
+
 fn pointwise_fuse_from(graph: &Graph) -> PointwiseFuse {
     let opt = Anduin.optimize(graph).unwrap();
     match &opt.nodes.last().unwrap().op {
@@ -517,6 +646,98 @@ fn test_anduin_pointwise_abs_neg_sign_matches_pytorch() -> Result<()> {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
             "pointwise abs→neg→sign mismatch at {i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
+        );
+    }
+    Ok(())
+}
+
+/// Case-1 transcendental batch (teenygrad-1bf.1.5): forward-only -- none of
+/// Exp/Log/Sqrt/Erf/Reciprocal are y-style, so no fused backward exists yet.
+#[test]
+#[cfg(feature = "cuda")]
+fn test_anduin_pointwise_exp_reciprocal_matches_pytorch() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    let graph = build_exp_reciprocal_graph();
+    let lowering = TritonLowering::new().with_optimizer(Anduin);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+        false,
+    )?;
+
+    assert_eq!(model.dag.len(), 2);
+    let loaded = model.load(&env.device, 1)?;
+
+    let x = load_fixture("anduin_pointwise_exp_reciprocal/x.bin");
+    let expected = load_fixture("anduin_pointwise_exp_reciprocal/expected_forward.bin");
+
+    let x_ptr = mem::alloc(N * size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
+    let x_tensor = TensorRef::new(x_ptr, vec![1, N]);
+
+    let output = loaded.forward(&env.device, 1, &[x_tensor])?;
+    let mut y_out = vec![0.0f32; N];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, N) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    for i in 0..N {
+        assert!(
+            (y_out[i] - expected[i]).abs() < TOL,
+            "pointwise exp→reciprocal mismatch at {i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_anduin_pointwise_log_sqrt_matches_pytorch() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    let graph = build_log_sqrt_graph();
+    let lowering = TritonLowering::new().with_optimizer(Anduin);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+        false,
+    )?;
+
+    assert_eq!(model.dag.len(), 2);
+    let loaded = model.load(&env.device, 1)?;
+
+    let x = load_fixture("anduin_pointwise_log_sqrt/x.bin");
+    let expected = load_fixture("anduin_pointwise_log_sqrt/expected_forward.bin");
+
+    let x_ptr = mem::alloc(N * size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
+    let x_tensor = TensorRef::new(x_ptr, vec![1, N]);
+
+    let output = loaded.forward(&env.device, 1, &[x_tensor])?;
+    let mut y_out = vec![0.0f32; N];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, N) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    for i in 0..N {
+        assert!(
+            (y_out[i] - expected[i]).abs() < TOL,
+            "pointwise log→sqrt mismatch at {i}: gpu={} expected={}",
             y_out[i],
             expected[i]
         );
