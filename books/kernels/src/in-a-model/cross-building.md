@@ -29,7 +29,7 @@ So: build for the capability you will run on.
 
 ```rust,ignore
 let target = Target::new(Capability::Sm87);
-let ptx_path = compile_kernel(&kernel, &target, false)?;
+let ptx_path = compile_kernel(&kernel, &target, false, false)?;
 ```
 
 Nothing about this needs an `sm_87` device present. Compiling for a capability

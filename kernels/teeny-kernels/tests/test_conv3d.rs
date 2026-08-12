@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 // ── No-padding constants ─────────────────────────────────────────────────────
 const B: usize = 1;
@@ -56,15 +57,6 @@ const OW_P: usize = (W + 2 * PAD_W_P as usize - KW as usize) / STRIDE_W as usize
 
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // MLIR snapshot tests
 // ---------------------------------------------------------------------------
@@ -77,7 +69,7 @@ fn test_conv3d_forward_mlir_output() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("conv3d_forward_source", kernel.source());
@@ -94,7 +86,7 @@ fn test_conv3d_backward_dx_mlir_output() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("conv3d_backward_dx_source", kernel.source());
@@ -111,7 +103,7 @@ fn test_conv3d_backward_dw_mlir_output() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("conv3d_backward_dw_source", kernel.source());
@@ -147,7 +139,7 @@ fn test_conv3d_forward_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[conv3d_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -216,7 +208,7 @@ fn test_conv3d_backward_dx_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
@@ -284,7 +276,7 @@ fn test_conv3d_backward_dw_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D, PAD_H, PAD_W, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
@@ -356,7 +348,7 @@ fn test_conv3d_padded_forward_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D_P, PAD_H_P, PAD_W_P, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[conv3d_padded_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -425,7 +417,7 @@ fn test_conv3d_padded_backward_dx_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D_P, PAD_H_P, PAD_W_P, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<
@@ -493,7 +485,7 @@ fn test_conv3d_padded_backward_dw_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, PAD_D_P, PAD_H_P, PAD_W_P, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
 
     let program = testing::load_program_from_ptx::<

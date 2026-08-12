@@ -200,7 +200,7 @@ fn test_conv2d_bias_forward_matches_reference() -> Result<()> {
         KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::conv::conv2d::Conv2dBiasForward<f32>,
     >(&ptx)?;

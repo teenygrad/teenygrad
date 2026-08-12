@@ -32,18 +32,10 @@ use teeny_kernels::nn::activation::extra::{
     LogSoftmaxBackward, LogSoftmaxForward, PreluBackward, PreluForward, ShrinkBackward,
     ShrinkForward, SwishBackward, SwishForward, ThresholdedReluBackward, ThresholdedReluForward,
 };
+use teeny_kernels::testing::load_fixture;
 
 const BLOCK_SIZE: i32 = 1024;
 const TOL: f32 = 1e-4;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ── Source + MLIR snapshots ───────────────────────────────────────────────────
 
@@ -52,7 +44,7 @@ fn test_swish_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = SwishForward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("swish_forward_source", kernel.source());
     assert_debug_snapshot!("swish_forward_mlir", mlir.trim());
@@ -64,7 +56,7 @@ fn test_swish_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = SwishBackward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("swish_backward_source", kernel.source());
     assert_debug_snapshot!("swish_backward_mlir", mlir.trim());
@@ -76,7 +68,7 @@ fn test_prelu_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = PreluForward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("prelu_forward_source", kernel.source());
     assert_debug_snapshot!("prelu_forward_mlir", mlir.trim());
@@ -88,7 +80,7 @@ fn test_prelu_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = PreluBackward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("prelu_backward_source", kernel.source());
     assert_debug_snapshot!("prelu_backward_mlir", mlir.trim());
@@ -103,7 +95,7 @@ fn test_log_softmax_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = LogSoftmaxForward::new(LOG_SOFTMAX_COLS);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("log_softmax_forward_source", kernel.source());
     assert_debug_snapshot!("log_softmax_forward_mlir", mlir.trim());
@@ -115,7 +107,7 @@ fn test_log_softmax_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = LogSoftmaxBackward::new(LOG_SOFTMAX_COLS);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("log_softmax_backward_source", kernel.source());
     assert_debug_snapshot!("log_softmax_backward_mlir", mlir.trim());
@@ -127,7 +119,7 @@ fn test_thresholded_relu_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = ThresholdedReluForward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("thresholded_relu_forward_source", kernel.source());
     assert_debug_snapshot!("thresholded_relu_forward_mlir", mlir.trim());
@@ -139,7 +131,7 @@ fn test_thresholded_relu_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = ThresholdedReluBackward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("thresholded_relu_backward_source", kernel.source());
     assert_debug_snapshot!("thresholded_relu_backward_mlir", mlir.trim());
@@ -151,7 +143,7 @@ fn test_shrink_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = ShrinkForward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("shrink_forward_source", kernel.source());
     assert_debug_snapshot!("shrink_forward_mlir", mlir.trim());
@@ -163,7 +155,7 @@ fn test_shrink_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = ShrinkBackward::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("shrink_backward_source", kernel.source());
     assert_debug_snapshot!("shrink_backward_mlir", mlir.trim());
@@ -188,7 +180,7 @@ fn test_swish_forward_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     let kernel = SwishForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<SwishForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -231,7 +223,7 @@ fn test_swish_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     let kernel = SwishBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<SwishBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -275,7 +267,7 @@ fn test_prelu_forward_gpu() -> Result<()> {
     slope_buf.to_device(&slope)?;
     let kernel = PreluForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<PreluForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -325,7 +317,7 @@ fn test_prelu_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     let kernel = PreluBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<PreluBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -380,7 +372,7 @@ fn test_log_softmax_forward_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     let kernel = LogSoftmaxForward::new(LOG_SOFTMAX_COLS as i32);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<LogSoftmaxForward>(&ptx)?;
     use teeny_cuda::device::CudaLaunchConfig;
     let cfg = CudaLaunchConfig {
@@ -431,7 +423,7 @@ fn test_log_softmax_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     let kernel = LogSoftmaxBackward::new(LOG_SOFTMAX_COLS as i32);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<LogSoftmaxBackward>(&ptx)?;
     use teeny_cuda::device::CudaLaunchConfig;
     let cfg = CudaLaunchConfig {
@@ -480,7 +472,7 @@ fn test_thresholded_relu_forward_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     let kernel = ThresholdedReluForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<ThresholdedReluForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -524,7 +516,7 @@ fn test_thresholded_relu_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     let kernel = ThresholdedReluBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<ThresholdedReluBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -569,7 +561,7 @@ fn test_shrink_forward_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     let kernel = ShrinkForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<ShrinkForward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(
@@ -614,7 +606,7 @@ fn test_shrink_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     let kernel = ShrinkBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<ShrinkBackward>(&ptx)?;
     let cfg = testing::launch_config_from_program(n, &program);
     device.launch(

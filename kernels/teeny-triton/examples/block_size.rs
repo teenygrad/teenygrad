@@ -129,7 +129,7 @@ fn main() -> Result<()> {
 
     for block_size in BLOCK_SIZES {
         let kernel = SweepAdd::<f32>::new(block_size);
-        let ptx = std::fs::read(compile_kernel(&kernel, &target, false)?)?;
+        let ptx = std::fs::read(compile_kernel(&kernel, &target, false, false)?)?;
         let program = teeny_cuda::testing::load_program_from_ptx::<SweepAdd<f32>>(&ptx)?;
 
         // One program per BLOCK_SIZE-wide slice of the data. The *thread* count

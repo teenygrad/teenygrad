@@ -157,7 +157,7 @@ fn throughput(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target) -> R
             b.to_device(&host)?;
 
             let k = <$ktype>::new(256);
-            let ptx = std::fs::read(compile_kernel(&k, target, false)?)?;
+            let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
             let prog = teeny_cuda::testing::load_program_from_ptx::<$ktype>(&ptx)?;
             let cfg = teeny_cuda::testing::launch_config_with_grid(N.div_ceil(256), &prog);
             let args = (
@@ -212,7 +212,7 @@ fn reproducibility(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target)
         let out = device.buffer::<f32>(grid)?;
 
         let k = PartialSum::<f32>::new(block);
-        let ptx = std::fs::read(compile_kernel(&k, target, false)?)?;
+        let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
         let prog = teeny_cuda::testing::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
         let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &prog);
         device.launch(
@@ -267,7 +267,7 @@ fn accumulator(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target) -> 
     let out = device.buffer::<f32>(grid)?;
 
     let k = PartialSum::<f32>::new(block);
-    let ptx = std::fs::read(compile_kernel(&k, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
     let prog = teeny_cuda::testing::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
     let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &prog);
     device.launch(

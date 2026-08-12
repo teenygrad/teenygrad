@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const M: usize = 64;
 const N: usize = 48;
@@ -44,15 +45,6 @@ const RTOL: f32 = 2e-2;
 
 fn tf32_close(actual: f32, expected: f32) -> bool {
     (actual - expected).abs() < ATOL + RTOL * expected.abs()
-}
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
 }
 
 /// Naive host-side reference for `LinearForward`: `y = x @ w^T (+ bias)`.
@@ -91,7 +83,7 @@ fn test_linear_mlir_without_bias_output() -> Result<()> {
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("linear_source", kernel.source());
@@ -108,7 +100,7 @@ fn test_linear_mlir_with_bias_output() -> Result<()> {
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("linear_with_bias_source", kernel.source());
@@ -125,7 +117,7 @@ fn test_linear_backward_mlir_without_bias_output() -> Result<()> {
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("linear_backward_source", kernel.source());
@@ -142,7 +134,7 @@ fn test_linear_backward_mlir_with_bias_output() -> Result<()> {
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("linear_backward_with_bias_source", kernel.source());
@@ -177,7 +169,7 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -260,7 +252,7 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -322,7 +314,7 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
 // Same LinearForward kernel as above (the simplest tensor-core-eligible tl.dot
 // call in the codebase — see LinearForward's single T::dot call), but with
 // data generated inline instead of loaded from fixtures, and compiled with
-// LlvmCompiler::with_log_level(Debug) so teenyc's ttir/ttgpuir/llir/llvmir/ptx
+// `compile_kernel(..., debug=true)` so teenyc's ttir/ttgpuir/llir/llvmir/ptx
 // pipeline stages are logged to stderr as the compile runs. Run with
 // `--nocapture` (and redirect stderr) to capture them, e.g.:
 //
@@ -332,9 +324,6 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
 #[test]
 #[cfg(feature = "cuda")]
 fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
-    use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
-    use teeny_core::compiler::Compiler as _;
-
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
@@ -361,25 +350,8 @@ fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
     );
     let target = Target::new(env.capability);
 
-    // Build the compiler by hand (rather than the `compile_kernel` helper the
-    // other tests use) so we can turn on pipeline-stage logging.
-    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
-    let cache_dir = teeny_compiler::compiler::default_cache_dir();
-    let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?
-        .with_target_cpu(target.capability.to_string())
-        .with_log_level(LogLevel::Debug);
-
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(std::io::stderr)
-        .finish();
-
-    // Scoped to this thread only, so it doesn't clobber a subscriber another
-    // test running concurrently in this binary may have installed. `force:
-    // true` guarantees `teenyc` actually runs (a cache hit would emit nothing).
-    let ptx_path =
-        tracing::subscriber::with_default(subscriber, || compiler.compile(&kernel, &target, true))?;
+    // force=true so teenyc actually runs (a cache hit would emit no pipeline logs).
+    let ptx_path = compile_kernel(&kernel, &target, true, true)?;
     println!("compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -455,7 +427,7 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[linear_backward no bias] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -553,7 +525,7 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[linear_backward with bias] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 

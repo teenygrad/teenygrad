@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const B: usize = 1;
 const C: usize = 2;
@@ -44,15 +45,6 @@ const P: f32 = 2.0_f32;
 
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // MLIR snapshot tests
 // ---------------------------------------------------------------------------
@@ -65,7 +57,7 @@ fn test_lppool3d_forward_mlir_output() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("lppool3d_forward_source", kernel.source());
@@ -82,7 +74,7 @@ fn test_lppool3d_backward_mlir_output() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW,
     );
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("lppool3d_backward_source", kernel.source());
@@ -115,7 +107,7 @@ fn test_lppool3d_forward_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[lppool3d_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -188,7 +180,7 @@ fn test_lppool3d_backward_cuda() -> Result<()> {
         KD, KH, KW, STRIDE_D, STRIDE_H, STRIDE_W, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[lppool3d_backward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 

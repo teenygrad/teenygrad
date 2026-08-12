@@ -24,6 +24,7 @@ use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
 
+use teeny_kernels::testing::load_fixture;
 #[cfg(all(feature = "cuda", feature = "training"))]
 use {
     teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler,
@@ -43,15 +44,6 @@ const MOMENTUM: f32 = 0.1;
 const BLOCK_N: i32 = 128;
 const TOL: f32 = 1e-4;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ─── Source snapshot tests (no CUDA required) ─────────────────────────────────
 
 #[test]
@@ -60,7 +52,7 @@ fn test_batch_norm_inference_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("batch_norm_inference_source", kernel.source());
     Ok(())
 }
@@ -72,7 +64,7 @@ fn test_batch_norm_stats_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("batch_norm_stats_source", kernel.source());
     Ok(())
 }
@@ -84,7 +76,7 @@ fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("batch_norm_normalize_source", kernel.source());
     Ok(())
 }
@@ -96,7 +88,7 @@ fn test_batch_norm_backward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("batch_norm_backward_source", kernel.source());
     Ok(())
 }
@@ -142,7 +134,7 @@ fn test_batch_norm_inference_gpu() -> Result<()> {
 
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference<f32>,
     >(&ptx)?;
@@ -209,7 +201,7 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
 
     let stats_kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
-    let stats_ptx = std::fs::read(compile_kernel(&stats_kernel, &target, true)?)?;
+    let stats_ptx = std::fs::read(compile_kernel(&stats_kernel, &target, true, false)?)?;
     let stats_prog = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward<f32>,
     >(&stats_ptx)?;
@@ -231,7 +223,7 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
 
     let norm_kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
-    let norm_ptx = std::fs::read(compile_kernel(&norm_kernel, &target, true)?)?;
+    let norm_ptx = std::fs::read(compile_kernel(&norm_kernel, &target, true, false)?)?;
     let norm_prog = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward<f32>,
     >(&norm_ptx)?;
@@ -298,7 +290,7 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
 
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormBackward::<f32>::new(BLOCK_N);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNormBackward<f32>,
     >(&ptx)?;
@@ -358,7 +350,7 @@ fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("batch_norm_2d_nchw_backward_source", kernel.source());
     Ok(())
 }
@@ -409,7 +401,7 @@ fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BN_BLOCK_HW);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward<f32>,
     >(&ptx)?;

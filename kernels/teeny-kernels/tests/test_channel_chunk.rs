@@ -39,6 +39,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 // ── Dimensions ───────────────────────────────────────────────────────────────
 const N_SPATIAL: usize = 64;
@@ -51,15 +52,6 @@ const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C; // 1024
 
 // ── Fixture loader ────────────────────────────────────────────────────────────
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
@@ -69,7 +61,7 @@ fn test_channel_chunk_forward_snapshot() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("channel_chunk_forward_source", kernel.source());
@@ -85,7 +77,7 @@ fn test_channel_chunk_backward_snapshot() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("channel_chunk_backward_source", kernel.source());
@@ -118,7 +110,7 @@ fn test_channel_chunk_forward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::channel_chunk::ChannelChunkForward<f32>,
     >(&ptx)?;
@@ -201,7 +193,7 @@ fn test_channel_chunk_backward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::channel_chunk::ChannelChunkBackward<f32>,
     >(&ptx)?;

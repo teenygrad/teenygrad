@@ -155,7 +155,7 @@ fn main() -> Result<()> {
     // bounds that obscure what is really a six-line loop.
     macro_rules! timed {
         ($kernel:expr, $ty:ty, $label:literal) => {{
-            let ptx = std::fs::read(compile_kernel(&$kernel, &target, false)?)?;
+            let ptx = std::fs::read(compile_kernel(&$kernel, &target, false, false)?)?;
             let prog = teeny_cuda::testing::load_program_from_ptx::<$ty>(&ptx)?;
             let cfg = teeny_cuda::testing::launch_config_with_grid(GRID, &prog);
 

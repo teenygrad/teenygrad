@@ -24,19 +24,11 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 1024;
 const PTX_THREADS: u32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 fn launch_cfg() -> CudaLaunchConfig {
     CudaLaunchConfig {
@@ -53,7 +45,7 @@ fn test_bce_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::BceLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("bce_loss_forward_source", kernel.source());
     assert_debug_snapshot!("bce_loss_forward_mlir", mlir.trim());
@@ -65,7 +57,7 @@ fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("bce_with_logits_loss_forward_source", kernel.source());
     assert_debug_snapshot!("bce_with_logits_loss_forward_mlir", mlir.trim());
@@ -77,7 +69,7 @@ fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("soft_margin_loss_forward_source", kernel.source());
     assert_debug_snapshot!("soft_margin_loss_forward_mlir", mlir.trim());
@@ -89,7 +81,7 @@ fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("kl_div_loss_forward_source", kernel.source());
     assert_debug_snapshot!("kl_div_loss_forward_mlir", mlir.trim());
@@ -101,7 +93,7 @@ fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("poisson_nll_loss_forward_source", kernel.source());
     assert_debug_snapshot!("poisson_nll_loss_forward_mlir", mlir.trim());
@@ -113,7 +105,7 @@ fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("gaussian_nll_loss_forward_source", kernel.source());
     assert_debug_snapshot!("gaussian_nll_loss_forward_mlir", mlir.trim());
@@ -142,7 +134,7 @@ fn test_bce_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::BceLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceLossForward>(&ptx)?;
 
@@ -189,7 +181,7 @@ fn test_bce_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::BceLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::BceLossBackward>(&ptx)?;
 
@@ -234,7 +226,7 @@ fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::BceWithLogitsLossForward,
     >(&ptx)?;
@@ -282,7 +274,7 @@ fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::BceWithLogitsLossBackward,
     >(&ptx)?;
@@ -328,7 +320,7 @@ fn test_soft_margin_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::SoftMarginLossForward,
     >(&ptx)?;
@@ -376,7 +368,7 @@ fn test_soft_margin_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::SoftMarginLossBackward,
     >(&ptx)?;
@@ -422,7 +414,7 @@ fn test_kl_div_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::KlDivLossForward>(&ptx)?;
 
@@ -466,7 +458,7 @@ fn test_kl_div_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::loss::bce::KlDivLossBackward>(&ptx)?;
 
@@ -510,7 +502,7 @@ fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::PoissonNllLossForward,
     >(&ptx)?;
@@ -558,7 +550,7 @@ fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::PoissonNllLossBackward,
     >(&ptx)?;
@@ -607,7 +599,7 @@ fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::GaussianNllLossForward,
     >(&ptx)?;
@@ -661,7 +653,7 @@ fn test_gaussian_nll_loss_backward_input_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossBackwardInput::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::bce::GaussianNllLossBackwardInput,
     >(&ptx)?;

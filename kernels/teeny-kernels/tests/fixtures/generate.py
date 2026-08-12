@@ -1048,4 +1048,77 @@ x_r = x_2d.clone().requires_grad_(True)
 F.log_softmax(x_r, dim=-1).sum().backward()
 save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
 
+# ── anduin_conv_bn_silu (Conv2d → BatchNorm2d → SiLU via Anduin path) ─────────
+print("anduin_conv_bn_silu")
+d = os.path.join(BASE, "anduin_conv_bn_silu")
+os.makedirs(d, exist_ok=True)
+# NCHW: B=1, C_in=2, C_out=4, H=W=6, k=3, stride=1, pad=1 → OH=OW=6
+B_A, CIN_A, COUT_A, H_A, W_A = 1, 2, 4, 6, 6
+KH_A, KW_A, EPS_A = 3, 3, 1e-5
+x_a = torch.empty(B_A, CIN_A, H_A, W_A).uniform_(-1, 1)
+w_a = torch.empty(COUT_A, CIN_A, KH_A, KW_A).uniform_(-0.5, 0.5)
+bn_w = torch.empty(COUT_A).uniform_(0.5, 1.5)
+bn_b = torch.empty(COUT_A).uniform_(-0.5, 0.5)
+bn_mean = torch.empty(COUT_A).uniform_(-0.25, 0.25)
+bn_var = torch.empty(COUT_A).uniform_(0.5, 1.5)
+
+conv_a = F.conv2d(x_a, w_a, stride=1, padding=1)
+bn_a = F.batch_norm(
+    conv_a,
+    bn_mean.clone(),
+    bn_var.clone(),
+    weight=bn_w,
+    bias=bn_b,
+    training=False,
+    eps=EPS_A,
+)
+y_a = F.silu(bn_a)
+
+save(f"{d}/x.bin", x_a)
+save(f"{d}/w.bin", w_a)
+save(f"{d}/bn_weight.bin", bn_w)
+save(f"{d}/bn_bias.bin", bn_b)
+save(f"{d}/bn_running_mean.bin", bn_mean)
+save(f"{d}/bn_running_var.bin", bn_var)
+save(f"{d}/expected_forward.bin", y_a)
+
+# ── anduin_pointwise_relu_sigmoid (Relu → Sigmoid via PointwiseFuse) ──────────
+print("anduin_pointwise_relu_sigmoid")
+d = os.path.join(BASE, "anduin_pointwise_relu_sigmoid")
+os.makedirs(d, exist_ok=True)
+N_PW = 64
+x_pw = torch.empty(N_PW).uniform_(-2, 2)
+y_pw = torch.sigmoid(torch.relu(x_pw))
+save(f"{d}/x.bin", x_pw)
+save(f"{d}/expected_forward.bin", y_pw)
+# Backward: dy through sigmoid(relu(x)); scratch0 holds relu(x) after forward.
+x_pw_b = x_pw.clone().requires_grad_(True)
+y_pw_b = torch.sigmoid(torch.relu(x_pw_b))
+dy_pw = torch.empty(N_PW).uniform_(-1, 1)
+y_pw_b.backward(dy_pw)
+save(f"{d}/dy.bin", dy_pw)
+save(f"{d}/y_backward.bin", y_pw_b.detach())
+save(f"{d}/scratch0.bin", torch.relu(x_pw))
+save(f"{d}/expected_backward.bin", x_pw_b.grad)
+
+# ── anduin_pointwise_relu_sigmoid_tanh (longer Relu → Sigmoid → Tanh chain) ───
+print("anduin_pointwise_relu_sigmoid_tanh")
+d = os.path.join(BASE, "anduin_pointwise_relu_sigmoid_tanh")
+os.makedirs(d, exist_ok=True)
+x_long = torch.empty(N_PW).uniform_(-2, 2)
+a0 = torch.relu(x_long)
+a1 = torch.sigmoid(a0)
+y_long = torch.tanh(a1)
+save(f"{d}/x.bin", x_long)
+save(f"{d}/scratch0.bin", a0)
+save(f"{d}/scratch1.bin", a1)
+save(f"{d}/expected_forward.bin", y_long)
+x_long_b = x_long.clone().requires_grad_(True)
+y_long_b = torch.tanh(torch.sigmoid(torch.relu(x_long_b)))
+dy_long = torch.empty(N_PW).uniform_(-1, 1)
+y_long_b.backward(dy_long)
+save(f"{d}/dy.bin", dy_long)
+save(f"{d}/y_backward.bin", y_long_b.detach())
+save(f"{d}/expected_backward.bin", x_long_b.grad)
+
 print("\nDone — all fixtures generated.")

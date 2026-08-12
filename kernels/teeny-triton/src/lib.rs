@@ -35,7 +35,10 @@ pub mod triton;
 /// The generated DSL source text, embedded as [`triton_lang::TRITON`].
 pub mod triton_lang;
 
-pub use kernel_io::{KernelIo, PtrRole};
+pub use kernel_io::{
+    BlockSized, KernelIo, KernelIoLayout, NElementsTiled, PointwiseFuseProbe,
+    PointwiseFuseProbeExt, PtrRole,
+};
 
 /// A compiled kernel's identity: its name, type signature, and generated source block.
 #[derive(Debug)]

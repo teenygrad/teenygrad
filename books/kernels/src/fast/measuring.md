@@ -44,7 +44,7 @@ structure:
 
 ```rust,ignore
 let kernel = Conv2dBnSiluForward::new(kh, kw, stride_h, stride_w, pad_h, pad_w, 1, BLOCK_OW_SCALAR);
-let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
 let program = testing::load_program_from_ptx::<Conv2dBnSiluForward>(&ptx)?;
 ```
 

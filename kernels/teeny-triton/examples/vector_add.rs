@@ -120,7 +120,7 @@ fn main() -> Result<()> {
 
     // Build the kernel for this block size, then compile it to PTX.
     let kernel = VectorAdd::<f32>::new(BLOCK_SIZE);
-    let ptx_path = compile_kernel(&kernel, &Target::new(env.capability), false)?;
+    let ptx_path = compile_kernel(&kernel, &Target::new(env.capability), false, false)?;
     println!("compiled {} → {ptx_path}", kernel.name());
 
     // Device memory: two inputs to fill, one output to read back.

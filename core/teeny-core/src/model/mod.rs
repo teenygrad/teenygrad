@@ -40,8 +40,14 @@ pub struct KernelInstance {
     pub name: String,
     /// Combined forward kernel source (`kernel_source + entry_point`).
     pub source: String,
+    /// Forward kernel body only (no C-ABI entry wrapper) — used when composing
+    /// fused entries that synthesize their own wrapper.
+    pub kernel_body: String,
     /// Runtime dispatch object for arg-packing and launch config.
     pub runtime_op: Arc<dyn RuntimeOp>,
+    /// `Some(BLOCK_SIZE)` when this kernel passes the pointwise-fuse probe
+    /// (unary In/Out + `n_elements` CTA map); otherwise `None`.
+    pub pointwise_fuse_block_size: Option<i32>,
     /// Backward kernel, present only when the kernel declares one.
     pub backward: Option<KernelInstanceBackward>,
 }
@@ -345,6 +351,9 @@ pub trait ExecutableOp {
     fn runtime_op(&self) -> Option<Arc<dyn RuntimeOp>> {
         None
     }
+
+    /// Downcast support for backend-specific executable types.
+    fn as_any(&self) -> &dyn core::any::Any;
 
     /// Returns the backward kernel source, or `""` if no backward is available.
     #[cfg(feature = "training")]
