@@ -99,6 +99,84 @@ fn build_relu_sigmoid_tanh_graph() -> Graph {
     Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
 }
 
+/// Two `Neg` nodes chained, with each node's own dtype set independently
+/// (rather than both following the input) so mixed/unsupported-dtype
+/// scenarios can be built without a real dtype-changing op.
+fn build_neg_neg_graph(dtype0: DtypeRepr, dtype1: DtypeRepr) -> Graph {
+    let (input, graph_rc) = SymTensor::input(dtype0, shape_1d(N));
+    let neg0 = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Neg, vec![input.node_id], dtype0, shape_1d(N));
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Neg, vec![neg0], dtype1, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn build_isnan_isnan_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let isnan0 = input.graph.borrow_mut().add_node(
+        Op::IsNaN,
+        vec![input.node_id],
+        DtypeRepr::Bool,
+        shape_1d(N),
+    );
+    let _ =
+        input
+            .graph
+            .borrow_mut()
+            .add_node(Op::IsNaN, vec![isnan0], DtypeRepr::Bool, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn assert_no_fusion(graph: &Graph) {
+    let opt = Anduin.optimize(graph).unwrap();
+    assert_eq!(
+        opt.nodes.len(),
+        graph.nodes.len(),
+        "expected no fusion, got {opt:?}"
+    );
+    for node in &opt.nodes {
+        if let Op::Custom { data } = &node.op {
+            assert!(
+                data.downcast_ref::<PointwiseFuse>().is_none(),
+                "expected no PointwiseFuse, got {node:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_anduin_does_not_fuse_mixed_dtype_chain() {
+    // Neg(f32) -> Neg(f64): parent/child disagree on dtype.
+    let graph = build_neg_neg_graph(DtypeRepr::F32, DtypeRepr::F64);
+    assert_eq!(graph.nodes.len(), 3);
+    assert_no_fusion(&graph);
+}
+
+#[test]
+fn test_anduin_does_not_fuse_int_dtype_chain() {
+    // Neg(i32) -> Neg(i32): dtype-consistent but not a dtype PointwiseFuse
+    // can lower (dtype_name only accepts f32/f64) -- must not fuse, and
+    // must not panic (PointwiseFuse::lower is never reached).
+    let graph = build_neg_neg_graph(DtypeRepr::I32, DtypeRepr::I32);
+    assert_eq!(graph.nodes.len(), 3);
+    assert_no_fusion(&graph);
+}
+
+#[test]
+fn test_anduin_does_not_fuse_isnan_mid_chain() {
+    // IsNaN -> IsNaN: the first IsNaN would be an interior member if this
+    // fused; bool-producing ops may only ever be a chain's terminal member.
+    let graph = build_isnan_isnan_graph();
+    assert_eq!(graph.nodes.len(), 3);
+    assert_no_fusion(&graph);
+}
+
 fn pointwise_fuse_from(graph: &Graph) -> PointwiseFuse {
     let opt = Anduin.optimize(graph).unwrap();
     match &opt.nodes.last().unwrap().op {
