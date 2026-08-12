@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const B: usize = 64;
 const N: usize = 96;
@@ -36,15 +37,6 @@ const PAD_ROWS: usize = 2 * B;
 /// Must match `.reqntid` in the generated PTX.
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // MLIR snapshot tests
 // ---------------------------------------------------------------------------
@@ -55,7 +47,7 @@ fn test_flatten_forward_mlir_output() -> Result<()> {
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenForward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("flatten_forward_source", kernel.source());
@@ -70,7 +62,7 @@ fn test_flatten_backward_mlir_output() -> Result<()> {
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenBackward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("flatten_backward_source", kernel.source());
@@ -110,7 +102,7 @@ fn test_flatten_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenForward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[flatten_forward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 
@@ -177,7 +169,7 @@ fn test_flatten_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenBackward::<f32>::new(BLOCK_B, BLOCK_N);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[flatten_backward] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
 

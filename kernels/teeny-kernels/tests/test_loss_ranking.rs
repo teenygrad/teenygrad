@@ -23,6 +23,7 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::{load_fixture, load_fixture_i32};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 1024;
@@ -31,24 +32,6 @@ const N_COLS: usize = 16;
 const BLOCK_SIZE_MM: i32 = 16; // next_power_of_two(N_COLS)
 const MARGIN: f32 = 1.0;
 const PTX_THREADS: u32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
-fn load_fixture_i32(rel: &str) -> Vec<i32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 fn elem_launch_cfg() -> CudaLaunchConfig {
     CudaLaunchConfig {
@@ -73,7 +56,7 @@ fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("margin_ranking_loss_forward_source", kernel.source());
     assert_debug_snapshot!("margin_ranking_loss_forward_mlir", mlir.trim());
@@ -85,7 +68,7 @@ fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("hinge_embedding_loss_forward_source", kernel.source());
     assert_debug_snapshot!("hinge_embedding_loss_forward_mlir", mlir.trim());
@@ -97,7 +80,7 @@ fn test_multi_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("multi_margin_loss_forward_source", kernel.source());
     assert_debug_snapshot!("multi_margin_loss_forward_mlir", mlir.trim());
@@ -129,7 +112,7 @@ fn test_margin_ranking_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::ranking::MarginRankingLossForward,
     >(&ptx)?;
@@ -185,7 +168,7 @@ fn test_margin_ranking_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::ranking::MarginRankingLossBackward,
     >(&ptx)?;
@@ -241,7 +224,7 @@ fn test_hinge_embedding_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward,
     >(&ptx)?;
@@ -290,7 +273,7 @@ fn test_hinge_embedding_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::ranking::HingeEmbeddingLossBackward,
     >(&ptx)?;
@@ -337,7 +320,7 @@ fn test_multi_margin_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::ranking::MultiMarginLossForward,
     >(&ptx)?;
@@ -388,7 +371,7 @@ fn test_multi_margin_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossBackward::new(BLOCK_SIZE_MM);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::ranking::MultiMarginLossBackward,
     >(&ptx)?;

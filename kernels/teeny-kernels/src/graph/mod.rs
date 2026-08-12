@@ -21,11 +21,9 @@ use teeny_core::{
     utils::dag::Dag,
 };
 
-mod optimizer;
-pub mod optimizers;
+pub mod optimizer;
 
-pub use optimizer::GraphOptimizer;
-pub use optimizers::Anduin;
+pub use optimizer::{Anduin, GraphOptimizer, PointwiseFuse};
 
 use crate::nn::{
     activation::extra::{
@@ -54,7 +52,7 @@ use crate::nn::{
             SiluForwardDispatch,
         },
         softmax::SoftmaxForward,
-        tanh::{TanhForward, TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
+        tanh::{TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
     },
     conv::{
         conv1d::Conv1dForward,
@@ -152,23 +150,25 @@ use crate::nn::norm::batchnorm::{
 /// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_num_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (name, ks, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+        let (name, ks, body, probe_bs, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
             entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
+            kernel_body: body,
+            pointwise_fuse_block_size: probe_bs,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -180,17 +180,17 @@ macro_rules! make_num_kernel {
     }};
     // Variant with explicit backward kernel type (for ops that have backward support)
     ($K:ident ($($arg:expr),*), $Bwd:ident ($($barg:expr),*), $node:expr) => {{
-        let (name, ks, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+        let (name, ks, body, probe_bs, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         #[cfg(feature = "training")]
@@ -211,6 +211,8 @@ macro_rules! make_num_kernel {
             entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
+            kernel_body: body,
+            pointwise_fuse_block_size: probe_bs,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -226,15 +228,17 @@ macro_rules! make_num_kernel {
 /// Usage: `make_float_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_float_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (name, ks, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+        let (name, ks, body, probe_bs, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
             entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
+            kernel_body: body,
+            pointwise_fuse_block_size: probe_bs,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -246,9 +250,9 @@ macro_rules! make_float_kernel {
     }};
     // Variant with explicit float backward kernel
     ($K:ident ($($arg:expr),*), $Bwd:ident ($($barg:expr),*), $node:expr) => {{
-        let (name, ks, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let src = k.source.clone(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, r) }
+        let (name, ks, body, probe_bs, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         #[cfg(feature = "training")]
@@ -261,6 +265,8 @@ macro_rules! make_float_kernel {
             entry_point: format!("{}_entry_point", name),
             name,
             kernel_source: ks,
+            kernel_body: body,
+            pointwise_fuse_block_size: probe_bs,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -283,6 +289,8 @@ fn exec_from(
         entry_point: format!("{}_entry_point", inst.name),
         name: inst.name,
         kernel_source: inst.source,
+        kernel_body: inst.kernel_body,
+        pointwise_fuse_block_size: inst.pointwise_fuse_block_size,
         shape,
         dtype,
         #[cfg(feature = "training")]
@@ -309,15 +317,21 @@ fn exec_from(
 ///
 /// Callers that have `teeny-compiler` as a dependency can pass `kernel_source`
 /// and `kernel_entry_point` to `compile_kernel` along with a chosen `Target`.
+#[derive(Clone)]
 pub struct KernelExecutable {
     pub name: String,
+    /// Combined forward source (`kernel_body` + entry wrapper) used for compilation.
     pub kernel_source: String,
+    /// Forward kernel body only (no C-ABI entry). Used when composing fused entries.
+    pub kernel_body: String,
     pub entry_point: String,
     pub shape: Shape,
     pub dtype: DtypeRepr,
     /// Runtime dispatch object: how to pack args and compute the launch grid.
     /// `Input` nodes carry a no-op implementation.
     pub runtime_op: Arc<dyn RuntimeOp>,
+    /// `Some(BLOCK_SIZE)` when this kernel passes the pointwise-fuse probe.
+    pub pointwise_fuse_block_size: Option<i32>,
     /// Backward kernel source. Empty if this op has no backward.
     #[cfg(feature = "training")]
     pub backward_kernel_source: String,
@@ -357,6 +371,10 @@ impl ExecutableOp for KernelExecutable {
         } else {
             Some(Arc::clone(&self.runtime_op))
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     #[cfg(feature = "training")]
@@ -464,7 +482,8 @@ impl_stub_runtime_op_num!(CircularPad2dForward);
 impl_stub_runtime_op_num!(CircularPad3dForward);
 
 // Activation — dtype-generic (D: Float) kernels without runtime support yet.
-// GeluForward and SiluForward have real RuntimeOp impls in their kernel modules.
+// GeluForward, SiluForward, and TanhForward have real RuntimeOp impls in their
+// kernel modules.
 impl_stub_runtime_op_float!(EluForward);
 impl_stub_runtime_op_float!(SeluForward);
 impl_stub_runtime_op_float!(CeluForward);
@@ -480,7 +499,6 @@ impl_stub_runtime_op_float!(SoftsignForward);
 impl_stub_runtime_op_float!(SoftshrinkForward);
 impl_stub_runtime_op_float!(SoftplusForward);
 impl_stub_runtime_op_float!(LogsigmoidForward);
-impl_stub_runtime_op_float!(TanhForward);
 impl_stub_runtime_op_float!(TanhshrinkForward);
 
 // ---------------------------------------------------------------------------
@@ -632,6 +650,35 @@ mod pick_gemm_tile_sizes_tests {
 }
 
 impl TritonLowering {
+    /// Lower a single unary `op` through the same Op→kernel table as
+    /// [`Self::lower_with_mapping`], without running a graph optimizer.
+    ///
+    /// Builds a tiny `Input → op` graph and returns the lowered
+    /// [`KernelExecutable`] for `op`. Used by pointwise fusion to obtain
+    /// member kernels (and their fuse probes) without a parallel Dispatch map.
+    pub fn lower_unary_op(&self, op: &Op, dtype: DtypeRepr) -> Result<KernelExecutable> {
+        let shape: Shape = vec![Some(16)];
+        let mut graph = Graph::new();
+        let input = graph.add_node(Op::Input, vec![], dtype, shape.clone());
+        let out = graph.add_node(op.clone(), vec![input], dtype, shape);
+
+        // Never run Anduin (or any optimizer) while resolving a fuse member —
+        // that would recurse into pointwise fusion.
+        let lowering = TritonLowering { optimizer: None };
+        let (dag, map) = lowering.lower_with_mapping(&graph, LoweringMode::Inference)?;
+        let dag_idx = map[out];
+        let exec = dag.node(dag_idx).value.as_ref();
+        if exec.is_input() {
+            return Err(anyhow::anyhow!(
+                "lower_unary_op: op {op:?} lowered to an Input placeholder"
+            ));
+        }
+        exec.as_any()
+            .downcast_ref::<KernelExecutable>()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("lower_unary_op: expected KernelExecutable for {op:?}"))
+    }
+
     /// Like `lower` but also returns the graph-node-index → DAG-node-index mapping.
     /// Useful for middleware lowerings that need to patch specific DAG nodes after
     /// the base lowering runs.
@@ -710,6 +757,8 @@ impl TritonLowering {
                     entry_point: format!("{}_entry_point", stats_name),
                     name: stats_name,
                     kernel_source: stats_src,
+                    kernel_body: String::new(),
+                    pointwise_fuse_block_size: None,
                     shape: vec![Some(2 * c)],
                     dtype: node.dtype,
                     backward_kernel_source: String::new(),
@@ -764,6 +813,8 @@ impl TritonLowering {
                     entry_point: format!("{}_entry_point", norm_name),
                     name: norm_name,
                     kernel_source: norm_src,
+                    kernel_body: String::new(),
+                    pointwise_fuse_block_size: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     backward_kernel_source: norm_bwd_src,
@@ -843,6 +894,8 @@ impl TritonLowering {
                     entry_point: format!("{}_entry_point", name),
                     name,
                     kernel_source: ks,
+                    kernel_body: String::new(),
+                    pointwise_fuse_block_size: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -967,6 +1020,8 @@ impl TritonLowering {
                     entry_point: format!("{}_entry_point", conv_name),
                     name: conv_name,
                     kernel_source: conv_ks,
+                    kernel_body: String::new(),
+                    pointwise_fuse_block_size: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1020,6 +1075,8 @@ impl TritonLowering {
                     entry_point: format!("{}_entry_point", bias_name),
                     name: bias_name,
                     kernel_source: bias_ks,
+                    kernel_body: String::new(),
+                    pointwise_fuse_block_size: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1040,6 +1097,8 @@ impl TritonLowering {
                 Op::Input => Box::new(KernelExecutable {
                     name: "input".to_string(),
                     kernel_source: String::new(),
+                    kernel_body: String::new(),
+                    pointwise_fuse_block_size: None,
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
@@ -1107,6 +1166,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1149,6 +1210,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1811,6 +1874,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: fwd_src,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1935,6 +2000,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: fwd_src,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1982,6 +2049,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: fwd_src,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2145,6 +2214,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2195,6 +2266,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", nm),
                         name: nm,
                         kernel_source: fwd_src,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2217,6 +2290,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", nm),
                         name: nm,
                         kernel_source: fwd_src,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2239,6 +2314,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", nm),
                         name: nm,
                         kernel_source: fwd_src,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2272,6 +2349,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2306,6 +2385,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2356,6 +2437,8 @@ impl TritonLowering {
                         entry_point: format!("{}_entry_point", name),
                         name,
                         kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2716,6 +2799,14 @@ impl TritonLowering {
 
                 Op::Custom { data } => match data.0.lower() {
                     Some((name, kernel_source, entry_point, runtime_op)) => {
+                        #[cfg(feature = "training")]
+                        let backward_kernel_source = data.0.lower_backward_source();
+                        #[cfg(feature = "training")]
+                        let backward_entry_point = if backward_kernel_source.is_empty() {
+                            String::new()
+                        } else {
+                            format!("{name}_backward_entry_point")
+                        };
                         Box::new(KernelExecutable {
                             name,
                             kernel_source,
@@ -2724,9 +2815,11 @@ impl TritonLowering {
                             dtype: node.dtype,
                             runtime_op,
                             #[cfg(feature = "training")]
-                            backward_kernel_source: data.0.lower_backward_source(),
+                            backward_kernel_source,
+                            kernel_body: String::new(),
+                            pointwise_fuse_block_size: None,
                             #[cfg(feature = "training")]
-                            backward_entry_point: String::new(),
+                            backward_entry_point,
                         })
                     }
                     None => {

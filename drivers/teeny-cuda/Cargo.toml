@@ -32,6 +32,8 @@ thiserror.workspace = true
 anyhow.workspace = true
 derive_more.workspace = true
 derive_builder.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }

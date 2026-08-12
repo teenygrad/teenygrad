@@ -124,7 +124,7 @@ fn bench_scalar(
         1,
         BLOCK_OW_SCALAR,
     );
-    let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
     let program = testing::load_program_from_ptx::<Conv2dBnSiluForward>(&ptx)?;
 
     let num_ow_tiles = ow.div_ceil(BLOCK_OW_SCALAR as usize);
@@ -199,7 +199,7 @@ fn bench_tiled(
         BLOCK_OW_TILED,
         BLOCK_N_TILED,
     );
-    let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
     let program = testing::load_program_from_ptx::<Conv2dBnSiluTiledForward>(&ptx)?;
 
     let num_ow_tiles = ow.div_ceil(BLOCK_OW_TILED as usize);
@@ -270,7 +270,7 @@ fn bench_gemm(
 
     let kernel =
         Conv2dBnSiluGemmForward::new(BLOCK_M_GEMM, BLOCK_N_GEMM, BLOCK_K_GEMM, GROUP_M_GEMM);
-    let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
     let program = testing::load_program_from_ptx::<Conv2dBnSiluGemmForward>(&ptx)?;
 
     let num_pm = m.div_ceil(BLOCK_M_GEMM as usize);

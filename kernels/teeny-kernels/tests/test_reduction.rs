@@ -34,21 +34,13 @@ use teeny_kernels::nn::tensor::reduction::{
     ReduceMeanForward, ReduceMinForward, ReduceProdForward, ReduceSumForward,
     ReduceSumSquareForward,
 };
+use teeny_kernels::testing::load_fixture;
 
 // Reduction tests use a 2-D input: OUTER rows of INNER elements.
 const OUTER: usize = 32;
 const INNER: usize = 64;
 const BLOCK_INNER: i32 = 64;
 const TOL: f32 = 1e-4;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ── Macro: source + MLIR snapshot ────────────────────────────────────────────
 
@@ -59,7 +51,7 @@ macro_rules! source_test {
             dotenv().ok();
             let kernel = <$kernel_ty>::new(BLOCK_INNER);
             let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-            let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+            let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
             let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
             assert_debug_snapshot!(concat!($snap_prefix, "_source"), kernel.source());
             assert_debug_snapshot!(concat!($snap_prefix, "_mlir"), mlir.trim());
@@ -90,7 +82,7 @@ macro_rules! gpu_reduce_test {
             x_buf.to_device(&x)?;
             let kernel = <$kernel_ty>::new(BLOCK_INNER);
             let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
             let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
             // Use threads_per_block from PTX metadata — Triton may choose a
             // different thread count (e.g. 128) than BLOCK_INNER (64).
@@ -147,7 +139,7 @@ macro_rules! gpu_cum_test {
             x_buf.to_device(&x)?;
             let kernel = <$kernel_ty>::new(BLOCK_INNER);
             let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
             let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
             let tpb = program.threads_per_block();
             use teeny_cuda::device::CudaLaunchConfig;
@@ -294,7 +286,7 @@ fn test_reduce_prod_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     let kernel = ReduceProdForward::<f32>::new(BLOCK_INNER);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<ReduceProdForward<f32>>(&ptx)?;
     let tpb = program.threads_per_block();
     use teeny_cuda::device::CudaLaunchConfig;
@@ -388,7 +380,7 @@ fn test_cum_prod_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     let kernel = CumProdForward::<f32>::new(BLOCK_INNER);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<CumProdForward<f32>>(&ptx)?;
     let tpb = program.threads_per_block();
     use teeny_cuda::device::CudaLaunchConfig;

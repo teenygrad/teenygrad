@@ -166,7 +166,7 @@ Rust splits this into building, compiling and launching — Chapter 5:
 
 ```rust,ignore
 let kernel = SoftmaxForward::<f32>::new(BLOCK_SIZE);
-let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(capability), false)?)?;
+let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(capability), false, false)?)?;
 let program = testing::load_program_from_ptx::<SoftmaxForward<f32>>(&ptx)?;
 
 let cfg = CudaLaunchConfig { grid: [n_rows as u32, 1, 1], block: [BLOCK_SIZE as u32, 1, 1], cluster: [1, 1, 1] };

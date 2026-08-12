@@ -52,7 +52,7 @@ fn test_elemwise_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("elemwise_add_forward_source", kernel.source());
     assert_debug_snapshot!("elemwise_add_forward_mlir", mlir.trim());
@@ -65,7 +65,7 @@ fn test_elemwise_add_backward_snapshot() -> std::result::Result<(), Box<dyn std:
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("elemwise_add_backward_source", kernel.source());
     assert_debug_snapshot!("elemwise_add_backward_mlir", mlir.trim());
@@ -99,7 +99,7 @@ fn test_elemwise_add_forward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward<f32>,
     >(&ptx)?;
@@ -154,7 +154,7 @@ fn test_elemwise_add_backward_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddBackward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddBackward<f32>,
     >(&ptx)?;
