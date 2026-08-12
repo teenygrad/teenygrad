@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const B: usize = 2;
 const C: usize = 2;
@@ -43,15 +44,6 @@ const BLOCK_OW: i32 = 16;
 
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 #[test]
 fn test_circular_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
@@ -60,7 +52,7 @@ fn test_circular_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dyn 
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
     );
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("circular_pad3d_forward_source", kernel.source());
     assert_debug_snapshot!("circular_pad3d_forward_mlir", mlir.trim());
@@ -75,7 +67,7 @@ fn test_circular_pad3d_backward_mlir_output() -> std::result::Result<(), Box<dyn
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
     );
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("circular_pad3d_backward_source", kernel.source());
     assert_debug_snapshot!("circular_pad3d_backward_mlir", mlir.trim());
@@ -101,7 +93,7 @@ fn test_circular_pad3d_forward_cuda() -> Result<()> {
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::pad::circular_pad3d::CircularPad3dForward<f32>,
@@ -161,7 +153,7 @@ fn test_circular_pad3d_backward_cuda() -> Result<()> {
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
     );
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::pad::circular_pad3d::CircularPad3dBackward<f32>,

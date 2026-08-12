@@ -24,19 +24,11 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 1024;
 const PTX_THREADS: u32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
 
@@ -45,7 +37,7 @@ fn test_l1_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::elementwise::L1LossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("l1_loss_forward_source", kernel.source());
     assert_debug_snapshot!("l1_loss_forward_mlir", mlir.trim());
@@ -57,7 +49,7 @@ fn test_l1_loss_backward_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::elementwise::L1LossBackward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("l1_loss_backward_source", kernel.source());
     assert_debug_snapshot!("l1_loss_backward_mlir", mlir.trim());
@@ -69,7 +61,7 @@ fn test_mse_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::elementwise::MseLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("mse_loss_forward_source", kernel.source());
     assert_debug_snapshot!("mse_loss_forward_mlir", mlir.trim());
@@ -81,7 +73,7 @@ fn test_huber_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::elementwise::HuberLossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("huber_loss_forward_source", kernel.source());
     assert_debug_snapshot!("huber_loss_forward_mlir", mlir.trim());
@@ -93,7 +85,7 @@ fn test_smooth_l1_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::elementwise::SmoothL1LossForward::new(BLOCK_SIZE);
     let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("smooth_l1_loss_forward_source", kernel.source());
     assert_debug_snapshot!("smooth_l1_loss_forward_mlir", mlir.trim());
@@ -123,7 +115,7 @@ fn test_l1_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::L1LossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::L1LossForward,
@@ -179,7 +171,7 @@ fn test_l1_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::L1LossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::L1LossBackward,
@@ -233,7 +225,7 @@ fn test_mse_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::MseLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::MseLossForward,
@@ -289,7 +281,7 @@ fn test_mse_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::MseLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::MseLossBackward,
@@ -343,7 +335,7 @@ fn test_huber_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::HuberLossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::HuberLossForward,
@@ -401,7 +393,7 @@ fn test_huber_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::HuberLossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::HuberLossBackward,
@@ -456,7 +448,7 @@ fn test_smooth_l1_loss_forward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::SmoothL1LossForward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::SmoothL1LossForward,
@@ -514,7 +506,7 @@ fn test_smooth_l1_loss_backward_cuda() -> Result<()> {
 
     let kernel = teeny_kernels::nn::loss::elementwise::SmoothL1LossBackward::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::loss::elementwise::SmoothL1LossBackward,

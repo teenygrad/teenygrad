@@ -25,6 +25,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -45,15 +46,6 @@ fn adam_scalars() -> (f32, f32) {
     (step_size, bc2_sqrt)
 }
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ── MLIR snapshots ────────────────────────────────────────────────────────────
 
 #[test]
@@ -61,7 +53,7 @@ fn test_adam_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("adam_step_source", kernel.source());
     assert_debug_snapshot!("adam_step_mlir", mlir.trim());
@@ -73,7 +65,7 @@ fn test_adamw_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamwStep::new(BLOCK_SIZE);
     let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("adamw_step_source", kernel.source());
     assert_debug_snapshot!("adamw_step_mlir", mlir.trim());
@@ -107,7 +99,12 @@ fn test_adam_step_cuda() -> Result<()> {
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::adam::AdamStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::adam::AdamStep>(&ptx)?;
     env.device.launch(
         &program,
@@ -183,7 +180,12 @@ fn test_adamw_step_cuda() -> Result<()> {
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::adam::AdamwStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program =
         testing::load_program_from_ptx::<teeny_kernels::nn::optim::adam::AdamwStep>(&ptx)?;
     env.device.launch(

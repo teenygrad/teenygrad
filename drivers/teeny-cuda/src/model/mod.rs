@@ -1956,7 +1956,7 @@ impl Drop for CudaGraphModel {
 ///
 /// Create via:
 /// ```ignore
-/// let ptx = std::fs::read(compile_kernel(&AdamwStep::new(1024), &target, true)?)?;
+/// let ptx = std::fs::read(compile_kernel(&AdamwStep::new(1024), &target, true, false)?)?;
 /// let kernel = AdamwKernel::from_ptx(&ptx)?;
 /// ```
 #[cfg(feature = "training")]

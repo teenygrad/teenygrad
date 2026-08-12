@@ -24,7 +24,7 @@ use teeny_triton::triton::{
     *,
 };
 
-#[kernel]
+#[kernel(backward = ReluBackward)]
 pub fn relu_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<D>>,
     y_ptr: OutPtr<T::Pointer<D>>,

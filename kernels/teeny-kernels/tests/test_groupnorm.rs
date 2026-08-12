@@ -24,6 +24,7 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
+use teeny_kernels::testing::load_fixture;
 
 const N: usize = 4; // batch size
 const C: usize = 8; // channels
@@ -32,15 +33,6 @@ const G: usize = 4; // number of groups (must divide C)
 const EPS: f32 = 1e-5;
 const BLOCK_NL: i32 = 256;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
-
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
 
 // ---------------------------------------------------------------------------
 // Source snapshot tests (no CUDA required)
@@ -53,7 +45,7 @@ fn test_group_norm_inference_source() -> anyhow::Result<()> {
     let kernel =
         teeny_kernels::nn::norm::groupnorm::GroupNormForwardInference::<f32>::new(BLOCK_NL);
     let target = Target::new(Cap::Sm90);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("group_norm_inference_source", kernel.source());
     Ok(())
 }
@@ -65,7 +57,7 @@ fn test_group_norm_forward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::groupnorm::GroupNormForward::<f32>::new(BLOCK_NL);
     let target = Target::new(Cap::Sm90);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("group_norm_forward_source", kernel.source());
     Ok(())
 }
@@ -77,7 +69,7 @@ fn test_group_norm_backward_source() -> anyhow::Result<()> {
     use teeny_cuda::compiler::target::Capability as Cap;
     let kernel = teeny_kernels::nn::norm::groupnorm::GroupNormBackward::<f32>::new(BLOCK_NL);
     let target = Target::new(Cap::Sm90);
-    compile_kernel(&kernel, &target, true)?;
+    compile_kernel(&kernel, &target, true, false)?;
     assert_debug_snapshot!("group_norm_backward_source", kernel.source());
     Ok(())
 }
@@ -93,7 +85,7 @@ fn test_group_norm_inference_mlir() -> anyhow::Result<()> {
     let kernel =
         teeny_kernels::nn::norm::groupnorm::GroupNormForwardInference::<f32>::new(BLOCK_NL);
     let target = Target::new(Cap::Sm90);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
+    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!("group_norm_inference_mlir", mlir.trim());
     Ok(())
@@ -128,7 +120,7 @@ fn test_group_norm_inference_cuda() -> Result<()> {
     let kernel =
         teeny_kernels::nn::norm::groupnorm::GroupNormForwardInference::<f32>::new(BLOCK_NL);
     let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::norm::groupnorm::GroupNormForwardInference<f32>,
     >(&ptx)?;

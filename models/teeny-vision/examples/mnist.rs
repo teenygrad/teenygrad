@@ -175,9 +175,9 @@ async fn main() -> Result<()> {
     let ce_bwd_spec = CrossEntropyLossBackward::new(CE_BLOCK_SIZE);
     let adamw_spec = AdamwStep::new(ADAMW_BLOCK_SIZE);
 
-    let ptx_ce_fwd = std::fs::read(compile_kernel(&ce_fwd_spec, &target, false)?)?;
-    let ptx_ce_bwd = std::fs::read(compile_kernel(&ce_bwd_spec, &target, false)?)?;
-    let ptx_adamw = std::fs::read(compile_kernel(&adamw_spec, &target, false)?)?;
+    let ptx_ce_fwd = std::fs::read(compile_kernel(&ce_fwd_spec, &target, false, false)?)?;
+    let ptx_ce_bwd = std::fs::read(compile_kernel(&ce_bwd_spec, &target, false, false)?)?;
+    let ptx_adamw = std::fs::read(compile_kernel(&adamw_spec, &target, false, false)?)?;
 
     let ce_fwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_fwd)?;
     let ce_bwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_bwd)?;
