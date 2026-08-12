@@ -21,7 +21,9 @@ use teeny_triton::PointwiseFuseProbe;
 
 use crate::errors::Result;
 use crate::graph::optimizer::GraphOptimizer;
-use crate::graph::optimizer::ops::{PointwiseFuse, probe_pointwise_op};
+use crate::graph::optimizer::ops::{
+    PointwiseFuse, is_bool_terminal_only, is_pointwise_fuse_dtype, probe_pointwise_op,
+};
 
 /// Anduin: Triton-side graph rewrites before lowering.
 ///
@@ -104,6 +106,14 @@ fn fuse_pointwise_chain_pass(graph: &Graph) -> (Graph, bool) {
         }
 
         let parent_dtype = graph.nodes[parent_idx].dtype;
+        // A fused chain lowers every member through one shared dtype
+        // (PointwiseFuse::dtype); parent and child must already agree, and
+        // that dtype must be one PointwiseFuse can actually emit -- otherwise
+        // this either silently drops the parent's real dtype or panics later
+        // in PointwiseFuse::lower() on an unsupported dtype.
+        if parent_dtype != child_dtype || !is_pointwise_fuse_dtype(child_dtype) {
+            continue;
+        }
         let Some((mut members, parent_probe)) =
             pointwise_parts(&graph.nodes[parent_idx].op, parent_dtype)
         else {
@@ -115,6 +125,15 @@ fn fuse_pointwise_chain_pass(graph: &Graph) -> (Graph, bool) {
         // Append child's members (single op or an existing PointwiseFuse).
         members.extend(child_members);
         if members.len() < 2 {
+            continue;
+        }
+        // Bool-producing ops (IsNaN, IsInf) change the element type mid-chain;
+        // a later member reading their output as the chain's float dtype
+        // would be wrong, so they may only be the chain's last member.
+        if members[..members.len() - 1]
+            .iter()
+            .any(is_bool_terminal_only)
+        {
             continue;
         }
 

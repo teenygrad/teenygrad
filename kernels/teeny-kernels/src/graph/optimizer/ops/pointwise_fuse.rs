@@ -53,6 +53,21 @@ pub fn probe_pointwise_op(op: &Op, dtype: DtypeRepr) -> Option<PointwiseFuseProb
     }
 }
 
+/// True when `dtype` is one [`PointwiseFuse::lower`] can actually emit (see
+/// [`dtype_name`]). Callers building a chain must check this before fusing --
+/// [`dtype_name`] itself only runs at lower time, which is too late to refuse
+/// gracefully.
+pub fn is_pointwise_fuse_dtype(dtype: DtypeRepr) -> bool {
+    dtype_name(dtype).is_ok()
+}
+
+/// True when `op`'s output dtype (`bool`) differs from the float dtype
+/// threaded through a chain's scratch buffers, so it may only be the last
+/// member of a [`PointwiseFuse`] chain -- never a value a later member reads.
+pub fn is_bool_terminal_only(op: &Op) -> bool {
+    matches!(op, Op::IsNaN | Op::IsInf { .. })
+}
+
 /// Fused linear chain of unary pointwise activations.
 ///
 /// Produced by Anduin; lowered by concatenating each member's `#[kernel]` body
@@ -575,4 +590,28 @@ fn synthesize_backward_entry(
         params = params,
         body = body,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pointwise_fuse_dtype_accepts_only_float() {
+        assert!(is_pointwise_fuse_dtype(DtypeRepr::F32));
+        assert!(is_pointwise_fuse_dtype(DtypeRepr::F64));
+        assert!(!is_pointwise_fuse_dtype(DtypeRepr::I32));
+        assert!(!is_pointwise_fuse_dtype(DtypeRepr::Bool));
+    }
+
+    #[test]
+    fn bool_terminal_only_flags_isnan_and_isinf() {
+        assert!(is_bool_terminal_only(&Op::IsNaN));
+        assert!(is_bool_terminal_only(&Op::IsInf {
+            detect_negative: true,
+            detect_positive: true,
+        }));
+        assert!(!is_bool_terminal_only(&Op::Relu));
+        assert!(!is_bool_terminal_only(&Op::Sign));
+    }
 }
