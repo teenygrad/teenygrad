@@ -177,6 +177,129 @@ fn test_anduin_does_not_fuse_isnan_mid_chain() {
     assert_no_fusion(&graph);
 }
 
+fn build_abs_neg_sign_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let abs = input.graph.borrow_mut().add_node(
+        Op::Abs,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let neg = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Neg, vec![abs], DtypeRepr::F32, shape_1d(N));
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Sign, vec![neg], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn build_abs_neg_sign_ceil_floor_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let abs = input.graph.borrow_mut().add_node(
+        Op::Abs,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let neg = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Neg, vec![abs], DtypeRepr::F32, shape_1d(N));
+    let sign = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Sign, vec![neg], DtypeRepr::F32, shape_1d(N));
+    let ceil = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Ceil, vec![sign], DtypeRepr::F32, shape_1d(N));
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Floor, vec![ceil], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+/// `Op::Round` has no lowering yet (`kernels/teeny-kernels/src/graph/mod.rs`,
+/// `Op::Round => Err("TODO: Op::Round ...")`), so it can never pass the
+/// pointwise-fuse probe -- unrelated to this batch's dtype/bool-terminal
+/// guards, just the underlying op not existing yet.
+fn build_abs_round_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let abs = input.graph.borrow_mut().add_node(
+        Op::Abs,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Round, vec![abs], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+#[test]
+fn test_anduin_fuses_abs_neg_sign_into_pointwise_fuse() {
+    let graph = build_abs_neg_sign_graph();
+    assert_eq!(graph.nodes.len(), 4);
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "Input + PointwiseFuse");
+    match &opt.nodes[1].op {
+        Op::Custom { data } => {
+            let pf = data
+                .downcast_ref::<PointwiseFuse>()
+                .expect("expected PointwiseFuse");
+            assert_eq!(pf.members.len(), 3);
+            assert!(matches!(pf.members[0], Op::Abs));
+            assert!(matches!(pf.members[1], Op::Neg));
+            assert!(matches!(pf.members[2], Op::Sign));
+            // None of Abs/Neg/Sign are y-style (dy, y, dx, n) -- this batch
+            // is forward-fusion only, not folded into is_y_style_pointwise_bwd.
+            assert!(!pf.supports_fused_backward());
+        }
+        other => panic!("expected Custom(PointwiseFuse), got {other:?}"),
+    }
+}
+
+#[test]
+fn test_anduin_fuses_abs_neg_sign_ceil_floor_into_pointwise_fuse() {
+    let graph = build_abs_neg_sign_ceil_floor_graph();
+    assert_eq!(graph.nodes.len(), 6);
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "Input + PointwiseFuse");
+    match &opt.nodes[1].op {
+        Op::Custom { data } => {
+            let pf = data
+                .downcast_ref::<PointwiseFuse>()
+                .expect("expected PointwiseFuse");
+            assert_eq!(pf.members.len(), 5);
+            assert!(matches!(pf.members[0], Op::Abs));
+            assert!(matches!(pf.members[1], Op::Neg));
+            assert!(matches!(pf.members[2], Op::Sign));
+            assert!(matches!(pf.members[3], Op::Ceil));
+            assert!(matches!(pf.members[4], Op::Floor));
+            assert!(!pf.supports_fused_backward());
+        }
+        other => panic!("expected Custom(PointwiseFuse), got {other:?}"),
+    }
+}
+
+#[test]
+fn test_anduin_round_does_not_fuse() {
+    let graph = build_abs_round_graph();
+    assert_eq!(graph.nodes.len(), 3);
+    assert_no_fusion(&graph);
+}
+
 fn pointwise_fuse_from(graph: &Graph) -> PointwiseFuse {
     let opt = Anduin.optimize(graph).unwrap();
     match &opt.nodes.last().unwrap().op {
@@ -347,6 +470,53 @@ fn test_anduin_pointwise_relu_sigmoid_matches_pytorch() -> Result<()> {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
             "pointwise relu→sigmoid mismatch at {i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
+        );
+    }
+    Ok(())
+}
+
+/// Case-1 rounding/sign batch (teenygrad-1bf.1.7): forward-only -- none of
+/// Abs/Neg/Sign are y-style, so there is no fused backward to check here.
+#[test]
+#[cfg(feature = "cuda")]
+fn test_anduin_pointwise_abs_neg_sign_matches_pytorch() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    let graph = build_abs_neg_sign_graph();
+    let lowering = TritonLowering::new().with_optimizer(Anduin);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+        false,
+    )?;
+
+    assert_eq!(model.dag.len(), 2);
+    let loaded = model.load(&env.device, 1)?;
+
+    let x = load_fixture("anduin_pointwise_abs_neg_sign/x.bin");
+    let expected = load_fixture("anduin_pointwise_abs_neg_sign/expected_forward.bin");
+
+    let x_ptr = mem::alloc(N * size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
+    let x_tensor = TensorRef::new(x_ptr, vec![1, N]);
+
+    let output = loaded.forward(&env.device, 1, &[x_tensor])?;
+    let mut y_out = vec![0.0f32; N];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, N) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    for i in 0..N {
+        assert!(
+            (y_out[i] - expected[i]).abs() < TOL,
+            "pointwise abs→neg→sign mismatch at {i}: gpu={} expected={}",
             y_out[i],
             expected[i]
         );
