@@ -1153,4 +1153,26 @@ y_ls = torch.sqrt(torch.log(x_ls))
 save(f"{d}/x.bin", x_ls)
 save(f"{d}/expected_forward.bin", y_ls)
 
+# ── anduin_pointwise_sin_tanh (Sin → Tanh via PointwiseFuse) ──────────────────
+# Case-1 trig/hyperbolic batch (teenygrad-1bf.1.6): forward-only, mixes a
+# trig op with an already-covered y-style activation -- still no fused
+# backward since Sin isn't y-style (a mixed-style chain refuses fusion of
+# backward as a whole, per teenygrad-1bf.13).
+print("anduin_pointwise_sin_tanh")
+d = os.path.join(BASE, "anduin_pointwise_sin_tanh")
+os.makedirs(d, exist_ok=True)
+x_st = torch.empty(N_PW).uniform_(-3, 3)
+y_st = torch.tanh(torch.sin(x_st))
+save(f"{d}/x.bin", x_st)
+save(f"{d}/expected_forward.bin", y_st)
+
+# ── anduin_pointwise_sinh_cosh (Sinh → Cosh via PointwiseFuse) ────────────────
+print("anduin_pointwise_sinh_cosh")
+d = os.path.join(BASE, "anduin_pointwise_sinh_cosh")
+os.makedirs(d, exist_ok=True)
+x_sc = torch.empty(N_PW).uniform_(-1.5, 1.5)
+y_sc = torch.cosh(torch.sinh(x_sc))
+save(f"{d}/x.bin", x_sc)
+save(f"{d}/expected_forward.bin", y_sc)
+
 print("\nDone — all fixtures generated.")

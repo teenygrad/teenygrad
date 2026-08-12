@@ -429,6 +429,121 @@ fn test_anduin_fuses_exp_log_sqrt_erf_reciprocal_into_pointwise_fuse() {
     }
 }
 
+/// Two nodes of the same op chained (`op(op(x))`), so a single op can be
+/// probed for fusability without needing a numerically-compatible neighbor.
+fn build_self_chain_graph(op: Op) -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let first = input.graph.borrow_mut().add_node(
+        op.clone(),
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(op, vec![first], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+/// Case-1 trig/hyperbolic batch (teenygrad-1bf.1.6): mechanical sweep over
+/// all 11 ops -- each is fusable via the same generic probe as every other
+/// batch, and none are y-style.
+#[test]
+fn test_anduin_fuses_each_trig_hyperbolic_op_self_chain() {
+    let ops = [
+        Op::Sin,
+        Op::Cos,
+        Op::Tan,
+        Op::Asin,
+        Op::Acos,
+        Op::Atan,
+        Op::Sinh,
+        Op::Cosh,
+        Op::Asinh,
+        Op::Acosh,
+        Op::Atanh,
+    ];
+    for op in ops {
+        let graph = build_self_chain_graph(op.clone());
+        let opt = Anduin.optimize(&graph).unwrap();
+        assert_eq!(
+            opt.nodes.len(),
+            2,
+            "expected {op:?} self-chain to fuse, got {opt:?}"
+        );
+        match &opt.nodes[1].op {
+            Op::Custom { data } => {
+                let pf = data
+                    .downcast_ref::<PointwiseFuse>()
+                    .unwrap_or_else(|| panic!("op={op:?}: expected PointwiseFuse"));
+                assert_eq!(pf.members.len(), 2, "op={op:?}");
+                assert!(
+                    !pf.supports_fused_backward(),
+                    "op={op:?} unexpectedly y-style"
+                );
+            }
+            other => panic!("op={op:?}: expected Custom(PointwiseFuse), got {other:?}"),
+        }
+    }
+}
+
+fn build_sin_tanh_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let sin = input.graph.borrow_mut().add_node(
+        Op::Sin,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Tanh, vec![sin], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+fn build_sinh_cosh_graph() -> Graph {
+    let (input, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let sinh = input.graph.borrow_mut().add_node(
+        Op::Sinh,
+        vec![input.node_id],
+        DtypeRepr::F32,
+        shape_1d(N),
+    );
+    let _ = input
+        .graph
+        .borrow_mut()
+        .add_node(Op::Cosh, vec![sinh], DtypeRepr::F32, shape_1d(N));
+    drop(input);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
+#[test]
+fn test_anduin_fuses_sin_tanh_into_pointwise_fuse() {
+    let graph = build_sin_tanh_graph();
+    assert_eq!(graph.nodes.len(), 3);
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "Input + PointwiseFuse");
+    match &opt.nodes[1].op {
+        Op::Custom { data } => {
+            let pf = data
+                .downcast_ref::<PointwiseFuse>()
+                .expect("expected PointwiseFuse");
+            assert_eq!(pf.members.len(), 2);
+            assert!(matches!(pf.members[0], Op::Sin));
+            assert!(matches!(pf.members[1], Op::Tanh));
+            // Tanh alone is y-style, but a mixed-style chain (Sin isn't
+            // y-style) refuses fused backward as a whole.
+            assert!(!pf.supports_fused_backward());
+        }
+        other => panic!("expected Custom(PointwiseFuse), got {other:?}"),
+    }
+}
+
 fn pointwise_fuse_from(graph: &Graph) -> PointwiseFuse {
     let opt = Anduin.optimize(graph).unwrap();
     match &opt.nodes.last().unwrap().op {
@@ -738,6 +853,99 @@ fn test_anduin_pointwise_log_sqrt_matches_pytorch() -> Result<()> {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
             "pointwise log→sqrt mismatch at {i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
+        );
+    }
+    Ok(())
+}
+
+/// Case-1 trig/hyperbolic batch (teenygrad-1bf.1.6): mixed trig + activation
+/// chain, per the batch's own example. Forward-only -- Sin isn't y-style, so
+/// the chain as a whole has no fused backward even though Tanh alone is.
+#[test]
+#[cfg(feature = "cuda")]
+fn test_anduin_pointwise_sin_tanh_matches_pytorch() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    let graph = build_sin_tanh_graph();
+    let lowering = TritonLowering::new().with_optimizer(Anduin);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+        false,
+    )?;
+
+    assert_eq!(model.dag.len(), 2);
+    let loaded = model.load(&env.device, 1)?;
+
+    let x = load_fixture("anduin_pointwise_sin_tanh/x.bin");
+    let expected = load_fixture("anduin_pointwise_sin_tanh/expected_forward.bin");
+
+    let x_ptr = mem::alloc(N * size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
+    let x_tensor = TensorRef::new(x_ptr, vec![1, N]);
+
+    let output = loaded.forward(&env.device, 1, &[x_tensor])?;
+    let mut y_out = vec![0.0f32; N];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, N) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    for i in 0..N {
+        assert!(
+            (y_out[i] - expected[i]).abs() < TOL,
+            "pointwise sin→tanh mismatch at {i}: gpu={} expected={}",
+            y_out[i],
+            expected[i]
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_anduin_pointwise_sinh_cosh_matches_pytorch() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    let graph = build_sinh_cosh_graph();
+    let lowering = TritonLowering::new().with_optimizer(Anduin);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+        false,
+    )?;
+
+    assert_eq!(model.dag.len(), 2);
+    let loaded = model.load(&env.device, 1)?;
+
+    let x = load_fixture("anduin_pointwise_sinh_cosh/x.bin");
+    let expected = load_fixture("anduin_pointwise_sinh_cosh/expected_forward.bin");
+
+    let x_ptr = mem::alloc(N * size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
+    let x_tensor = TensorRef::new(x_ptr, vec![1, N]);
+
+    let output = loaded.forward(&env.device, 1, &[x_tensor])?;
+    let mut y_out = vec![0.0f32; N];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, N) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    for i in 0..N {
+        assert!(
+            (y_out[i] - expected[i]).abs() < TOL,
+            "pointwise sinh→cosh mismatch at {i}: gpu={} expected={}",
             y_out[i],
             expected[i]
         );
