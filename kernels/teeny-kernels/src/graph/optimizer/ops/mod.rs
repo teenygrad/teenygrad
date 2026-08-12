@@ -18,4 +18,6 @@
 
 mod pointwise_fuse;
 
-pub use pointwise_fuse::{PointwiseFuse, probe_pointwise_op};
+pub use pointwise_fuse::{
+    PointwiseFuse, is_bool_terminal_only, is_pointwise_fuse_dtype, probe_pointwise_op,
+};
