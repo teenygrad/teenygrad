@@ -1121,4 +1121,15 @@ save(f"{d}/dy.bin", dy_long)
 save(f"{d}/y_backward.bin", y_long_b.detach())
 save(f"{d}/expected_backward.bin", x_long_b.grad)
 
+# ── anduin_pointwise_abs_neg_sign (Abs → Neg → Sign via PointwiseFuse) ────────
+# Case-1 rounding/sign batch (teenygrad-1bf.1.7): forward-only fixture -- none
+# of Abs/Neg/Sign are y-style, so this chain has no fused backward.
+print("anduin_pointwise_abs_neg_sign")
+d = os.path.join(BASE, "anduin_pointwise_abs_neg_sign")
+os.makedirs(d, exist_ok=True)
+x_ans = torch.empty(N_PW).uniform_(-2, 2)
+y_ans = torch.sign(torch.neg(torch.abs(x_ans)))
+save(f"{d}/x.bin", x_ans)
+save(f"{d}/expected_forward.bin", y_ans)
+
 print("\nDone — all fixtures generated.")
