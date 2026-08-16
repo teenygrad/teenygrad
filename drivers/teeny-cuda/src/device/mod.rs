@@ -273,6 +273,36 @@ impl<'a> Drop for CudaDevice<'a> {
     }
 }
 
+impl CudaDevice<'_> {
+    /// Raise the per-function dynamic shared-memory ceiling when Triton asks for
+    /// more than the default 48 KiB carveout.
+    ///
+    /// Without this, `cuLaunchKernel` returns `CUDA_ERROR_INVALID_ARGUMENT` for
+    /// kernels whose `meta:shared` is in (48 KiB, opt-in max] — e.g.
+    /// `conv2d_bn_silu_gemm` at 128×128 tiles (~64 KiB) on sm_120. Tiles that
+    /// still exceed the device opt-in max (~99 KiB on RTX 5070) must be capped
+    /// at compile/dispatch time instead.
+    pub(crate) fn ensure_dynamic_shared(
+        function: cuda::CUfunction,
+        shared_bytes: u32,
+    ) -> Result<()> {
+        if shared_bytes == 0 {
+            return Ok(());
+        }
+        let status = unsafe {
+            cuda::cuFuncSetAttribute(
+                function,
+                cuda::CUfunction_attribute_enum_CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                shared_bytes as i32,
+            )
+        };
+        if status != cuda::cudaError_enum_CUDA_SUCCESS {
+            return Err(Error::from_cuda_error(status).into());
+        }
+        Ok(())
+    }
+}
+
 impl<'a> Device<'a> for CudaDevice<'a> {
     type Buffer<N: Num> = CudaBuffer<'a, N>;
     type Program<K: teeny_core::device::program::Kernel> = CudaProgram<'a, K>;
@@ -313,6 +343,8 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         // Build the pointer array while `packer` is still alive — both must
         // remain live for the entire duration of `cuLaunchKernel`.
         let mut ptrs = packer.as_ptrs();
+
+        Self::ensure_dynamic_shared(program.function, program.metadata.shared)?;
 
         let status = unsafe {
             cuda::cuLaunchKernel(
@@ -367,6 +399,7 @@ impl<'a> CudaDevice<'a> {
         stream: cuda::CUstream,
     ) -> Result<()> {
         let mut ptrs = packer.as_ptrs();
+        Self::ensure_dynamic_shared(program.function, program.metadata.shared)?;
         let status = unsafe {
             cuda::cuLaunchKernel(
                 program.function,
@@ -415,6 +448,8 @@ impl<'a> CudaDevice<'a> {
         packer.visit_ptr(scratch_ptr as *mut std::ffi::c_void);
         packer.visit_ptr(std::ptr::null_mut());
         let mut ptrs = packer.as_ptrs();
+
+        Self::ensure_dynamic_shared(program.function, program.metadata.shared)?;
 
         let status = unsafe {
             cuda::cuLaunchKernel(

@@ -84,9 +84,21 @@ pub trait RuntimeOp: Send + Sync {
 
     /// Returns the required row stride (in elements) for the output buffer of
     /// this op's forward kernel.  The default is the natural row-major stride
-    /// (`output_shape[-1]`).  Kernels using TMA must round up to satisfy the
-    /// 16-byte alignment constraint (e.g. 4 elements for f32).
+    /// ([`forward_output_row_elems`]).  Kernels using TMA must round up so a
+    /// full store tile never straddles the next row (e.g. `M` padded to a
+    /// multiple of `BLOCK_M` for GEMM, or `OW` to a multiple of `BLOCK_OW`
+    /// for tiled conv).
     fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        self.forward_output_row_elems(output_shape)
+    }
+
+    /// Natural (unpadded) length of one output row, in elements.
+    ///
+    /// Used with [`forward_output_row_stride`] to size the TMA padded buffer:
+    /// `n_rows = numel / row_elems`, allocate `n_rows * row_stride`.
+    /// Default: last dimension of `output_shape`. Ops that view the tensor as
+    /// a different 2-D layout (e.g. NCHW → `[C, OH*OW]`) should override.
+    fn forward_output_row_elems(&self, output_shape: &[usize]) -> usize {
         output_shape.last().copied().unwrap_or(1)
     }
 

@@ -629,8 +629,11 @@ fn pick_gemm_tile_sizes(m: Option<usize>, n: usize, k: usize) -> (i32, i32, i32)
     } else {
         8
     };
+    // Capped at 128×128: a 256×128 tile needs ~128 KiB dynamic shared memory,
+    // above the opt-in ceiling on some sm_120 devices (~99 KiB on RTX 5070).
+    // 128×128 (~64 KiB) fits under the per-function opt-in raised via
+    // `cuFuncSetAttribute(MAX_DYNAMIC_SHARED_SIZE_BYTES)` in teeny-cuda's launch path.
     let (block_m, block_n) = match (m, n) {
-        (m, n) if m >= 256 && n >= 128 => (256, 128),
         (m, n) if m >= 128 && n >= 128 => (128, 128),
         (m, _) if m >= 128 => (128, 64),
         (_, n) if n >= 128 => (64, 128),
@@ -650,7 +653,8 @@ mod pick_gemm_tile_sizes_tests {
 
     #[test]
     fn large_m_and_n_get_the_largest_tile() {
-        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (256, 128, 32));
+        // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
     }
 
     #[test]
