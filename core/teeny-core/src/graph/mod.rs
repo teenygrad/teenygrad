@@ -1927,10 +1927,8 @@ impl Graph {
             members.push(self.nodes[child_idx].op.clone());
 
             dead[parent_idx] = true;
-            node_override[child_idx] = Some((
-                Op::Fused { members },
-                self.nodes[parent_idx].inputs.clone(),
-            ));
+            node_override[child_idx] =
+                Some((Op::Fused { members }, self.nodes[parent_idx].inputs.clone()));
             changed = true;
         }
 
@@ -1990,10 +1988,7 @@ impl Graph {
 /// of their `RuntimeOp` impls are unimplemented stubs today, and some aren't the plain
 /// fixed-block-size elementwise shape this allowlist is scoped to.
 pub fn is_fusable_elementwise(op: &Op) -> bool {
-    matches!(
-        op,
-        Op::Relu | Op::Sigmoid | Op::Silu | Op::Tanh
-    )
+    matches!(op, Op::Relu | Op::Sigmoid | Op::Silu | Op::Tanh)
 }
 
 // ---------------------------------------------------------------------------
@@ -2013,11 +2008,9 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
     match op {
         Op::Input => input.clone(),
 
-        Op::Fused { members } => members
-            .iter()
-            .fold(input.clone(), |shape, member| {
-                infer_output_shape(member, &[&shape])
-            }),
+        Op::Fused { members } => members.iter().fold(input.clone(), |shape, member| {
+            infer_output_shape(member, &[&shape])
+        }),
 
         // Element-wise / shape-preserving — output shape = input shape
         Op::Relu
