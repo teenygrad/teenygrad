@@ -253,6 +253,7 @@ fn bench_gemm(
         "GEMM variant only supports 1x1/stride=1/pad=0 convs"
     );
     let m = shape.hh * shape.ww;
+    let y_row_stride = m.next_multiple_of(BLOCK_M_GEMM as usize);
     let w_host: Vec<f32> = (0..shape.c_out * shape.c_in)
         .map(|i| (i as f32 % 13.0 - 6.0) * 0.05)
         .collect();
@@ -261,7 +262,7 @@ fn bench_gemm(
     let mut w_buf = device.buffer::<f32>(w_host.len())?;
     let mut s_buf = device.buffer::<f32>(shape.c_out)?;
     let mut sh_buf = device.buffer::<f32>(shape.c_out)?;
-    let y_buf = device.buffer::<f32>(shape.nb * shape.c_out * m)?;
+    let y_buf = device.buffer::<f32>(shape.nb * shape.c_out * y_row_stride)?;
 
     x_buf.to_device(&shape.x_host())?;
     w_buf.to_device(&w_host)?;
@@ -298,6 +299,7 @@ fn bench_gemm(
                         shape.c_in as i32,
                         shape.c_out as i32,
                         m as i32,
+                        y_row_stride as i32,
                     ),
                 )
                 .unwrap();

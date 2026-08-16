@@ -227,6 +227,7 @@ fn test_conv2d_bn_silu_gemm_matches_reference() -> Result<()> {
             C_IN as i32,
             C_OUT as i32,
             M as i32,
+            M as i32, // y_row_stride: M is already BLOCK_M-aligned (64 / 32)
         ),
     )?;
     y_buf.to_host(&mut y_gpu)?;
@@ -324,6 +325,7 @@ fn test_conv2d_bn_silu_gemm_c_out32_c_in64_m1600() -> Result<()> {
             C_IN2 as i32,
             C_OUT2 as i32,
             M2 as i32,
+            M2 as i32, // y_row_stride: M2 is already BLOCK_M-aligned (1600 / 32)
         ),
     )?;
     y_buf.to_host(&mut y_gpu)?;

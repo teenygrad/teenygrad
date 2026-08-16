@@ -36,6 +36,12 @@ use teeny_triton::triton::{
 ///
 /// Weight W is [C_OUT, C_IN] row-major.
 ///
+/// Output Y is viewed as [B*C_OUT, y_row_stride] where `y_row_stride >= M` and
+/// `y_row_stride` is a multiple of `BLOCK_M`. TMA stores a full `[BLOCK_N,
+/// BLOCK_M]` tile; without that padding the last M-tile writes past `M` into
+/// the next channel (silent overwrite). Runtime allocates the padded buffer
+/// and depads back to tight NCHW.
+///
 /// T::dot uses TF32 Tensor Cores on sm_87+ (Jetson Orin) for ~8× throughput
 /// vs direct scalar accumulation.
 ///
@@ -67,7 +73,11 @@ pub fn conv2d_bn_silu_gemm_forward<
     B: i32,
     C_IN: i32,
     C_OUT: i32,
-    M: i32, // OH * OW per batch
+    M: i32, // OH * OW per batch (tight spatial extent)
+    // y_row_stride: allocated column width per (b, c_out) row.
+    //   Must satisfy: y_row_stride >= M AND divisible by BLOCK_M.
+    //   Prevents the last M-tile's TMA store from spilling into the next channel.
+    y_row_stride: i32,
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -167,12 +177,13 @@ pub fn conv2d_bn_silu_gemm_forward<
     // ── SiLU epilog: y = x * sigmoid(x) ─────────────────────────────────────
     let y = bn_out * T::sigmoid(bn_out);
 
-    // ── Store: y NCHW [B, C_OUT, OH, OW] viewed as [B*C_OUT, M] ─────────────
-    // y[b, c_out, oh, ow] = y_flat[(b*C_OUT + c_out)*M + oh*OW + ow]
+    // ── Store: y NCHW [B, C_OUT, OH, OW] viewed as [B*C_OUT, y_row_stride] ───
+    // Valid columns are [0, M); columns [M, y_row_stride) are padding so the
+    // last BLOCK_M-wide TMA store cannot spill into the next channel's row.
     let y_desc = T::make_tensor_descriptor(
         y_ptr,
-        &[B * C_OUT, M],
-        &[M, 1],
+        &[B * C_OUT, y_row_stride],
+        &[y_row_stride, 1],
         &[BLOCK_N, BLOCK_M],
         Some(PaddingOption::Zero),
     );
@@ -183,7 +194,7 @@ pub fn conv2d_bn_silu_gemm_forward<
 //
 // Params layout: [weight [C_OUT, C_IN], bn_scale [C_OUT], bn_shift [C_OUT]]
 // pack_args order: x_ptr, w_ptr, bn_scale_ptr, bn_shift_ptr, y_ptr,
-//                  B, C_IN, C_OUT, M (= OH * OW)
+//                  B, C_IN, C_OUT, M (= OH * OW), y_row_stride
 
 impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
     fn n_activation_inputs(&self) -> usize {
@@ -201,13 +212,24 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
         &["weight", "bn_scale", "bn_shift"]
     }
 
+    // Row = one (b, c_out) channel flattened over OH*OW. Pad to a multiple of
+    // BLOCK_M so the last TMA store tile stays inside the channel's row.
+    fn forward_output_row_elems(&self, output_shape: &[usize]) -> usize {
+        output_shape[2] * output_shape[3]
+    }
+
+    fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        let m = self.forward_output_row_elems(output_shape);
+        m.next_multiple_of(self.block_m as usize)
+    }
+
     fn pack_args(
         &self,
         inputs: &[(teeny_core::model::RawPtr, &[usize])],
         params: &[teeny_core::model::RawPtr],
         output: teeny_core::model::RawPtr,
         output_shape: &[usize],
-        _output_row_stride: i32,
+        output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let input_shape = inputs[0].1;
@@ -224,6 +246,7 @@ impl teeny_core::model::RuntimeOp for Conv2dBnSiluGemmForward {
         visitor.visit_i32(c_in);
         visitor.visit_i32(c_out);
         visitor.visit_i32(m);
+        visitor.visit_i32(output_row_stride); // y_row_stride
     }
 
     fn block(&self) -> [u32; 3] {

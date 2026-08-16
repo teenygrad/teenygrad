@@ -782,7 +782,12 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dBias
         let c_in = input_shapes[0][1];
         let c_out = output_shape[1];
         vec![
-            vec![c_out, c_in / self.g as usize, self.kh as usize, self.kw as usize],
+            vec![
+                c_out,
+                c_in / self.g as usize,
+                self.kh as usize,
+                self.kw as usize,
+            ],
             vec![c_out],
         ]
     }

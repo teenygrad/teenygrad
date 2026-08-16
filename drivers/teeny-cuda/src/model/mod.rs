@@ -575,7 +575,7 @@ impl LoadedModel {
 
             // Some ops (e.g. linear_forward) use TMA and require a row stride that
             // is a multiple of 16 bytes.  Allocate a padded output buffer when needed.
-            let natural_stride = output_shape.last().copied().unwrap_or(1);
+            let natural_stride = loaded.runtime_op.forward_output_row_elems(&output_shape);
             let required_stride = loaded.runtime_op.forward_output_row_stride(&output_shape);
             let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
 
@@ -754,7 +754,7 @@ impl LoadedModel {
             let out_ptr = mem::alloc(byte_size)?;
 
             // TMA alignment: allocate a padded output buffer when the op requires it.
-            let natural_stride = output_shape.last().copied().unwrap_or(1);
+            let natural_stride = loaded.runtime_op.forward_output_row_elems(&output_shape);
             let required_stride = loaded.runtime_op.forward_output_row_stride(&output_shape);
             let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
 
@@ -1308,7 +1308,7 @@ impl LoadedModel {
             node_out_bufs[idx] = out_ptr;
 
             // TMA padded buffer when the op requires a wider row stride.
-            let natural_stride = output_shape.last().copied().unwrap_or(1);
+            let natural_stride = loaded.runtime_op.forward_output_row_elems(output_shape);
             let required_stride = loaded.runtime_op.forward_output_row_stride(output_shape);
             if required_stride > natural_stride {
                 let n_rows = n_elems / natural_stride.max(1);
@@ -1411,7 +1411,11 @@ impl LoadedModel {
                     cuda::cuMemsetD8Async(scratch_ptr, 0, scratch_total as usize, stream)
                 };
                 if s != cuda::cudaError_enum_CUDA_SUCCESS {
-                    capture_err = Some(Error::from_cuda_error(s).into());
+                    capture_err = Some(anyhow::anyhow!(
+                        "capture_graph: scratch memset failed at node {idx} \
+                         (shape={output_shape:?}, scratch_total={scratch_total}): {}",
+                        Error::from_cuda_error(s),
+                    ));
                     break 'capture;
                 }
             }
@@ -1456,7 +1460,13 @@ impl LoadedModel {
                 };
                 if let Err(e) = device.launch_on_stream(&loaded.program, &cfg, &mut packer, stream)
                 {
-                    capture_err = Some(e);
+                    capture_err = Some(anyhow::anyhow!(
+                        "capture_graph: launch failed at node {idx} \
+                         (grid={grid:?}, block={block:?}, cluster={cluster:?}, \
+                         shape={output_shape:?}, row_stride={required_stride}, \
+                         scratch={}): {e:#}",
+                        loaded.program.metadata.global_scratch_size,
+                    ));
                     break 'capture;
                 }
             }
@@ -1478,7 +1488,11 @@ impl LoadedModel {
                 };
                 let s = unsafe { cuda::cuMemcpy2DAsync_v2(&params, stream) };
                 if s != cuda::cudaError_enum_CUDA_SUCCESS {
-                    capture_err = Some(Error::from_cuda_error(s).into());
+                    capture_err = Some(anyhow::anyhow!(
+                        "capture_graph: cuMemcpy2DAsync depad failed at node {idx} \
+                         (ns={ns}, rs={rs}, n_rows={n_rows}, eb={eb}): {}",
+                        Error::from_cuda_error(s),
+                    ));
                     break 'capture;
                 }
             }
@@ -1511,7 +1525,10 @@ impl LoadedModel {
             for &p in &owned {
                 let _ = mem::free(p);
             }
-            return Err(Error::from_cuda_error(end_s).into());
+            return Err(anyhow::anyhow!(
+                "capture_graph: cuStreamEndCapture failed: {}",
+                Error::from_cuda_error(end_s)
+            ));
         }
 
         let mut graph_exec: cuda::CUgraphExec = std::ptr::null_mut();
@@ -1522,7 +1539,10 @@ impl LoadedModel {
             for &p in &owned {
                 let _ = mem::free(p);
             }
-            return Err(Error::from_cuda_error(inst_s).into());
+            return Err(anyhow::anyhow!(
+                "capture_graph: cuGraphInstantiateWithFlags failed: {}",
+                Error::from_cuda_error(inst_s)
+            ));
         }
 
         if output_node_indices.is_empty() {
