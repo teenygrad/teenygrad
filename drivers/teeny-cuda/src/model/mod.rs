@@ -575,9 +575,7 @@ impl LoadedModel {
 
             // Some ops (e.g. linear_forward) use TMA and require a row stride that
             // is a multiple of 16 bytes.  Allocate a padded output buffer when needed.
-            let natural_stride = loaded
-                .runtime_op
-                .forward_output_row_elems(&output_shape);
+            let natural_stride = loaded.runtime_op.forward_output_row_elems(&output_shape);
             let required_stride = loaded.runtime_op.forward_output_row_stride(&output_shape);
             let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
 
@@ -756,9 +754,7 @@ impl LoadedModel {
             let out_ptr = mem::alloc(byte_size)?;
 
             // TMA alignment: allocate a padded output buffer when the op requires it.
-            let natural_stride = loaded
-                .runtime_op
-                .forward_output_row_elems(&output_shape);
+            let natural_stride = loaded.runtime_op.forward_output_row_elems(&output_shape);
             let required_stride = loaded.runtime_op.forward_output_row_stride(&output_shape);
             let n_rows = output_shape.iter().product::<usize>() / natural_stride.max(1);
 
