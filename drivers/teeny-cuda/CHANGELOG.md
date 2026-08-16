@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/teenygrad/teenygrad/compare/teeny-cuda-v0.1.3...teeny-cuda-v0.2.0) - 2026-08-16
+
+### Fixed
+
+- *(cuda)* raise dynamic shared carveout; pad GEMM TMA row strides ([#33](https://github.com/teenygrad/teenygrad/pull/33))
+
+### Other
+
+- release v0.1.3 ([#17](https://github.com/teenygrad/teenygrad/pull/17))
+
 ## [0.1.3](https://github.com/teenygrad/teenygrad/compare/teeny-cuda-v0.1.2...teeny-cuda-v0.1.3) - 2026-08-08
 
 ### Other

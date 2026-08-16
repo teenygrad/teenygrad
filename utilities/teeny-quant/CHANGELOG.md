@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/teenygrad/teenygrad/compare/teeny-quant-v0.1.3...teeny-quant-v0.2.0) - 2026-08-16
+
+### Other
+
+- release v0.2.0 ([#34](https://github.com/teenygrad/teenygrad/pull/34))
+- release v0.1.3 ([#17](https://github.com/teenygrad/teenygrad/pull/17))
+
 ## [0.1.3](https://github.com/teenygrad/teenygrad/compare/teeny-quant-v0.1.2...teeny-quant-v0.1.3) - 2026-08-08
 
 ### Fixed
