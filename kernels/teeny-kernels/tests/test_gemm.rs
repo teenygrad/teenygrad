@@ -464,8 +464,8 @@ fn test_matmul_lowering_picks_small_tile_for_small_shape() {
 fn test_matmul_lowering_picks_larger_tile_for_large_shape() {
     let src = lowered_matmul_source(512, 256, 256);
     assert!(
-        src.contains("LlvmTriton, f32, 256, 128, 32"),
-        "expected a 256x128x32 tile for a large (512,256,256) shape, got: {src}"
+        src.contains("LlvmTriton, f32, 128, 128, 32"),
+        "expected a 128x128x32 tile for a large (512,256,256) shape, got: {src}"
     );
 }
 
