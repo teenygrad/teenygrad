@@ -1048,21 +1048,28 @@ x_r = x_2d.clone().requires_grad_(True)
 F.log_softmax(x_r, dim=-1).sum().backward()
 save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
 
-# ── anduin_conv_bn_silu (Conv2d → BatchNorm2d → SiLU via Anduin path) ─────────
-print("anduin_conv_bn_silu")
-d = os.path.join(BASE, "anduin_conv_bn_silu")
+# ── conv2d_bn_silu (fused Conv2d + BatchNorm2d + SiLU — hand-written kernels ──
+# kept for microbenchmarks only; Anduin does not fuse this pattern, so this
+# fixture is consumed by direct kernel-construction tests, not the graph path.
+print("conv2d_bn_silu")
+d = os.path.join(BASE, "conv2d_bn_silu")
 os.makedirs(d, exist_ok=True)
-# NCHW: B=1, C_in=2, C_out=4, H=W=6, k=3, stride=1, pad=1 → OH=OW=6
-B_A, CIN_A, COUT_A, H_A, W_A = 1, 2, 4, 6, 6
-KH_A, KW_A, EPS_A = 3, 3, 1e-5
-x_a = torch.empty(B_A, CIN_A, H_A, W_A).uniform_(-1, 1)
-w_a = torch.empty(COUT_A, CIN_A, KH_A, KW_A).uniform_(-0.5, 0.5)
-bn_w = torch.empty(COUT_A).uniform_(0.5, 1.5)
-bn_b = torch.empty(COUT_A).uniform_(-0.5, 0.5)
-bn_mean = torch.empty(COUT_A).uniform_(-0.25, 0.25)
-bn_var = torch.empty(COUT_A).uniform_(0.5, 1.5)
+# NCHW: B=1, C_in=32, C_out=64, H=W=8, 1x1/stride=1/pad=0/groups=1 so the
+# fixture is valid for all three kernel variants, including the GEMM path
+# (1x1-only) — matches the "≥32 → GEMM kernel" dispatch-threshold shape.
+B_A, CIN_A, COUT_A, H_A, W_A = 1, 32, 64, 8, 8
+KH_A, KW_A, EPS_A = 1, 1, 1e-5
+# Own generator so this block's tensor sizes don't shift the shared global RNG
+# stream (and thus every fixture generated after it) if they ever change.
+g_a = torch.Generator().manual_seed(1337)
+x_a = torch.empty(B_A, CIN_A, H_A, W_A).uniform_(-1, 1, generator=g_a)
+w_a = torch.empty(COUT_A, CIN_A, KH_A, KW_A).uniform_(-0.5, 0.5, generator=g_a)
+bn_w = torch.empty(COUT_A).uniform_(0.5, 1.5, generator=g_a)
+bn_b = torch.empty(COUT_A).uniform_(-0.5, 0.5, generator=g_a)
+bn_mean = torch.empty(COUT_A).uniform_(-0.25, 0.25, generator=g_a)
+bn_var = torch.empty(COUT_A).uniform_(0.5, 1.5, generator=g_a)
 
-conv_a = F.conv2d(x_a, w_a, stride=1, padding=1)
+conv_a = F.conv2d(x_a, w_a, stride=1, padding=0)
 bn_a = F.batch_norm(
     conv_a,
     bn_mean.clone(),
@@ -1131,5 +1138,32 @@ x_ans = torch.empty(N_PW).uniform_(-2, 2)
 y_ans = torch.sign(torch.neg(torch.abs(x_ans)))
 save(f"{d}/x.bin", x_ans)
 save(f"{d}/expected_forward.bin", y_ans)
+
+# ── anduin_tile_fuse_relu_add (relu(x) + z via TileFuse fan-in) ───────────────
+# teenygrad-3w0's case-2 fusion: a unary chain (Relu) applied to one input,
+# combined with a second, unchained input (z) through a binary Add tail --
+# the fan-in shape Anduin's single-input PointwiseFuse pass cannot reach.
+print("anduin_tile_fuse_relu_add")
+d = os.path.join(BASE, "anduin_tile_fuse_relu_add")
+os.makedirs(d, exist_ok=True)
+x_tf = torch.empty(N_PW).uniform_(-2, 2)
+z_tf = torch.empty(N_PW).uniform_(-2, 2)
+y_tf = torch.relu(x_tf) + z_tf
+save(f"{d}/x.bin", x_tf)
+save(f"{d}/z.bin", z_tf)
+save(f"{d}/expected_forward.bin", y_tf)
+
+# ── anduin_reduce_fuse_relu_sum (reduce_sum(relu(x)) via ReduceFuse) ──────────
+# teenygrad-3w0.9's case-4 fusion: a unary chain (Relu) feeding directly into
+# a row-reduction (ReduceSum) -- the intermediate relu(x) is never
+# materialized to global memory. Single row (n_outer=1, n_inner=N_PW):
+# reduce-all, matching keepdims=false's "scalar output" shape.
+print("anduin_reduce_fuse_relu_sum")
+d = os.path.join(BASE, "anduin_reduce_fuse_relu_sum")
+os.makedirs(d, exist_ok=True)
+x_rf = torch.empty(N_PW).uniform_(-2, 2)
+y_rf = torch.sum(torch.relu(x_rf))
+save(f"{d}/x.bin", x_rf)
+save(f"{d}/expected_forward.bin", y_rf.reshape(1))
 
 print("\nDone — all fixtures generated.")

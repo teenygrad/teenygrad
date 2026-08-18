@@ -23,7 +23,9 @@ use teeny_core::{
 
 pub mod optimizer;
 
-pub use optimizer::{Anduin, GraphOptimizer, PointwiseFuse};
+pub use optimizer::{
+    Anduin, GraphOptimizer, PointwiseFuse, ReduceFuse, SharedTransposeFuse, TileFuse,
+};
 
 use crate::nn::{
     activation::extra::{
@@ -122,6 +124,7 @@ use crate::nn::{
             ReduceMaxForward, ReduceMeanForward, ReduceMinForward, ReduceProdForward,
             ReduceSumForward, ReduceSumSquareForward,
         },
+        transpose::TransposeRuntimeOp,
         upsample_nearest2d::{UpsampleNearest2dBackward, UpsampleNearest2dForward},
     },
 };
@@ -669,7 +672,7 @@ impl TritonLowering {
         // Never run Anduin (or any optimizer) while resolving a fuse member —
         // that would recurse into pointwise fusion.
         let lowering = TritonLowering { optimizer: None };
-        let (dag, map) = lowering.lower_with_mapping(&graph, LoweringMode::Inference)?;
+        let (dag, map, _) = lowering.lower_with_mapping(&graph, LoweringMode::Inference)?;
         let dag_idx = map[out];
         let exec = dag.node(dag_idx).value.as_ref();
         if exec.is_input() {
@@ -683,14 +686,16 @@ impl TritonLowering {
             .ok_or_else(|| anyhow::anyhow!("lower_unary_op: expected KernelExecutable for {op:?}"))
     }
 
-    /// Like `lower` but also returns the graph-node-index → DAG-node-index mapping.
+    /// Like `lower` but also returns the graph-node-index → DAG-node-index mapping,
+    /// plus the graph that mapping is indexed against (the optimizer's output when
+    /// `self.optimizer` is set — see the `Lowering::lower_with_mapping` trait doc).
     /// Useful for middleware lowerings that need to patch specific DAG nodes after
     /// the base lowering runs.
     pub fn lower_with_mapping(
         &self,
         graph: &Graph,
         mode: LoweringMode,
-    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>, Graph)> {
         let _ = mode; // used by #[cfg(feature = "training")] branch below
         let optimized;
         let graph = match &self.optimizer {
@@ -2499,10 +2504,60 @@ impl TritonLowering {
                         "TODO: Op::Reshape — implement as a strided view or copy kernel"
                     ));
                 }
-                Op::Transpose { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Transpose — implement as a permuted-copy kernel"
-                    ));
+                Op::Transpose { perm } => {
+                    // teenygrad-3w0.10: rank-2 only (documented non-goal —
+                    // see nn::tensor::transpose's module doc). `perm` is
+                    // either empty (default: reverse all axes) or the
+                    // explicit rank-2 swap `[1, 0]`; anything else isn't
+                    // representable by `transpose_2d_forward`.
+                    if !(perm.is_empty() || perm.as_slice() == [1, 0]) {
+                        return Err(anyhow::anyhow!(
+                            "Op::Transpose: only rank-2 perm=[1, 0] (or empty) is supported, got {:?}",
+                            perm
+                        ));
+                    }
+                    // Tensor-descriptor-based kernel: RuntimeOp is hand-written
+                    // (TransposeRuntimeOp), same precedent as Op::MatMul below.
+                    const BLOCK_M: i32 = 32;
+                    const BLOCK_N: i32 = 32;
+                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                        DtypeRepr::F32 => {
+                            let r = TransposeRuntimeOp::<f32>::new(BLOCK_M, BLOCK_N);
+                            (
+                                r.kernel_name().to_string(),
+                                r.forward_source().to_string(),
+                                Arc::new(r),
+                            )
+                        }
+                        DtypeRepr::F64 => {
+                            let r = TransposeRuntimeOp::<f64>::new(BLOCK_M, BLOCK_N);
+                            (
+                                r.kernel_name().to_string(),
+                                r.forward_source().to_string(),
+                                Arc::new(r),
+                            )
+                        }
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "{:?} is not a supported dtype for Op::Transpose",
+                                other
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{}_entry_point", name),
+                        name,
+                        kernel_source: ks,
+                        kernel_body: String::new(),
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op: rop,
+                    })
                 }
                 Op::Squeeze { .. } | Op::Unsqueeze { .. } => {
                     return Err(anyhow::anyhow!(
@@ -2843,20 +2898,20 @@ impl TritonLowering {
             }
         }
 
-        Ok((dag, graph_to_dag))
+        Ok((dag, graph_to_dag, graph.clone()))
     }
 }
 
 impl<'a> Lowering<'a> for TritonLowering {
     fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>> {
-        TritonLowering::lower_with_mapping(self, graph, mode).map(|(dag, _)| dag)
+        TritonLowering::lower_with_mapping(self, graph, mode).map(|(dag, _, _)| dag)
     }
 
     fn lower_with_mapping(
         &self,
         graph: &Graph,
         mode: LoweringMode,
-    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>, Graph)> {
         TritonLowering::lower_with_mapping(self, graph, mode)
     }
 

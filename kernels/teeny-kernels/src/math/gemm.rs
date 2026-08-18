@@ -28,7 +28,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{PaddingOption, *};
 
 // ── MatMul Forward ────────────────────────────────────────────────────────────
@@ -40,7 +40,8 @@ use teeny_triton::triton::{PaddingOption, *};
 
 /// Forward: C = A @ B
 // ANCHOR: matmul_forward
-#[kernel]
+#[tiled_kernel]
+#[tile_pid_swizzle(block_m = BLOCK_M, block_n = BLOCK_N, m = M, n = N, group = GROUP_M)]
 pub fn matmul_forward<
     T: Triton,
     D: Num,
@@ -49,29 +50,13 @@ pub fn matmul_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    a_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    c_ptr: InOutPtr<T::Pointer<D>>,
+    #[tile(block = [BLOCK_M, BLOCK_K], extent = [M, K], reduction = 1)] a_ptr: InPtr<T::Pointer<D>>,
+    #[tile(block = [BLOCK_K, BLOCK_N], extent = [K, N], reduction = 0)] b_ptr: InPtr<T::Pointer<D>>,
+    #[tile(block = [BLOCK_M, BLOCK_N], extent = [M, N])] c_ptr: InOutPtr<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
 ) {
-    let pid = T::program_id(Axis::X);
-    let num_pid_m = T::cdiv(M, BLOCK_M);
-    let num_pid_n = T::cdiv(N, BLOCK_N);
-    let num_pid_in_group = GROUP_M * num_pid_n;
-    let group_id = pid / num_pid_in_group;
-    let first_pid_m = group_id * GROUP_M;
-    let remaining_m = num_pid_m - first_pid_m;
-    let group_size_m = if remaining_m < GROUP_M {
-        remaining_m
-    } else {
-        GROUP_M
-    };
-    let pid_in_group = pid % num_pid_in_group;
-    let pid_m = first_pid_m + (pid_in_group % group_size_m);
-    let pid_n = pid_in_group / group_size_m;
-
     let a_desc = T::make_tensor_descriptor(
         a_ptr,
         &[M, K],
