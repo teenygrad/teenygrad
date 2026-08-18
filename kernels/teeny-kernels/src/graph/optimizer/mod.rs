@@ -17,15 +17,12 @@
 //! Pluggable graph optimizers selected on [`super::TritonLowering`].
 //!
 //! Named after rivers of Middle-earth (Anduin, …). Strategies rewrite a
-//! [`teeny_core::graph::Graph`] into [`teeny_core::graph::Op::Custom`] nodes
-//! (see [`ops`]) before Triton lowering.
+//! [`teeny_core::graph::Graph`] before Triton lowering.
 
 mod anduin;
-pub mod ops;
 pub mod propagate;
 
 pub use anduin::Anduin;
-pub use ops::{PointwiseFuse, ReduceFuse, SharedTransposeFuse, TileFuse};
 pub use propagate::propagate_graph;
 
 use teeny_core::graph::Graph;
