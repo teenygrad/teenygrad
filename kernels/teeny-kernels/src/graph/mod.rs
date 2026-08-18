@@ -23,9 +23,7 @@ use teeny_core::{
 
 pub mod optimizer;
 
-pub use optimizer::{
-    Anduin, GraphOptimizer, PointwiseFuse, ReduceFuse, SharedTransposeFuse, TileFuse,
-};
+pub use optimizer::{Anduin, GraphOptimizer};
 
 use crate::nn::{
     activation::extra::{
