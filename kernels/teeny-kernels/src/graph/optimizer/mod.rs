@@ -22,9 +22,11 @@
 
 mod anduin;
 pub mod ops;
+pub mod propagate;
 
 pub use anduin::Anduin;
-pub use ops::PointwiseFuse;
+pub use ops::{PointwiseFuse, ReduceFuse, SharedTransposeFuse, TileFuse};
+pub use propagate::propagate_graph;
 
 use teeny_core::graph::Graph;
 

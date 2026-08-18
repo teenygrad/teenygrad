@@ -28,16 +28,26 @@
 
 /// Error types.
 pub mod error;
+/// A chain member's splice-ready per-element compute (`FusionCore`), derived
+/// from a single-input, single-axis `#[tile(...)]` kernel.
+pub mod fusion_core;
 /// Host-side kernel I/O layout (`KernelIo` / `PtrRole`), derived from marked pointer params.
 pub mod kernel_io;
+/// Host-side kernel tile-shape layout (`KernelTileSpec`), derived from `#[tile(...)]` params.
+pub mod tile;
 /// The `Triton` DSL trait and its supporting types.
 pub mod triton;
 /// The generated DSL source text, embedded as [`triton_lang::TRITON`].
 pub mod triton_lang;
 
+pub use fusion_core::FusionCore;
 pub use kernel_io::{
     BlockSized, KernelIo, KernelIoLayout, NElementsTiled, PointwiseFuseProbe,
     PointwiseFuseProbeExt, PtrRole,
+};
+pub use tile::{
+    CostModel, KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec,
+    TileSpecLayout, TileWindow, mem_traffic, propagate_within_kernel,
 };
 
 /// A compiled kernel's identity: its name, type signature, and generated source block.

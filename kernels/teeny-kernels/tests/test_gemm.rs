@@ -444,7 +444,7 @@ fn lowered_matmul_source(m: usize, k: usize, n: usize) -> String {
 
     let graph = build_matmul_graph(m, k, n);
     let lowering = TritonLowering::new();
-    let (dag, _) = lowering
+    let (dag, _, _) = lowering
         .lower_with_mapping(&graph, LoweringMode::Inference)
         .expect("lowering");
     // Nodes: [a (Input), b (Input), matmul] -> matmul is index 2.

@@ -31,7 +31,7 @@
 
 use core::marker::PhantomData;
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -49,7 +49,13 @@ use teeny_triton::triton::{
 ///   `l_ptr`  — log-sum-exp        `[BH, N_CTX_Q]`  (saved for backward)
 ///
 /// Grid: `(N_CTX_Q, BH, 1)` — one CTA per `(batch_head, q_row)` pair.
-#[kernel]
+///
+/// `acc`/`m_i`/`l_i` are the online-softmax state threaded through the
+/// `k_row` loop below (teenygrad-3w0.7) — declared here as metadata only;
+/// the recurrence itself (`m_new`/`exp_diff`/`p`/... ) stays exactly as
+/// written in the loop body, unchanged.
+#[tiled_kernel]
+#[tile_loop(carry = [acc, m_i, l_i], shape = [HEAD_DIM], trip_count = n_ctx_k)]
 pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
     q_ptr: InPtr<T::Pointer<D>>,
     k_ptr: InPtr<T::Pointer<D>>,

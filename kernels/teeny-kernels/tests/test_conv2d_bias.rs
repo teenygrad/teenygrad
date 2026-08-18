@@ -81,7 +81,7 @@ fn build_conv2d_bias_graph() -> Graph {
 fn test_conv2d_bias_inference_lowers_to_one_fused_kernel() {
     let graph = build_conv2d_bias_graph();
     let lowering = TritonLowering::new();
-    let (dag, _) = lowering
+    let (dag, _, _) = lowering
         .lower_with_mapping(&graph, LoweringMode::Inference)
         .expect("lowering");
 
@@ -101,7 +101,7 @@ fn test_conv2d_bias_training_still_splits_into_two_kernels() {
     // existing Conv2d + NchwBiasAdd split (each has its own backward kernel).
     let graph = build_conv2d_bias_graph();
     let lowering = TritonLowering::new();
-    let (dag, _) = lowering
+    let (dag, _, _) = lowering
         .lower_with_mapping(&graph, LoweringMode::Training)
         .expect("lowering");
 

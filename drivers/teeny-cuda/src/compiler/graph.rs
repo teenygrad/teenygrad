@@ -113,7 +113,7 @@ impl CudaGraphCompiler {
         mode: LoweringMode,
         force: bool,
     ) -> Result<CudaModel<'a>> {
-        let (op_dag, graph_to_dag) = lowering.lower_with_mapping(graph, mode)?;
+        let (op_dag, graph_to_dag, lowered_graph) = lowering.lower_with_mapping(graph, mode)?;
 
         let compiler = match target.target_cpu() {
             Some(cpu) => self.compiler.clone().with_target_cpu(cpu),
@@ -168,8 +168,12 @@ impl CudaGraphCompiler {
         }
 
         // Propagate graph-level node names (from name_scope annotations) into the
-        // compiled DAG using the graph_node → dag_node index mapping.
-        let mut dag_names: HashMap<usize, String> = graph
+        // compiled DAG using the graph_node → dag_node index mapping. `graph_to_dag`
+        // is indexed against `lowered_graph` (the graph the lowering actually built
+        // the DAG from — post-optimization when an optimizer runs), not the caller's
+        // original `graph`, which may have a different node count/ordering — see
+        // `Lowering::lower_with_mapping`'s doc.
+        let mut dag_names: HashMap<usize, String> = lowered_graph
             .names
             .iter()
             .filter_map(|(&graph_idx, name)| {
@@ -181,7 +185,7 @@ impl CudaGraphCompiler {
         // Lowerings that split one graph node into multiple DAG nodes (e.g.
         // Conv2d-with-bias → Conv2d + NchwBiasAdd) expose the extra mappings
         // here so that every DAG node with parameters can resolve its name.
-        for (dag_idx, name) in lowering.extra_dag_names(graph, &graph_to_dag) {
+        for (dag_idx, name) in lowering.extra_dag_names(&lowered_graph, &graph_to_dag) {
             dag_names.entry(dag_idx).or_insert(name);
         }
 

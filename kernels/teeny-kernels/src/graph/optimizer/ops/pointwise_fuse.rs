@@ -146,11 +146,11 @@ impl CustomOp for PointwiseFuse {
     }
 }
 
-struct MemberKernel {
-    fn_name: String,
-    kernel_source: String,
-    runtime_op: Arc<dyn RuntimeOp>,
-    probe: PointwiseFuseProbe,
+pub(crate) struct MemberKernel {
+    pub(crate) fn_name: String,
+    pub(crate) kernel_source: String,
+    pub(crate) runtime_op: Arc<dyn RuntimeOp>,
+    pub(crate) probe: PointwiseFuseProbe,
 }
 
 /// Runtime ABI: `x_ptr, y_ptr, scratch0 [, scratch1, …], n_elements`.
@@ -399,7 +399,7 @@ fn lower_pointwise_fuse_backward(
     Ok(format!("{bodies}\n\n{entry}"))
 }
 
-fn dtype_name(dtype: DtypeRepr) -> Result<&'static str, String> {
+pub(crate) fn dtype_name(dtype: DtypeRepr) -> Result<&'static str, String> {
     match dtype {
         DtypeRepr::F32 => Ok("f32"),
         DtypeRepr::F64 => Ok("f64"),
@@ -411,7 +411,7 @@ fn dtype_name(dtype: DtypeRepr) -> Result<&'static str, String> {
 
 /// Resolve `op` via [`TritonLowering::lower_unary_op`], then keep it only if
 /// the pointwise-fuse probe succeeds.
-fn member_kernel(op: &Op, dtype: DtypeRepr) -> Result<MemberKernel, String> {
+pub(crate) fn member_kernel(op: &Op, dtype: DtypeRepr) -> Result<MemberKernel, String> {
     let exec = TritonLowering::new()
         .lower_unary_op(op, dtype)
         .map_err(|e| e.to_string())?;

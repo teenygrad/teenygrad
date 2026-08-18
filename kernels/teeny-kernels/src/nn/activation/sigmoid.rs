@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -26,31 +26,16 @@ use teeny_triton::triton::{
 // ── Sigmoid ──────────────────────────────────────────────────────────────────
 
 /// Forward: y = 1 / (1 + exp(-x))
-#[kernel(backward = SigmoidBackward)]
+#[tiled_kernel(backward = SigmoidBackward)]
 pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let neg1 = T::full(&[BLOCK_SIZE], D::from_f64(-1.0));
     let y = one / (one + T::exp(neg1 * x));
