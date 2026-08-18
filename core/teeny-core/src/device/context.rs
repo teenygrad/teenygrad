@@ -16,7 +16,10 @@
 
 use alloc::vec::Vec;
 
-use crate::{device::Device, errors::Result};
+use crate::{
+    device::{Device, hardware::HardwareProfile},
+    errors::Result,
+};
 
 /// A device's identifying metadata.
 pub trait DeviceInfo: Sized {
@@ -27,6 +30,10 @@ pub trait DeviceInfo: Sized {
     fn id(&self) -> Self::Id;
     /// This device's name.
     fn name(&self) -> &str;
+    /// This device's hardware profile (memory hierarchy, compute-unit
+    /// count, ...), for tile-shape / scheduling cost models. See
+    /// [`crate::device::hardware`].
+    fn hardware_profile(&self) -> HardwareProfile;
 }
 
 /// The entry point for discovering and opening devices.

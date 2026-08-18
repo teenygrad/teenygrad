@@ -19,6 +19,7 @@ use std::marker::PhantomData;
 use teeny_core::{
     device::{
         context::DeviceInfo,
+        hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind},
         program::{ArgVisitor, Kernel, KernelArgs},
         {Device, LaunchConfig},
     },
@@ -204,6 +205,44 @@ impl DeviceInfo for CudaDeviceInfo {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Builds a [`HardwareProfile`] from this device's queried
+    /// `cudaDeviceProp` fields. Memory-level bandwidth/latency are left
+    /// `None`: `cudaGetDeviceProperties` doesn't expose them, and this
+    /// crate's policy (see `teeny-triton`'s `CostModel` docs) is real
+    /// hardware data or nothing, never a guess.
+    fn hardware_profile(&self) -> HardwareProfile {
+        HardwareProfile {
+            name: self.name.clone(),
+            compute_units: u32::try_from(self.multi_processor_count).unwrap_or(0),
+            memory_levels: vec![
+                MemoryLevel {
+                    kind: MemoryLevelKind::Register,
+                    capacity_bytes: u64::from(u32::try_from(self.regs_per_block).unwrap_or(0)) * 4,
+                    bandwidth_bytes_per_sec: None,
+                    latency_ns: None,
+                },
+                MemoryLevel {
+                    kind: MemoryLevelKind::SharedMemory,
+                    capacity_bytes: self.shared_mem_per_block as u64,
+                    bandwidth_bytes_per_sec: None,
+                    latency_ns: None,
+                },
+                MemoryLevel {
+                    kind: MemoryLevelKind::L2Cache,
+                    capacity_bytes: u64::from(u32::try_from(self.l2_cache_size).unwrap_or(0)),
+                    bandwidth_bytes_per_sec: None,
+                    latency_ns: None,
+                },
+                MemoryLevel {
+                    kind: MemoryLevelKind::DeviceMemory,
+                    capacity_bytes: self.total_global_mem as u64,
+                    bandwidth_bytes_per_sec: None,
+                    latency_ns: None,
+                },
+            ],
+        }
     }
 }
 
