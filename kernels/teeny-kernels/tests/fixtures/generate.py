@@ -1048,47 +1048,6 @@ x_r = x_2d.clone().requires_grad_(True)
 F.log_softmax(x_r, dim=-1).sum().backward()
 save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
 
-# ── conv2d_bn_silu (fused Conv2d + BatchNorm2d + SiLU — hand-written kernels ──
-# kept for microbenchmarks only; Anduin does not fuse this pattern, so this
-# fixture is consumed by direct kernel-construction tests, not the graph path.
-print("conv2d_bn_silu")
-d = os.path.join(BASE, "conv2d_bn_silu")
-os.makedirs(d, exist_ok=True)
-# NCHW: B=1, C_in=32, C_out=64, H=W=8, 1x1/stride=1/pad=0/groups=1 so the
-# fixture is valid for all three kernel variants, including the GEMM path
-# (1x1-only) — matches the "≥32 → GEMM kernel" dispatch-threshold shape.
-B_A, CIN_A, COUT_A, H_A, W_A = 1, 32, 64, 8, 8
-KH_A, KW_A, EPS_A = 1, 1, 1e-5
-# Own generator so this block's tensor sizes don't shift the shared global RNG
-# stream (and thus every fixture generated after it) if they ever change.
-g_a = torch.Generator().manual_seed(1337)
-x_a = torch.empty(B_A, CIN_A, H_A, W_A).uniform_(-1, 1, generator=g_a)
-w_a = torch.empty(COUT_A, CIN_A, KH_A, KW_A).uniform_(-0.5, 0.5, generator=g_a)
-bn_w = torch.empty(COUT_A).uniform_(0.5, 1.5, generator=g_a)
-bn_b = torch.empty(COUT_A).uniform_(-0.5, 0.5, generator=g_a)
-bn_mean = torch.empty(COUT_A).uniform_(-0.25, 0.25, generator=g_a)
-bn_var = torch.empty(COUT_A).uniform_(0.5, 1.5, generator=g_a)
-
-conv_a = F.conv2d(x_a, w_a, stride=1, padding=0)
-bn_a = F.batch_norm(
-    conv_a,
-    bn_mean.clone(),
-    bn_var.clone(),
-    weight=bn_w,
-    bias=bn_b,
-    training=False,
-    eps=EPS_A,
-)
-y_a = F.silu(bn_a)
-
-save(f"{d}/x.bin", x_a)
-save(f"{d}/w.bin", w_a)
-save(f"{d}/bn_weight.bin", bn_w)
-save(f"{d}/bn_bias.bin", bn_b)
-save(f"{d}/bn_running_mean.bin", bn_mean)
-save(f"{d}/bn_running_var.bin", bn_var)
-save(f"{d}/expected_forward.bin", y_a)
-
 # ── anduin_pointwise_relu_sigmoid (Relu → Sigmoid via PointwiseFuse) ──────────
 print("anduin_pointwise_relu_sigmoid")
 d = os.path.join(BASE, "anduin_pointwise_relu_sigmoid")
@@ -1165,5 +1124,18 @@ x_rf = torch.empty(N_PW).uniform_(-2, 2)
 y_rf = torch.sum(torch.relu(x_rf))
 save(f"{d}/x.bin", x_rf)
 save(f"{d}/expected_forward.bin", y_rf.reshape(1))
+
+# ── anduin_reduce_fuse_relu_sigmoid_sum (sum(sigmoid(relu(x))) via ReduceFuse) ─
+# Same teenygrad-3w0.9 case-4 fusion as above, but with a 2-op chain member
+# (Relu → Sigmoid) spliced into the reduction instead of 1 — exercises
+# ReduceFuse's chain-splicing over a genuinely composed chain, not just a
+# single op, while still being small enough to isolate what breaks.
+print("anduin_reduce_fuse_relu_sigmoid_sum")
+d = os.path.join(BASE, "anduin_reduce_fuse_relu_sigmoid_sum")
+os.makedirs(d, exist_ok=True)
+x_rfs = torch.empty(N_PW).uniform_(-2, 2)
+y_rfs = torch.sum(torch.sigmoid(torch.relu(x_rfs)))
+save(f"{d}/x.bin", x_rfs)
+save(f"{d}/expected_forward.bin", y_rfs.reshape(1))
 
 print("\nDone — all fixtures generated.")

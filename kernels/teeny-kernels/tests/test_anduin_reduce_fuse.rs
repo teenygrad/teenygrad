@@ -133,6 +133,34 @@ fn build_relu_reduce_log_sum_exp_graph() -> Graph {
     Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
 }
 
+/// `y = reduce_sum(sigmoid(relu(x)))` — a 2-op chain member (`Relu` →
+/// `Sigmoid`) spliced into the reduction, not just 1. Exercises
+/// `ReduceFuse`'s chain-splicing over a genuinely composed chain — the
+/// shape-logic case this graph exists to stress, ahead of the Welder-style
+/// Tile/shared-memory composition this fusion shape is meant to move to.
+fn build_relu_sigmoid_reduce_sum_graph() -> Graph {
+    let (x, graph_rc) = SymTensor::input(DtypeRepr::F32, shape_1d(N));
+    let relu =
+        x.graph
+            .borrow_mut()
+            .add_node(Op::Relu, vec![x.node_id], DtypeRepr::F32, shape_1d(N));
+    let sigmoid =
+        x.graph
+            .borrow_mut()
+            .add_node(Op::Sigmoid, vec![relu], DtypeRepr::F32, shape_1d(N));
+    let _ = x.graph.borrow_mut().add_node(
+        Op::ReduceSum {
+            keepdims: false,
+            noop_with_empty_axes: false,
+        },
+        vec![sigmoid],
+        DtypeRepr::F32,
+        vec![Some(1)],
+    );
+    drop(x);
+    Rc::try_unwrap(graph_rc).ok().unwrap().into_inner()
+}
+
 /// `y = reduce_sum(relu(x))`, but `relu(x)` also feeds a second consumer
 /// (`sigmoid`) — must not fuse: the chain input isn't single-consumer.
 fn build_relu_reduce_sum_with_extra_consumer_graph() -> Graph {
@@ -183,6 +211,30 @@ fn test_anduin_fuses_relu_reduce_sum_into_reduce_fuse() {
                 rf.block_inner, 64,
                 "search should pick next_pow2(n_inner) for N=64"
             );
+        }
+        other => panic!("expected Custom(ReduceFuse), got {other:?}"),
+    }
+    assert_eq!(opt.nodes[fused_idx].inputs.len(), 1);
+}
+
+#[test]
+fn test_anduin_fuses_relu_sigmoid_reduce_sum_into_reduce_fuse() {
+    let graph = build_relu_sigmoid_reduce_sum_graph();
+    assert_eq!(graph.nodes.len(), 4, "x, relu, sigmoid, reduce_sum");
+
+    let opt = Anduin.optimize(&graph).unwrap();
+    assert_eq!(opt.nodes.len(), 2, "x Input, ReduceFuse");
+
+    let fused_idx = opt.nodes.len() - 1;
+    match &opt.nodes[fused_idx].op {
+        Op::Custom { data } => {
+            let rf = data
+                .downcast_ref::<ReduceFuse>()
+                .expect("expected ReduceFuse");
+            assert_eq!(rf.chain.len(), 2, "Relu, Sigmoid");
+            assert!(matches!(rf.chain[0], Op::Relu));
+            assert!(matches!(rf.chain[1], Op::Sigmoid));
+            assert!(matches!(rf.reduce_op, Op::ReduceSum { .. }));
         }
         other => panic!("expected Custom(ReduceFuse), got {other:?}"),
     }
@@ -259,6 +311,50 @@ fn test_anduin_reduce_fuse_relu_sum_matches_pytorch() -> Result<()> {
 
     let x = load_fixture("anduin_reduce_fuse_relu_sum/x.bin");
     let expected = load_fixture("anduin_reduce_fuse_relu_sum/expected_forward.bin");
+
+    let x_ptr = mem::alloc(N * size_of::<f32>())?;
+    unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
+    // Batch dim dynamic in graph shape `[None, N]` → concrete `[1, N]`.
+    let x_tensor = TensorRef::new(x_ptr, vec![1, N]);
+
+    let output = loaded.forward(&env.device, 1, &[x_tensor])?;
+    let mut y_out = vec![0.0f32; 1];
+    unsafe { mem::copy_d_to_h(y_out.as_mut_ptr(), output.ptr, 1) }?;
+    mem::free(output.ptr)?;
+    mem::free(x_ptr)?;
+
+    assert!(
+        (y_out[0] - expected[0]).abs() < TOL,
+        "mismatch: got {}, expected {}",
+        y_out[0],
+        expected[0]
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+fn test_anduin_reduce_fuse_relu_sigmoid_sum_matches_pytorch() -> Result<()> {
+    dotenv().ok();
+    let env = testing::setup_cuda_env()?;
+    let target = Target::new(env.capability);
+
+    let graph = build_relu_sigmoid_reduce_sum_graph();
+    let lowering = TritonLowering::new().with_optimizer(Anduin);
+    let model = compile_cuda_graph(
+        &graph,
+        &lowering,
+        &target,
+        LoweringMode::Inference,
+        false,
+        false,
+    )?;
+
+    assert_eq!(model.dag.len(), 2, "x Input, ReduceFuse");
+    let loaded = model.load(&env.device, 1)?;
+
+    let x = load_fixture("anduin_reduce_fuse_relu_sigmoid_sum/x.bin");
+    let expected = load_fixture("anduin_reduce_fuse_relu_sigmoid_sum/expected_forward.bin");
 
     let x_ptr = mem::alloc(N * size_of::<f32>())?;
     unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
