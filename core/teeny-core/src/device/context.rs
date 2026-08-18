@@ -25,7 +25,6 @@ use crate::{
 pub trait DeviceInfo: Sized {
     /// This device's ID type.
     type Id;
-
     /// This device's ID.
     fn id(&self) -> Self::Id;
     /// This device's name.
