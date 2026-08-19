@@ -15,11 +15,11 @@
  */
 
 //! The plain `#[kernel]` macro: wraps a Triton-DSL fn in a generated kernel
-//! struct (source generation, [`KernelIo`], optional dtype dispatch), with no
-//! opinion on tile shape. Kernel authors who want the `#[tile(...)]` DSL's
-//! auto-generated load preludes / [`KernelTileSpec`] should use
-//! [`super::tiled_kernel::tiled_kernel`] instead. See [`super::common`] for
-//! the parsing/codegen helpers shared by both macros.
+//! struct (source generation, [`KernelIo`], optional dtype dispatch via
+//! `dtypes = [..]`/`backward = ..`, shared with [`super::tiled_kernel`]).
+//! See [`super::common`] for the parsing/codegen helpers shared by both
+//! macros, and [`super::tiled_kernel`]'s module docs for what still
+//! distinguishes it from this one.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

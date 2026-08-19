@@ -41,7 +41,6 @@ use teeny_triton::triton::{PaddingOption, *};
 /// Forward: C = A @ B
 // ANCHOR: matmul_forward
 #[tiled_kernel]
-#[tile_pid_swizzle(block_m = BLOCK_M, block_n = BLOCK_N, m = M, n = N, group = GROUP_M)]
 pub fn matmul_forward<
     T: Triton,
     D: Num,
@@ -50,9 +49,9 @@ pub fn matmul_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    #[tile(block = [BLOCK_M, BLOCK_K], extent = [M, K], reduction = 1)] a_ptr: In<T::Pointer<D>>,
-    #[tile(block = [BLOCK_K, BLOCK_N], extent = [K, N], reduction = 0)] b_ptr: In<T::Pointer<D>>,
-    #[tile(block = [BLOCK_M, BLOCK_N], extent = [M, N])] c_ptr: InOut<T::Pointer<D>>,
+    a_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    c_ptr: InOut<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,

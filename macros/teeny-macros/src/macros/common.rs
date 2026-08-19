@@ -17,8 +17,7 @@
 //! Helpers shared by [`super::kernel`] and [`super::tiled_kernel`]: signature
 //! parsing, pointer-marker classification, and `#[kernel(...)]`/
 //! `#[tiled_kernel(...)]` attribute parsing. Both macros accept the same
-//! top-level attribute syntax and pointer-marker conventions — only
-//! `tiled_kernel` additionally understands the `#[tile(...)]` DSL.
+//! top-level attribute syntax and pointer-marker conventions.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

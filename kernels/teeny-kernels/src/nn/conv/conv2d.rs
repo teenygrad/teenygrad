@@ -53,24 +53,11 @@ pub fn conv2d_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    // `x_ptr`'s input region is a strided, padded sliding window
-    // (`ow_range*STRIDE_W+kw-PAD_W` per kernel tap), driven by `y_ptr`'s
-    // BLOCK_OW output tile rather than an independent tile size of its own
-    // (teenygrad-3w0.5) — the `window` fields give a conservative upper
-    // bound on how many `W`-axis elements one output tile can read:
-    // `(BLOCK_OW-1)*STRIDE_W + KW`. `prelude = false` on both: this kernel's
-    // `pid` decodes into `(b, c_out, oh, ow_tile)` before any tile offset is
-    // computed, not the flat `arange(BLOCK)+pid*BLOCK` the auto-generated
-    // prelude assumes. `untiled` (teenygrad-3w0.8) records each tensor's
-    // other real dimensions, not individually tiled but still real memory —
-    // `mem_traffic` previously silently omitted these from the byte count
-    // (see teenygrad-3w0.4's calibration test, which measured conv2d's
-    // estimate several orders of magnitude too small before this field
-    // existed).
-    #[tile(block = BLOCK_OW, extent = W, stride = STRIDE_W, pad = PAD_W, kernel = KW, prelude = false, untiled = [_B, C_IN, H])]
+    // This kernel's `pid` decodes into `(b, c_out, oh, ow_tile)` before any
+    // tile offset is computed, not the flat `arange(BLOCK)+pid*BLOCK` the
+    // (now-removed) auto-generated prelude assumed.
     x_ptr: In<T::Pointer<D>>,
     w_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_OW, extent = OW, prelude = false, untiled = [_B, C_OUT, OH])]
     y_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,

@@ -20,10 +20,8 @@
 //! [`teeny_core::graph::Graph`] before Triton lowering.
 
 mod anduin;
-pub mod propagate;
 
 pub use anduin::Anduin;
-pub use propagate::propagate_graph;
 
 use teeny_core::graph::Graph;
 
