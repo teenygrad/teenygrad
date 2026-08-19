@@ -28,9 +28,13 @@
 //! winner on real hardware. See `teenygrad-1nr`.
 //!
 //! `optimize` is a stub until that TileGraph search replaces the pattern
-//! detectors it used to run. See [`super::propagate::propagate_graph`] for
-//! the one piece of the real algorithm (backward shape propagation) already
-//! built.
+//! detectors it used to run. The `#[tile(...)]`-declared tile-shape metadata
+//! (`KernelTileSpec`, `propagate_within_kernel`/`propagate_graph`) that a
+//! prior pass of this work built for a future scheduler was never consumed
+//! by this optimizer or anything else and has been removed — see
+//! teenygrad-1nr. Real tile shapes should come from the graph nodes
+//! themselves once the TileGraph search exists, not from per-kernel
+//! declarations.
 
 use teeny_core::graph::Graph;
 

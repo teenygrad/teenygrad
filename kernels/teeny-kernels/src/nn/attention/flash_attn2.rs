@@ -51,11 +51,9 @@ use teeny_triton::triton::{
 /// Grid: `(N_CTX_Q, BH, 1)` — one CTA per `(batch_head, q_row)` pair.
 ///
 /// `acc`/`m_i`/`l_i` are the online-softmax state threaded through the
-/// `k_row` loop below (teenygrad-3w0.7) — declared here as metadata only;
-/// the recurrence itself (`m_new`/`exp_diff`/`p`/... ) stays exactly as
-/// written in the loop body, unchanged.
+/// `k_row` loop below — the recurrence itself (`m_new`/`exp_diff`/`p`/... )
+/// stays exactly as written in the loop body, unchanged.
 #[tiled_kernel]
-#[tile_loop(carry = [acc, m_i, l_i], shape = [HEAD_DIM], trip_count = n_ctx_k)]
 pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
     q_ptr: In<T::Pointer<D>>,
     k_ptr: In<T::Pointer<D>>,

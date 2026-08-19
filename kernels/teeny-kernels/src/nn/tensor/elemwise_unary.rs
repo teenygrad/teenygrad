@@ -812,8 +812,8 @@ impl_float_unary_runtime_op!(ElemwiseReciprocalForward);
 /// Forward: y = exp(x)
 #[tiled_kernel]
 pub fn elemwise_exp_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: Out<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
