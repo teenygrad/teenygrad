@@ -695,25 +695,30 @@ impl TritonLowering {
             .ok_or_else(|| anyhow::anyhow!("lower_unary_op: expected KernelExecutable for {op:?}"))
     }
 
-    /// Like `lower` but also returns the graph-node-index → DAG-node-index mapping,
-    /// plus the graph that mapping is indexed against (the optimizer's output when
-    /// `self.optimizer` is set — see the `Lowering::lower_with_mapping` trait doc).
-    /// Useful for middleware lowerings that need to patch specific DAG nodes after
-    /// the base lowering runs.
+    /// Like `lower` but also returns the graph-node-index → DAG-node-index
+    /// mapping, plus `graph` itself (the mapping is always indexed against the
+    /// *input* graph — see [`GraphOptimizer::optimize`](crate::graph::optimizer::GraphOptimizer::optimize)
+    /// for how that holds even when fusion collapses several graph nodes onto
+    /// one DAG node). Useful for middleware lowerings that need to patch
+    /// specific DAG nodes after the base lowering runs, and for placing
+    /// pretrained weights (keyed by the graph's node names) onto the right
+    /// DAG node.
+    ///
+    /// When `self.optimizer` is set, it fully replaces this function's
+    /// ordinary per-`Op` dispatch below: a strategy like Anduin can fuse
+    /// several graph nodes into one DAG node, so its output can't be fed back
+    /// through a table that assumes one graph node per kernel.
     pub fn lower_with_mapping(
         &self,
         graph: &Graph,
         mode: LoweringMode,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>, Graph)> {
+        if let Some((opt, hardware)) = &self.optimizer {
+            let (dag, graph_to_dag) = opt.optimize(graph, hardware)?;
+            return Ok((dag, graph_to_dag, graph.clone()));
+        }
+
         let _ = mode; // used by #[cfg(feature = "training")] branch below
-        let optimized;
-        let graph = match &self.optimizer {
-            Some((opt, hardware)) => {
-                optimized = opt.optimize(graph, hardware)?;
-                &optimized
-            }
-            None => graph,
-        };
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         // Maps graph node index → DAG node index (one-to-one since we add every node)

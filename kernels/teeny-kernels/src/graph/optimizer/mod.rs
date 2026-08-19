@@ -16,8 +16,9 @@
 
 //! Pluggable graph optimizers selected on [`super::TritonLowering`].
 //!
-//! Named after rivers of Middle-earth (Anduin, …). Strategies rewrite a
-//! [`teeny_core::graph::Graph`] before Triton lowering.
+//! Named after rivers of Middle-earth (Anduin, …). Strategies lower a
+//! [`teeny_core::graph::Graph`] straight to an executable pipeline, in place
+//! of [`super::TritonLowering`]'s ordinary per-`Op` dispatch table.
 
 mod anduin;
 
@@ -25,10 +26,14 @@ pub use anduin::{Anduin, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
 
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::graph::Graph;
+use teeny_core::model::ExecutableOp;
+use teeny_core::utils::dag::Dag;
 
 use crate::errors::Result;
 
-/// Backend-specific graph rewrite applied before Triton lowering.
+/// Backend-specific strategy that lowers a graph straight to an executable
+/// pipeline, bypassing [`super::TritonLowering`]'s ordinary per-`Op`
+/// dispatch table.
 ///
 /// Attach with [`super::TritonLowering::with_optimizer`]. Multiple strategies
 /// (Anduin, later peers) implement this trait; the lowering chooses which one runs.
@@ -36,8 +41,23 @@ pub trait GraphOptimizer: Send + Sync {
     /// Short stable name (e.g. `"anduin"`).
     fn name(&self) -> &str;
 
-    /// Rewrite `graph` for this strategy, using `hardware` for any
+    /// Lowers `graph` for this strategy, using `hardware` for any
     /// scheduling/cost-model decisions (e.g. Anduin's memory-level search).
     /// Must be pure w.r.t. the input graph.
-    fn optimize(&self, graph: &Graph, hardware: &HardwareProfile) -> Result<Graph>;
+    ///
+    /// A strategy like Anduin can fuse several graph nodes into one DAG node
+    /// (a single fused kernel), so the result isn't just a rewritten
+    /// [`Graph`] fed back through the ordinary per-`Op` table — it's the
+    /// final pipeline, exactly as [`teeny_core::model::Lowering::lower`]
+    /// would produce it. The returned `Vec<usize>` is the graph-node-index →
+    /// DAG-node-index mapping (indexed against the *input* `graph`, fused
+    /// nodes included, many-to-one where fusion occurred) — callers need
+    /// this to place pretrained weights for named graph nodes onto the
+    /// right DAG node, the same way [`super::TritonLowering::lower_with_mapping`]'s
+    /// mapping is used today.
+    fn optimize(
+        &self,
+        graph: &Graph,
+        hardware: &HardwareProfile,
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)>;
 }

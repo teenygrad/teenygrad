@@ -42,6 +42,8 @@ pub use tile_graph::{TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
 
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::graph::Graph;
+use teeny_core::model::ExecutableOp;
+use teeny_core::utils::dag::Dag;
 
 use crate::errors::Result;
 use crate::graph::optimizer::GraphOptimizer;
@@ -55,7 +57,11 @@ impl GraphOptimizer for Anduin {
         "anduin"
     }
 
-    fn optimize(&self, _graph: &Graph, _hardware: &HardwareProfile) -> Result<Graph> {
+    fn optimize(
+        &self,
+        _graph: &Graph,
+        _hardware: &HardwareProfile,
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
         todo!("teenygrad-1nr: Welder-style TileGraph scheduler — see this module's doc comment")
     }
 }
