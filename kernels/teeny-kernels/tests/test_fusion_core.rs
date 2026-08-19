@@ -67,7 +67,7 @@ fn selu_forward_fusion_core_resolves_with_no_extra_params() {
 
 #[test]
 fn elu_backward_fusion_core_is_none_multi_input() {
-    // Two #[tile(...)]-tagged InPtr params (dy_ptr, x_ptr) sharing the same
+    // Two #[tile(...)]-tagged In params (dy_ptr, x_ptr) sharing the same
     // axis -- fusion_core is scoped to single-input chains only.
     assert!(EluBackward::<f32>::fusion_core().is_none());
 }

@@ -272,8 +272,8 @@ macro_rules! impl_num_neg_bwd_runtime_op {
 /// Forward: y = |x|
 #[kernel]
 pub fn elemwise_abs_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -308,9 +308,9 @@ pub fn elemwise_abs_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 /// Backward: dx = sign(x) * dy  where sign = 1 if x>0, -1 if x<0, 0 if x==0
 #[kernel]
 pub fn elemwise_abs_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -365,8 +365,8 @@ impl_num_unary_runtime_op_with_bwd!(ElemwiseAbsForward);
 /// Forward: y = -x
 #[kernel]
 pub fn elemwise_neg_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -401,8 +401,8 @@ pub fn elemwise_neg_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 /// Backward: dx = -dy
 #[kernel]
 pub fn elemwise_neg_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -441,8 +441,8 @@ impl_num_neg_bwd_runtime_op!(ElemwiseNegForward);
 /// Forward: y = 1 if x > 0, -1 if x < 0, 0 if x == 0
 #[kernel]
 pub fn elemwise_sign_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -486,8 +486,8 @@ impl_num_unary_runtime_op!(ElemwiseSignForward);
 /// Forward: y = 1.0 if x is NaN else 0.0
 #[kernel]
 pub fn elemwise_isnan_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -556,8 +556,8 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for Elemwise
 /// Forward: y = ceil(x)
 #[kernel]
 pub fn elemwise_ceil_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -596,8 +596,8 @@ impl_float_unary_runtime_op_no_bwd!(ElemwiseCeilForward);
 /// Forward: y = floor(x)
 #[kernel]
 pub fn elemwise_floor_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -636,8 +636,8 @@ impl_float_unary_runtime_op_no_bwd!(ElemwiseFloorForward);
 /// Forward: y = sqrt(x)
 #[kernel]
 pub fn elemwise_sqrt_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -672,9 +672,9 @@ pub fn elemwise_sqrt_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / (2 * sqrt(x))
 #[kernel]
 pub fn elemwise_sqrt_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -724,8 +724,8 @@ impl_float_unary_runtime_op!(ElemwiseSqrtForward);
 /// Forward: y = 1 / x
 #[kernel]
 pub fn elemwise_reciprocal_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -761,9 +761,9 @@ pub fn elemwise_reciprocal_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = -dy / x^2
 #[kernel]
 pub fn elemwise_reciprocal_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -812,8 +812,8 @@ impl_float_unary_runtime_op!(ElemwiseReciprocalForward);
 /// Forward: y = exp(x)
 #[tiled_kernel]
 pub fn elemwise_exp_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -834,9 +834,9 @@ pub fn elemwise_exp_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = exp(x) * dy
 #[kernel]
 pub fn elemwise_exp_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -885,8 +885,8 @@ impl_float_unary_runtime_op!(ElemwiseExpForward);
 /// Forward: y = log(x)
 #[kernel]
 pub fn elemwise_log_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -921,9 +921,9 @@ pub fn elemwise_log_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / x
 #[kernel]
 pub fn elemwise_log_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -972,8 +972,8 @@ impl_float_unary_runtime_op!(ElemwiseLogForward);
 /// Forward: y = erf(x)
 #[kernel]
 pub fn elemwise_erf_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1008,9 +1008,9 @@ pub fn elemwise_erf_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = 2/sqrt(pi) * exp(-x^2) * dy  where 2/sqrt(pi) ~= 1.1283791670955126
 #[kernel]
 pub fn elemwise_erf_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1064,8 +1064,8 @@ impl_float_unary_runtime_op!(ElemwiseErfForward);
 /// Forward: y = sin(x)
 #[kernel]
 pub fn elemwise_sin_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1100,9 +1100,9 @@ pub fn elemwise_sin_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = cos(x) * dy
 #[kernel]
 pub fn elemwise_sin_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1151,8 +1151,8 @@ impl_float_unary_runtime_op!(ElemwiseSinForward);
 /// Forward: y = cos(x)
 #[kernel]
 pub fn elemwise_cos_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1187,9 +1187,9 @@ pub fn elemwise_cos_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = -sin(x) * dy
 #[kernel]
 pub fn elemwise_cos_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1238,8 +1238,8 @@ impl_float_unary_runtime_op!(ElemwiseCosForward);
 /// Forward: y = tan(x) = sin(x) / cos(x)
 #[kernel]
 pub fn elemwise_tan_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1274,9 +1274,9 @@ pub fn elemwise_tan_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = (1 + tan^2(x)) * dy
 #[kernel]
 pub fn elemwise_tan_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1327,8 +1327,8 @@ impl_float_unary_runtime_op!(ElemwiseTanForward);
 /// Forward: y = asin(x) = atan(x / sqrt(1 - x^2))
 #[kernel]
 pub fn elemwise_asin_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1364,9 +1364,9 @@ pub fn elemwise_asin_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / sqrt(1 - x^2)
 #[kernel]
 pub fn elemwise_asin_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1416,8 +1416,8 @@ impl_float_unary_runtime_op!(ElemwiseAsinForward);
 /// Forward: y = acos(x) = pi/2 - atan(x / sqrt(1 - x^2))
 #[kernel]
 pub fn elemwise_acos_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1458,9 +1458,9 @@ pub fn elemwise_acos_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = -dy / sqrt(1 - x^2)
 #[kernel]
 pub fn elemwise_acos_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1510,8 +1510,8 @@ impl_float_unary_runtime_op!(ElemwiseAcosForward);
 /// Forward: y = atan(x)
 #[kernel]
 pub fn elemwise_atan_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1546,9 +1546,9 @@ pub fn elemwise_atan_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / (1 + x^2)
 #[kernel]
 pub fn elemwise_atan_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1598,8 +1598,8 @@ impl_float_unary_runtime_op!(ElemwiseAtanForward);
 /// Forward: y = sinh(x) = (exp(x) - exp(-x)) / 2
 #[kernel]
 pub fn elemwise_sinh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1635,9 +1635,9 @@ pub fn elemwise_sinh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = cosh(x) * dy
 #[kernel]
 pub fn elemwise_sinh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1688,8 +1688,8 @@ impl_float_unary_runtime_op!(ElemwiseSinhForward);
 /// Forward: y = cosh(x) = (exp(x) + exp(-x)) / 2
 #[kernel]
 pub fn elemwise_cosh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1725,9 +1725,9 @@ pub fn elemwise_cosh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = sinh(x) * dy
 #[kernel]
 pub fn elemwise_cosh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1778,8 +1778,8 @@ impl_float_unary_runtime_op!(ElemwiseCoshForward);
 /// Forward: y = asinh(x) = log(x + sqrt(x^2 + 1))
 #[kernel]
 pub fn elemwise_asinh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1815,9 +1815,9 @@ pub fn elemwise_asinh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / sqrt(x^2 + 1)
 #[kernel]
 pub fn elemwise_asinh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1867,8 +1867,8 @@ impl_float_unary_runtime_op!(ElemwiseAsinhForward);
 /// Forward: y = acosh(x) = log(x + sqrt(x^2 - 1))
 #[kernel]
 pub fn elemwise_acosh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1904,9 +1904,9 @@ pub fn elemwise_acosh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / sqrt(x^2 - 1)
 #[kernel]
 pub fn elemwise_acosh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1956,8 +1956,8 @@ impl_float_unary_runtime_op!(ElemwiseAcoshForward);
 /// Forward: y = atanh(x) = log((1+x)/(1-x)) / 2
 #[kernel]
 pub fn elemwise_atanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -1994,9 +1994,9 @@ pub fn elemwise_atanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy / (1 - x^2)
 #[kernel]
 pub fn elemwise_atanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

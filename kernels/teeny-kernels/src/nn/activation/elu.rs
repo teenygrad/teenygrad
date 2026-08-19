@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = x if x > 0 else alpha*(exp(x) - 1)
 #[tiled_kernel(backward = EluBackward)]
 pub fn elu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -54,9 +54,9 @@ pub fn elu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if x > 0 else dy * alpha * exp(x)
 #[tiled_kernel]
 pub fn elu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] dy_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] dx_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] dy_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -82,8 +82,8 @@ pub fn elu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = SCALE * (x if x > 0 else ALPHA*(exp(x) - 1))
 #[tiled_kernel(backward = SeluBackward)]
 pub fn selu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -108,9 +108,9 @@ pub fn selu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = SCALE*dy if x > 0 else dy * SCALE*ALPHA*exp(x)
 #[tiled_kernel]
 pub fn selu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] dy_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] dx_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] dy_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -136,8 +136,8 @@ pub fn selu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = max(0, x) + min(0, alpha*(exp(x/alpha) - 1))
 #[kernel(backward = CeluBackward)]
 pub fn celu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -179,9 +179,9 @@ pub fn celu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if x >= 0 else dy * exp(x/alpha)
 #[kernel]
 pub fn celu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
     alpha: f32,
 ) where

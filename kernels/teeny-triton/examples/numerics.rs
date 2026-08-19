@@ -46,9 +46,9 @@ use teeny_triton::triton::{
 /// costs end to end.
 #[kernel]
 pub fn add_typed<T: Triton, D: Float, const BLOCK: i32>(
-    a_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    out_ptr: OutPtr<T::Pointer<D>>,
+    a_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    out_ptr: Out<T::Pointer<D>>,
     n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -93,8 +93,8 @@ pub fn add_typed<T: Triton, D: Float, const BLOCK: i32>(
 /// `BLOCK`, which is what makes the result order-dependent.
 #[kernel]
 pub fn partial_sum<T: Triton, D: Float, const BLOCK: i32>(
-    in_ptr: InPtr<T::Pointer<D>>,
-    out_ptr: OutPtr<T::Pointer<D>>,
+    in_ptr: In<T::Pointer<D>>,
+    out_ptr: Out<T::Pointer<D>>,
     _n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

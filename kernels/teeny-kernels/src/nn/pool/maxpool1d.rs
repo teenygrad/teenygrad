@@ -32,8 +32,8 @@ use teeny_triton::triton::{
 /// **Constraints**: no padding; `OL = (L - KL) / STRIDE + 1`.
 #[kernel]
 pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
-    input_ptr: InPtr<T::Pointer<D>>,
-    output_ptr: OutPtr<T::Pointer<D>>,
+    input_ptr: In<T::Pointer<D>>,
+    output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     L: i32,
@@ -105,10 +105,10 @@ pub fn maxpool1d_backward<
     const STRIDE: i32,
     const BLOCK_OL: i32,
 >(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     L: i32,

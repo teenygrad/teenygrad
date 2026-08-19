@@ -26,8 +26,8 @@ use teeny_triton::triton::{
 
 #[tiled_kernel(backward = ReluBackward)]
 pub fn relu_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -50,9 +50,9 @@ pub fn relu_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 
 #[kernel]
 pub fn relu_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    y_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

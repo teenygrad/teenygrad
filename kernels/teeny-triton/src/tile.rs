@@ -128,9 +128,9 @@ pub struct TileLoopSpec {
 /// Tile-shape metadata for a kernel's full pointer-parameter set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KernelTileSpec {
-    /// Tile specs for `#[tile(...)]`-annotated input ([`crate::triton::InPtr`]) params.
+    /// Tile specs for `#[tile(...)]`-annotated input ([`crate::triton::In`]) params.
     pub inputs: &'static [TensorTileSpec],
-    /// Tile specs for `#[tile(...)]`-annotated output ([`crate::triton::OutPtr`]) params.
+    /// Tile specs for `#[tile(...)]`-annotated output ([`crate::triton::Out`]) params.
     pub outputs: &'static [TensorTileSpec],
     /// Loop-carry metadata from a `#[tile_loop(...)]` attribute on the
     /// kernel fn, if present (teenygrad-3w0.7).
@@ -159,7 +159,7 @@ pub trait TileSpecLayout {
 /// the lookup — e.g. from a `RuntimeOp`'s resolved output shape and the
 /// kernel struct's own const-generic fields.
 ///
-/// An `InOutPtr` tensor appears in both `spec.inputs` and `spec.outputs`
+/// An `InOut` tensor appears in both `spec.inputs` and `spec.outputs`
 /// (see `#[tiled_kernel]`'s codegen), so its traffic is correctly counted twice —
 /// once for the read, once for the write.
 ///
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn mem_traffic_double_counts_inout_tensor() {
-        // An InOutPtr tensor is present in both `inputs` and `outputs` (see
+        // An InOut tensor is present in both `inputs` and `outputs` (see
         // #[tiled_kernel]'s codegen for PtrArgKind::InOut) -- traffic must reflect
         // both the read and the write, not just one.
         let spec = KernelTileSpec {

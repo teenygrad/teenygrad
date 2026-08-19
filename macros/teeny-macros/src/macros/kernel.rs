@@ -204,15 +204,15 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Pointer args must be InPtr / OutPtr / InOutPtr (required for KernelIo / fusion).
+    // Pointer args must be In / Out / InOut (required for KernelIo / fusion).
     for pt in &fn_inputs {
         if let Some((PtrArgKind::Raw, _)) = classify_pointer_arg(&pt.ty, &hw_ident) {
             let name = pat_to_str(&pt.pat);
             return syn::Error::new_spanned(
                 &pt.ty,
                 format!(
-                    "pointer argument `{name}` must be wrapped in `InPtr` / `OutPtr` / \
-                     `InOutPtr` so fusion can classify I/O by signature"
+                    "pointer argument `{name}` must be wrapped in `In` / `Out` / \
+                     `InOut` so fusion can classify I/O by signature"
                 ),
             )
             .to_compile_error()

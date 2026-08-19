@@ -51,14 +51,14 @@
 
 use teeny_core::dtype::Num;
 use teeny_macros::kernel;
-use teeny_triton::triton::{Axis, InPtr, OutPtr, PaddingOption, Triton};
+use teeny_triton::triton::{Axis, In, Out, PaddingOption, Triton};
 
 /// `y[n, m] = x[m, n]` for a rank-2 `[M, N]` input.
 // ANCHOR: transpose_2d_forward
 #[kernel]
 pub fn transpose_2d_forward<T: Triton, D: Num, const BLOCK_M: i32, const BLOCK_N: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,
 ) {

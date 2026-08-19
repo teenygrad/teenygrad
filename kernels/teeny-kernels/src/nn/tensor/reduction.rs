@@ -119,8 +119,8 @@ macro_rules! impl_reduce_float_runtime_op {
 // ANCHOR: reduce_sum_forward
 #[kernel]
 pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -159,8 +159,8 @@ impl_reduce_num_runtime_op!(ReduceSumForward);
 /// Forward: y[row] = mean(x[row, :])
 #[kernel]
 pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -199,8 +199,8 @@ impl_reduce_float_runtime_op!(ReduceMeanForward);
 /// Forward: y[row] = max(x[row, :])
 #[kernel]
 pub fn reduce_max_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -243,8 +243,8 @@ impl_reduce_num_runtime_op!(ReduceMaxForward);
 /// Forward: y[row] = min(x[row, :])
 #[kernel]
 pub fn reduce_min_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -286,8 +286,8 @@ impl_reduce_num_runtime_op!(ReduceMinForward);
 /// Forward: y[row] = sum(|x[row, :]|)
 #[kernel]
 pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -324,8 +324,8 @@ impl_reduce_num_runtime_op!(ReduceL1Forward);
 /// Forward: y[row] = sqrt(sum(x[row, :]^2))
 #[kernel]
 pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -363,8 +363,8 @@ impl_reduce_float_runtime_op!(ReduceL2Forward);
 /// Forward: y[row] = sum(x[row, :]^2)
 #[kernel]
 pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -401,8 +401,8 @@ impl_reduce_num_runtime_op!(ReduceSumSquareForward);
 /// Forward: y[row] = log(sum(x[row, :]))  (numerically unsafe; use ReduceLogSumExp for stable)
 #[kernel]
 pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -440,8 +440,8 @@ impl_reduce_float_runtime_op!(ReduceLogSumForward);
 /// Forward: y[row] = log(sum(exp(x[row, :]))) — numerically stable via max subtraction
 #[kernel]
 pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -500,8 +500,8 @@ impl_reduce_float_runtime_op!(ReduceLogSumExpForward);
 /// For general use this is a placeholder.
 #[kernel]
 pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -542,8 +542,8 @@ impl_reduce_float_runtime_op!(ReduceProdForward);
 /// Each CTA handles one complete row (n_inner elements).
 #[kernel]
 pub fn cum_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -611,8 +611,8 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumSumForw
 /// Forward: y = cumprod(x, axis=0) over a 1-D block
 #[kernel]
 pub fn cum_prod_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -685,8 +685,8 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdFor
 /// Forward: y[row] = mean(x[row, :])  (same as ReduceMean)
 #[kernel]
 pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -725,8 +725,8 @@ impl_reduce_float_runtime_op!(GlobalAvgPoolForward);
 /// Forward: y[row] = max(x[row, :])  (same as ReduceMax)
 #[kernel]
 pub fn global_max_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
