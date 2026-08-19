@@ -21,7 +21,7 @@ use self::types::{self as ty};
 
 /// LLVM-backend-facing DSL types (the compiled counterpart of this module's `Tensor`/`Pointer`).
 pub mod llvm;
-/// In/out pointer markers for `#[kernel]` parameters (`InPtr`, `OutPtr`, …).
+/// In/out argument markers for `#[kernel]`/`#[tiled_kernel]` parameters (`In`, `Out`, …).
 pub mod ptr;
 /// Dtype/numeric-kind trait hierarchy (`Dtype`, `Num`, `Int`, `Float`) used to bound the `Triton`
 /// trait's generic methods.

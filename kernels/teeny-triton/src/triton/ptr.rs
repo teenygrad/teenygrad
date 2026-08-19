@@ -14,31 +14,33 @@
  * limitations under the License.
  */
 
-// Kernel-argument markers that tag device pointers as inputs, outputs, or both.
+// Kernel-argument markers that tag a value as an input, output, or both.
 //
-// These wrap Triton::Pointer (or any Copy pointer handle) at the #[kernel]
-// parameter boundary so fusion / lowering can classify ops by I/O arity.
+// These wrap a device pointer, a tile value, or any other Copy handle at the
+// #[kernel] / #[tiled_kernel] parameter boundary so fusion / lowering can
+// classify ops by I/O arity. Not pointer-specific: the same markers tag
+// #[kernel]'s Triton::Pointer args and #[tiled_kernel]'s Tile args alike.
 // Bodies Deref to the inner handle (`x.add_offsets(...)` on the host).
 //
 // The #[kernel] macro strips markers from the device-side source string —
-// MLIR only lowers bare pointers. Keep this file free of derive, //! docs,
-// and host-only APIs (see KernelIo in crate::kernel_io).
+// MLIR only lowers bare pointers/tensors. Keep this file free of derive,
+// //! docs, and host-only APIs (see KernelIo in crate::kernel_io).
 
 use core::ops::{Deref, DerefMut};
 
-/// Read-only device pointer argument.
+/// Read-only kernel argument.
 #[repr(transparent)]
-pub struct InPtr<P>(pub P);
+pub struct In<P>(pub P);
 
-impl<P: Clone> Clone for InPtr<P> {
+impl<P: Clone> Clone for In<P> {
     #[inline]
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
-impl<P: Copy> Copy for InPtr<P> {}
+impl<P: Copy> Copy for In<P> {}
 
-impl<P> Deref for InPtr<P> {
+impl<P> Deref for In<P> {
     type Target = P;
 
     #[inline]
@@ -47,19 +49,19 @@ impl<P> Deref for InPtr<P> {
     }
 }
 
-/// Write-only device pointer argument.
+/// Write-only kernel argument.
 #[repr(transparent)]
-pub struct OutPtr<P>(pub P);
+pub struct Out<P>(pub P);
 
-impl<P: Clone> Clone for OutPtr<P> {
+impl<P: Clone> Clone for Out<P> {
     #[inline]
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
-impl<P: Copy> Copy for OutPtr<P> {}
+impl<P: Copy> Copy for Out<P> {}
 
-impl<P> Deref for OutPtr<P> {
+impl<P> Deref for Out<P> {
     type Target = P;
 
     #[inline]
@@ -68,26 +70,26 @@ impl<P> Deref for OutPtr<P> {
     }
 }
 
-impl<P> DerefMut for OutPtr<P> {
+impl<P> DerefMut for Out<P> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-/// Read-write / in-place device pointer argument.
+/// Read-write / in-place kernel argument.
 #[repr(transparent)]
-pub struct InOutPtr<P>(pub P);
+pub struct InOut<P>(pub P);
 
-impl<P: Clone> Clone for InOutPtr<P> {
+impl<P: Clone> Clone for InOut<P> {
     #[inline]
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
-impl<P: Copy> Copy for InOutPtr<P> {}
+impl<P: Copy> Copy for InOut<P> {}
 
-impl<P> Deref for InOutPtr<P> {
+impl<P> Deref for InOut<P> {
     type Target = P;
 
     #[inline]
@@ -96,7 +98,7 @@ impl<P> Deref for InOutPtr<P> {
     }
 }
 
-impl<P> DerefMut for InOutPtr<P> {
+impl<P> DerefMut for InOut<P> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0

@@ -32,9 +32,9 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn adagrad_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
-    sum_ptr: InOutPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
+    sum_ptr: InOut<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     eps: f32,
@@ -118,10 +118,10 @@ pub fn adagrad_step<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn adadelta_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
-    square_avg_ptr: InOutPtr<T::Pointer<f32>>,
-    acc_delta_ptr: InOutPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
+    square_avg_ptr: InOut<T::Pointer<f32>>,
+    acc_delta_ptr: InOut<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     rho: f32,

@@ -602,15 +602,15 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Pointer args must be InPtr / OutPtr / InOutPtr (required for KernelIo / fusion).
+    // Pointer args must be In / Out / InOut (required for KernelIo / fusion).
     for pt in &fn_inputs {
         if let Some((PtrArgKind::Raw, _)) = classify_pointer_arg(&pt.ty, &hw_ident) {
             let name = pat_to_str(&pt.pat);
             return syn::Error::new_spanned(
                 &pt.ty,
                 format!(
-                    "pointer argument `{name}` must be wrapped in `InPtr` / `OutPtr` / \
-                     `InOutPtr` so fusion can classify I/O by signature"
+                    "pointer argument `{name}` must be wrapped in `In` / `Out` / \
+                     `InOut` so fusion can classify I/O by signature"
                 ),
             )
             .to_compile_error()
@@ -640,7 +640,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     return syn::Error::new_spanned(
                         &pt.ty,
                         format!(
-                            "`#[tile(...)]` on `{name}` requires an `InPtr`/`OutPtr`/`InOutPtr` parameter"
+                            "`#[tile(...)]` on `{name}` requires an `In`/`Out`/`InOut` parameter"
                         ),
                     )
                     .to_compile_error()
@@ -1015,7 +1015,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
 
     // Splice-ready "core" for reduction-terminated fusion (teenygrad-3w0.9):
     // available only for single-input, single-axis prelude kernels (exactly
-    // one `#[tile(...)]`-tagged `InPtr`, sharing `prelude_group`'s block/
+    // one `#[tile(...)]`-tagged `In`, sharing `prelude_group`'s block/
     // extent) whose hand-written body's last statement is a plain
     // `#hw_ident::store(...)` call -- the shape every such kernel in this
     // tree today uses. Extraction happens here (proc-macro time, full `syn`
@@ -1711,7 +1711,7 @@ mod tests {
 
     #[test]
     fn parse_tile_attr_absent_returns_none() {
-        let pt = pat_type(quote! { x_ptr: InPtr<T::Pointer<D>> });
+        let pt = pat_type(quote! { x_ptr: In<T::Pointer<D>> });
         assert!(parse_tile_attr(&pt).unwrap().is_none());
     }
 
@@ -1719,7 +1719,7 @@ mod tests {
     fn parse_tile_attr_valid_returns_block_and_extent() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_SIZE, extent = n_elements)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let args = parse_tile_attr(&pt).unwrap().expect("attribute present");
         assert_eq!(args.block, vec!["BLOCK_SIZE"]);
@@ -1732,7 +1732,7 @@ mod tests {
     fn parse_tile_attr_prelude_false_opts_out() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_OW, extent = OW, prelude = false)]
-            y_ptr: OutPtr<T::Pointer<D>>
+            y_ptr: Out<T::Pointer<D>>
         });
         let args = parse_tile_attr(&pt).unwrap().expect("attribute present");
         assert!(!args.prelude);
@@ -1742,7 +1742,7 @@ mod tests {
     fn parse_tile_attr_window_parses_stride_pad_kernel() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_OW, extent = W, stride = STRIDE_W, pad = PAD_W, kernel = KW, prelude = false)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let args = parse_tile_attr(&pt).unwrap().expect("attribute present");
         let (stride, pad, kernel) = args.window.expect("window present");
@@ -1755,7 +1755,7 @@ mod tests {
     fn parse_tile_attr_untiled_parses_dim_list() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_OW, extent = OW, untiled = [_B, C_OUT, OH])]
-            y_ptr: OutPtr<T::Pointer<D>>
+            y_ptr: Out<T::Pointer<D>>
         });
         let args = parse_tile_attr(&pt).unwrap().expect("attribute present");
         assert_eq!(args.untiled, vec!["_B", "C_OUT", "OH"]);
@@ -1765,7 +1765,7 @@ mod tests {
     fn parse_tile_attr_untiled_defaults_to_empty() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_SIZE, extent = n_elements)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let args = parse_tile_attr(&pt).unwrap().expect("attribute present");
         assert!(args.untiled.is_empty());
@@ -1775,7 +1775,7 @@ mod tests {
     fn parse_tile_attr_window_requires_all_three_together() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_OW, extent = W, stride = STRIDE_W)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(
@@ -1788,7 +1788,7 @@ mod tests {
     fn parse_tile_attr_window_rejects_multi_axis() {
         let pt = pat_type(quote! {
             #[tile(block = [BLOCK_M, BLOCK_K], extent = [M, K], stride = S, pad = P, kernel = K2)]
-            a_ptr: InPtr<T::Pointer<D>>
+            a_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(err.to_string().contains("single-axis tag"), "{err}");
@@ -1798,7 +1798,7 @@ mod tests {
     fn parse_tile_attr_missing_block_is_an_error() {
         let pt = pat_type(quote! {
             #[tile(extent = n_elements)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(err.to_string().contains("block = BLOCK_CONST"), "{err}");
@@ -1808,7 +1808,7 @@ mod tests {
     fn parse_tile_attr_missing_extent_is_an_error() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_SIZE)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(err.to_string().contains("extent = param_name"), "{err}");
@@ -1818,7 +1818,7 @@ mod tests {
     fn parse_tile_attr_unknown_key_is_an_error() {
         let pt = pat_type(quote! {
             #[tile(block = BLOCK_SIZE, extent = n_elements, axis = X)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(
@@ -1832,7 +1832,7 @@ mod tests {
     fn parse_tile_attr_non_ident_value_is_an_error() {
         let pt = pat_type(quote! {
             #[tile(block = 1024, extent = n_elements)]
-            x_ptr: InPtr<T::Pointer<D>>
+            x_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(err.to_string().contains("bare identifiers"), "{err}");
@@ -1842,7 +1842,7 @@ mod tests {
     fn parse_tile_attr_multi_axis_with_reduction() {
         let pt = pat_type(quote! {
             #[tile(block = [BLOCK_M, BLOCK_K], extent = [M, K], reduction = 1)]
-            a_ptr: InPtr<T::Pointer<D>>
+            a_ptr: In<T::Pointer<D>>
         });
         let args = parse_tile_attr(&pt).unwrap().expect("attribute present");
         assert_eq!(args.block, vec!["BLOCK_M", "BLOCK_K"]);
@@ -1854,7 +1854,7 @@ mod tests {
     fn parse_tile_attr_mismatched_block_extent_lengths_is_an_error() {
         let pt = pat_type(quote! {
             #[tile(block = [BLOCK_M, BLOCK_K], extent = [M])]
-            a_ptr: InPtr<T::Pointer<D>>
+            a_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(
@@ -1868,7 +1868,7 @@ mod tests {
     fn parse_tile_attr_reduction_out_of_range_is_an_error() {
         let pt = pat_type(quote! {
             #[tile(block = [BLOCK_M, BLOCK_K], extent = [M, K], reduction = 2)]
-            a_ptr: InPtr<T::Pointer<D>>
+            a_ptr: In<T::Pointer<D>>
         });
         let err = parse_tile_attr(&pt).unwrap_err();
         assert!(err.to_string().contains("out of range"), "{err}");
@@ -1880,7 +1880,7 @@ mod tests {
             fn f(
                 #[tile(block = BLOCK_SIZE, extent = n_elements)]
                 #[allow(unused)]
-                x_ptr: InPtr<T::Pointer<D>>,
+                x_ptr: In<T::Pointer<D>>,
                 n_elements: i32,
             )
         })

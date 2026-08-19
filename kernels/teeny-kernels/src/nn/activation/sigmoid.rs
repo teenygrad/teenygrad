@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = 1 / (1 + exp(-x))
 #[tiled_kernel(backward = SigmoidBackward)]
 pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: InPtr<T::Pointer<D>>,
-    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: OutPtr<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -52,9 +52,9 @@ pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * y * (1 - y) = dy * (y - y²)
 #[kernel]
 pub fn sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    y_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -103,8 +103,8 @@ pub fn sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x * sigmoid(x)
 #[kernel(backward = SiluBackward)]
 pub fn silu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -144,9 +144,9 @@ pub fn silu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///         = dy * (s + y - y*s)   where s = sigmoid(x)
 #[kernel]
 pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -199,8 +199,8 @@ pub fn silu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = log(sigmoid(x)) = -log(1 + exp(-x))
 #[kernel(backward = LogsigmoidBackward)]
 pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -244,9 +244,9 @@ pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * sigmoid(-x) = dy / (1 + exp(x))
 #[kernel]
 pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

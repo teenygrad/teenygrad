@@ -79,7 +79,7 @@ pub(crate) fn extract_hw_pointer_dtype(ty: &Type, hw_ident: &Ident) -> Option<Ty
     None
 }
 
-/// Classify `InPtr<HW::Pointer<D>>` / `OutPtr<…>` / `InOutPtr<…>` / bare `HW::Pointer<D>`.
+/// Classify `In<HW::Pointer<D>>` / `Out<…>` / `InOut<…>` / bare `HW::Pointer<D>`.
 ///
 /// Returns `(kind, dtype)` where `dtype` is the `D` in `Pointer<D>`.
 pub(crate) fn classify_pointer_arg(ty: &Type, hw_ident: &Ident) -> Option<(PtrArgKind, Type)> {
@@ -88,9 +88,9 @@ pub(crate) fn classify_pointer_arg(ty: &Type, hw_ident: &Ident) -> Option<(PtrAr
         && let Some(last) = tp.path.segments.last()
     {
         let kind = match last.ident.to_string().as_str() {
-            "InPtr" => Some(PtrArgKind::In),
-            "OutPtr" => Some(PtrArgKind::Out),
-            "InOutPtr" => Some(PtrArgKind::InOut),
+            "In" => Some(PtrArgKind::In),
+            "Out" => Some(PtrArgKind::Out),
+            "InOut" => Some(PtrArgKind::InOut),
             _ => None,
         };
         if let Some(kind) = kind {
@@ -107,7 +107,7 @@ pub(crate) fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type>
     classify_pointer_arg(ty, hw_ident).map(|(_, dtype)| dtype)
 }
 
-/// Strip `InPtr` / `OutPtr` / `InOutPtr` wrappers for the device-side source string.
+/// Strip `In` / `Out` / `InOut` wrappers for the device-side source string.
 ///
 /// Markers are host-only metadata for [`KernelIo`]; the MLIR backend only knows
 /// about bare `T::Pointer<D>` / `LlvmPointer` and panics on unmarked ADTs.
@@ -117,7 +117,7 @@ pub(crate) fn unwrap_pointer_marker(ty: &Type) -> Type {
         && let Some(last) = tp.path.segments.last()
     {
         match last.ident.to_string().as_str() {
-            "InPtr" | "OutPtr" | "InOutPtr" => {
+            "In" | "Out" | "InOut" => {
                 if let Some(inner) = extract_single_generic_type(last) {
                     return inner;
                 }

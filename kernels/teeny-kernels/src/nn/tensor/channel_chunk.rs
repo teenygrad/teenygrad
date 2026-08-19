@@ -38,8 +38,8 @@ use teeny_triton::triton::{
 /// no tensor-level division or modulo is required.
 #[kernel]
 pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,  // input:  n_spatial * c_total  (wide NC)
-    y_ptr: OutPtr<T::Pointer<D>>, // output: n_spatial * chunk_c  (narrow NC)
+    x_ptr: In<T::Pointer<D>>,  // input:  n_spatial * c_total  (wide NC)
+    y_ptr: Out<T::Pointer<D>>, // output: n_spatial * chunk_c  (narrow NC)
     c_total: i32,                 // total input channels
     chunk_c: i32,                 // output channels per chunk
     chunk_offset: i32,            // first input channel index: k * chunk_c
@@ -92,8 +92,8 @@ pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 /// Grid: same as `channel_chunk_forward`.
 #[kernel]
 pub fn channel_chunk_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>, // upstream grad: n_spatial * chunk_c  (narrow NC)
-    dx_ptr: OutPtr<T::Pointer<D>>, // input grad:    n_spatial * c_total  (wide NC)
+    dy_ptr: In<T::Pointer<D>>, // upstream grad: n_spatial * chunk_c  (narrow NC)
+    dx_ptr: Out<T::Pointer<D>>, // input grad:    n_spatial * c_total  (wide NC)
     c_total: i32,
     chunk_c: i32,
     chunk_offset: i32,

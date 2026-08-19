@@ -31,8 +31,8 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn sgd_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     weight_decay: f32,
@@ -91,9 +91,9 @@ pub fn sgd_step<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn sgd_momentum_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
-    buf_ptr: InOutPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
+    buf_ptr: InOut<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     momentum: f32,
@@ -178,9 +178,9 @@ pub fn sgd_momentum_step<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn sgd_nesterov_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
-    buf_ptr: InOutPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
+    buf_ptr: InOut<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     momentum: f32,
