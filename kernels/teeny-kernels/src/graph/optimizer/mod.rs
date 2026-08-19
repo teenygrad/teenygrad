@@ -21,8 +21,9 @@
 
 mod anduin;
 
-pub use anduin::Anduin;
+pub use anduin::{Anduin, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
 
+use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::graph::Graph;
 
 use crate::errors::Result;
@@ -35,6 +36,8 @@ pub trait GraphOptimizer: Send + Sync {
     /// Short stable name (e.g. `"anduin"`).
     fn name(&self) -> &str;
 
-    /// Rewrite `graph` for this strategy. Must be pure w.r.t. the input graph.
-    fn optimize(&self, graph: &Graph) -> Result<Graph>;
+    /// Rewrite `graph` for this strategy, using `hardware` for any
+    /// scheduling/cost-model decisions (e.g. Anduin's memory-level search).
+    /// Must be pure w.r.t. the input graph.
+    fn optimize(&self, graph: &Graph, hardware: &HardwareProfile) -> Result<Graph>;
 }
