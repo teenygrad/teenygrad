@@ -16,6 +16,7 @@
 
 use std::sync::Arc;
 use teeny_core::{
+    device::hardware::HardwareProfile,
     graph::{DtypeRepr, Graph, Op, Shape},
     model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
@@ -23,7 +24,7 @@ use teeny_core::{
 
 pub mod optimizer;
 
-pub use optimizer::{Anduin, GraphOptimizer};
+pub use optimizer::{Anduin, GraphOptimizer, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
 
 use crate::nn::{
     activation::extra::{
@@ -536,14 +537,19 @@ impl RuntimeOp for InputRuntimeOp {
 
 #[derive(Default)]
 pub struct TritonLowering {
-    /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]).
-    optimizer: Option<Arc<dyn GraphOptimizer>>,
+    /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]),
+    /// paired with the hardware facts it schedules against. Bundled together
+    /// so an optimizer can never be set without the profile it needs.
+    optimizer: Option<(Arc<dyn GraphOptimizer>, HardwareProfile)>,
 }
 
 impl std::fmt::Debug for TritonLowering {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TritonLowering")
-            .field("optimizer", &self.optimizer.as_ref().map(|o| o.name()))
+            .field(
+                "optimizer",
+                &self.optimizer.as_ref().map(|(opt, _)| opt.name()),
+            )
             .finish()
     }
 }
@@ -554,9 +560,14 @@ impl TritonLowering {
     }
 
     /// Selects a [`GraphOptimizer`] (e.g. [`Anduin`]) to rewrite the graph before
-    /// lowering. Without an optimizer, the input graph is lowered as-is.
-    pub fn with_optimizer(mut self, optimizer: impl GraphOptimizer + 'static) -> Self {
-        self.optimizer = Some(Arc::new(optimizer));
+    /// lowering, and the [`HardwareProfile`] it schedules against. Without an
+    /// optimizer, the input graph is lowered as-is.
+    pub fn with_optimizer(
+        mut self,
+        optimizer: impl GraphOptimizer + 'static,
+        hardware: HardwareProfile,
+    ) -> Self {
+        self.optimizer = Some((Arc::new(optimizer), hardware));
         self
     }
 }
@@ -697,8 +708,8 @@ impl TritonLowering {
         let _ = mode; // used by #[cfg(feature = "training")] branch below
         let optimized;
         let graph = match &self.optimizer {
-            Some(opt) => {
-                optimized = opt.optimize(graph)?;
+            Some((opt, hardware)) => {
+                optimized = opt.optimize(graph, hardware)?;
                 &optimized
             }
             None => graph,

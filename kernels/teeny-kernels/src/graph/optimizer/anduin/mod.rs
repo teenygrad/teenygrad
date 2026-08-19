@@ -36,6 +36,11 @@
 //! themselves once the TileGraph search exists, not from per-kernel
 //! declarations.
 
+mod tile_graph;
+
+pub use tile_graph::{TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
+
+use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::graph::Graph;
 
 use crate::errors::Result;
@@ -50,7 +55,7 @@ impl GraphOptimizer for Anduin {
         "anduin"
     }
 
-    fn optimize(&self, _graph: &Graph) -> Result<Graph> {
+    fn optimize(&self, _graph: &Graph, _hardware: &HardwareProfile) -> Result<Graph> {
         todo!("teenygrad-1nr: Welder-style TileGraph scheduler — see this module's doc comment")
     }
 }
