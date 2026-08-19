@@ -25,26 +25,18 @@ use teeny_triton::triton::{
 };
 
 #[tiled_kernel]
-pub fn relu_forward<T: Triton, D: Num>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+pub fn relu_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
+    x: In<Tile<T, D>>,
+    y: Out<Tile<T, D>>,
+    n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let y = T::zeros_like(x);
-    let relu = T::maximum(x, y);
+    let relu = T::maximum(x.tensor, T::zeros_like(x.tensor));
 
-    // Masked loads in Triton return 0 for masked-off lanes, which gives ReLU.
-    T::store(
-        y_ptr.add_offsets(offsets),
-        relu,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(y.tensor, relu, x.mask, &[], None, None);
 }
 
 #[kernel]
@@ -124,11 +116,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
         visitor.visit_i32(n as i32);
     }
 
-    fn grid(&self, _output_shape: &[usize]) -> [u32; 3] {
-        todo!(
-            "teenygrad-1nr.1: ReluForward's tile/grid size was removed with \
-             its BLOCK_SIZE const generic -- needs the wrapper redesign"
-        )
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]
@@ -159,11 +149,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
     }
 
     #[cfg(feature = "training")]
-    fn backward_grid(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
-        todo!(
-            "teenygrad-1nr.1: ReluForward's tile/grid size was removed with \
-             its BLOCK_SIZE const generic -- needs the wrapper redesign"
-        )
+    fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
 }
 

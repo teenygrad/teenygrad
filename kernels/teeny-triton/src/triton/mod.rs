@@ -23,11 +23,15 @@ use self::types::{self as ty};
 pub mod llvm;
 /// In/out argument markers for `#[kernel]`/`#[tiled_kernel]` parameters (`In`, `Out`, …).
 pub mod ptr;
+/// `Tile<T, D>` — a tensor plus an optional boundary mask, moved between composed
+/// `#[tiled_kernel]` tile-op functions. Kernel-local only, never entry-point ABI.
+pub mod tile;
 /// Dtype/numeric-kind trait hierarchy (`Dtype`, `Num`, `Int`, `Float`) used to bound the `Triton`
 /// trait's generic methods.
 pub mod types;
 
 pub use ptr::*;
+pub use tile::Tile;
 pub use types::*;
 
 /*------------------------------ Parameter Enums ------------------------------*/

@@ -75,6 +75,89 @@ pub(crate) fn extract_hw_pointer_dtype(ty: &Type, hw_ident: &Ident) -> Option<Ty
             return Some(inner.clone());
         }
     }
+    extract_tile_dtype(ty, hw_ident)
+}
+
+/// If `ty` is `Tile<HW, D>` (teenygrad-1nr.1's kernel-local tensor+mask
+/// value, `kernels/teeny-triton/src/triton/tile.rs`), return `D`.
+///
+/// `Tile` is host-side sugar over a pointer parameter, never a real ABI
+/// type (`teenyc` can't lower an `Option`-bearing struct across a kernel
+/// entry boundary) -- an `In`/`Out`/`InOut`-marked `Tile<HW, D>` parameter
+/// is classified exactly like `HW::Pointer<D>` for ABI purposes, and
+/// [`crate::macros::tiled_kernel`] rewrites the generated device/host
+/// signature type back to `HW::Pointer<D>` (see its use of this function
+/// via [`extract_hw_pointer_dtype`]/`unwrap_pointer_marker`).
+pub(crate) fn extract_tile_dtype(ty: &Type, hw_ident: &Ident) -> Option<Type> {
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && let Some(last) = tp.path.segments.last()
+        && last.ident == "Tile"
+        && let PathArguments::AngleBracketed(ab) = &last.arguments
+        && ab.args.len() == 2
+        && let GenericArgument::Type(hw_arg) = &ab.args[0]
+        && let GenericArgument::Type(d_arg) = &ab.args[1]
+        && simple_type_ident(hw_arg).as_ref() == Some(hw_ident)
+    {
+        return Some(d_arg.clone());
+    }
+    None
+}
+
+/// Rewrite a `Tile<HW, D>` wrapped inside `In`/`Out`/`InOut` back to
+/// `HW::Pointer<D>`, keeping the marker (teenygrad-1nr.1).
+///
+/// Unlike [`unwrap_pointer_marker`] (which also strips the marker, for the
+/// device-side source string), this keeps `In`/`Out`/`InOut` in place --
+/// used for the *host*-compiled function signature, where the existing
+/// `*name` deref-unwrap (see [`crate::macros::tiled_kernel`]) still needs a
+/// real marker wrapping a `Copy` pointer type to work.
+pub(crate) fn rewrite_tile_param_to_pointer(ty: &Type, hw_ident: &Ident) -> Type {
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && let Some(last) = tp.path.segments.last()
+        && matches!(last.ident.to_string().as_str(), "In" | "Out" | "InOut")
+        && let Some(inner) = extract_single_generic_type(last)
+        && let Some(dtype) = extract_tile_dtype(&inner, hw_ident)
+    {
+        let marker = &last.ident;
+        return syn::parse_quote!(#marker<#hw_ident::Pointer<#dtype>>);
+    }
+    ty.clone()
+}
+
+/// Whether `ty` is specifically `In<Tile<HW, D>>` (not `In<HW::Pointer<D>>`)
+/// -- [`crate::macros::tiled_kernel`] auto-generates a *load* prelude for
+/// this shape (teenygrad-1nr.1): `#ident` is shadowed by a `Tile` whose
+/// `.tensor` is `HW::load(#ident.add_offsets(offsets), ...)`.
+pub(crate) fn in_tile_dtype(ty: &Type, hw_ident: &Ident) -> Option<Type> {
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && let Some(last) = tp.path.segments.last()
+        && last.ident == "In"
+        && let Some(wrapped) = extract_single_generic_type(last)
+    {
+        return extract_tile_dtype(&wrapped, hw_ident);
+    }
+    None
+}
+
+/// Whether `ty` is specifically `Out<Tile<HW, D>>` (not `Out<HW::Pointer<D>>`)
+/// -- [`crate::macros::tiled_kernel`] auto-generates an *addressing* prelude
+/// for this shape (teenygrad-1nr.1): `#ident` is shadowed by a `Tile` whose
+/// `.tensor` is `#ident.add_offsets(offsets)` (the write address, not a
+/// loaded value) and `.mask` is the boundary mask -- so the kernel body can
+/// call `HW::store(y.tensor, value, y.mask, ...)` without ever calling
+/// `.add_offsets` itself.
+pub(crate) fn out_tile_dtype(ty: &Type, hw_ident: &Ident) -> Option<Type> {
+    if let Type::Path(tp) = ty
+        && tp.qself.is_none()
+        && let Some(last) = tp.path.segments.last()
+        && last.ident == "Out"
+        && let Some(wrapped) = extract_single_generic_type(last)
+    {
+        return extract_tile_dtype(&wrapped, hw_ident);
+    }
     None
 }
 
@@ -110,7 +193,12 @@ pub(crate) fn extract_pointer_inner(ty: &Type, hw_ident: &Ident) -> Option<Type>
 ///
 /// Markers are host-only metadata for [`KernelIo`]; the MLIR backend only knows
 /// about bare `T::Pointer<D>` / `LlvmPointer` and panics on unmarked ADTs.
-pub(crate) fn unwrap_pointer_marker(ty: &Type) -> Type {
+///
+/// Also rewrites a `Tile<HW, D>`-wrapped inner type back to `HW::Pointer<D>`
+/// (teenygrad-1nr.1) -- `Tile` never reaches the device/host signature;
+/// only its dtype does, exactly like a plain pointer parameter. See
+/// [`extract_tile_dtype`].
+pub(crate) fn unwrap_pointer_marker(ty: &Type, hw_ident: &Ident) -> Type {
     if let Type::Path(tp) = ty
         && tp.qself.is_none()
         && let Some(last) = tp.path.segments.last()
@@ -118,6 +206,9 @@ pub(crate) fn unwrap_pointer_marker(ty: &Type) -> Type {
         match last.ident.to_string().as_str() {
             "In" | "Out" | "InOut" => {
                 if let Some(inner) = extract_single_generic_type(last) {
+                    if let Some(dtype) = extract_tile_dtype(&inner, hw_ident) {
+                        return syn::parse_quote!(#hw_ident::Pointer<#dtype>);
+                    }
                     return inner;
                 }
             }

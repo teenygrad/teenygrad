@@ -337,7 +337,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let mut device_sig = sig.clone();
     for input in device_sig.inputs.iter_mut() {
         if let FnArg::Typed(pt) = input {
-            *pt.ty = unwrap_pointer_marker(&pt.ty);
+            *pt.ty = unwrap_pointer_marker(&pt.ty, &hw_ident);
         }
     }
     let original_source_str = quote!(#vis #device_sig #block).to_string();
