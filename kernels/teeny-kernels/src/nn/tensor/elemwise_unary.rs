@@ -811,10 +811,9 @@ impl_float_unary_runtime_op!(ElemwiseReciprocalForward);
 
 /// Forward: y = exp(x)
 #[tiled_kernel]
-pub fn elemwise_exp_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+pub fn elemwise_exp_forward<T: Triton, D: Float>(
     x_ptr: In<T::Pointer<D>>,
     y_ptr: Out<T::Pointer<D>>,
-    n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -878,7 +877,67 @@ pub fn elemwise_exp_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
 }
 
-impl_float_unary_runtime_op!(ElemwiseExpForward);
+// Not `impl_float_unary_runtime_op!` (that macro's grid()/backward_grid()
+// need `self.block_size`, which ElemwiseExpForward lost along with its
+// BLOCK_SIZE const generic -- see teenygrad-1nr.1).
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseExpForward<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(n as i32);
+    }
+    fn grid(&self, _output_shape: &[usize]) -> [u32; 3] {
+        todo!(
+            "teenygrad-1nr.1: ElemwiseExpForward's tile/grid size was removed with \
+             its BLOCK_SIZE const generic -- needs the wrapper redesign"
+        )
+    }
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool {
+        true
+    }
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _: &[teeny_core::model::RawPtr],
+        _: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        _: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(grad_output);
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(grad_inputs[0]);
+        visitor.visit_i32(n as i32);
+    }
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, _: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
+        todo!(
+            "teenygrad-1nr.1: ElemwiseExpForward's tile/grid size was removed with \
+             its BLOCK_SIZE const generic -- needs the wrapper redesign"
+        )
+    }
+}
 
 // ── Log (D: Float) ────────────────────────────────────────────────────────────
 

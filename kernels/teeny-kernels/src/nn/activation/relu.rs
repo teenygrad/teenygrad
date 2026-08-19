@@ -24,11 +24,10 @@ use teeny_triton::triton::{
     *,
 };
 
-#[tiled_kernel(backward = ReluBackward)]
-pub fn relu_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
+#[tiled_kernel]
+pub fn relu_forward<T: Triton, D: Num>(
     x_ptr: In<T::Pointer<D>>,
     y_ptr: Out<T::Pointer<D>>,
-    n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -125,9 +124,11 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
         visitor.visit_i32(n as i32);
     }
 
-    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        let n: usize = output_shape.iter().product();
-        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    fn grid(&self, _output_shape: &[usize]) -> [u32; 3] {
+        todo!(
+            "teenygrad-1nr.1: ReluForward's tile/grid size was removed with \
+             its BLOCK_SIZE const generic -- needs the wrapper redesign"
+        )
     }
 
     #[cfg(feature = "training")]
@@ -158,9 +159,11 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ReluForwar
     }
 
     #[cfg(feature = "training")]
-    fn backward_grid(&self, _input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
-        let n: usize = output_shape.iter().product();
-        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    fn backward_grid(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
+        todo!(
+            "teenygrad-1nr.1: ReluForward's tile/grid size was removed with \
+             its BLOCK_SIZE const generic -- needs the wrapper redesign"
+        )
     }
 }
 
