@@ -32,12 +32,14 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{FnArg, GenericParam, Ident, ItemFn, Pat, PatType, Type, TypeParamBound, parse_macro_input};
+use syn::{
+    FnArg, GenericParam, Ident, ItemFn, Pat, PatType, Type, TypeParamBound, parse_macro_input,
+};
 
 use super::common::{
     PtrArgKind, all_dtypes_for_bound, classify_pointer_arg, dtype_ident_to_repr,
-    extract_pointer_inner, parse_kernel_attrs, pat_to_str, simple_type_ident, to_pascal_case,
-    unwrap_pointer_marker,
+    extract_pointer_inner, in_tile_dtype, out_tile_dtype, parse_kernel_attrs, pat_to_str,
+    rewrite_tile_param_to_pointer, simple_type_ident, to_pascal_case, unwrap_pointer_marker,
 };
 
 // ── Macro implementation ──────────────────────────────────────────────────────
@@ -345,16 +347,115 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // No prelude codegen: the kernel author's hand-written body is used
-    // exactly as written. The auto-generated single-axis load prelude and
-    // GEMM's swizzled `pid_m`/`pid_n` decode this macro used to synthesize
-    // from `#[tile(...)]`/`#[tile_pid_swizzle(...)]` baked index arithmetic
-    // into the individual kernel function being compiled, which doesn't
-    // compose when a kernel is called as a tile-op from another kernel's
-    // body (index arithmetic belongs in a wrapper, not each composed
-    // function) -- see teenygrad-1nr.1. Both attributes/codegen paths have
-    // been removed outright, not stubbed.
-    let final_block = input.block.as_ref().clone();
+    // Auto-generated prelude for `In<Tile<HW, D>>` / `Out<Tile<HW, D>>`
+    // parameters (teenygrad-1nr.1): unlike the removed `#[tile(...)]` DSL,
+    // this is driven by the parameter *type*, not a separate attribute, and
+    // the prelude is spliced ahead of the kernel author's own body rather
+    // than replacing it -- `Tile` never crosses the device/host ABI (see
+    // `common::unwrap_pointer_marker`), so the parameter name is shadowed by
+    // a `Tile` value via an ordinary `let`. `In` params are shadowed by a
+    // *loaded* tile (`.tensor` is `HW::load(...)`); `Out` params are
+    // shadowed by an *addressed* tile (`.tensor` is the offset write
+    // pointer, not a loaded value) so the kernel body can call
+    // `HW::store(y.tensor, value, y.mask, ...)` without ever calling
+    // `.add_offsets` itself.
+    let tile_in_params: Vec<(&Ident, Type)> = fn_inputs
+        .iter()
+        .filter_map(|pt| {
+            let dtype = in_tile_dtype(&pt.ty, &hw_ident)?;
+            let Pat::Ident(pi) = &*pt.pat else {
+                return None;
+            };
+            Some((&pi.ident, dtype))
+        })
+        .collect();
+    let tile_out_params: Vec<(&Ident, Type)> = fn_inputs
+        .iter()
+        .filter_map(|pt| {
+            let dtype = out_tile_dtype(&pt.ty, &hw_ident)?;
+            let Pat::Ident(pi) = &*pt.pat else {
+                return None;
+            };
+            Some((&pi.ident, dtype))
+        })
+        .collect();
+
+    let final_block = if tile_in_params.is_empty() && tile_out_params.is_empty() {
+        input.block.as_ref().clone()
+    } else {
+        let block_size = const_params.iter().find(|cp| cp.ident == "BLOCK_SIZE");
+        let Some(block_size) = block_size else {
+            return syn::Error::new_spanned(
+                &input.sig,
+                "an `In<Tile<..>>`/`Out<Tile<..>>` parameter requires this kernel to declare \
+                 `const BLOCK_SIZE: i32`",
+            )
+            .to_compile_error()
+            .into();
+        };
+        let block_size = &block_size.ident;
+        let has_n_elements = fn_inputs.iter().any(|pt| {
+            let name_ok = matches!(&*pt.pat, Pat::Ident(pi) if pi.ident == "n_elements");
+            let ty_ok = matches!(&*pt.ty, Type::Path(tp) if tp.path.is_ident("i32"));
+            name_ok && ty_ok
+        });
+        if !has_n_elements {
+            return syn::Error::new_spanned(
+                &input.sig,
+                "an `In<Tile<..>>`/`Out<Tile<..>>` parameter requires this kernel to declare \
+                 an `n_elements: i32` parameter",
+            )
+            .to_compile_error()
+            .into();
+        }
+
+        let mut stmts: Vec<syn::Stmt> = syn::parse2::<syn::Block>(quote! {{
+            let pid = #hw_ident::program_id(Axis::X);
+            let block_start = pid * #block_size;
+            let offsets = #hw_ident::arange(0, #block_size) + block_start;
+            let in_bounds = offsets.lt(n_elements);
+        }})
+        .expect("generated tile prelude is valid Rust")
+        .stmts;
+        for (ident, dtype) in &tile_in_params {
+            let load_stmt: syn::Stmt = syn::parse2(quote! {
+                let #ident = Tile::<#hw_ident, #dtype> {
+                    tensor: #hw_ident::load(
+                        #ident.add_offsets(offsets),
+                        Some(in_bounds),
+                        None,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    ),
+                    mask: Some(in_bounds),
+                };
+            })
+            .expect("generated tile load statement is valid Rust");
+            stmts.push(load_stmt);
+        }
+        for (ident, dtype) in &tile_out_params {
+            // `.add_offsets()` returns `HW::Tensor<HW::Pointer<D>>` (a tensor
+            // of write addresses), not `HW::Tensor<D>` (a tensor of `D`
+            // values) -- so the shadowed `Tile` is instantiated with
+            // `HW::Pointer<D>` as its own dtype param, not `D` itself.
+            let addr_stmt: syn::Stmt = syn::parse2(quote! {
+                let #ident = Tile::<#hw_ident, #hw_ident::Pointer<#dtype>> {
+                    tensor: #ident.add_offsets(offsets),
+                    mask: Some(in_bounds),
+                };
+            })
+            .expect("generated tile address statement is valid Rust");
+            stmts.push(addr_stmt);
+        }
+        stmts.extend(input.block.stmts.iter().cloned());
+        syn::Block {
+            brace_token: input.block.brace_token,
+            stmts,
+        }
+    };
 
     // FusionCore splice-body extraction (teenygrad-3w0.9) identified its
     // eligible kernels via `#[tile(...)]`'s tile_attrs, which no longer
@@ -371,13 +472,23 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let mut device_sig = sig.clone();
     for input in device_sig.inputs.iter_mut() {
         if let FnArg::Typed(pt) = input {
-            *pt.ty = unwrap_pointer_marker(&pt.ty);
+            *pt.ty = unwrap_pointer_marker(&pt.ty, &hw_ident);
         }
     }
     let original_source_str = quote!(#vis #device_sig #final_block).to_string();
 
-    // Host-side signature: same as the original.
-    let host_sig = sig.clone();
+    // Host-side signature: same as the original, except `In<Tile<HW,D>>` /
+    // `Out<Tile<HW,D>>` / `InOut<Tile<HW,D>>` params get their inner type
+    // rewritten back to `HW::Pointer<D>` (marker kept) -- `Tile` never
+    // crosses the real ABI, and `ptr_unwraps` below derefs through the
+    // marker to a `HW::Pointer<D>` that the (possibly tile-prelude-bearing)
+    // body expects, matching `device_sig`'s treatment of the same params.
+    let mut host_sig = sig.clone();
+    for input in host_sig.inputs.iter_mut() {
+        if let FnArg::Typed(pt) = input {
+            *pt.ty = rewrite_tile_param_to_pointer(&pt.ty, &hw_ident);
+        }
+    }
 
     // Host fn: unwrap In/Out markers at body start so descriptor/load/store APIs
     // see bare `T::Pointer` (by-value args do not autoderef through Deref).
@@ -788,4 +899,3 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     result.extend(TokenStream::from(dispatcher_stream));
     result
 }
-

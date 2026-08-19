@@ -47,9 +47,12 @@ use crate::nn::{
             ThresholdForward, ThresholdForwardDispatch,
         },
         relu::{ReluBackward, ReluForward},
-        sigmoid::{LogsigmoidForward, LogsigmoidForwardDispatch, SiluForwardDispatch},
+        sigmoid::{
+            LogsigmoidForward, LogsigmoidForwardDispatch, SigmoidForwardDispatch,
+            SiluForwardDispatch,
+        },
         softmax::SoftmaxForward,
-        tanh::{TanhshrinkForward, TanhshrinkForwardDispatch},
+        tanh::{TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
     },
     conv::{
         conv1d::Conv1dForward,
@@ -1648,18 +1651,18 @@ impl TritonLowering {
                 }
 
                 // --- Activation (D: Num) ---
-                Op::Relu => make_num_kernel!(ReluForward(), ReluBackward(1024), node),
+                Op::Relu => make_num_kernel!(ReluForward(1024), ReluBackward(1024), node),
 
                 // --- Activation (D: Float — dtype-dispatched) ---
                 Op::Elu { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
-                    EluForwardDispatch::dispatch(node.dtype)?,
+                    EluForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
                 Op::Selu => exec_from(
                     node.shape.clone(),
                     node.dtype,
-                    SeluForwardDispatch::dispatch(node.dtype)?,
+                    SeluForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
                 Op::Celu { .. } => exec_from(
                     node.shape.clone(),
@@ -1726,9 +1729,10 @@ impl TritonLowering {
                     node.dtype,
                     SoftplusForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
-                Op::Sigmoid => todo!(
-                    "teenygrad-1nr.1: SigmoidForward lost its Dispatch struct when its \
-                     backward pairing/BLOCK_SIZE were removed with the #[tile(...)] DSL"
+                Op::Sigmoid => exec_from(
+                    node.shape.clone(),
+                    node.dtype,
+                    SigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
                 Op::Silu => exec_from(
                     node.shape.clone(),
@@ -1740,9 +1744,10 @@ impl TritonLowering {
                     node.dtype,
                     LogsigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
-                Op::Tanh => todo!(
-                    "teenygrad-1nr.1: TanhForward lost its Dispatch struct when its \
-                     backward pairing/BLOCK_SIZE were removed with the #[tile(...)] DSL"
+                Op::Tanh => exec_from(
+                    node.shape.clone(),
+                    node.dtype,
+                    TanhForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
                 Op::Tanhshrink => exec_from(
                     node.shape.clone(),
@@ -2087,7 +2092,7 @@ impl TritonLowering {
                     node
                 ),
                 Op::Exp => {
-                    make_float_kernel!(ElemwiseExpForward(), ElemwiseExpBackward(1024), node)
+                    make_float_kernel!(ElemwiseExpForward(1024), ElemwiseExpBackward(1024), node)
                 }
                 Op::Log => {
                     make_float_kernel!(ElemwiseLogForward(1024), ElemwiseLogBackward(1024), node)

@@ -56,6 +56,22 @@ pub fn matmul_forward<
     N: i32,
     K: i32,
 ) {
+    let pid = T::program_id(Axis::X);
+    let num_pid_m = T::cdiv(M, BLOCK_M);
+    let num_pid_n = T::cdiv(N, BLOCK_N);
+    let num_pid_in_group = GROUP_M * num_pid_n;
+    let group_id = pid / num_pid_in_group;
+    let first_pid_m = group_id * GROUP_M;
+    let remaining_m = num_pid_m - first_pid_m;
+    let group_size_m = if remaining_m < GROUP_M {
+        remaining_m
+    } else {
+        GROUP_M
+    };
+    let pid_in_group = pid % num_pid_in_group;
+    let pid_m = first_pid_m + (pid_in_group % group_size_m);
+    let pid_n = pid_in_group / group_size_m;
+
     let a_desc = T::make_tensor_descriptor(
         a_ptr,
         &[M, K],

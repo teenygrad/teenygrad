@@ -26,10 +26,11 @@ use teeny_triton::triton::{
 // ── Tanh ─────────────────────────────────────────────────────────────────────
 
 /// Forward: y = tanh(x) = 2*sigmoid(2x) - 1 = 2/(1+exp(-2x)) - 1
-#[tiled_kernel]
-pub fn tanh_forward<T: Triton, D: Float>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+#[tiled_kernel(backward = TanhBackward)]
+pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x: In<Tile<T, D>>,
+    y: Out<Tile<T, D>>,
+    n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
@@ -39,16 +40,10 @@ pub fn tanh_forward<T: Triton, D: Float>(
     let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
     let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     // sigmoid(2x) = 1 / (1 + exp(-2x))
-    let s2x = one / (one + T::exp(neg2 * x));
-    let y = two * s2x - one;
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let s2x = one / (one + T::exp(neg2 * x.tensor));
+    let tanh = two * s2x - one;
+
+    T::store(y.tensor, tanh, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy * (1 - y²)  — sech²(x) expressed via saved output
@@ -241,11 +236,9 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for TanhForw
         visitor.visit_i32(n as i32);
     }
 
-    fn grid(&self, _output_shape: &[usize]) -> [u32; 3] {
-        todo!(
-            "teenygrad-1nr.1: TanhForward's tile/grid size was removed with \
-             its BLOCK_SIZE const generic -- needs the wrapper redesign"
-        )
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]
@@ -275,10 +268,8 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for TanhForw
     }
 
     #[cfg(feature = "training")]
-    fn backward_grid(&self, _: &[&[usize]], _output_shape: &[usize]) -> [u32; 3] {
-        todo!(
-            "teenygrad-1nr.1: TanhForward's tile/grid size was removed with \
-             its BLOCK_SIZE const generic -- needs the wrapper redesign"
-        )
+    fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
 }

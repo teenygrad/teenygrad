@@ -40,9 +40,9 @@ use teeny_triton::triton::{
 pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     x_ptr: In<T::Pointer<D>>,  // input:  n_spatial * c_total  (wide NC)
     y_ptr: Out<T::Pointer<D>>, // output: n_spatial * chunk_c  (narrow NC)
-    c_total: i32,                 // total input channels
-    chunk_c: i32,                 // output channels per chunk
-    chunk_offset: i32,            // first input channel index: k * chunk_c
+    c_total: i32,              // total input channels
+    chunk_c: i32,              // output channels per chunk
+    chunk_offset: i32,         // first input channel index: k * chunk_c
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
