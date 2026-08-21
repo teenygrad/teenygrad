@@ -58,10 +58,17 @@ impl GraphOptimizer for Anduin {
 
     fn optimize(
         &self,
-        _dag: Dag<Box<dyn ExecutableOp>>,
+        dag: Dag<Box<dyn ExecutableOp>>,
         _mapping: Vec<usize>,
         _hardware: &HardwareProfile,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
+        // Step 1: structural Dag -> TileGraph conversion (see `TileGraph::from_dag`).
+        // Steps 2-3 (backward tile-shape propagation, then the per-node
+        // memory-level search) are the rest of `teenygrad-1nr` — see this
+        // module's doc comment — and still need to run before this can
+        // materialize a rewritten Dag to return.
+        let _tile_graph = TileGraph::from_dag(&dag);
+
         todo!("teenygrad-1nr: Welder-style TileGraph scheduler — see this module's doc comment")
     }
 }
