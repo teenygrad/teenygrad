@@ -64,11 +64,11 @@ pub struct MemoryLevel {
     pub kind: MemoryLevelKind,
     /// Capacity of this level, in bytes (e.g. per-SM shared-memory budget,
     /// total L2 size, total device memory).
-    pub capacity_bytes: u64,
+    pub capacity: u64,
     /// Peak achievable bandwidth through this level, in bytes/second, if known.
-    pub bandwidth_bytes_per_sec: Option<f64>,
+    pub bandwidth: Option<f64>,
     /// Approximate access latency of this level, in nanoseconds, if known.
-    pub latency_ns: Option<f64>,
+    pub latency: Option<f64>,
 }
 
 /// A device's static hardware facts relevant to tile-shape / scheduling cost
@@ -110,15 +110,15 @@ mod tests {
             memory_levels: vec![
                 MemoryLevel {
                     kind: MemoryLevelKind::SharedMemory,
-                    capacity_bytes: 49_152,
-                    bandwidth_bytes_per_sec: None,
-                    latency_ns: None,
+                    capacity: 49_152,
+                    bandwidth: None,
+                    latency: None,
                 },
                 MemoryLevel {
                     kind: MemoryLevelKind::DeviceMemory,
-                    capacity_bytes: 12 * 1024 * 1024 * 1024,
-                    bandwidth_bytes_per_sec: Some(672.0e9),
-                    latency_ns: None,
+                    capacity: 12 * 1024 * 1024 * 1024,
+                    bandwidth: Some(672.0e9),
+                    latency: None,
                 },
             ],
         }
@@ -137,7 +137,7 @@ mod tests {
         let shared = profile
             .level(MemoryLevelKind::SharedMemory)
             .expect("profile declares a SharedMemory level");
-        assert_eq!(shared.capacity_bytes, 49_152);
+        assert_eq!(shared.capacity, 49_152);
     }
 
     #[test]

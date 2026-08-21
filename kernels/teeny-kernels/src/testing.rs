@@ -16,6 +16,7 @@
 
 //! Shared helpers for `teeny-kernels` integration tests.
 
+use teeny_core::device::hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind};
 use teeny_core::device::program::Kernel;
 use teeny_core::model::ExecutableOp;
 
@@ -69,4 +70,32 @@ pub fn load_fixture_i32(rel: &str) -> Vec<i32> {
 /// Resolve the `teenyc` scratch/cache directory (`TEENYC_CACHE_DIR`, else `/tmp/teenyc_cache`).
 pub fn teenyc_cache_dir() -> String {
     std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string())
+}
+
+/// A hand-calibrated [`HardwareProfile`] for an Ampere-class 6 GB GPU (e.g.
+/// NVIDIA RTX A2000), with two memory levels: per-SM shared memory and
+/// device (global) memory. For scheduler/cost-model tests that need a
+/// profile without an open device.
+pub fn orin_nano_hardware_profile() -> HardwareProfile {
+    HardwareProfile {
+        name: "NVIDIA Jetson Orin Nano (Ampere, 8 GB)".to_string(),
+        compute_units: 8,
+        memory_levels: vec![
+            MemoryLevel {
+                kind: MemoryLevelKind::SharedMemory,
+                // Conservative usable shared memory per kernel is ~96 KiB/SM on Orin Nano (some reserved by CUDA/L1)
+                capacity: 96 * 1024,
+                bandwidth: None,
+                latency: None,
+            },
+            MemoryLevel {
+                kind: MemoryLevelKind::DeviceMemory,
+                capacity: 8 * 1024 * 1024 * 1024,
+                // LPDDR5, real-world sustained bandwidth is lower, but theoretical up to ~102.4 GB/s
+                // https://developer.nvidia.com/embedded/jetson-orin-nano-datasheet says LPDDR5 (LP-DDR5 128-bit 68.3 GB/s for 8GB model), but will use 68.3 GB/s
+                bandwidth: Some(68_300_000_000.0),
+                latency: None,
+            },
+        ],
+    }
 }

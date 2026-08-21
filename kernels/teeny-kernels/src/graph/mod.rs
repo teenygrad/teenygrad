@@ -16,7 +16,6 @@
 
 use std::sync::Arc;
 use teeny_core::{
-    device::hardware::HardwareProfile,
     graph::{DtypeRepr, Graph, Op, Shape},
     model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
@@ -536,39 +535,11 @@ impl RuntimeOp for InputRuntimeOp {
 // ---------------------------------------------------------------------------
 
 #[derive(Default)]
-pub struct TritonLowering {
-    /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]),
-    /// paired with the hardware facts it schedules against. Bundled together
-    /// so an optimizer can never be set without the profile it needs.
-    optimizer: Option<(Arc<dyn GraphOptimizer>, HardwareProfile)>,
-}
-
-impl std::fmt::Debug for TritonLowering {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TritonLowering")
-            .field(
-                "optimizer",
-                &self.optimizer.as_ref().map(|(opt, _)| opt.name()),
-            )
-            .finish()
-    }
-}
+pub struct TritonLowering {}
 
 impl TritonLowering {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Selects a [`GraphOptimizer`] (e.g. [`Anduin`]) to rewrite the graph before
-    /// lowering, and the [`HardwareProfile`] it schedules against. Without an
-    /// optimizer, the input graph is lowered as-is.
-    pub fn with_optimizer(
-        mut self,
-        optimizer: impl GraphOptimizer + 'static,
-        hardware: HardwareProfile,
-    ) -> Self {
-        self.optimizer = Some((Arc::new(optimizer), hardware));
-        self
     }
 }
 
@@ -680,7 +651,7 @@ impl TritonLowering {
 
         // Never run Anduin (or any optimizer) while resolving a fuse member —
         // that would recurse into pointwise fusion.
-        let lowering = TritonLowering { optimizer: None };
+        let lowering = TritonLowering::default();
         let (dag, map, _) = lowering.lower_with_mapping(&graph, LoweringMode::Inference)?;
         let dag_idx = map[out];
         let exec = dag.node(dag_idx).value.as_ref();
@@ -696,28 +667,21 @@ impl TritonLowering {
     }
 
     /// Like `lower` but also returns the graph-node-index → DAG-node-index
-    /// mapping, plus `graph` itself (the mapping is always indexed against the
-    /// *input* graph — see [`GraphOptimizer::optimize`](crate::graph::optimizer::GraphOptimizer::optimize)
-    /// for how that holds even when fusion collapses several graph nodes onto
-    /// one DAG node). Useful for middleware lowerings that need to patch
-    /// specific DAG nodes after the base lowering runs, and for placing
-    /// pretrained weights (keyed by the graph's node names) onto the right
-    /// DAG node.
+    /// mapping, plus `graph` itself (one DAG node per graph node — the
+    /// mapping is the identity permutation of `graph`'s topological order).
+    /// Useful for middleware lowerings that need to patch specific DAG nodes
+    /// after the base lowering runs, and for placing pretrained weights
+    /// (keyed by the graph's node names) onto the right DAG node.
     ///
-    /// When `self.optimizer` is set, it fully replaces this function's
-    /// ordinary per-`Op` dispatch below: a strategy like Anduin can fuse
-    /// several graph nodes into one DAG node, so its output can't be fed back
-    /// through a table that assumes one graph node per kernel.
+    /// Does not run a [`GraphOptimizer`](crate::graph::optimizer::GraphOptimizer)
+    /// (e.g. [`Anduin`]) — callers that want fusion run one over this
+    /// function's `(Dag, Vec<usize>)` output themselves, via
+    /// [`GraphOptimizer::optimize`](crate::graph::optimizer::GraphOptimizer::optimize).
     pub fn lower_with_mapping(
         &self,
         graph: &Graph,
         mode: LoweringMode,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>, Graph)> {
-        if let Some((opt, hardware)) = &self.optimizer {
-            let (dag, graph_to_dag) = opt.optimize(graph, hardware)?;
-            return Ok((dag, graph_to_dag, graph.clone()));
-        }
-
         let _ = mode; // used by #[cfg(feature = "training")] branch below
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();

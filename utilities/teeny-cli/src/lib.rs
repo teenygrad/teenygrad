@@ -27,6 +27,9 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "cuda")]
+mod hardware_profiles;
+
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
@@ -101,23 +104,40 @@ where
         "cuda" => {
             let (input, graph) = SymTensor::input(input_dtype, input_shape);
             let _ = model.call(input);
-            // Match the runtime inference path (e.g. `build_infer_fn` in vision-rs's
-            // parking-garage demo, and examples/yolo26.rs). Anduin is the Triton graph
-            // optimizer hook (currently identity until native fusion lands).
-            use teeny_kernels::graph::{Anduin, GraphOptimizer};
-            let graph = Anduin.optimize(&graph.borrow())?;
+            let graph = graph.borrow();
 
             let options = teeny_cuda::compiler::options::Options::parse(
                 args.options.as_deref().unwrap_or(""),
             )?;
 
+            // Match the runtime inference path (e.g. `build_infer_fn` in vision-rs's
+            // parking-garage demo, and examples/yolo26.rs): lower first, then run
+            // Anduin as a separate optimization step over the already-lowered DAG —
+            // lowering has no knowledge of optimization, and neither does
+            // `teeny_cuda::compiler::aot`, which only knows how to compile an
+            // already-lowered `(Dag, Vec<usize>)` pair (`compile_lowered_graph`).
+            // No live device is open here (AOT compilation may target a device
+            // other than the one doing the compiling), so the hardware profile
+            // Anduin schedules against comes from the packaged per-capability
+            // defaults in `hardware_profiles.json` instead of a query.
+            let (op_dag, graph_to_dag, lowered_graph) =
+                lowering.lower_with_mapping(&graph, mode)?;
+
+            use teeny_kernels::graph::{Anduin, GraphOptimizer};
+            let hardware = hardware_profiles::hardware_profile_for(
+                options.gpu_name,
+                options.sm_count,
+            )?;
+            let (op_dag, graph_to_dag) = Anduin.optimize(op_dag, graph_to_dag, &hardware)?;
+
             let cache_dir = args.resolve_cache_dir();
             std::fs::create_dir_all(&cache_dir)?;
 
-            teeny_cuda::compiler::aot::compile_graph(
-                &graph,
+            teeny_cuda::compiler::aot::compile_lowered_graph(
+                op_dag,
+                graph_to_dag,
+                &lowered_graph,
                 lowering,
-                mode,
                 &options,
                 cache_dir.to_string_lossy().as_ref(),
                 args.force,

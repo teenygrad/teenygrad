@@ -102,19 +102,31 @@ impl CudaGraphCompiler {
         mode: LoweringMode,
         force: bool,
     ) -> Result<CudaModel<'a>> {
-        self.compile_inner(graph, lowering, target, mode, force)
+        let (op_dag, graph_to_dag, lowered_graph) = lowering.lower_with_mapping(graph, mode)?;
+        self.compile_lowered(op_dag, graph_to_dag, &lowered_graph, lowering, target, force)
     }
 
-    fn compile_inner<'a, L: Lowering<'a>, T: Target>(
+    /// Compile an already-lowered `op_dag`/`graph_to_dag` pair (as produced by
+    /// [`Lowering::lower_with_mapping`]) to a `CudaModel`.
+    ///
+    /// Use this instead of [`Self::compile_model`] when a caller-side
+    /// optimization pass (e.g. `teeny_kernels::graph::Anduin`, run via its
+    /// own `GraphOptimizer` trait — not a dependency of this crate) has
+    /// rewritten the lowered DAG first: optimization is a separate step run
+    /// *after* lowering, not something `lowering` or this crate knows
+    /// about, so its output can't be fed back through a `Graph`-typed entry
+    /// point. `lowered_graph` and `lowering` are still needed here — not to
+    /// re-lower, but to resolve DAG node names
+    /// ([`Lowering::extra_dag_names`]) for placing pretrained weights.
+    pub fn compile_lowered<'a, L: Lowering<'a>, T: Target>(
         &self,
-        graph: &Graph,
+        op_dag: Dag<Box<dyn ExecutableOp>>,
+        graph_to_dag: Vec<usize>,
+        lowered_graph: &Graph,
         lowering: &L,
         target: &T,
-        mode: LoweringMode,
         force: bool,
     ) -> Result<CudaModel<'a>> {
-        let (op_dag, graph_to_dag, lowered_graph) = lowering.lower_with_mapping(graph, mode)?;
-
         let compiler = match target.target_cpu() {
             Some(cpu) => self.compiler.clone().with_target_cpu(cpu),
             None => self.compiler.clone(),
@@ -185,7 +197,7 @@ impl CudaGraphCompiler {
         // Lowerings that split one graph node into multiple DAG nodes (e.g.
         // Conv2d-with-bias → Conv2d + NchwBiasAdd) expose the extra mappings
         // here so that every DAG node with parameters can resolve its name.
-        for (dag_idx, name) in lowering.extra_dag_names(&lowered_graph, &graph_to_dag) {
+        for (dag_idx, name) in lowering.extra_dag_names(lowered_graph, &graph_to_dag) {
             dag_names.entry(dag_idx).or_insert(name);
         }
 
@@ -202,6 +214,6 @@ impl GraphCompiler for CudaGraphCompiler {
         mode: LoweringMode,
         force: bool,
     ) -> Result<impl Model<'a>> {
-        self.compile_inner(graph, lowering, target, mode, force)
+        self.compile_model(graph, lowering, target, mode, force)
     }
 }
