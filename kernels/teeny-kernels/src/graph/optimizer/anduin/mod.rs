@@ -41,14 +41,13 @@ mod tile_graph;
 pub use tile_graph::{TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
 
 use teeny_core::device::hardware::HardwareProfile;
-use teeny_core::graph::Graph;
 use teeny_core::model::ExecutableOp;
 use teeny_core::utils::dag::Dag;
 
 use crate::errors::Result;
 use crate::graph::optimizer::GraphOptimizer;
 
-/// Anduin: Triton-side graph rewrite before lowering.
+/// Anduin: Triton-side rewrite of an already-lowered pipeline.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Anduin;
 
@@ -59,9 +58,75 @@ impl GraphOptimizer for Anduin {
 
     fn optimize(
         &self,
-        _graph: &Graph,
+        _dag: Dag<Box<dyn ExecutableOp>>,
+        _mapping: Vec<usize>,
         _hardware: &HardwareProfile,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
         todo!("teenygrad-1nr: Welder-style TileGraph scheduler — see this module's doc comment")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Anduin;
+    use crate::graph::TritonLowering;
+    use crate::graph::optimizer::GraphOptimizer;
+    use teeny_core::graph::{DtypeRepr, Graph, Op};
+    use teeny_core::model::LoweringMode;
+
+    use crate::testing::orin_nano_hardware_profile;
+
+    #[test]
+    fn two_pointwise_then_reduction_then_pointwise_preserves_chain() {
+        // input -> relu -> sigmoid -> reduce_sum -> relu
+        //          \_____________/    \________/    \__/
+        //          2 pointwise ops     reduction   pointwise
+        //
+        // Output:
+        // input -> (relu -> sigmoid -> reduce_sum) -> relu
+        //          \____________________________/     \__/
+        //                  fused node               pointwise
+        //
+        let mut graph = Graph::new();
+        let shape = vec![Some(2048), Some(4096)];
+        let reduced_shape = vec![Some(2048)];
+
+        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape.clone());
+        let relu = graph.add_node(Op::Relu, vec![input], DtypeRepr::F32, shape.clone());
+        let sigmoid = graph.add_node(Op::Sigmoid, vec![relu], DtypeRepr::F32, shape.clone());
+        let reduce_sum = graph.add_node(
+            Op::ReduceSum {
+                keepdims: false,
+                noop_with_empty_axes: false,
+            },
+            vec![sigmoid],
+            DtypeRepr::F32,
+            reduced_shape.clone(),
+        );
+        graph.add_node(Op::Relu, vec![reduce_sum], DtypeRepr::F32, reduced_shape);
+
+        // Anchor the "won't fit on a single SM" claim above against a real
+        // two-level hardware profile: the full [2048, 4096] F32 tile is
+        // bigger than shared memory but comfortably smaller than device
+        // memory.
+        let profile = orin_nano_hardware_profile();
+
+        let lowering = TritonLowering::default();
+        let (dag, mapping, _) = lowering
+            .lower_with_mapping(&graph, LoweringMode::Inference)
+            .expect("lowering should not fail here");
+
+        let anduin = Anduin;
+        let result = anduin.optimize(dag, mapping, &profile);
+        let (_, elements) = result.expect("Anduin optimizer should not fail here");
+
+        // The pointwise and reduction nodes should be fused into a single node.
+        // the second Relu should be a separate node, as it cannot be fused with the reduction.
+        assert_eq!(
+            elements.len(),
+            2,
+            "Expected 2 elements in the optimizer output, got {}",
+            elements.len()
+        );
     }
 }

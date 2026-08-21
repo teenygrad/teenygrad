@@ -16,7 +16,8 @@
 
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_core::graph::Graph;
-use teeny_core::model::{Lowering, LoweringMode};
+use teeny_core::model::{ExecutableOp, Lowering, LoweringMode};
+use teeny_core::utils::dag::Dag;
 
 use crate::compiler::graph::CudaGraphCompiler;
 use crate::compiler::options::Options;
@@ -45,6 +46,36 @@ pub fn compile_graph<'a, L: Lowering<'a>>(
     cache_dir: &str,
     force: bool,
 ) -> Result<CudaModel<'a>> {
+    let (graph_compiler, target) = graph_compiler(options, cache_dir)?;
+    graph_compiler.compile_model(graph, lowering, &target, mode, force)
+}
+
+/// Like [`compile_graph`] but compiles an already-lowered `op_dag`/
+/// `graph_to_dag` pair instead of lowering `graph` itself.
+///
+/// For callers that run a post-lowering optimization step (e.g.
+/// `teeny_kernels::graph::Anduin`) on [`Lowering::lower_with_mapping`]'s
+/// output before compiling — optimization is a step over already-lowered
+/// ops, not something this crate or `lowering` itself knows about, so it's
+/// the caller's job to lower, optimize, then hand the result here.
+/// `lowered_graph` and `lowering` are still needed — not to re-lower, but to
+/// resolve DAG node names (see [`crate::compiler::graph::CudaGraphCompiler::compile_lowered`]).
+pub fn compile_lowered_graph<'a, L: Lowering<'a>>(
+    op_dag: Dag<Box<dyn ExecutableOp>>,
+    graph_to_dag: Vec<usize>,
+    lowered_graph: &Graph,
+    lowering: &L,
+    options: &Options,
+    cache_dir: &str,
+    force: bool,
+) -> Result<CudaModel<'a>> {
+    let (graph_compiler, target) = graph_compiler(options, cache_dir)?;
+    graph_compiler.compile_lowered(op_dag, graph_to_dag, lowered_graph, lowering, &target, force)
+}
+
+/// Shared `LlvmCompiler` + `CudaGraphCompiler` + `Target` setup for
+/// [`compile_graph`]/[`compile_optimized_graph`].
+fn graph_compiler(options: &Options, cache_dir: &str) -> Result<(CudaGraphCompiler, Target)> {
     let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
 
     let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir.to_string())?;
@@ -57,5 +88,5 @@ pub fn compile_graph<'a, L: Lowering<'a>>(
     let graph_compiler = CudaGraphCompiler::new(compiler);
     let target = Target::new(options.gpu_name);
 
-    graph_compiler.compile_model(graph, lowering, &target, mode, force)
+    Ok((graph_compiler, target))
 }

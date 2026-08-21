@@ -15,7 +15,13 @@ categories = ["command-line-utilities", "science"]
 default = []
 # Enables the "cuda" --device backend (teeny-cuda) and the smoke-test binary,
 # which AOT-compiles teeny-vision's LeNet-5 against it.
-cuda = ["dep:teeny-cuda", "dep:teeny-kernels", "dep:teeny-vision"]
+cuda = [
+    "dep:teeny-cuda",
+    "dep:teeny-kernels",
+    "dep:teeny-vision",
+    "dep:serde",
+    "dep:serde_json",
+]
 
 [lib]
 
@@ -32,3 +38,7 @@ teeny-vision = { workspace = true, optional = true }
 clap.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+# Only needed to parse the packaged hardware_profiles.json lookup table used
+# by the "cuda" --device backend.
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
