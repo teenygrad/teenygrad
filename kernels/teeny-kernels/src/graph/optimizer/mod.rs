@@ -22,7 +22,10 @@
 
 mod anduin;
 
-pub use anduin::{Anduin, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
+pub use anduin::{
+    Anduin, EdgeId, NodeId, Profiler, SimpleProfiler, TileDim, TileEdge, TileEdgeShape, TileGraph,
+    TileOp,
+};
 
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::model::ExecutableOp;

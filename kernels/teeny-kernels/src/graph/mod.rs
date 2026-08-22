@@ -23,7 +23,10 @@ use teeny_core::{
 
 pub mod optimizer;
 
-pub use optimizer::{Anduin, GraphOptimizer, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
+pub use optimizer::{
+    Anduin, EdgeId, GraphOptimizer, NodeId, Profiler, SimpleProfiler, TileDim, TileEdge,
+    TileEdgeShape, TileGraph, TileOp,
+};
 
 use crate::nn::{
     activation::extra::{

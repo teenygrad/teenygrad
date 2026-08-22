@@ -36,9 +36,11 @@
 //! themselves once the TileGraph search exists, not from per-kernel
 //! declarations.
 
+mod profiler;
 mod tile_graph;
 
-pub use tile_graph::{TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
+pub use profiler::{Profiler, SimpleProfiler};
+pub use tile_graph::{EdgeId, NodeId, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
 
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::model::ExecutableOp;
