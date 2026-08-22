@@ -42,10 +42,10 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn nadam_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
-    exp_avg_ptr: InOutPtr<T::Pointer<f32>>,
-    exp_avg_sq_ptr: InOutPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
+    exp_avg_ptr: InOut<T::Pointer<f32>>,
+    exp_avg_sq_ptr: InOut<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
     beta1: f32,

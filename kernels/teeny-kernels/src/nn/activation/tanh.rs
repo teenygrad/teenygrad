@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -26,53 +26,32 @@ use teeny_triton::triton::{
 // ── Tanh ─────────────────────────────────────────────────────────────────────
 
 /// Forward: y = tanh(x) = 2*sigmoid(2x) - 1 = 2/(1+exp(-2x)) - 1
-#[kernel(backward = TanhBackward)]
+#[tiled_kernel(backward = TanhBackward)]
 pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x: In<Tile<T, D>>,
+    y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
     let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
     // sigmoid(2x) = 1 / (1 + exp(-2x))
-    let s2x = one / (one + T::exp(neg2 * x));
-    let y = two * s2x - one;
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let s2x = one / (one + T::exp(neg2 * x.tensor));
+    let tanh = two * s2x - one;
+
+    T::store(y.tensor, tanh, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy * (1 - y²)  — sech²(x) expressed via saved output
 #[kernel]
 pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    y_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -121,8 +100,8 @@ pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x - tanh(x)
 #[kernel(backward = TanhshrinkBackward)]
 pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -164,10 +143,10 @@ pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///   Since y = x - tanh(x), we have tanh(x) = x - y, so tanh²(x) = (x-y)².
 #[kernel]
 pub fn tanhshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

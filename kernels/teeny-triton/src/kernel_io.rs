@@ -17,17 +17,17 @@
 //! Static I/O layout of a `#[kernel]` function (host-side only).
 //!
 //! Derived by `teeny_macros::kernel` from marked pointer params
-//! ([`crate::triton::InPtr`] / [`crate::triton::OutPtr`] / …). Lives outside
+//! ([`crate::triton::In`] / [`crate::triton::Out`] / …). Lives outside
 //! `triton/` so it is not embedded into the no_core DSL string.
 
 /// Role of one pointer parameter on a `#[kernel]` signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PtrRole {
-    /// [`crate::triton::InPtr`] — read-only device pointer.
+    /// [`crate::triton::In`] — read-only device pointer.
     In,
-    /// [`crate::triton::OutPtr`] — write-only device pointer.
+    /// [`crate::triton::Out`] — write-only device pointer.
     Out,
-    /// [`crate::triton::InOutPtr`] — read+write / in-place device pointer.
+    /// [`crate::triton::InOut`] — read+write / in-place device pointer.
     InOut,
     /// Unmarked `T::Pointer<_>` (no In/Out wrapper).
     Raw,

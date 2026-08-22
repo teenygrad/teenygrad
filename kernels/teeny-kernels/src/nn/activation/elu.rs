@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -26,10 +26,10 @@ use teeny_triton::triton::{
 // ── ELU ──────────────────────────────────────────────────────────────────────
 
 /// Forward: y = x if x > 0 else alpha*(exp(x) - 1)
-#[kernel(backward = EluBackward)]
+#[tiled_kernel(backward = EluBackward)]
 pub fn elu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x: In<Tile<T, D>>,
+    y: Out<Tile<T, D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -37,41 +37,20 @@ pub fn elu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let alpha_t = T::full(&[BLOCK_SIZE], D::from_f64(alpha as f64));
-    let x_pos = T::gt(x, T::zeros_like(x));
-    let y = T::where_(x_pos, x, alpha_t * (T::exp(x) - one));
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let x_pos = T::gt(x.tensor, T::zeros_like(x.tensor));
+    let elu = T::where_(x_pos, x.tensor, alpha_t * (T::exp(x.tensor) - one));
+
+    T::store(y.tensor, elu, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy if x > 0 else dy * alpha * exp(x)
-#[kernel]
+#[tiled_kernel]
 pub fn elu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy: In<Tile<T, D>>,
+    x: In<Tile<T, D>>,
+    dx: Out<Tile<T, D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -79,136 +58,57 @@ pub fn elu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let dy = T::load(
-        dy_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let alpha_t = T::full(&[BLOCK_SIZE], D::from_f64(alpha as f64));
-    let x_pos = T::gt(x, T::zeros_like(x));
-    let dx = T::where_(x_pos, dy, dy * alpha_t * T::exp(x));
-    T::store(
-        dx_ptr.add_offsets(offsets),
-        dx,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let x_pos = T::gt(x.tensor, T::zeros_like(x.tensor));
+    let grad = T::where_(x_pos, dy.tensor, dy.tensor * alpha_t * T::exp(x.tensor));
+
+    T::store(dx.tensor, grad, x.mask, &[], None, None);
 }
 
 // ── SELU ─────────────────────────────────────────────────────────────────────
 
 /// Forward: y = SCALE * (x if x > 0 else ALPHA*(exp(x) - 1))
-#[kernel(backward = SeluBackward)]
+#[tiled_kernel(backward = SeluBackward)]
 pub fn selu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x: In<Tile<T, D>>,
+    y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let scale = T::full(&[BLOCK_SIZE], D::from_f64(1.0507009873554804));
     let alpha = T::full(&[BLOCK_SIZE], D::from_f64(1.6732632423543772));
-    let x_pos = T::gt(x, T::zeros_like(x));
-    let y = scale * T::where_(x_pos, x, alpha * (T::exp(x) - one));
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let x_pos = T::gt(x.tensor, T::zeros_like(x.tensor));
+    let selu = scale * T::where_(x_pos, x.tensor, alpha * (T::exp(x.tensor) - one));
+
+    T::store(y.tensor, selu, x.mask, &[], None, None);
 }
 
 /// Backward: dx = SCALE*dy if x > 0 else dy * SCALE*ALPHA*exp(x)
-#[kernel]
+#[tiled_kernel]
 pub fn selu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy: In<Tile<T, D>>,
+    x: In<Tile<T, D>>,
+    dx: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let dy = T::load(
-        dy_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let scale = T::full(&[BLOCK_SIZE], D::from_f64(1.0507009873554804));
     let scale_alpha = T::full(&[BLOCK_SIZE], D::from_f64(1.7580993408473766));
-    let x_pos = T::gt(x, T::zeros_like(x));
-    let dx = T::where_(x_pos, dy * scale, dy * scale_alpha * T::exp(x));
-    T::store(
-        dx_ptr.add_offsets(offsets),
-        dx,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
+    let x_pos = T::gt(x.tensor, T::zeros_like(x.tensor));
+    let grad = T::where_(
+        x_pos,
+        dy.tensor * scale,
+        dy.tensor * scale_alpha * T::exp(x.tensor),
     );
+
+    T::store(dx.tensor, grad, x.mask, &[], None, None);
 }
 
 // ── CELU ─────────────────────────────────────────────────────────────────────
@@ -216,8 +116,8 @@ pub fn selu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = max(0, x) + min(0, alpha*(exp(x/alpha) - 1))
 #[kernel(backward = CeluBackward)]
 pub fn celu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -259,9 +159,9 @@ pub fn celu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy if x >= 0 else dy * exp(x/alpha)
 #[kernel]
 pub fn celu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
     alpha: f32,
 ) where

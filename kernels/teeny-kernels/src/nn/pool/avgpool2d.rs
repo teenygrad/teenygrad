@@ -42,8 +42,8 @@ pub fn avgpool2d_forward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
-    input_ptr: InPtr<T::Pointer<D>>,
-    output_ptr: OutPtr<T::Pointer<D>>,
+    input_ptr: In<T::Pointer<D>>,
+    output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -132,8 +132,8 @@ pub fn avgpool2d_backward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     H: i32,

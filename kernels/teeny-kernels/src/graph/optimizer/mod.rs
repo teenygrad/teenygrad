@@ -16,28 +16,53 @@
 
 //! Pluggable graph optimizers selected on [`super::TritonLowering`].
 //!
-//! Named after rivers of Middle-earth (Anduin, …). Strategies rewrite a
-//! [`teeny_core::graph::Graph`] into [`teeny_core::graph::Op::Custom`] nodes
-//! (see [`ops`]) before Triton lowering.
+//! Named after rivers of Middle-earth (Anduin, …). Strategies lower a
+//! [`teeny_core::graph::Graph`] straight to an executable pipeline, in place
+//! of [`super::TritonLowering`]'s ordinary per-`Op` dispatch table.
 
 mod anduin;
-pub mod ops;
 
-pub use anduin::Anduin;
-pub use ops::PointwiseFuse;
+pub use anduin::{
+    Anduin, EdgeId, NodeId, Profiler, SimpleProfiler, TileDim, TileEdge, TileEdgeShape, TileGraph,
+    TileOp,
+};
 
-use teeny_core::graph::Graph;
+use teeny_core::device::hardware::HardwareProfile;
+use teeny_core::model::ExecutableOp;
+use teeny_core::utils::dag::Dag;
 
 use crate::errors::Result;
 
-/// Backend-specific graph rewrite applied before Triton lowering.
+/// Backend-specific strategy that rewrites an already-lowered pipeline,
+/// e.g. by replacing a run of ops with a single fused [`ExecutableOp`].
 ///
-/// Attach with [`super::TritonLowering::with_optimizer`]. Multiple strategies
-/// (Anduin, later peers) implement this trait; the lowering chooses which one runs.
+/// Run after [`super::TritonLowering::lower_with_mapping`]: lowering has no
+/// knowledge of optimization, so callers that want fusion take its
+/// `(Dag, Vec<usize>)` output and feed it through a chosen strategy's
+/// [`optimize`](GraphOptimizer::optimize) themselves. Multiple strategies
+/// (Anduin, later peers) implement this trait.
 pub trait GraphOptimizer: Send + Sync {
     /// Short stable name (e.g. `"anduin"`).
     fn name(&self) -> &str;
 
-    /// Rewrite `graph` for this strategy. Must be pure w.r.t. the input graph.
-    fn optimize(&self, graph: &Graph) -> Result<Graph>;
+    /// Rewrites `dag` (already lowered, one node per graph op) for this
+    /// strategy, using `hardware` for any scheduling/cost-model decisions
+    /// (e.g. Anduin's memory-level search). Must be pure w.r.t. the input DAG.
+    ///
+    /// `mapping` is the graph-node-index → DAG-node-index mapping that
+    /// produced `dag` (see [`super::TritonLowering::lower_with_mapping`]).
+    /// A strategy like Anduin can fuse several DAG nodes into one (a single
+    /// fused kernel) — any per-op information the strategy needs to decide
+    /// that (shape, dtype, op identity, ...) must already be recoverable
+    /// from the `ExecutableOp`s themselves, since the source [`teeny_core::graph::Graph`]
+    /// is not available here. The returned `Vec<usize>` is `mapping`
+    /// reindexed onto the *output* DAG's node indices (many-to-one where
+    /// fusion occurred) — callers need this to place pretrained weights for
+    /// named graph nodes onto the right DAG node.
+    fn optimize(
+        &self,
+        dag: Dag<Box<dyn ExecutableOp>>,
+        mapping: Vec<usize>,
+        hardware: &HardwareProfile,
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)>;
 }

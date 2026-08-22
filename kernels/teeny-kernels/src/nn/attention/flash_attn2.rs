@@ -31,7 +31,7 @@
 
 use core::marker::PhantomData;
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -49,13 +49,17 @@ use teeny_triton::triton::{
 ///   `l_ptr`  — log-sum-exp        `[BH, N_CTX_Q]`  (saved for backward)
 ///
 /// Grid: `(N_CTX_Q, BH, 1)` — one CTA per `(batch_head, q_row)` pair.
-#[kernel]
+///
+/// `acc`/`m_i`/`l_i` are the online-softmax state threaded through the
+/// `k_row` loop below — the recurrence itself (`m_new`/`exp_diff`/`p`/... )
+/// stays exactly as written in the loop body, unchanged.
+#[tiled_kernel]
 pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
-    q_ptr: InPtr<T::Pointer<D>>,
-    k_ptr: InPtr<T::Pointer<D>>,
-    v_ptr: InPtr<T::Pointer<D>>,
-    o_ptr: OutPtr<T::Pointer<D>>,
-    l_ptr: OutPtr<T::Pointer<D>>,
+    q_ptr: In<T::Pointer<D>>,
+    k_ptr: In<T::Pointer<D>>,
+    v_ptr: In<T::Pointer<D>>,
+    o_ptr: Out<T::Pointer<D>>,
+    l_ptr: Out<T::Pointer<D>>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32, // 1 / sqrt(HEAD_DIM)
@@ -172,13 +176,13 @@ pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
 /// Grid: `(N_CTX_Q, BH, 1)` — same grid shape as the forward pass.
 #[kernel]
 pub fn flash_attention2_backward_dq<T: Triton, D: Float, const HEAD_DIM: i32>(
-    q_ptr: InPtr<T::Pointer<D>>,
-    k_ptr: InPtr<T::Pointer<D>>,
-    v_ptr: InPtr<T::Pointer<D>>,
-    o_ptr: InPtr<T::Pointer<D>>,
-    do_ptr: InPtr<T::Pointer<D>>,
-    l_ptr: InPtr<T::Pointer<D>>,
-    dq_ptr: OutPtr<T::Pointer<D>>,
+    q_ptr: In<T::Pointer<D>>,
+    k_ptr: In<T::Pointer<D>>,
+    v_ptr: In<T::Pointer<D>>,
+    o_ptr: In<T::Pointer<D>>,
+    do_ptr: In<T::Pointer<D>>,
+    l_ptr: In<T::Pointer<D>>,
+    dq_ptr: Out<T::Pointer<D>>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32,
@@ -310,14 +314,14 @@ pub fn flash_attention2_backward_dq<T: Triton, D: Float, const HEAD_DIM: i32>(
 /// Grid: `(N_CTX_K, BH, 1)`.
 #[kernel]
 pub fn flash_attention2_backward_dkv<T: Triton, D: Float, const HEAD_DIM: i32>(
-    q_ptr: InPtr<T::Pointer<D>>,
-    k_ptr: InPtr<T::Pointer<D>>,
-    v_ptr: InPtr<T::Pointer<D>>,
-    o_ptr: InPtr<T::Pointer<D>>,
-    do_ptr: InPtr<T::Pointer<D>>,
-    l_ptr: InPtr<T::Pointer<D>>,
-    dk_ptr: OutPtr<T::Pointer<D>>,
-    dv_ptr: OutPtr<T::Pointer<D>>,
+    q_ptr: In<T::Pointer<D>>,
+    k_ptr: In<T::Pointer<D>>,
+    v_ptr: In<T::Pointer<D>>,
+    o_ptr: In<T::Pointer<D>>,
+    do_ptr: In<T::Pointer<D>>,
+    l_ptr: In<T::Pointer<D>>,
+    dk_ptr: Out<T::Pointer<D>>,
+    dv_ptr: Out<T::Pointer<D>>,
     n_ctx_q: i32,
     n_ctx_k: i32,
     softmax_scale: f32,

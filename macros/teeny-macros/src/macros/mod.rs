@@ -14,4 +14,6 @@
  * limitations under the License.
  */
 
+pub(crate) mod common;
 pub mod kernel;
+pub mod tiled_kernel;

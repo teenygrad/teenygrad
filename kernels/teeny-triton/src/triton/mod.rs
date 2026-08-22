@@ -21,13 +21,17 @@ use self::types::{self as ty};
 
 /// LLVM-backend-facing DSL types (the compiled counterpart of this module's `Tensor`/`Pointer`).
 pub mod llvm;
-/// In/out pointer markers for `#[kernel]` parameters (`InPtr`, `OutPtr`, …).
+/// In/out argument markers for `#[kernel]`/`#[tiled_kernel]` parameters (`In`, `Out`, …).
 pub mod ptr;
+/// `Tile<T, D>` — a tensor plus an optional boundary mask, moved between composed
+/// `#[tiled_kernel]` tile-op functions. Kernel-local only, never entry-point ABI.
+pub mod tile;
 /// Dtype/numeric-kind trait hierarchy (`Dtype`, `Num`, `Int`, `Float`) used to bound the `Triton`
 /// trait's generic methods.
 pub mod types;
 
 pub use ptr::*;
+pub use tile::Tile;
 pub use types::*;
 
 /*------------------------------ Parameter Enums ------------------------------*/
@@ -164,6 +168,14 @@ where
         + Clone
         + ty::Dtype
         + Add<Self::Pointer<D>, Output = Self::Pointer<D>>;
+    /// Handle to a kernel-lifetime indexed shared-memory buffer of dtype `D`
+    /// (teenygrad-3w0.10). Written a row at a time via
+    /// [`Triton::shared_store_index`] and read a row at a time via
+    /// [`Triton::shared_load_index`] — unlike a same-shape stage-and-readback,
+    /// the write and read indices can differ (e.g. reading columns of a
+    /// [`Triton::shared_trans`]-ed view after writing rows), which is what
+    /// makes a real cross-thread transpose possible.
+    type SharedMem<D: ty::Dtype>: Copy + Clone;
 
     /*------------------------------ Programming Model ------------------------------*/
 
@@ -767,4 +779,27 @@ where
 
     /// Compile-time print (evaluated before kernel launch).
     fn static_print(msg: &str);
+
+    /*------------------------------ Indexed Shared Memory ------------------------------*/
+
+    /// Allocate a kernel-lifetime indexed shared-memory buffer of `shape`
+    /// (row-major; currently rank-2 only downstream).
+    fn shared_alloc<D: ty::Dtype>(shape: &[i32]) -> Self::SharedMem<D>;
+
+    /// Store a 1-D tile into row `index` of `buf` (slices dim 0).
+    fn shared_store_index<D: ty::Dtype>(buf: Self::SharedMem<D>, index: i32, src: Self::Tensor<D>);
+
+    /// CTA-wide handshake between an indexed shared-memory write and a later
+    /// read — required before any thread reads back a row/column another
+    /// thread wrote.
+    fn shared_barrier();
+
+    /// Transpose a rank-2 indexed shared-memory buffer's logical row/column
+    /// order (a view, not a copy). Combined with [`Triton::shared_store_index`]/
+    /// [`Triton::shared_load_index`], this is how a row-loop transpose reads a
+    /// column after writing rows.
+    fn shared_trans<D: ty::Dtype>(buf: Self::SharedMem<D>) -> Self::SharedMem<D>;
+
+    /// Load the 1-D tile at row `index` of `buf` (slices dim 0).
+    fn shared_load_index<D: ty::Dtype>(buf: Self::SharedMem<D>, index: i32) -> Self::Tensor<D>;
 }

@@ -14,10 +14,14 @@
  * limitations under the License.
  */
 
-//! Custom ops emitted by graph optimizers (composed kernels, not first-class `Op`s).
+use super::super::super::types::{self as ty};
 
-mod pointwise_fuse;
-
-pub use pointwise_fuse::{
-    PointwiseFuse, is_bool_terminal_only, is_pointwise_fuse_dtype, probe_pointwise_op,
-};
+/// [`super::LlvmTriton`]'s dummy `SharedMem` type: a raw pointer wrapper, always null in
+/// practice (see [`super::LlvmTriton`]'s docs).
+pub struct LlvmSharedMem<D: ty::Dtype>(pub *mut D);
+impl<D: ty::Dtype> Clone for LlvmSharedMem<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<D: ty::Dtype> Copy for LlvmSharedMem<D> {}

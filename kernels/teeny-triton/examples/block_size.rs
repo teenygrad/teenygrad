@@ -44,9 +44,9 @@ use teeny_triton::triton::{
 /// The Chapter 5 kernel, unchanged. Only `BLOCK_SIZE` varies below.
 #[kernel]
 pub fn sweep_add<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    out_ptr: OutPtr<T::Pointer<D>>,
+    a_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    out_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

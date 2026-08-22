@@ -18,56 +18,32 @@
 
 use core::marker::PhantomData;
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
 };
 
-#[kernel(backward = ReluBackward)]
+#[tiled_kernel]
 pub fn relu_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x: In<Tile<T, D>>,
+    y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
+    let relu = T::maximum(x.tensor, T::zeros_like(x.tensor));
 
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let y = T::zeros_like(x);
-    let relu = T::maximum(x, y);
-
-    // Masked loads in Triton return 0 for masked-off lanes, which gives ReLU.
-    T::store(
-        y_ptr.add_offsets(offsets),
-        relu,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(y.tensor, relu, x.mask, &[], None, None);
 }
 
 #[kernel]
 pub fn relu_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    y_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
