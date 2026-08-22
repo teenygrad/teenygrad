@@ -27,12 +27,19 @@ use alloc::{string::String, vec::Vec};
 
 /// Coarse category of one level in a device's memory hierarchy.
 ///
-/// Purely descriptive today -- nothing in this crate branches on a specific
-/// variant. New variants (e.g. for CPU NUMA nodes, or Vulkan's host-visible
-/// vs. device-local heaps) are expected as new backends land, so this is
+/// Variants are declared in, and ordered (via the derived [`PartialOrd`]/
+/// [`Ord`]) by, closest/fastest/smallest to farthest/slowest/largest --
+/// `Register < SharedMemory < ... < HostMemory` -- so scheduling code can
+/// compare levels directly (e.g. "is this edge's level above shared memory")
+/// without going through a specific device's [`HardwareProfile`]. A new
+/// variant must be inserted at its correct position in the hierarchy, not
+/// just appended, or this ordering silently breaks.
+///
+/// New variants (e.g. for CPU NUMA nodes, or Vulkan's host-visible vs.
+/// device-local heaps) are expected as new backends land, so this is
 /// intentionally `#[non_exhaustive]`.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemoryLevelKind {
     /// Per-thread registers.
     Register,
@@ -144,5 +151,38 @@ mod tests {
     fn level_returns_none_for_an_absent_kind() {
         let profile = profile();
         assert!(profile.level(MemoryLevelKind::L1Cache).is_none());
+    }
+
+    #[test]
+    fn memory_level_kind_orders_fast_to_slow() {
+        use MemoryLevelKind::*;
+        assert!(Register < SharedMemory);
+        assert!(SharedMemory < L1Cache);
+        assert!(L1Cache < L2Cache);
+        assert!(L2Cache < L3Cache);
+        assert!(L3Cache < DeviceMemory);
+        assert!(DeviceMemory < HostMemory);
+    }
+
+    #[test]
+    fn memory_level_kind_sorts_into_hierarchy_order() {
+        let mut kinds = alloc::vec![
+            MemoryLevelKind::HostMemory,
+            MemoryLevelKind::Register,
+            MemoryLevelKind::L2Cache,
+            MemoryLevelKind::DeviceMemory,
+            MemoryLevelKind::SharedMemory,
+        ];
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            alloc::vec![
+                MemoryLevelKind::Register,
+                MemoryLevelKind::SharedMemory,
+                MemoryLevelKind::L2Cache,
+                MemoryLevelKind::DeviceMemory,
+                MemoryLevelKind::HostMemory,
+            ]
+        );
     }
 }
