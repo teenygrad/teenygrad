@@ -121,6 +121,28 @@ pub struct TileAxisBinding {
     /// `Some` when this axis is read through a strided/padded sliding
     /// window rather than a plain contiguous slice.
     pub window: Option<TileWindow>,
+    /// `Some(g)` when this axis's real, usable per-tile extent is its
+    /// full extent divided evenly by a compile-time constant `g` not
+    /// otherwise named anywhere (e.g. a GroupNorm-style kernel whose
+    /// per-CTA channel slice is `channels_per_group = C / G` -- `G` isn't
+    /// a graph-level shape dimension or an `extent_param` any other axis
+    /// shares, just an internal kernel constant). `TileGraph::propagate`
+    /// applies this uniformly wherever it would otherwise use this
+    /// axis's raw full extent -- both resolving `resolved` from the
+    /// output side and falling back on the input side when this axis's
+    /// `extent_param` isn't otherwise resolved -- so every consumer of
+    /// this axis's name sees the already-divided value. `None` (the
+    /// ordinary case) leaves the axis's extent as-is.
+    ///
+    /// A plain numeric divisor, not a named parameter to look up: unlike
+    /// `extent_param`/`block_const` (names resolved by matching, or left
+    /// as documentation), the divisor's actual value has to be known at
+    /// `KernelTileSpec`-construction time -- there's no per-node
+    /// parameter-value lookup elsewhere in this metadata. A real op
+    /// whose divisor varies per instance (GroupNorm's `num_groups`) must
+    /// build its `tile_spec()` fresh per call using its own instance
+    /// data, not return one shared `const`.
+    pub divide_by: Option<usize>,
 }
 
 /// Tile-shape metadata for one tensor (a pointer parameter, in the original
