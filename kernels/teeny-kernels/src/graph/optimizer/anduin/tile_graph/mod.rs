@@ -86,9 +86,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use teeny_core::device::hardware::MemoryLevelKind;
+use teeny_core::device::hardware::{HardwareProfile, MemoryLevelKind};
 use teeny_core::graph::{DtypeRepr, Shape};
-use teeny_core::model::ExecutableOp;
+use teeny_core::model::{ExecutableOp, KernelTileSpec};
 use teeny_core::utils::dag::Dag;
 
 /// Index of a node in a [`TileGraph`], stable for the lifetime of that
@@ -101,7 +101,7 @@ pub type NodeId = usize;
 /// One axis of a [`TileEdgeShape`]: either a concrete, known extent, or a
 /// named symbolic axis (a free variable shared across nodes once the
 /// propagation pass unifies matching symbols — see the module doc comment).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TileDim {
     /// A concrete, known extent.
     Fixed(usize),
@@ -152,21 +152,55 @@ pub struct TileEdge {
 impl TileEdge {
     /// This edge's data size in bytes, given the `dtype` of whichever side
     /// produced it (an edge doesn't carry its own dtype — see
-    /// [`TileOp::dtype`]). A dynamic ([`TileDim::Sym`]) axis counts as
-    /// extent 1, since no real tile shape exists yet
-    /// (`Propagate`/`TileConfig` are still unbuilt) — this makes the result
-    /// optimistic, never an overestimate, of the true size.
+    /// [`TileOp::dtype`]), using this edge's own full, untiled shape. A
+    /// dynamic ([`TileDim::Sym`]) axis counts as extent 1, since no
+    /// concrete size is known for it — this makes the result optimistic,
+    /// never an overestimate, of the true size. Use
+    /// [`TileGraph::mem_footprint_with_config`]/
+    /// [`TileGraph::mem_traffic_with_config`] instead when a
+    /// [`TileConfig`] has a tiled (smaller) shape for this edge.
     pub fn byte_size(&self, dtype: DtypeRepr) -> u64 {
-        let elements: u64 = self
-            .shape
-            .iter()
-            .map(|dim| match dim {
-                TileDim::Fixed(extent) => *extent as u64,
-                TileDim::Sym(_) => 1,
-            })
-            .product();
-        elements * dtype_bytes(dtype)
+        shape_byte_size(&self.shape, dtype)
     }
+}
+
+/// Byte size of `shape` (element count × dtype size), the shared core of
+/// [`TileEdge::byte_size`] and every config-aware footprint/traffic
+/// computation. A dynamic ([`TileDim::Sym`]) axis counts as extent 1 — see
+/// [`TileEdge::byte_size`]'s doc comment.
+fn shape_byte_size(shape: &TileEdgeShape, dtype: DtypeRepr) -> u64 {
+    let elements: u64 = shape
+        .iter()
+        .map(|dim| match dim {
+            TileDim::Fixed(extent) => *extent as u64,
+            TileDim::Sym(_) => 1,
+        })
+        .product();
+    elements * dtype_bytes(dtype)
+}
+
+/// Upper bound on tiles visited by [`TileGraph::enumerate_subtiles`]'s
+/// expanding search, mirroring Welder's own `DFS_smem_tile` visited-tile
+/// cap (2000) — kept smaller here since a power-of-two-only search space
+/// is already much smaller than Welder's any-divisor one.
+const MAX_ENUMERATED_TILES: usize = 512;
+
+/// `1, 2, 4, ..., extent.next_power_of_two()` — the candidate tile-size
+/// ladder for one [`TileDim::Fixed`] axis in
+/// [`TileGraph::enumerate_subtiles`]. See that method's doc comment for
+/// why powers of two, not arbitrary divisors.
+fn power_of_two_ladder(extent: usize) -> Vec<usize> {
+    let top = extent.max(1).next_power_of_two();
+    let mut ladder = Vec::new();
+    let mut step = 1usize;
+    loop {
+        ladder.push(step);
+        if step >= top {
+            break;
+        }
+        step *= 2;
+    }
+    ladder
 }
 
 fn dtype_bytes(dtype: DtypeRepr) -> u64 {
@@ -236,6 +270,73 @@ pub struct TileOp {
     pub name: String,
     /// Output dtype, carried over from [`ExecutableOp::output_dtype`].
     pub dtype: DtypeRepr,
+    /// Declarative tile-shape metadata, carried over from
+    /// [`ExecutableOp::tile_spec`]. `None` for the vast majority of ops
+    /// (coverage is opt-in) — [`TileGraph::propagate`] treats a missing
+    /// spec as a hard boundary.
+    pub tile_spec: Option<KernelTileSpec>,
+}
+
+/// Welder §3.2's `Propagate` output (Fig. 6): the tile shape required on
+/// each edge to satisfy a target output tile, back-propagated through a
+/// node set — see [`TileGraph::propagate`].
+///
+/// Keyed by [`EdgeId`], not [`NodeId`] — deliberately, to preserve the same
+/// per-edge flexibility [`TileEdge::memory_level`] already has (a producer
+/// with two consumers can legitimately need a different tile shape on each
+/// outgoing edge; collapsing to one shape per node would silently force
+/// them to agree). Because every incoming edge has exactly one consumer,
+/// `propagate` never needs to reconcile two different requests for the same
+/// edge — each edge gets written at most once.
+#[derive(Debug, Clone, Default)]
+pub struct TileConfig {
+    tiles: HashMap<EdgeId, TileEdgeShape>,
+}
+
+impl TileConfig {
+    /// The tile shape resolved for `id`, if `propagate` reached it.
+    pub fn get(&self, id: EdgeId) -> Option<&TileEdgeShape> {
+        self.tiles.get(&id)
+    }
+
+    /// Number of edges this config has a resolved tile shape for.
+    pub fn len(&self) -> usize {
+        self.tiles.len()
+    }
+
+    /// True if no edge has a resolved tile shape.
+    pub fn is_empty(&self) -> bool {
+        self.tiles.is_empty()
+    }
+}
+
+/// One node of the tile-config search tree [`TileGraph::sub_graph_tiling`]
+/// (Welder Fig. 7's `SubGraphTiling`) builds: a chosen [`TileConfig`] for a
+/// node set at one memory level, plus its own recursively-tiled `children`
+/// — one per distinct subgraph [`TileGraph::extract_subgraph`] finds one
+/// memory level up. `children` is empty at the top of the memory hierarchy,
+/// where the recursion terminates.
+#[derive(Debug, Clone)]
+pub struct SubGraphTilingResult {
+    pub config: TileConfig,
+    pub children: Vec<SubGraphTilingResult>,
+}
+
+/// The next-slowest [`MemoryLevelKind`] `hardware` declares above `level`,
+/// if any — `None` means `level` is already the top of `hardware`'s
+/// hierarchy. Used by [`TileGraph::sub_graph_tiling`] to walk "one memory
+/// level up" (Fig. 7's `level+1`) without assuming a fixed, contiguous set
+/// of levels.
+fn next_memory_level(
+    hardware: &HardwareProfile,
+    level: MemoryLevelKind,
+) -> Option<MemoryLevelKind> {
+    hardware
+        .memory_levels
+        .iter()
+        .map(|memory_level| memory_level.kind)
+        .filter(|&kind| kind > level)
+        .min()
 }
 
 /// An already-lowered `Dag<Box<dyn ExecutableOp>>` converted to Welder's
@@ -272,6 +373,7 @@ impl TileGraph {
             nodes.push(TileOp {
                 name: node.value.name().to_string(),
                 dtype: node.value.output_dtype(),
+                tile_spec: node.value.tile_spec(),
             });
 
             if node.parents.is_empty() {
@@ -466,7 +568,9 @@ impl TileGraph {
             }
         }
 
-        (0..self.nodes.len()).filter(|&index| visited[index]).collect()
+        (0..self.nodes.len())
+            .filter(|&index| visited[index])
+            .collect()
     }
 
     /// Every edge with exactly one endpoint in `nodes` — the boundary of
@@ -504,34 +608,49 @@ impl TileGraph {
         result
     }
 
+    /// `id`'s byte size: `config`'s tiled shape for `id` if present,
+    /// otherwise `id`'s own full, untiled shape — the one place every
+    /// config-aware footprint/traffic computation resolves "tiled if we
+    /// know it, full otherwise".
+    fn edge_byte_size(&self, id: EdgeId, dtype: DtypeRepr, config: Option<&TileConfig>) -> u64 {
+        let shape = config
+            .and_then(|config| config.get(id))
+            .unwrap_or(&self.edge(id).shape);
+        shape_byte_size(shape, dtype)
+    }
+
     /// Welder §3.1's `MemTraffic`: total bytes crossing the boundary of
-    /// `nodes` (see [`Self::boundary_edges`]), using the full untiled shape
-    /// `from_dag` captured for each edge — no distinct tile shape exists
-    /// yet (`Propagate`/`TileConfig` are still unbuilt), so this is exactly
-    /// correct only in the degenerate case where the whole tensor *is* the
-    /// tile; otherwise it's what the paper's traffic formula would compute
-    /// before multiplying by the number of tile-graphs needed to cover the
-    /// full output.
+    /// `nodes` (see [`Self::boundary_edges`]), using each edge's full
+    /// untiled shape.
     pub fn mem_traffic(&self, nodes: &[NodeId]) -> u64 {
+        self.mem_traffic_impl(nodes, None)
+    }
+
+    /// Like [`Self::mem_traffic`], but uses `config`'s tiled shape for any
+    /// boundary edge it resolves (falling back to that edge's full shape
+    /// otherwise) — the accurate version once a [`TileConfig`] exists for
+    /// `nodes` (e.g. from [`Self::propagate`]).
+    pub fn mem_traffic_with_config(&self, nodes: &[NodeId], config: &TileConfig) -> u64 {
+        self.mem_traffic_impl(nodes, Some(config))
+    }
+
+    fn mem_traffic_impl(&self, nodes: &[NodeId], config: Option<&TileConfig>) -> u64 {
         self.boundary_edges(nodes)
             .into_iter()
-            .map(|(edge_id, dtype)| self.edge(edge_id).byte_size(dtype))
+            .map(|(edge_id, dtype)| self.edge_byte_size(edge_id, dtype, config))
             .sum()
     }
 
     /// The byte size of `node`'s own output tile, read from whichever of
     /// its outgoing edges exists (they all carry the same shape — see the
     /// module doc comment) — an output boundary edge if it has no consumer
-    /// in `dag`, otherwise its first child edge.
-    fn output_byte_size(&self, node: NodeId) -> u64 {
+    /// in `dag`, otherwise its first child edge. `config`'s tiled shape is
+    /// used when present, same as [`Self::edge_byte_size`].
+    fn output_byte_size(&self, node: NodeId, config: Option<&TileConfig>) -> u64 {
         let dtype = self.node(node).dtype;
-        self.output_edge(node)
-            .map(|edge| edge.byte_size(dtype))
-            .or_else(|| {
-                self.children(node)
-                    .first()
-                    .map(|&(_, id)| self.edge(id).byte_size(dtype))
-            })
+        self.output_edge_id(node)
+            .or_else(|| self.children(node).first().map(|&(_, id)| id))
+            .map(|id| self.edge_byte_size(id, dtype, config))
             .unwrap_or(0)
     }
 
@@ -554,8 +673,20 @@ impl TileGraph {
     /// [`TileEdge`]'s doc comment on why levels can legitimately differ per
     /// consumer) — a node whose edges end up at genuinely different levels
     /// could in principle need more than one buffer, which this doesn't
-    /// model yet.
+    /// model yet. Uses each edge's full untiled shape — see
+    /// [`Self::mem_footprint_with_config`] for the tiled version.
     pub fn mem_footprint(&self, nodes: &[NodeId]) -> u64 {
+        self.mem_footprint_impl(nodes, None)
+    }
+
+    /// Like [`Self::mem_footprint`], but uses `config`'s tiled shape for
+    /// any edge it resolves (falling back to that edge's full shape
+    /// otherwise).
+    pub fn mem_footprint_with_config(&self, nodes: &[NodeId], config: &TileConfig) -> u64 {
+        self.mem_footprint_impl(nodes, Some(config))
+    }
+
+    fn mem_footprint_impl(&self, nodes: &[NodeId], config: Option<&TileConfig>) -> u64 {
         let included: HashSet<NodeId> = nodes.iter().copied().collect();
 
         let mut remaining_consumers: HashMap<NodeId, usize> = nodes
@@ -592,14 +723,14 @@ impl TileGraph {
                 .parent_edges(node)
                 .into_iter()
                 .filter(|(producer, _)| !included.contains(producer))
-                .map(|(producer, id)| self.edge(id).byte_size(self.node(producer).dtype))
+                .map(|(producer, id)| self.edge_byte_size(id, self.node(producer).dtype, config))
                 .sum::<u64>()
                 + self
-                    .input_edge(node)
-                    .map(|edge| edge.byte_size(dtype))
+                    .input_edge_id(node)
+                    .map(|id| self.edge_byte_size(id, dtype, config))
                     .unwrap_or(0);
 
-            let out_bytes = self.output_byte_size(node);
+            let out_bytes = self.output_byte_size(node, config);
 
             peak = peak.max(total_live + input_bytes + out_bytes);
 
@@ -623,6 +754,428 @@ impl TileGraph {
         }
 
         peak
+    }
+
+    /// Any one of `node`'s outgoing edges' shapes — internal or boundary,
+    /// it doesn't matter which, since every outgoing edge of a node carries
+    /// that node's own (untiled) output shape (see the module doc
+    /// comment). Every node has at least one outgoing edge by construction
+    /// (`from_dag` always gives a childless node a boundary output edge).
+    fn node_output_shape(&self, node: NodeId) -> &TileEdgeShape {
+        let &id = self.outgoing[node]
+            .first()
+            .expect("every node has at least one outgoing edge");
+        &self.edges[id.0].edge.shape
+    }
+
+    /// Welder §3.2's `Propagate` (Fig. 6): back-propagates a target output
+    /// tile through `nodes`, resolving the tile shape required on every
+    /// reachable edge. `output_tiles` seeds the tile shape requested on
+    /// `nodes`'s own boundary output edges (typically from
+    /// [`Self::boundary_edges`]/[`Self::output_edge_id`]) — this is our
+    /// analogue of Welder's `Map<Axis, Dim> config`.
+    ///
+    /// Unlike Welder's own reference implementation (which walks a symbolic
+    /// tensor-expression IR we don't have — see
+    /// `TILE_GRAPH_SCHEDULING_PLAN.md`), this resolves axes by declared
+    /// name: each node's [`TileOp::tile_spec`] names its axes with
+    /// `extent_param` strings, and any two axes sharing a name (anywhere,
+    /// input or output, any tensor) are the same free variable. Seeding a
+    /// node's output tile resolves every axis on its parent edges that
+    /// shares one of those names; an axis whose name never appears in the
+    /// output (e.g. a reduction axis) is *correctly* left unresolved — its
+    /// tile size isn't derivable from the output alone, so this falls back
+    /// to that axis's full, untiled extent (never smaller than needed,
+    /// same optimistic-not-pessimistic philosophy as
+    /// [`TileEdge::byte_size`]).
+    ///
+    /// Degrades to a hard boundary — stops there, doesn't guess — at any
+    /// node with no declared `tile_spec` (the overwhelming majority; see
+    /// [`teeny_core::model::KernelTileSpec`]'s doc comment on coverage
+    /// being opt-in), whose output tile's axis count doesn't match its
+    /// spec's declared output rank, or whose parent-edge count doesn't
+    /// match its spec's declared input count (the same positional
+    /// producer-to-spec correspondence limitation the design this revives
+    /// already had — see that module's doc comment).
+    pub fn propagate(
+        &self,
+        nodes: &[NodeId],
+        output_tiles: &HashMap<EdgeId, TileEdgeShape>,
+    ) -> TileConfig {
+        let included: HashSet<NodeId> = nodes.iter().copied().collect();
+        let mut tiles: HashMap<EdgeId, TileEdgeShape> = output_tiles.clone();
+
+        for node in self.topological_sort().into_iter().rev() {
+            if !included.contains(&node) {
+                continue;
+            }
+            let Some(spec) = &self.node(node).tile_spec else {
+                continue; // hard boundary: no declared spec
+            };
+            let Some(output_spec) = spec.outputs.first() else {
+                continue; // hard boundary: spec declares no output
+            };
+
+            // This node's own required output tile: any outgoing edge
+            // already resolved (a boundary output edge, or an internal
+            // edge to an already-processed in-set consumer), falling back
+            // to the full untiled shape if nothing downstream constrained
+            // it yet.
+            let output_tile: TileEdgeShape = self
+                .children(node)
+                .iter()
+                .map(|&(_, id)| id)
+                .chain(self.output_edge_id(node))
+                .find_map(|id| tiles.get(&id).cloned())
+                .unwrap_or_else(|| self.node_output_shape(node).clone());
+
+            if output_tile.len() != output_spec.rank {
+                continue; // hard boundary: declared rank doesn't match reality
+            }
+
+            // Seed resolved extent_param -> TileDim from the output tile.
+            let resolved: HashMap<&'static str, &TileDim> = output_spec
+                .axes
+                .iter()
+                .zip(output_tile.iter())
+                .map(|(axis, dim)| (axis.extent_param, dim))
+                .collect();
+
+            let parents = self.parent_edges(node);
+            if parents.len() != spec.inputs.len() {
+                continue; // hard boundary: positional correspondence unsafe
+            }
+            for ((_, edge_id), input_spec) in parents.iter().zip(spec.inputs.iter()) {
+                let full_shape = &self.edge(*edge_id).shape;
+                if full_shape.len() != input_spec.rank {
+                    continue; // this input's declared rank doesn't match reality
+                }
+                let input_tile: TileEdgeShape = input_spec
+                    .axes
+                    .iter()
+                    .enumerate()
+                    .map(|(axis_idx, axis)| {
+                        resolved
+                            .get(axis.extent_param)
+                            .map(|&dim| dim.clone())
+                            .unwrap_or_else(|| full_shape[axis_idx].clone())
+                    })
+                    .collect();
+                tiles.insert(*edge_id, input_tile);
+            }
+        }
+
+        TileConfig { tiles }
+    }
+
+    /// Propagates `tile` as `root`'s requested output shape (seeded on
+    /// `output_edge`) through `nodes`, and scores the result as
+    /// [`Self::mem_traffic_with_config`] bytes per output element —
+    /// `None` if [`Self::mem_footprint_with_config`] exceeds `capacity`
+    /// (an invalid candidate). Lower is better. Shared by
+    /// [`Self::enumerate_subtiles`]'s base-tile growth and expanding
+    /// search, which both need exactly this.
+    fn score_candidate_tile(
+        &self,
+        nodes: &[NodeId],
+        output_edge: EdgeId,
+        capacity: u64,
+        tile: &TileEdgeShape,
+    ) -> Option<f64> {
+        let mut seed = HashMap::new();
+        seed.insert(output_edge, tile.clone());
+        let config = self.propagate(nodes, &seed);
+        if self.mem_footprint_with_config(nodes, &config) > capacity {
+            return None;
+        }
+        let traffic = self.mem_traffic_with_config(nodes, &config);
+        let elements: u64 = tile
+            .iter()
+            .map(|dim| match dim {
+                TileDim::Fixed(extent) => *extent as u64,
+                TileDim::Sym(_) => 1,
+            })
+            .product::<u64>()
+            .max(1);
+        Some(traffic as f64 / elements as f64)
+    }
+
+    /// Welder §4.1's `EnumerateSubtiles`: a Roller-style expanding search
+    /// over candidate output-tile shapes for `root` (rank/axes taken from
+    /// its own full output shape), for [`Self::sub_graph_tiling`] to
+    /// `propagate` and score.
+    ///
+    /// Candidate sizes per [`TileDim::Fixed`] axis are restricted to
+    /// powers of two — `1, 2, 4, ..., extent.next_power_of_two()` — a
+    /// hard requirement of this codebase's Triton backend (`tl.arange`
+    /// and friends need power-of-two extents; see e.g.
+    /// `next_power_of_two` at `TritonLowering`'s softmax/reduction
+    /// lowering sites, and the `BLOCK_SIZE`-must-be-a-power-of-two doc
+    /// comments across `nn::attention::flash_attn2`, `nn::norm::groupnorm`,
+    /// `nn::activation::softmax`, `nn::loss::{embedding,nll,ranking}`).
+    /// This is *preferred*, not literally universal: when an axis's
+    /// extent isn't itself a power of two, a chosen block size can still
+    /// leave a partial/masked last tile when a grid steps across that
+    /// axis — this search never needs to compute or represent that
+    /// remainder tile itself, only the candidate block size, exactly like
+    /// those existing kernels already handle it. A [`TileDim::Sym`]
+    /// (dynamic) axis isn't enumerable this way and is left unchanged in
+    /// every candidate.
+    ///
+    /// Unlike Welder's own `DFS_smem_tile` (`../Welder/python/welder/policy/default.py`),
+    /// whose candidate steps are *any* divisor of the axis extent (with a
+    /// handful of powers of two spliced in only for large primes), this
+    /// search's candidate steps are the power-of-two ladder above —
+    /// actually a *smaller* search space (`O(log extent)` per axis
+    /// instead of `O(divisor count)`).
+    ///
+    /// Algorithm, adapted from `get_base_tile` + `DFS_smem_tile`:
+    /// 1. **Base tile**: starting from all-`Fixed(1)`, grow one axis at a
+    ///    time through its ladder while [`Self::score_candidate_tile`]
+    ///    (traffic per output element) keeps improving, stopping at the
+    ///    first non-improving step — Welder's own `get_base_tile` does the
+    ///    same per-axis greedy growth (a "workload per item" metric there;
+    ///    `MemTraffic` here, since that's what this search is ultimately
+    ///    ranking candidates by anyway).
+    /// 2. **Expanding search**: from the base tile, repeatedly take the
+    ///    best-scoring visited tile not yet expanded and try bumping each
+    ///    axis to its next ladder step, scoring and recording every new
+    ///    tile — Welder's own priority-queue neighbor expansion, capped at
+    ///    [`MAX_ENUMERATED_TILES`] visited tiles (same idea as Welder's own
+    ///    2000-tile cap, just a smaller bound given this search space is
+    ///    already much smaller).
+    ///
+    /// Returns every valid (footprint ≤ `capacity`) visited tile, sorted by
+    /// ascending score (best first).
+    pub fn enumerate_subtiles(
+        &self,
+        nodes: &[NodeId],
+        root: NodeId,
+        capacity: u64,
+    ) -> Vec<TileEdgeShape> {
+        let full_shape = self.node_output_shape(root).clone();
+        let Some(output_edge) = self
+            .output_edge_id(root)
+            .or_else(|| self.children(root).first().map(|&(_, id)| id))
+        else {
+            return Vec::new();
+        };
+
+        let ladders: Vec<Vec<TileDim>> = full_shape
+            .iter()
+            .map(|dim| match dim {
+                TileDim::Fixed(extent) => power_of_two_ladder(*extent)
+                    .into_iter()
+                    .map(TileDim::Fixed)
+                    .collect(),
+                TileDim::Sym(name) => vec![TileDim::Sym(name.clone())],
+            })
+            .collect();
+
+        let mut visited: HashMap<TileEdgeShape, Option<f64>> = HashMap::new();
+        let mut queue: Vec<(f64, TileEdgeShape)> = Vec::new();
+
+        // Base tile: grow each axis independently while the score keeps
+        // improving. Every candidate tried (not just the axis's final
+        // choice) is recorded via `visit_candidate`, so it's also a
+        // returnable result, not just a stepping stone.
+        let mut base: TileEdgeShape = full_shape
+            .iter()
+            .map(|dim| match dim {
+                TileDim::Fixed(_) => TileDim::Fixed(1),
+                TileDim::Sym(name) => TileDim::Sym(name.clone()),
+            })
+            .collect();
+
+        for (axis, ladder) in ladders.iter().enumerate() {
+            if ladder.len() <= 1 {
+                continue;
+            }
+            let mut best_idx = 0usize;
+            let mut best_score = self.visit_candidate(
+                nodes,
+                output_edge,
+                capacity,
+                base.clone(),
+                &mut visited,
+                &mut queue,
+            );
+            for (idx, step) in ladder.iter().enumerate().skip(1) {
+                let mut candidate = base.clone();
+                candidate[axis] = step.clone();
+                let Some(candidate_score) = self.visit_candidate(
+                    nodes,
+                    output_edge,
+                    capacity,
+                    candidate,
+                    &mut visited,
+                    &mut queue,
+                ) else {
+                    continue;
+                };
+                let improved = match best_score {
+                    Some(best) => candidate_score < best,
+                    None => true,
+                };
+                if !improved {
+                    break;
+                }
+                best_score = Some(candidate_score);
+                best_idx = idx;
+            }
+            base[axis] = ladder[best_idx].clone();
+        }
+
+        // Expanding neighbor search: repeatedly take the best-scoring
+        // visited-but-not-yet-expanded tile and try bumping each axis to
+        // its next ladder step.
+        while !queue.is_empty() && visited.len() < MAX_ENUMERATED_TILES {
+            let (min_idx, _) = queue
+                .iter()
+                .enumerate()
+                .min_by(|a, b| a.1.0.total_cmp(&b.1.0))
+                .expect("queue is non-empty");
+            let (_, tile) = queue.remove(min_idx);
+
+            for (axis, ladder) in ladders.iter().enumerate() {
+                let Some(idx) = ladder.iter().position(|dim| *dim == tile[axis]) else {
+                    continue;
+                };
+                if idx + 1 >= ladder.len() {
+                    continue;
+                }
+                let mut neighbor = tile.clone();
+                neighbor[axis] = ladder[idx + 1].clone();
+                self.visit_candidate(
+                    nodes,
+                    output_edge,
+                    capacity,
+                    neighbor,
+                    &mut visited,
+                    &mut queue,
+                );
+            }
+        }
+
+        let mut results: Vec<(f64, TileEdgeShape)> = visited
+            .into_iter()
+            .filter_map(|(tile, score)| score.map(|score| (score, tile)))
+            .collect();
+        results.sort_by(|a, b| a.0.total_cmp(&b.0));
+        results.into_iter().map(|(_, tile)| tile).collect()
+    }
+
+    /// Scores `tile` via [`Self::score_candidate_tile`] and records it in
+    /// `visited`/`queue`, unless it's already been visited (returns the
+    /// cached score in that case, without rescoring or re-queuing). Shared
+    /// by [`Self::enumerate_subtiles`]'s base-tile growth and expanding
+    /// search, so every candidate either phase tries ends up in the
+    /// returned result set, not just each axis's final choice.
+    fn visit_candidate(
+        &self,
+        nodes: &[NodeId],
+        output_edge: EdgeId,
+        capacity: u64,
+        tile: TileEdgeShape,
+        visited: &mut HashMap<TileEdgeShape, Option<f64>>,
+        queue: &mut Vec<(f64, TileEdgeShape)>,
+    ) -> Option<f64> {
+        if let Some(&existing) = visited.get(&tile) {
+            return existing;
+        }
+        let score = self.score_candidate_tile(nodes, output_edge, capacity, &tile);
+        visited.insert(tile.clone(), score);
+        if let Some(score) = score {
+            queue.push((score, tile));
+        }
+        score
+    }
+
+    /// Welder Fig. 7's `SubGraphTiling(g, level, c)`: enumerates candidate
+    /// output tiles for `root` via [`Self::enumerate_subtiles`] (bounded by
+    /// `level`'s capacity in `hardware`), `propagate`s each into a
+    /// [`TileConfig`], keeps the `top_k` lowest-`MemTraffic` ones, and
+    /// recurses one memory level up on the (deduplicated) subgraphs
+    /// [`Self::extract_subgraph`] finds there.
+    ///
+    /// Recursion terminates at the top of `hardware`'s declared memory
+    /// hierarchy (Fig. 7's "return empty sub-graph at top level to exit
+    /// recursion") — bounded by the number of distinct
+    /// [`MemoryLevelKind`]s `hardware` declares, so this always halts.
+    ///
+    /// Deviates from the paper in one respect, noted in
+    /// `TILE_GRAPH_SCHEDULING_PLAN.md`/teenygrad-1nr.4: this always
+    /// re-derives each level's own candidates fresh from that level's own
+    /// root, rather than threading the paper's `c` (the config chosen one
+    /// level down) into the next level's candidate search — the paper's
+    /// pseudocode doesn't specify enough about how `c` constrains
+    /// `EnumerateSubtiles` to port literally, and even Welder's own
+    /// shipped implementation (`policy/default.py`'s `emit_config`) calls
+    /// its search once from a single base tile rather than implementing
+    /// this literal recursive threading.
+    pub fn sub_graph_tiling(
+        &self,
+        nodes: &[NodeId],
+        root: NodeId,
+        level: MemoryLevelKind,
+        hardware: &HardwareProfile,
+        top_k: usize,
+    ) -> Vec<SubGraphTilingResult> {
+        let capacity = hardware
+            .level(level)
+            .map(|memory_level| memory_level.capacity)
+            .unwrap_or(u64::MAX);
+
+        let Some(output_edge) = self
+            .output_edge_id(root)
+            .or_else(|| self.children(root).first().map(|&(_, id)| id))
+        else {
+            return Vec::new();
+        };
+
+        let mut scored: Vec<(TileConfig, u64)> = self
+            .enumerate_subtiles(nodes, root, capacity)
+            .into_iter()
+            .filter_map(|subtile| {
+                let mut seed = HashMap::new();
+                seed.insert(output_edge, subtile);
+                let config = self.propagate(nodes, &seed);
+                if self.mem_footprint_with_config(nodes, &config) > capacity {
+                    return None;
+                }
+                let traffic = self.mem_traffic_with_config(nodes, &config);
+                Some((config, traffic))
+            })
+            .collect();
+        scored.sort_by_key(|&(_, traffic)| traffic);
+        scored.truncate(top_k.max(1));
+
+        let next_level = next_memory_level(hardware, level);
+
+        scored
+            .into_iter()
+            .map(|(config, _)| {
+                let children = match next_level {
+                    None => Vec::new(),
+                    Some(next_level) => {
+                        let mut seen: Vec<Vec<NodeId>> = Vec::new();
+                        let mut children = Vec::new();
+                        for &node in nodes {
+                            let subgraph = self.extract_subgraph(node, next_level);
+                            if seen.contains(&subgraph) {
+                                continue;
+                            }
+                            seen.push(subgraph.clone());
+                            children.extend(
+                                self.sub_graph_tiling(&subgraph, node, next_level, hardware, top_k),
+                            );
+                        }
+                        children
+                    }
+                };
+                SubGraphTilingResult { config, children }
+            })
+            .collect()
     }
 
     /// Returns node indices in topological order (producers before
@@ -658,20 +1211,23 @@ impl TileGraph {
 
 #[cfg(test)]
 mod tests {
-    use teeny_core::device::hardware::MemoryLevelKind;
+    use std::collections::HashMap;
+
+    use teeny_core::device::hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind};
     use teeny_core::graph::{DtypeRepr, Shape};
-    use teeny_core::model::ExecutableOp;
+    use teeny_core::model::{ExecutableOp, KernelTileSpec};
     use teeny_core::utils::dag::Dag;
 
     use super::{TileDim, TileEdge, TileGraph};
 
     /// Minimal [`ExecutableOp`] test double: just enough surface
-    /// (name/shape/dtype) for [`TileGraph::from_dag`] to convert on.
+    /// (name/shape/dtype/tile_spec) for [`TileGraph::from_dag`] to convert on.
     struct TestOp {
         name: &'static str,
         dtype: DtypeRepr,
         shape: Shape,
         is_input: bool,
+        tile_spec: Option<KernelTileSpec>,
     }
 
     impl ExecutableOp for TestOp {
@@ -699,6 +1255,10 @@ mod tests {
             self.dtype
         }
 
+        fn tile_spec(&self) -> Option<KernelTileSpec> {
+            self.tile_spec
+        }
+
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
@@ -710,6 +1270,22 @@ mod tests {
             dtype: DtypeRepr::F32,
             shape,
             is_input,
+            tile_spec: None,
+        })
+    }
+
+    fn op_with_tile_spec(
+        name: &'static str,
+        shape: Shape,
+        is_input: bool,
+        tile_spec: KernelTileSpec,
+    ) -> Box<dyn ExecutableOp> {
+        Box::new(TestOp {
+            name,
+            dtype: DtypeRepr::F32,
+            shape,
+            is_input,
+            tile_spec: Some(tile_spec),
         })
     }
 
@@ -1044,17 +1620,11 @@ mod tests {
         let mut tile_graph = TileGraph::from_dag(&dag);
         let id = tile_graph.children(x)[0].1;
 
-        assert_eq!(
-            tile_graph.connect_level(id),
-            MemoryLevelKind::DeviceMemory
-        );
+        assert_eq!(tile_graph.connect_level(id), MemoryLevelKind::DeviceMemory);
 
         tile_graph.set_connect(id, MemoryLevelKind::SharedMemory);
 
-        assert_eq!(
-            tile_graph.connect_level(id),
-            MemoryLevelKind::SharedMemory
-        );
+        assert_eq!(tile_graph.connect_level(id), MemoryLevelKind::SharedMemory);
         assert_eq!(
             tile_graph.edge(id).memory_level,
             MemoryLevelKind::SharedMemory
@@ -1295,5 +1865,516 @@ mod tests {
         // a (16) + b (16) + c (16) all resident when c is allocated,
         // since a can't be freed until the excluded e is done with it.
         assert_eq!(tile_graph.mem_footprint(&[a, b, c]), 48);
+    }
+
+    use teeny_core::model::{TensorTileSpec, TileAxisBinding};
+
+    /// A flat, single-axis elementwise spec: input and output share one
+    /// `extent_param` name (`"n_elements"`), so resolving the output
+    /// resolves the input with no arithmetic at all.
+    fn flat_unary_spec() -> KernelTileSpec {
+        const AXIS: TileAxisBinding = TileAxisBinding {
+            dim: 0,
+            block_const: "BLOCK_SIZE",
+            extent_param: "n_elements",
+            window: None,
+        };
+        const X: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 1,
+            axes: &[AXIS],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        const Y: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            ..X
+        };
+        KernelTileSpec {
+            inputs: &[X],
+            outputs: &[Y],
+        }
+    }
+
+    /// GEMM-shaped: `a_ptr: [M, K]`, `b_ptr: [K, N]`, `c_ptr: [M, N]` —
+    /// mirrors the real `MATMUL_TILE_SPEC` in `graph/mod.rs`.
+    fn gemm_shaped_spec() -> KernelTileSpec {
+        const A: TensorTileSpec = TensorTileSpec {
+            param: "a_ptr",
+            rank: 2,
+            axes: &[
+                TileAxisBinding {
+                    dim: 0,
+                    block_const: "BLOCK_M",
+                    extent_param: "M",
+                    window: None,
+                },
+                TileAxisBinding {
+                    dim: 1,
+                    block_const: "BLOCK_K",
+                    extent_param: "K",
+                    window: None,
+                },
+            ],
+            reduction_axis: Some(1),
+            untiled_dims: &[],
+        };
+        const B: TensorTileSpec = TensorTileSpec {
+            param: "b_ptr",
+            rank: 2,
+            axes: &[
+                TileAxisBinding {
+                    dim: 0,
+                    block_const: "BLOCK_K",
+                    extent_param: "K",
+                    window: None,
+                },
+                TileAxisBinding {
+                    dim: 1,
+                    block_const: "BLOCK_N",
+                    extent_param: "N",
+                    window: None,
+                },
+            ],
+            reduction_axis: Some(0),
+            untiled_dims: &[],
+        };
+        const C: TensorTileSpec = TensorTileSpec {
+            param: "c_ptr",
+            rank: 2,
+            axes: &[
+                TileAxisBinding {
+                    dim: 0,
+                    block_const: "BLOCK_M",
+                    extent_param: "M",
+                    window: None,
+                },
+                TileAxisBinding {
+                    dim: 1,
+                    block_const: "BLOCK_N",
+                    extent_param: "N",
+                    window: None,
+                },
+            ],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        KernelTileSpec {
+            inputs: &[A, B],
+            outputs: &[C],
+        }
+    }
+
+    #[test]
+    fn propagate_resolves_flat_elementwise_identity() {
+        // input(a) -> relu(b), b declares flat_unary_spec. Seeding b's
+        // output tile at 500 (smaller than its full 1000) must resolve the
+        // a -> b edge to that same 500, via the shared "n_elements" name.
+        let full_shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec("b", full_shape, false, flat_unary_spec()));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(500)]);
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        assert_eq!(config.get(ab_edge), Some(&vec![TileDim::Fixed(500)]));
+    }
+
+    #[test]
+    fn propagate_leaves_the_reduction_axis_at_its_full_extent() {
+        // a: [M=256, K=96] -> c; b: [K=96, N=128] -> c; c = matmul(a, b).
+        // Seeding c's output tile at [M=64, N=32] must resolve M on a and N
+        // on b, while K (no output-side counterpart) falls back to its own
+        // full extent (96) on both — not derived from M, N, or each other.
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(256), Some(96)], true));
+        let b = dag.add_node(op("b", vec![Some(96), Some(128)], true));
+        let c = dag.add_node(op_with_tile_spec(
+            "c",
+            vec![Some(256), Some(128)],
+            false,
+            gemm_shaped_spec(),
+        ));
+        dag.add_edge(a, c);
+        dag.add_edge(b, c);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ac_edge = tile_graph.children(a)[0].1;
+        let bc_edge = tile_graph.children(b)[0].1;
+        let c_output_edge = tile_graph
+            .output_edge_id(c)
+            .expect("c has no consumer in dag");
+
+        let mut seed = HashMap::new();
+        seed.insert(c_output_edge, vec![TileDim::Fixed(64), TileDim::Fixed(32)]);
+        let config = tile_graph.propagate(&[a, b, c], &seed);
+
+        assert_eq!(
+            config.get(ac_edge),
+            Some(&vec![TileDim::Fixed(64), TileDim::Fixed(96)])
+        );
+        assert_eq!(
+            config.get(bc_edge),
+            Some(&vec![TileDim::Fixed(96), TileDim::Fixed(32)])
+        );
+    }
+
+    #[test]
+    fn propagate_stops_at_a_node_with_no_declared_tile_spec() {
+        // a -> b, but b has no tile_spec: propagate must not guess a's
+        // required tile shape from b's seeded output tile.
+        let shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", shape.clone(), true));
+        let b = dag.add_node(op("b", shape, false));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph.output_edge_id(b).unwrap();
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(500)]);
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        assert_eq!(config.get(b_output_edge), Some(&vec![TileDim::Fixed(500)]));
+        assert_eq!(config.get(ab_edge), None);
+    }
+
+    #[test]
+    fn propagate_resolves_a_fan_out_producers_two_edges_independently() {
+        // a feeds both b and c, each with their own flat_unary_spec and
+        // their own independently-seeded output tile. EdgeId-keying means
+        // a's two outgoing edges must resolve to two different tile
+        // shapes, with no merging between them.
+        let full_shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec(
+            "b",
+            full_shape.clone(),
+            false,
+            flat_unary_spec(),
+        ));
+        dag.add_edge(a, b);
+        let c = dag.add_node(op_with_tile_spec("c", full_shape, false, flat_unary_spec()));
+        dag.add_edge(a, c);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let a_children = tile_graph.children(a);
+        let ab_edge = a_children.iter().find(|&&(n, _)| n == b).unwrap().1;
+        let ac_edge = a_children.iter().find(|&&(n, _)| n == c).unwrap().1;
+        let b_output_edge = tile_graph.output_edge_id(b).unwrap();
+        let c_output_edge = tile_graph.output_edge_id(c).unwrap();
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(10)]);
+        seed.insert(c_output_edge, vec![TileDim::Fixed(20)]);
+        let config = tile_graph.propagate(&[a, b, c], &seed);
+
+        assert_eq!(config.get(ab_edge), Some(&vec![TileDim::Fixed(10)]));
+        assert_eq!(config.get(ac_edge), Some(&vec![TileDim::Fixed(20)]));
+    }
+
+    #[test]
+    fn propagate_of_an_empty_node_set_returns_the_seed_unchanged() {
+        let tile_graph = TileGraph::default();
+        let dummy_edge = {
+            // Build a throwaway single-node graph just to mint a valid
+            // EdgeId to seed with -- propagate on an empty node set must
+            // not touch it either way.
+            let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+            dag.add_node(op("a", vec![Some(4)], true));
+            let g = TileGraph::from_dag(&dag);
+            g.output_edge_id(0).unwrap()
+        };
+
+        let mut seed = HashMap::new();
+        seed.insert(dummy_edge, vec![TileDim::Fixed(4)]);
+        let config = tile_graph.propagate(&[], &seed);
+
+        assert_eq!(config.len(), 1);
+        assert_eq!(config.get(dummy_edge), Some(&vec![TileDim::Fixed(4)]));
+    }
+
+    fn two_level_hardware(register_capacity: u64, device_capacity: u64) -> HardwareProfile {
+        HardwareProfile {
+            name: "test-device".to_string(),
+            compute_units: 1,
+            memory_levels: vec![
+                MemoryLevel {
+                    kind: MemoryLevelKind::Register,
+                    capacity: register_capacity,
+                    bandwidth: None,
+                    latency: None,
+                },
+                MemoryLevel {
+                    kind: MemoryLevelKind::DeviceMemory,
+                    capacity: device_capacity,
+                    bandwidth: None,
+                    latency: None,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn enumerate_subtiles_only_returns_power_of_two_extents() {
+        // 100 isn't a power of two -- every candidate extent must still be.
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(100)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX);
+
+        assert!(!results.is_empty());
+        for shape in &results {
+            let TileDim::Fixed(extent) = shape[0] else {
+                panic!("expected a Fixed axis");
+            };
+            assert!(extent.is_power_of_two(), "{extent} is not a power of two");
+        }
+    }
+
+    #[test]
+    fn enumerate_subtiles_never_exceeds_capacity() {
+        // a is isolated: an F32 [64] input boundary edge (256B, fixed,
+        // unaffected by the candidate) and an output boundary edge (the
+        // seeded candidate). Capacity 320 = 256 + 64B admits candidate
+        // extents up to 16 (16 * 4B = 64B) but not 32 (128B -> 384B total).
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let results = tile_graph.enumerate_subtiles(&[a], a, 320);
+
+        assert!(!results.is_empty());
+        for shape in &results {
+            let TileDim::Fixed(extent) = shape[0] else {
+                panic!("expected a Fixed axis");
+            };
+            assert!(
+                extent <= 16,
+                "extent {extent} should have exceeded capacity"
+            );
+        }
+    }
+
+    #[test]
+    fn enumerate_subtiles_treats_a_dynamic_axis_as_unenumerable() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![None, Some(8)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let dynamic_axis = tile_graph.output_edge(a).unwrap().shape[0].clone();
+        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX);
+
+        assert!(!results.is_empty());
+        for shape in &results {
+            assert_eq!(shape[0], dynamic_axis);
+            assert!(matches!(shape[1], TileDim::Fixed(extent) if extent.is_power_of_two()));
+        }
+    }
+
+    #[test]
+    fn enumerate_subtiles_is_sorted_by_ascending_score() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let output_edge = tile_graph.output_edge_id(a).unwrap();
+        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX);
+
+        assert!(
+            results.len() > 1,
+            "need at least 2 results to check ordering"
+        );
+        let scores: Vec<f64> = results
+            .iter()
+            .map(|tile| {
+                tile_graph
+                    .score_candidate_tile(&[a], output_edge, u64::MAX, tile)
+                    .expect("every returned tile should still score as valid")
+            })
+            .collect();
+        for pair in scores.windows(2) {
+            assert!(
+                pair[0] <= pair[1],
+                "results are not sorted ascending: {scores:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mem_traffic_with_config_uses_the_configured_shape_when_present() {
+        let full_shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec("b", full_shape, false, flat_unary_spec()));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let b_output_edge = tile_graph.output_edge_id(b).unwrap();
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(500)]);
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let full_traffic = tile_graph.mem_traffic(&[a, b]);
+        let tiled_traffic = tile_graph.mem_traffic_with_config(&[a, b], &config);
+
+        assert_eq!(full_traffic, 8000); // (1000 + 1000) * 4B
+        // a's own input boundary edge is a *different* edge from a -> b
+        // (which propagate did resolve to 500) -- a has no tile_spec, so
+        // propagate never touches it, and it stays at its full 1000 * 4B.
+        // Only b's output boundary edge (the seeded one) shrinks.
+        assert_eq!(tiled_traffic, 6000); // 1000*4B (a's full input) + 500*4B (b's configured output)
+    }
+
+    #[test]
+    fn mem_traffic_with_config_falls_back_to_full_shape_for_unconfigured_edges() {
+        // a is isolated and has no tile_spec, so propagate resolves only
+        // the seeded output edge -- a's input boundary edge stays
+        // unconfigured and must fall back to its full shape.
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let output_edge = tile_graph.output_edge_id(a).unwrap();
+
+        let mut seed = HashMap::new();
+        seed.insert(output_edge, vec![TileDim::Fixed(2)]);
+        let config = tile_graph.propagate(&[a], &seed);
+        assert_eq!(config.len(), 1, "only the seeded edge should be resolved");
+
+        // input edge: full 64 * 4B = 256B (unconfigured); output edge:
+        // configured 2 * 4B = 8B.
+        assert_eq!(tile_graph.mem_traffic_with_config(&[a], &config), 264);
+    }
+
+    #[test]
+    fn mem_footprint_with_config_uses_the_configured_shape() {
+        let full_shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec("b", full_shape, false, flat_unary_spec()));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let b_output_edge = tile_graph.output_edge_id(b).unwrap();
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(500)]);
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let full_footprint = tile_graph.mem_footprint(&[a, b]);
+        let tiled_footprint = tile_graph.mem_footprint_with_config(&[a, b], &config);
+
+        assert!(
+            tiled_footprint < full_footprint,
+            "tiled footprint {tiled_footprint} should be smaller than full {full_footprint}"
+        );
+    }
+
+    #[test]
+    fn sub_graph_tiling_returns_configs_that_fit_the_level_capacity() {
+        let full_shape = vec![Some(64)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec("b", full_shape, false, flat_unary_spec()));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        // a has no tile_spec, so a's own input boundary edge (64 * 4B =
+        // 256B) is a fixed floor on every candidate's footprint,
+        // regardless of the chosen tile -- capacity must clear it.
+        let hardware = two_level_hardware(2000, u64::MAX);
+
+        let results =
+            tile_graph.sub_graph_tiling(&[a, b], b, MemoryLevelKind::Register, &hardware, 5);
+
+        assert!(!results.is_empty());
+        for result in &results {
+            let footprint = tile_graph.mem_footprint_with_config(&[a, b], &result.config);
+            assert!(
+                footprint <= 2000,
+                "footprint {footprint} exceeds capacity 2000"
+            );
+        }
+    }
+
+    #[test]
+    fn sub_graph_tiling_has_no_children_at_the_top_of_the_hierarchy() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let hardware = HardwareProfile {
+            name: "single-level".to_string(),
+            compute_units: 1,
+            memory_levels: vec![MemoryLevel {
+                kind: MemoryLevelKind::DeviceMemory,
+                capacity: u64::MAX,
+                bandwidth: None,
+                latency: None,
+            }],
+        };
+
+        let results =
+            tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::DeviceMemory, &hardware, 3);
+
+        assert!(!results.is_empty());
+        for result in &results {
+            assert!(result.children.is_empty());
+        }
+    }
+
+    #[test]
+    fn sub_graph_tiling_recurses_one_level_when_a_higher_level_exists() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let hardware = two_level_hardware(u64::MAX, u64::MAX);
+
+        let results = tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::Register, &hardware, 3);
+
+        assert!(!results.is_empty());
+        for result in &results {
+            assert!(
+                !result.children.is_empty(),
+                "expected recursion into DeviceMemory"
+            );
+            for child in &result.children {
+                assert!(
+                    child.children.is_empty(),
+                    "DeviceMemory is the top declared level, recursion should stop there"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sub_graph_tiling_respects_top_k() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let hardware = two_level_hardware(u64::MAX, u64::MAX);
+
+        let top_1 = tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::Register, &hardware, 1);
+        let top_3 = tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::Register, &hardware, 3);
+
+        assert_eq!(top_1.len(), 1);
+        assert_eq!(top_3.len(), 3);
     }
 }

@@ -23,6 +23,10 @@ use crate::{
     utils::dag::Dag,
 };
 
+mod tile_spec;
+
+pub use tile_spec::{KernelTileSpec, TensorTileSpec, TileAxisBinding, TileWindow};
+
 /// A node index within a compiled model's DAG.
 pub type NodeId = usize;
 /// Raw device pointer alias used by runtime arg-packing.
@@ -349,6 +353,15 @@ pub trait ExecutableOp {
     fn output_dtype(&self) -> DtypeRepr;
     /// Returns the runtime dispatch object for this op, or `None` for Input nodes.
     fn runtime_op(&self) -> Option<Arc<dyn RuntimeOp>> {
+        None
+    }
+
+    /// Declarative tile-shape metadata for this op's kernel, if any has been
+    /// authored (see [`KernelTileSpec`]'s doc comment). `None` by default —
+    /// `TileGraph::propagate` (`teeny-kernels`) treats a missing spec as a
+    /// hard boundary (stops there, doesn't guess), not an error. Coverage is
+    /// opt-in per kernel, same as the design it revives.
+    fn tile_spec(&self) -> Option<KernelTileSpec> {
         None
     }
 

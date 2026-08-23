@@ -17,15 +17,18 @@
 use std::sync::Arc;
 use teeny_core::{
     graph::{DtypeRepr, Graph, Op, Shape},
-    model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
+    model::{
+        ExecutableOp, KernelTileSpec, Lowering, LoweringMode, RuntimeOp, TensorTileSpec,
+        TileAxisBinding,
+    },
     utils::dag::Dag,
 };
 
 pub mod optimizer;
 
 pub use optimizer::{
-    Anduin, EdgeId, GraphOptimizer, NodeId, Profiler, SimpleProfiler, TileDim, TileEdge,
-    TileEdgeShape, TileGraph, TileOp,
+    Anduin, EdgeId, GraphOptimizer, NodeId, Profiler, SimpleProfiler, SubGraphTilingResult,
+    TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp, schedule_graph,
 };
 
 use crate::nn::{
@@ -141,6 +144,112 @@ use crate::nn::norm::batchnorm::{
 };
 
 // ---------------------------------------------------------------------------
+// Tile-shape metadata (teenygrad-1nr.2) — declarative KernelTileSpecs for a
+// first proof-of-concept slice of ops, consumed by TileGraph::propagate.
+// See teeny_core::model::KernelTileSpec's doc comment for the design.
+// ---------------------------------------------------------------------------
+
+/// A flat, single-axis elementwise op: input and output share one
+/// `extent_param` name (`"n_elements"`), so propagating an output tile
+/// resolves the input's tile with no arithmetic at all.
+const RELU_TILE_SPEC: KernelTileSpec = {
+    const AXIS: TileAxisBinding = TileAxisBinding {
+        dim: 0,
+        block_const: "BLOCK_SIZE",
+        extent_param: "n_elements",
+        window: None,
+    };
+    const X: TensorTileSpec = TensorTileSpec {
+        param: "x_ptr",
+        rank: 1,
+        axes: &[AXIS],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    const Y: TensorTileSpec = TensorTileSpec {
+        param: "y_ptr",
+        ..X
+    };
+    KernelTileSpec {
+        inputs: &[X],
+        outputs: &[Y],
+    }
+};
+
+/// GEMM-shaped: `a_ptr: [M, K]`, `b_ptr: [K, N]`, `c_ptr: [M, N]`. `M`/`N`
+/// are shared with `c_ptr`'s own axes, so propagating `c_ptr`'s chosen
+/// output tile resolves them on `a_ptr`/`b_ptr` too; `K` has no output-side
+/// counterpart and is correctly left unresolved (its tile size is a search
+/// decision, not something `Propagate` derives — see the module doc
+/// comment on `teeny_core::model::tile_spec`).
+const MATMUL_TILE_SPEC: KernelTileSpec = {
+    const A: TensorTileSpec = TensorTileSpec {
+        param: "a_ptr",
+        rank: 2,
+        axes: &[
+            TileAxisBinding {
+                dim: 0,
+                block_const: "BLOCK_M",
+                extent_param: "M",
+                window: None,
+            },
+            TileAxisBinding {
+                dim: 1,
+                block_const: "BLOCK_K",
+                extent_param: "K",
+                window: None,
+            },
+        ],
+        reduction_axis: Some(1),
+        untiled_dims: &[],
+    };
+    const B: TensorTileSpec = TensorTileSpec {
+        param: "b_ptr",
+        rank: 2,
+        axes: &[
+            TileAxisBinding {
+                dim: 0,
+                block_const: "BLOCK_K",
+                extent_param: "K",
+                window: None,
+            },
+            TileAxisBinding {
+                dim: 1,
+                block_const: "BLOCK_N",
+                extent_param: "N",
+                window: None,
+            },
+        ],
+        reduction_axis: Some(0),
+        untiled_dims: &[],
+    };
+    const C: TensorTileSpec = TensorTileSpec {
+        param: "c_ptr",
+        rank: 2,
+        axes: &[
+            TileAxisBinding {
+                dim: 0,
+                block_const: "BLOCK_M",
+                extent_param: "M",
+                window: None,
+            },
+            TileAxisBinding {
+                dim: 1,
+                block_const: "BLOCK_N",
+                extent_param: "N",
+                window: None,
+            },
+        ],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    KernelTileSpec {
+        inputs: &[A, B],
+        outputs: &[C],
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Dtype dispatch macros
 //
 // Each macro matches a DtypeRepr at runtime, instantiates the kernel struct
@@ -173,6 +282,7 @@ macro_rules! make_num_kernel {
             kernel_source: ks,
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
+            tile_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -217,6 +327,7 @@ macro_rules! make_num_kernel {
             kernel_source: ks,
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
+            tile_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -243,6 +354,7 @@ macro_rules! make_float_kernel {
             kernel_source: ks,
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
+            tile_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -271,6 +383,7 @@ macro_rules! make_float_kernel {
             kernel_source: ks,
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
+            tile_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -295,6 +408,7 @@ fn exec_from(
         kernel_source: inst.source,
         kernel_body: inst.kernel_body,
         pointwise_fuse_block_size: inst.pointwise_fuse_block_size,
+        tile_spec: None,
         shape,
         dtype,
         #[cfg(feature = "training")]
@@ -336,6 +450,11 @@ pub struct KernelExecutable {
     pub runtime_op: Arc<dyn RuntimeOp>,
     /// `Some(BLOCK_SIZE)` when this kernel passes the pointwise-fuse probe.
     pub pointwise_fuse_block_size: Option<i32>,
+    /// Declarative tile-shape metadata (see [`teeny_core::model::KernelTileSpec`]),
+    /// if this op has been annotated. `None` for the vast majority of ops —
+    /// coverage is opt-in, hand-authored per op at the `TritonLowering`
+    /// construction site, not derived.
+    pub tile_spec: Option<KernelTileSpec>,
     /// Backward kernel source. Empty if this op has no backward.
     #[cfg(feature = "training")]
     pub backward_kernel_source: String,
@@ -375,6 +494,10 @@ impl ExecutableOp for KernelExecutable {
         } else {
             Some(Arc::clone(&self.runtime_op))
         }
+    }
+
+    fn tile_spec(&self) -> Option<KernelTileSpec> {
+        self.tile_spec
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -749,6 +872,7 @@ impl TritonLowering {
                     kernel_source: stats_src,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
+                    tile_spec: None,
                     shape: vec![Some(2 * c)],
                     dtype: node.dtype,
                     backward_kernel_source: String::new(),
@@ -805,6 +929,7 @@ impl TritonLowering {
                     kernel_source: norm_src,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
+                    tile_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     backward_kernel_source: norm_bwd_src,
@@ -886,6 +1011,7 @@ impl TritonLowering {
                     kernel_source: ks,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
+                    tile_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1012,6 +1138,7 @@ impl TritonLowering {
                     kernel_source: conv_ks,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
+                    tile_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1067,6 +1194,7 @@ impl TritonLowering {
                     kernel_source: bias_ks,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
+                    tile_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1089,6 +1217,7 @@ impl TritonLowering {
                     kernel_source: String::new(),
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
+                    tile_spec: None,
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
@@ -1158,6 +1287,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1202,6 +1332,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1634,7 +1765,11 @@ impl TritonLowering {
                 }
 
                 // --- Activation (D: Num) ---
-                Op::Relu => make_num_kernel!(ReluForward(1024), ReluBackward(1024), node),
+                Op::Relu => {
+                    let mut exec = make_num_kernel!(ReluForward(1024), ReluBackward(1024), node);
+                    exec.tile_spec = Some(RELU_TILE_SPEC);
+                    exec
+                }
 
                 // --- Activation (D: Float — dtype-dispatched) ---
                 Op::Elu { .. } => exec_from(
@@ -1866,6 +2001,7 @@ impl TritonLowering {
                         kernel_source: fwd_src,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1992,6 +2128,7 @@ impl TritonLowering {
                         kernel_source: fwd_src,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2041,6 +2178,7 @@ impl TritonLowering {
                         kernel_source: fwd_src,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2206,6 +2344,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2258,6 +2397,7 @@ impl TritonLowering {
                         kernel_source: fwd_src,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2282,6 +2422,7 @@ impl TritonLowering {
                         kernel_source: fwd_src,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2306,6 +2447,7 @@ impl TritonLowering {
                         kernel_source: fwd_src,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2341,6 +2483,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2377,6 +2520,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2429,6 +2573,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: Some(MATMUL_TILE_SPEC),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2531,6 +2676,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
+                        tile_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2858,6 +3004,7 @@ impl TritonLowering {
                             backward_kernel_source,
                             kernel_body: String::new(),
                             pointwise_fuse_block_size: None,
+                            tile_spec: None,
                             #[cfg(feature = "training")]
                             backward_entry_point,
                         })
