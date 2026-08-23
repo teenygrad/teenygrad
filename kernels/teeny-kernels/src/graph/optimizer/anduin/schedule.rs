@@ -51,8 +51,8 @@
 
 use teeny_core::device::hardware::{HardwareProfile, MemoryLevelKind};
 
-use super::profiler::Profiler;
-use super::tile_graph::TileGraph;
+use super::profile::Profiler;
+use super::tile_graph::{SubGraphTilingResult, TileGraph};
 
 /// Number of ranked candidates `schedule_graph` asks
 /// [`TileGraph::sub_graph_tiling`] for at each candidate memory level.
@@ -61,8 +61,16 @@ use super::tile_graph::TileGraph;
 const TOP_K: usize = 1;
 
 /// Welder §3.2's `GraphConnecting` (Fig. 7) — see the module doc comment.
-/// Mutates `tile_graph` in place; the schedule is the resulting
-/// `connect_level` on every edge.
+/// Mutates `tile_graph` in place: the schedule is the resulting
+/// `connect_level` on every edge, plus the winning
+/// [`SubGraphTilingResult`] recorded per edge via
+/// [`TileGraph::record_resolved_tiling`] (readable back through
+/// [`TileGraph::resolved_tiling`]) — the concrete tile shapes that scoring
+/// was based on, not just which memory level won. An earlier version of
+/// this function computed that result and then discarded it, keeping only
+/// `best_level`; §3.3's `execute_graph` needs the shapes too, so it's
+/// cached here (the winning level's `sub_graph_tiling` call is already
+/// being made regardless) rather than recomputed.
 pub fn schedule_graph(
     tile_graph: &mut TileGraph,
     hardware: &HardwareProfile,
@@ -78,13 +86,14 @@ pub fn schedule_graph(
         for edge_id in edges {
             let mut best_level = tile_graph.connect_level(edge_id);
             let mut best_latency = f64::INFINITY;
+            let mut best_result: Option<SubGraphTilingResult> = None;
 
             for memory_level in &hardware.memory_levels {
                 let level = memory_level.kind;
                 tile_graph.set_connect(edge_id, level);
 
                 let subgraph = tile_graph.extract_subgraph(node, MemoryLevelKind::Register);
-                let candidates = tile_graph.sub_graph_tiling(
+                let mut candidates = tile_graph.sub_graph_tiling(
                     &subgraph,
                     node,
                     MemoryLevelKind::Register,
@@ -99,10 +108,14 @@ pub fn schedule_graph(
                 if latency < best_latency {
                     best_latency = latency;
                     best_level = level;
+                    best_result = Some(candidates.remove(0));
                 }
             }
 
             tile_graph.set_connect(edge_id, best_level);
+            if let Some(result) = best_result {
+                tile_graph.record_resolved_tiling(edge_id, result);
+            }
         }
     }
 }
@@ -115,7 +128,7 @@ mod tests {
     use teeny_core::utils::dag::Dag;
 
     use super::*;
-    use crate::graph::optimizer::anduin::profiler::SimpleProfiler;
+    use crate::graph::optimizer::anduin::profile::SimpleProfiler;
 
     struct TestOp {
         name: &'static str,
@@ -245,5 +258,31 @@ mod tests {
         schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler);
 
         assert_eq!(tile_graph.connect_level(ab_edge), before);
+    }
+
+    #[test]
+    fn schedule_graph_records_the_winning_tiling_result_per_edge() {
+        // Before this fix, schedule_graph computed a SubGraphTilingResult
+        // per candidate level and threw all of them away, keeping only
+        // connect_level -- confirm it's now retained and covers the right
+        // node set.
+        let shape = vec![Some(4)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", shape.clone(), true));
+        let b = dag.add_node(op("b", shape, false));
+        dag.add_edge(a, b);
+
+        let mut tile_graph = TileGraph::from_dag(&dag);
+        let hardware = two_level_hardware(1e12, 1e9);
+
+        let ab_edge = tile_graph.children(a)[0].1;
+        assert!(tile_graph.resolved_tiling(ab_edge).is_none());
+
+        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler);
+
+        let resolved = tile_graph
+            .resolved_tiling(ab_edge)
+            .expect("schedule_graph should have recorded a winning result for this edge");
+        assert!(resolved.nodes.contains(&a));
     }
 }

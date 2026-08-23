@@ -105,7 +105,7 @@ downstream requires it, so it was simplified away. Future cost-model code
 (`MemFootprint`/`MemTraffic`) can test an edge's endpoints against the
 returned set directly.
 
-Also shipped, in `anduin::profiler` (its own module): a `Profiler` trait —
+Also shipped, in `anduin::profile` (its own module): a `Profiler` trait —
 Welder's `Profile` device interface (`Min(d.Profile(configs))` in
 `GraphConnecting`, Fig. 7) — and `SimpleProfiler`, a structural stand-in
 implementation:
@@ -335,7 +335,7 @@ The rest of Fig. 7's scheduler, in `tile_graph/mod.rs` and the new
   from a single base tile rather than implementing this literal recursion.
   Returns a `SubGraphTilingResult` tree; recursion terminates at the top of
   `HardwareProfile`'s declared memory hierarchy.
-- **`schedule_graph`** (`anduin/scheduler.rs`) — Welder's `GraphConnecting`,
+- **`schedule_graph`** (`anduin/schedule.rs`) — Welder's `GraphConnecting`,
   renamed (`GraphConnecting` reads like a type, not an action). One
   documented deviation: `Profiler` doesn't yet score a specific
   `TileConfig` (see its own doc comment), so this asks `sub_graph_tiling`
@@ -347,6 +347,55 @@ The rest of Fig. 7's scheduler, in `tile_graph/mod.rs` and the new
   kernels — that's still blocked on teenygrad-1nr.1 (see `Anduin::optimize`'s
   own module doc comment).
 
+## §3.3 — `execute_graph` + `codegen` scaffold (shipped, teenygrad-1nr.6)
+
+`schedule_graph` originally computed a `SubGraphTilingResult` per candidate
+memory level and kept only `connect_level`, discarding the actual chosen
+tile shapes even for the winning level. Fixed: `TileGraph` gained
+`resolved_tiling: HashMap<EdgeId, SubGraphTilingResult>` (read via
+`TileGraph::resolved_tiling`, written via `TileGraph::record_resolved_tiling`),
+and `schedule_graph` now caches the winning level's already-computed result
+instead of throwing it away.
+
+What's worth persisting turned out to be a *tree*, not a flat per-edge
+shape — Fig. 8's `ExecuteGraph` recurses through the memory hierarchy,
+needing each level's own workspace/config, which is exactly
+`SubGraphTilingResult`'s existing shape (config at this level + recursively
+tiled `children`). One gap found while wiring this up: `SubGraphTilingResult`
+had no record of *which* nodes each `children` entry covers, so the tree
+wasn't walkable — fixed by adding a `nodes: Vec<NodeId>` field, populated
+from `sub_graph_tiling`'s own `extract_subgraph` calls (already computed,
+previously discarded after the dedup check).
+
+Three small modules now hold this, split by concern:
+
+- `anduin/codegen.rs`: `ExecuteDevice` (`allocate`/`load_tiles`/
+  `compute_tile`/`store_tiles`, Table 1) and `execute_graph`, the
+  structural walk implementing Fig. 8's recursion over a `TileGraph`, a
+  `SubGraphTilingResult`, and an `ExecuteDevice`, terminating at the top of
+  `HardwareProfile`'s declared hierarchy (via the same `next_memory_level`
+  helper `sub_graph_tiling` uses). One documented deviation: a fused group
+  can become one child covering several nodes (`SubGraphTilingResult::children`'s
+  existing dedup-by-subgraph behavior), so `execute_graph` dispatches once
+  per *child* rather than unconditionally once per node, falling back to
+  `compute_tile` directly only for a node no child covers.
+- `anduin/trace.rs`: `TraceEvent` and `TraceDevice`, the `ExecuteDevice`
+  implementation `execute_graph` is driven with today — it records events
+  rather than doing anything real.
+- Back in `anduin/codegen.rs`: `codegen`, which runs the *other* direction
+  through the same `ExecuteDevice` interface — given an already-recorded
+  trace (typically `TraceDevice::events`), it replays each event through an
+  `ExecuteDevice` again, the same interface driven from a static list
+  instead of a live walk. `DagCodegen` is the intended `ExecuteDevice` for
+  this direction: it's meant to build a real `Dag<Box<dyn ExecutableOp>>`
+  of custom (fused) ops as it replays — matching `GraphOptimizer::optimize`'s
+  own `(Dag, Vec<usize>)` contract, the way the original hand-coded Anduin
+  fusion strategies did before removal — but every method is currently a
+  dummy `todo!()` stub. Building it for real is §4.2's scope (register-level
+  `compute_inline`-style fusion, shared-memory load/store rewriting,
+  block/thread index remapping, a best-fit shared-memory allocator) and
+  overlaps heavily with the still-open teenygrad-1nr.1.
+
 ## Suggested implementation order
 
 1. ~~`EdgeId` + `set_connect`/`connect_level` + `extract_subgraph`~~ — done.
@@ -355,6 +404,14 @@ The rest of Fig. 7's scheduler, in `tile_graph/mod.rs` and the new
 4. ~~`EnumerateSubtiles`~~ — done (teenygrad-1nr.3).
 5. ~~`sub_graph_tiling` + `schedule_graph`~~ — done (teenygrad-1nr.4/.5),
    replacing Fig. 7's `SubGraphTiling`/`GraphConnecting`.
-6. Wire `schedule_graph`'s output into `Anduin::optimize`'s returned,
-   rewritten `Dag` — blocked on teenygrad-1nr.1 (the `Tile<D>` composition
-   rework needed to actually materialize fused kernels from a schedule).
+6. ~~Persist the resolved schedule + structural `execute_graph` + `codegen`
+   replay scaffold~~ — done (teenygrad-1nr.6), Welder §3.3's `ExecuteGraph`
+   (Fig. 8). `DagCodegen`, the `ExecuteDevice` meant to turn a replayed
+   trace into a real `Dag` of custom ops, is a dummy stub (`todo!()` per
+   method) — implementing it for real is the next step here.
+7. §4.1's hardware-aligned refinements (reviving the removed, real-hardware-
+   calibrated `teenygrad-3w0` `CostModel`) and §4.2's real code generation
+   (kernel composition, best-fit shared-memory allocator) — both still
+   deferred; §4.2 overlaps heavily with teenygrad-1nr.1's still-open
+   `Tile<D>` composition rework, which is the harder blocker for actually
+   materializing fused kernels from a schedule.
