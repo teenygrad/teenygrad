@@ -326,18 +326,20 @@ mod tests {
     }
 
     #[test]
-    fn relu_reduce_sum_relu_schedule_treats_the_whole_chain_as_one_flat_group() {
+    fn relu_reduce_sum_relu_schedule_fuses_relu_reduce_sum_relu_apart_from_input() {
         // input -> relu -> reduce_sum -> relu
         //
-        // Unlike the conv/batchnorm/silu case above, this never recurses
-        // past the top (Register) level at all: `sub_graph_tiling` finds no
-        // viable SharedMemory/DeviceMemory config for this graph (its
-        // [2048, 4096] F32 tile at 64MiB overflows Register's real
-        // capacity on `orin_nano_hardware_profile`, so no candidate
-        // `TileConfig` clears the fit check there or one level up), so
-        // `Trace::trace_graph` falls straight to `compute_tile` for every
-        // node in one frame -- documenting this as current behavior, not
-        // asserting it's the *right* schedule.
+        // Both `Relu`s now carry a real, working `KernelTileSpec`
+        // (`flat_elementwise_tile_spec`, fixed to match each node's real
+        // rank -- previously `RELU_TILE_SPEC` only ever matched an
+        // already-1-D node, never a realistic ND tensor like this
+        // [2048, 4096] shape, so it was silently inert here). With a
+        // real spec on both ends of the chain, `sub_graph_tiling` now
+        // finds real SharedMemory-level structure instead of falling
+        // straight through to one flat Register-level group the way it
+        // used to: relu -> reduce_sum -> relu (nodes [1, 2, 3]) fuse
+        // together, separate from input (node 0, which has no child
+        // covering it and computes directly at the top Register frame).
         let mut graph = Graph::new();
         let shape = vec![Some(2048), Some(4096)];
         let reduced_shape = vec![Some(2048)];
@@ -366,10 +368,17 @@ mod tests {
         assert_eq!(traces.len(), 1);
 
         let virtual_nodes = virtual_nodes(&traces[0].events);
-        assert_eq!(
-            virtual_nodes,
-            vec![(&[0, 1, 2, 3][..], MemoryLevelKind::Register)],
-            "expected a single flat virtual node covering every node at Register, got: \
+        assert!(
+            virtual_nodes
+                .iter()
+                .any(|&(nodes, level)| nodes == [1, 2, 3] && level == MemoryLevelKind::SharedMemory),
+            "expected relu+reduce_sum+relu (nodes [1, 2, 3]) to be grouped into one \
+             SharedMemory-level virtual node, got: {virtual_nodes:?}"
+        );
+        assert!(
+            virtual_nodes.iter().all(|&(nodes, _)| nodes != [0]),
+            "expected input (node 0) to have no child covering it and compute \
+             directly at the top frame, not get its own virtual node, got: \
              {virtual_nodes:?}"
         );
 
@@ -381,6 +390,10 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(compute_tiles, vec![0, 1, 2, 3]);
+        assert!(
+            compute_tiles.contains(&0),
+            "expected input (node 0) to still be computed somewhere in the trace, \
+             got: {compute_tiles:?}"
+        );
     }
 }

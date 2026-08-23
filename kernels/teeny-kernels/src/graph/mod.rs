@@ -150,32 +150,53 @@ use crate::nn::norm::batchnorm::{
 // See teeny_core::model::KernelTileSpec's doc comment for the design.
 // ---------------------------------------------------------------------------
 
-/// A flat, single-axis elementwise op: input and output share one
-/// `extent_param` name (`"n_elements"`), so propagating an output tile
-/// resolves the input's tile with no arithmetic at all.
-const RELU_TILE_SPEC: KernelTileSpec = {
-    const AXIS: TileAxisBinding = TileAxisBinding {
-        dims: &[0],
+/// Builds a [`KernelTileSpec`] for a flat, single-`BLOCK_SIZE` elementwise
+/// kernel -- every kernel [`exec_from`] assembles (`sigmoid_forward`,
+/// `silu_forward`, ... -- see that function's own doc comment for the
+/// full list), plus `Op::Relu` below: the whole tensor is read/written as
+/// one flattened `n_elements` range regardless of its real declared rank.
+/// `x_ptr`/`y_ptr` share one axis spanning *every* real dim (`dims:
+/// &[0..rank]`), matching [`TileAxisBinding::dims`]'s flattened-axis
+/// convention (teenygrad-1nr.8/.9) -- input and output share the same
+/// `extent_param` name, so propagating an output tile resolves the
+/// input's tile with no arithmetic at all.
+///
+/// Unlike every other spec in this file, this can't be a single `const`:
+/// the same kernel gets applied to tensors of any real rank (a `Sigmoid`
+/// node might be 2-D, 3-D, or 4-D depending on the graph), and
+/// `TensorTileSpec::rank`/`TileAxisBinding::dims` must match that real
+/// rank exactly for `TileGraph::propagate` to do anything with it (a
+/// fixed `rank: 1` `const`, which is what this spec used to be, only
+/// ever matched an already-flattened 1-D node -- never a realistic ND
+/// tensor). Built fresh per call, `Box::leak`ing the rank-sized `dims`
+/// slice: a small, permanent, bounded allocation (one call per node
+/// `TritonLowering` ever lowers), not a per-iteration leak.
+fn flat_elementwise_tile_spec(rank: usize) -> KernelTileSpec {
+    let dims: &'static [usize] = Box::leak((0..rank).collect::<Vec<usize>>().into_boxed_slice());
+    let axis = TileAxisBinding {
+        dims,
         block_const: "BLOCK_SIZE",
         extent_param: "n_elements",
         window: None,
+        divide_by: None,
     };
-    const X: TensorTileSpec = TensorTileSpec {
+    let axes: &'static [TileAxisBinding] = Box::leak(Box::new([axis]));
+    let x = TensorTileSpec {
         param: "x_ptr",
-        rank: 1,
-        axes: &[AXIS],
+        rank,
+        axes,
         reduction_axis: None,
         untiled_dims: &[],
     };
-    const Y: TensorTileSpec = TensorTileSpec {
+    let y = TensorTileSpec {
         param: "y_ptr",
-        ..X
+        ..x
     };
     KernelTileSpec {
-        inputs: &[X],
-        outputs: &[Y],
+        inputs: Box::leak(Box::new([x])),
+        outputs: Box::leak(Box::new([y])),
     }
-};
+}
 
 /// GEMM-shaped: `a_ptr: [M, K]`, `b_ptr: [K, N]`, `c_ptr: [M, N]`. `M`/`N`
 /// are shared with `c_ptr`'s own axes, so propagating `c_ptr`'s chosen
@@ -193,12 +214,14 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
                 block_const: "BLOCK_M",
                 extent_param: "M",
                 window: None,
+                divide_by: None,
             },
             TileAxisBinding {
                 dims: &[1],
                 block_const: "BLOCK_K",
                 extent_param: "K",
                 window: None,
+                divide_by: None,
             },
         ],
         reduction_axis: Some(1),
@@ -213,12 +236,14 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
                 block_const: "BLOCK_K",
                 extent_param: "K",
                 window: None,
+                divide_by: None,
             },
             TileAxisBinding {
                 dims: &[1],
                 block_const: "BLOCK_N",
                 extent_param: "N",
                 window: None,
+                divide_by: None,
             },
         ],
         reduction_axis: Some(0),
@@ -233,12 +258,14 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
                 block_const: "BLOCK_M",
                 extent_param: "M",
                 window: None,
+                divide_by: None,
             },
             TileAxisBinding {
                 dims: &[1],
                 block_const: "BLOCK_N",
                 extent_param: "N",
                 window: None,
+                divide_by: None,
             },
         ],
         reduction_axis: None,
@@ -266,6 +293,7 @@ const BATCHNORM2D_TILE_SPEC: KernelTileSpec = {
         block_const: "BLOCK_HW",
         extent_param: "HW",
         window: None,
+        divide_by: None,
     };
     const X: TensorTileSpec = TensorTileSpec {
         param: "x_ptr",
@@ -277,6 +305,155 @@ const BATCHNORM2D_TILE_SPEC: KernelTileSpec = {
     const Y: TensorTileSpec = TensorTileSpec {
         param: "y_ptr",
         ..X
+    };
+    KernelTileSpec {
+        inputs: &[X],
+        outputs: &[Y],
+    }
+};
+
+/// `conv1d_forward`/`conv2d_forward`/`conv3d_forward`
+/// (`nn::conv::{conv1d,conv2d,conv3d}`), and every `avg`/`max`/`lp`-pool
+/// kernel across the same 1-D/2-D/3-D ranks (`nn::pool::*`) share the same
+/// shape: grid decodes to `(b, c[, d[, h]], ow-tile)` (2-D adds `h`, 3-D
+/// adds `d`), and only the *innermost* spatial axis (`L`/`W`) is
+/// genuinely block-tiled, via `BLOCK_OL`/`BLOCK_OW` -- every other real
+/// dim (batch, channels, and any outer spatial axes) is grid-driven, with
+/// no block-size generic of its own. Input and output have no shared
+/// axis (unlike `RELU_TILE_SPEC`/`BATCHNORM2D_TILE_SPEC`'s shape-
+/// preserving case): input keeps every dim at full extent (no axes at
+/// all -- conv's own windowed read, and pooling's own kernel/stride
+/// read, both fall back to full extent this way, same as leaving a dim
+/// out of `axes` always does; see `TileWindow`'s own doc comment on why
+/// this codebase doesn't yet model the windowed extent itself), output
+/// gets one axis for its own `BLOCK_OL`/`BLOCK_OW`-tiled dim.
+///
+/// One shared `const` per rank, not one per real kernel: `avgpool2d`/
+/// `maxpool2d`/`lppool2d` (etc.) are structurally identical down to their
+/// real `input_ptr`/`output_ptr` param names, and `param` isn't consumed
+/// by `TileGraph::propagate` at all (only `rank`/`axes`/`divide_by`
+/// are) -- see `teeny_core::model::tile_spec`'s module doc comment.
+fn windowed_last_axis_tile_spec(
+    rank: usize,
+    block_const: &'static str,
+    extent_param: &'static str,
+    input_param: &'static str,
+    output_param: &'static str,
+) -> KernelTileSpec {
+    let last_dim = rank.saturating_sub(1);
+    let axis: &'static [TileAxisBinding] = Box::leak(Box::new([TileAxisBinding {
+        dims: Box::leak(Box::new([last_dim])),
+        block_const,
+        extent_param,
+        window: None,
+        divide_by: None,
+    }]));
+    let input = TensorTileSpec {
+        param: input_param,
+        rank,
+        axes: &[],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    let output = TensorTileSpec {
+        param: output_param,
+        rank,
+        axes: axis,
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    KernelTileSpec {
+        inputs: Box::leak(Box::new([input])),
+        outputs: Box::leak(Box::new([output])),
+    }
+}
+
+/// `conv1d_forward`: `x_ptr`/`y_ptr`, `[B, C, L]` -> `[B, C_OUT, OL]`,
+/// `BLOCK_OL` tiling `y_ptr`'s `L` axis (dim 2). A fixed rank (unlike
+/// [`flat_elementwise_tile_spec`]'s per-instance case): every `Conv1d`
+/// node is rank 3, so this can be a plain `const`.
+const CONV1D_TILE_SPEC: KernelTileSpec = {
+    const AXIS: TileAxisBinding = TileAxisBinding {
+        dims: &[2],
+        block_const: "BLOCK_OL",
+        extent_param: "OL",
+        window: None,
+        divide_by: None,
+    };
+    const X: TensorTileSpec = TensorTileSpec {
+        param: "x_ptr",
+        rank: 3,
+        axes: &[],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    const Y: TensorTileSpec = TensorTileSpec {
+        param: "y_ptr",
+        rank: 3,
+        axes: &[AXIS],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    KernelTileSpec {
+        inputs: &[X],
+        outputs: &[Y],
+    }
+};
+
+/// `conv2d_forward`: `x_ptr`/`y_ptr`, `[B, C, H, W]` -> `[B, C_OUT, OH, OW]`,
+/// `BLOCK_OW` tiling `y_ptr`'s `W` axis (dim 3). Fixed rank 4, always NCHW.
+const CONV2D_TILE_SPEC: KernelTileSpec = {
+    const AXIS: TileAxisBinding = TileAxisBinding {
+        dims: &[3],
+        block_const: "BLOCK_OW",
+        extent_param: "OW",
+        window: None,
+        divide_by: None,
+    };
+    const X: TensorTileSpec = TensorTileSpec {
+        param: "x_ptr",
+        rank: 4,
+        axes: &[],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    const Y: TensorTileSpec = TensorTileSpec {
+        param: "y_ptr",
+        rank: 4,
+        axes: &[AXIS],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    KernelTileSpec {
+        inputs: &[X],
+        outputs: &[Y],
+    }
+};
+
+/// `conv3d_forward`: `x_ptr`/`y_ptr`, `[B, C, D, H, W]` ->
+/// `[B, C_OUT, OD, OH, OW]`, `BLOCK_OW` tiling `y_ptr`'s `W` axis (dim 4).
+/// Fixed rank 5, always NCDHW.
+const CONV3D_TILE_SPEC: KernelTileSpec = {
+    const AXIS: TileAxisBinding = TileAxisBinding {
+        dims: &[4],
+        block_const: "BLOCK_OW",
+        extent_param: "OW",
+        window: None,
+        divide_by: None,
+    };
+    const X: TensorTileSpec = TensorTileSpec {
+        param: "x_ptr",
+        rank: 5,
+        axes: &[],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+    const Y: TensorTileSpec = TensorTileSpec {
+        param: "y_ptr",
+        rank: 5,
+        axes: &[AXIS],
+        reduction_axis: None,
+        untiled_dims: &[],
     };
     KernelTileSpec {
         inputs: &[X],
@@ -431,19 +608,29 @@ macro_rules! make_float_kernel {
 }
 
 /// Assemble a [`KernelExecutable`] from a dtype-resolved [`KernelInstance`]
-/// produced by a `#[kernel(dtypes = [..])]` dispatcher.
+/// produced by a `#[kernel(dtypes = [..])]` dispatcher. Every current
+/// caller is one of the flat, single-`BLOCK_SIZE` elementwise activations
+/// (`Elu`/`Selu`/`Celu`/`Gelu`/`Mish`/`Hardtanh`/`Relu6`/`Hardsigmoid`/
+/// `Hardswish`/`Hardshrink`/`LeakyRelu`/`Threshold`/`Softsign`/
+/// `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`Logsigmoid`/`Tanh`/
+/// `Tanhshrink`), so `tile_spec` is set unconditionally here via
+/// [`flat_elementwise_tile_spec`] rather than per call site -- if a
+/// future caller of this function isn't shaped like that, give it its
+/// own construction instead of adding a case here (mirrors `Op::Relu`'s
+/// own arm below, which doesn't call `exec_from` but sets the same spec).
 fn exec_from(
     shape: Shape,
     dtype: DtypeRepr,
     inst: teeny_core::model::KernelInstance,
 ) -> Box<KernelExecutable> {
+    let tile_spec = Some(flat_elementwise_tile_spec(shape.len()));
     Box::new(KernelExecutable {
         entry_point: format!("{}_entry_point", inst.name),
         name: inst.name,
         kernel_source: inst.source,
         kernel_body: inst.kernel_body,
         pointwise_fuse_block_size: inst.pointwise_fuse_block_size,
-        tile_spec: None,
+        tile_spec,
         shape,
         dtype,
         #[cfg(feature = "training")]
@@ -1396,10 +1583,12 @@ impl TritonLowering {
                     padding,
                     ..
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Conv1dForward(*kernel_l as i32, *stride as i32, *padding as i32, 32),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(CONV1D_TILE_SPEC);
+                    exec
                 }
                 Op::Conv2d {
                     kernel_h,
@@ -1411,7 +1600,7 @@ impl TritonLowering {
                     groups,
                     ..
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Conv2dForward(
                             *kernel_h as i32,
                             *kernel_w as i32,
@@ -1433,7 +1622,9 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(CONV2D_TILE_SPEC);
+                    exec
                 }
                 Op::Conv3d {
                     kernel_d,
@@ -1447,7 +1638,7 @@ impl TritonLowering {
                     padding_w,
                     ..
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Conv3dForward(
                             *kernel_d as i32,
                             *kernel_h as i32,
@@ -1461,12 +1652,25 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(CONV3D_TILE_SPEC);
+                    exec
                 }
 
                 // --- Pooling ---
                 Op::AvgPool1d { kernel_l, stride } => {
-                    make_num_kernel!(Avgpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
+                    let mut exec = make_num_kernel!(
+                        Avgpool1dForward(*kernel_l as i32, *stride as i32, 32),
+                        node
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::AvgPool2d {
                     kernel_h,
@@ -1474,7 +1678,7 @@ impl TritonLowering {
                     stride_h,
                     stride_w,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Avgpool2dForward(
                             *kernel_h as i32,
                             *kernel_w as i32,
@@ -1483,7 +1687,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::AvgPool3d {
                     kernel_d,
@@ -1493,7 +1705,7 @@ impl TritonLowering {
                     stride_h,
                     stride_w,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Avgpool3dForward(
                             *kernel_d as i32,
                             *kernel_h as i32,
@@ -1504,10 +1716,29 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::MaxPool1d { kernel_l, stride } => {
-                    make_num_kernel!(Maxpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
+                    let mut exec = make_num_kernel!(
+                        Maxpool1dForward(*kernel_l as i32, *stride as i32, 32),
+                        node
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::MaxPool2d {
                     kernel_h,
@@ -1517,7 +1748,7 @@ impl TritonLowering {
                     pad_h,
                     pad_w,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Maxpool2dForward(
                             *kernel_h as i32,
                             *kernel_w as i32,
@@ -1537,7 +1768,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::MaxPool3d {
                     kernel_d,
@@ -1547,7 +1786,7 @@ impl TritonLowering {
                     stride_h,
                     stride_w,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         Maxpool3dForward(
                             *kernel_d as i32,
                             *kernel_h as i32,
@@ -1558,12 +1797,31 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::LpPool1d {
                     kernel_l, stride, ..
                 } => {
-                    make_float_kernel!(Lppool1dForward(*kernel_l as i32, *stride as i32, 32), node)
+                    let mut exec = make_float_kernel!(
+                        Lppool1dForward(*kernel_l as i32, *stride as i32, 32),
+                        node
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::LpPool2d {
                     kernel_h,
@@ -1572,7 +1830,7 @@ impl TritonLowering {
                     stride_w,
                     ..
                 } => {
-                    make_float_kernel!(
+                    let mut exec = make_float_kernel!(
                         Lppool2dForward(
                             *kernel_h as i32,
                             *kernel_w as i32,
@@ -1581,7 +1839,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::LpPool3d {
                     kernel_d,
@@ -1592,7 +1858,7 @@ impl TritonLowering {
                     stride_w,
                     ..
                 } => {
-                    make_float_kernel!(
+                    let mut exec = make_float_kernel!(
                         Lppool3dForward(
                             *kernel_d as i32,
                             *kernel_h as i32,
@@ -1603,7 +1869,15 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
 
                 // --- Padding ---
@@ -1612,10 +1886,18 @@ impl TritonLowering {
                     pad_right,
                     ..
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ConstantPad1dForward(*pad_left as i32, *pad_right as i32, 32),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ConstantPad2d {
                     pad_l,
@@ -1624,7 +1906,7 @@ impl TritonLowering {
                     pad_b,
                     ..
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ConstantPad2dForward(
                             *pad_t as i32,
                             *pad_b as i32,
@@ -1633,7 +1915,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ConstantPad3d {
                     pad_d1,
@@ -1644,7 +1934,7 @@ impl TritonLowering {
                     pad_w2,
                     ..
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ConstantPad3dForward(
                             *pad_d1 as i32,
                             *pad_d2 as i32,
@@ -1655,16 +1945,32 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ReflectionPad1d {
                     pad_left,
                     pad_right,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ReflectionPad1dForward(*pad_left as i32, *pad_right as i32, 32),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ReflectionPad2d {
                     pad_l,
@@ -1672,7 +1978,7 @@ impl TritonLowering {
                     pad_t,
                     pad_b,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ReflectionPad2dForward(
                             *pad_t as i32,
                             *pad_b as i32,
@@ -1681,7 +1987,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ReflectionPad3d {
                     pad_d1,
@@ -1691,7 +2005,7 @@ impl TritonLowering {
                     pad_w1,
                     pad_w2,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ReflectionPad3dForward(
                             *pad_d1 as i32,
                             *pad_d2 as i32,
@@ -1702,16 +2016,32 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ReplicationPad1d {
                     pad_left,
                     pad_right,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ReplicationPad1dForward(*pad_left as i32, *pad_right as i32, 32),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ReplicationPad2d {
                     pad_l,
@@ -1719,7 +2049,7 @@ impl TritonLowering {
                     pad_t,
                     pad_b,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ReplicationPad2dForward(
                             *pad_t as i32,
                             *pad_b as i32,
@@ -1728,7 +2058,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::ReplicationPad3d {
                     pad_d1,
@@ -1738,7 +2076,7 @@ impl TritonLowering {
                     pad_w1,
                     pad_w2,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         ReplicationPad3dForward(
                             *pad_d1 as i32,
                             *pad_d2 as i32,
@@ -1749,16 +2087,32 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::CircularPad1d {
                     pad_left,
                     pad_right,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         CircularPad1dForward(*pad_left as i32, *pad_right as i32, 32),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        3,
+                        "BLOCK_OL",
+                        "OL",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::CircularPad2d {
                     pad_l,
@@ -1766,7 +2120,7 @@ impl TritonLowering {
                     pad_t,
                     pad_b,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         CircularPad2dForward(
                             *pad_t as i32,
                             *pad_b as i32,
@@ -1775,7 +2129,15 @@ impl TritonLowering {
                             16
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        4,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
                 Op::CircularPad3d {
                     pad_d1,
@@ -1785,7 +2147,7 @@ impl TritonLowering {
                     pad_w1,
                     pad_w2,
                 } => {
-                    make_num_kernel!(
+                    let mut exec = make_num_kernel!(
                         CircularPad3dForward(
                             *pad_d1 as i32,
                             *pad_d2 as i32,
@@ -1796,13 +2158,21 @@ impl TritonLowering {
                             8
                         ),
                         node
-                    )
+                    );
+                    exec.tile_spec = Some(windowed_last_axis_tile_spec(
+                        5,
+                        "BLOCK_OW",
+                        "OW",
+                        "input_ptr",
+                        "output_ptr",
+                    ));
+                    exec
                 }
 
                 // --- Activation (D: Num) ---
                 Op::Relu => {
                     let mut exec = make_num_kernel!(ReluForward(1024), ReluBackward(1024), node);
-                    exec.tile_spec = Some(RELU_TILE_SPEC);
+                    exec.tile_spec = Some(flat_elementwise_tile_spec(node.shape.len()));
                     exec
                 }
 

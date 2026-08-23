@@ -239,10 +239,69 @@ method (`None`) — coverage is opt-in per kernel, same as the original.
 `tile_spec: Option<KernelTileSpec>` field, set at `TritonLowering`
 construction time (no `RuntimeOp::as_any` needed — `&Op`'s static fields
 are already in scope at each match arm before erasure into
-`KernelExecutable`). Three ops are tagged so far: `Op::Relu`
-(`RELU_TILE_SPEC` — flat single-axis identity), `Op::MatMul`/`Op::Gemm`
-(`MATMUL_TILE_SPEC` — `M`/`N` resolved, `K` correctly left unresolved),
-and `Op::BatchNorm2d` (`BATCHNORM2D_TILE_SPEC` — see `dims` below).
+`KernelExecutable`). `Op::MatMul`/`Op::Gemm` (`MATMUL_TILE_SPEC` — `M`/`N`
+resolved, `K` correctly left unresolved) and `Op::BatchNorm2d`
+(`BATCHNORM2D_TILE_SPEC` — see `dims` below) were the first two tagged.
+
+**Broad follow-up sweep, tagging every kernel structurally safe to cover
+today** (found surveying kernels for tile-spec fit, teenygrad-1nr.9/.10's
+own investigation):
+
+- **21 flat elementwise ops** (`Relu` + every `exec_from`-built activation
+  — `Elu`/`Selu`/`Celu`/`Gelu`/`Mish`/`Hardtanh`/`Relu6`/`Hardsigmoid`/
+  `Hardswish`/`Hardshrink`/`LeakyRelu`/`Threshold`/`Softsign`/
+  `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`Logsigmoid`/`Tanh`/
+  `Tanhshrink`) via a new `flat_elementwise_tile_spec(rank)` function,
+  *not* a `const`. The original `RELU_TILE_SPEC` was a `const rank: 1`
+  spec — silently inert for any non-1-D `Relu` node (confirmed: neither
+  this session's existing test graphs, both 2-D shapes, ever actually
+  exercised it), since the same kernel gets applied to tensors of any
+  real rank and `TensorTileSpec::rank`/`TileAxisBinding::dims` must match
+  exactly. `flat_elementwise_tile_spec` builds one flattened axis
+  spanning *every* real dim (`dims: &[0..rank]`, using teenygrad-1nr.8/.9's
+  now-working flattened-axis machinery) fresh per call, sized to that
+  node's own real rank, `Box::leak`ing the rank-sized `dims` slice — a
+  small, bounded, one-call-per-lowered-node allocation, not a
+  per-iteration leak. `exec_from` (the single assembly function every one
+  of these 20 ops' match arms already funnels through) sets this
+  unconditionally, so no per-call-site changes were needed there;
+  `Op::Relu` (which builds its `KernelExecutable` via `make_num_kernel!`
+  instead) sets it explicitly, same pattern as before.
+- **12 fixed-rank windowed kernels**: `Conv1d`/`Conv2d`/`Conv3d`
+  (`CONV1D_TILE_SPEC`/`CONV2D_TILE_SPEC`/`CONV3D_TILE_SPEC`, each a plain
+  `const` — unlike the elementwise case, every node of a given rank is
+  always that same rank) and every `AvgPool`/`MaxPool`/`LpPool` `1d`/`2d`/
+  `3d` variant, via a shared `windowed_last_axis_tile_spec(rank,
+  block_const, extent_param, input_param, output_param)` helper — all 9
+  pooling kernels are structurally identical (confirmed by reading each
+  real kernel signature): grid decodes to `(b, c[, d[, h]], ow-tile)`,
+  only the innermost spatial axis is genuinely block-tiled (`BLOCK_OL`/
+  `BLOCK_OW`), everything else (batch, channels, any outer spatial axes)
+  is grid-driven. Input gets no axes at all (every dim, including the
+  windowed one, falls back to full extent the same way an untiled dim
+  always has — `TileWindow` still isn't consumed, so this is the safe
+  choice, not a shortcut); output gets one axis for its own tiled dim.
+
+**Deliberately not touched in this sweep** (each needs more than
+"structurally safe" to cover correctly): `LayerNorm`/`RmsNorm`/
+`InstanceNorm1d`/`2d`/`3d`/`GroupNorm` (GroupNorm's own blocker,
+teenygrad-1nr.10, is now fixed, but a *real* `GROUPNORM_TILE_SPEC` would
+need `divide_by` *combined with* a genuinely flattened multi-dim axis --
+an untested combination, and `group_norm_forward` has three real
+outputs, needing teenygrad-1nr.11's mechanism too); `Softmax`; every
+reduction op (`ReduceSum`, etc. -- reduction semantics, e.g. which axis
+is dropped and how rank changes, aren't modeled by any existing spec
+yet). Filed as teenygrad-1nr.14 (norms/softmax), teenygrad-1nr.15 (real
+`GROUPNORM_TILE_SPEC`), teenygrad-1nr.16 (rank-changing reductions).
+
+The padding family (`ConstantPad*`/`ReflectionPad*`/`ReplicationPad*`/
+`CircularPad*`, 12 ops) was filed separately as teenygrad-1nr.13 and has
+since been implemented: every real kernel signature was confirmed by
+reading the source (all follow the pooling family's exact shape --
+`input_ptr`/`output_ptr`, only the innermost spatial axis genuinely
+block-tiled via `BLOCK_OL`/`BLOCK_OW`), so all 12 `Op::*Pad{1,2,3}d`
+arms now reuse `windowed_last_axis_tile_spec` unchanged, the same
+helper the pooling family uses.
 `TileOp` carries the same field, populated in `from_dag` from
 `node.value.tile_spec()`.
 

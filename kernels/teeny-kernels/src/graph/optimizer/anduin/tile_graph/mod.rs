@@ -203,6 +203,56 @@ fn power_of_two_ladder(extent: usize) -> Vec<usize> {
     ladder
 }
 
+/// Applies a [`TileAxisBinding::divide_by`](teeny_core::model::TileAxisBinding::divide_by)
+/// divisor to `dim`, if both are present (teenygrad-1nr.10) -- a
+/// [`TileDim::Sym`] (dynamic) axis, or `divide_by: None`, passes through
+/// unchanged (`.clone()`d, since the caller always wants an owned value
+/// back here, not a borrow of `dim`).
+fn apply_divide_by(dim: &TileDim, divide_by: Option<usize>) -> TileDim {
+    match (dim, divide_by) {
+        (TileDim::Fixed(extent), Some(divisor)) if divisor > 0 => TileDim::Fixed(extent / divisor),
+        _ => dim.clone(),
+    }
+}
+
+/// One [`TileGraph::enumerate_subtiles`] search axis: either an ordinary
+/// single real dim, or (when `root`'s tile_spec declares a
+/// [`TileAxisBinding`](teeny_core::model::TileAxisBinding) whose `dims`
+/// spans more than one real axis — teenygrad-1nr.8/.9) a flattened group
+/// of them, searched as one combined ladder.
+struct SearchAxis {
+    /// Real dims this axis spans, outer to inner (mirrors
+    /// [`TileAxisBinding::dims`](teeny_core::model::TileAxisBinding::dims)).
+    /// Exactly one entry for the ordinary single-dim case.
+    dims: Vec<usize>,
+    /// Candidate values for the innermost dim. A single, unchanging
+    /// entry means "not enumerable" (a [`TileDim::Sym`] axis, or a
+    /// flattened group involving one).
+    ladder: Vec<TileDim>,
+}
+
+impl SearchAxis {
+    /// Writes `value` (one of `self.ladder`'s entries) into `candidate`:
+    /// the innermost dim gets `value`, every other spanned dim collapses
+    /// to `Fixed(1)` — product-preserving, the same convention
+    /// [`TileGraph::propagate`] already applies downstream (see
+    /// [`TileAxisBinding::dims`](teeny_core::model::TileAxisBinding::dims)'s
+    /// doc comment). A no-op on any dim beyond `candidate`'s own length.
+    fn write(&self, candidate: &mut TileEdgeShape, value: &TileDim) {
+        let Some((&innermost, outer_dims)) = self.dims.split_last() else {
+            return;
+        };
+        if let Some(dim) = candidate.get_mut(innermost) {
+            *dim = value.clone();
+        }
+        for &outer in outer_dims {
+            if let Some(dim) = candidate.get_mut(outer) {
+                *dim = TileDim::Fixed(1);
+            }
+        }
+    }
+}
+
 fn dtype_bytes(dtype: DtypeRepr) -> u64 {
     match dtype {
         DtypeRepr::Bool | DtypeRepr::I8 | DtypeRepr::U8 => 1,
@@ -922,15 +972,18 @@ impl TileGraph {
             // (see `untiled_dims`) and needn't list them in tensor-dim
             // order. A flattened axis's block-sized value lives on its
             // innermost real dim -- see `TileAxisBinding::dims`'s doc
-            // comment.
-            let mut resolved: HashMap<&'static str, &TileDim> = output_spec
+            // comment. `divide_by` (teenygrad-1nr.10) applies uniformly
+            // right here, so every later consumer of this name already
+            // sees the divided value -- owned, not borrowed, since a
+            // divided value is freshly computed, not a view into
+            // `output_tile`.
+            let mut resolved: HashMap<&'static str, TileDim> = output_spec
                 .axes
                 .iter()
                 .filter_map(|axis| {
                     let &innermost = axis.dims.last()?;
-                    output_tile
-                        .get(innermost)
-                        .map(|dim| (axis.extent_param, dim))
+                    let dim = output_tile.get(innermost)?;
+                    Some((axis.extent_param, apply_divide_by(dim, axis.divide_by)))
                 })
                 .collect();
 
@@ -945,8 +998,7 @@ impl TileGraph {
             //
             // Collected into owned storage up front (mirroring
             // `output_tile` above) rather than read from `tiles` inline
-            // below: `resolved`'s borrows need to outlive this loop, but
-            // `tiles` itself is mutated later in this same node's
+            // below: `tiles` itself is mutated later in this same node's
             // processing (`tiles.insert` for each parent edge).
             let secondary_tiles: Vec<Option<TileEdgeShape>> = spec
                 .outputs
@@ -968,7 +1020,7 @@ impl TileGraph {
                         continue;
                     };
                     if let Some(dim) = tile.get(innermost) {
-                        resolved.insert(axis.extent_param, dim);
+                        resolved.insert(axis.extent_param, apply_divide_by(dim, axis.divide_by));
                     }
                 }
             }
@@ -991,17 +1043,32 @@ impl TileGraph {
                     let Some((&innermost, outer_dims)) = axis.dims.split_last() else {
                         continue; // empty dims: nothing to bind (spec-authoring bug)
                     };
-                    let Some(&resolved_dim) = resolved.get(axis.extent_param) else {
-                        continue; // unresolved: every spanned dim keeps its full-shape fallback
-                    };
-                    if let Some(dim) = input_tile.get_mut(innermost) {
-                        *dim = resolved_dim.clone();
-                    }
-                    // Flattened-away outer dims collapse to 1 -- product-
-                    // preserving, see `TileAxisBinding::dims`'s doc comment.
-                    for &outer in outer_dims {
-                        if let Some(dim) = input_tile.get_mut(outer) {
-                            *dim = TileDim::Fixed(1);
+                    match resolved.get(axis.extent_param) {
+                        Some(resolved_dim) => {
+                            if let Some(dim) = input_tile.get_mut(innermost) {
+                                *dim = resolved_dim.clone();
+                            }
+                            // Flattened-away outer dims collapse to 1 --
+                            // product-preserving, see
+                            // `TileAxisBinding::dims`'s doc comment.
+                            for &outer in outer_dims {
+                                if let Some(dim) = input_tile.get_mut(outer) {
+                                    *dim = TileDim::Fixed(1);
+                                }
+                            }
+                        }
+                        None => {
+                            // Unresolved: every spanned dim keeps its
+                            // full-shape fallback -- except the
+                            // innermost, which `divide_by` (if declared)
+                            // adjusts from the raw full extent to this
+                            // axis's real, usable extent (teenygrad-1nr.10,
+                            // e.g. GroupNorm's channels_per_group = C / G).
+                            if axis.divide_by.is_some()
+                                && let Some(dim) = input_tile.get_mut(innermost)
+                            {
+                                *dim = apply_divide_by(dim, axis.divide_by);
+                            }
                         }
                     }
                 }
@@ -1066,6 +1133,25 @@ impl TileGraph {
     /// (dynamic) axis isn't enumerable this way and is left unchanged in
     /// every candidate.
     ///
+    /// When `root`'s own `tile_spec` declares a usable output
+    /// [`TensorTileSpec`] (its `rank` matching `root`'s real output
+    /// rank), the search is driven by that spec's [`TileAxisBinding`]s
+    /// instead of raw per-real-dim ladders (teenygrad-1nr.9): each
+    /// binding becomes one [`SearchAxis`], whose ladder ranges over the
+    /// *combined* extent of every real dim it spans (the product, for a
+    /// flattened multi-dim binding — teenygrad-1nr.8's `dims`), written
+    /// with the same innermost-gets-the-value/other-spanned-dims-collapse-
+    /// to-`Fixed(1)` convention [`Self::propagate`] already applies
+    /// downstream — so every candidate this search returns is one
+    /// `propagate` (and the real kernel) can actually realize. A real dim
+    /// with no axis binding at all (untiled) is never varied, staying at
+    /// its full extent in every candidate, matching `propagate`'s own
+    /// fallback. Falls back to the previous one-axis-per-real-dim search
+    /// when `root` has no usable tile_spec — still the overwhelming
+    /// majority of nodes (coverage is opt-in) — a strict,
+    /// behavior-preserving extension for every currently-covered
+    /// single-dim-axes spec (`Relu`/`MatMul`).
+    ///
     /// Unlike Welder's own `DFS_smem_tile` (`../Welder/python/welder/policy/default.py`),
     /// whose candidate steps are *any* divisor of the axis extent (with a
     /// handful of powers of two spliced in only for large primes), this
@@ -1105,16 +1191,7 @@ impl TileGraph {
             return Vec::new();
         };
 
-        let ladders: Vec<Vec<TileDim>> = full_shape
-            .iter()
-            .map(|dim| match dim {
-                TileDim::Fixed(extent) => power_of_two_ladder(*extent)
-                    .into_iter()
-                    .map(TileDim::Fixed)
-                    .collect(),
-                TileDim::Sym(name) => vec![TileDim::Sym(name.clone())],
-            })
-            .collect();
+        let (search_axes, mut base) = Self::search_axes_for(&full_shape, self.node(root));
 
         let mut visited: HashMap<TileEdgeShape, Option<f64>> = HashMap::new();
         let mut queue: Vec<(f64, TileEdgeShape)> = Vec::new();
@@ -1123,16 +1200,8 @@ impl TileGraph {
         // improving. Every candidate tried (not just the axis's final
         // choice) is recorded via `visit_candidate`, so it's also a
         // returnable result, not just a stepping stone.
-        let mut base: TileEdgeShape = full_shape
-            .iter()
-            .map(|dim| match dim {
-                TileDim::Fixed(_) => TileDim::Fixed(1),
-                TileDim::Sym(name) => TileDim::Sym(name.clone()),
-            })
-            .collect();
-
-        for (axis, ladder) in ladders.iter().enumerate() {
-            if ladder.len() <= 1 {
+        for axis in &search_axes {
+            if axis.ladder.len() <= 1 {
                 continue;
             }
             let mut best_idx = 0usize;
@@ -1144,9 +1213,9 @@ impl TileGraph {
                 &mut visited,
                 &mut queue,
             );
-            for (idx, step) in ladder.iter().enumerate().skip(1) {
+            for (idx, step) in axis.ladder.iter().enumerate().skip(1) {
                 let mut candidate = base.clone();
-                candidate[axis] = step.clone();
+                axis.write(&mut candidate, step);
                 let Some(candidate_score) = self.visit_candidate(
                     nodes,
                     output_edge,
@@ -1167,7 +1236,7 @@ impl TileGraph {
                 best_score = Some(candidate_score);
                 best_idx = idx;
             }
-            base[axis] = ladder[best_idx].clone();
+            axis.write(&mut base, &axis.ladder[best_idx]);
         }
 
         // Expanding neighbor search: repeatedly take the best-scoring
@@ -1181,15 +1250,21 @@ impl TileGraph {
                 .expect("queue is non-empty");
             let (_, tile) = queue.remove(min_idx);
 
-            for (axis, ladder) in ladders.iter().enumerate() {
-                let Some(idx) = ladder.iter().position(|dim| *dim == tile[axis]) else {
+            for axis in &search_axes {
+                let Some(&innermost) = axis.dims.last() else {
                     continue;
                 };
-                if idx + 1 >= ladder.len() {
+                let Some(current) = tile.get(innermost) else {
+                    continue;
+                };
+                let Some(idx) = axis.ladder.iter().position(|dim| dim == current) else {
+                    continue;
+                };
+                if idx + 1 >= axis.ladder.len() {
                     continue;
                 }
                 let mut neighbor = tile.clone();
-                neighbor[axis] = ladder[idx + 1].clone();
+                axis.write(&mut neighbor, &axis.ladder[idx + 1]);
                 self.visit_candidate(
                     nodes,
                     output_edge,
@@ -1207,6 +1282,97 @@ impl TileGraph {
             .collect();
         results.sort_by(|a, b| a.0.total_cmp(&b.0));
         results.into_iter().map(|(_, tile)| tile).collect()
+    }
+
+    /// Builds [`Self::enumerate_subtiles`]'s search axes and initial base
+    /// tile for `full_shape`, driven by `node`'s own declared output
+    /// [`TensorTileSpec`] when it's usable (its `rank` matches
+    /// `full_shape.len()`) — one [`SearchAxis`] per [`TileAxisBinding`],
+    /// spanning a flattened group of real dims when `dims` names more
+    /// than one, with every uncovered real dim left untiled (never
+    /// varied, always its own full extent). Falls back to one ordinary
+    /// per-real-dim axis each when `node` has no usable tile_spec.
+    fn search_axes_for(
+        full_shape: &TileEdgeShape,
+        node: &TileOp,
+    ) -> (Vec<SearchAxis>, TileEdgeShape) {
+        let output_spec = node
+            .tile_spec
+            .as_ref()
+            .and_then(|spec| spec.outputs.first())
+            .filter(|output_spec| output_spec.rank == full_shape.len());
+
+        let Some(output_spec) = output_spec else {
+            let base: TileEdgeShape = full_shape
+                .iter()
+                .map(|dim| match dim {
+                    TileDim::Fixed(_) => TileDim::Fixed(1),
+                    TileDim::Sym(name) => TileDim::Sym(name.clone()),
+                })
+                .collect();
+            let axes = (0..full_shape.len())
+                .map(|d| SearchAxis {
+                    dims: vec![d],
+                    ladder: match &full_shape[d] {
+                        TileDim::Fixed(extent) => power_of_two_ladder(*extent)
+                            .into_iter()
+                            .map(TileDim::Fixed)
+                            .collect(),
+                        TileDim::Sym(name) => vec![TileDim::Sym(name.clone())],
+                    },
+                })
+                .collect();
+            return (axes, base);
+        };
+
+        // Untiled dims (no axis binding at all) keep their full extent,
+        // never varied -- start from a full-shape clone and only
+        // overwrite the dims an axis binding actually spans.
+        let mut base = full_shape.clone();
+        let mut axes = Vec::new();
+        for axis in output_spec.axes.iter() {
+            let Some((&innermost, _)) = axis.dims.split_last() else {
+                continue; // empty dims: nothing to bind (spec-authoring bug)
+            };
+            let all_fixed = axis
+                .dims
+                .iter()
+                .all(|&d| matches!(full_shape.get(d), Some(TileDim::Fixed(_))));
+            let ladder = if all_fixed {
+                let combined_extent: usize = axis
+                    .dims
+                    .iter()
+                    .filter_map(|&d| match full_shape.get(d) {
+                        Some(TileDim::Fixed(extent)) => Some(*extent),
+                        _ => None,
+                    })
+                    .product();
+                power_of_two_ladder(combined_extent)
+                    .into_iter()
+                    .map(TileDim::Fixed)
+                    .collect()
+            } else {
+                // A Sym-typed dim is in this group: not enumerable,
+                // mirrors the ordinary per-dim Sym case (a single
+                // unchanging entry).
+                vec![
+                    full_shape
+                        .get(innermost)
+                        .cloned()
+                        .unwrap_or(TileDim::Fixed(1)),
+                ]
+            };
+            for &d in axis.dims.iter() {
+                if let Some(dim @ TileDim::Fixed(_)) = base.get_mut(d) {
+                    *dim = TileDim::Fixed(1);
+                }
+            }
+            axes.push(SearchAxis {
+                dims: axis.dims.to_vec(),
+                ladder,
+            });
+        }
+        (axes, base)
     }
 
     /// Scores `tile` via [`Self::score_candidate_tile`] and records it in
@@ -2032,6 +2198,7 @@ mod tests {
             block_const: "BLOCK_SIZE",
             extent_param: "n_elements",
             window: None,
+            divide_by: None,
         };
         const X: TensorTileSpec = TensorTileSpec {
             param: "x_ptr",
@@ -2062,12 +2229,14 @@ mod tests {
                     block_const: "BLOCK_M",
                     extent_param: "M",
                     window: None,
+                    divide_by: None,
                 },
                 TileAxisBinding {
                     dims: &[1],
                     block_const: "BLOCK_K",
                     extent_param: "K",
                     window: None,
+                    divide_by: None,
                 },
             ],
             reduction_axis: Some(1),
@@ -2082,12 +2251,14 @@ mod tests {
                     block_const: "BLOCK_K",
                     extent_param: "K",
                     window: None,
+                    divide_by: None,
                 },
                 TileAxisBinding {
                     dims: &[1],
                     block_const: "BLOCK_N",
                     extent_param: "N",
                     window: None,
+                    divide_by: None,
                 },
             ],
             reduction_axis: Some(0),
@@ -2102,12 +2273,14 @@ mod tests {
                     block_const: "BLOCK_M",
                     extent_param: "M",
                     window: None,
+                    divide_by: None,
                 },
                 TileAxisBinding {
                     dims: &[1],
                     block_const: "BLOCK_N",
                     extent_param: "N",
                     window: None,
+                    divide_by: None,
                 },
             ],
             reduction_axis: None,
@@ -2219,6 +2392,7 @@ mod tests {
             block_const: "BLOCK_OW",
             extent_param: "OW",
             window: None,
+            divide_by: None,
         };
         const X: TensorTileSpec = TensorTileSpec {
             param: "x_ptr",
@@ -2307,6 +2481,7 @@ mod tests {
             block_const: "BLOCK_HW",
             extent_param: "HW",
             window: None,
+            divide_by: None,
         };
         const X: TensorTileSpec = TensorTileSpec {
             param: "x_ptr",
@@ -2396,13 +2571,26 @@ mod tests {
             block_const: "BLOCK_NL",
             extent_param: "group_size",
             window: None,
+            divide_by: None,
+        };
+        // channels_per_group = C / G (teenygrad-1nr.10): its own axis,
+        // never resolved via name-matching (nothing else names
+        // "channels_per_group"), so its value always comes from the
+        // divide_by fallback -- both here (from the seeded output tile)
+        // and on the input side.
+        const C_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[1],
+            block_const: "",
+            extent_param: "channels_per_group",
+            window: None,
+            divide_by: Some(2), // G
         };
         const X: TensorTileSpec = TensorTileSpec {
             param: "x_ptr",
             rank: 3,
-            axes: &[L_AXIS],
+            axes: &[L_AXIS, C_AXIS],
             reduction_axis: None,
-            untiled_dims: &["N", "C"],
+            untiled_dims: &["N"],
         };
         const Y: TensorTileSpec = TensorTileSpec {
             param: "y_ptr",
@@ -2415,16 +2603,13 @@ mod tests {
     }
 
     #[test]
-    fn propagate_cannot_express_a_dim_subdivided_by_a_grid_constant() {
-        // Regression test for teenygrad-1nr.10: group_norm_forward's real
-        // per-CTA tile spans channels_per_group (= C/G) * L -- only a
-        // fraction of the channel axis, not the whole of it.
-        // TensorTileSpec has no primitive for "this axis's extent is
-        // divided by a compile-time constant"; the only options are
-        // name-matched resolution or the full-extent fallback. With
-        // N=2, C=8, L=16, G=2 (channels_per_group=4), the correct
-        // channel-axis tile is 4 -- but propagate can only ever resolve
-        // it to C's full extent, 8.
+    fn propagate_resolves_a_dim_subdivided_by_a_grid_constant() {
+        // Fixed for teenygrad-1nr.10: group_norm_forward's real per-CTA
+        // tile spans channels_per_group (= C/G) * L -- only a fraction
+        // of the channel axis, not the whole of it. `TileAxisBinding::divide_by`
+        // now lets a spec say so directly: with N=2, C=8, L=16, G=2
+        // (channels_per_group=4), the channel axis must resolve to 4,
+        // not C's full extent 8.
         let full_shape = vec![Some(2), Some(8), Some(16)]; // [N, C, L]
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         let a = dag.add_node(op("a", full_shape.clone(), true));
@@ -2458,10 +2643,94 @@ mod tests {
             TileDim::Fixed(CHANNELS_PER_GROUP),
             "expected the channel axis to resolve to channels_per_group \
              ({CHANNELS_PER_GROUP}), matching group_norm_forward's real \
-             per-CTA tile -- got {:?}. TensorTileSpec has no way to \
-             express a dim subdivided by a compile-time grid constant \
-             (G), so this axis can only ever fall back to its full \
-             extent.",
+             per-CTA tile -- got {:?}",
+            resolved[1]
+        );
+    }
+
+    /// Mirrors `groupnorm_shaped_spec`, except the output side never
+    /// declares the channels axis at all (only `L` is tiled on `y_ptr`).
+    /// Used to exercise `propagate`'s *input-side* `divide_by` fallback
+    /// directly (teenygrad-1nr.10): `groupnorm_shaped_spec`'s `Y` happens
+    /// to also declare `C_AXIS` (via `..X`), so its own test resolves
+    /// `"channels_per_group"` on the output side first, never actually
+    /// reaching the input-side fallback branch.
+    fn groupnorm_input_only_divide_by_spec() -> KernelTileSpec {
+        const L_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[2],
+            block_const: "BLOCK_NL",
+            extent_param: "group_size",
+            window: None,
+            divide_by: None,
+        };
+        const C_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[1],
+            block_const: "",
+            extent_param: "channels_per_group",
+            window: None,
+            divide_by: Some(2), // G
+        };
+        const X: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 3,
+            axes: &[L_AXIS, C_AXIS],
+            reduction_axis: None,
+            untiled_dims: &["N"],
+        };
+        const Y: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            rank: 3,
+            axes: &[L_AXIS], // channels not declared here at all
+            reduction_axis: None,
+            untiled_dims: &["N", "C"],
+        };
+        KernelTileSpec {
+            inputs: &[X],
+            outputs: &[Y],
+        }
+    }
+
+    #[test]
+    fn propagate_applies_divide_by_on_the_input_side_fallback_when_never_resolved_via_output() {
+        // Companion to propagate_resolves_a_dim_subdivided_by_a_grid_constant:
+        // that test's spec happens to also declare the divide_by axis on
+        // the output side, so "channels_per_group" gets resolved (and
+        // divided) there first. This spec's output never declares it at
+        // all, so the input-side fallback branch is what has to apply
+        // divide_by directly to the raw full extent.
+        let full_shape = vec![Some(2), Some(8), Some(16)]; // [N, C, L]
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec(
+            "b",
+            full_shape.clone(),
+            false,
+            groupnorm_input_only_divide_by_spec(),
+        ));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+
+        let mut seed = HashMap::new();
+        seed.insert(
+            b_output_edge,
+            vec![TileDim::Fixed(2), TileDim::Fixed(8), TileDim::Fixed(16)],
+        );
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let resolved = config
+            .get(ab_edge)
+            .expect("propagate should have resolved the a->b edge");
+        assert_eq!(
+            resolved[1],
+            TileDim::Fixed(4), // C / G = 8 / 2
+            "expected the channel axis to fall back to channels_per_group \
+             via divide_by, since nothing resolves it via name-matching \
+             -- got {:?}",
             resolved[1]
         );
     }
@@ -2477,6 +2746,7 @@ mod tests {
             block_const: "BLOCK_AUX",
             extent_param: "aux", // only Y2 names this -- Y1 never does
             window: None,
+            divide_by: None,
         };
         const X: TensorTileSpec = TensorTileSpec {
             param: "x_ptr",
@@ -2490,6 +2760,7 @@ mod tests {
             block_const: "BLOCK_M",
             extent_param: "M",
             window: None,
+            divide_by: None,
         };
         const Y1: TensorTileSpec = TensorTileSpec {
             param: "y_ptr",
@@ -2503,6 +2774,7 @@ mod tests {
             block_const: "BLOCK_AUX",
             extent_param: "aux",
             window: None,
+            divide_by: None,
         };
         const Y2: TensorTileSpec = TensorTileSpec {
             param: "l_ptr",
