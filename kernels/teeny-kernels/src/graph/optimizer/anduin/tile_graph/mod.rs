@@ -311,13 +311,17 @@ impl TileConfig {
 }
 
 /// One node of the tile-config search tree [`TileGraph::sub_graph_tiling`]
-/// (Welder Fig. 7's `SubGraphTiling`) builds: a chosen [`TileConfig`] for a
-/// node set at one memory level, plus its own recursively-tiled `children`
-/// — one per distinct subgraph [`TileGraph::extract_subgraph`] finds one
-/// memory level up. `children` is empty at the top of the memory hierarchy,
-/// where the recursion terminates.
+/// (Welder Fig. 7's `SubGraphTiling`) builds: the node set this result
+/// covers, a chosen [`TileConfig`] for it at one memory level, plus its own
+/// recursively-tiled `children` — one per distinct subgraph
+/// [`TileGraph::extract_subgraph`] finds one memory level up, each child's
+/// own `nodes` naming exactly which of `nodes` it covers (needed to walk
+/// this tree at all — see [`execute_graph`](super::codegen::execute_graph)).
+/// `children` is empty at the top of the memory hierarchy, where the
+/// recursion terminates.
 #[derive(Debug, Clone)]
 pub struct SubGraphTilingResult {
+    pub nodes: Vec<NodeId>,
     pub config: TileConfig,
     pub children: Vec<SubGraphTilingResult>,
 }
@@ -326,8 +330,9 @@ pub struct SubGraphTilingResult {
 /// if any — `None` means `level` is already the top of `hardware`'s
 /// hierarchy. Used by [`TileGraph::sub_graph_tiling`] to walk "one memory
 /// level up" (Fig. 7's `level+1`) without assuming a fixed, contiguous set
-/// of levels.
-fn next_memory_level(
+/// of levels, and by [`execute_graph`](super::codegen::execute_graph) to
+/// know when it's reached the top.
+pub(crate) fn next_memory_level(
     hardware: &HardwareProfile,
     level: MemoryLevelKind,
 ) -> Option<MemoryLevelKind> {
@@ -349,6 +354,12 @@ pub struct TileGraph {
     edges: Vec<TileEdgeRecord>,
     outgoing: Vec<Vec<EdgeId>>,
     incoming: Vec<Vec<EdgeId>>,
+    /// The winning [`SubGraphTilingResult`] `schedule_graph`
+    /// (`anduin::schedule`) found for whichever edge it was deciding when
+    /// it produced it, keyed by that [`EdgeId`]. Empty until
+    /// `schedule_graph` runs. See [`Self::record_resolved_tiling`]/
+    /// [`Self::resolved_tiling`].
+    resolved_tiling: HashMap<EdgeId, SubGraphTilingResult>,
 }
 
 impl TileGraph {
@@ -424,6 +435,7 @@ impl TileGraph {
             edges,
             outgoing,
             incoming,
+            resolved_tiling: HashMap::new(),
         }
     }
 
@@ -523,6 +535,20 @@ impl TileGraph {
     /// arena slot — see the module doc comment.
     pub fn set_connect(&mut self, id: EdgeId, level: MemoryLevelKind) {
         self.edges[id.0].edge.memory_level = level;
+    }
+
+    /// Records `result` as the winning [`SubGraphTilingResult`] found while
+    /// deciding `id`'s connect level (`anduin::schedule::schedule_graph`).
+    /// Overwrites whatever was previously recorded for `id`.
+    pub fn record_resolved_tiling(&mut self, id: EdgeId, result: SubGraphTilingResult) {
+        self.resolved_tiling.insert(id, result);
+    }
+
+    /// The winning [`SubGraphTilingResult`] recorded for `id` via
+    /// [`Self::record_resolved_tiling`], if `schedule_graph` has run and
+    /// found one.
+    pub fn resolved_tiling(&self, id: EdgeId) -> Option<&SubGraphTilingResult> {
+        self.resolved_tiling.get(&id)
     }
 
     /// Welder §3.2's `ExtractSubgraph`: the node set reachable from `node`
@@ -1173,7 +1199,11 @@ impl TileGraph {
                         children
                     }
                 };
-                SubGraphTilingResult { config, children }
+                SubGraphTilingResult {
+                    nodes: nodes.to_vec(),
+                    config,
+                    children,
+                }
             })
             .collect()
     }
@@ -1218,7 +1248,7 @@ mod tests {
     use teeny_core::model::{ExecutableOp, KernelTileSpec};
     use teeny_core::utils::dag::Dag;
 
-    use super::{TileDim, TileEdge, TileGraph};
+    use super::{NodeId, SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileGraph};
 
     /// Minimal [`ExecutableOp`] test double: just enough surface
     /// (name/shape/dtype/tile_spec) for [`TileGraph::from_dag`] to convert on.
@@ -2376,5 +2406,62 @@ mod tests {
 
         assert_eq!(top_1.len(), 1);
         assert_eq!(top_3.len(), 3);
+    }
+
+    #[test]
+    fn sub_graph_tiling_results_carry_the_node_set_they_cover() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+        let b = dag.add_node(op("b", vec![Some(64)], false));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let hardware = two_level_hardware(u64::MAX, u64::MAX);
+
+        let results =
+            tile_graph.sub_graph_tiling(&[a, b], b, MemoryLevelKind::Register, &hardware, 1);
+
+        assert!(!results.is_empty());
+        for result in &results {
+            assert_eq!(result.nodes, vec![a, b]);
+            // a -> b is left at from_dag's default (DeviceMemory), so
+            // extract_subgraph(_, DeviceMemory)'s strict "> level" test
+            // doesn't qualify it -- each child stays a singleton, one per
+            // node, rather than merging into one [a, b] child.
+            let mut all_child_nodes: Vec<NodeId> = result
+                .children
+                .iter()
+                .flat_map(|c| c.nodes.clone())
+                .collect();
+            all_child_nodes.sort_unstable();
+            assert_eq!(all_child_nodes, vec![a, b]);
+            for child in &result.children {
+                assert_eq!(child.nodes.len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn resolved_tiling_round_trips_through_record_and_get() {
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(4)], true));
+        let b = dag.add_node(op("b", vec![Some(4)], false));
+        dag.add_edge(a, b);
+
+        let mut tile_graph = TileGraph::from_dag(&dag);
+        let edge_id = tile_graph.children(a)[0].1;
+        assert!(tile_graph.resolved_tiling(edge_id).is_none());
+
+        let result = SubGraphTilingResult {
+            nodes: vec![a, b],
+            config: TileConfig::default(),
+            children: Vec::new(),
+        };
+        tile_graph.record_resolved_tiling(edge_id, result);
+
+        let recorded = tile_graph
+            .resolved_tiling(edge_id)
+            .expect("just recorded a result for this edge");
+        assert_eq!(recorded.nodes, vec![a, b]);
     }
 }

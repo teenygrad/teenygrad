@@ -35,23 +35,27 @@
 //! (teenygrad-1nr.3, a Roller-style power-of-two tile search),
 //! `sub_graph_tiling` (teenygrad-1nr.4, Welder's `SubGraphTiling`), and
 //! [`schedule_graph`] (teenygrad-1nr.5, Welder's `GraphConnecting` under a
-//! better name — see `scheduler`'s module doc comment). What's left is
+//! better name — see `schedule`'s module doc comment). What's left is
 //! wiring `schedule_graph`'s output into `optimize`'s returned, rewritten
 //! `Dag` — blocked on reworking `#[tiled_kernel]` to compose `Tile<D>`
 //! functions (teenygrad-1nr.1), since `optimize` needs to materialize real
 //! fused kernels from the schedule, not just produce one. See
 //! `TILE_GRAPH_SCHEDULING_PLAN.md` and teenygrad-1nr.
 
-mod profiler;
-mod scheduler;
+mod codegen;
+mod profile;
+mod schedule;
 mod tile_graph;
+mod trace;
 
-pub use profiler::{Profiler, SimpleProfiler};
-pub use scheduler::schedule_graph;
+pub use codegen::{DagCodegen, ExecuteDevice, codegen, execute_graph};
+pub use profile::{Profiler, SimpleProfiler};
+pub use schedule::schedule_graph;
 pub use tile_graph::{
     EdgeId, NodeId, SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph,
     TileOp,
 };
+pub use trace::{TraceDevice, TraceEvent};
 
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::model::ExecutableOp;
