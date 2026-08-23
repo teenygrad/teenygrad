@@ -336,6 +336,10 @@ pub struct TileGraph {
     edges: Vec<TileEdgeRecord>,
     outgoing: Vec<Vec<EdgeId>>,
     incoming: Vec<Vec<EdgeId>>,
+    /// Boundary edges for each node's *additional* declared outputs
+    /// beyond the primary one (index `i` holds `spec.outputs[i + 1]`'s
+    /// edge) -- see [`Self::secondary_output_edges`] (teenygrad-1nr.11).
+    secondary_outputs: Vec<Vec<EdgeId>>,
     /// The winning [`SubGraphTilingResult`] `schedule_graph`
     /// (`anduin::schedule`) found for whichever edge it was deciding when
     /// it produced it, keyed by that [`EdgeId`]. Empty until
@@ -358,16 +362,49 @@ impl TileGraph {
         let mut edges: Vec<TileEdgeRecord> = Vec::new();
         let mut outgoing: Vec<Vec<EdgeId>> = vec![Vec::new(); n];
         let mut incoming: Vec<Vec<EdgeId>> = vec![Vec::new(); n];
+        let mut secondary_outputs: Vec<Vec<EdgeId>> = Vec::with_capacity(n);
 
         for index in 0..n {
             let node = dag.node(index);
             let shape = node.value.output_shape();
+            let tile_spec = node.value.tile_spec();
 
             nodes.push(TileOp {
                 name: node.value.name().to_string(),
                 dtype: node.value.output_dtype(),
-                tile_spec: node.value.tile_spec(),
+                tile_spec,
             });
+
+            // Additional declared outputs beyond the primary one
+            // (teenygrad-1nr.11): no ground-truth shape exists for these
+            // (ExecutableOp::output_shape is singular), so every axis is
+            // an unresolved placeholder symbol -- these edges exist only
+            // so a caller can seed a requested tile onto them for
+            // Self::propagate to pick up; see
+            // Self::secondary_output_edges's doc comment for why they're
+            // deliberately not linked into outgoing/incoming. Pushed in
+            // node-index order (matching `nodes`/`outgoing`/`incoming`),
+            // so `secondary_outputs[index]` lines up without ever
+            // indexing it directly here.
+            let mut node_secondary_outputs = Vec::new();
+            if let Some(spec) = &tile_spec {
+                for (output_index, output_spec) in spec.outputs.iter().enumerate().skip(1) {
+                    let placeholder_shape: TileEdgeShape = (0..output_spec.rank)
+                        .map(|axis| TileDim::Sym(format!("n{index}o{output_index}d{axis}")))
+                        .collect();
+                    let id = EdgeId(edges.len());
+                    edges.push(TileEdgeRecord {
+                        producer: Some(index),
+                        consumer: None,
+                        edge: TileEdge {
+                            shape: placeholder_shape,
+                            memory_level: MemoryLevelKind::DeviceMemory,
+                        },
+                    });
+                    node_secondary_outputs.push(id);
+                }
+            }
+            secondary_outputs.push(node_secondary_outputs);
 
             if node.parents.is_empty() {
                 push_edge(
@@ -417,6 +454,7 @@ impl TileGraph {
             edges,
             outgoing,
             incoming,
+            secondary_outputs,
             resolved_tiling: HashMap::new(),
         }
     }
@@ -500,6 +538,31 @@ impl TileGraph {
         self.output_edge_id(index).map(|id| self.edge(id))
     }
 
+    /// Boundary edges for `index`'s *additional* declared outputs beyond
+    /// the primary one ([`Self::output_edge_id`]) -- one per
+    /// `tile_spec.outputs[1..]`, in order, synthesized by
+    /// [`Self::from_dag`] when `index`'s [`TileOp::tile_spec`] declares
+    /// more than one output (teenygrad-1nr.11: `flash_attn2`'s real
+    /// `o_ptr`+`l_ptr`, `group_norm_forward`'s `y_ptr`/`mean_ptr`/
+    /// `rstd_ptr`).
+    ///
+    /// Deliberately **not** linked into [`Self::children`]/
+    /// [`Self::parent_edges`]/[`Self::extract_subgraph`]/
+    /// [`Self::boundary_edges`] (i.e. not in `outgoing`/`incoming` at
+    /// all) -- invisible to everything except [`Self::propagate`]. There
+    /// is no ground-truth shape for these (`ExecutableOp::output_shape`
+    /// is singular; every axis here is an unresolved
+    /// [`TileDim::Sym`] placeholder), so wiring them into cost-model or
+    /// scheduling passes designed around exactly one real output per
+    /// node needs its own follow-up, not attempted here. A caller who
+    /// wants [`Self::propagate`] to resolve one of these must seed a
+    /// requested tile onto its `EdgeId` via `propagate`'s own
+    /// `output_tiles` map -- [`Self::edge`]/[`Self::set_connect`] still
+    /// work on it like any other arena edge.
+    pub fn secondary_output_edges(&self, index: NodeId) -> &[EdgeId] {
+        &self.secondary_outputs[index]
+    }
+
     /// The edge identified by `id`.
     pub fn edge(&self, id: EdgeId) -> &TileEdge {
         &self.edges[id.0].edge
@@ -542,13 +605,19 @@ impl TileGraph {
     /// `MemTraffic`, ...) can test edge endpoints against the set directly
     /// rather than needing copied-and-relabeled edge data.
     ///
+    /// `level` is `None` for "nothing decided yet" (the walk's own
+    /// starting point, before any real level has been examined) — every
+    /// real edge counts as still-fused in that case, since nothing has
+    /// had the chance to cut it yet. `Some(level)` only follows an edge
+    /// connected at a real level above it.
+    ///
     /// Unlike the paper's naive tree recursion, this shares one visited set
     /// across the whole walk: two paths converging on the same node (e.g. a
     /// diamond fan-out/fan-in) expand it once, not once per incoming path.
     ///
     /// `node` is always included, even in isolation (e.g. every one of its
     /// edges is at or below `level`) — the returned set is never empty.
-    pub fn extract_subgraph(&self, node: NodeId, level: MemoryLevelKind) -> Vec<NodeId> {
+    pub fn extract_subgraph(&self, node: NodeId, level: Option<MemoryLevelKind>) -> Vec<NodeId> {
         let mut visited = vec![false; self.nodes.len()];
         let mut stack: Vec<NodeId> = vec![node];
         visited[node] = true;
@@ -559,7 +628,7 @@ impl TileGraph {
                 .chain(self.incoming[current].iter())
             {
                 let record = &self.edges[id.0];
-                if record.edge.memory_level <= level {
+                if level.is_some_and(|level| record.edge.memory_level <= level) {
                     continue;
                 }
                 let other = if record.producer == Some(current) {
@@ -854,7 +923,7 @@ impl TileGraph {
             // order. A flattened axis's block-sized value lives on its
             // innermost real dim -- see `TileAxisBinding::dims`'s doc
             // comment.
-            let resolved: HashMap<&'static str, &TileDim> = output_spec
+            let mut resolved: HashMap<&'static str, &TileDim> = output_spec
                 .axes
                 .iter()
                 .filter_map(|axis| {
@@ -864,6 +933,45 @@ impl TileGraph {
                         .map(|dim| (axis.extent_param, dim))
                 })
                 .collect();
+
+            // Additional declared outputs (teenygrad-1nr.11): each one
+            // whose synthesized boundary edge the caller has seeded
+            // contributes more resolved extent_param -> TileDim entries,
+            // on top of the primary output's above. Unlike the primary
+            // output, there's no full-shape fallback for these -- an
+            // unseeded or rank-mismatched secondary output simply
+            // contributes nothing, rather than hard-boundarying the
+            // whole node the way a bad primary output does above.
+            //
+            // Collected into owned storage up front (mirroring
+            // `output_tile` above) rather than read from `tiles` inline
+            // below: `resolved`'s borrows need to outlive this loop, but
+            // `tiles` itself is mutated later in this same node's
+            // processing (`tiles.insert` for each parent edge).
+            let secondary_tiles: Vec<Option<TileEdgeShape>> = spec
+                .outputs
+                .iter()
+                .enumerate()
+                .skip(1)
+                .map(|(secondary_index, secondary_spec)| {
+                    let &edge_id = self.secondary_output_edges(node).get(secondary_index - 1)?;
+                    let tile = tiles.get(&edge_id)?.clone();
+                    (tile.len() == secondary_spec.rank).then_some(tile)
+                })
+                .collect();
+            for (secondary_spec, tile) in spec.outputs.iter().skip(1).zip(secondary_tiles.iter()) {
+                let Some(tile) = tile else {
+                    continue; // not seeded, or declared rank doesn't match reality
+                };
+                for axis in secondary_spec.axes.iter() {
+                    let Some(&innermost) = axis.dims.last() else {
+                        continue;
+                    };
+                    if let Some(dim) = tile.get(innermost) {
+                        resolved.insert(axis.extent_param, dim);
+                    }
+                }
+            }
 
             let parents = self.parent_edges(node);
             if parents.len() != spec.inputs.len() {
@@ -1153,12 +1261,12 @@ impl TileGraph {
         &self,
         nodes: &[NodeId],
         root: NodeId,
-        level: MemoryLevelKind,
+        level: Option<MemoryLevelKind>,
         hardware: &HardwareProfile,
         top_k: usize,
     ) -> Vec<SubGraphTilingResult> {
-        let capacity = hardware
-            .level(level)
+        let capacity = level
+            .and_then(|level| hardware.level(level))
             .map(|memory_level| memory_level.capacity)
             .unwrap_or(u64::MAX);
 
@@ -1197,14 +1305,18 @@ impl TileGraph {
                         let mut seen: Vec<Vec<NodeId>> = Vec::new();
                         let mut children = Vec::new();
                         for &node in nodes {
-                            let subgraph = self.extract_subgraph(node, next_level);
+                            let subgraph = self.extract_subgraph(node, Some(next_level));
                             if seen.contains(&subgraph) {
                                 continue;
                             }
                             seen.push(subgraph.clone());
-                            children.extend(
-                                self.sub_graph_tiling(&subgraph, node, next_level, hardware, top_k),
-                            );
+                            children.extend(self.sub_graph_tiling(
+                                &subgraph,
+                                node,
+                                Some(next_level),
+                                hardware,
+                                top_k,
+                            ));
                         }
                         children
                     }
@@ -1707,7 +1819,7 @@ mod tests {
         dag.add_edge(a, b);
 
         let tile_graph = TileGraph::from_dag(&dag);
-        let sub = tile_graph.extract_subgraph(a, MemoryLevelKind::DeviceMemory);
+        let sub = tile_graph.extract_subgraph(a, Some(MemoryLevelKind::DeviceMemory));
 
         assert_eq!(sub, vec![a]);
     }
@@ -1728,7 +1840,7 @@ mod tests {
         tile_graph.set_connect(tile_graph.children(a)[0].1, MemoryLevelKind::HostMemory);
         tile_graph.set_connect(tile_graph.children(b)[0].1, MemoryLevelKind::HostMemory);
 
-        let mut sub = tile_graph.extract_subgraph(b, MemoryLevelKind::DeviceMemory);
+        let mut sub = tile_graph.extract_subgraph(b, Some(MemoryLevelKind::DeviceMemory));
         sub.sort_unstable();
 
         assert_eq!(sub, vec![a, b, c]);
@@ -1750,7 +1862,7 @@ mod tests {
         tile_graph.set_connect(tile_graph.children(a)[0].1, MemoryLevelKind::HostMemory);
         // b -> c stays at the from_dag default: DeviceMemory.
 
-        let mut sub = tile_graph.extract_subgraph(a, MemoryLevelKind::DeviceMemory);
+        let mut sub = tile_graph.extract_subgraph(a, Some(MemoryLevelKind::DeviceMemory));
         sub.sort_unstable();
 
         assert_eq!(sub, vec![a, b]);
@@ -1772,7 +1884,7 @@ mod tests {
         tile_graph.set_connect(tile_graph.children(b)[0].1, MemoryLevelKind::HostMemory);
         // a -> b stays at the from_dag default: DeviceMemory.
 
-        let mut sub = tile_graph.extract_subgraph(c, MemoryLevelKind::DeviceMemory);
+        let mut sub = tile_graph.extract_subgraph(c, Some(MemoryLevelKind::DeviceMemory));
         sub.sort_unstable();
 
         assert_eq!(sub, vec![b, c]);
@@ -2406,22 +2518,64 @@ mod tests {
     }
 
     #[test]
-    fn propagate_ignores_every_output_but_the_first() {
-        // Regression test for teenygrad-1nr.11: KernelTileSpec.outputs
-        // can declare more than one real output tensor (documented:
-        // "every TileOp is single-output today"), motivated by
-        // flash_attn2's real o_ptr + l_ptr (logsumexp) outputs and
-        // group_norm_forward's y_ptr/mean_ptr/rstd_ptr. propagate only
-        // ever reads spec.outputs.first() -- an extent_param that
-        // appears only on a second/later output is never seeded into
-        // `resolved`, so an input axis bound to it always falls back to
-        // its full extent, no matter what's seeded.
+    fn propagate_resolves_a_second_declared_output_when_its_edge_is_seeded() {
+        // Fixed for teenygrad-1nr.11: KernelTileSpec.outputs can declare
+        // more than one real output tensor, motivated by flash_attn2's
+        // real o_ptr + l_ptr (logsumexp) outputs and
+        // group_norm_forward's y_ptr/mean_ptr/rstd_ptr. propagate used to
+        // only ever read spec.outputs.first() -- an extent_param that
+        // appears only on a second/later output was never seeded into
+        // `resolved`, so an input axis bound to it always fell back to
+        // its full extent, no matter what was seeded.
         //
-        // There's no second output edge on TileGraph to seed a "correct"
-        // Y2 tile onto (one output edge per node today -- part of this
-        // same gap), so this asserts the weaker, still-meaningful "not
-        // always the full-extent fallback" rather than a specific
-        // expected number.
+        // TileGraph::from_dag now synthesizes one extra boundary edge per
+        // additional declared output (TileGraph::secondary_output_edges)
+        // -- seeding *that* edge (not b's primary output edge) lets
+        // propagate resolve "aux" for real.
+        let full_shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec("b", full_shape, false, two_output_spec()));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+        let b_aux_edge = *tile_graph
+            .secondary_output_edges(b)
+            .first()
+            .expect("b's two-output spec should have synthesized one secondary output edge");
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(50)]); // Y1's "M"
+        seed.insert(b_aux_edge, vec![TileDim::Fixed(20)]); // Y2's "aux"
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let resolved = config
+            .get(ab_edge)
+            .expect("propagate should have resolved the a->b edge");
+        assert_eq!(
+            resolved,
+            &vec![TileDim::Fixed(20)],
+            "expected a's tile to resolve via Y2's seeded \"aux\" value \
+             (20), not Y1's \"M\" (50, which a's axis isn't bound to) or \
+             the full-extent fallback (1000) -- got {resolved:?}"
+        );
+    }
+
+    #[test]
+    fn propagate_leaves_an_unseeded_second_output_without_a_full_shape_fallback() {
+        // Companion to the test above: unlike the primary output (which
+        // falls back to the node's own full shape when nothing seeds
+        // it), a second declared output has no ground-truth shape to
+        // fall back to at all (ExecutableOp::output_shape is singular).
+        // Leaving it unseeded must simply contribute nothing -- b's
+        // primary-output resolution (and the whole node) still proceeds
+        // normally, and a's "aux"-bound axis falls back to its own full
+        // extent, exactly like an ordinary unresolved axis (e.g. a
+        // reduction axis) always has.
         let full_shape = vec![Some(1000)];
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         let a = dag.add_node(op("a", full_shape.clone(), true));
@@ -2434,24 +2588,18 @@ mod tests {
             .output_edge_id(b)
             .expect("b has no consumer in dag");
 
-        // Seeded as if it were Y1's tile (the only output propagate ever
-        // reads) -- Y2's own tile isn't separately representable today.
         let mut seed = HashMap::new();
-        seed.insert(b_output_edge, vec![TileDim::Fixed(50)]);
+        seed.insert(b_output_edge, vec![TileDim::Fixed(50)]); // Y1's "M" only
         let config = tile_graph.propagate(&[a, b], &seed);
 
         let resolved = config
             .get(ab_edge)
             .expect("propagate should have resolved the a->b edge");
-        assert_ne!(
-            resolved[0],
-            TileDim::Fixed(1000),
-            "expected b's second output (Y2, \"aux\") to have some \
-             influence on a's resolved tile -- but propagate never reads \
-             outputs[1] at all, so a's axis (bound only to Y2's \"aux\" \
-             name) always falls back to its full, untiled extent (1000), \
-             regardless of what Y2's own tile might be or what's seeded \
-             for Y1."
+        assert_eq!(
+            resolved,
+            &vec![TileDim::Fixed(1000)],
+            "expected a's \"aux\"-bound axis to fall back to its own full \
+             extent (1000) when Y2 is never seeded -- got {resolved:?}"
         );
     }
 
@@ -2752,7 +2900,7 @@ mod tests {
         let hardware = two_level_hardware(2000, u64::MAX);
 
         let results =
-            tile_graph.sub_graph_tiling(&[a, b], b, MemoryLevelKind::Register, &hardware, 5);
+            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 5);
 
         assert!(!results.is_empty());
         for result in &results {
@@ -2782,7 +2930,7 @@ mod tests {
         };
 
         let results =
-            tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::DeviceMemory, &hardware, 3);
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::DeviceMemory), &hardware, 3);
 
         assert!(!results.is_empty());
         for result in &results {
@@ -2798,7 +2946,8 @@ mod tests {
         let tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
-        let results = tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::Register, &hardware, 3);
+        let results =
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3);
 
         assert!(!results.is_empty());
         for result in &results {
@@ -2816,6 +2965,61 @@ mod tests {
     }
 
     #[test]
+    fn sub_graph_tiling_of_none_recurses_into_the_hardwares_lowest_declared_level() {
+        // Unlike `two_level_hardware` (which declares Register as a real
+        // level, exercised above), real Triton hardware profiles never
+        // declare Register at all -- only SharedMemory/DeviceMemory
+        // (e.g. `orin_nano_hardware_profile`). `level: None` ("nothing
+        // decided yet") must still correctly recurse into that lowest
+        // *declared* level as its first real child, not skip it or
+        // require a Register entry to exist.
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let hardware = HardwareProfile {
+            name: "shared-and-device".to_string(),
+            compute_units: 1,
+            memory_levels: vec![
+                MemoryLevel {
+                    kind: MemoryLevelKind::SharedMemory,
+                    capacity: u64::MAX,
+                    bandwidth: None,
+                    latency: None,
+                },
+                MemoryLevel {
+                    kind: MemoryLevelKind::DeviceMemory,
+                    capacity: u64::MAX,
+                    bandwidth: None,
+                    latency: None,
+                },
+            ],
+        };
+
+        let results = tile_graph.sub_graph_tiling(&[a], a, None, &hardware, 3);
+
+        assert!(!results.is_empty());
+        for result in &results {
+            assert!(
+                !result.children.is_empty(),
+                "expected recursion into SharedMemory, the hardware's lowest declared level"
+            );
+            for shared_memory_child in &result.children {
+                assert!(
+                    !shared_memory_child.children.is_empty(),
+                    "expected recursion from SharedMemory into DeviceMemory"
+                );
+                for device_memory_child in &shared_memory_child.children {
+                    assert!(
+                        device_memory_child.children.is_empty(),
+                        "DeviceMemory is the top declared level, recursion should stop there"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn sub_graph_tiling_respects_top_k() {
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         let a = dag.add_node(op("a", vec![Some(64)], true));
@@ -2823,8 +3027,10 @@ mod tests {
         let tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
-        let top_1 = tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::Register, &hardware, 1);
-        let top_3 = tile_graph.sub_graph_tiling(&[a], a, MemoryLevelKind::Register, &hardware, 3);
+        let top_1 =
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 1);
+        let top_3 =
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3);
 
         assert_eq!(top_1.len(), 1);
         assert_eq!(top_3.len(), 3);
@@ -2841,7 +3047,7 @@ mod tests {
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
         let results =
-            tile_graph.sub_graph_tiling(&[a, b], b, MemoryLevelKind::Register, &hardware, 1);
+            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 1);
 
         assert!(!results.is_empty());
         for result in &results {

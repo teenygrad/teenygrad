@@ -104,14 +104,25 @@ impl HardwareProfile {
     }
 
     /// The next-slowest [`MemoryLevelKind`] this profile declares above
-    /// `level`, if any -- `None` means `level` is already the top of this
-    /// profile's hierarchy. Lets scheduling code walk "one memory level up"
-    /// without assuming a fixed, contiguous set of levels.
-    pub fn next_memory_level(&self, level: MemoryLevelKind) -> Option<MemoryLevelKind> {
+    /// `level`, if any. `level` is `None` for "nothing decided yet" --
+    /// the starting point before any `GraphConnecting`/`SetConnect`
+    /// decision has assigned an edge to a real level -- in which case
+    /// this returns the profile's own lowest declared level. `Some(level)`
+    /// returns the next-slowest declared level above it, or `None` if
+    /// `level` is already the top of this profile's hierarchy.
+    ///
+    /// Deliberately takes `Option<MemoryLevelKind>`, not a hardcoded
+    /// [`MemoryLevelKind`] variant standing in for "nothing yet" (e.g.
+    /// `Register`, which is ordered first today but isn't a *declared*
+    /// level on most real profiles -- Triton exposes no register-level
+    /// scheduling control): the type makes "no level decided" and "a
+    /// real, named level" impossible to conflate, rather than relying on
+    /// `Register` always staying the minimum of the enum's ordering.
+    pub fn next_memory_level(&self, level: Option<MemoryLevelKind>) -> Option<MemoryLevelKind> {
         self.memory_levels
             .iter()
             .map(|memory_level| memory_level.kind)
-            .filter(|&kind| kind > level)
+            .filter(|&kind| level.is_none_or(|level| kind > level))
             .min()
     }
 }

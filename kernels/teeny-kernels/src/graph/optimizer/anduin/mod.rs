@@ -241,14 +241,18 @@ mod tests {
     fn conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input() {
         // input -> conv2d -> batchnorm2d -> silu
         //          \___________________________/
-        //             none of these three ops has a declared
-        //             KernelTileSpec (only Relu/MatMul do, see
-        //             `graph::mod`'s "Tile-shape metadata" section) --
-        //             this asks whether `schedule_graph`/`sub_graph_tiling`
-        //             still make a real fusion decision without one, since
-        //             nothing in Welder's own cost model actually requires
-        //             a tile_spec to estimate mem_footprint/mem_traffic
-        //             structurally.
+        //             Conv2d/Silu still have no declared KernelTileSpec
+        //             (only Relu/MatMul/BatchNorm2d do -- see
+        //             `graph::mod`'s "Tile-shape metadata" section);
+        //             BatchNorm2d gained BATCHNORM2D_TILE_SPEC in
+        //             teenygrad-1nr.8, after this test was first written.
+        //             Asserts the group still fuses the same way with a
+        //             mixed spec/no-spec node set -- `schedule_graph`/
+        //             `sub_graph_tiling` don't actually require every
+        //             node to have a tile_spec to make a real fusion
+        //             decision, since mem_footprint/mem_traffic fall back
+        //             to full-shape estimates for any node propagate
+        //             can't refine.
         let mut graph = Graph::new();
         let shape = vec![Some(1), Some(3), Some(32), Some(32)];
         let out_shape = vec![Some(1), Some(8), Some(32), Some(32)];
