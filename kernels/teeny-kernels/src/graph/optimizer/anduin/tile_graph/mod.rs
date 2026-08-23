@@ -2269,6 +2269,192 @@ mod tests {
         );
     }
 
+    /// A groupnorm-style spec: mirrors the real `group_norm_forward`
+    /// kernel's tiling shape (grid `[N*G]`, one CTA per (sample, group),
+    /// iterating `BLOCK_NL`-wide tiles over `channels_per_group * L`
+    /// where `channels_per_group = C / G`) -- teenygrad-1nr.10. Only `L`
+    /// (dim 2) gets a `TileAxisBinding`; the channel axis (dim 1) is
+    /// deliberately left out of `axes` entirely -- the best available
+    /// authoring choice, since `TensorTileSpec` has no way to say "this
+    /// axis's real per-tile extent is `C` divided by the compile-time
+    /// constant `G`."
+    fn groupnorm_shaped_spec() -> KernelTileSpec {
+        const L_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[2],
+            block_const: "BLOCK_NL",
+            extent_param: "group_size",
+            window: None,
+        };
+        const X: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 3,
+            axes: &[L_AXIS],
+            reduction_axis: None,
+            untiled_dims: &["N", "C"],
+        };
+        const Y: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            ..X
+        };
+        KernelTileSpec {
+            inputs: &[X],
+            outputs: &[Y],
+        }
+    }
+
+    #[test]
+    fn propagate_cannot_express_a_dim_subdivided_by_a_grid_constant() {
+        // Regression test for teenygrad-1nr.10: group_norm_forward's real
+        // per-CTA tile spans channels_per_group (= C/G) * L -- only a
+        // fraction of the channel axis, not the whole of it.
+        // TensorTileSpec has no primitive for "this axis's extent is
+        // divided by a compile-time constant"; the only options are
+        // name-matched resolution or the full-extent fallback. With
+        // N=2, C=8, L=16, G=2 (channels_per_group=4), the correct
+        // channel-axis tile is 4 -- but propagate can only ever resolve
+        // it to C's full extent, 8.
+        let full_shape = vec![Some(2), Some(8), Some(16)]; // [N, C, L]
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec(
+            "b",
+            full_shape.clone(),
+            false,
+            groupnorm_shaped_spec(),
+        ));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+
+        let mut seed = HashMap::new();
+        seed.insert(
+            b_output_edge,
+            vec![TileDim::Fixed(2), TileDim::Fixed(8), TileDim::Fixed(16)],
+        );
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let resolved = config
+            .get(ab_edge)
+            .expect("propagate should have resolved the a->b edge");
+        const CHANNELS_PER_GROUP: usize = 8 / 2; // C / G
+        assert_eq!(
+            resolved[1],
+            TileDim::Fixed(CHANNELS_PER_GROUP),
+            "expected the channel axis to resolve to channels_per_group \
+             ({CHANNELS_PER_GROUP}), matching group_norm_forward's real \
+             per-CTA tile -- got {:?}. TensorTileSpec has no way to \
+             express a dim subdivided by a compile-time grid constant \
+             (G), so this axis can only ever fall back to its full \
+             extent.",
+            resolved[1]
+        );
+    }
+
+    /// Simulates a two-output kernel (mirrors `flash_attn2`'s real
+    /// `o_ptr` + `l_ptr` outputs, and `group_norm_forward`'s three --
+    /// teenygrad-1nr.11): `outputs[0]` (`Y1`) names one `extent_param`
+    /// (`"M"`); `outputs[1]` (`Y2`) names a *different* one (`"aux"`)
+    /// that only appears on one input axis.
+    fn two_output_spec() -> KernelTileSpec {
+        const X_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[0],
+            block_const: "BLOCK_AUX",
+            extent_param: "aux", // only Y2 names this -- Y1 never does
+            window: None,
+        };
+        const X: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 1,
+            axes: &[X_AXIS],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        const Y1_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[0],
+            block_const: "BLOCK_M",
+            extent_param: "M",
+            window: None,
+        };
+        const Y1: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            rank: 1,
+            axes: &[Y1_AXIS],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        const Y2_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[0],
+            block_const: "BLOCK_AUX",
+            extent_param: "aux",
+            window: None,
+        };
+        const Y2: TensorTileSpec = TensorTileSpec {
+            param: "l_ptr",
+            rank: 1,
+            axes: &[Y2_AXIS],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        KernelTileSpec {
+            inputs: &[X],
+            outputs: &[Y1, Y2],
+        }
+    }
+
+    #[test]
+    fn propagate_ignores_every_output_but_the_first() {
+        // Regression test for teenygrad-1nr.11: KernelTileSpec.outputs
+        // can declare more than one real output tensor (documented:
+        // "every TileOp is single-output today"), motivated by
+        // flash_attn2's real o_ptr + l_ptr (logsumexp) outputs and
+        // group_norm_forward's y_ptr/mean_ptr/rstd_ptr. propagate only
+        // ever reads spec.outputs.first() -- an extent_param that
+        // appears only on a second/later output is never seeded into
+        // `resolved`, so an input axis bound to it always falls back to
+        // its full extent, no matter what's seeded.
+        //
+        // There's no second output edge on TileGraph to seed a "correct"
+        // Y2 tile onto (one output edge per node today -- part of this
+        // same gap), so this asserts the weaker, still-meaningful "not
+        // always the full-extent fallback" rather than a specific
+        // expected number.
+        let full_shape = vec![Some(1000)];
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec("b", full_shape, false, two_output_spec()));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+
+        // Seeded as if it were Y1's tile (the only output propagate ever
+        // reads) -- Y2's own tile isn't separately representable today.
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(50)]);
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let resolved = config
+            .get(ab_edge)
+            .expect("propagate should have resolved the a->b edge");
+        assert_ne!(
+            resolved[0],
+            TileDim::Fixed(1000),
+            "expected b's second output (Y2, \"aux\") to have some \
+             influence on a's resolved tile -- but propagate never reads \
+             outputs[1] at all, so a's axis (bound only to Y2's \"aux\" \
+             name) always falls back to its full, untiled extent (1000), \
+             regardless of what Y2's own tile might be or what's seeded \
+             for Y1."
+        );
+    }
+
     #[test]
     fn propagate_resolves_a_fan_out_producers_two_edges_independently() {
         // a feeds both b and c, each with their own flat_unary_spec and
