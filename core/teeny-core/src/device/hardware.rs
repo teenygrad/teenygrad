@@ -102,6 +102,18 @@ impl HardwareProfile {
     pub fn level(&self, kind: MemoryLevelKind) -> Option<&MemoryLevel> {
         self.memory_levels.iter().find(|level| level.kind == kind)
     }
+
+    /// The next-slowest [`MemoryLevelKind`] this profile declares above
+    /// `level`, if any -- `None` means `level` is already the top of this
+    /// profile's hierarchy. Lets scheduling code walk "one memory level up"
+    /// without assuming a fixed, contiguous set of levels.
+    pub fn next_memory_level(&self, level: MemoryLevelKind) -> Option<MemoryLevelKind> {
+        self.memory_levels
+            .iter()
+            .map(|memory_level| memory_level.kind)
+            .filter(|&kind| kind > level)
+            .min()
+    }
 }
 
 #[cfg(test)]
