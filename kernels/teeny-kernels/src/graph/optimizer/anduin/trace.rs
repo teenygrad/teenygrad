@@ -115,7 +115,7 @@ impl Trace {
         trace.allocate(footprint, level);
         trace.load_tiles(&result.nodes, level);
 
-        let next_level = hardware.next_memory_level(level);
+        let next_level = hardware.next_memory_level(Some(level));
         let mut executed = std::collections::HashSet::new();
 
         for &node in &result.nodes {

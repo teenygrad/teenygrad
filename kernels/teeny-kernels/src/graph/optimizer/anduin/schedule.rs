@@ -49,7 +49,7 @@
 //! call). `Anduin::optimize` still needs that piece before it can return a
 //! rewritten `Dag` from a schedule produced here.
 
-use teeny_core::device::hardware::{HardwareProfile, MemoryLevelKind};
+use teeny_core::device::hardware::HardwareProfile;
 
 use super::profile::Profiler;
 use super::tile_graph::{SubGraphTilingResult, TileGraph};
@@ -92,14 +92,9 @@ pub fn schedule_graph(
                 let level = memory_level.kind;
                 tile_graph.set_connect(edge_id, level);
 
-                let subgraph = tile_graph.extract_subgraph(node, MemoryLevelKind::Register);
-                let mut candidates = tile_graph.sub_graph_tiling(
-                    &subgraph,
-                    node,
-                    MemoryLevelKind::Register,
-                    hardware,
-                    TOP_K,
-                );
+                let subgraph = tile_graph.extract_subgraph(node, None);
+                let mut candidates =
+                    tile_graph.sub_graph_tiling(&subgraph, node, None, hardware, TOP_K);
                 if candidates.is_empty() {
                     continue;
                 }
@@ -122,7 +117,7 @@ pub fn schedule_graph(
 
 #[cfg(test)]
 mod tests {
-    use teeny_core::device::hardware::MemoryLevel;
+    use teeny_core::device::hardware::{MemoryLevel, MemoryLevelKind};
     use teeny_core::graph::{DtypeRepr, Shape};
     use teeny_core::model::ExecutableOp;
     use teeny_core::utils::dag::Dag;

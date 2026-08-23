@@ -521,9 +521,72 @@ interface definition:
      node computes directly in one flat top-level virtual node. Documented
      as current behavior, not asserted as correct — worth another look
      once `sub_graph_tiling`'s config search is better exercised.
-8. §4.1's hardware-aligned refinements (reviving the removed, real-hardware-
+8. ~~`propagate` reads every declared `KernelTileSpec` output, not just
+   `outputs[0]`~~ — done (teenygrad-1nr.11). Found surveying kernels for
+   tile-spec fit: `flash_attn2` forward has real `o_ptr` + `l_ptr`
+   (logsumexp) outputs, `group_norm_forward` has three
+   (`y_ptr`/`mean_ptr`/`rstd_ptr`), but `propagate` only ever read
+   `outputs.first()` — an `extent_param` named only on a second/later
+   output always fell back to its full, untiled extent. `TileGraph` had
+   nowhere to seed a second output's own tile from either (one output
+   edge per node): `TileGraph::from_dag` now synthesizes one extra
+   boundary edge per additional declared output
+   (`TileGraph::secondary_output_edges`), deliberately **not** linked
+   into `outgoing`/`incoming` (so `children`/`parent_edges`/
+   `extract_subgraph`/`boundary_edges`/`mem_footprint`/`mem_traffic`/
+   `topological_sort` — all built on those two lists — stay completely
+   unaware of them; confirmed by inspection, not just by the existing
+   tests still passing unchanged). Every axis on a secondary edge is an
+   unresolved `TileDim::Sym` placeholder — no `ExecutableOp::output_shape`
+   equivalent exists for a non-primary output — so it only contributes
+   to `propagate`'s resolution when a caller explicitly seeds a tile
+   onto it via `propagate`'s own `output_tiles` map; unseeded, it
+   contributes nothing (not a hard boundary for the whole node — the
+   primary output's own resolution is untouched either way). Real
+   `KernelTileSpec`s for `flash_attn2`/`GroupNorm` are still blocked on
+   more than this alone (loop-carried state for `flash_attn2` —
+   teenygrad-1nr.12 — and the axis-subdivided-by-a-grid-constant gap for
+   `GroupNorm` — teenygrad-1nr.10).
+9. §4.1's hardware-aligned refinements (reviving the removed, real-hardware-
    calibrated `teenygrad-3w0` `CostModel`) and §4.2's real code generation
    (kernel composition, best-fit shared-memory allocator) — both still
    deferred; §4.2 overlaps heavily with teenygrad-1nr.1's still-open
    `Tile<D>` composition rework, which is the harder blocker for actually
    materializing fused kernels from a schedule.
+10. ~~`extract_subgraph`/`sub_graph_tiling`/`HardwareProfile::next_memory_level`
+    take `Option<MemoryLevelKind>`, not a hardcoded `MemoryLevelKind::Register`~~
+    — done. `extract_subgraph`'s "is this edge still fused at `level`"
+    comparison needs a starting point strictly below anything
+    `GraphConnecting`'s candidate levels could ever be (Fig. 7's own
+    `level = 0`, before any connect-level decision) — `MemoryLevelKind::Register`
+    happened to work for this by virtue of being the enum's minimum
+    ordinal, but that conflated two different things under one literal:
+    "nothing decided yet" (what `schedule_graph`'s own top-level call
+    always means) and "a real, named level a hardware profile might
+    genuinely declare" (true for the `tile_graph` test module's own
+    `two_level_hardware` helper, which *does* declare `Register` — but
+    false for every real Triton hardware profile, which only ever
+    exposes `SharedMemory`/`DeviceMemory`).
+    `Option<MemoryLevelKind>` makes the two cases impossible to conflate:
+    `None` means "nothing decided," and `next_memory_level(None)`
+    correctly returns the hardware's own lowest *declared* level, whatever
+    that is — `schedule_graph`'s own call always passes `None`
+    unconditionally, regardless of what a given hardware profile
+    declares. `Trace::trace_graph`/`TraceEvent` deliberately keep the
+    literal `MemoryLevelKind::Register` — that's a real, correct tag to
+    record in a trace meant for codegen ("this value is register-resident,
+    not yet materialized," true before any connect-level decision), not
+    a comparison sentinel, so it stays as-is.
+    A first attempt at this went further and *replaced* the sentinel
+    entirely with "the hardware's own lowest declared level" — collapsing
+    `extract_subgraph`'s "not yet cut" check so nothing could ever be
+    found fused at the very first level examined (nothing can be
+    "connected finer than the finest connectable level"). That was a
+    regression (confirmed by re-running `conv2d_batchnorm_silu_...`,
+    whose real 3-node fused group collapsed into three independent
+    singletons), reverted before landing this fix. New regression test:
+    `sub_graph_tiling_of_none_recurses_into_the_hardwares_lowest_declared_level`,
+    against a `Register`-less two-level (`SharedMemory`/`DeviceMemory`)
+    profile mirroring `orin_nano_hardware_profile`'s real shape — nothing
+    existing exercised that specific case directly (only through the
+    larger, harder-to-debug `conv2d_batchnorm_silu` integration test).
