@@ -27,20 +27,31 @@
 //! candidates with a cheap cost model down to a top-k before validating the
 //! winner on real hardware. See `teenygrad-1nr`.
 //!
-//! `optimize` is a stub until that TileGraph search replaces the pattern
-//! detectors it used to run. The `#[tile(...)]`-declared tile-shape metadata
-//! (`KernelTileSpec`, `propagate_within_kernel`/`propagate_graph`) that a
-//! prior pass of this work built for a future scheduler was never consumed
-//! by this optimizer or anything else and has been removed — see
-//! teenygrad-1nr. Real tile shapes should come from the graph nodes
-//! themselves once the TileGraph search exists, not from per-kernel
-//! declarations.
+//! `optimize` is still a stub, but every piece Fig. 7's two-step scheduler
+//! needs now exists on `TileGraph`: `SetConnect`/`ExtractSubgraph`/
+//! `MemFootprint`/`MemTraffic`/`Profiler`, `Propagate` (teenygrad-1nr.2, via
+//! a revived, metadata-only `KernelTileSpec` consumed by name-matching, not
+//! the removed `#[tile(...)]` attribute's codegen), `EnumerateSubtiles`
+//! (teenygrad-1nr.3, a Roller-style power-of-two tile search),
+//! `sub_graph_tiling` (teenygrad-1nr.4, Welder's `SubGraphTiling`), and
+//! [`schedule_graph`] (teenygrad-1nr.5, Welder's `GraphConnecting` under a
+//! better name — see `scheduler`'s module doc comment). What's left is
+//! wiring `schedule_graph`'s output into `optimize`'s returned, rewritten
+//! `Dag` — blocked on reworking `#[tiled_kernel]` to compose `Tile<D>`
+//! functions (teenygrad-1nr.1), since `optimize` needs to materialize real
+//! fused kernels from the schedule, not just produce one. See
+//! `TILE_GRAPH_SCHEDULING_PLAN.md` and teenygrad-1nr.
 
 mod profiler;
+mod scheduler;
 mod tile_graph;
 
 pub use profiler::{Profiler, SimpleProfiler};
-pub use tile_graph::{EdgeId, NodeId, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp};
+pub use scheduler::schedule_graph;
+pub use tile_graph::{
+    EdgeId, NodeId, SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph,
+    TileOp,
+};
 
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::model::ExecutableOp;
