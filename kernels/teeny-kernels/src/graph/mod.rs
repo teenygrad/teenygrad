@@ -28,8 +28,8 @@ pub mod optimizer;
 
 pub use optimizer::{
     Anduin, DagCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
-    SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp,
-    TraceDevice, TraceEvent, codegen, execute_graph, schedule_graph,
+    SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp, Trace,
+    TraceEvent, codegen, schedule_graph,
 };
 
 use crate::nn::{
@@ -155,7 +155,7 @@ use crate::nn::norm::batchnorm::{
 /// resolves the input's tile with no arithmetic at all.
 const RELU_TILE_SPEC: KernelTileSpec = {
     const AXIS: TileAxisBinding = TileAxisBinding {
-        dim: 0,
+        dims: &[0],
         block_const: "BLOCK_SIZE",
         extent_param: "n_elements",
         window: None,
@@ -189,13 +189,13 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
         rank: 2,
         axes: &[
             TileAxisBinding {
-                dim: 0,
+                dims: &[0],
                 block_const: "BLOCK_M",
                 extent_param: "M",
                 window: None,
             },
             TileAxisBinding {
-                dim: 1,
+                dims: &[1],
                 block_const: "BLOCK_K",
                 extent_param: "K",
                 window: None,
@@ -209,13 +209,13 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
         rank: 2,
         axes: &[
             TileAxisBinding {
-                dim: 0,
+                dims: &[0],
                 block_const: "BLOCK_K",
                 extent_param: "K",
                 window: None,
             },
             TileAxisBinding {
-                dim: 1,
+                dims: &[1],
                 block_const: "BLOCK_N",
                 extent_param: "N",
                 window: None,
@@ -229,13 +229,13 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
         rank: 2,
         axes: &[
             TileAxisBinding {
-                dim: 0,
+                dims: &[0],
                 block_const: "BLOCK_M",
                 extent_param: "M",
                 window: None,
             },
             TileAxisBinding {
-                dim: 1,
+                dims: &[1],
                 block_const: "BLOCK_N",
                 extent_param: "N",
                 window: None,
@@ -247,6 +247,40 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
     KernelTileSpec {
         inputs: &[A, B],
         outputs: &[C],
+    }
+};
+
+/// NCHW batchnorm2d inference (`batch_norm_2d_nchw_forward_inference`,
+/// `nn::norm::batchnorm`): grid `[C, B]` (one CTA per channel×batch), each
+/// CTA looping the *flattened* `H*W` range in `BLOCK_HW`-wide tiles -- no
+/// single real axis (H alone, or W alone) corresponds to `BLOCK_HW`, so
+/// this uses `TileAxisBinding::dims` spanning both (`&[2, 3]`, W
+/// innermost, matching NCHW's row-major layout) instead of one dim per
+/// binding like `RELU_TILE_SPEC`/`MATMUL_TILE_SPEC` above. Batch/channels
+/// (dims 0/1) are real but grid-driven, left out of `axes` (untiled, kept
+/// at full extent by `Propagate`). Shape-preserving elementwise (per
+/// channel) like `RELU_TILE_SPEC`, so `x_ptr`/`y_ptr` share `"HW"`.
+const BATCHNORM2D_TILE_SPEC: KernelTileSpec = {
+    const HW: TileAxisBinding = TileAxisBinding {
+        dims: &[2, 3],
+        block_const: "BLOCK_HW",
+        extent_param: "HW",
+        window: None,
+    };
+    const X: TensorTileSpec = TensorTileSpec {
+        param: "x_ptr",
+        rank: 4,
+        axes: &[HW],
+        reduction_axis: None,
+        untiled_dims: &["B", "C"],
+    };
+    const Y: TensorTileSpec = TensorTileSpec {
+        param: "y_ptr",
+        ..X
+    };
+    KernelTileSpec {
+        inputs: &[X],
+        outputs: &[Y],
     }
 };
 
@@ -1288,7 +1322,7 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
-                        tile_spec: None,
+                        tile_spec: Some(BATCHNORM2D_TILE_SPEC),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]

@@ -57,6 +57,15 @@
 //! `resolve: impl FnMut(&str) -> i64` supplied entirely by the caller).
 //! Teaching `propagate` to invert a windowed axis's extent from its driving
 //! output axis is a real follow-up, not a claimed capability here.
+//!
+//! [`TensorTileSpec::untiled_dims`] is, by contrast, already effectively
+//! honored: `TileGraph::propagate` builds every input/output tile at that
+//! tensor's full `rank`, not `axes.len()`, so a dim named in
+//! `untiled_dims` (no [`TileAxisBinding`] at all) falls back to its real
+//! full extent rather than being dropped — the same fallback an axis with
+//! no output-side name match (e.g. a reduction axis) already got. The
+//! string names in `untiled_dims` itself still aren't read; the effect
+//! comes from simply omitting a dim from `axes` (teenygrad-1nr.7).
 
 /// Strided/padded window relating an axis's *output* tile to the actual
 /// *input* positions it reads — e.g. a conv kernel's `x_ptr`, whose
@@ -79,8 +88,29 @@ pub struct TileWindow {
 /// runtime extent parameter it's sliced by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileAxisBinding {
-    /// Axis index within the tensor's total shape.
-    pub dim: usize,
+    /// Axis indices within the tensor's total shape that this one
+    /// binding's block spans, outermost to innermost. `TileGraph::propagate`
+    /// indexes by these directly (not by an axis's position within
+    /// `axes`), so entries needn't be listed in tensor-dim order — but
+    /// every index must be `< rank`, and no index may repeat across one
+    /// `TensorTileSpec`'s `axes` (an out-of-range index is silently
+    /// skipped; a repeat is last-write-wins; both are a spec-authoring
+    /// bug, not something `propagate` tries to normalize).
+    ///
+    /// Almost always one entry (`&[dim]`) — the ordinary case of one
+    /// block const tiling one real axis, e.g. GEMM's `BLOCK_M` tiling
+    /// `a_ptr`'s axis 0. More than one entry means this binding's block
+    /// const spans a *flattened* combination of several real axes, e.g.
+    /// a kernel that iterates a combined `H*W` range in one loop with one
+    /// `BLOCK_HW`: `dims: &[h_axis, w_axis]`. `propagate` resolves the
+    /// actual block-sized value onto the *last* (innermost) entry and
+    /// sets every other entry to a bare `1` — product-preserving (the
+    /// tile's total element count still matches `BLOCK_HW`), not a
+    /// literal axis-aligned subregion once the block size doesn't evenly
+    /// divide the innermost axis's extent, matching this codebase's
+    /// existing masked/partial-last-tile simplifications elsewhere (see
+    /// `TileGraph::enumerate_subtiles`'s doc comment).
+    pub dims: &'static [usize],
     /// Name of the `const {NAME}: i32` generic providing this axis's tile
     /// size.
     pub block_const: &'static str,
@@ -99,9 +129,17 @@ pub struct TileAxisBinding {
 pub struct TensorTileSpec {
     /// The parameter's name, e.g. `"x_ptr"`.
     pub param: &'static str,
-    /// The tensor's rank. Must equal `axes.len()`.
+    /// The tensor's real, full rank -- how many dims `TileGraph::propagate`
+    /// expects on the actual graph edge/output tile for this tensor.
+    /// `axes` may cover *fewer* dims than this (see `untiled_dims`): any
+    /// dim with no `TileAxisBinding` keeps its full extent when
+    /// `propagate` resolves this tensor's tile, the same fallback an axis
+    /// with no output-side counterpart (e.g. a reduction axis) already
+    /// gets.
     pub rank: usize,
-    /// Per-axis tile bindings, in tensor-axis order.
+    /// Per-axis tile bindings. Order doesn't matter -- each binding names
+    /// its own `dim` -- and this may have fewer entries than `rank` (see
+    /// `untiled_dims`).
     pub axes: &'static [TileAxisBinding],
     /// Axis index this tensor is reduced/accumulated over, if any.
     pub reduction_axis: Option<usize>,
@@ -109,7 +147,12 @@ pub struct TensorTileSpec {
     /// *other* real dimensions — present in memory, but not individually
     /// tiled by an axis binding (e.g. a conv kernel's output is tagged on
     /// its width axis alone; batch/channels/height are real but
-    /// grid-driven, so they belong here, not in `axes`).
+    /// grid-driven, so they belong here, not in `axes`). Purely
+    /// documentation today -- not read by `TileGraph::propagate` -- but
+    /// the *effect* it describes (an untiled dim keeps its full extent
+    /// rather than being dropped) is what `propagate` actually does,
+    /// structurally, via `rank`/`axes` above; naming a dim here vs. simply
+    /// omitting it from `axes` has no functional difference yet.
     pub untiled_dims: &'static [&'static str],
 }
 

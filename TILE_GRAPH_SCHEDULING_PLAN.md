@@ -228,7 +228,7 @@ back the attribute macro or its codegen.
 
 ```rust
 pub struct TileWindow { pub stride_const: &'static str, pub pad_const: &'static str, pub kernel_size_const: &'static str }
-pub struct TileAxisBinding { pub dim: usize, pub block_const: &'static str, pub extent_param: &'static str, pub window: Option<TileWindow> }
+pub struct TileAxisBinding { pub dims: &'static [usize], pub block_const: &'static str, pub extent_param: &'static str, pub window: Option<TileWindow> }
 pub struct TensorTileSpec { pub param: &'static str, pub rank: usize, pub axes: &'static [TileAxisBinding], pub reduction_axis: Option<usize>, pub untiled_dims: &'static [&'static str] }
 pub struct KernelTileSpec { pub inputs: &'static [TensorTileSpec], pub outputs: &'static [TensorTileSpec] }
 ```
@@ -239,11 +239,33 @@ method (`None`) — coverage is opt-in per kernel, same as the original.
 `tile_spec: Option<KernelTileSpec>` field, set at `TritonLowering`
 construction time (no `RuntimeOp::as_any` needed — `&Op`'s static fields
 are already in scope at each match arm before erasure into
-`KernelExecutable`). Two ops are tagged as a first proof-of-concept slice:
-`Op::Relu` (`RELU_TILE_SPEC` — flat single-axis identity) and
-`Op::MatMul`/`Op::Gemm` (`MATMUL_TILE_SPEC` — `M`/`N` resolved, `K`
-correctly left unresolved). `TileOp` carries the same field, populated in
-`from_dag` from `node.value.tile_spec()`.
+`KernelExecutable`). Three ops are tagged so far: `Op::Relu`
+(`RELU_TILE_SPEC` — flat single-axis identity), `Op::MatMul`/`Op::Gemm`
+(`MATMUL_TILE_SPEC` — `M`/`N` resolved, `K` correctly left unresolved),
+and `Op::BatchNorm2d` (`BATCHNORM2D_TILE_SPEC` — see `dims` below).
+`TileOp` carries the same field, populated in `from_dag` from
+`node.value.tile_spec()`.
+
+**`TileAxisBinding.dims` (renamed from `dim: usize`, fixed
+teenygrad-1nr.8).** Almost always one entry (`&[N]`, the ordinary
+one-block-const-per-real-axis case), but a kernel that flattens several
+real dims into one iterated range with a single block const — NCHW
+batchnorm2d's `H*W` loop, one `BLOCK_HW` — needs more than one:
+`dims: &[h_dim, w_dim]`, outermost to innermost. `propagate` resolves the
+actual block-sized value onto the *last* (innermost) entry and collapses
+every other entry to a bare `TileDim::Fixed(1)` — product-preserving
+(matches the real per-tile element count) even though it isn't a literal
+axis-aligned subregion once the block size doesn't evenly divide the
+innermost axis's extent, the same kind of simplification
+`enumerate_subtiles`'s own doc comment already accepts for masked/partial
+last tiles. `BATCHNORM2D_TILE_SPEC` (`graph/mod.rs`) is the first real
+spec using this: `dims: &[2, 3]` (H, W) for its one `HW` axis, batch/
+channels (dims 0/1) untiled. Known limitation, not solved here:
+`enumerate_subtiles`'s candidate search still varies every axis's ladder
+independently, with no notion that H and W are jointly driven by one
+flattened binding — teaching the search itself to respect that is a
+separate follow-up (`propagate` resolving a *given* output tile correctly
+is what this covers).
 
 `TileWindow` is carried over for fidelity but **not yet consumed by
 `propagate`** — the original never actually wired it into
@@ -251,6 +273,21 @@ correctly left unresolved). `TileOp` carries the same field, populated in
 estimator read it, given an already-resolved value from the caller).
 Teaching `propagate` to invert a windowed axis's extent from its driving
 output axis is a real follow-up.
+
+**`untiled_dims`, by contrast, is already effectively honored (fixed
+teenygrad-1nr.7).** Originally `propagate` built each input/output tile by
+positionally zipping only `axes` against the real shape, so a spec with
+`axes.len() < rank` (e.g. a conv2d-style kernel that only block-tiles one
+axis, with the rest genuinely relying on `untiled_dims`) got a
+`TileEdgeShape` truncated to `axes.len()`, silently dropping the untiled
+dims instead of falling back to their full extent — reproduced by
+`tile_graph/mod.rs::tests::propagate_of_a_partially_tiled_spec_should_not_drop_the_untiled_dims`.
+Fixed by indexing by each `TileAxisBinding`'s declared `dim` (not
+position) and building every tile at full `rank`, overwriting only the
+dims `axes` actually names — the untiled-dim string list itself still
+isn't read, but the *effect* it describes now holds structurally. This
+unblocks writing real `Conv2d`/`BatchNorm2d` tile specs (partial-axis,
+relying on the fallback) as a follow-up.
 
 ### `TileConfig` and `TileGraph::propagate`
 
@@ -304,8 +341,7 @@ last missing primitive before `GraphConnecting`/`SubGraphTiling` itself.
 
 ## `EnumerateSubtiles` / `sub_graph_tiling` / `schedule_graph` (shipped, teenygrad-1nr.3/.4/.5)
 
-The rest of Fig. 7's scheduler, in `tile_graph/mod.rs` and the new
-`anduin/scheduler.rs`:
+The rest of Fig. 7's scheduler, in `tile_graph/mod.rs` and `anduin/schedule.rs`:
 
 - **`TileGraph::mem_footprint_with_config`/`mem_traffic_with_config`** —
   the config-aware footprint/traffic these three all needed (the plan
@@ -347,7 +383,7 @@ The rest of Fig. 7's scheduler, in `tile_graph/mod.rs` and the new
   kernels — that's still blocked on teenygrad-1nr.1 (see `Anduin::optimize`'s
   own module doc comment).
 
-## §3.3 — `execute_graph` + `codegen` scaffold (shipped, teenygrad-1nr.6)
+## §3.3 — `trace_graph` + `codegen` scaffold (shipped, teenygrad-1nr.6)
 
 `schedule_graph` originally computed a `SubGraphTilingResult` per candidate
 memory level and kept only `connect_level`, discarding the actual chosen
@@ -367,34 +403,68 @@ wasn't walkable — fixed by adding a `nodes: Vec<NodeId>` field, populated
 from `sub_graph_tiling`'s own `extract_subgraph` calls (already computed,
 previously discarded after the dedup check).
 
-Three small modules now hold this, split by concern:
+Two modules hold this, split by concern — the walk that *produces* a trace
+lives with the trace types it produces, not with the `ExecuteDevice`
+interface definition:
 
-- `anduin/codegen.rs`: `ExecuteDevice` (`allocate`/`load_tiles`/
-  `compute_tile`/`store_tiles`, Table 1) and `execute_graph`, the
-  structural walk implementing Fig. 8's recursion over a `TileGraph`, a
-  `SubGraphTilingResult`, and an `ExecuteDevice`, terminating at the top of
-  `HardwareProfile`'s declared hierarchy (via the same `next_memory_level`
-  helper `sub_graph_tiling` uses). One documented deviation: a fused group
-  can become one child covering several nodes (`SubGraphTilingResult::children`'s
-  existing dedup-by-subgraph behavior), so `execute_graph` dispatches once
-  per *child* rather than unconditionally once per node, falling back to
-  `compute_tile` directly only for a node no child covers.
-- `anduin/trace.rs`: `TraceEvent` and `TraceDevice`, the `ExecuteDevice`
-  implementation `execute_graph` is driven with today — it records events
-  rather than doing anything real.
-- Back in `anduin/codegen.rs`: `codegen`, which runs the *other* direction
-  through the same `ExecuteDevice` interface — given an already-recorded
-  trace (typically `TraceDevice::events`), it replays each event through an
-  `ExecuteDevice` again, the same interface driven from a static list
-  instead of a live walk. `DagCodegen` is the intended `ExecuteDevice` for
-  this direction: it's meant to build a real `Dag<Box<dyn ExecutableOp>>`
-  of custom (fused) ops as it replays — matching `GraphOptimizer::optimize`'s
-  own `(Dag, Vec<usize>)` contract, the way the original hand-coded Anduin
+- `anduin/codegen.rs`: `ExecuteDevice` — Table 1's `allocate`/`load_tiles`/
+  `compute_tile`/`store_tiles`, plus one addition of our own,
+  `virtual_node(nodes, level)` (not in Table 1) — plus `codegen` and
+  `DagCodegen` (below).
+
+  `virtual_node` makes Welder §3.1/Fig. 5's *virtual node* — the original
+  `NodeId`s consolidated into one fused unit as viewed from a level — an
+  explicit event, called first (before `allocate`) on every `trace_graph`
+  invocation, i.e. once per recursion frame, with that frame's own
+  `result.nodes` (including singleton groups — a node not fused with
+  anything is still "viewed from this level" as itself). Unlike the paper,
+  where a virtual node can exist at *any* level including deep
+  register-level sub-fusion, this codebase's real `HardwareProfile`s only
+  ever declare `SharedMemory`/`DeviceMemory` as levels a scheduling
+  decision can target — Triton gives no explicit control over registers,
+  L1, or L2, which stay hardware-managed within a single kernel body. So
+  every virtual node this reports is a genuine candidate kernel boundary:
+  it's the exact grouping `DagCodegen` needs to decide "these nodes become
+  one compiled kernel," without needing to reconstruct that grouping by
+  pattern-matching `Allocate`/`StoreTiles` nesting out of the flatter
+  four-event trace after the fact.
+
+  `codegen(trace, device)` runs the *replay* direction through the same
+  `ExecuteDevice` interface — given an already-recorded trace (typically
+  `Trace::events`), it replays each event through an `ExecuteDevice`
+  again, the same interface driven from a static list instead of a live
+  walk. `DagCodegen` is the intended `ExecuteDevice` for this direction:
+  it's meant to build a real `Dag<Box<dyn ExecutableOp>>` of custom
+  (fused) ops as it replays — matching `GraphOptimizer::optimize`'s own
+  `(Dag, Vec<usize>)` contract, the way the original hand-coded Anduin
   fusion strategies did before removal — but every method is currently a
   dummy `todo!()` stub. Building it for real is §4.2's scope (register-level
   `compute_inline`-style fusion, shared-memory load/store rewriting,
   block/thread index remapping, a best-fit shared-memory allocator) and
   overlaps heavily with the still-open teenygrad-1nr.1.
+- `anduin/trace.rs`: `TraceEvent`/`Trace` (the `ExecuteDevice`
+  implementation that just records events), and `Trace::trace_graph` —
+  Welder §3.3's `ExecuteGraph` (Fig. 8), renamed *and* made an associated
+  function of `Trace`: what this walk actually does in this codebase is
+  build a trace — the only way a `Trace` gets created — not execute
+  anything for real, so a free `execute_graph`/`trace_graph` taking a
+  generic `ExecuteDevice` claimed more genericity than the walk ever used
+  (nothing has ever driven it with anything but a `Trace`). Structural
+  walk implementing Fig. 8's recursion over a `TileGraph` and a
+  `SubGraphTilingResult`, terminating at the top of `HardwareProfile`'s
+  declared hierarchy (via the same `HardwareProfile::next_memory_level`
+  method `sub_graph_tiling` uses). Single self-recursive function: the
+  recursive case builds a child `Trace` via `Self::trace_graph(...)` and
+  merges its `events` into the parent's, rather than threading a
+  `&mut Self` accumulator through a separate helper. One documented
+  deviation: a fused group can
+  become one child covering several nodes (`SubGraphTilingResult::children`'s
+  existing dedup-by-subgraph behavior), so `trace_graph` dispatches once
+  per *child* rather than unconditionally once per node, falling back to
+  `compute_tile` directly only for a node no child covers. `codegen`'s
+  replay direction is where genericity over `ExecuteDevice` actually
+  matters (any device can consume a trace); building one only ever
+  produces a `Trace`.
 
 ## Suggested implementation order
 
@@ -404,12 +474,54 @@ Three small modules now hold this, split by concern:
 4. ~~`EnumerateSubtiles`~~ — done (teenygrad-1nr.3).
 5. ~~`sub_graph_tiling` + `schedule_graph`~~ — done (teenygrad-1nr.4/.5),
    replacing Fig. 7's `SubGraphTiling`/`GraphConnecting`.
-6. ~~Persist the resolved schedule + structural `execute_graph` + `codegen`
-   replay scaffold~~ — done (teenygrad-1nr.6), Welder §3.3's `ExecuteGraph`
-   (Fig. 8). `DagCodegen`, the `ExecuteDevice` meant to turn a replayed
-   trace into a real `Dag` of custom ops, is a dummy stub (`todo!()` per
-   method) — implementing it for real is the next step here.
-7. §4.1's hardware-aligned refinements (reviving the removed, real-hardware-
+6. ~~Persist the resolved schedule + structural `Trace::trace_graph` +
+   `codegen` replay scaffold~~ — done (teenygrad-1nr.6), Welder §3.3's
+   `ExecuteGraph` (Fig. 8), renamed `trace_graph` and made an associated
+   function of `Trace`. `DagCodegen`, the `ExecuteDevice` meant
+   to turn a replayed trace into a real `Dag` of custom ops, is a dummy
+   stub (`todo!()` per method) — implementing it for real is the next step
+   here.
+7. ~~Wire `schedule_graph`/`Trace::trace_graph`/`codegen` into
+   `Anduin::optimize`~~ — done. `optimize` now runs `schedule_graph`, then
+   for every topologically-ordered node's outgoing edges with a
+   `resolved_tiling`, builds a `Trace` (rooted at `MemoryLevelKind::Register`
+   — the level `schedule_graph`'s `sub_graph_tiling` call always tiles
+   from, regardless of which level wins `connect_level`) and replays it
+   through a single shared `DagCodegen` via `codegen`, skipping an edge
+   once every node it covers has already been traced by an earlier edge
+   (sibling edges off the same node can cover overlapping node sets).
+   `DagCodegen` is still the `todo!()` stub from step 6, so running
+   `optimize` now panics inside `DagCodegen::virtual_node` instead of at a
+   blanket `todo!()` at the top — the pipeline is wired end-to-end, but the
+   last stage remains deliberately unimplemented pending teenygrad-1nr.1.
+   The `Vec<usize>` `optimize` returns is `DagCodegen::into_dag`'s own
+   (currently also `todo!()`) mapping, unchecked against the `mapping`
+   parameter `optimize` receives — composing the two into the graph-node-
+   idx -> output-dag-node-idx mapping the `GraphOptimizer` trait promises
+   is deferred until `DagCodegen` defines what its mapping actually means.
+
+   Split into two `Anduin` associated functions so the schedule/fusion
+   decision can be tested without hitting `DagCodegen`'s stubs:
+   `Anduin::schedule(&dag, hardware) -> (TileGraph, Vec<Trace>)` runs
+   §3.1-§3.3 up to (not including) codegen, and `Anduin::codegen(dag,
+   &traces) -> (Dag, Vec<usize>)` is the finalization step `optimize` now
+   just composes them through. Two tests exercise `Anduin::schedule`
+   directly against real lowered ops (not the toy `TestOp`s the
+   `tile_graph`/`trace` unit tests use):
+   - `conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input`
+     — none of `Conv2d`/`BatchNorm2d`/`Silu` has a declared `KernelTileSpec`
+     (only `Relu`/`MatMul` do), yet `schedule_graph`/`sub_graph_tiling`
+     still group conv+batchnorm+silu into one SharedMemory-level virtual
+     node, separate from the input load — confirms the fusion *decision*
+     is driven by `mem_footprint`/`mem_traffic` structurally, not gated on
+     a tile_spec being present.
+   - `relu_reduce_sum_relu_schedule_treats_the_whole_chain_as_one_flat_group`
+     — a `[2048, 4096]` F32 reduction sandwiched between two `Relu`s (which
+     *do* have a tile_spec) never recurses past Register at all: every
+     node computes directly in one flat top-level virtual node. Documented
+     as current behavior, not asserted as correct — worth another look
+     once `sub_graph_tiling`'s config search is better exercised.
+8. §4.1's hardware-aligned refinements (reviving the removed, real-hardware-
    calibrated `teenygrad-3w0` `CostModel`) and §4.2's real code generation
    (kernel composition, best-fit shared-memory allocator) — both still
    deferred; §4.2 overlaps heavily with teenygrad-1nr.1's still-open

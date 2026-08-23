@@ -316,7 +316,7 @@ impl TileConfig {
 /// recursively-tiled `children` — one per distinct subgraph
 /// [`TileGraph::extract_subgraph`] finds one memory level up, each child's
 /// own `nodes` naming exactly which of `nodes` it covers (needed to walk
-/// this tree at all — see [`execute_graph`](super::codegen::execute_graph)).
+/// this tree at all — see [`Trace::trace_graph`](super::trace::Trace::trace_graph)).
 /// `children` is empty at the top of the memory hierarchy, where the
 /// recursion terminates.
 #[derive(Debug, Clone)]
@@ -324,24 +324,6 @@ pub struct SubGraphTilingResult {
     pub nodes: Vec<NodeId>,
     pub config: TileConfig,
     pub children: Vec<SubGraphTilingResult>,
-}
-
-/// The next-slowest [`MemoryLevelKind`] `hardware` declares above `level`,
-/// if any — `None` means `level` is already the top of `hardware`'s
-/// hierarchy. Used by [`TileGraph::sub_graph_tiling`] to walk "one memory
-/// level up" (Fig. 7's `level+1`) without assuming a fixed, contiguous set
-/// of levels, and by [`execute_graph`](super::codegen::execute_graph) to
-/// know when it's reached the top.
-pub(crate) fn next_memory_level(
-    hardware: &HardwareProfile,
-    level: MemoryLevelKind,
-) -> Option<MemoryLevelKind> {
-    hardware
-        .memory_levels
-        .iter()
-        .map(|memory_level| memory_level.kind)
-        .filter(|&kind| kind > level)
-        .min()
 }
 
 /// An already-lowered `Dag<Box<dyn ExecutableOp>>` converted to Welder's
@@ -813,7 +795,13 @@ impl TileGraph {
     /// tile size isn't derivable from the output alone, so this falls back
     /// to that axis's full, untiled extent (never smaller than needed,
     /// same optimistic-not-pessimistic philosophy as
-    /// [`TileEdge::byte_size`]).
+    /// [`TileEdge::byte_size`]). The same fallback covers a dim with no
+    /// [`TileAxisBinding`](teeny_core::model::TileAxisBinding) at all —
+    /// [`TensorTileSpec::untiled_dims`](teeny_core::model::TensorTileSpec::untiled_dims)'s
+    /// case — since every input/output tile is built at that tensor's
+    /// full [`TensorTileSpec::rank`](teeny_core::model::TensorTileSpec::rank),
+    /// not `axes.len()`, with only the dims `axes` actually names
+    /// overwritten.
     ///
     /// Degrades to a hard boundary — stops there, doesn't guess — at any
     /// node with no declared `tile_spec` (the overwhelming majority; see
@@ -859,12 +847,22 @@ impl TileGraph {
                 continue; // hard boundary: declared rank doesn't match reality
             }
 
-            // Seed resolved extent_param -> TileDim from the output tile.
+            // Seed resolved extent_param -> TileDim from the output tile,
+            // indexed by each axis's declared innermost `dims` entry --
+            // not position, since `axes` may cover fewer dims than `rank`
+            // (see `untiled_dims`) and needn't list them in tensor-dim
+            // order. A flattened axis's block-sized value lives on its
+            // innermost real dim -- see `TileAxisBinding::dims`'s doc
+            // comment.
             let resolved: HashMap<&'static str, &TileDim> = output_spec
                 .axes
                 .iter()
-                .zip(output_tile.iter())
-                .map(|(axis, dim)| (axis.extent_param, dim))
+                .filter_map(|axis| {
+                    let &innermost = axis.dims.last()?;
+                    output_tile
+                        .get(innermost)
+                        .map(|dim| (axis.extent_param, dim))
+                })
                 .collect();
 
             let parents = self.parent_edges(node);
@@ -876,17 +874,29 @@ impl TileGraph {
                 if full_shape.len() != input_spec.rank {
                     continue; // this input's declared rank doesn't match reality
                 }
-                let input_tile: TileEdgeShape = input_spec
-                    .axes
-                    .iter()
-                    .enumerate()
-                    .map(|(axis_idx, axis)| {
-                        resolved
-                            .get(axis.extent_param)
-                            .map(|&dim| dim.clone())
-                            .unwrap_or_else(|| full_shape[axis_idx].clone())
-                    })
-                    .collect();
+                // Full rank, not `axes.len()`: a dim with no `TileAxisBinding`
+                // (an untiled dim, or a reduction axis with no output-side
+                // counterpart) keeps its full extent via this fallback,
+                // rather than being dropped from the result entirely.
+                let mut input_tile: TileEdgeShape = full_shape.clone();
+                for axis in input_spec.axes.iter() {
+                    let Some((&innermost, outer_dims)) = axis.dims.split_last() else {
+                        continue; // empty dims: nothing to bind (spec-authoring bug)
+                    };
+                    let Some(&resolved_dim) = resolved.get(axis.extent_param) else {
+                        continue; // unresolved: every spanned dim keeps its full-shape fallback
+                    };
+                    if let Some(dim) = input_tile.get_mut(innermost) {
+                        *dim = resolved_dim.clone();
+                    }
+                    // Flattened-away outer dims collapse to 1 -- product-
+                    // preserving, see `TileAxisBinding::dims`'s doc comment.
+                    for &outer in outer_dims {
+                        if let Some(dim) = input_tile.get_mut(outer) {
+                            *dim = TileDim::Fixed(1);
+                        }
+                    }
+                }
                 tiles.insert(*edge_id, input_tile);
             }
         }
@@ -1176,7 +1186,7 @@ impl TileGraph {
         scored.sort_by_key(|&(_, traffic)| traffic);
         scored.truncate(top_k.max(1));
 
-        let next_level = next_memory_level(hardware, level);
+        let next_level = hardware.next_memory_level(level);
 
         scored
             .into_iter()
@@ -1248,7 +1258,9 @@ mod tests {
     use teeny_core::model::{ExecutableOp, KernelTileSpec};
     use teeny_core::utils::dag::Dag;
 
-    use super::{NodeId, SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileGraph};
+    use super::{
+        NodeId, SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph,
+    };
 
     /// Minimal [`ExecutableOp`] test double: just enough surface
     /// (name/shape/dtype/tile_spec) for [`TileGraph::from_dag`] to convert on.
@@ -1904,7 +1916,7 @@ mod tests {
     /// resolves the input with no arithmetic at all.
     fn flat_unary_spec() -> KernelTileSpec {
         const AXIS: TileAxisBinding = TileAxisBinding {
-            dim: 0,
+            dims: &[0],
             block_const: "BLOCK_SIZE",
             extent_param: "n_elements",
             window: None,
@@ -1934,13 +1946,13 @@ mod tests {
             rank: 2,
             axes: &[
                 TileAxisBinding {
-                    dim: 0,
+                    dims: &[0],
                     block_const: "BLOCK_M",
                     extent_param: "M",
                     window: None,
                 },
                 TileAxisBinding {
-                    dim: 1,
+                    dims: &[1],
                     block_const: "BLOCK_K",
                     extent_param: "K",
                     window: None,
@@ -1954,13 +1966,13 @@ mod tests {
             rank: 2,
             axes: &[
                 TileAxisBinding {
-                    dim: 0,
+                    dims: &[0],
                     block_const: "BLOCK_K",
                     extent_param: "K",
                     window: None,
                 },
                 TileAxisBinding {
-                    dim: 1,
+                    dims: &[1],
                     block_const: "BLOCK_N",
                     extent_param: "N",
                     window: None,
@@ -1974,13 +1986,13 @@ mod tests {
             rank: 2,
             axes: &[
                 TileAxisBinding {
-                    dim: 0,
+                    dims: &[0],
                     block_const: "BLOCK_M",
                     extent_param: "M",
                     window: None,
                 },
                 TileAxisBinding {
-                    dim: 1,
+                    dims: &[1],
                     block_const: "BLOCK_N",
                     extent_param: "N",
                     window: None,
@@ -2078,6 +2090,183 @@ mod tests {
 
         assert_eq!(config.get(b_output_edge), Some(&vec![TileDim::Fixed(500)]));
         assert_eq!(config.get(ab_edge), None);
+    }
+
+    /// A conv2d-style spec: only the width axis (dim 0 here) is genuinely
+    /// block-tiled (`BLOCK_OW`/`"OW"`, mirroring the real
+    /// `conv2d_forward` kernel's only per-axis block const); the other
+    /// real dimension (channels) is grid-driven with no block-size
+    /// generic of its own, so it's named in `untiled_dims` instead of
+    /// getting a `TileAxisBinding` -- exactly the case `untiled_dims`'s
+    /// own doc comment in `teeny_core::model::tile_spec` describes as its
+    /// reason to exist. `rank` (2) still reflects the tensor's real,
+    /// full rank; only `axes` (1 entry) is partial.
+    fn partially_tiled_spec() -> KernelTileSpec {
+        const WIDTH: TileAxisBinding = TileAxisBinding {
+            dims: &[0],
+            block_const: "BLOCK_OW",
+            extent_param: "OW",
+            window: None,
+        };
+        const X: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 2,
+            axes: &[WIDTH],
+            reduction_axis: None,
+            untiled_dims: &["C"],
+        };
+        const Y: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            ..X
+        };
+        KernelTileSpec {
+            inputs: &[X],
+            outputs: &[Y],
+        }
+    }
+
+    #[test]
+    fn propagate_of_a_partially_tiled_spec_should_not_drop_the_untiled_dims() {
+        // a -> b, b declares partially_tiled_spec: axes covers only its
+        // width dim (dim 0); channels (dim 1) is named in untiled_dims
+        // instead, per that field's documented purpose. propagate must
+        // resolve a full rank-2 tile for the a->b edge -- channels at its
+        // real full extent (8), width at whatever b's seeded output tile
+        // requests (16) -- not silently drop the untiled channels
+        // dimension. Regression test for teenygrad-1nr.7: propagate used
+        // to build `resolved`/`input_tile` by positionally zipping only
+        // `axes` (len 1) against the real rank-2 output tile/edge shape,
+        // producing a length-1 TileEdgeShape for a rank-2 edge.
+        let full_shape = vec![Some(64), Some(8)]; // [OW, C]
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec(
+            "b",
+            full_shape.clone(),
+            false,
+            partially_tiled_spec(),
+        ));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+
+        let mut seed = HashMap::new();
+        seed.insert(b_output_edge, vec![TileDim::Fixed(16), TileDim::Fixed(8)]);
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let resolved = config
+            .get(ab_edge)
+            .expect("propagate should have resolved the a->b edge");
+        assert_eq!(
+            resolved.len(),
+            full_shape.len(),
+            "expected a rank-{}-consistent tile for the a->b edge (width \
+             16, channels at its full extent 8), got a rank-{} shape \
+             instead: {resolved:?} -- propagate silently dropped \
+             untiled_dims' channels dimension",
+            full_shape.len(),
+            resolved.len(),
+        );
+        assert_eq!(
+            resolved,
+            &vec![TileDim::Fixed(16), TileDim::Fixed(8)],
+            "width should resolve to b's seeded 16, channels should fall \
+             back to its full extent 8 -- got {resolved:?}"
+        );
+    }
+
+    /// A batchnorm2d-style spec: mirrors the real
+    /// `batch_norm_2d_nchw_forward_inference` kernel (grid `[C, B]`, one
+    /// `BLOCK_HW`-wide loop over the *flattened* `H*W` range per CTA) --
+    /// the case `TileAxisBinding::dims` having more than one entry exists
+    /// for (teenygrad-1nr.8). NCHW: dim 0 = B, dim 1 = C (both untiled,
+    /// grid-driven), dims 2/3 = H/W flattened into one binding (`dims:
+    /// &[2, 3]`, W innermost, matching NCHW's row-major layout). Input
+    /// and output share `"HW"`, so this is shape-preserving elementwise
+    /// like `flat_unary_spec`, just spanning a flattened pair of real
+    /// dims instead of one.
+    fn batchnorm2d_shaped_spec() -> KernelTileSpec {
+        const HW: TileAxisBinding = TileAxisBinding {
+            dims: &[2, 3],
+            block_const: "BLOCK_HW",
+            extent_param: "HW",
+            window: None,
+        };
+        const X: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 4,
+            axes: &[HW],
+            reduction_axis: None,
+            untiled_dims: &["B", "C"],
+        };
+        const Y: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            ..X
+        };
+        KernelTileSpec {
+            inputs: &[X],
+            outputs: &[Y],
+        }
+    }
+
+    #[test]
+    fn propagate_of_a_flattened_multi_dim_axis_collapses_outer_dims_to_one() {
+        // a -> b, b declares batchnorm2d_shaped_spec. Seeding b's output
+        // tile with W (the innermost of the flattened [H, W] pair) at 24
+        // must resolve the a -> b edge to B/C at their full extent (2, 4
+        // -- untiled), H collapsed to 1 (the flattened-away outer dim),
+        // W at the resolved 24 -- not literal H*W=24 spread back across
+        // both axes (there's no way to invert a flat block size into
+        // separate per-axis extents in general), but product-preserving:
+        // 2*4*1*24 matches what a real BLOCK_HW=24 tile's element count
+        // would be, times B/C's own untiled extents.
+        let full_shape = vec![Some(2), Some(4), Some(16), Some(32)]; // [B, C, H, W]
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", full_shape.clone(), true));
+        let b = dag.add_node(op_with_tile_spec(
+            "b",
+            full_shape.clone(),
+            false,
+            batchnorm2d_shaped_spec(),
+        ));
+        dag.add_edge(a, b);
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let ab_edge = tile_graph.children(a)[0].1;
+        let b_output_edge = tile_graph
+            .output_edge_id(b)
+            .expect("b has no consumer in dag");
+
+        let mut seed = HashMap::new();
+        seed.insert(
+            b_output_edge,
+            vec![
+                TileDim::Fixed(2),
+                TileDim::Fixed(4),
+                TileDim::Fixed(16),
+                TileDim::Fixed(24),
+            ],
+        );
+        let config = tile_graph.propagate(&[a, b], &seed);
+
+        let resolved = config
+            .get(ab_edge)
+            .expect("propagate should have resolved the a->b edge");
+        assert_eq!(
+            resolved,
+            &vec![
+                TileDim::Fixed(2),  // B: untiled, full extent
+                TileDim::Fixed(4),  // C: untiled, full extent
+                TileDim::Fixed(1),  // H: flattened-away outer dim
+                TileDim::Fixed(24), // W: the resolved HW value
+            ],
+            "expected B/C at full extent, H collapsed to 1, W at the \
+             resolved HW value -- got {resolved:?}"
+        );
     }
 
     #[test]
@@ -2242,6 +2431,53 @@ mod tests {
                 "results are not sorted ascending: {scores:?}"
             );
         }
+    }
+
+    #[test]
+    fn enumerate_subtiles_ignores_flattened_multi_dim_axes() {
+        // Regression test for teenygrad-1nr.9: b declares
+        // batchnorm2d_shaped_spec (H, W flattened into one BLOCK_HW-style
+        // axis via `dims: &[2, 3]`), but enumerate_subtiles builds its
+        // search space purely from b's real, per-axis full shape -- with
+        // no notion that dims 2 and 3 are jointly driven by one flattened
+        // tile_spec axis. It grows H (dim 2) and W (dim 3) independently,
+        // producing candidates like H=2, W=4 that no real
+        // batch_norm_2d_nchw_forward_inference kernel configuration could
+        // ever realize -- the kernel can only pick one flat BLOCK_HW count
+        // over the combined H*W range (see TileAxisBinding::dims's doc
+        // comment, and propagate's own convention -- teenygrad-1nr.8 -- of
+        // collapsing every outer flattened dim to Fixed(1)).
+        //
+        // A flattened-axis-aware search should never grow H independently:
+        // every candidate's dim-2 entry should stay at Fixed(1), exactly
+        // like propagate already collapses it on the input side. This
+        // currently FAILS -- enumerate_subtiles has no awareness of
+        // tile_spec at all.
+        let full_shape = vec![Some(2), Some(4), Some(8), Some(8)]; // [B, C, H, W]
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let b = dag.add_node(op_with_tile_spec(
+            "b",
+            full_shape,
+            false,
+            batchnorm2d_shaped_spec(),
+        ));
+
+        let tile_graph = TileGraph::from_dag(&dag);
+        let results = tile_graph.enumerate_subtiles(&[b], b, u64::MAX);
+
+        assert!(!results.is_empty());
+        let independently_varied_h: Vec<&TileEdgeShape> = results
+            .iter()
+            .filter(|shape| !matches!(shape[2], TileDim::Fixed(1)))
+            .collect();
+        assert!(
+            independently_varied_h.is_empty(),
+            "expected every candidate to keep H (dim 2, the outer half of \
+             the flattened HW axis) at Fixed(1) -- enumerate_subtiles has \
+             no notion that H and W are jointly driven by one tile_spec \
+             axis, so it grows them independently. Candidates with \
+             H != 1: {independently_varied_h:?}"
+        );
     }
 
     #[test]

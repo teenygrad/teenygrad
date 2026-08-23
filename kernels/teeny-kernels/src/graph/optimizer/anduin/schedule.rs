@@ -68,7 +68,7 @@ const TOP_K: usize = 1;
 /// [`TileGraph::resolved_tiling`]) — the concrete tile shapes that scoring
 /// was based on, not just which memory level won. An earlier version of
 /// this function computed that result and then discarded it, keeping only
-/// `best_level`; §3.3's `execute_graph` needs the shapes too, so it's
+/// `best_level`; §3.3's `Trace::trace_graph` needs the shapes too, so it's
 /// cached here (the winning level's `sub_graph_tiling` call is already
 /// being made regardless) rather than recomputed.
 pub fn schedule_graph(
