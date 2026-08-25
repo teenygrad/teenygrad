@@ -163,9 +163,10 @@ mod tests {
     use super::{Anduin, NodeId, TraceEvent};
     use crate::graph::TritonLowering;
     use crate::graph::optimizer::GraphOptimizer;
+    use crate::nn::fused::conv2d_bn_silu::Conv2dBnSiluForward;
     use teeny_core::device::hardware::MemoryLevelKind;
     use teeny_core::graph::{DtypeRepr, Graph, Op};
-    use teeny_core::model::LoweringMode;
+    use teeny_core::model::{LoweringMode, RuntimeOp};
 
     use crate::testing::orin_nano_hardware_profile;
 
@@ -253,9 +254,17 @@ mod tests {
         //             decision, since mem_footprint/mem_traffic fall back
         //             to full-shape estimates for any node propagate
         //             can't refine.
+        //
+        //             B=2 (not 1): also asserts, on this same fused
+        //             group, that the three real ops' own RuntimeOp::grid()
+        //             implementations don't agree -- BatchNorm2d's grid is
+        //             genuinely 2-D ([C, B]), Conv2d's/Silu's are flat 1-D
+        //             -- teenygrad-1nr.17. B=2 makes this visible; at B=1
+        //             BatchNorm2d's grid.y would trivially collapse to 1,
+        //             indistinguishable from "no second dimension."
         let mut graph = Graph::new();
-        let shape = vec![Some(1), Some(3), Some(32), Some(32)];
-        let out_shape = vec![Some(1), Some(8), Some(32), Some(32)];
+        let shape = vec![Some(2), Some(3), Some(32), Some(32)];
+        let out_shape = vec![Some(2), Some(8), Some(32), Some(32)];
 
         let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape);
         let conv = graph.add_node(
@@ -322,6 +331,80 @@ mod tests {
                 .any(|&(nodes, level)| nodes == [0] && level == MemoryLevelKind::SharedMemory),
             "expected input (node [0]) to stay its own SharedMemory-level virtual node, \
              separate from the fused group, got: {virtual_nodes:?}"
+        );
+
+        // teenygrad-1nr.17: the fused group [1, 2, 3] above has no single
+        // compatible grid. Pull each node's real RuntimeOp straight off
+        // the lowered Dag (not a stub) and compare their actual
+        // production grid() implementations: BatchNorm2dNchwInferenceRuntimeOp
+        // (nn/norm/batchnorm.rs) is genuinely 2-D ([C, B, 1] -- channel on
+        // Axis::X, batch on Axis::Y); Conv2dForward (nn/conv/conv2d.rs)
+        // and SiluForward (nn/activation/sigmoid.rs) are both flat 1-D.
+        // There is no (grid_x, grid_y, grid_z) a kernel covering all
+        // three nodes could actually be launched with.
+        let concrete_shape = [2usize, 8, 32, 32];
+        let conv_grid = dag
+            .node(1)
+            .value
+            .runtime_op()
+            .expect("conv2d should have a real RuntimeOp")
+            .grid(&concrete_shape);
+        let bn_grid = dag
+            .node(2)
+            .value
+            .runtime_op()
+            .expect("batchnorm2d should have a real RuntimeOp")
+            .grid(&concrete_shape);
+        let silu_grid = dag
+            .node(3)
+            .value
+            .runtime_op()
+            .expect("silu should have a real RuntimeOp")
+            .grid(&concrete_shape);
+
+        assert_eq!(
+            conv_grid[1], 1,
+            "conv2d's own grid is flat 1-D: {conv_grid:?}"
+        );
+        assert_eq!(
+            silu_grid[1], 1,
+            "silu's own grid is flat 1-D: {silu_grid:?}"
+        );
+        assert!(
+            bn_grid[1] > 1,
+            "batchnorm2d's own grid is genuinely 2-D ([C, B, 1]): {bn_grid:?}"
+        );
+
+        // The correct grid for the fused group is knowable, even though
+        // nothing in Anduin computes it yet: BatchNorm2d here runs in
+        // inference mode (precomputed running mean/var, no data-dependent
+        // reduction) and SiLU is pointwise, so both are pure per-element
+        // functions of Conv2d's own output value at Conv2d's own thread
+        // -- neither needs a grid dimension of its own. Conv2d is the
+        // only op with a real compute-structural constraint (each thread
+        // must reduce over its own KHxKW input window), so its own grid
+        // is the correct one for the whole fused group; BatchNorm2d's
+        // affine and SiLU's activation get folded into that same thread's
+        // work with zero extra grid structure, exactly matching the
+        // conv+BN+SiLU epilogue fusion already hand-written in this
+        // codebase's own `Conv2dBnSiluForward` (nn/fused/conv2d_bn_silu.rs
+        // -- "Grid: pid = ((b*C_OUT+c_out)*OH+oh)*num_ow_tiles+ow_tile").
+        // block_ow=16 matches the same constant the real Conv2d node
+        // above was constructed with (graph/mod.rs's `Op::Conv2d` arm).
+        let correct_fused_grid =
+            Conv2dBnSiluForward::new(3, 3, 1, 1, 1, 1, 1, 16).grid(&concrete_shape);
+        assert_eq!(
+            correct_fused_grid, conv_grid,
+            "the correct fused grid should be conv2d's own native grid \
+             (BatchNorm2d/SiLU are pure per-element epilogue work, matching \
+             Conv2dBnSiluForward's own real grid), got: {correct_fused_grid:?}"
+        );
+        assert_ne!(
+            correct_fused_grid, bn_grid,
+            "the correct fused grid must NOT be batchnorm2d's own standalone \
+             grid -- that 2-D [C, B] decomposition is just an artifact of how \
+             BatchNorm2d happens to be scheduled when run standalone, not a \
+             real requirement of the fused computation: {correct_fused_grid:?}"
         );
     }
 
