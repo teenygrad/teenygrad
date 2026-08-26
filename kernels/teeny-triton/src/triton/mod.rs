@@ -19,6 +19,10 @@ pub use core::ops::{BitAnd, BitOr};
 
 use self::types::{self as ty};
 
+/// Per-axis boundary-fold mode as a type parameter (`BoundaryFold`, `Zero`, `Clamp`) --
+/// see that module's doc comment for why this needs to live in the shared DSL prelude
+/// rather than being kernel-local.
+pub mod boundary;
 /// LLVM-backend-facing DSL types (the compiled counterpart of this module's `Tensor`/`Pointer`).
 pub mod llvm;
 /// In/out argument markers for `#[kernel]`/`#[tiled_kernel]` parameters (`In`, `Out`, …).
@@ -30,6 +34,7 @@ pub mod tile;
 /// trait's generic methods.
 pub mod types;
 
+pub use boundary::{BoundaryFold, Clamp, Zero};
 pub use ptr::*;
 pub use tile::Tile;
 pub use types::*;
