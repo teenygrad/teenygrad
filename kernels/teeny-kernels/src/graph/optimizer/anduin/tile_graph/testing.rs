@@ -23,6 +23,8 @@
 use teeny_core::graph::{DtypeRepr, Shape};
 use teeny_core::model::{ExecutableOp, KernelTileSpec, TensorTileSpec, TileAxisBinding};
 
+use super::{EdgeId, NodeId, TileGraph};
+
 /// Minimal [`ExecutableOp`] test double: just enough surface
 /// (name/shape/dtype/tile_spec) for [`super::TileGraph::from_dag`] to convert on.
 struct TestOp {
@@ -118,6 +120,20 @@ pub(super) fn flat_unary_spec() -> KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
     }
+}
+
+/// The [`EdgeId`] of the edge from `producer` to `consumer` in
+/// `tile_graph`, panicking if `producer` isn't one of `consumer`'s parents.
+/// Shared by tests that need to look up one specific internal edge to
+/// assert against, instead of repeating the `parent_edges`
+/// find/map/expect dance at each call site.
+pub(super) fn edge_between(tile_graph: &TileGraph, producer: NodeId, consumer: NodeId) -> EdgeId {
+    tile_graph
+        .parent_edges(consumer)
+        .into_iter()
+        .find(|&(p, _)| p == producer)
+        .map(|(_, id)| id)
+        .unwrap_or_else(|| panic!("no edge from node {producer} to node {consumer}"))
 }
 
 /// A batchnorm2d-style spec: mirrors the real
