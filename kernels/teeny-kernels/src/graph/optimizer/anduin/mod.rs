@@ -87,7 +87,7 @@ impl GraphOptimizer for Anduin {
         _mapping: Vec<usize>,
         hardware: &HardwareProfile,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
-        let (_tile_graph, traces) = Self::schedule(&dag, hardware);
+        let (_tile_graph, traces) = Self::schedule(&dag, hardware)?;
         Ok(Self::codegen(dag, &traces))
     }
 }
@@ -114,9 +114,9 @@ impl Anduin {
     fn schedule(
         dag: &Dag<Box<dyn ExecutableOp>>,
         hardware: &HardwareProfile,
-    ) -> (TileGraph, Vec<Trace>) {
+    ) -> Result<(TileGraph, Vec<Trace>)> {
         let mut tile_graph = TileGraph::from_dag(dag);
-        schedule_graph(&mut tile_graph, hardware, &SimpleProfiler);
+        schedule_graph(&mut tile_graph, hardware, &SimpleProfiler)?;
 
         let mut already_traced = std::collections::HashSet::new();
         let mut traces = Vec::new();
@@ -137,7 +137,7 @@ impl Anduin {
             }
         }
 
-        (tile_graph, traces)
+        Ok((tile_graph, traces))
     }
 
     /// §3.3's codegen finalization: replays every trace [`Self::schedule`]
@@ -304,7 +304,7 @@ mod tests {
             .lower_with_mapping(&graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
 
-        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile);
+        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile).unwrap();
 
         // One root trace covers the whole 4-node graph: input(0)'s single
         // outgoing edge already resolves nodes [0,1,2,3], so the conv->bn
@@ -446,7 +446,7 @@ mod tests {
             .lower_with_mapping(&graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
 
-        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile);
+        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile).unwrap();
 
         assert_eq!(traces.len(), 1);
 

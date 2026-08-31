@@ -51,6 +51,8 @@
 
 use teeny_core::device::hardware::HardwareProfile;
 
+use crate::errors::Result;
+
 use super::profile::Profiler;
 use super::tile_graph::{SubGraphTilingResult, TileGraph};
 
@@ -75,7 +77,7 @@ pub fn schedule_graph(
     tile_graph: &mut TileGraph,
     hardware: &HardwareProfile,
     profiler: &dyn Profiler,
-) {
+) -> Result<()> {
     for node in tile_graph.topological_sort() {
         let edges: Vec<_> = tile_graph
             .children(node)
@@ -94,7 +96,7 @@ pub fn schedule_graph(
 
                 let subgraph = tile_graph.extract_subgraph(node, None);
                 let mut candidates =
-                    tile_graph.sub_graph_tiling(&subgraph, node, None, hardware, TOP_K);
+                    tile_graph.sub_graph_tiling(&subgraph, node, None, hardware, TOP_K)?;
                 if candidates.is_empty() {
                     continue;
                 }
@@ -113,6 +115,7 @@ pub fn schedule_graph(
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -203,7 +206,7 @@ mod tests {
         let mut tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(1e12, 1e9);
 
-        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler);
+        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler).unwrap();
 
         let ab_edge = tile_graph.children(a)[0].1;
         let level = tile_graph.connect_level(ab_edge);
@@ -227,7 +230,7 @@ mod tests {
         let mut tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(1e15, 1.0);
 
-        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler);
+        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler).unwrap();
 
         let ab_edge = tile_graph.children(a)[0].1;
         assert_eq!(tile_graph.connect_level(ab_edge), MemoryLevelKind::Register);
@@ -250,7 +253,7 @@ mod tests {
             compute_units: 1,
             memory_levels: vec![],
         };
-        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler);
+        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler).unwrap();
 
         assert_eq!(tile_graph.connect_level(ab_edge), before);
     }
@@ -273,7 +276,7 @@ mod tests {
         let ab_edge = tile_graph.children(a)[0].1;
         assert!(tile_graph.resolved_tiling(ab_edge).is_none());
 
-        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler);
+        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler).unwrap();
 
         let resolved = tile_graph
             .resolved_tiling(ab_edge)

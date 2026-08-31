@@ -364,7 +364,7 @@ mod tests {
 
         let mut seed = HashMap::new();
         seed.insert(b_output_edge, vec![TileDim::Fixed(500)]);
-        let config = tile_graph.propagate(&[a, b], &seed);
+        let config = tile_graph.propagate(&[a, b], &seed).unwrap();
 
         let full_traffic = tile_graph.mem_traffic(&[a, b]);
         let tiled_traffic = tile_graph.mem_traffic_with_config(&[a, b], &config);
@@ -390,7 +390,7 @@ mod tests {
 
         let mut seed = HashMap::new();
         seed.insert(output_edge, vec![TileDim::Fixed(2)]);
-        let config = tile_graph.propagate(&[a], &seed);
+        let config = tile_graph.propagate(&[a], &seed).unwrap();
         assert_eq!(config.len(), 1, "only the seeded edge should be resolved");
 
         // input edge: full 64 * 4B = 256B (unconfigured); output edge:
@@ -411,7 +411,7 @@ mod tests {
 
         let mut seed = HashMap::new();
         seed.insert(b_output_edge, vec![TileDim::Fixed(500)]);
-        let config = tile_graph.propagate(&[a, b], &seed);
+        let config = tile_graph.propagate(&[a, b], &seed).unwrap();
 
         let full_footprint = tile_graph.mem_footprint(&[a, b]);
         let tiled_footprint = tile_graph.mem_footprint_with_config(&[a, b], &config);

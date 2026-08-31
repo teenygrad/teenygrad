@@ -21,6 +21,8 @@ use std::collections::HashMap;
 
 use teeny_core::device::hardware::{HardwareProfile, MemoryLevelKind};
 
+use crate::errors::Result;
+
 use super::types::{SubGraphTilingResult, TileConfig};
 use super::{NodeId, TileGraph};
 
@@ -54,7 +56,7 @@ impl TileGraph {
         level: Option<MemoryLevelKind>,
         hardware: &HardwareProfile,
         top_k: usize,
-    ) -> Vec<SubGraphTilingResult> {
+    ) -> Result<Vec<SubGraphTilingResult>> {
         let capacity = level
             .and_then(|level| hardware.level(level))
             .map(|memory_level| memory_level.capacity)
@@ -64,23 +66,20 @@ impl TileGraph {
             .output_edge_id(root)
             .or_else(|| self.children(root).first().map(|&(_, id)| id))
         else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
 
-        let mut scored: Vec<(TileConfig, u64)> = self
-            .enumerate_subtiles(nodes, root, capacity)
-            .into_iter()
-            .filter_map(|subtile| {
-                let mut seed = HashMap::new();
-                seed.insert(output_edge, subtile);
-                let config = self.propagate(nodes, &seed);
-                if self.mem_footprint_with_config(nodes, &config) > capacity {
-                    return None;
-                }
-                let traffic = self.mem_traffic_with_config(nodes, &config);
-                Some((config, traffic))
-            })
-            .collect();
+        let mut scored: Vec<(TileConfig, u64)> = Vec::new();
+        for subtile in self.enumerate_subtiles(nodes, root, capacity)? {
+            let mut seed = HashMap::new();
+            seed.insert(output_edge, subtile);
+            let config = self.propagate(nodes, &seed)?;
+            if self.mem_footprint_with_config(nodes, &config) > capacity {
+                continue;
+            }
+            let traffic = self.mem_traffic_with_config(nodes, &config);
+            scored.push((config, traffic));
+        }
         scored.sort_by_key(|&(_, traffic)| traffic);
         scored.truncate(top_k.max(1));
 
@@ -88,7 +87,7 @@ impl TileGraph {
 
         scored
             .into_iter()
-            .map(|(config, _)| {
+            .map(|(config, _)| -> Result<SubGraphTilingResult> {
                 let children = match next_level {
                     None => Vec::new(),
                     Some(next_level) => {
@@ -106,16 +105,16 @@ impl TileGraph {
                                 Some(next_level),
                                 hardware,
                                 top_k,
-                            ));
+                            )?);
                         }
                         children
                     }
                 };
-                SubGraphTilingResult {
+                Ok(SubGraphTilingResult {
                     nodes: nodes.to_vec(),
                     config,
                     children,
-                }
+                })
             })
             .collect()
     }
@@ -166,7 +165,7 @@ mod tests {
         let hardware = two_level_hardware(2000, u64::MAX);
 
         let results =
-            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 5);
+            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 5).unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -196,7 +195,7 @@ mod tests {
         };
 
         let results =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::DeviceMemory), &hardware, 3);
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::DeviceMemory), &hardware, 3).unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -213,7 +212,7 @@ mod tests {
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
         let results =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3);
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3).unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -262,7 +261,7 @@ mod tests {
             ],
         };
 
-        let results = tile_graph.sub_graph_tiling(&[a], a, None, &hardware, 3);
+        let results = tile_graph.sub_graph_tiling(&[a], a, None, &hardware, 3).unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -294,9 +293,9 @@ mod tests {
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
         let top_1 =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 1);
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 1).unwrap();
         let top_3 =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3);
+            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3).unwrap();
 
         assert_eq!(top_1.len(), 1);
         assert_eq!(top_3.len(), 3);
@@ -313,7 +312,7 @@ mod tests {
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
         let results =
-            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 1);
+            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 1).unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
