@@ -21,6 +21,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::errors::{Error, Result};
+
 use super::types::{TileConfig, TileDim, TileEdgeShape};
 use super::{EdgeId, NodeId, TileGraph};
 
@@ -65,19 +67,27 @@ impl TileGraph {
     /// not `axes.len()`, with only the dims `axes` actually names
     /// overwritten.
     ///
-    /// Degrades to a hard boundary — stops there, doesn't guess — at any
-    /// node with no declared `tile_spec` (the overwhelming majority; see
-    /// [`teeny_core::model::KernelTileSpec`]'s doc comment on coverage
-    /// being opt-in), whose output tile's axis count doesn't match its
-    /// spec's declared output rank, or whose parent-edge count doesn't
-    /// match its spec's declared input count (the same positional
+    /// Degrades to a hard boundary — stops there, doesn't guess, and does
+    /// *not* error — at any node with no declared `tile_spec` (the
+    /// overwhelming majority; see [`teeny_core::model::KernelTileSpec`]'s
+    /// doc comment on coverage being opt-in), or whose parent-edge count
+    /// doesn't match its spec's declared input count (the same positional
     /// producer-to-spec correspondence limitation the design this revives
-    /// already had — see that module's doc comment).
+    /// already had — see that module's doc comment; e.g. `Add(x, x)`
+    /// legitimately collapsing two operand slots into one deduped parent
+    /// edge, see [`Self::parents`]'s doc comment).
+    ///
+    /// Everything else a `tile_spec` asserts about the graph that turns
+    /// out false — a declared rank that disagrees with the real shape, an
+    /// axis with an empty `dims` list, an output spec with no outputs at
+    /// all — is a spec-authoring bug, not a shape this function can fall
+    /// back from, so those return `Err` instead of silently skipping the
+    /// node.
     pub fn propagate(
         &self,
         nodes: &[NodeId],
         output_tiles: &HashMap<EdgeId, TileEdgeShape>,
-    ) -> TileConfig {
+    ) -> Result<TileConfig> {
         let included: HashSet<NodeId> = nodes.iter().copied().collect();
         let mut tiles: HashMap<EdgeId, TileEdgeShape> = output_tiles.clone();
 
@@ -88,8 +98,13 @@ impl TileGraph {
             let Some(spec) = &self.node(node).tile_spec else {
                 continue; // hard boundary: no declared spec
             };
+            let op_name = || self.node(node).name.clone();
             let Some(output_spec) = spec.outputs.first() else {
-                continue; // hard boundary: spec declares no output
+                return Err(Error::TileSpecMissingOutput {
+                    node,
+                    op_name: op_name(),
+                }
+                .into());
             };
 
             // This node's own required output tile: any outgoing edge
@@ -106,7 +121,14 @@ impl TileGraph {
                 .unwrap_or_else(|| self.node_output_shape(node).clone());
 
             if output_tile.len() != output_spec.rank {
-                continue; // hard boundary: declared rank doesn't match reality
+                return Err(Error::OutputRankMismatch {
+                    node,
+                    op_name: op_name(),
+                    output_index: 0,
+                    expected: output_spec.rank,
+                    actual: output_tile.len(),
+                }
+                .into());
             }
 
             // Seed resolved extent_param -> TileDim from the output tile,
@@ -120,47 +142,58 @@ impl TileGraph {
             // sees the divided value -- owned, not borrowed, since a
             // divided value is freshly computed, not a view into
             // `output_tile`.
-            let mut resolved: HashMap<&'static str, TileDim> = output_spec
-                .axes
-                .iter()
-                .filter_map(|axis| {
-                    let &innermost = axis.dims.last()?;
-                    let dim = output_tile.get(innermost)?;
-                    Some((axis.extent_param, apply_divide_by(dim, axis.divide_by)))
-                })
-                .collect();
+            let mut resolved: HashMap<&'static str, TileDim> = HashMap::new();
+            for axis in output_spec.axes.iter() {
+                let Some(&innermost) = axis.dims.last() else {
+                    return Err(Error::EmptyAxisDims {
+                        node,
+                        op_name: op_name(),
+                        extent_param: axis.extent_param,
+                    }
+                    .into());
+                };
+                if let Some(dim) = output_tile.get(innermost) {
+                    resolved.insert(axis.extent_param, apply_divide_by(dim, axis.divide_by));
+                }
+            }
 
             // Additional declared outputs (teenygrad-1nr.11): each one
             // whose synthesized boundary edge the caller has seeded
             // contributes more resolved extent_param -> TileDim entries,
             // on top of the primary output's above. Unlike the primary
             // output, there's no full-shape fallback for these -- an
-            // unseeded or rank-mismatched secondary output simply
-            // contributes nothing, rather than hard-boundarying the
-            // whole node the way a bad primary output does above.
-            //
-            // Collected into owned storage up front (mirroring
-            // `output_tile` above) rather than read from `tiles` inline
-            // below: `tiles` itself is mutated later in this same node's
-            // processing (`tiles.insert` for each parent edge).
-            let secondary_tiles: Vec<Option<TileEdgeShape>> = spec
-                .outputs
-                .iter()
-                .enumerate()
-                .skip(1)
-                .map(|(secondary_index, secondary_spec)| {
-                    let &edge_id = self.secondary_output_edges(node).get(secondary_index - 1)?;
-                    let tile = tiles.get(&edge_id)?.clone();
-                    (tile.len() == secondary_spec.rank).then_some(tile)
-                })
-                .collect();
-            for (secondary_spec, tile) in spec.outputs.iter().skip(1).zip(secondary_tiles.iter()) {
-                let Some(tile) = tile else {
-                    continue; // not seeded, or declared rank doesn't match reality
+            // *unseeded* secondary output simply contributes nothing,
+            // rather than hard-boundarying the whole node the way a bad
+            // primary output does above. A *seeded* one whose rank
+            // disagrees with the spec, though, is the same kind of
+            // spec-authoring bug as the primary output's rank check, so
+            // it errors the same way.
+            for (secondary_index, secondary_spec) in spec.outputs.iter().enumerate().skip(1) {
+                let Some(&edge_id) = self.secondary_output_edges(node).get(secondary_index - 1)
+                else {
+                    continue; // no synthesized boundary edge for this declared output
                 };
+                let Some(tile) = tiles.get(&edge_id).cloned() else {
+                    continue; // not seeded by the caller -- the common case
+                };
+                if tile.len() != secondary_spec.rank {
+                    return Err(Error::OutputRankMismatch {
+                        node,
+                        op_name: op_name(),
+                        output_index: secondary_index,
+                        expected: secondary_spec.rank,
+                        actual: tile.len(),
+                    }
+                    .into());
+                }
                 for axis in secondary_spec.axes.iter() {
                     let Some(&innermost) = axis.dims.last() else {
-                        continue;
+                        return Err(Error::EmptyAxisDims {
+                            node,
+                            op_name: op_name(),
+                            extent_param: axis.extent_param,
+                        }
+                        .into());
                     };
                     if let Some(dim) = tile.get(innermost) {
                         resolved.insert(axis.extent_param, apply_divide_by(dim, axis.divide_by));
@@ -172,10 +205,19 @@ impl TileGraph {
             if parents.len() != spec.inputs.len() {
                 continue; // hard boundary: positional correspondence unsafe
             }
-            for ((_, edge_id), input_spec) in parents.iter().zip(spec.inputs.iter()) {
+            for (input_index, ((_, edge_id), input_spec)) in
+                parents.iter().zip(spec.inputs.iter()).enumerate()
+            {
                 let full_shape = &self.edge(*edge_id).shape;
                 if full_shape.len() != input_spec.rank {
-                    continue; // this input's declared rank doesn't match reality
+                    return Err(Error::InputRankMismatch {
+                        node,
+                        op_name: op_name(),
+                        input_index,
+                        expected: input_spec.rank,
+                        actual: full_shape.len(),
+                    }
+                    .into());
                 }
                 // Full rank, not `axes.len()`: a dim with no `TileAxisBinding`
                 // (an untiled dim, or a reduction axis with no output-side
@@ -184,7 +226,12 @@ impl TileGraph {
                 let mut input_tile: TileEdgeShape = full_shape.clone();
                 for axis in input_spec.axes.iter() {
                     let Some((&innermost, outer_dims)) = axis.dims.split_last() else {
-                        continue; // empty dims: nothing to bind (spec-authoring bug)
+                        return Err(Error::EmptyAxisDims {
+                            node,
+                            op_name: op_name(),
+                            extent_param: axis.extent_param,
+                        }
+                        .into());
                     };
                     match resolved.get(axis.extent_param) {
                         Some(resolved_dim) => {
@@ -219,7 +266,7 @@ impl TileGraph {
             }
         }
 
-        TileConfig { tiles }
+        Ok(TileConfig { tiles })
     }
 }
 
@@ -228,11 +275,15 @@ mod tests {
     use std::collections::HashMap;
 
     use teeny_core::graph::{DtypeRepr, Graph, Op};
-    use teeny_core::model::LoweringMode;
+    use teeny_core::model::{
+        ExecutableOp, KernelTileSpec, LoweringMode, TensorTileSpec, TileAxisBinding,
+    };
+    use teeny_core::utils::dag::Dag;
 
+    use crate::errors::Error;
     use crate::graph::TritonLowering;
 
-    use super::super::testing::edge_between;
+    use super::super::testing::{edge_between, op, op_with_tile_spec};
     use super::super::{TileDim, TileGraph};
 
     #[test]
@@ -265,12 +316,139 @@ mod tests {
         let requested_tile = vec![TileDim::Fixed(16)];
         let output_tiles = HashMap::from([(silu_output, requested_tile.clone())]);
 
-        let config = tile_graph.propagate(&[mapping[input], relu, silu], &output_tiles);
+        let config = tile_graph
+            .propagate(&[mapping[input], relu, silu], &output_tiles)
+            .expect("relu and silu both have real, well-formed tile_specs");
 
         let relu_to_silu = edge_between(&tile_graph, relu, silu);
         let x_to_relu = edge_between(&tile_graph, mapping[input], relu);
 
         assert_eq!(config.get(relu_to_silu), Some(&requested_tile));
         assert_eq!(config.get(x_to_relu), Some(&requested_tile));
+    }
+
+    #[test]
+    fn propagate_errors_when_output_rank_disagrees_with_the_real_shape() {
+        // b's tile_spec claims a rank-2 output, but b has no consumer, so
+        // its output_tile falls back to its real (rank-1) shape --
+        // disagreeing with the spec's declared rank is a spec-authoring
+        // bug, not a shape `propagate` can guess its way around.
+        const BAD_OUTPUT: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            rank: 2,
+            axes: &[],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        let bad_spec = KernelTileSpec {
+            inputs: &[],
+            outputs: &[BAD_OUTPUT],
+        };
+
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let b = dag.add_node(op_with_tile_spec("b", vec![Some(64)], true, bad_spec));
+        let tile_graph = TileGraph::from_dag(&dag);
+
+        let err = tile_graph
+            .propagate(&[b], &HashMap::new())
+            .expect_err("b's declared output rank (2) disagrees with its real shape (rank 1)");
+
+        assert!(matches!(
+            err.downcast_ref::<Error>(),
+            Some(Error::OutputRankMismatch {
+                node,
+                output_index: 0,
+                expected: 2,
+                actual: 1,
+                ..
+            }) if *node == b
+        ));
+    }
+
+    #[test]
+    fn propagate_errors_when_input_rank_disagrees_with_the_real_shape() {
+        // b's tile_spec claims a rank-2 input, but the real a -> b edge
+        // (a's own output shape) is rank 1.
+        const OUT: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            rank: 1,
+            axes: &[],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        const BAD_INPUT: TensorTileSpec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 2,
+            axes: &[],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        let bad_spec = KernelTileSpec {
+            inputs: &[BAD_INPUT],
+            outputs: &[OUT],
+        };
+
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let a = dag.add_node(op("a", vec![Some(64)], true));
+        let b = dag.add_node(op_with_tile_spec("b", vec![Some(64)], false, bad_spec));
+        dag.add_edge(a, b);
+        let tile_graph = TileGraph::from_dag(&dag);
+
+        let err = tile_graph
+            .propagate(&[a, b], &HashMap::new())
+            .expect_err("b's declared input rank (2) disagrees with the a -> b edge's real rank (1)");
+
+        assert!(matches!(
+            err.downcast_ref::<Error>(),
+            Some(Error::InputRankMismatch {
+                node,
+                input_index: 0,
+                expected: 2,
+                actual: 1,
+                ..
+            }) if *node == b
+        ));
+    }
+
+    #[test]
+    fn propagate_errors_when_an_axis_declares_empty_dims() {
+        // TileAxisBinding::dims's own doc comment calls an empty `dims`
+        // list a spec-authoring bug -- there's no real tensor axis for
+        // the binding to resolve.
+        const BAD_AXIS: TileAxisBinding = TileAxisBinding {
+            dims: &[],
+            block_const: "BLOCK_SIZE",
+            extent_param: "n_elements",
+            window: None,
+            divide_by: None,
+        };
+        const OUT: TensorTileSpec = TensorTileSpec {
+            param: "y_ptr",
+            rank: 1,
+            axes: &[BAD_AXIS],
+            reduction_axis: None,
+            untiled_dims: &[],
+        };
+        let bad_spec = KernelTileSpec {
+            inputs: &[],
+            outputs: &[OUT],
+        };
+
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let b = dag.add_node(op_with_tile_spec("b", vec![Some(64)], true, bad_spec));
+        let tile_graph = TileGraph::from_dag(&dag);
+
+        let err = tile_graph
+            .propagate(&[b], &HashMap::new())
+            .expect_err("b's \"n_elements\" axis declares an empty dims list");
+
+        assert!(matches!(
+            err.downcast_ref::<Error>(),
+            Some(Error::EmptyAxisDims {
+                node,
+                extent_param: "n_elements",
+                ..
+            }) if *node == b
+        ));
     }
 }

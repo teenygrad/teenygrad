@@ -19,6 +19,8 @@
 
 use std::collections::HashMap;
 
+use crate::errors::Result;
+
 use super::types::{TileDim, TileEdgeShape, TileOp};
 use super::{EdgeId, NodeId, TileGraph};
 
@@ -98,12 +100,12 @@ impl TileGraph {
         output_edge: EdgeId,
         capacity: u64,
         tile: &TileEdgeShape,
-    ) -> Option<f64> {
+    ) -> Result<Option<f64>> {
         let mut seed = HashMap::new();
         seed.insert(output_edge, tile.clone());
-        let config = self.propagate(nodes, &seed);
+        let config = self.propagate(nodes, &seed)?;
         if self.mem_footprint_with_config(nodes, &config) > capacity {
-            return None;
+            return Ok(None);
         }
         let traffic = self.mem_traffic_with_config(nodes, &config);
         let elements: u64 = tile
@@ -114,7 +116,7 @@ impl TileGraph {
             })
             .product::<u64>()
             .max(1);
-        Some(traffic as f64 / elements as f64)
+        Ok(Some(traffic as f64 / elements as f64))
     }
 
     /// Welder §4.1's `EnumerateSubtiles`: a Roller-style expanding search
@@ -189,13 +191,13 @@ impl TileGraph {
         nodes: &[NodeId],
         root: NodeId,
         capacity: u64,
-    ) -> Vec<TileEdgeShape> {
+    ) -> Result<Vec<TileEdgeShape>> {
         let full_shape = self.node_output_shape(root).clone();
         let Some(output_edge) = self
             .output_edge_id(root)
             .or_else(|| self.children(root).first().map(|&(_, id)| id))
         else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
 
         let (search_axes, mut base) = Self::search_axes_for(&full_shape, self.node(root));
@@ -219,18 +221,19 @@ impl TileGraph {
                 base.clone(),
                 &mut visited,
                 &mut queue,
-            );
+            )?;
             for (idx, step) in axis.ladder.iter().enumerate().skip(1) {
                 let mut candidate = base.clone();
                 axis.write(&mut candidate, step);
-                let Some(candidate_score) = self.visit_candidate(
+                let candidate_score = self.visit_candidate(
                     nodes,
                     output_edge,
                     capacity,
                     candidate,
                     &mut visited,
                     &mut queue,
-                ) else {
+                )?;
+                let Some(candidate_score) = candidate_score else {
                     continue;
                 };
                 let improved = match best_score {
@@ -250,11 +253,16 @@ impl TileGraph {
         // visited-but-not-yet-expanded tile and try bumping each axis to
         // its next ladder step.
         while !queue.is_empty() && visited.len() < MAX_ENUMERATED_TILES {
-            let (min_idx, _) = queue
-                .iter()
-                .enumerate()
-                .min_by(|a, b| a.1.0.total_cmp(&b.1.0))
-                .expect("queue is non-empty");
+            // Manual min-index scan, not `.iter().min_by(..).expect(..)`:
+            // `queue` is non-empty (the loop guard above), so `min_idx`
+            // starting at 0 is always a valid index -- no `Option` to
+            // unwrap.
+            let mut min_idx = 0;
+            for idx in 1..queue.len() {
+                if queue[idx].0.total_cmp(&queue[min_idx].0).is_lt() {
+                    min_idx = idx;
+                }
+            }
             let (_, tile) = queue.remove(min_idx);
 
             for axis in &search_axes {
@@ -279,7 +287,7 @@ impl TileGraph {
                     neighbor,
                     &mut visited,
                     &mut queue,
-                );
+                )?;
             }
         }
 
@@ -288,7 +296,7 @@ impl TileGraph {
             .filter_map(|(tile, score)| score.map(|score| (score, tile)))
             .collect();
         results.sort_by(|a, b| a.0.total_cmp(&b.0));
-        results.into_iter().map(|(_, tile)| tile).collect()
+        Ok(results.into_iter().map(|(_, tile)| tile).collect())
     }
 
     /// Builds [`Self::enumerate_subtiles`]'s search axes and initial base
@@ -397,16 +405,16 @@ impl TileGraph {
         tile: TileEdgeShape,
         visited: &mut HashMap<TileEdgeShape, Option<f64>>,
         queue: &mut Vec<(f64, TileEdgeShape)>,
-    ) -> Option<f64> {
+    ) -> Result<Option<f64>> {
         if let Some(&existing) = visited.get(&tile) {
-            return existing;
+            return Ok(existing);
         }
-        let score = self.score_candidate_tile(nodes, output_edge, capacity, &tile);
+        let score = self.score_candidate_tile(nodes, output_edge, capacity, &tile)?;
         visited.insert(tile.clone(), score);
         if let Some(score) = score {
             queue.push((score, tile));
         }
-        score
+        Ok(score)
     }
 }
 
@@ -425,7 +433,7 @@ mod tests {
         let a = dag.add_node(op("a", vec![Some(100)], true));
 
         let tile_graph = TileGraph::from_dag(&dag);
-        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX);
+        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX).unwrap();
 
         assert!(!results.is_empty());
         for shape in &results {
@@ -446,7 +454,7 @@ mod tests {
         let a = dag.add_node(op("a", vec![Some(64)], true));
 
         let tile_graph = TileGraph::from_dag(&dag);
-        let results = tile_graph.enumerate_subtiles(&[a], a, 320);
+        let results = tile_graph.enumerate_subtiles(&[a], a, 320).unwrap();
 
         assert!(!results.is_empty());
         for shape in &results {
@@ -467,7 +475,7 @@ mod tests {
 
         let tile_graph = TileGraph::from_dag(&dag);
         let dynamic_axis = tile_graph.output_edge(a).unwrap().shape[0].clone();
-        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX);
+        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX).unwrap();
 
         assert!(!results.is_empty());
         for shape in &results {
@@ -483,7 +491,7 @@ mod tests {
 
         let tile_graph = TileGraph::from_dag(&dag);
         let output_edge = tile_graph.output_edge_id(a).unwrap();
-        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX);
+        let results = tile_graph.enumerate_subtiles(&[a], a, u64::MAX).unwrap();
 
         assert!(
             results.len() > 1,
@@ -494,6 +502,7 @@ mod tests {
             .map(|tile| {
                 tile_graph
                     .score_candidate_tile(&[a], output_edge, u64::MAX, tile)
+                    .unwrap()
                     .expect("every returned tile should still score as valid")
             })
             .collect();
@@ -535,7 +544,7 @@ mod tests {
         ));
 
         let tile_graph = TileGraph::from_dag(&dag);
-        let results = tile_graph.enumerate_subtiles(&[b], b, u64::MAX);
+        let results = tile_graph.enumerate_subtiles(&[b], b, u64::MAX).unwrap();
 
         assert!(!results.is_empty());
         let independently_varied_h: Vec<&TileEdgeShape> = results
