@@ -1048,4 +1048,18 @@ x_r = x_2d.clone().requires_grad_(True)
 F.log_softmax(x_r, dim=-1).sum().backward()
 save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
 
+# ── fused_pointwise (relu -> silu) ───────────────────────────────────────────────
+# Appended at the end of the script, not inlined next to relu/silu's own
+# fixtures above: every fixture before this one is drawn from one shared
+# `torch.manual_seed(42)` RNG stream, so inserting a new draw earlier would
+# shift every later fixture's random values too. Kept last so this addition
+# can't perturb anything that already exists.
+print("fused_pointwise")
+d = os.path.join(BASE, "fused_pointwise")
+os.makedirs(d, exist_ok=True)
+N_FUSED = 1024
+x_fused = torch.empty(N_FUSED).uniform_(-5, 5)
+save(f"{d}/x.bin", x_fused)
+save(f"{d}/expected_forward.bin", F.silu(torch.relu(x_fused)))
+
 print("\nDone — all fixtures generated.")
