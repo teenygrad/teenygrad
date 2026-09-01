@@ -29,7 +29,7 @@ pub mod optimizer;
 pub use optimizer::{
     Anduin, DagCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
     SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp, Trace,
-    TraceEvent, codegen, schedule_graph,
+    TraceEvent, codegen, common_thread_block_size, schedule_graph,
 };
 
 use crate::nn::{
