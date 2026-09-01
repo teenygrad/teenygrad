@@ -16,24 +16,35 @@
 
 //! The `#[tiled_kernel]` macro: [`super::kernel::kernel`] plus a few
 //! `#[tiled_kernel]`-specific codegen bits (dtype dispatch, a permanently-
-//! `None` `fusion_core()` stub). It no longer has its own attribute DSL --
+//! `None` `fusion_core()` stub). Its old attribute DSL --
 //! `#[tile(...)]`/`#[tile_loop(...)]`/`#[tile_pid_swizzle(...)]` and the
 //! index-arithmetic prelude codegen they drove (single-axis load prelude,
-//! GEMM's swizzled `pid` decode) have all been removed outright: that
-//! codegen baked index arithmetic into the individual kernel function being
-//! compiled, which doesn't compose when a kernel is called as a tile-op
-//! from another kernel's body (index arithmetic belongs in a wrapper, not
-//! each composed function) -- see teenygrad-1nr.1. `KernelTileSpec`/
-//! `TileSpecLayout` (the cost-model-facing metadata `#[tile(...)]` used to
-//! also produce) had no consumer anywhere in the codebase and were removed
-//! separately, before the attribute itself. See [`super::common`] for the
+//! GEMM's swizzled `pid` decode) -- was removed outright at `84ca6eedf`:
+//! that codegen baked index arithmetic into the individual kernel function
+//! being compiled, which doesn't compose when a kernel is called as a
+//! tile-op from another kernel's body (index arithmetic belongs in a
+//! wrapper, not each composed function) -- see teenygrad-1nr.1.
+//!
+//! A narrower `#[tile(block=..,extent=..)]` was revived on top of the
+//! `In<Tile<HW,D>>`/`Out<Tile<HW,D>>` auto-prelude (teenygrad-1nr.1's own
+//! addition, `c69c08b63`) by teenygrad-1nr.18, scoped to avoid repeating
+//! `84ca6eedf`'s mistake: it drives *only* the auto-prelude's own
+//! block/extent naming (still the single flat axis
+//! `arange(block)+pid*block` shape that prelude already had -- this does
+//! not add N-axis/windowed/looped prelude codegen) and this file's
+//! generated `tile_spec()` method. It never re-splices index arithmetic
+//! into the kernel author's own body. Optional and additive: a `Tile`
+//! parameter with no `#[tile(...)]` falls back to the pre-existing
+//! hardcoded `BLOCK_SIZE`/`n_elements` convention, unchanged, and no
+//! `tile_spec()` is generated for it. See [`super::common`] for the
 //! parsing/codegen helpers shared with the plain `#[kernel]` macro.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, GenericParam, Ident, ItemFn, Pat, PatType, Type, TypeParamBound, parse_macro_input,
+    Expr, FnArg, GenericParam, Ident, ItemFn, MetaNameValue, Pat, PatType, Token, Type,
+    TypeParamBound, parse::Parser, parse_macro_input, punctuated::Punctuated,
 };
 
 use super::common::{
@@ -41,6 +52,72 @@ use super::common::{
     extract_pointer_inner, in_tile_dtype, out_tile_dtype, parse_kernel_attrs, pat_to_str,
     rewrite_tile_param_to_pointer, simple_type_ident, to_pascal_case, unwrap_pointer_marker,
 };
+
+/// Parsed `#[tile(block=..,extent=..)]` on one `In<Tile<..>>`/
+/// `Out<Tile<..>>` parameter (teenygrad-1nr.18): names the `const
+/// {NAME}: i32` block-size generic and the `{NAME}: i32` extent parameter
+/// this tile's one flat axis is bound to. See this file's module doc
+/// comment for why this is deliberately narrower than the original
+/// pre-`84ca6eedf` `#[tile(...)]` (no lists, no `reduction`/`window`/
+/// `untiled` -- nothing here yet needs them).
+struct TileAttrArgs {
+    block: Ident,
+    extent: Ident,
+}
+
+/// Parse the `#[tile(...)]` attribute on one parameter, if present.
+fn parse_tile_attr(pt: &PatType) -> Result<Option<TileAttrArgs>, syn::Error> {
+    let Some(attr) = pt.attrs.iter().find(|a| a.path().is_ident("tile")) else {
+        return Ok(None);
+    };
+    let meta_list = attr.meta.require_list()?;
+    let parsed = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
+        .parse2(meta_list.tokens.clone())?;
+    let mut block = None;
+    let mut extent = None;
+    for nv in parsed {
+        let key = nv
+            .path
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        let Expr::Path(p) = &nv.value else {
+            return Err(syn::Error::new_spanned(
+                &nv.value,
+                "`#[tile(...)]` values must be bare identifiers",
+            ));
+        };
+        let Some(id) = p.path.get_ident().cloned() else {
+            return Err(syn::Error::new_spanned(
+                &nv.value,
+                "`#[tile(...)]` values must be a single identifier",
+            ));
+        };
+        match key.as_str() {
+            "block" => block = Some(id),
+            "extent" => extent = Some(id),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    &nv.path,
+                    format!("unknown `#[tile(...)]` key `{other}` (expected `block` or `extent`)"),
+                ));
+            }
+        }
+    }
+    let block = block
+        .ok_or_else(|| syn::Error::new_spanned(attr, "`#[tile(...)]` requires `block = ..`"))?;
+    let extent = extent
+        .ok_or_else(|| syn::Error::new_spanned(attr, "`#[tile(...)]` requires `extent = ..`"))?;
+    Ok(Some(TileAttrArgs { block, extent }))
+}
+
+/// Strip a `#[tile(...)]` attribute from a parameter's attribute list, if
+/// present -- it is host-only metadata (like `Tile` itself), never a real
+/// attribute macro registered anywhere, so it must not reach the
+/// regenerated device/host signatures this macro emits.
+fn strip_tile_attr(pt: &mut PatType) {
+    pt.attrs.retain(|a| !a.path().is_ident("tile"));
+}
 
 // ── Macro implementation ──────────────────────────────────────────────────────
 
@@ -359,65 +436,157 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // pointer, not a loaded value) so the kernel body can call
     // `HW::store(y.tensor, value, y.mask, ...)` without ever calling
     // `.add_offsets` itself.
-    let tile_in_params: Vec<(&Ident, Type)> = fn_inputs
+    let tile_attrs: Vec<Option<TileAttrArgs>> = match fn_inputs
         .iter()
-        .filter_map(|pt| {
+        .map(|pt| parse_tile_attr(pt))
+        .collect::<Result<Vec<_>, syn::Error>>()
+    {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error().into(),
+    };
+    let tile_in_params: Vec<(&Ident, Type, Option<&TileAttrArgs>)> = fn_inputs
+        .iter()
+        .zip(tile_attrs.iter())
+        .filter_map(|(pt, attr)| {
             let dtype = in_tile_dtype(&pt.ty, &hw_ident)?;
             let Pat::Ident(pi) = &*pt.pat else {
                 return None;
             };
-            Some((&pi.ident, dtype))
+            Some((&pi.ident, dtype, attr.as_ref()))
         })
         .collect();
-    let tile_out_params: Vec<(&Ident, Type)> = fn_inputs
+    let tile_out_params: Vec<(&Ident, Type, Option<&TileAttrArgs>)> = fn_inputs
         .iter()
-        .filter_map(|pt| {
+        .zip(tile_attrs.iter())
+        .filter_map(|(pt, attr)| {
             let dtype = out_tile_dtype(&pt.ty, &hw_ident)?;
             let Pat::Ident(pi) = &*pt.pat else {
                 return None;
             };
-            Some((&pi.ident, dtype))
+            Some((&pi.ident, dtype, attr.as_ref()))
         })
         .collect();
+
+    // teenygrad-1nr.18: resolve the one (block, extent) axis pair the
+    // auto-prelude below uses. Prefer an explicit `#[tile(block=..,
+    // extent=..)]` when *every* tile-typed parameter on this kernel
+    // declares it (and they all agree on the same pair -- per-parameter/
+    // multi-axis attributes aren't supported by the auto-prelude yet);
+    // otherwise fall back to the pre-existing hardcoded `BLOCK_SIZE`/
+    // `n_elements` convention, unchanged. `tile_spec()` (below) is only
+    // generated in the explicit case.
+    let all_tile_param_attrs: Vec<Option<&TileAttrArgs>> = tile_in_params
+        .iter()
+        .chain(tile_out_params.iter())
+        .map(|(_, _, a)| *a)
+        .collect();
+    let has_explicit_tile_attr =
+        !all_tile_param_attrs.is_empty() && all_tile_param_attrs.iter().all(Option::is_some);
+    if !all_tile_param_attrs.is_empty()
+        && all_tile_param_attrs.iter().any(Option::is_some)
+        && !has_explicit_tile_attr
+    {
+        return syn::Error::new_spanned(
+            &input.sig,
+            "when any `In<Tile<..>>`/`Out<Tile<..>>` parameter on this kernel declares \
+             `#[tile(block=..,extent=..)]`, every such parameter must declare it",
+        )
+        .to_compile_error()
+        .into();
+    }
+    if has_explicit_tile_attr {
+        let mut iter = all_tile_param_attrs
+            .iter()
+            .map(|a| a.expect("checked above"));
+        let first = iter.next().expect("non-empty, checked above");
+        for other in iter {
+            if other.block != first.block || other.extent != first.extent {
+                return syn::Error::new_spanned(
+                    &other.block,
+                    "all `In<Tile<..>>`/`Out<Tile<..>>` parameters on one kernel must share \
+                     the same `#[tile(block=..,extent=..)]` axis today -- per-parameter axes \
+                     aren't supported by the auto-prelude yet (teenygrad-1nr.18)",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+    }
 
     let final_block = if tile_in_params.is_empty() && tile_out_params.is_empty() {
         input.block.as_ref().clone()
     } else {
-        let block_size = const_params.iter().find(|cp| cp.ident == "BLOCK_SIZE");
-        let Some(block_size) = block_size else {
-            return syn::Error::new_spanned(
-                &input.sig,
-                "an `In<Tile<..>>`/`Out<Tile<..>>` parameter requires this kernel to declare \
-                 `const BLOCK_SIZE: i32`",
-            )
-            .to_compile_error()
-            .into();
+        let (block_ident, extent_ident): (Ident, Ident) = if has_explicit_tile_attr {
+            let args = all_tile_param_attrs[0].expect("checked above");
+            let block = args.block.clone();
+            let extent = args.extent.clone();
+            if !const_params.iter().any(|cp| cp.ident == block) {
+                return syn::Error::new_spanned(
+                    &block,
+                    format!(
+                        "`#[tile(block = {block})]` names a const generic this kernel doesn't \
+                         declare"
+                    ),
+                )
+                .to_compile_error()
+                .into();
+            }
+            let extent_ok = fn_inputs.iter().any(|pt| {
+                let name_ok = matches!(&*pt.pat, Pat::Ident(pi) if pi.ident == extent);
+                let ty_ok = matches!(&*pt.ty, Type::Path(tp) if tp.path.is_ident("i32"));
+                name_ok && ty_ok
+            });
+            if !extent_ok {
+                return syn::Error::new_spanned(
+                    &extent,
+                    format!(
+                        "`#[tile(extent = {extent})]` names a parameter this kernel doesn't \
+                         declare as `{extent}: i32`"
+                    ),
+                )
+                .to_compile_error()
+                .into();
+            }
+            (block, extent)
+        } else {
+            let block_size = const_params.iter().find(|cp| cp.ident == "BLOCK_SIZE");
+            let Some(block_size) = block_size else {
+                return syn::Error::new_spanned(
+                    &input.sig,
+                    "an `In<Tile<..>>`/`Out<Tile<..>>` parameter requires this kernel to \
+                     declare `const BLOCK_SIZE: i32` (or an explicit \
+                     `#[tile(block=..,extent=..)]`)",
+                )
+                .to_compile_error()
+                .into();
+            };
+            let has_n_elements = fn_inputs.iter().any(|pt| {
+                let name_ok = matches!(&*pt.pat, Pat::Ident(pi) if pi.ident == "n_elements");
+                let ty_ok = matches!(&*pt.ty, Type::Path(tp) if tp.path.is_ident("i32"));
+                name_ok && ty_ok
+            });
+            if !has_n_elements {
+                return syn::Error::new_spanned(
+                    &input.sig,
+                    "an `In<Tile<..>>`/`Out<Tile<..>>` parameter requires this kernel to \
+                     declare an `n_elements: i32` parameter (or an explicit \
+                     `#[tile(block=..,extent=..)]`)",
+                )
+                .to_compile_error()
+                .into();
+            }
+            (block_size.ident.clone(), format_ident!("n_elements"))
         };
-        let block_size = &block_size.ident;
-        let has_n_elements = fn_inputs.iter().any(|pt| {
-            let name_ok = matches!(&*pt.pat, Pat::Ident(pi) if pi.ident == "n_elements");
-            let ty_ok = matches!(&*pt.ty, Type::Path(tp) if tp.path.is_ident("i32"));
-            name_ok && ty_ok
-        });
-        if !has_n_elements {
-            return syn::Error::new_spanned(
-                &input.sig,
-                "an `In<Tile<..>>`/`Out<Tile<..>>` parameter requires this kernel to declare \
-                 an `n_elements: i32` parameter",
-            )
-            .to_compile_error()
-            .into();
-        }
 
         let mut stmts: Vec<syn::Stmt> = syn::parse2::<syn::Block>(quote! {{
             let pid = #hw_ident::program_id(Axis::X);
-            let block_start = pid * #block_size;
-            let offsets = #hw_ident::arange(0, #block_size) + block_start;
-            let in_bounds = offsets.lt(n_elements);
+            let block_start = pid * #block_ident;
+            let offsets = #hw_ident::arange(0, #block_ident) + block_start;
+            let in_bounds = offsets.lt(#extent_ident);
         }})
         .expect("generated tile prelude is valid Rust")
         .stmts;
-        for (ident, dtype) in &tile_in_params {
+        for (ident, dtype, _) in &tile_in_params {
             let load_stmt: syn::Stmt = syn::parse2(quote! {
                 let #ident = Tile::<#hw_ident, #dtype> {
                     tensor: #hw_ident::load(
@@ -436,7 +605,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             .expect("generated tile load statement is valid Rust");
             stmts.push(load_stmt);
         }
-        for (ident, dtype) in &tile_out_params {
+        for (ident, dtype, _) in &tile_out_params {
             // `.add_offsets()` returns `HW::Tensor<HW::Pointer<D>>` (a tensor
             // of write addresses), not `HW::Tensor<D>` (a tensor of `D`
             // values) -- so the shadowed `Tile` is instantiated with
@@ -457,6 +626,76 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    // teenygrad-1nr.18: when every tile-typed parameter carries an explicit
+    // `#[tile(block=..,extent=..)]`, emit a `tile_spec()` method built from
+    // that same attribute data instead of requiring a hand-authored
+    // `KernelTileSpec` at the `TritonLowering` call site. `rank` is a
+    // runtime argument, not baked in here: the real tensor rank is a
+    // property of the graph node this kernel gets applied to, not of the
+    // kernel's own signature (a `Tile`-typed param carries a dtype, never a
+    // rank) -- same reasoning as `teeny-kernels`'
+    // `flat_elementwise_tile_spec`, which this method mirrors the shape of.
+    let tile_spec_method: TokenStream2 = if has_explicit_tile_attr {
+        let args = all_tile_param_attrs[0].expect("checked above");
+        let block_str = args.block.to_string();
+        let extent_str = args.extent.to_string();
+        let in_param_strs: Vec<String> = tile_in_params
+            .iter()
+            .map(|(id, _, _)| id.to_string())
+            .collect();
+        let out_param_strs: Vec<String> = tile_out_params
+            .iter()
+            .map(|(id, _, _)| id.to_string())
+            .collect();
+        quote! {
+            /// Declarative tile-shape metadata derived from this kernel's
+            /// `#[tile(block=..,extent=..)]`-tagged `In<Tile<..>>`/
+            /// `Out<Tile<..>>` parameters (teenygrad-1nr.18).
+            pub fn tile_spec(rank: usize) -> ::teeny_core::model::KernelTileSpec {
+                let dims: &'static [usize] = ::std::boxed::Box::leak(
+                    (0..rank).collect::<::std::vec::Vec<usize>>().into_boxed_slice(),
+                );
+                let axes: &'static [::teeny_core::model::TileAxisBinding] =
+                    ::std::boxed::Box::leak(::std::boxed::Box::new([
+                        ::teeny_core::model::TileAxisBinding {
+                            dims,
+                            block_const: #block_str,
+                            extent_param: #extent_str,
+                            window: ::core::option::Option::None,
+                            divide_by: ::core::option::Option::None,
+                        },
+                    ]));
+                let inputs: &'static [::teeny_core::model::TensorTileSpec] =
+                    ::std::boxed::Box::leak(::std::boxed::Box::new([ #(
+                        ::teeny_core::model::TensorTileSpec {
+                            param: #in_param_strs,
+                            rank,
+                            axes,
+                            reduction_axis: ::core::option::Option::None,
+                            untiled_dims: &[],
+                        }
+                    ),* ]));
+                let outputs: &'static [::teeny_core::model::TensorTileSpec] =
+                    ::std::boxed::Box::leak(::std::boxed::Box::new([ #(
+                        ::teeny_core::model::TensorTileSpec {
+                            param: #out_param_strs,
+                            rank,
+                            axes,
+                            reduction_axis: ::core::option::Option::None,
+                            untiled_dims: &[],
+                        }
+                    ),* ]));
+                ::teeny_core::model::KernelTileSpec {
+                    inputs,
+                    outputs,
+                    loop_spec: ::core::option::Option::None,
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // FusionCore splice-body extraction (teenygrad-3w0.9) identified its
     // eligible kernels via `#[tile(...)]`'s tile_attrs, which no longer
     // exist -- see teenygrad-1nr.1. `fusion_core()` is unconditionally
@@ -469,10 +708,14 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
 
     // Device-side source: same body, but pointer markers stripped so MLIR sees
     // bare `T::Pointer<D>`. Host keeps the marked signature for KernelIo / API.
+    // `#[tile(...)]` (teenygrad-1nr.18) is stripped from both regenerated
+    // signatures below -- it's host-only metadata, like `Tile` itself, never
+    // a real attribute macro registered anywhere.
     let mut device_sig = sig.clone();
     for input in device_sig.inputs.iter_mut() {
         if let FnArg::Typed(pt) = input {
             *pt.ty = unwrap_pointer_marker(&pt.ty, &hw_ident);
+            strip_tile_attr(pt);
         }
     }
     let original_source_str = quote!(#vis #device_sig #final_block).to_string();
@@ -487,6 +730,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     for input in host_sig.inputs.iter_mut() {
         if let FnArg::Typed(pt) = input {
             *pt.ty = rewrite_tile_param_to_pointer(&pt.ty, &hw_ident);
+            strip_tile_attr(pt);
         }
     }
 
@@ -732,6 +976,8 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             /// Splice-ready per-element compute for reduction-terminated
             /// fusion (teenygrad-3w0.9). See [`::teeny_triton::FusionCore`].
             #fusion_core_body
+
+            #tile_spec_method
         }
 
         // Thin ABI metadata for fusion probing. Probe *logic* lives on

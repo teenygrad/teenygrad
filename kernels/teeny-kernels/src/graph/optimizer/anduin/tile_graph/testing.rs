@@ -119,6 +119,7 @@ pub(super) fn flat_unary_spec() -> KernelTileSpec {
     KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
+        loop_spec: None,
     }
 }
 
@@ -168,5 +169,6 @@ pub(super) fn batchnorm2d_shaped_spec() -> KernelTileSpec {
     KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
+        loop_spec: None,
     }
 }

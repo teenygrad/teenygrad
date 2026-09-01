@@ -25,7 +25,9 @@ use crate::{
 
 mod tile_spec;
 
-pub use tile_spec::{KernelTileSpec, TensorTileSpec, TileAxisBinding, TileWindow};
+pub use tile_spec::{
+    KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileWindow,
+};
 
 /// A node index within a compiled model's DAG.
 pub type NodeId = usize;
