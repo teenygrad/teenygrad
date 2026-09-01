@@ -343,6 +343,7 @@ mod tests {
         let bad_spec = KernelTileSpec {
             inputs: &[],
             outputs: &[BAD_OUTPUT],
+            loop_spec: None,
         };
 
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
@@ -386,6 +387,7 @@ mod tests {
         let bad_spec = KernelTileSpec {
             inputs: &[BAD_INPUT],
             outputs: &[OUT],
+            loop_spec: None,
         };
 
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
@@ -394,9 +396,9 @@ mod tests {
         dag.add_edge(a, b);
         let tile_graph = TileGraph::from_dag(&dag);
 
-        let err = tile_graph
-            .propagate(&[a, b], &HashMap::new())
-            .expect_err("b's declared input rank (2) disagrees with the a -> b edge's real rank (1)");
+        let err = tile_graph.propagate(&[a, b], &HashMap::new()).expect_err(
+            "b's declared input rank (2) disagrees with the a -> b edge's real rank (1)",
+        );
 
         assert!(matches!(
             err.downcast_ref::<Error>(),
@@ -432,6 +434,7 @@ mod tests {
         let bad_spec = KernelTileSpec {
             inputs: &[],
             outputs: &[OUT],
+            loop_spec: None,
         };
 
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();

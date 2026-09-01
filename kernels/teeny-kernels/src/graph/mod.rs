@@ -19,7 +19,7 @@ use teeny_core::{
     graph::{DtypeRepr, Graph, Op, Shape},
     model::{
         ExecutableOp, KernelTileSpec, Lowering, LoweringMode, RuntimeOp, TensorTileSpec,
-        TileAxisBinding,
+        TileAxisBinding, TileCarryBinding, TileLoopSpec,
     },
     utils::dag::Dag,
 };
@@ -55,7 +55,7 @@ use crate::nn::{
         },
         relu::{ReluBackward, ReluForward},
         sigmoid::{
-            LogsigmoidForward, LogsigmoidForwardDispatch, SigmoidForwardDispatch,
+            LogsigmoidForward, LogsigmoidForwardDispatch, SigmoidForwardDispatch, SiluForward,
             SiluForwardDispatch,
         },
         softmax::SoftmaxForward,
@@ -195,6 +195,7 @@ fn flat_elementwise_tile_spec(rank: usize) -> KernelTileSpec {
     KernelTileSpec {
         inputs: Box::leak(Box::new([x])),
         outputs: Box::leak(Box::new([y])),
+        loop_spec: None,
     }
 }
 
@@ -274,6 +275,7 @@ const MATMUL_TILE_SPEC: KernelTileSpec = {
     KernelTileSpec {
         inputs: &[A, B],
         outputs: &[C],
+        loop_spec: None,
     }
 };
 
@@ -309,6 +311,7 @@ const BATCHNORM2D_TILE_SPEC: KernelTileSpec = {
     KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
+        loop_spec: None,
     }
 };
 
@@ -365,6 +368,7 @@ fn windowed_last_axis_tile_spec(
     KernelTileSpec {
         inputs: Box::leak(Box::new([input])),
         outputs: Box::leak(Box::new([output])),
+        loop_spec: None,
     }
 }
 
@@ -397,11 +401,21 @@ const CONV1D_TILE_SPEC: KernelTileSpec = {
     KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
+        loop_spec: None,
     }
 };
 
 /// `conv2d_forward`: `x_ptr`/`y_ptr`, `[B, C, H, W]` -> `[B, C_OUT, OH, OW]`,
 /// `BLOCK_OW` tiling `y_ptr`'s `W` axis (dim 3). Fixed rank 4, always NCHW.
+///
+/// Also declares `loop_spec` (teenygrad-1nr.18): the real kernel body
+/// (`kernels/teeny-kernels/src/nn/conv/conv2d.rs`) accumulates into `acc:
+/// [BLOCK_OW]` over a flat `for idx in 0..loop_bound` loop, `loop_bound =
+/// (C_IN/G)*KH*KW` -- a real reduction loop this spec previously left
+/// completely undescribed (the pre-`teenygrad-1nr.18` `KernelTileSpec` had
+/// no field to put it in at all). See `TileLoopSpec`'s own doc comment for
+/// why this is declarative only -- no consumer computes conv2d's real
+/// working-set/trip-count from it yet.
 const CONV2D_TILE_SPEC: KernelTileSpec = {
     const AXIS: TileAxisBinding = TileAxisBinding {
         dims: &[3],
@@ -424,9 +438,17 @@ const CONV2D_TILE_SPEC: KernelTileSpec = {
         reduction_axis: None,
         untiled_dims: &[],
     };
+    const ACC: TileCarryBinding = TileCarryBinding {
+        name: "acc",
+        shape_consts: &["BLOCK_OW"],
+    };
     KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
+        loop_spec: Some(TileLoopSpec {
+            carries: &[ACC],
+            trip_count_factors: &["C_IN", "G", "KH", "KW"],
+        }),
     }
 };
 
@@ -458,6 +480,7 @@ const CONV3D_TILE_SPEC: KernelTileSpec = {
     KernelTileSpec {
         inputs: &[X],
         outputs: &[Y],
+        loop_spec: None,
     }
 };
 
@@ -2172,7 +2195,12 @@ impl TritonLowering {
                 // --- Activation (D: Num) ---
                 Op::Relu => {
                     let mut exec = make_num_kernel!(ReluForward(1024), ReluBackward(1024), node);
-                    exec.tile_spec = Some(flat_elementwise_tile_spec(node.shape.len()));
+                    // `ReluForward::tile_spec` (teenygrad-1nr.18, derived by
+                    // `#[tiled_kernel]` from `relu_forward`'s own
+                    // `#[tile(...)]`-tagged params) is dtype-independent --
+                    // block/extent names and dims don't vary with `D` -- so
+                    // any dtype monomorphization gives the same result.
+                    exec.tile_spec = Some(ReluForward::<f32>::tile_spec(node.shape.len()));
                     exec
                 }
 
@@ -2257,11 +2285,19 @@ impl TritonLowering {
                     node.dtype,
                     SigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
-                Op::Silu => exec_from(
-                    node.shape.clone(),
-                    node.dtype,
-                    SiluForwardDispatch::dispatch(node.dtype, 1024)?,
-                ),
+                Op::Silu => {
+                    let mut exec = exec_from(
+                        node.shape.clone(),
+                        node.dtype,
+                        SiluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    );
+                    // See the `Op::Relu` arm above: `SiluForward::tile_spec`
+                    // is dtype-independent, so `exec_from`'s hand-authored
+                    // `flat_elementwise_tile_spec` fallback is overridden
+                    // here with the macro-derived one (teenygrad-1nr.18).
+                    exec.tile_spec = Some(SiluForward::<f32>::tile_spec(node.shape.len()));
+                    exec
+                }
                 Op::Logsigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
@@ -3465,5 +3501,65 @@ impl<'a> Lowering<'a> for TritonLowering {
             }
         }
         extra
+    }
+}
+
+#[cfg(test)]
+mod relu_silu_tile_spec_tests {
+    //! teenygrad-1nr.18: `ReluForward`/`SiluForward::tile_spec()` (emitted
+    //! by `#[tiled_kernel]` from `relu_forward`/`silu_forward`'s own
+    //! `#[tile(block=BLOCK_SIZE,extent=n_elements)]`-tagged `x`/`y` params)
+    //! is what the `Op::Relu`/`Op::Silu` lowering arms attach today,
+    //! replacing the previously hand-authored `flat_elementwise_tile_spec`
+    //! call for these two ops specifically. Exercises the real lowering
+    //! path (`lower_unary_op`), not just the macro output in isolation, so
+    //! a mismatch between the attribute and the real signature -- e.g. a
+    //! future rename of `x`/`y`/`BLOCK_SIZE`/`n_elements` without updating
+    //! the attribute to match -- would fail here instead of only silently
+    //! producing a stale spec.
+
+    use super::*;
+
+    fn assert_flat_unary_spec(spec: KernelTileSpec, in_param: &str, out_param: &str) {
+        assert_eq!(spec.loop_spec, None);
+        assert_eq!(spec.inputs.len(), 1);
+        assert_eq!(spec.outputs.len(), 1);
+        assert_eq!(spec.inputs[0].param, in_param);
+        assert_eq!(spec.outputs[0].param, out_param);
+        for tensor in [spec.inputs[0], spec.outputs[0]] {
+            assert_eq!(tensor.rank, 1);
+            assert_eq!(tensor.reduction_axis, None);
+            assert_eq!(tensor.untiled_dims, &[] as &[&str]);
+            assert_eq!(tensor.axes.len(), 1);
+            assert_eq!(tensor.axes[0].dims, &[0]);
+            assert_eq!(tensor.axes[0].block_const, "BLOCK_SIZE");
+            assert_eq!(tensor.axes[0].extent_param, "n_elements");
+            assert_eq!(tensor.axes[0].window, None);
+            assert_eq!(tensor.axes[0].divide_by, None);
+        }
+    }
+
+    #[test]
+    fn relu_tile_spec_matches_its_real_tile_tagged_signature() {
+        let lowering = TritonLowering::default();
+        let exec = lowering
+            .lower_unary_op(&Op::Relu, DtypeRepr::F32)
+            .expect("Relu should lower");
+        let spec = exec
+            .tile_spec
+            .expect("relu_forward declares #[tile(...)] on x/y");
+        assert_flat_unary_spec(spec, "x", "y");
+    }
+
+    #[test]
+    fn silu_tile_spec_matches_its_real_tile_tagged_signature() {
+        let lowering = TritonLowering::default();
+        let exec = lowering
+            .lower_unary_op(&Op::Silu, DtypeRepr::F32)
+            .expect("Silu should lower");
+        let spec = exec
+            .tile_spec
+            .expect("silu_forward declares #[tile(...)] on x/y");
+        assert_flat_unary_spec(spec, "x", "y");
     }
 }

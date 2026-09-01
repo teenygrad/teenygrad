@@ -25,8 +25,13 @@
 //! that codegen coupling, not this metadata, is what made the original hard
 //! to keep: it broke composability when a kernel is called as a tile-op
 //! from inside another kernel's body. This revival is deliberately
-//! metadata-only: a spec is hand-authored `const` data describing a
-//! kernel's tensors and axes, consumed purely for scheduling analysis
+//! metadata-only: a spec is data describing a kernel's tensors and axes —
+//! either hand-authored `const`s at the `TritonLowering` construction site
+//! (most kernels today), or, for a kernel whose `In<Tile<..>>`/
+//! `Out<Tile<..>>` parameters all carry an explicit
+//! `#[tile(block=..,extent=..)]` (teenygrad-1nr.18), derived by
+//! `#[tiled_kernel]`'s generated `tile_spec()` method from that same
+//! attribute instead — consumed purely for scheduling analysis
 //! (`TileGraph::propagate`/`mem_traffic`/`mem_footprint`), and never drives
 //! what gets generated into a kernel's source.
 //!
@@ -178,13 +183,53 @@ pub struct TensorTileSpec {
     pub untiled_dims: &'static [&'static str],
 }
 
+/// One loop-carried accumulator variable threaded through a kernel's
+/// reduction/accumulation loop (e.g. `conv2d_forward`'s `acc: [BLOCK_OW]`,
+/// accumulated over its `(C_IN/G)*KH*KW`-iteration receptive-field loop;
+/// flash-attention's online-softmax `acc`/`m_i`/`l_i` is the same shape).
+/// Not representable as a [`TensorTileSpec`]: these aren't tiles of a
+/// pointer parameter sliced by `(block, extent)`, they're kernel-body-local
+/// tensors whose *shape* is fixed by const generics (not grid-varying) and
+/// whose *value* the loop updates in place.
+///
+/// Revived (teenygrad-1nr.18) from the pre-revival design this module is
+/// already a revival of (`kernels/teeny-triton/src/tile.rs` at
+/// `84ca6eedf^`) — see teenygrad-1nr.12, whose investigation found the
+/// original design declared this metadata but never grew a consumer for
+/// it. That remains true here: this records shape and identity only, not
+/// the per-iteration combine expression, and `TileGraph::propagate`/
+/// `mem_traffic`/`mem_footprint` still treat a loop-carried kernel's real
+/// inputs as fully materialized, exactly like any other `tile_spec`-less
+/// op — declaring `loop_spec` does not by itself fix that; it only makes
+/// the loop's existence and carried shape queryable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileCarryBinding {
+    /// The variable's name in the kernel body, e.g. `"acc"`.
+    pub name: &'static str,
+    /// Names of the `const {NAME}: i32` generics giving the carried
+    /// tensor's shape, in dimension order (e.g. conv2d's `["BLOCK_OW"]`).
+    pub shape_consts: &'static [&'static str],
+}
+
+/// Loop-carry metadata for a kernel's reduction/accumulation loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileLoopSpec {
+    /// Variables carried across the loop's iterations.
+    pub carries: &'static [TileCarryBinding],
+    /// Names of the `{NAME}: i32` params / `const {NAME}: i32` generics
+    /// whose values determine this loop's trip count. Documentation only,
+    /// like [`TensorTileSpec::untiled_dims`] — not a literal formula to
+    /// evaluate: e.g. conv2d's real trip count is `(C_IN/G)*KH*KW`, a
+    /// runtime param (`C_IN`) combined with three consts, so this names
+    /// `["C_IN", "G", "KH", "KW"]` rather than one single param the way a
+    /// flash-attention-style fixed-trip-count loop's would be `["n_ctx_k"]`
+    /// alone. No consumer computes the actual trip count from these yet.
+    pub trip_count_factors: &'static [&'static str],
+}
+
 /// Tile-shape metadata for a kernel's full tensor set — the queryable
 /// metadata `TileGraph::propagate` (and, for windowed tensors once that's
 /// wired up, `mem_traffic`-style cost estimation) consumes.
-///
-/// `TileLoopSpec`/`TileCarryBinding` (flash-attention-style loop-carried
-/// accumulator state, present in the original) are deliberately not
-/// revived here — no consumer needs them yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KernelTileSpec {
     /// Tile specs for this kernel's input tensors, in the same order as
@@ -198,4 +243,8 @@ pub struct KernelTileSpec {
     /// `TileGraph::propagate` uses `outputs[0]` — every `TileOp` is
     /// single-output today.
     pub outputs: &'static [TensorTileSpec],
+    /// `Some` when this kernel's body loops with carried accumulator
+    /// state (see [`TileLoopSpec`]) instead of resolving its whole output
+    /// in one shot. `None` (the ordinary case) for every non-looping spec.
+    pub loop_spec: Option<TileLoopSpec>,
 }
