@@ -151,6 +151,7 @@ mod tests {
                 bandwidth: Some(bandwidth),
                 latency: None,
             }],
+            execution: None,
         }
     }
 
@@ -265,6 +266,7 @@ mod tests {
             name: "test-device".to_string(),
             compute_units: 1,
             memory_levels: vec![],
+            execution: None,
         };
 
         let latency = SimpleProfiler.profile(&tile_graph, &[a], &hardware);

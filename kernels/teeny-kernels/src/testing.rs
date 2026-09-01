@@ -16,7 +16,9 @@
 
 //! Shared helpers for `teeny-kernels` integration tests.
 
-use teeny_core::device::hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind};
+use teeny_core::device::hardware::{
+    ExecutionProfile, HardwareProfile, MemoryLevel, MemoryLevelKind,
+};
 use teeny_core::device::program::Kernel;
 use teeny_core::model::ExecutableOp;
 
@@ -97,5 +99,19 @@ pub fn orin_nano_hardware_profile() -> HardwareProfile {
                 latency: None,
             },
         ],
+        // Ampere (compute capability 8.x): `simt_width`/
+        // `max_threads_per_group`/`max_grid_dims` are the CUDA C
+        // Programming Guide's per-compute-capability technical
+        // specifications table, unchanged across 8.0/8.6/8.7/8.9, not
+        // Orin-specific -- same values as `hardware_profile_for`'s packaged
+        // sm_80/sm_86/sm_87/sm_89 entries. `max_groups_per_compute_unit`
+        // (max resident blocks/SM) does vary within 8.x and isn't verified
+        // here, so it's left `None` rather than guessed.
+        execution: Some(ExecutionProfile {
+            simt_width: 32,
+            max_threads_per_group: 1024,
+            max_groups_per_compute_unit: None,
+            max_grid_dims: [u32::MAX, 65_535, 65_535],
+        }),
     }
 }

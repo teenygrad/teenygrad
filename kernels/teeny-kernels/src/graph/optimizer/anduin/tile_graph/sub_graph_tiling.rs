@@ -147,6 +147,7 @@ mod tests {
                     latency: None,
                 },
             ],
+            execution: None,
         }
     }
 
@@ -192,6 +193,7 @@ mod tests {
                 bandwidth: None,
                 latency: None,
             }],
+            execution: None,
         };
 
         let results =
@@ -259,6 +261,7 @@ mod tests {
                     latency: None,
                 },
             ],
+            execution: None,
         };
 
         let results = tile_graph.sub_graph_tiling(&[a], a, None, &hardware, 3).unwrap();

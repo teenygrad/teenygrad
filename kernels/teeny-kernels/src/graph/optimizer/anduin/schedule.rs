@@ -192,6 +192,7 @@ mod tests {
                     latency: None,
                 },
             ],
+            execution: None,
         }
     }
 
@@ -252,6 +253,7 @@ mod tests {
             name: "empty".to_string(),
             compute_units: 1,
             memory_levels: vec![],
+            execution: None,
         };
         schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler).unwrap();
 

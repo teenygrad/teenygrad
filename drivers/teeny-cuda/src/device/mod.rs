@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 use teeny_core::{
     device::{
         context::DeviceInfo,
-        hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind},
+        hardware::{ExecutionProfile, HardwareProfile, MemoryLevel, MemoryLevelKind},
         program::{ArgVisitor, Kernel, KernelArgs},
         {Device, LaunchConfig},
     },
@@ -211,7 +211,10 @@ impl DeviceInfo for CudaDeviceInfo {
     /// `cudaDeviceProp` fields. Memory-level bandwidth/latency are left
     /// `None`: `cudaGetDeviceProperties` doesn't expose them, and this
     /// crate's policy (see `teeny-triton`'s `CostModel` docs) is real
-    /// hardware data or nothing, never a guess.
+    /// hardware data or nothing, never a guess. `execution` is populated
+    /// from the same queried fields this struct already carried but
+    /// previously discarded here (`warp_size`, `max_threads_per_block`,
+    /// `max_blocks_per_multi_processor`, `max_grid_size`).
     fn hardware_profile(&self) -> HardwareProfile {
         HardwareProfile {
             name: self.name.clone(),
@@ -242,6 +245,13 @@ impl DeviceInfo for CudaDeviceInfo {
                     latency: None,
                 },
             ],
+            execution: Some(ExecutionProfile {
+                simt_width: u32::try_from(self.warp_size).unwrap_or(0),
+                max_threads_per_group: u32::try_from(self.max_threads_per_block).unwrap_or(0),
+                max_groups_per_compute_unit: u32::try_from(self.max_blocks_per_multi_processor)
+                    .ok(),
+                max_grid_dims: self.max_grid_size.map(|d| u32::try_from(d).unwrap_or(0)),
+            }),
         }
     }
 }

@@ -243,6 +243,7 @@ mod tests {
                 bandwidth: None,
                 latency: None,
             }],
+            execution: None,
         }
     }
 
@@ -264,6 +265,7 @@ mod tests {
                     latency: None,
                 },
             ],
+            execution: None,
         }
     }
 
