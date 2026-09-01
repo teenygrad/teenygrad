@@ -46,12 +46,14 @@
 //! deliberate stub. See `TILE_GRAPH_SCHEDULING_PLAN.md` and teenygrad-1nr.
 
 mod codegen;
+mod grid;
 mod profile;
 mod schedule;
 mod tile_graph;
 mod trace;
 
 pub use codegen::{DagCodegen, ExecuteDevice, codegen};
+pub use grid::common_thread_block_size;
 pub use profile::{Profiler, SimpleProfiler};
 pub use schedule::schedule_graph;
 pub use tile_graph::{
