@@ -1057,7 +1057,21 @@ save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
 print("fused_pointwise")
 d = os.path.join(BASE, "fused_pointwise")
 os.makedirs(d, exist_ok=True)
-N_FUSED = 1024
+#
+# N_FUSED is sized to force real tiling in Anduin's SubGraphTiling search
+# (teenygrad-1nr), not just trivially fit in one shot. Measured on a real
+# RTX 5070 (`DeviceInfo::hardware_profile`): SharedMemory capacity is
+# 49152 bytes (48KB, `cudaDeviceProp.sharedMemPerBlock` -- essentially
+# every CUDA architecture's default, unchanged since Kepler), Register
+# capacity (`regs_per_block * 4`) is 262144 bytes. 262144 f32 elements is
+# 1048576 bytes -- 4x the Register capacity and >21x the SharedMemory
+# capacity -- so the whole relu/silu output tile cannot fit untiled at
+# either level; enumerate_subtiles must actually search for a smaller
+# subtile instead of trivially returning the full shape as its own best
+# candidate. (An earlier, smaller N_FUSED of 65536 -- 262144 bytes --
+# coincidentally equaled the Register capacity exactly, an ambiguous
+# boundary; this is comfortably clear of both.)
+N_FUSED = 262144
 x_fused = torch.empty(N_FUSED).uniform_(-5, 5)
 save(f"{d}/x.bin", x_fused)
 save(f"{d}/expected_forward.bin", F.silu(torch.relu(x_fused)))

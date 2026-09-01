@@ -32,6 +32,13 @@
 //! `anduin` module doc comments, which say so plainly. The numeric checks
 //! above run and gate the test *before* this, so a real regression there
 //! still fails loudly instead of being masked by the expected panic.
+//!
+//! `N` is deliberately larger than any real GPU's default CUDA
+//! shared-memory budget (see `N`'s own doc comment) so that
+//! `Anduin::optimize`'s `SubGraphTiling` search must actually tile --
+//! `enumerate_subtiles` has to find a subtile that fits, not just return
+//! the whole tensor untiled -- rather than the search trivially having
+//! nothing to do.
 
 #[cfg(feature = "cuda")]
 use dotenv::dotenv;
@@ -54,8 +61,20 @@ use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
 #[cfg(feature = "cuda")]
 use teeny_kernels::testing::{load_fixture, teenyc_cache_dir};
 
+// Sized to force real tiling in Anduin's SubGraphTiling search
+// (teenygrad-1nr), not just trivially fit in one shot. Measured on a real
+// RTX 5070 (`DeviceInfo::hardware_profile`): SharedMemory capacity is
+// 49152 bytes (48KB, `cudaDeviceProp.sharedMemPerBlock` -- essentially
+// every CUDA architecture's default, unchanged since Kepler), Register
+// capacity (`regs_per_block * 4`) is 262144 bytes. `N * 4` bytes
+// (1048576, f32) is 4x the Register capacity and >21x the SharedMemory
+// capacity, so the whole relu/silu output tile cannot fit untiled at
+// either level -- `enumerate_subtiles` must actually search for a
+// smaller subtile instead of trivially returning the full shape as its
+// own best candidate. Matches `tests/fixtures/generate.py`'s `N_FUSED`,
+// which the fixtures below were regenerated from.
 #[cfg(feature = "cuda")]
-const N: usize = 1024;
+const N: usize = 262144;
 #[cfg(feature = "cuda")]
 const BATCH: usize = 1;
 #[cfg(feature = "cuda")]
