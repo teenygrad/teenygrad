@@ -53,38 +53,71 @@ use super::common::{
     rewrite_tile_param_to_pointer, simple_type_ident, to_pascal_case, unwrap_pointer_marker,
 };
 
-/// Parsed `#[tile(block=..,extent=..)]` on one `In<Tile<..>>`/
-/// `Out<Tile<..>>` parameter (teenygrad-1nr.18): names the `const
-/// {NAME}: i32` block-size generic and the `{NAME}: i32` extent parameter
-/// this tile's one flat axis is bound to. See this file's module doc
-/// comment for why this is deliberately narrower than the original
-/// pre-`84ca6eedf` `#[tile(...)]` (no lists, no `reduction`/`window`/
-/// `untiled` -- nothing here yet needs them).
+/// Parsed `#[tile(...)]` on one `In<Tile<..>>`/`Out<Tile<..>>` parameter
+/// -- or, since teenygrad-1nr.19, on any `In`/`Out`/`InOut`-marked
+/// parameter, `Tile`-wrapped or a raw pointer -- describing one axis of
+/// that parameter's tensor (teenygrad-1nr.18/teenygrad-1nr.19).
+///
+/// A parameter may carry more than one `#[tile(...)]` attribute
+/// (repeatable, like `#[doc = "..."]`): each occurrence is one axis, in
+/// declaration order (outermost first -- matches this codebase's existing
+/// `TensorTileSpec`/hand-authored `KernelTileSpec` convention of dim 0 =
+/// outermost, e.g. NCHW's `B`). Exactly one occurrence on a `Tile`-typed
+/// parameter is the original teenygrad-1nr.18 shape (drives the
+/// auto-prelude too, see [`parse_tile_attrs`]'s caller); more than one, or
+/// any occurrence at all on a raw-pointer parameter, is purely
+/// declarative -- teenygrad-1nr.19 -- and never touches codegen.
 struct TileAttrArgs {
-    block: Ident,
+    /// `Some(block_const)` when this axis is block-tiled (one CTA covers
+    /// `block_const` elements); `None` for an untiled axis (one CTA per
+    /// index). Required (`Some`) on a `Tile`-typed parameter -- untiled
+    /// `Tile` axes aren't supported yet, see the auto-prelude's own
+    /// requirements.
+    block: Option<Ident>,
+    /// The `{NAME}: i32` parameter this axis's extent is read from.
     extent: Ident,
+    /// This axis's identity for [`::teeny_core::model::GridSpec`]
+    /// matching (teenygrad-1nr.19) -- defaults to `extent`'s own name
+    /// when omitted.
+    name: Option<syn::LitStr>,
+    /// Which real hardware grid dimension this axis reads from
+    /// (teenygrad-1nr.19) -- `X`, `Y`, or `Z`; defaults to `X`.
+    dim: Option<Ident>,
 }
 
-/// Parse the `#[tile(...)]` attribute on one parameter, if present.
-fn parse_tile_attr(pt: &PatType) -> Result<Option<TileAttrArgs>, syn::Error> {
-    let Some(attr) = pt.attrs.iter().find(|a| a.path().is_ident("tile")) else {
-        return Ok(None);
-    };
+/// Parse one `#[tile(...)]` attribute's contents.
+fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error> {
     let meta_list = attr.meta.require_list()?;
     let parsed = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
         .parse2(meta_list.tokens.clone())?;
     let mut block = None;
     let mut extent = None;
+    let mut name = None;
+    let mut dim = None;
     for nv in parsed {
         let key = nv
             .path
             .get_ident()
             .map(|i| i.to_string())
             .unwrap_or_default();
+        if key == "name" {
+            let Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) = &nv.value
+            else {
+                return Err(syn::Error::new_spanned(
+                    &nv.value,
+                    "`#[tile(name = ..)]` must be a string literal",
+                ));
+            };
+            name = Some(s.clone());
+            continue;
+        }
         let Expr::Path(p) = &nv.value else {
             return Err(syn::Error::new_spanned(
                 &nv.value,
-                "`#[tile(...)]` values must be bare identifiers",
+                "`#[tile(...)]` values must be bare identifiers (except `name`, a string literal)",
             ));
         };
         let Some(id) = p.path.get_ident().cloned() else {
@@ -96,19 +129,44 @@ fn parse_tile_attr(pt: &PatType) -> Result<Option<TileAttrArgs>, syn::Error> {
         match key.as_str() {
             "block" => block = Some(id),
             "extent" => extent = Some(id),
+            "dim" => {
+                if !matches!(id.to_string().as_str(), "X" | "Y" | "Z") {
+                    return Err(syn::Error::new_spanned(
+                        &id,
+                        "`#[tile(dim = ..)]` must be `X`, `Y`, or `Z`",
+                    ));
+                }
+                dim = Some(id);
+            }
             other => {
                 return Err(syn::Error::new_spanned(
                     &nv.path,
-                    format!("unknown `#[tile(...)]` key `{other}` (expected `block` or `extent`)"),
+                    format!(
+                        "unknown `#[tile(...)]` key `{other}` (expected `block`, `extent`, \
+                         `name`, or `dim`)"
+                    ),
                 ));
             }
         }
     }
-    let block = block
-        .ok_or_else(|| syn::Error::new_spanned(attr, "`#[tile(...)]` requires `block = ..`"))?;
     let extent = extent
         .ok_or_else(|| syn::Error::new_spanned(attr, "`#[tile(...)]` requires `extent = ..`"))?;
-    Ok(Some(TileAttrArgs { block, extent }))
+    Ok(TileAttrArgs {
+        block,
+        extent,
+        name,
+        dim,
+    })
+}
+
+/// Parse every `#[tile(...)]` attribute on one parameter, in declaration
+/// order.
+fn parse_tile_attrs(pt: &PatType) -> Result<Vec<TileAttrArgs>, syn::Error> {
+    pt.attrs
+        .iter()
+        .filter(|a| a.path().is_ident("tile"))
+        .map(parse_one_tile_attr)
+        .collect()
 }
 
 /// Strip a `#[tile(...)]` attribute from a parameter's attribute list, if
@@ -436,36 +494,121 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // pointer, not a loaded value) so the kernel body can call
     // `HW::store(y.tensor, value, y.mask, ...)` without ever calling
     // `.add_offsets` itself.
-    let tile_attrs: Vec<Option<TileAttrArgs>> = match fn_inputs
+    let tile_attrs: Vec<Vec<TileAttrArgs>> = match fn_inputs
         .iter()
-        .map(|pt| parse_tile_attr(pt))
+        .map(|pt| parse_tile_attrs(pt))
         .collect::<Result<Vec<_>, syn::Error>>()
     {
         Ok(v) => v,
         Err(e) => return e.to_compile_error().into(),
     };
+
+    // teenygrad-1nr.19: a `Tile`-typed parameter's auto-prelude below only
+    // understands one flat axis -- more than one `#[tile(...)]` on such a
+    // parameter would need N-axis prelude codegen this macro doesn't have.
+    // Metadata-only, multi-axis declarations belong on a raw pointer
+    // parameter instead (see `structured_params` below), which the
+    // prelude never touches.
+    for (pt, attrs) in fn_inputs.iter().zip(tile_attrs.iter()) {
+        let is_tile = in_tile_dtype(&pt.ty, &hw_ident).is_some()
+            || out_tile_dtype(&pt.ty, &hw_ident).is_some();
+        if is_tile && attrs.len() > 1 {
+            return syn::Error::new_spanned(
+                pt,
+                "multi-axis `#[tile(...)]` on an `In<Tile<..>>`/`Out<Tile<..>>` parameter isn't \
+                 supported yet -- the auto-prelude only understands one flat axis \
+                 (teenygrad-1nr.18). Annotate a raw pointer parameter instead for \
+                 metadata-only, multi-axis declarations (teenygrad-1nr.19).",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
     let tile_in_params: Vec<(&Ident, Type, Option<&TileAttrArgs>)> = fn_inputs
         .iter()
         .zip(tile_attrs.iter())
-        .filter_map(|(pt, attr)| {
+        .filter_map(|(pt, attrs)| {
             let dtype = in_tile_dtype(&pt.ty, &hw_ident)?;
             let Pat::Ident(pi) = &*pt.pat else {
                 return None;
             };
-            Some((&pi.ident, dtype, attr.as_ref()))
+            Some((&pi.ident, dtype, attrs.first()))
         })
         .collect();
     let tile_out_params: Vec<(&Ident, Type, Option<&TileAttrArgs>)> = fn_inputs
         .iter()
         .zip(tile_attrs.iter())
-        .filter_map(|(pt, attr)| {
+        .filter_map(|(pt, attrs)| {
             let dtype = out_tile_dtype(&pt.ty, &hw_ident)?;
             let Pat::Ident(pi) = &*pt.pat else {
                 return None;
             };
-            Some((&pi.ident, dtype, attr.as_ref()))
+            Some((&pi.ident, dtype, attrs.first()))
         })
         .collect();
+
+    // teenygrad-1nr.19: raw-pointer `In`/`Out`/`InOut` parameters (never
+    // `Tile`-typed -- those are handled above) carrying one or more
+    // `#[tile(...)]` attributes get metadata-only `tile_spec()`/
+    // `grid_spec()` generation. No prelude, no change to the kernel body
+    // at all -- unlike the `Tile`-typed case, these parameters were
+    // already hand-indexed by the kernel author (e.g. `conv2d_forward`'s
+    // own `pid` decode), and stay that way. Each attribute is one real
+    // tensor axis, in declaration order (outermost first, matching this
+    // codebase's existing dim-0-is-outermost convention).
+    let structured_params: Vec<(&Ident, PtrArgKind, &[TileAttrArgs])> = fn_inputs
+        .iter()
+        .zip(tile_attrs.iter())
+        .filter_map(|(pt, attrs)| {
+            if attrs.is_empty()
+                || in_tile_dtype(&pt.ty, &hw_ident).is_some()
+                || out_tile_dtype(&pt.ty, &hw_ident).is_some()
+            {
+                return None;
+            }
+            let (kind, _) = classify_pointer_arg(&pt.ty, &hw_ident)?;
+            let Pat::Ident(pi) = &*pt.pat else {
+                return None;
+            };
+            Some((&pi.ident, kind, attrs.as_slice()))
+        })
+        .collect();
+
+    for (_, _, axes) in &structured_params {
+        for axis in *axes {
+            if let Some(block) = &axis.block
+                && !const_params.iter().any(|cp| &cp.ident == block)
+            {
+                return syn::Error::new_spanned(
+                    block,
+                    format!(
+                        "`#[tile(block = {block})]` names a const generic this kernel doesn't \
+                         declare"
+                    ),
+                )
+                .to_compile_error()
+                .into();
+            }
+            let extent = &axis.extent;
+            let extent_ok = fn_inputs.iter().any(|pt| {
+                let name_ok = matches!(&*pt.pat, Pat::Ident(pi) if &pi.ident == extent);
+                let ty_ok = matches!(&*pt.ty, Type::Path(tp) if tp.path.is_ident("i32"));
+                name_ok && ty_ok
+            });
+            if !extent_ok {
+                return syn::Error::new_spanned(
+                    extent,
+                    format!(
+                        "`#[tile(extent = {extent})]` names a parameter this kernel doesn't \
+                         declare as `{extent}: i32`"
+                    ),
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+    }
 
     // teenygrad-1nr.18: resolve the one (block, extent) axis pair the
     // auto-prelude below uses. Prefer an explicit `#[tile(block=..,
@@ -499,10 +642,19 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             .iter()
             .map(|a| a.expect("checked above"));
         let first = iter.next().expect("non-empty, checked above");
+        if first.block.is_none() {
+            return syn::Error::new_spanned(
+                &first.extent,
+                "an `In<Tile<..>>`/`Out<Tile<..>>` parameter's `#[tile(...)]` requires \
+                 `block = ..` -- untiled `Tile` axes aren't supported yet",
+            )
+            .to_compile_error()
+            .into();
+        }
         for other in iter {
             if other.block != first.block || other.extent != first.extent {
                 return syn::Error::new_spanned(
-                    &other.block,
+                    other.block.as_ref().unwrap_or(&other.extent),
                     "all `In<Tile<..>>`/`Out<Tile<..>>` parameters on one kernel must share \
                      the same `#[tile(block=..,extent=..)]` axis today -- per-parameter axes \
                      aren't supported by the auto-prelude yet (teenygrad-1nr.18)",
@@ -518,7 +670,10 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         let (block_ident, extent_ident): (Ident, Ident) = if has_explicit_tile_attr {
             let args = all_tile_param_attrs[0].expect("checked above");
-            let block = args.block.clone();
+            let block = args
+                .block
+                .clone()
+                .expect("checked above: block is required on a Tile-typed parameter");
             let extent = args.extent.clone();
             if !const_params.iter().any(|cp| cp.ident == block) {
                 return syn::Error::new_spanned(
@@ -635,66 +790,246 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // kernel's own signature (a `Tile`-typed param carries a dtype, never a
     // rank) -- same reasoning as `teeny-kernels`'
     // `flat_elementwise_tile_spec`, which this method mirrors the shape of.
-    let tile_spec_method: TokenStream2 = if has_explicit_tile_attr {
-        let args = all_tile_param_attrs[0].expect("checked above");
-        let block_str = args.block.to_string();
-        let extent_str = args.extent.to_string();
-        let in_param_strs: Vec<String> = tile_in_params
-            .iter()
-            .map(|(id, _, _)| id.to_string())
-            .collect();
-        let out_param_strs: Vec<String> = tile_out_params
-            .iter()
-            .map(|(id, _, _)| id.to_string())
-            .collect();
-        quote! {
-            /// Declarative tile-shape metadata derived from this kernel's
-            /// `#[tile(block=..,extent=..)]`-tagged `In<Tile<..>>`/
-            /// `Out<Tile<..>>` parameters (teenygrad-1nr.18).
-            pub fn tile_spec(rank: usize) -> ::teeny_core::model::KernelTileSpec {
-                let dims: &'static [usize] = ::std::boxed::Box::leak(
-                    (0..rank).collect::<::std::vec::Vec<usize>>().into_boxed_slice(),
-                );
-                let axes: &'static [::teeny_core::model::TileAxisBinding] =
-                    ::std::boxed::Box::leak(::std::boxed::Box::new([
-                        ::teeny_core::model::TileAxisBinding {
-                            dims,
-                            block_const: #block_str,
-                            extent_param: #extent_str,
-                            window: ::core::option::Option::None,
-                            divide_by: ::core::option::Option::None,
-                        },
-                    ]));
-                let inputs: &'static [::teeny_core::model::TensorTileSpec] =
-                    ::std::boxed::Box::leak(::std::boxed::Box::new([ #(
-                        ::teeny_core::model::TensorTileSpec {
-                            param: #in_param_strs,
-                            rank,
-                            axes,
-                            reduction_axis: ::core::option::Option::None,
-                            untiled_dims: &[],
+    if has_explicit_tile_attr && !structured_params.is_empty() {
+        return syn::Error::new_spanned(
+            &input.sig,
+            "this kernel mixes `#[tile(...)]`-tagged `In<Tile<..>>`/`Out<Tile<..>>` parameters \
+             with `#[tile(...)]`-tagged raw pointer parameters -- not supported in one kernel \
+             yet (teenygrad-1nr.19)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let (tile_spec_method, grid_spec_method): (TokenStream2, TokenStream2) =
+        if has_explicit_tile_attr {
+            let args = all_tile_param_attrs[0].expect("checked above");
+            let block_str = args
+                .block
+                .as_ref()
+                .expect("checked above: block is required on a Tile-typed parameter")
+                .to_string();
+            let extent_str = args.extent.to_string();
+            let in_param_strs: Vec<String> = tile_in_params
+                .iter()
+                .map(|(id, _, _)| id.to_string())
+                .collect();
+            let out_param_strs: Vec<String> = tile_out_params
+                .iter()
+                .map(|(id, _, _)| id.to_string())
+                .collect();
+            let tile_spec = quote! {
+                /// Declarative tile-shape metadata derived from this kernel's
+                /// `#[tile(block=..,extent=..)]`-tagged `In<Tile<..>>`/
+                /// `Out<Tile<..>>` parameters (teenygrad-1nr.18).
+                pub fn tile_spec(rank: usize) -> ::teeny_core::model::KernelTileSpec {
+                    let dims: &'static [usize] = ::std::boxed::Box::leak(
+                        (0..rank).collect::<::std::vec::Vec<usize>>().into_boxed_slice(),
+                    );
+                    let axes: &'static [::teeny_core::model::TileAxisBinding] =
+                        ::std::boxed::Box::leak(::std::boxed::Box::new([
+                            ::teeny_core::model::TileAxisBinding {
+                                dims,
+                                block_const: #block_str,
+                                extent_param: #extent_str,
+                                window: ::core::option::Option::None,
+                                divide_by: ::core::option::Option::None,
+                            },
+                        ]));
+                    let inputs: &'static [::teeny_core::model::TensorTileSpec] =
+                        ::std::boxed::Box::leak(::std::boxed::Box::new([ #(
+                            ::teeny_core::model::TensorTileSpec {
+                                param: #in_param_strs,
+                                rank,
+                                axes,
+                                reduction_axis: ::core::option::Option::None,
+                                untiled_dims: &[],
+                            }
+                        ),* ]));
+                    let outputs: &'static [::teeny_core::model::TensorTileSpec] =
+                        ::std::boxed::Box::leak(::std::boxed::Box::new([ #(
+                            ::teeny_core::model::TensorTileSpec {
+                                param: #out_param_strs,
+                                rank,
+                                axes,
+                                reduction_axis: ::core::option::Option::None,
+                                untiled_dims: &[],
+                            }
+                        ),* ]));
+                    ::teeny_core::model::KernelTileSpec {
+                        inputs,
+                        outputs,
+                        loop_spec: ::core::option::Option::None,
+                    }
+                }
+            };
+            // teenygrad-1nr.19: the flat/single-axis case always has exactly
+            // one grid axis (the whole flattened tensor), regardless of the
+            // real tensor's rank -- unlike `tile_spec()` above, no runtime
+            // `rank` argument is needed here.
+            let grid_spec = quote! {
+                /// Declarative launch-grid metadata derived from the same
+                /// `#[tile(block=..,extent=..)]` attribute as `tile_spec()`
+                /// (teenygrad-1nr.19).
+                pub fn grid_spec() -> ::teeny_core::model::GridSpec {
+                    ::teeny_core::model::GridSpec {
+                        axes: &[
+                            ::teeny_core::model::GridAxisBinding {
+                                name: #extent_str,
+                                extent_factors: &[#extent_str, #block_str],
+                                dim: ::teeny_core::model::GridDim::X,
+                                block_const: ::core::option::Option::Some(#block_str),
+                            },
+                        ],
+                    }
+                }
+            };
+            (tile_spec, grid_spec)
+        } else if !structured_params.is_empty() {
+            // teenygrad-1nr.19: metadata-only `tile_spec()`/`grid_spec()` for
+            // raw-pointer parameters, generated straight from their
+            // `#[tile(...)]` axis declarations -- see `structured_params`'s
+            // own comment above. Every axis count is known at macro-expansion
+            // time (one `#[tile(...)]` occurrence per real tensor dim), so
+            // unlike the flat/single-axis case above, neither method needs a
+            // runtime argument, and nothing needs `Box::leak` -- the axis
+            // arrays are ordinary `&'static` literals.
+            let mut input_tensor_specs: Vec<TokenStream2> = Vec::new();
+            let mut output_tensor_specs: Vec<TokenStream2> = Vec::new();
+            let mut grid_output: Option<(&Ident, &[TileAttrArgs])> = None;
+            for (ident, kind, axes) in &structured_params {
+                let param_str = ident.to_string();
+                let rank = axes.len();
+                let mut tiled_axis_tokens: Vec<TokenStream2> = Vec::new();
+                let mut untiled_name_tokens: Vec<String> = Vec::new();
+                for (i, axis) in axes.iter().enumerate() {
+                    match &axis.block {
+                        Some(block) => {
+                            let block_str = block.to_string();
+                            let extent_str = axis.extent.to_string();
+                            tiled_axis_tokens.push(quote! {
+                                ::teeny_core::model::TileAxisBinding {
+                                    dims: &[#i],
+                                    block_const: #block_str,
+                                    extent_param: #extent_str,
+                                    window: ::core::option::Option::None,
+                                    divide_by: ::core::option::Option::None,
+                                }
+                            });
                         }
-                    ),* ]));
-                let outputs: &'static [::teeny_core::model::TensorTileSpec] =
-                    ::std::boxed::Box::leak(::std::boxed::Box::new([ #(
-                        ::teeny_core::model::TensorTileSpec {
-                            param: #out_param_strs,
-                            rank,
-                            axes,
-                            reduction_axis: ::core::option::Option::None,
-                            untiled_dims: &[],
+                        None => {
+                            let label = axis
+                                .name
+                                .as_ref()
+                                .map(syn::LitStr::value)
+                                .unwrap_or_else(|| axis.extent.to_string());
+                            untiled_name_tokens.push(label);
                         }
-                    ),* ]));
-                ::teeny_core::model::KernelTileSpec {
-                    inputs,
-                    outputs,
-                    loop_spec: ::core::option::Option::None,
+                    }
+                }
+                let tensor_spec = quote! {
+                    ::teeny_core::model::TensorTileSpec {
+                        param: #param_str,
+                        rank: #rank,
+                        axes: &[ #(#tiled_axis_tokens),* ],
+                        reduction_axis: ::core::option::Option::None,
+                        untiled_dims: &[ #(#untiled_name_tokens),* ],
+                    }
+                };
+                match kind {
+                    PtrArgKind::In => input_tensor_specs.push(tensor_spec),
+                    PtrArgKind::Out => {
+                        output_tensor_specs.push(tensor_spec);
+                        grid_output = Some((ident, axes));
+                    }
+                    PtrArgKind::InOut => {
+                        output_tensor_specs.push(tensor_spec.clone());
+                        input_tensor_specs.push(tensor_spec);
+                        grid_output = Some((ident, axes));
+                    }
+                    PtrArgKind::Raw => unreachable!(
+                        "every fn_input pointer arg is already required to be In/Out/InOut, \
+                     checked earlier in this function"
+                    ),
                 }
             }
-        }
-    } else {
-        quote! {}
-    };
+            let tile_spec = quote! {
+                /// Declarative tile-shape metadata derived from this kernel's
+                /// `#[tile(...)]`-tagged raw pointer parameters
+                /// (teenygrad-1nr.19).
+                pub fn tile_spec() -> ::teeny_core::model::KernelTileSpec {
+                    ::teeny_core::model::KernelTileSpec {
+                        inputs: &[ #(#input_tensor_specs),* ],
+                        outputs: &[ #(#output_tensor_specs),* ],
+                        loop_spec: ::core::option::Option::None,
+                    }
+                }
+            };
+            // Welder's own model: the fused group's boundary *output* edge's
+            // shape drives the grid (teenygrad-1nr.17) -- so `grid_spec()` is
+            // built from the one `Out`/`InOut` structured parameter's axes,
+            // not every structured parameter's. Omitted entirely (no
+            // `grid_spec()` generated) when that's ambiguous -- zero or more
+            // than one qualifying parameter.
+            let grid_spec = match grid_output {
+                Some((_, axes)) => {
+                    let axis_tokens: Vec<TokenStream2> = axes
+                        .iter()
+                        .map(|axis| {
+                            let name = axis
+                                .name
+                                .as_ref()
+                                .map(syn::LitStr::value)
+                                .unwrap_or_else(|| axis.extent.to_string());
+                            let extent_str = axis.extent.to_string();
+                            let dim_variant =
+                                match axis.dim.as_ref().map(ToString::to_string).as_deref() {
+                                    Some("Y") => quote! { ::teeny_core::model::GridDim::Y },
+                                    Some("Z") => quote! { ::teeny_core::model::GridDim::Z },
+                                    _ => quote! { ::teeny_core::model::GridDim::X },
+                                };
+                            let (block_const_tok, extent_factors_tok) = match &axis.block {
+                                Some(block) => {
+                                    let block_str = block.to_string();
+                                    (
+                                        quote! { ::core::option::Option::Some(#block_str) },
+                                        quote! { &[#extent_str, #block_str] },
+                                    )
+                                }
+                                None => (
+                                    quote! { ::core::option::Option::None },
+                                    quote! { &[#extent_str] },
+                                ),
+                            };
+                            quote! {
+                                ::teeny_core::model::GridAxisBinding {
+                                    name: #name,
+                                    extent_factors: #extent_factors_tok,
+                                    dim: #dim_variant,
+                                    block_const: #block_const_tok,
+                                }
+                            }
+                        })
+                        .collect();
+                    quote! {
+                        /// Declarative launch-grid metadata derived from this
+                        /// kernel's `Out`/`InOut` `#[tile(...)]`-tagged raw
+                        /// pointer parameter (teenygrad-1nr.19). Welder's own
+                        /// model: the fused group's boundary output drives
+                        /// the grid.
+                        pub fn grid_spec() -> ::teeny_core::model::GridSpec {
+                            ::teeny_core::model::GridSpec {
+                                axes: &[ #(#axis_tokens),* ],
+                            }
+                        }
+                    }
+                }
+                None => quote! {},
+            };
+            (tile_spec, grid_spec)
+        } else {
+            (quote! {}, quote! {})
+        };
 
     // FusionCore splice-body extraction (teenygrad-3w0.9) identified its
     // eligible kernels via `#[tile(...)]`'s tile_attrs, which no longer
@@ -978,6 +1313,8 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             #fusion_core_body
 
             #tile_spec_method
+
+            #grid_spec_method
         }
 
         // Thin ABI metadata for fusion probing. Probe *logic* lives on

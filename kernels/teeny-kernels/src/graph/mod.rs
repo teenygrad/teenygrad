@@ -405,51 +405,21 @@ const CONV1D_TILE_SPEC: KernelTileSpec = {
     }
 };
 
-/// `conv2d_forward`: `x_ptr`/`y_ptr`, `[B, C, H, W]` -> `[B, C_OUT, OH, OW]`,
-/// `BLOCK_OW` tiling `y_ptr`'s `W` axis (dim 3). Fixed rank 4, always NCHW.
-///
-/// Also declares `loop_spec` (teenygrad-1nr.18): the real kernel body
-/// (`kernels/teeny-kernels/src/nn/conv/conv2d.rs`) accumulates into `acc:
-/// [BLOCK_OW]` over a flat `for idx in 0..loop_bound` loop, `loop_bound =
-/// (C_IN/G)*KH*KW` -- a real reduction loop this spec previously left
-/// completely undescribed (the pre-`teenygrad-1nr.18` `KernelTileSpec` had
-/// no field to put it in at all). See `TileLoopSpec`'s own doc comment for
-/// why this is declarative only -- no consumer computes conv2d's real
-/// working-set/trip-count from it yet.
-const CONV2D_TILE_SPEC: KernelTileSpec = {
-    const AXIS: TileAxisBinding = TileAxisBinding {
-        dims: &[3],
-        block_const: "BLOCK_OW",
-        extent_param: "OW",
-        window: None,
-        divide_by: None,
-    };
-    const X: TensorTileSpec = TensorTileSpec {
-        param: "x_ptr",
-        rank: 4,
-        axes: &[],
-        reduction_axis: None,
-        untiled_dims: &[],
-    };
-    const Y: TensorTileSpec = TensorTileSpec {
-        param: "y_ptr",
-        rank: 4,
-        axes: &[AXIS],
-        reduction_axis: None,
-        untiled_dims: &[],
-    };
-    const ACC: TileCarryBinding = TileCarryBinding {
+/// `conv2d_forward`'s real accumulation loop, layered onto the
+/// macro-derived `Conv2dForward::tile_spec()` (teenygrad-1nr.19) at its
+/// call site below rather than declared via `#[tile(...)]`: the kernel
+/// body (`kernels/teeny-kernels/src/nn/conv/conv2d.rs`) accumulates into
+/// `acc: [BLOCK_OW]` over a flat `for idx in 0..loop_bound` loop,
+/// `loop_bound = (C_IN/G)*KH*KW` -- loop-carry metadata
+/// ([`TileLoopSpec`]) isn't representable per-axis the way tile/grid
+/// shape is, so `#[tile(...)]` doesn't attempt to derive it
+/// (teenygrad-1nr.12).
+const CONV2D_LOOP_SPEC: TileLoopSpec = TileLoopSpec {
+    carries: &[TileCarryBinding {
         name: "acc",
         shape_consts: &["BLOCK_OW"],
-    };
-    KernelTileSpec {
-        inputs: &[X],
-        outputs: &[Y],
-        loop_spec: Some(TileLoopSpec {
-            carries: &[ACC],
-            trip_count_factors: &["C_IN", "G", "KH", "KW"],
-        }),
-    }
+    }],
+    trip_count_factors: &["C_IN", "G", "KH", "KW"],
 };
 
 /// `conv3d_forward`: `x_ptr`/`y_ptr`, `[B, C, D, H, W]` ->
@@ -1646,7 +1616,17 @@ impl TritonLowering {
                         ),
                         node
                     );
-                    exec.tile_spec = Some(CONV2D_TILE_SPEC);
+                    // Conv2dForward::tile_spec (teenygrad-1nr.19, derived
+                    // by `#[tiled_kernel]` from conv2d_forward's own
+                    // `#[tile(...)]`-tagged x_ptr/y_ptr) is dtype-
+                    // independent, like ReluForward::tile_spec above.
+                    // loop_spec isn't attribute-derived (see
+                    // CONV2D_LOOP_SPEC's own doc comment) -- layered on
+                    // top here.
+                    exec.tile_spec = Some(KernelTileSpec {
+                        loop_spec: Some(CONV2D_LOOP_SPEC),
+                        ..Conv2dForward::<f32>::tile_spec()
+                    });
                     exec
                 }
                 Op::Conv3d {
@@ -3561,5 +3541,85 @@ mod relu_silu_tile_spec_tests {
             .tile_spec
             .expect("silu_forward declares #[tile(...)] on x/y");
         assert_flat_unary_spec(spec, "x", "y");
+    }
+}
+
+#[cfg(test)]
+mod conv2d_grid_spec_tests {
+    //! teenygrad-1nr.19: `Conv2dForward::tile_spec()`/`grid_spec()` are
+    //! generated straight from `conv2d_forward`'s own multi-axis
+    //! `#[tile(...)]`-tagged `x_ptr`/`y_ptr` (`kernels/teeny-kernels/src/nn/conv/conv2d.rs`)
+    //! -- the first real (not synthetic) kernel to use the metadata-only,
+    //! raw-pointer form of `#[tile(...)]`, since `conv2d_forward`'s body
+    //! (real, hand-written `pid` decode/loop) is untouched. `tile_spec()`
+    //! reproduces what the hand-authored `CONV2D_TILE_SPEC` const used to
+    //! say -- see `Op::Conv2d`'s lowering arm, which now layers
+    //! `CONV2D_LOOP_SPEC` on top of this macro-derived value instead of
+    //! hand-authoring the whole thing.
+
+    use super::*;
+    use teeny_core::model::{GridAxisBinding, GridDim};
+
+    #[test]
+    fn tile_spec_matches_the_real_tagged_signature() {
+        let spec = Conv2dForward::<f32>::tile_spec();
+        assert_eq!(spec.loop_spec, None);
+
+        assert_eq!(spec.inputs.len(), 1);
+        let x = spec.inputs[0];
+        assert_eq!(x.param, "x_ptr");
+        assert_eq!(x.rank, 4);
+        assert_eq!(x.axes, &[] as &[TileAxisBinding]);
+        assert_eq!(x.untiled_dims, &["B", "C_IN", "H", "W"]);
+
+        assert_eq!(spec.outputs.len(), 1);
+        let y = spec.outputs[0];
+        assert_eq!(y.param, "y_ptr");
+        assert_eq!(y.rank, 4);
+        assert_eq!(y.untiled_dims, &["B", "C_OUT", "OH"]);
+        assert_eq!(y.axes.len(), 1);
+        assert_eq!(y.axes[0].dims, &[3]);
+        assert_eq!(y.axes[0].block_const, "BLOCK_OW");
+        assert_eq!(y.axes[0].extent_param, "OW");
+        assert_eq!(y.axes[0].window, None);
+        assert_eq!(y.axes[0].divide_by, None);
+    }
+
+    #[test]
+    fn grid_spec_reflects_the_real_pid_decode_order_and_shape() {
+        // conv2d_forward's own body decodes one flat `pid` (all axes on
+        // GridDim::X) outermost-to-innermost as (b, c_out, oh, ow_tile) --
+        // see that function's own comment on its `pid` decode.
+        let spec = Conv2dForward::<f32>::grid_spec();
+        assert_eq!(spec.axes.len(), 4);
+
+        let names: Vec<&str> = spec.axes.iter().map(|a| a.name).collect();
+        assert_eq!(names, ["B", "C_OUT", "OH", "OW"]);
+        assert!(spec.axes.iter().all(|a| matches!(a.dim, GridDim::X)));
+
+        let [b, c_out, oh, ow] = [spec.axes[0], spec.axes[1], spec.axes[2], spec.axes[3]];
+        for untiled in [b, c_out, oh] {
+            assert_eq!(untiled.block_const, None);
+        }
+        assert_eq!(b.extent_factors, &["_B"]);
+        assert_eq!(c_out.extent_factors, &["C_OUT"]);
+        assert_eq!(oh.extent_factors, &["OH"]);
+
+        assert_eq!(ow.block_const, Some("BLOCK_OW"));
+        assert_eq!(ow.extent_factors, &["OW", "BLOCK_OW"]);
+    }
+
+    #[test]
+    fn grid_spec_axis_matches_a_grid_axis_binding_directly() {
+        // Sanity check the type itself is what a future consumer would
+        // actually construct/compare against.
+        let expected_ow_axis = GridAxisBinding {
+            name: "OW",
+            extent_factors: &["OW", "BLOCK_OW"],
+            dim: GridDim::X,
+            block_const: Some("BLOCK_OW"),
+        };
+        let spec = Conv2dForward::<f32>::grid_spec();
+        assert_eq!(spec.axes[3], expected_ow_axis);
     }
 }
