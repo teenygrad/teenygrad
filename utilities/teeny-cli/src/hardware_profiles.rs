@@ -33,7 +33,9 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
-use teeny_core::device::hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind};
+use teeny_core::device::hardware::{
+    ExecutionProfile, HardwareProfile, MemoryLevel, MemoryLevelKind,
+};
 use teeny_cuda::compiler::target::Capability;
 
 const HARDWARE_PROFILES_JSON: &str = include_str!("hardware_profiles.json");
@@ -99,6 +101,23 @@ pub fn hardware_profile_for(
                 latency: None,
             },
         ],
+        // Not per-entry in hardware_profiles.json: `simt_width`/
+        // `max_threads_per_group`/`max_grid_dims` are the CUDA C
+        // Programming Guide's per-compute-capability technical
+        // specifications table, unchanged across every `Capability` this
+        // loader supports (sm_75 through sm_120) -- unlike memory
+        // capacity/bandwidth, these don't vary by chip within a capability
+        // class. `max_groups_per_compute_unit` (max resident blocks/SM)
+        // *does* vary by compute capability (e.g. Turing dropped it
+        // relative to Volta) and isn't in `hardware_profiles.json` yet, so
+        // it's left `None` rather than guessed for a table spanning this
+        // many architectures.
+        execution: Some(ExecutionProfile {
+            simt_width: 32,
+            max_threads_per_group: 1024,
+            max_groups_per_compute_unit: None,
+            max_grid_dims: [u32::MAX, 65_535, 65_535],
+        }),
     })
 }
 

@@ -249,6 +249,7 @@ mod tests {
                     latency: None,
                 },
             ],
+            execution: None,
         }
     }
 

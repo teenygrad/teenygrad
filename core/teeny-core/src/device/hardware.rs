@@ -78,6 +78,62 @@ pub struct MemoryLevel {
     pub latency: Option<f64>,
 }
 
+/// Portable SIMT/SIMD execution-granularity facts: how many lanes execute
+/// in lockstep, and the hardware/API-imposed bounds on a thread block
+/// (work-group)'s size and a grid's shape. Used to compute a launch grid
+/// for fused kernels (teenygrad-1nr.17) — e.g. Welder's own rule of thumb,
+/// "the greatest common divisor among the tile numbers of all operators as
+/// the common thread-block size, if it is larger than the hardware
+/// parallelism (e.g., 128) and less than the maximum limitation (e.g.,
+/// 1024)".
+///
+/// Deliberately carries no stored *minimum* thread-block size (Welder's
+/// "128" above): that number is `4 * simt_width` on CUDA (warp 32) but
+/// would be `4 * simt_width` = 256 on an AMD wave64 device -- it's a
+/// scheduling-policy multiplier applied to [`Self::simt_width`], not a
+/// hardware fact this struct should hardcode. Consumers compute it as
+/// `occupancy_multiplier * simt_width` themselves. This mirrors
+/// [`MemoryLevel`]'s own "real data or nothing, never a guess" policy: only
+/// [`Self::max_threads_per_group`] (a hard launch-failure limit) belongs
+/// here, not a tunable floor.
+///
+/// Known portability rough edges, not solved by this struct:
+/// - **AMD RDNA** is dual-mode -- wave32 or wave64 is a per-kernel compile
+///   choice, not a fixed device constant the way CUDA's warp size is.
+///   [`Self::simt_width`] as a single queried device fact will need a
+///   caveat (or a compiler-level override) once a real AMD backend lands.
+/// - **RISC-V RVV** has no warp/wavefront concept at all: vector length
+///   (`VLEN`) is runtime-queried via `vsetvli`, and the *effective* element
+///   count varies with dtype (`SEW`)/`LMUL`. [`Self::simt_width`] won't be
+///   a single fixed number the way it is for GPUs -- it'll likely need to
+///   be computed per-dtype at codegen time rather than read once from a
+///   profile, once a real RISC-V backend exists to design that against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ExecutionProfile {
+    /// Number of lanes that execute in lockstep as one hardware-scheduled
+    /// unit: 32 on every NVIDIA architecture ("warp"), 32 or 64 on AMD
+    /// ("wavefront" -- see this struct's doc comment on RDNA's dual-mode
+    /// caveat), or a CPU's SIMD width in elements. `1` for a plain scalar
+    /// core with no such grouping.
+    pub simt_width: u32,
+    /// Hardware/API-imposed maximum threads (work-items) per thread block
+    /// (work-group) -- e.g. 1024 on essentially every current CUDA/ROCm
+    /// device. Not a tuning knob: exceeding it is a launch failure, unlike
+    /// the occupancy-driven minimum described in this struct's own doc
+    /// comment.
+    pub max_threads_per_group: u32,
+    /// Maximum number of thread blocks (work-groups) resident on one
+    /// compute unit at once, if the backend can query it (CUDA:
+    /// `cudaDeviceProp::maxBlocksPerMultiProcessor`) -- relevant for
+    /// occupancy-driven grid sizing. `None` where unknown, rather than
+    /// guessed.
+    pub max_groups_per_compute_unit: Option<u32>,
+    /// Hardware/API-imposed maximum grid size, per dimension (CUDA:
+    /// `cudaDeviceProp::maxGridSize`, effectively unbounded in the `x`
+    /// dimension and 65535 in `y`/`z` on every current architecture).
+    pub max_grid_dims: [u32; 3],
+}
+
 /// A device's static hardware facts relevant to tile-shape / scheduling cost
 /// models.
 ///
@@ -95,6 +151,11 @@ pub struct HardwareProfile {
     /// This device's memory hierarchy, ordered from closest/fastest/smallest
     /// to farthest/slowest/largest.
     pub memory_levels: Vec<MemoryLevel>,
+    /// This device's SIMT/SIMD execution-granularity facts (warp/wavefront
+    /// size, thread-block/grid bounds), if known. `None` for a profile with
+    /// no such hierarchy (e.g. a plain scalar CPU core), or where a backend
+    /// hasn't wired this up yet.
+    pub execution: Option<ExecutionProfile>,
 }
 
 impl HardwareProfile {
@@ -151,6 +212,12 @@ mod tests {
                     latency: None,
                 },
             ],
+            execution: Some(ExecutionProfile {
+                simt_width: 32,
+                max_threads_per_group: 1024,
+                max_groups_per_compute_unit: Some(16),
+                max_grid_dims: [u32::MAX, 65_535, 65_535],
+            }),
         }
     }
 
@@ -174,6 +241,24 @@ mod tests {
     fn level_returns_none_for_an_absent_kind() {
         let profile = profile();
         assert!(profile.level(MemoryLevelKind::L1Cache).is_none());
+    }
+
+    #[test]
+    fn execution_profile_is_constructible_and_optional() {
+        let profile = profile();
+        let execution = profile
+            .execution
+            .expect("test profile declares an execution profile");
+        assert_eq!(execution.simt_width, 32);
+        assert_eq!(execution.max_threads_per_group, 1024);
+
+        let scalar_cpu_profile = HardwareProfile {
+            name: String::from("test-cpu"),
+            compute_units: 4,
+            memory_levels: vec![],
+            execution: None,
+        };
+        assert!(scalar_cpu_profile.execution.is_none());
     }
 
     #[test]
