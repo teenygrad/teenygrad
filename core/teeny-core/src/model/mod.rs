@@ -23,8 +23,10 @@ use crate::{
     utils::dag::Dag,
 };
 
+mod grid_spec;
 mod tile_spec;
 
+pub use grid_spec::{GridAxisBinding, GridDim, GridSpec};
 pub use tile_spec::{
     KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileWindow,
 };
