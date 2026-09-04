@@ -77,6 +77,10 @@ impl std::str::FromStr for LogLevel {
 /// `tracing` target `teenyc`'s MLIR backend logs pipeline-stage IR under; see [`LogLevel`].
 const TEENYC_MLIR_LOG_TARGET: &str = "rustc_codegen_llvm::mlir";
 
+/// Default `--target` triple: NVIDIA GPUs via the MLIR/Triton CUDA backend. See
+/// [`LlvmCompiler::with_target_triple`].
+const DEFAULT_TARGET_TRIPLE: &str = "nvptx64-nvidia-cuda";
+
 /// Compiles kernels by shelling out to the custom `teenyc` compiler (`-Zcodegen-backend=mlir`)
 /// at runtime. See [`crate::compiler::find_teenyc`] for how its path is resolved, and the crate
 /// docs for the `cargo-teeny` setup this requires.
@@ -84,6 +88,7 @@ const TEENYC_MLIR_LOG_TARGET: &str = "rustc_codegen_llvm::mlir";
 pub struct LlvmCompiler {
     teenyc_path: PathBuf,
     cache_dir: PathBuf,
+    target_triple: String,
     target_cpu: Option<String>,
     ptx_version: Option<u32>,
     log_level: Option<LogLevel>,
@@ -132,13 +137,29 @@ impl LlvmCompiler {
         Ok(Self {
             teenyc_path,
             cache_dir,
+            target_triple: DEFAULT_TARGET_TRIPLE.to_string(),
             target_cpu: None,
             ptx_version,
             log_level,
         })
     }
 
-    /// Sets the target GPU architecture (e.g. `sm_90`) passed to `teenyc` as `-Ctarget-cpu`.
+    /// Sets the `--target` triple passed to `teenyc`, selecting which Triton backend (Cuda,
+    /// Riscv) compiles the kernel -- see `rustc_codegen_llvm::mlir::target::resolve` in the
+    /// `teeny` compiler fork. Defaults to `"nvptx64-nvidia-cuda"`.
+    ///
+    /// For RISC-V, use `"riscv64-generic"` together with [`Self::with_target_cpu`] set to a
+    /// chip identifier (e.g. `spacemit-k3`, `generic-rvv1.0`) -- not an LLVM `-mcpu` value; the
+    /// RISC-V path doesn't go through LLVM's RISC-V codegen at all yet, and is currently a stub
+    /// that fails every compile until real Triton RISC-V codegen exists.
+    pub fn with_target_triple(mut self, target_triple: impl Into<String>) -> Self {
+        self.target_triple = target_triple.into();
+        self
+    }
+
+    /// Sets the target CPU/architecture (e.g. `sm_90` for CUDA, `spacemit-k3` for RISC-V)
+    /// passed to `teenyc` as `-Ctarget-cpu`. What values are valid depends on
+    /// [`Self::with_target_triple`]'s backend.
     pub fn with_target_cpu(mut self, cpu: impl Into<String>) -> Self {
         self.target_cpu = Some(cpu.into());
         self
@@ -165,7 +186,9 @@ impl LlvmCompiler {
 impl Compiler for LlvmCompiler {
     fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
         // Hash the kernel id together with target cpu and ptx version so that
-        // different targets/overrides each get their own cache entry.
+        // different targets/overrides each get their own cache entry. target_cpu's
+        // vocabulary never overlaps between backends (sm_XX for CUDA vs. chip names for
+        // RISC-V), so it alone already disambiguates target_triple too.
         let effective_id = {
             let mut h = Sha256::new();
             h.update(kernel.id().as_bytes());
@@ -230,7 +253,7 @@ impl Compiler for LlvmCompiler {
                     .arg("-Zcodegen-backend=mlir")
                     .arg("--emit=obj")
                     .arg(format!("-o{}", tmp_output_file.display()))
-                    .arg("--target=nvptx64-nvidia-cuda")
+                    .arg(format!("--target={}", self.target_triple))
                     .arg("--crate-type=lib")
                     .arg("-C")
                     .arg("overflow-checks=off")
