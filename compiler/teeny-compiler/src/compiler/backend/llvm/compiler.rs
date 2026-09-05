@@ -87,6 +87,7 @@ pub struct LlvmCompiler {
     target_cpu: Option<String>,
     ptx_version: Option<u32>,
     log_level: Option<LogLevel>,
+    extra_rustc_flags: Vec<String>,
 }
 
 impl LlvmCompiler {
@@ -107,6 +108,12 @@ impl LlvmCompiler {
     /// ignored, falling back to `None`) — this lets any call site, including ones that don't
     /// (or can't, e.g. the CUDA `compile_kernel` helper in `teeny-cuda`)
     /// call [`Self::with_log_level`] directly, turn on pipeline-stage logging via the environment.
+    ///
+    /// `extra_rustc_flags` similarly defaults from `$TEENYC_EXTRA_RUSTC_FLAGS` if set
+    /// (whitespace-separated), for one-off unstable-flag experiments (e.g.
+    /// `-Zmir-enable-passes=-ScalarReplacementOfAggregates`, to force MIR aggregates through
+    /// unsplit) without a call site needing to thread [`Self::with_extra_rustc_flags`] through
+    /// by hand.
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
         let teenyc_path = teenyc_path.into();
         let cache_dir = cache_dir.into();
@@ -129,12 +136,18 @@ impl LlvmCompiler {
             })
         });
 
+        let extra_rustc_flags = std::env::var("TEENYC_EXTRA_RUSTC_FLAGS")
+            .ok()
+            .map(|v| v.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+
         Ok(Self {
             teenyc_path,
             cache_dir,
             target_cpu: None,
             ptx_version,
             log_level,
+            extra_rustc_flags,
         })
     }
 
@@ -160,6 +173,18 @@ impl LlvmCompiler {
         self.log_level = Some(log_level);
         self
     }
+
+    /// Appends extra `-Z`/`-C` flags to `teenyc`'s invocation, for one-off unstable-flag
+    /// experiments (e.g. forcing a specific MIR pass off/on). `RUSTC_BOOTSTRAP=1` is already
+    /// set unconditionally (see [`Self::compile`]), so any `-Z` flag here is accepted the same
+    /// way `-Zcodegen-backend=mlir` already is.
+    pub fn with_extra_rustc_flags(
+        mut self,
+        flags: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.extra_rustc_flags = flags.into_iter().map(Into::into).collect();
+        self
+    }
 }
 
 impl Compiler for LlvmCompiler {
@@ -174,6 +199,9 @@ impl Compiler for LlvmCompiler {
             }
             if let Some(ptx_version) = self.ptx_version {
                 h.update(ptx_version.to_le_bytes());
+            }
+            for flag in &self.extra_rustc_flags {
+                h.update(flag.as_bytes());
             }
             h.finalize()
                 .iter()
@@ -253,6 +281,7 @@ impl Compiler for LlvmCompiler {
                 if let Some(log_level) = self.log_level {
                     cmd.env("RUSTC_LOG", format!("{TEENYC_MLIR_LOG_TARGET}={log_level}"));
                 }
+                cmd.args(&self.extra_rustc_flags);
                 let output = cmd.output()?;
 
                 // `teenyc`'s own tracing subscriber writes to its stderr; relay it through this

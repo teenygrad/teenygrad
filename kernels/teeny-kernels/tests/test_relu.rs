@@ -179,7 +179,7 @@ fn test_relu_forward_kernel_io_is_unary_elementwise() {
 
 #[test]
 fn test_relu_forward_pointwise_fuse_probe() {
-    use teeny_triton::{PointwiseFuseProbe, PointwiseFuseProbeExt};
+    use teeny_triton::PointwiseFuseProbe;
 
     let k = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(1024);
     assert_eq!(

@@ -23,6 +23,14 @@ use crate::{
     utils::dag::Dag,
 };
 
+mod grid_spec;
+mod tile_spec;
+
+pub use grid_spec::{GridAxisBinding, GridDim, GridSpec};
+pub use tile_spec::{
+    KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileWindow,
+};
+
 /// A node index within a compiled model's DAG.
 pub type NodeId = usize;
 /// Raw device pointer alias used by runtime arg-packing.
@@ -352,6 +360,15 @@ pub trait ExecutableOp {
         None
     }
 
+    /// Declarative tile-shape metadata for this op's kernel, if any has been
+    /// authored (see [`KernelTileSpec`]'s doc comment). `None` by default —
+    /// `TileGraph::propagate` (`teeny-kernels`) treats a missing spec as a
+    /// hard boundary (stops there, doesn't guess), not an error. Coverage is
+    /// opt-in per kernel, same as the design it revives.
+    fn tile_spec(&self) -> Option<KernelTileSpec> {
+        None
+    }
+
     /// Downcast support for backend-specific executable types.
     fn as_any(&self) -> &dyn core::any::Any;
 
@@ -385,7 +402,16 @@ pub trait Lowering<'a> {
     fn lower(&self, graph: &Graph, mode: LoweringMode) -> Result<Dag<Box<dyn ExecutableOp>>>;
 
     /// Like [`lower`] but also returns a `graph_node_idx → dag_node_idx` mapping
-    /// so that graph-level metadata (e.g. names) can be propagated into the compiled DAG.
+    /// so that graph-level metadata (e.g. names) can be propagated into the compiled DAG,
+    /// plus the [`Graph`] that mapping is actually indexed against.
+    ///
+    /// A lowering that runs a graph optimizer internally (fusing/dropping/reordering
+    /// nodes) does *not* lower the caller's original `graph` 1:1 — `graph_to_dag` is
+    /// indexed by whatever graph the optimizer produced. Callers that need to combine
+    /// `graph_to_dag` with graph-level metadata (e.g. `Graph::names`, or
+    /// [`extra_dag_names`](Self::extra_dag_names)) must use the *returned* graph for
+    /// that, not their own original one — the two are only guaranteed identical when
+    /// no optimizer ran.
     ///
     /// The default implementation assumes a 1-to-1 identity mapping between graph
     /// topological order and DAG node indices — valid for graphs that are already in
@@ -397,7 +423,7 @@ pub trait Lowering<'a> {
         &self,
         graph: &Graph,
         mode: LoweringMode,
-    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
+    ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>, Graph)> {
         let dag = self.lower(graph, mode)?;
         let topo = graph.topological_sort();
         // topo[dag_idx] = graph_node_idx  →  graph_to_dag[graph_node_idx] = dag_idx
@@ -405,7 +431,7 @@ pub trait Lowering<'a> {
         for (dag_idx, graph_idx) in topo.into_iter().enumerate() {
             graph_to_dag[graph_idx] = dag_idx;
         }
-        Ok((dag, graph_to_dag))
+        Ok((dag, graph_to_dag, graph.clone()))
     }
 
     /// Returns extra (dag_idx, name) pairs beyond those derivable from the
@@ -413,6 +439,9 @@ pub trait Lowering<'a> {
     /// into multiple DAG nodes (e.g. Conv2d-with-bias → Conv2d + NchwBiasAdd);
     /// the "extra" DAG nodes would otherwise have no name and their weight
     /// parameters would not be loaded.
+    ///
+    /// `graph` must be the graph returned by [`lower_with_mapping`](Self::lower_with_mapping)
+    /// (the one `graph_to_dag` is actually indexed against), not the caller's original graph.
     fn extra_dag_names(&self, _graph: &Graph, _graph_to_dag: &[usize]) -> Vec<(usize, String)> {
         Vec::new()
     }

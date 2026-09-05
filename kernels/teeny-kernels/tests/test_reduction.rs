@@ -36,8 +36,7 @@ use teeny_kernels::nn::tensor::reduction::{
 };
 use teeny_kernels::testing::load_fixture;
 
-// Reduction tests use a 2-D input: OUTER rows of INNER elements.
-const OUTER: usize = 32;
+// Reduction tests use a 2-D input: some number of rows of INNER elements.
 const INNER: usize = 64;
 const BLOCK_INNER: i32 = 64;
 const TOL: f32 = 1e-4;

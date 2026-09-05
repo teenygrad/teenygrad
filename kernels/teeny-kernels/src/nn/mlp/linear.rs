@@ -16,7 +16,7 @@
 
 use teeny_core::dtype::{AddOffsets, Comparison, Num, Tensor};
 use teeny_macros::kernel;
-use teeny_triton::triton::{Axis, InPtr, InputPrecision, OutPtr, PaddingOption, Triton};
+use teeny_triton::triton::{Axis, In, InputPrecision, Out, PaddingOption, Triton};
 
 #[kernel]
 pub fn linear_forward<
@@ -28,10 +28,10 @@ pub fn linear_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    x_ptr: InPtr<T::Pointer<D>>,
-    w_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    w_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -125,12 +125,12 @@ pub fn linear_backward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    x_ptr: InPtr<T::Pointer<D>>,
-    w_ptr: InPtr<T::Pointer<D>>,
-    dy_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
-    dw_ptr: OutPtr<T::Pointer<D>>,
-    db_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    w_ptr: In<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
+    dw_ptr: Out<T::Pointer<D>>,
+    db_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,

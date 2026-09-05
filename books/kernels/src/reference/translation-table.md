@@ -103,6 +103,11 @@ name and the arguments that carry meaning, not the full signature.
 | `T::reduce(x, axis, f, keep_dims)` | `tl.reduce` | `f` is a `fn` pointer. Chapter 13 |
 | `T::reshape(x, shape, can_reorder)` | `tl.reshape` | |
 | `T::rsqrt(x)` | `tl.rsqrt` | |
+| `T::shared_alloc::<D>(shape)` | — | No Python equivalent. Allocates a kernel-lifetime rank-2 indexed shared-memory buffer |
+| `T::shared_barrier()` | — | No Python equivalent. CTA-wide handshake between an indexed shared-memory write and a later read |
+| `T::shared_load_index::<D>(buf, index)` | — | No Python equivalent. Loads the 1-D tile at row `index` (slices dim 0) |
+| `T::shared_store_index(buf, index, src)` | — | No Python equivalent. Stores a 1-D tile into row `index` (slices dim 0) |
+| `T::shared_trans::<D>(buf)` | — | No Python equivalent. Transposes a rank-2 buffer's row/column order — a view, not a copy |
 | `T::sigmoid(x)` | `tl.sigmoid` | |
 | `T::sin(x)` | `tl.sin` | |
 | `T::softmax(x, dim, keep_dims, ieee_rounding)` | `tl.softmax` | Numerically stable. Chapter 10 |

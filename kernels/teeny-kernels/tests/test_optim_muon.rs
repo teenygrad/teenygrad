@@ -253,7 +253,7 @@ fn test_muon_ns_xtx_cuda() -> Result<()> {
     let expected = cpu_matmul(&x, &x_t, M, N, M); // X @ X.T
 
     let mut x_buf = env.device.buffer::<f32>(M * N)?;
-    let mut t_buf = env.device.buffer::<f32>(M * M)?;
+    let t_buf = env.device.buffer::<f32>(M * M)?;
     x_buf.to_device(&x)?;
 
     let kernel = teeny_kernels::nn::optim::muon::MuonNsXtx::new(false, BLOCK_R, BLOCK_K, GROUP_R);

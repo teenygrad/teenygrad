@@ -31,10 +31,10 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`
 #[kernel]
 pub fn margin_ranking_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x1_ptr: InPtr<T::Pointer<f32>>,
-    x2_ptr: InPtr<T::Pointer<f32>>,
-    y_ptr: InPtr<T::Pointer<f32>>,
-    out_ptr: OutPtr<T::Pointer<f32>>,
+    x1_ptr: In<T::Pointer<f32>>,
+    x2_ptr: In<T::Pointer<f32>>,
+    y_ptr: In<T::Pointer<f32>>,
+    out_ptr: Out<T::Pointer<f32>>,
     n_elements: i32,
     margin: f32,
 ) where
@@ -99,12 +99,12 @@ pub fn margin_ranking_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// `dx2[i] =  y[i] * dy[i]` if hinge > 0, else 0.
 #[kernel]
 pub fn margin_ranking_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<f32>>,
-    x1_ptr: InPtr<T::Pointer<f32>>,
-    x2_ptr: InPtr<T::Pointer<f32>>,
-    y_ptr: InPtr<T::Pointer<f32>>,
-    dx1_ptr: OutPtr<T::Pointer<f32>>,
-    dx2_ptr: OutPtr<T::Pointer<f32>>,
+    dy_ptr: In<T::Pointer<f32>>,
+    x1_ptr: In<T::Pointer<f32>>,
+    x2_ptr: In<T::Pointer<f32>>,
+    y_ptr: In<T::Pointer<f32>>,
+    dx1_ptr: Out<T::Pointer<f32>>,
+    dx2_ptr: Out<T::Pointer<f32>>,
     n_elements: i32,
     margin: f32,
 ) where
@@ -196,9 +196,9 @@ pub fn margin_ranking_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`
 #[kernel]
 pub fn hinge_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    inp_ptr: InPtr<T::Pointer<f32>>,
-    y_ptr: InPtr<T::Pointer<f32>>,
-    out_ptr: OutPtr<T::Pointer<f32>>,
+    inp_ptr: In<T::Pointer<f32>>,
+    y_ptr: In<T::Pointer<f32>>,
+    out_ptr: Out<T::Pointer<f32>>,
     n_elements: i32,
     margin: f32,
 ) where
@@ -257,10 +257,10 @@ pub fn hinge_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 #[kernel]
 pub fn hinge_embedding_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<f32>>,
-    inp_ptr: InPtr<T::Pointer<f32>>,
-    y_ptr: InPtr<T::Pointer<f32>>,
-    dx_ptr: OutPtr<T::Pointer<f32>>,
+    dy_ptr: In<T::Pointer<f32>>,
+    inp_ptr: In<T::Pointer<f32>>,
+    y_ptr: In<T::Pointer<f32>>,
+    dx_ptr: Out<T::Pointer<f32>>,
     n_elements: i32,
     margin: f32,
 ) where
@@ -335,9 +335,9 @@ pub fn hinge_embedding_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// `BLOCK_SIZE` must equal `next_power_of_two(n_cols)`.
 #[kernel]
 pub fn multi_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: InPtr<T::Pointer<f32>>,
-    targets_ptr: InPtr<T::Pointer<i32>>,
-    out_ptr: OutPtr<T::Pointer<f32>>,
+    input_ptr: In<T::Pointer<f32>>,
+    targets_ptr: In<T::Pointer<i32>>,
+    out_ptr: Out<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
     margin: f32,
@@ -420,10 +420,10 @@ pub fn multi_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// 2. Atomic-add correction at target: `-(dy / n_cols) * sum(active_all)`.
 #[kernel]
 pub fn multi_margin_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<f32>>,
-    input_ptr: InPtr<T::Pointer<f32>>,
-    targets_ptr: InPtr<T::Pointer<i32>>,
-    dx_ptr: OutPtr<T::Pointer<f32>>,
+    dy_ptr: In<T::Pointer<f32>>,
+    input_ptr: In<T::Pointer<f32>>,
+    targets_ptr: In<T::Pointer<i32>>,
+    dx_ptr: Out<T::Pointer<f32>>,
     _n_rows: i32,
     n_cols: i32,
     margin: f32,

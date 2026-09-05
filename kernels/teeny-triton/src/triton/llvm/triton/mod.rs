@@ -24,6 +24,8 @@ use super::super::{
 pub mod num;
 /// [`LlvmTriton`]'s `Pointer` implementation.
 pub mod pointer;
+/// [`LlvmTriton`]'s `SharedMem` implementation.
+pub mod shared;
 /// [`LlvmTriton`]'s `Tensor`/`BoolTensor`/`I32Tensor` implementations.
 pub mod tensor;
 /// Type aliases used by [`LlvmTriton`]'s trait implementation.
@@ -41,6 +43,7 @@ impl Triton for LlvmTriton {
     type I32Tensor = tensor::LlvmI32Tensor;
     type Tensor<D: ty::Dtype> = tensor::LlvmTensor<D>;
     type Pointer<D: ty::Dtype> = pointer::LlvmPointer<D>;
+    type SharedMem<D: ty::Dtype> = shared::LlvmSharedMem<D>;
 
     /*------------------------------ Programming Model ------------------------------*/
 
@@ -910,5 +913,39 @@ impl Triton for LlvmTriton {
     #[inline(always)]
     fn static_print(_msg: &str) {
         // no-op in dummy implementation (compiler lowering handles this)
+    }
+
+    /*------------------------------ Indexed Shared Memory ------------------------------*/
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shared_alloc<D: ty::Dtype>(_shape: &[i32]) -> Self::SharedMem<D> {
+        shared::LlvmSharedMem(0 as *mut D)
+    }
+
+    #[inline(never)]
+    fn shared_store_index<D: ty::Dtype>(
+        _buf: Self::SharedMem<D>,
+        _index: i32,
+        _src: Self::Tensor<D>,
+    ) {
+        // no-op in dummy implementation
+    }
+
+    #[inline(never)]
+    fn shared_barrier() {
+        // no-op in dummy implementation
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shared_trans<D: ty::Dtype>(_buf: Self::SharedMem<D>) -> Self::SharedMem<D> {
+        shared::LlvmSharedMem(0 as *mut D)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shared_load_index<D: ty::Dtype>(_buf: Self::SharedMem<D>, _index: i32) -> Self::Tensor<D> {
+        tensor::LlvmTensor(0 as *mut D)
     }
 }
