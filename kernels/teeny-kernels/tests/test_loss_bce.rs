@@ -23,8 +23,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 1024;
@@ -121,9 +123,12 @@ fn test_bce_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_bce/bce_input.bin");
-    let tgt_host = load_fixture("loss_bce/bce_target.bin");
-    let expected = load_fixture("loss_bce/bce_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bce_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bce_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/bce_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -165,10 +170,13 @@ fn test_bce_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_bce/bce_dy.bin");
-    let inp_host = load_fixture("loss_bce/bce_input.bin");
-    let tgt_host = load_fixture("loss_bce/bce_target.bin");
-    let expected = load_fixture("loss_bce/bce_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bce_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bce_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bce_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/bce_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -213,9 +221,12 @@ fn test_bce_with_logits_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_bce/bwl_input.bin");
-    let tgt_host = load_fixture("loss_bce/bwl_target.bin");
-    let expected = load_fixture("loss_bce/bwl_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bwl_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bwl_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/bwl_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -258,10 +269,13 @@ fn test_bce_with_logits_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_bce/bwl_dy.bin");
-    let inp_host = load_fixture("loss_bce/bwl_input.bin");
-    let tgt_host = load_fixture("loss_bce/bwl_target.bin");
-    let expected = load_fixture("loss_bce/bwl_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bwl_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bwl_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/bwl_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/bwl_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -307,9 +321,12 @@ fn test_soft_margin_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_bce/sml_input.bin");
-    let tgt_host = load_fixture("loss_bce/sml_target.bin");
-    let expected = load_fixture("loss_bce/sml_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/sml_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/sml_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/sml_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -352,10 +369,13 @@ fn test_soft_margin_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_bce/sml_dy.bin");
-    let inp_host = load_fixture("loss_bce/sml_input.bin");
-    let tgt_host = load_fixture("loss_bce/sml_target.bin");
-    let expected = load_fixture("loss_bce/sml_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/sml_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/sml_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/sml_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/sml_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -401,9 +421,12 @@ fn test_kl_div_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_bce/kl_input.bin");
-    let tgt_host = load_fixture("loss_bce/kl_target.bin");
-    let expected = load_fixture("loss_bce/kl_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/kl_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/kl_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/kl_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -445,9 +468,12 @@ fn test_kl_div_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_bce/kl_dy.bin");
-    let tgt_host = load_fixture("loss_bce/kl_target.bin");
-    let expected = load_fixture("loss_bce/kl_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/kl_dy.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/kl_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/kl_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -489,9 +515,12 @@ fn test_poisson_nll_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_bce/pnll_input.bin");
-    let tgt_host = load_fixture("loss_bce/pnll_target.bin");
-    let expected = load_fixture("loss_bce/pnll_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/pnll_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/pnll_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/pnll_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -534,10 +563,13 @@ fn test_poisson_nll_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_bce/pnll_dy.bin");
-    let inp_host = load_fixture("loss_bce/pnll_input.bin");
-    let tgt_host = load_fixture("loss_bce/pnll_target.bin");
-    let expected = load_fixture("loss_bce/pnll_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/pnll_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/pnll_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/pnll_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/pnll_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -583,10 +615,13 @@ fn test_gaussian_nll_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_bce/gnll_input.bin");
-    let tgt_host = load_fixture("loss_bce/gnll_target.bin");
-    let var_host = load_fixture("loss_bce/gnll_var.bin");
-    let expected = load_fixture("loss_bce/gnll_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_target.bin");
+    let var_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_var.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/gnll_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -634,11 +669,14 @@ fn test_gaussian_nll_loss_backward_input_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_bce/gnll_dy.bin");
-    let inp_host = load_fixture("loss_bce/gnll_input.bin");
-    let tgt_host = load_fixture("loss_bce/gnll_target.bin");
-    let var_host = load_fixture("loss_bce/gnll_var.bin");
-    let expected = load_fixture("loss_bce/gnll_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_target.bin");
+    let var_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_bce/gnll_var.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_bce/gnll_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;

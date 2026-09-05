@@ -19,7 +19,7 @@ use teeny_core::device::{
     program::Kernel,
 };
 
-use crate::{
+use teeny_cuda::{
     compiler::target::{Capability, capability_from_device_info},
     device::context::Cuda,
     device::program::CudaProgram,
@@ -37,7 +37,7 @@ pub struct CudaTestEnv {
 
 /// Asserts CUDA is available, opens the first device, and resolves its compute capability
 /// (overridable via the `TEENYC_CAPABILITY` env var, e.g. `sm_90`) — the standard setup for
-/// `teeny-cuda`'s own device-dependent tests.
+/// any CUDA-backed test.
 pub fn setup_cuda_env() -> Result<CudaTestEnv> {
     let cuda_available = Cuda::is_available()?;
     assert!(cuda_available, "CUDA is not available");
@@ -57,7 +57,7 @@ pub fn setup_cuda_env() -> Result<CudaTestEnv> {
             .and_then(|s| s.parse::<i32>().ok())
             .and_then(|n| Capability::from_major_minor(n / 10, n % 10))
             .ok_or_else(|| {
-                crate::errors::Error::UnknownCapability(format!(
+                teeny_cuda::errors::Error::UnknownCapability(format!(
                     "TEENYC_CAPABILITY={val:?} is not a recognised sm version"
                 ))
             })?;
@@ -85,11 +85,11 @@ pub fn launch_config_from_program<K: Kernel>(
     n_elements: usize,
     program: &CudaProgram<'_, K>,
 ) -> CudaLaunchConfig {
-    let threads = program.metadata.threads_per_block().max(1);
+    let threads = program.threads_per_block().max(1);
     CudaLaunchConfig {
         grid: [(n_elements as u32).div_ceil(threads), 1, 1],
         block: [threads, 1, 1],
-        cluster: [program.metadata.num_ctas.max(1), 1, 1],
+        cluster: [program.num_ctas().max(1), 1, 1],
     }
 }
 
@@ -114,11 +114,11 @@ pub fn launch_config_with_grid<K: Kernel>(
     grid_x: usize,
     program: &CudaProgram<'_, K>,
 ) -> CudaLaunchConfig {
-    let threads = program.metadata.threads_per_block().max(1);
+    let threads = program.threads_per_block().max(1);
     CudaLaunchConfig {
         grid: [grid_x as u32, 1, 1],
         block: [threads, 1, 1],
-        cluster: [program.metadata.num_ctas.max(1), 1, 1],
+        cluster: [program.num_ctas().max(1), 1, 1],
     }
 }
 
@@ -131,8 +131,8 @@ pub fn load_program_from_ptx<K: Kernel>(ptx: &[u8]) -> Result<CudaProgram<'stati
         "[7/9] loaded PTX: module={:#x} function={:#x} num_warps={} num_ctas={}",
         program.module_ptr(),
         program.function_ptr(),
-        program.metadata.num_warps,
-        program.metadata.num_ctas,
+        program.num_warps(),
+        program.num_ctas(),
     );
     Ok(program)
 }

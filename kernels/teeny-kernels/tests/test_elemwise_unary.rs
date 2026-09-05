@@ -26,7 +26,9 @@ use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 use teeny_kernels::nn::tensor::elemwise_unary::{
     ElemwiseAbsBackward, ElemwiseAbsForward, ElemwiseAcosBackward, ElemwiseAcosForward,
@@ -40,7 +42,7 @@ use teeny_kernels::nn::tensor::elemwise_unary::{
     ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward, ElemwiseSinhForward,
     ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward, ElemwiseTanForward,
 };
-use teeny_kernels::testing::load_fixture;
+use teeny_test::load_fixture;
 
 const BLOCK_SIZE: i32 = 1024;
 const TOL: f32 = 1e-4;
@@ -73,8 +75,11 @@ macro_rules! gpu_forward_test {
             dotenv().ok();
             let env = testing::setup_cuda_env()?;
             let device = env.device;
-            let x = load_fixture("elemwise_unary/x.bin");
-            let expected = load_fixture(concat!("elemwise_unary/expected_", $fixture_op, ".bin"));
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/x.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("elemwise_unary/expected_", $fixture_op, ".bin"),
+            );
             let n = x.len();
             let mut x_buf = device.buffer::<f32>(n)?;
             let y_buf = device.buffer::<f32>(n)?;
@@ -119,13 +124,12 @@ macro_rules! gpu_backward_test {
             dotenv().ok();
             let env = testing::setup_cuda_env()?;
             let device = env.device;
-            let x = load_fixture("elemwise_unary/x.bin");
-            let dy = load_fixture("elemwise_unary/dy.bin");
-            let expected = load_fixture(concat!(
-                "elemwise_unary/expected_",
-                $fixture_op,
-                "_backward.bin"
-            ));
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/x.bin");
+            let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/dy.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("elemwise_unary/expected_", $fixture_op, "_backward.bin"),
+            );
             let n = x.len();
             let mut x_buf = device.buffer::<f32>(n)?;
             let mut dy_buf = device.buffer::<f32>(n)?;
@@ -499,8 +503,11 @@ fn test_acosh_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("elemwise_unary/x_acosh.bin");
-    let expected = load_fixture("elemwise_unary/expected_acosh.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/x_acosh.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "elemwise_unary/expected_acosh.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let y_buf = device.buffer::<f32>(n)?;
@@ -545,8 +552,11 @@ fn test_isnan_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("elemwise_unary/x_with_nan.bin");
-    let expected = load_fixture("elemwise_unary/expected_isnan.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/x_with_nan.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "elemwise_unary/expected_isnan.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let y_buf = device.buffer::<f32>(n)?;
@@ -677,9 +687,12 @@ fn test_acosh_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("elemwise_unary/x_acosh.bin");
-    let dy = load_fixture("elemwise_unary/dy.bin");
-    let expected = load_fixture("elemwise_unary/expected_acosh_backward.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/x_acosh.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "elemwise_unary/expected_acosh_backward.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let mut dy_buf = device.buffer::<f32>(n)?;
@@ -727,8 +740,11 @@ fn test_neg_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let dy = load_fixture("elemwise_unary/dy.bin");
-    let expected = load_fixture("elemwise_unary/expected_neg_backward.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_unary/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "elemwise_unary/expected_neg_backward.bin",
+    );
     let n = dy.len();
     let mut dy_buf = device.buffer::<f32>(n)?;
     let dx_buf = device.buffer::<f32>(n)?;

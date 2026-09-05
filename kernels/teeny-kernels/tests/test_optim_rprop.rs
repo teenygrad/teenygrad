@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -58,13 +60,31 @@ fn test_rprop_step_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
-    let params_in = load_fixture("optim_rprop/rprop_params_in.bin");
-    let grad = load_fixture("optim_rprop/rprop_grad.bin");
-    let prev_grad_in = load_fixture("optim_rprop/rprop_prev_grad_in.bin");
-    let step_size_in = load_fixture("optim_rprop/rprop_step_size_in.bin");
-    let params_ex = load_fixture("optim_rprop/rprop_params_out.bin");
-    let step_size_ex = load_fixture("optim_rprop/rprop_step_size_out.bin");
-    let prev_grad_ex = load_fixture("optim_rprop/rprop_prev_grad_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_rprop/rprop_grad.bin");
+    let prev_grad_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_prev_grad_in.bin",
+    );
+    let step_size_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_step_size_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_params_out.bin",
+    );
+    let step_size_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_step_size_out.bin",
+    );
+    let prev_grad_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_prev_grad_out.bin",
+    );
 
     let mut params_buf = env.device.buffer::<f32>(N)?;
     let mut grad_buf = env.device.buffer::<f32>(N)?;

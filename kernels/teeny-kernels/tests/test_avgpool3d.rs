@@ -23,8 +23,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const B: usize = 1;
 const C: usize = 2;
@@ -93,8 +95,8 @@ fn test_avgpool3d_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_host = load_fixture("avgpool3d/x.bin");
-    let expected = load_fixture("avgpool3d/expected_forward.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "avgpool3d/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "avgpool3d/expected_forward.bin");
     let mut output_host = vec![0.0f32; B * C * OD * OH * OW];
 
     let mut input_buf = device.buffer::<f32>(B * C * DV * H * W)?;
@@ -157,8 +159,11 @@ fn test_avgpool3d_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("avgpool3d/dy.bin");
-    let expected = load_fixture("avgpool3d/expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "avgpool3d/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "avgpool3d/expected_backward.bin",
+    );
     let zeros = vec![0.0f32; B * C * DV * H * W];
     let mut dx_host = vec![0.0f32; B * C * DV * H * W];
 

@@ -23,8 +23,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const M: usize = 16;
 const N: usize = 128;
@@ -86,10 +88,10 @@ fn test_rms_norm_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("rmsnorm/x.bin");
-    let weight_host = load_fixture("rmsnorm/weight.bin");
-    let expected_y = load_fixture("rmsnorm/expected_forward.bin");
-    let expected_rrms = load_fixture("rmsnorm/expected_rrms.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "rmsnorm/x.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "rmsnorm/weight.bin");
+    let expected_y = load_fixture(env!("CARGO_MANIFEST_DIR"), "rmsnorm/expected_forward.bin");
+    let expected_rrms = load_fixture(env!("CARGO_MANIFEST_DIR"), "rmsnorm/expected_rrms.bin");
     let mut y_host = vec![0.0f32; M * N];
     let mut rrms_host = vec![0.0f32; M];
 

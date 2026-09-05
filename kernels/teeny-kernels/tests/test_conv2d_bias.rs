@@ -33,7 +33,9 @@ use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 const NB: usize = 1;
 const C_IN: usize = 3;

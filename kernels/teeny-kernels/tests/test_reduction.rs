@@ -26,7 +26,9 @@ use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 use teeny_kernels::nn::tensor::reduction::{
     CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward, ReduceL1Forward,
@@ -34,7 +36,7 @@ use teeny_kernels::nn::tensor::reduction::{
     ReduceMeanForward, ReduceMinForward, ReduceProdForward, ReduceSumForward,
     ReduceSumSquareForward,
 };
-use teeny_kernels::testing::load_fixture;
+use teeny_test::load_fixture;
 
 // Reduction tests use a 2-D input: OUTER rows of INNER elements.
 const OUTER: usize = 32;
@@ -71,8 +73,11 @@ macro_rules! gpu_reduce_test {
             dotenv().ok();
             let env = testing::setup_cuda_env()?;
             let device = env.device;
-            let x = load_fixture("reduction/x.bin");
-            let expected = load_fixture(concat!("reduction/expected_", $fixture_op, ".bin"));
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("reduction/expected_", $fixture_op, ".bin"),
+            );
             let n_total = x.len();
             let n_outer = expected.len();
             let n_inner = n_total / n_outer;
@@ -128,8 +133,11 @@ macro_rules! gpu_cum_test {
             dotenv().ok();
             let env = testing::setup_cuda_env()?;
             let device = env.device;
-            let x = load_fixture("reduction/x.bin");
-            let expected = load_fixture(concat!("reduction/expected_", $fixture_op, ".bin"));
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("reduction/expected_", $fixture_op, ".bin"),
+            );
             let n_total = x.len();
             let n_inner = INNER;
             let n_outer = n_total / n_inner;
@@ -275,8 +283,11 @@ fn test_reduce_prod_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("reduction/x.bin");
-    let expected = load_fixture("reduction/expected_reduce_prod.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "reduction/expected_reduce_prod.bin",
+    );
     let n_total = x.len();
     let n_outer = expected.len();
     let n_inner = n_total / n_outer;
@@ -369,8 +380,11 @@ fn test_cum_prod_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("reduction/x.bin");
-    let expected = load_fixture("reduction/expected_cum_prod.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "reduction/expected_cum_prod.bin",
+    );
     let n_total = x.len();
     let n_inner = INNER;
     let n_outer = n_total / n_inner;

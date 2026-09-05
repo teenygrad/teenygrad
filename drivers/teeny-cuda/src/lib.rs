@@ -35,8 +35,6 @@ pub mod errors;
 pub mod model;
 /// CUDA runtime abstraction (streams, memory, launches).
 pub mod runtime;
-/// Test helpers for `teeny-cuda`'s own test suite.
-pub mod testing;
 
 mod cuda;
 

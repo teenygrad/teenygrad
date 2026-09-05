@@ -24,8 +24,17 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
+
+#[cfg(all(feature = "riscv", feature = "qemu"))]
+use teeny_riscv::compiler::compile_kernel as compile_riscv_kernel;
+#[cfg(all(feature = "riscv", feature = "qemu"))]
+use teeny_riscv::compiler::target::{Capability as RiscvCapability, Target as RiscvTarget};
+#[cfg(all(feature = "riscv", feature = "qemu"))]
+use teeny_test::riscv::qemu::setup_qemu_env;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -52,8 +61,8 @@ fn test_relu_forward_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_host = load_fixture("relu/x.bin");
-    let expected = load_fixture("relu/expected_forward.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/expected_forward.bin");
     let mut output_host = vec![0.0f32; N];
 
     let mut in_buf = device.buffer::<f32>(N)?;
@@ -118,9 +127,9 @@ fn test_relu_backward_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let y_host = load_fixture("relu/y_backward.bin");
-    let dy_host = load_fixture("relu/dy_backward.bin");
-    let expected = load_fixture("relu/expected_backward.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/y_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/dy_backward.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -158,6 +167,27 @@ fn test_relu_backward_gpu() -> Result<()> {
             y_host[i], dy_host[i], dx_host[i], expected[i]
         );
     }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(all(feature = "riscv", feature = "qemu"))]
+fn test_relu_forward_riscv_qemu() -> anyhow::Result<()> {
+    // Proves the riscv+qemu driver path end-to-end: compile ReluForward for RISC-V (same
+    // pipeline `teeny-riscv`'s own tests exercise), then load and call the resulting `.so`
+    // under `qemu-riscv64`. `RiscvBackend` is still a stub -- this only proves the compiled
+    // kernel loads and runs under emulation, not that it computes relu (see
+    // `teeny-riscv/tests/test_qemu_relu.rs`'s doc comment for why the symbol is
+    // `"riscv_kernel"`, not the kernel's own name).
+    dotenv().ok();
+
+    let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(BLOCK_SIZE);
+    let target = RiscvTarget::new(RiscvCapability::GenericRvv1_0);
+    let so_path = compile_riscv_kernel(&kernel, &target, true)?;
+
+    let qemu = setup_qemu_env()?;
+    qemu.run_kernel(std::path::Path::new(&so_path), "riscv_kernel")?;
 
     Ok(())
 }

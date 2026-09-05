@@ -15,7 +15,9 @@ categories = ["science", "algorithms"]
 
 [features]
 default = ["cuda", "training"]
-cuda = ["dep:teeny-cuda"]
+cuda = ["dep:teeny-cuda", "teeny-test/cuda"]
+riscv = ["dep:teeny-riscv", "teeny-test/riscv"]
+qemu = ["teeny-test/qemu"]
 training = ["teeny-core/training"]
 
 [dependencies]
@@ -25,9 +27,13 @@ teeny-macros.workspace = true
 teeny-core.workspace = true
 teeny-triton.workspace = true
 teeny-cuda = { workspace = true, optional = true }
+# Only used by tests (see the `riscv` feature) -- optional dev-dependencies aren't supported by
+# Cargo, so this lives here instead, same as `teeny-cuda` above.
+teeny-riscv = { workspace = true, optional = true }
 
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-test.workspace = true
 dotenv.workspace = true
 insta.workspace = true
 criterion.workspace = true

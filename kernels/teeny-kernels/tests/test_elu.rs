@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -75,8 +77,8 @@ fn test_celu_mlir() -> anyhow::Result<()> {
 fn test_elu_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("elu/x.bin");
-    let expected = load_fixture("elu/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -120,9 +122,9 @@ fn test_elu_forward_cuda() -> Result<()> {
 fn test_elu_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("elu/x.bin");
-    let dy_host = load_fixture("elu/dy.bin");
-    let expected = load_fixture("elu/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
@@ -171,8 +173,8 @@ fn test_elu_backward_cuda() -> Result<()> {
 fn test_selu_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("selu/x.bin");
-    let expected = load_fixture("selu/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -215,9 +217,9 @@ fn test_selu_forward_cuda() -> Result<()> {
 fn test_selu_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("selu/x.bin");
-    let dy_host = load_fixture("selu/dy.bin");
-    let expected = load_fixture("selu/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
@@ -265,8 +267,8 @@ fn test_selu_backward_cuda() -> Result<()> {
 fn test_celu_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("celu/x.bin");
-    let expected = load_fixture("celu/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -310,9 +312,9 @@ fn test_celu_forward_cuda() -> Result<()> {
 fn test_celu_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("celu/x.bin");
-    let dy_host = load_fixture("celu/dy.bin");
-    let expected = load_fixture("celu/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;

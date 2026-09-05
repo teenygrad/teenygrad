@@ -22,8 +22,9 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::{load_fixture, load_fixture_i32};
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+use teeny_test::cuda as testing;
+use teeny_test::{load_fixture, load_fixture_i32};
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 1024;
@@ -96,10 +97,13 @@ fn test_margin_ranking_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x1_host = load_fixture("loss_ranking/mrl_x1.bin");
-    let x2_host = load_fixture("loss_ranking/mrl_x2.bin");
-    let y_host = load_fixture("loss_ranking/mrl_y.bin");
-    let expected = load_fixture("loss_ranking/mrl_expected_forward.bin");
+    let x1_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_x1.bin");
+    let x2_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_x2.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_y.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/mrl_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut x1_buf = device.buffer::<f32>(N)?;
@@ -146,12 +150,18 @@ fn test_margin_ranking_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_ranking/mrl_dy.bin");
-    let x1_host = load_fixture("loss_ranking/mrl_x1.bin");
-    let x2_host = load_fixture("loss_ranking/mrl_x2.bin");
-    let y_host = load_fixture("loss_ranking/mrl_y.bin");
-    let exp_dx1 = load_fixture("loss_ranking/mrl_expected_dx1.bin");
-    let exp_dx2 = load_fixture("loss_ranking/mrl_expected_dx2.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_dy.bin");
+    let x1_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_x1.bin");
+    let x2_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_x2.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mrl_y.bin");
+    let exp_dx1 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/mrl_expected_dx1.bin",
+    );
+    let exp_dx2 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/mrl_expected_dx2.bin",
+    );
     let mut dx1_host = vec![0.0f32; N];
     let mut dx2_host = vec![0.0f32; N];
 
@@ -211,9 +221,12 @@ fn test_hinge_embedding_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_ranking/hel_input.bin");
-    let y_host = load_fixture("loss_ranking/hel_y.bin");
-    let expected = load_fixture("loss_ranking/hel_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/hel_input.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/hel_y.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/hel_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N];
 
     let mut inp_buf = device.buffer::<f32>(N)?;
@@ -257,10 +270,13 @@ fn test_hinge_embedding_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_ranking/hel_dy.bin");
-    let inp_host = load_fixture("loss_ranking/hel_input.bin");
-    let y_host = load_fixture("loss_ranking/hel_y.bin");
-    let expected = load_fixture("loss_ranking/hel_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/hel_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/hel_input.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/hel_y.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/hel_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = device.buffer::<f32>(N)?;
@@ -307,9 +323,12 @@ fn test_multi_margin_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let inp_host = load_fixture("loss_ranking/mm_input.bin");
-    let tgt_host = load_fixture_i32("loss_ranking/mm_targets.bin");
-    let expected = load_fixture("loss_ranking/mm_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mm_input.bin");
+    let tgt_host = load_fixture_i32(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mm_targets.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/mm_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N_ROWS];
 
     let mut inp_buf = device.buffer::<f32>(N_ROWS * N_COLS)?;
@@ -354,10 +373,13 @@ fn test_multi_margin_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_ranking/mm_dy.bin");
-    let inp_host = load_fixture("loss_ranking/mm_input.bin");
-    let tgt_host = load_fixture_i32("loss_ranking/mm_targets.bin");
-    let expected = load_fixture("loss_ranking/mm_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mm_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mm_input.bin");
+    let tgt_host = load_fixture_i32(env!("CARGO_MANIFEST_DIR"), "loss_ranking/mm_targets.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_ranking/mm_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N_ROWS * N_COLS];
 
     let mut dy_buf = device.buffer::<f32>(N_ROWS)?;

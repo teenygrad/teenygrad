@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -76,13 +78,31 @@ fn test_nadam_step_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let (bc2_sqrt, coeff_g, coeff_m) = nadam_scalars();
 
-    let params_in = load_fixture("optim_nadam/nadam_params_in.bin");
-    let grad = load_fixture("optim_nadam/nadam_grad.bin");
-    let exp_avg_in = load_fixture("optim_nadam/nadam_exp_avg_in.bin");
-    let exp_avg_sq_in = load_fixture("optim_nadam/nadam_exp_avg_sq_in.bin");
-    let params_ex = load_fixture("optim_nadam/nadam_params_out.bin");
-    let exp_avg_ex = load_fixture("optim_nadam/nadam_exp_avg_out.bin");
-    let exp_avg_sq_ex = load_fixture("optim_nadam/nadam_exp_avg_sq_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_nadam/nadam_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_nadam/nadam_grad.bin");
+    let exp_avg_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_nadam/nadam_exp_avg_in.bin",
+    );
+    let exp_avg_sq_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_nadam/nadam_exp_avg_sq_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_nadam/nadam_params_out.bin",
+    );
+    let exp_avg_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_nadam/nadam_exp_avg_out.bin",
+    );
+    let exp_avg_sq_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_nadam/nadam_exp_avg_sq_out.bin",
+    );
 
     let mut params_buf = env.device.buffer::<f32>(N)?;
     let mut grad_buf = env.device.buffer::<f32>(N)?;

@@ -39,8 +39,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 // ── Dimensions ───────────────────────────────────────────────────────────────
 const N_SPATIAL: usize = 64;
@@ -94,9 +96,9 @@ fn test_channel_cat_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x0_host = load_fixture("channel_cat/x0.bin");
-    let x1_host = load_fixture("channel_cat/x1.bin");
-    let expected_cat = load_fixture("channel_cat/expected_cat.bin");
+    let x0_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/x0.bin");
+    let x1_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/x1.bin");
+    let expected_cat = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/expected_cat.bin");
 
     assert_eq!(x0_host.len(), N_ELEM_CHUNK);
     assert_eq!(x1_host.len(), N_ELEM_CHUNK);
@@ -173,9 +175,9 @@ fn test_channel_cat_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("channel_cat/dy.bin");
-    let expected_dx0 = load_fixture("channel_cat/expected_dx0.bin");
-    let expected_dx1 = load_fixture("channel_cat/expected_dx1.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/dy.bin");
+    let expected_dx0 = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/expected_dx0.bin");
+    let expected_dx1 = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/expected_dx1.bin");
 
     assert_eq!(dy_host.len(), N_ELEM_OUT);
     assert_eq!(expected_dx0.len(), N_ELEM_CHUNK);

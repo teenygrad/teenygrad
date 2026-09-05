@@ -24,7 +24,9 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 // Tile sizes used for snapshot / CUDA tests
 const BLOCK_SIZE: i32 = 128;

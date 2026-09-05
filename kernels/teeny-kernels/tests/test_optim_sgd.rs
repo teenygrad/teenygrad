@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -76,9 +78,9 @@ fn test_sgd_step_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
-    let params_in = load_fixture("optim_sgd/sgd_params_in.bin");
-    let grad = load_fixture("optim_sgd/sgd_grad.bin");
-    let params_ex = load_fixture("optim_sgd/sgd_params_out.bin");
+    let params_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_params_in.bin");
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_grad.bin");
+    let params_ex = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_params_out.bin");
 
     let mut params_buf = env.device.buffer::<f32>(N)?;
     let mut grad_buf = env.device.buffer::<f32>(N)?;
@@ -126,11 +128,17 @@ fn test_sgd_momentum_step_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
-    let params_in = load_fixture("optim_sgd/sgd_mom_params_in.bin");
-    let grad = load_fixture("optim_sgd/sgd_mom_grad.bin");
-    let buf_in = load_fixture("optim_sgd/sgd_mom_buf_in.bin");
-    let params_ex = load_fixture("optim_sgd/sgd_mom_params_out.bin");
-    let buf_ex = load_fixture("optim_sgd/sgd_mom_buf_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_sgd/sgd_mom_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_mom_grad.bin");
+    let buf_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_mom_buf_in.bin");
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_sgd/sgd_mom_params_out.bin",
+    );
+    let buf_ex = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_mom_buf_out.bin");
 
     let mut params_buf = env.device.buffer::<f32>(N)?;
     let mut grad_buf = env.device.buffer::<f32>(N)?;
@@ -192,11 +200,17 @@ fn test_sgd_nesterov_step_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
 
-    let params_in = load_fixture("optim_sgd/sgd_nes_params_in.bin");
-    let grad = load_fixture("optim_sgd/sgd_nes_grad.bin");
-    let buf_in = load_fixture("optim_sgd/sgd_nes_buf_in.bin");
-    let params_ex = load_fixture("optim_sgd/sgd_nes_params_out.bin");
-    let buf_ex = load_fixture("optim_sgd/sgd_nes_buf_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_sgd/sgd_nes_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_nes_grad.bin");
+    let buf_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_nes_buf_in.bin");
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_sgd/sgd_nes_params_out.bin",
+    );
+    let buf_ex = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_sgd/sgd_nes_buf_out.bin");
 
     let mut params_buf = env.device.buffer::<f32>(N)?;
     let mut grad_buf = env.device.buffer::<f32>(N)?;

@@ -51,9 +51,9 @@ use teeny_cuda::errors::Result;
 #[cfg(feature = "cuda")]
 use teeny_cuda::model::TensorRef;
 #[cfg(feature = "cuda")]
-use teeny_cuda::testing;
+use teeny_test::cuda as testing;
 #[cfg(feature = "cuda")]
-use teeny_kernels::testing::load_fixture;
+use teeny_test::load_fixture;
 
 const N: usize = 64;
 const TOL: f32 = 1e-4;
@@ -452,8 +452,14 @@ fn test_anduin_pointwise_relu_sigmoid_matches_pytorch() -> Result<()> {
     assert_eq!(model.dag.len(), 2);
     let loaded = model.load(&env.device, 1)?;
 
-    let x = load_fixture("anduin_pointwise_relu_sigmoid/x.bin");
-    let expected = load_fixture("anduin_pointwise_relu_sigmoid/expected_forward.bin");
+    let x = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid/x.bin",
+    );
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid/expected_forward.bin",
+    );
 
     let x_ptr = mem::alloc(N * size_of::<f32>())?;
     unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
@@ -500,8 +506,14 @@ fn test_anduin_pointwise_abs_neg_sign_matches_pytorch() -> Result<()> {
     assert_eq!(model.dag.len(), 2);
     let loaded = model.load(&env.device, 1)?;
 
-    let x = load_fixture("anduin_pointwise_abs_neg_sign/x.bin");
-    let expected = load_fixture("anduin_pointwise_abs_neg_sign/expected_forward.bin");
+    let x = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_abs_neg_sign/x.bin",
+    );
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_abs_neg_sign/expected_forward.bin",
+    );
 
     let x_ptr = mem::alloc(N * size_of::<f32>())?;
     unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
@@ -553,8 +565,14 @@ fn test_anduin_pointwise_relu_sigmoid_tanh_matches_pytorch() -> Result<()> {
     );
 
     let loaded = model.load(&env.device, 1)?;
-    let x = load_fixture("anduin_pointwise_relu_sigmoid_tanh/x.bin");
-    let expected = load_fixture("anduin_pointwise_relu_sigmoid_tanh/expected_forward.bin");
+    let x = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/x.bin",
+    );
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/expected_forward.bin",
+    );
 
     let x_ptr = mem::alloc(N * size_of::<f32>())?;
     unsafe { mem::copy_h_to_d(x_ptr, x.as_ptr(), N) }?;
@@ -617,10 +635,22 @@ fn test_anduin_pointwise_relu_sigmoid_backward_matches_pytorch() -> Result<()> {
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<ErasedKernel>(&ptx)?;
 
-    let y = load_fixture("anduin_pointwise_relu_sigmoid/y_backward.bin");
-    let dy = load_fixture("anduin_pointwise_relu_sigmoid/dy.bin");
-    let scratch0 = load_fixture("anduin_pointwise_relu_sigmoid/scratch0.bin");
-    let expected = load_fixture("anduin_pointwise_relu_sigmoid/expected_backward.bin");
+    let y = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid/y_backward.bin",
+    );
+    let dy = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid/dy.bin",
+    );
+    let scratch0 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid/scratch0.bin",
+    );
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid/expected_backward.bin",
+    );
 
     let bytes = N * size_of::<f32>();
     let dy_ptr = mem::alloc(bytes)?;
@@ -680,11 +710,26 @@ fn test_anduin_pointwise_relu_sigmoid_tanh_backward_matches_pytorch() -> Result<
     let ptx = std::fs::read(&ptx_path)?;
     let program = testing::load_program_from_ptx::<ErasedKernel>(&ptx)?;
 
-    let y = load_fixture("anduin_pointwise_relu_sigmoid_tanh/y_backward.bin");
-    let dy = load_fixture("anduin_pointwise_relu_sigmoid_tanh/dy.bin");
-    let scratch0 = load_fixture("anduin_pointwise_relu_sigmoid_tanh/scratch0.bin");
-    let scratch1 = load_fixture("anduin_pointwise_relu_sigmoid_tanh/scratch1.bin");
-    let expected = load_fixture("anduin_pointwise_relu_sigmoid_tanh/expected_backward.bin");
+    let y = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/y_backward.bin",
+    );
+    let dy = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/dy.bin",
+    );
+    let scratch0 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/scratch0.bin",
+    );
+    let scratch1 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/scratch1.bin",
+    );
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "anduin_pointwise_relu_sigmoid_tanh/expected_backward.bin",
+    );
 
     let bytes = N * size_of::<f32>();
     let dy_ptr = mem::alloc(bytes)?;

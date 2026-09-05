@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -63,8 +65,8 @@ fn test_tanhshrink_mlir() -> anyhow::Result<()> {
 fn test_tanh_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanh/x.bin");
-    let expected = load_fixture("tanh/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -108,9 +110,9 @@ fn test_tanh_forward_cuda() -> Result<()> {
 fn test_tanh_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanh/x.bin");
-    let dy_host = load_fixture("tanh/dy.bin");
-    let expected = load_fixture("tanh/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     // Compute y = tanh(x) for backward input
@@ -162,8 +164,11 @@ fn test_tanh_backward_cuda() -> Result<()> {
 fn test_tanhshrink_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanhshrink/x.bin");
-    let expected = load_fixture("tanhshrink/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "tanhshrink/expected_forward.bin",
+    );
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -207,9 +212,12 @@ fn test_tanhshrink_forward_cuda() -> Result<()> {
 fn test_tanhshrink_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanhshrink/x.bin");
-    let dy_host = load_fixture("tanhshrink/dy.bin");
-    let expected = load_fixture("tanhshrink/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "tanhshrink/expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     // y = x - tanh(x)

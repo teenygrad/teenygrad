@@ -37,6 +37,7 @@ teeny-core = { path = "../../core/teeny-core" }
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
 teeny-macros = { path = "../../macros/teeny-macros" }
 teeny-cuda = { path = "../../drivers/teeny-cuda" }
+teeny-test = { workspace = true, features = ["cuda"] }
 
 [build-dependencies]
 cargo_metadata.workspace = true

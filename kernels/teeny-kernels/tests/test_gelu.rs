@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -63,8 +65,8 @@ fn test_mish_mlir() -> anyhow::Result<()> {
 fn test_gelu_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("gelu/x.bin");
-    let expected = load_fixture("gelu/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "gelu/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "gelu/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -108,9 +110,9 @@ fn test_gelu_forward_cuda() -> Result<()> {
 fn test_gelu_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("gelu/x.bin");
-    let dy_host = load_fixture("gelu/dy.bin");
-    let expected = load_fixture("gelu/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "gelu/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "gelu/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "gelu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
@@ -159,8 +161,8 @@ fn test_gelu_backward_cuda() -> Result<()> {
 fn test_mish_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("mish/x.bin");
-    let expected = load_fixture("mish/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "mish/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "mish/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -204,9 +206,9 @@ fn test_mish_forward_cuda() -> Result<()> {
 fn test_mish_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("mish/x.bin");
-    let dy_host = load_fixture("mish/dy.bin");
-    let expected = load_fixture("mish/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "mish/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "mish/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "mish/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;

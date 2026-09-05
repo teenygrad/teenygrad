@@ -22,9 +22,11 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
-use teeny_kernels::testing::load_fixture;
+use teeny_test::load_fixture;
 #[cfg(all(feature = "cuda", feature = "training"))]
 use {
     teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler,
@@ -111,12 +113,15 @@ fn test_batch_norm_inference_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x = load_fixture("batchnorm/x.bin");
-    let weight = load_fixture("batchnorm/weight.bin");
-    let bias = load_fixture("batchnorm/bias.bin");
-    let running_mean = load_fixture("batchnorm/running_mean.bin");
-    let running_var = load_fixture("batchnorm/running_var.bin");
-    let expected = load_fixture("batchnorm/expected_forward_inference.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
+    let weight = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/weight.bin");
+    let bias = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/bias.bin");
+    let running_mean = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/running_mean.bin");
+    let running_var = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/running_var.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm/expected_forward_inference.bin",
+    );
 
     let mut x_buf = device.buffer::<f32>(N * C)?;
     let mut w_buf = device.buffer::<f32>(C)?;
@@ -174,12 +179,15 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x = load_fixture("batchnorm/x.bin");
-    let weight = load_fixture("batchnorm/weight.bin");
-    let bias = load_fixture("batchnorm/bias.bin");
-    let running_mean = load_fixture("batchnorm/running_mean.bin");
-    let running_var = load_fixture("batchnorm/running_var.bin");
-    let expected = load_fixture("batchnorm/expected_forward_training.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
+    let weight = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/weight.bin");
+    let bias = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/bias.bin");
+    let running_mean = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/running_mean.bin");
+    let running_var = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/running_var.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm/expected_forward_training.bin",
+    );
 
     let mut x_buf = device.buffer::<f32>(N * C)?;
     let mut w_buf = device.buffer::<f32>(C)?;
@@ -261,14 +269,15 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x = load_fixture("batchnorm/x.bin");
-    let dy = load_fixture("batchnorm/dy.bin");
-    let weight = load_fixture("batchnorm/weight.bin");
-    let mean = load_fixture("batchnorm/expected_mean.bin");
-    let rstd = load_fixture("batchnorm/expected_rstd.bin");
-    let expected_dx = load_fixture("batchnorm/expected_dx.bin");
-    let expected_dweight = load_fixture("batchnorm/expected_dweight.bin");
-    let expected_dbias = load_fixture("batchnorm/expected_dbias.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/dy.bin");
+    let weight = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/weight.bin");
+    let mean = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_mean.bin");
+    let rstd = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_rstd.bin");
+    let expected_dx = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_dx.bin");
+    let expected_dweight =
+        load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_dweight.bin");
+    let expected_dbias = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_dbias.bin");
 
     let mut x_buf = device.buffer::<f32>(N * C)?;
     let mut dy_buf = device.buffer::<f32>(N * C)?;
@@ -496,12 +505,15 @@ fn test_batch_norm_training_graph() -> anyhow::Result<()> {
 
     let mut loaded = model.load(&env.device, N)?;
 
-    let running_mean = load_fixture("batchnorm/running_mean.bin");
-    let running_var = load_fixture("batchnorm/running_var.bin");
-    let weight = load_fixture("batchnorm/weight.bin");
-    let bias = load_fixture("batchnorm/bias.bin");
-    let x = load_fixture("batchnorm/x.bin");
-    let expected = load_fixture("batchnorm/expected_forward_training.bin");
+    let running_mean = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/running_mean.bin");
+    let running_var = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/running_var.bin");
+    let weight = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/weight.bin");
+    let bias = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/bias.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm/expected_forward_training.bin",
+    );
 
     loaded.load_param_f32(1, 0, &running_mean)?;
     loaded.load_param_f32(1, 1, &running_var)?;

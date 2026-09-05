@@ -22,8 +22,9 @@ use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N_ROWS: usize = 64;
 const N_DIM: usize = 64;
@@ -75,10 +76,13 @@ fn test_cosine_embedding_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x1_host = load_fixture("loss_embedding/cel_x1.bin");
-    let x2_host = load_fixture("loss_embedding/cel_x2.bin");
-    let y_host = load_fixture("loss_embedding/cel_y.bin");
-    let expected = load_fixture("loss_embedding/cel_expected_forward.bin");
+    let x1_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_x1.bin");
+    let x2_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_x2.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_y.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/cel_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N_ROWS];
 
     let mut x1_buf = device.buffer::<f32>(N_ROWS * N_DIM)?;
@@ -126,12 +130,18 @@ fn test_cosine_embedding_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_embedding/cel_dy.bin");
-    let x1_host = load_fixture("loss_embedding/cel_x1.bin");
-    let x2_host = load_fixture("loss_embedding/cel_x2.bin");
-    let y_host = load_fixture("loss_embedding/cel_y.bin");
-    let exp_dx1 = load_fixture("loss_embedding/cel_expected_dx1.bin");
-    let exp_dx2 = load_fixture("loss_embedding/cel_expected_dx2.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_dy.bin");
+    let x1_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_x1.bin");
+    let x2_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_x2.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/cel_y.bin");
+    let exp_dx1 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/cel_expected_dx1.bin",
+    );
+    let exp_dx2 = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/cel_expected_dx2.bin",
+    );
     let mut dx1_host = vec![0.0f32; N_ROWS * N_DIM];
     let mut dx2_host = vec![0.0f32; N_ROWS * N_DIM];
 
@@ -192,10 +202,19 @@ fn test_triplet_margin_loss_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let a_host = load_fixture("loss_embedding/tml_anchor.bin");
-    let p_host = load_fixture("loss_embedding/tml_positive.bin");
-    let n_host = load_fixture("loss_embedding/tml_negative.bin");
-    let expected = load_fixture("loss_embedding/tml_expected_forward.bin");
+    let a_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/tml_anchor.bin");
+    let p_host = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_positive.bin",
+    );
+    let n_host = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_negative.bin",
+    );
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N_ROWS];
 
     let mut a_buf = device.buffer::<f32>(N_ROWS * N_DIM)?;
@@ -244,13 +263,28 @@ fn test_triplet_margin_loss_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("loss_embedding/tml_dy.bin");
-    let a_host = load_fixture("loss_embedding/tml_anchor.bin");
-    let p_host = load_fixture("loss_embedding/tml_positive.bin");
-    let n_host = load_fixture("loss_embedding/tml_negative.bin");
-    let exp_da = load_fixture("loss_embedding/tml_expected_da.bin");
-    let exp_dp = load_fixture("loss_embedding/tml_expected_dp.bin");
-    let exp_dn = load_fixture("loss_embedding/tml_expected_dn.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/tml_dy.bin");
+    let a_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_embedding/tml_anchor.bin");
+    let p_host = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_positive.bin",
+    );
+    let n_host = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_negative.bin",
+    );
+    let exp_da = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_expected_da.bin",
+    );
+    let exp_dp = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_expected_dp.bin",
+    );
+    let exp_dn = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_embedding/tml_expected_dn.bin",
+    );
     let mut da_host = vec![0.0f32; N_ROWS * N_DIM];
     let mut dp_host = vec![0.0f32; N_ROWS * N_DIM];
     let mut dn_host = vec![0.0f32; N_ROWS * N_DIM];

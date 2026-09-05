@@ -39,8 +39,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
 
@@ -103,8 +105,11 @@ fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("upsample_nearest2d/x.bin");
-    let expected = load_fixture("upsample_nearest2d/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "upsample_nearest2d/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "upsample_nearest2d/expected_forward.bin",
+    );
 
     assert_eq!(x_host.len(), B * C * H * W);
     assert_eq!(expected.len(), B * C * OH * OW);
@@ -169,8 +174,11 @@ fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("upsample_nearest2d/dy.bin");
-    let expected = load_fixture("upsample_nearest2d/expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "upsample_nearest2d/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "upsample_nearest2d/expected_backward.bin",
+    );
 
     assert_eq!(dy_host.len(), B * C * OH * OW);
     assert_eq!(expected.len(), B * C * H * W);

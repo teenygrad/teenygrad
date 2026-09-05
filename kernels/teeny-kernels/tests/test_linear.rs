@@ -23,8 +23,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const M: usize = 64;
 const N: usize = 48;
@@ -150,10 +152,10 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
     let bias_host = vec![0.0f32; N]; // no-bias kernel ignores the pointer value
-    let expected = load_fixture("linear/expected_no_bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_no_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
 
     let mut in_buf = device.buffer::<f32>(M * K)?;
@@ -233,10 +235,10 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
-    let bias_host = load_fixture("linear/bias.bin");
-    let expected = load_fixture("linear/expected_with_bias.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
+    let bias_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_with_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
 
     let mut in_buf = device.buffer::<f32>(M * K)?;
@@ -403,11 +405,11 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
-    let dy_host = load_fixture("linear/dy.bin");
-    let expected_dx = load_fixture("linear/expected_dx.bin");
-    let expected_dw = load_fixture("linear/expected_dw.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/dy.bin");
+    let expected_dx = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dx.bin");
+    let expected_dw = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dw.bin");
 
     let mut dx_host = vec![0.0f32; M * K];
     let mut dw_host = vec![0.0f32; N * K];
@@ -499,12 +501,12 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
-    let dy_host = load_fixture("linear/dy.bin");
-    let expected_dx = load_fixture("linear/expected_dx.bin");
-    let expected_dw = load_fixture("linear/expected_dw.bin");
-    let expected_db = load_fixture("linear/expected_db.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/dy.bin");
+    let expected_dx = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dx.bin");
+    let expected_dw = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dw.bin");
+    let expected_db = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_db.bin");
 
     let mut dx_host = vec![0.0f32; M * K];
     let mut dw_host = vec![0.0f32; N * K];

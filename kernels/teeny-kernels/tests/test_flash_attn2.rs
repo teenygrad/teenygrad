@@ -33,8 +33,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
 const BH: usize = 4; // BATCH=2 * N_HEADS=2
@@ -77,11 +79,17 @@ fn test_flash_attention2_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let q_host = load_fixture("flash_attn2/q.bin");
-    let k_host = load_fixture("flash_attn2/k.bin");
-    let v_host = load_fixture("flash_attn2/v.bin");
-    let expected_o = load_fixture("flash_attn2/expected_forward_o.bin");
-    let expected_l = load_fixture("flash_attn2/expected_forward_l.bin");
+    let q_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/q.bin");
+    let k_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/k.bin");
+    let v_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/v.bin");
+    let expected_o = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_o.bin",
+    );
+    let expected_l = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_l.bin",
+    );
 
     assert_eq!(q_host.len(), N_QKV);
     assert_eq!(expected_o.len(), N_QKV);
@@ -199,13 +207,22 @@ fn test_flash_attention2_backward_dq_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let q_host = load_fixture("flash_attn2/q.bin");
-    let k_host = load_fixture("flash_attn2/k.bin");
-    let v_host = load_fixture("flash_attn2/v.bin");
-    let o_host_f = load_fixture("flash_attn2/expected_forward_o.bin");
-    let l_host_f = load_fixture("flash_attn2/expected_forward_l.bin");
-    let do_host = load_fixture("flash_attn2/do.bin");
-    let expected_dq = load_fixture("flash_attn2/expected_backward_dq.bin");
+    let q_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/q.bin");
+    let k_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/k.bin");
+    let v_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/v.bin");
+    let o_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_o.bin",
+    );
+    let l_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_l.bin",
+    );
+    let do_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/do.bin");
+    let expected_dq = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_backward_dq.bin",
+    );
 
     let mut q_buf = device.buffer::<f32>(N_QKV)?;
     let mut k_buf = device.buffer::<f32>(N_QKV)?;
@@ -280,14 +297,26 @@ fn test_flash_attention2_backward_dkv_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let q_host = load_fixture("flash_attn2/q.bin");
-    let k_host = load_fixture("flash_attn2/k.bin");
-    let v_host = load_fixture("flash_attn2/v.bin");
-    let o_host_f = load_fixture("flash_attn2/expected_forward_o.bin");
-    let l_host_f = load_fixture("flash_attn2/expected_forward_l.bin");
-    let do_host = load_fixture("flash_attn2/do.bin");
-    let expected_dk = load_fixture("flash_attn2/expected_backward_dk.bin");
-    let expected_dv = load_fixture("flash_attn2/expected_backward_dv.bin");
+    let q_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/q.bin");
+    let k_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/k.bin");
+    let v_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/v.bin");
+    let o_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_o.bin",
+    );
+    let l_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_l.bin",
+    );
+    let do_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/do.bin");
+    let expected_dk = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_backward_dk.bin",
+    );
+    let expected_dv = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_backward_dv.bin",
+    );
 
     let mut q_buf = device.buffer::<f32>(N_QKV)?;
     let mut k_buf = device.buffer::<f32>(N_QKV)?;

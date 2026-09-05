@@ -24,8 +24,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -75,8 +77,8 @@ fn test_logsigmoid_mlir() -> anyhow::Result<()> {
 fn test_sigmoid_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("sigmoid/x.bin");
-    let expected = load_fixture("sigmoid/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -117,9 +119,9 @@ fn test_sigmoid_forward_cuda() -> Result<()> {
 fn test_sigmoid_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("sigmoid/x.bin");
-    let dy_host = load_fixture("sigmoid/dy.bin");
-    let expected = load_fixture("sigmoid/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     // Compute y = sigmoid(x) on host for backward input
@@ -166,8 +168,8 @@ fn test_sigmoid_backward_cuda() -> Result<()> {
 fn test_silu_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("silu/x.bin");
-    let expected = load_fixture("silu/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -208,9 +210,9 @@ fn test_silu_forward_cuda() -> Result<()> {
 fn test_silu_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("silu/x.bin");
-    let dy_host = load_fixture("silu/dy.bin");
-    let expected = load_fixture("silu/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;
@@ -254,8 +256,11 @@ fn test_silu_backward_cuda() -> Result<()> {
 fn test_logsigmoid_forward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("logsigmoid/x.bin");
-    let expected = load_fixture("logsigmoid/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "logsigmoid/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "logsigmoid/expected_forward.bin",
+    );
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = env.device.buffer::<f32>(N)?;
@@ -296,9 +301,12 @@ fn test_logsigmoid_forward_cuda() -> Result<()> {
 fn test_logsigmoid_backward_cuda() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("logsigmoid/x.bin");
-    let dy_host = load_fixture("logsigmoid/dy.bin");
-    let expected = load_fixture("logsigmoid/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "logsigmoid/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "logsigmoid/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "logsigmoid/expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     let mut dy_buf = env.device.buffer::<f32>(N)?;

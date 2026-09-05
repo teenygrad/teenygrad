@@ -23,8 +23,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const B: usize = 64;
 const N: usize = 96;
@@ -91,8 +93,8 @@ fn test_flatten_forward_cuda() -> Result<()> {
     let device = env.device;
 
     // padded is [PAD_ROWS, N]; expected_forward is [B, N] = even-indexed rows.
-    let padded_host = load_fixture("flatten/padded.bin");
-    let expected = load_fixture("flatten/expected_forward.bin");
+    let padded_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flatten/padded.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "flatten/expected_forward.bin");
     let mut output_host = vec![0.0f32; B * N];
 
     let mut input_buf = device.buffer::<f32>(PAD_ROWS * N)?;
@@ -156,8 +158,8 @@ fn test_flatten_backward_cuda() -> Result<()> {
     let device = env.device;
 
     // dy is [B, N]; expected_backward is [PAD_ROWS, N] with even rows = dy, odd = 0.
-    let dy_host = load_fixture("flatten/dy.bin");
-    let expected = load_fixture("flatten/expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flatten/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "flatten/expected_backward.bin");
     let dx_init = vec![0.0f32; PAD_ROWS * N];
 
     let mut dy_buf = device.buffer::<f32>(B * N)?;

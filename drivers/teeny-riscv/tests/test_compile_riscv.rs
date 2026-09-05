@@ -24,17 +24,12 @@
 //! genuine RISC-V shared object.
 //!
 //! Actually loading and calling it (via [`teeny_riscv::runtime::KernelLibrary`]) requires running
-//! on RISC-V (native, or under `qemu-riscv64`); this was verified manually during development
-//! (cross-compiling a small dlopen/dlsym harness for riscv64-linux-gnu and running it under QEMU
-//! against the .so this test produces) but isn't exercised here, since that needs the test binary
-//! itself to run on RISC-V, not just the kernel.
+//! on RISC-V (native, or under `qemu-riscv64`) -- see `test_qemu_relu.rs` (feature `qemu`) for
+//! that, via `teeny-test`'s `riscv::qemu` module.
 
 use dotenv::dotenv;
-use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_core::compiler::{Compiler, Target as _};
-use teeny_core::device::program::Kernel;
 use teeny_kernels::nn::activation::relu::ReluForward;
-use teeny_riscv::compiler::TARGET_TRIPLE;
+use teeny_riscv::compiler::compile_kernel;
 use teeny_riscv::compiler::target::{Capability, Target};
 
 const BLOCK_SIZE: i32 = 1024;
@@ -46,17 +41,7 @@ fn compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::GenericRvv1_0);
 
-    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
-    let cache_dir = teeny_compiler::compiler::default_cache_dir();
-    let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?
-        .with_target_triple(TARGET_TRIPLE)
-        .with_target_cpu(
-            target
-                .target_cpu()
-                .expect("Target::target_cpu is always Some"),
-        );
-
-    let output_path = compiler.compile(&kernel, &target, true)?;
+    let output_path = compile_kernel(&kernel, &target, true)?;
     let bytes = std::fs::read(&output_path)?;
 
     assert_eq!(

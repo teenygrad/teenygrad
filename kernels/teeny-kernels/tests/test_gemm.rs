@@ -26,7 +26,9 @@ use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 use teeny_kernels::math::gemm::{MatmulBackwardDa, MatmulBackwardDb, MatmulForward};
 

@@ -26,13 +26,15 @@ use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 use teeny_kernels::nn::activation::extra::{
     LogSoftmaxBackward, LogSoftmaxForward, PreluBackward, PreluForward, ShrinkBackward,
     ShrinkForward, SwishBackward, SwishForward, ThresholdedReluBackward, ThresholdedReluForward,
 };
-use teeny_kernels::testing::load_fixture;
+use teeny_test::load_fixture;
 
 const BLOCK_SIZE: i32 = 1024;
 const TOL: f32 = 1e-4;
@@ -171,8 +173,11 @@ fn test_swish_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let expected = load_fixture("extra_activations/expected_swish.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_swish.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let y_buf = device.buffer::<f32>(n)?;
@@ -211,9 +216,12 @@ fn test_swish_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let dy = load_fixture("extra_activations/dy.bin");
-    let expected = load_fixture("extra_activations/expected_swish_backward.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_swish_backward.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let mut dy_buf = device.buffer::<f32>(n)?;
@@ -255,9 +263,12 @@ fn test_prelu_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let slope = load_fixture("extra_activations/slope.bin");
-    let expected = load_fixture("extra_activations/expected_prelu.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let slope = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/slope.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_prelu.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let mut slope_buf = device.buffer::<f32>(n)?;
@@ -299,11 +310,17 @@ fn test_prelu_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let slope = load_fixture("extra_activations/slope.bin");
-    let dy = load_fixture("extra_activations/dy.bin");
-    let expected_dx = load_fixture("extra_activations/expected_prelu_dx.bin");
-    let expected_dslope = load_fixture("extra_activations/expected_prelu_dslope.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let slope = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/slope.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/dy.bin");
+    let expected_dx = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_prelu_dx.bin",
+    );
+    let expected_dslope = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_prelu_dslope.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let mut slope_buf = device.buffer::<f32>(n)?;
@@ -361,8 +378,11 @@ fn test_log_softmax_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x_2d.bin");
-    let expected = load_fixture("extra_activations/expected_log_softmax.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x_2d.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_log_softmax.bin",
+    );
     let n_total = x.len();
     let n_rows = LOG_SOFTMAX_ROWS;
     let n_cols = LOG_SOFTMAX_COLS_VAL;
@@ -409,9 +429,15 @@ fn test_log_softmax_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let y = load_fixture("extra_activations/expected_log_softmax.bin");
-    let dy = load_fixture("extra_activations/dy_2d.bin");
-    let expected = load_fixture("extra_activations/expected_log_softmax_backward.bin");
+    let y = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_log_softmax.bin",
+    );
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/dy_2d.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_log_softmax_backward.bin",
+    );
     let n_total = y.len();
     let n_rows = LOG_SOFTMAX_ROWS;
     let n_cols = LOG_SOFTMAX_COLS_VAL;
@@ -463,8 +489,11 @@ fn test_thresholded_relu_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let expected = load_fixture("extra_activations/expected_thresholded_relu.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_thresholded_relu.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let y_buf = device.buffer::<f32>(n)?;
@@ -504,9 +533,12 @@ fn test_thresholded_relu_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let dy = load_fixture("extra_activations/dy.bin");
-    let expected = load_fixture("extra_activations/expected_thresholded_relu_backward.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_thresholded_relu_backward.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let mut dy_buf = device.buffer::<f32>(n)?;
@@ -552,8 +584,11 @@ fn test_shrink_forward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let expected = load_fixture("extra_activations/expected_shrink.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_shrink.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let y_buf = device.buffer::<f32>(n)?;
@@ -594,9 +629,12 @@ fn test_shrink_backward_gpu() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;
-    let x = load_fixture("extra_activations/x.bin");
-    let dy = load_fixture("extra_activations/dy.bin");
-    let expected = load_fixture("extra_activations/expected_shrink_backward.bin");
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
+    let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "extra_activations/expected_shrink_backward.bin",
+    );
     let n = x.len();
     let mut x_buf = device.buffer::<f32>(n)?;
     let mut dy_buf = device.buffer::<f32>(n)?;

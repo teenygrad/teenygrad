@@ -9,7 +9,8 @@ members = [
   "drivers/*",
   "utilities/*",
   "apps/*",
-  "compiler/*"]
+  "compiler/*",
+  "testing/*"]
 
 [workspace.package]
 version = "0.2.1"
@@ -34,6 +35,8 @@ teeny-compiler = { path = "compiler/teeny-compiler", version = "0.2.1" }
 teeny-cuda = { path = "drivers/teeny-cuda", version = "0.2.1" }
 teeny-riscv = { path = "drivers/teeny-riscv", version = "0.2.1" }
 teeny-vision = { path = "models/teeny-vision", version = "0.2.1" }
+# No version requirement: never published (publish = false), workspace-internal test support only.
+teeny-test = { path = "testing/teeny-test" }
 
 anyhow = { version = "1.0.100", default-features = false }
 thiserror = { version = "2.0.18", default-features = false }

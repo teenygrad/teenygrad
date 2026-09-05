@@ -23,8 +23,10 @@ use teeny_core::device::program::Kernel;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 
 #[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 // ── No-padding constants ─────────────────────────────────────────────────────
 const B: usize = 1;
@@ -106,9 +108,9 @@ fn test_conv1d_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("conv1d/x.bin");
-    let w_host = load_fixture("conv1d/w.bin");
-    let expected = load_fixture("conv1d/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/x.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/w.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/expected_forward.bin");
     let mut y_host = vec![0.0f32; B * C_OUT * OL];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -170,9 +172,9 @@ fn test_conv1d_backward_dx_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("conv1d/dy.bin");
-    let w_host = load_fixture("conv1d/w.bin");
-    let expected = load_fixture("conv1d/expected_dx.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/dy.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/w.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/expected_dx.bin");
     let mut dx_host = vec![0.0f32; B * C_IN * L];
 
     let mut dy_buf = device.buffer::<f32>(B * C_OUT * OL)?;
@@ -233,9 +235,9 @@ fn test_conv1d_backward_dw_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("conv1d/x.bin");
-    let dy_host = load_fixture("conv1d/dy.bin");
-    let expected = load_fixture("conv1d/expected_dw.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/expected_dw.bin");
     let mut dw_host = vec![0.0f32; C_OUT * C_IN * KL as usize];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -300,9 +302,12 @@ fn test_conv1d_padded_forward_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("conv1d_padded/x.bin");
-    let w_host = load_fixture("conv1d_padded/w.bin");
-    let expected = load_fixture("conv1d_padded/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/x.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/w.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "conv1d_padded/expected_forward.bin",
+    );
     let mut y_host = vec![0.0f32; B * C_OUT * OL_P];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -364,9 +369,9 @@ fn test_conv1d_padded_backward_dx_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let dy_host = load_fixture("conv1d_padded/dy.bin");
-    let w_host = load_fixture("conv1d_padded/w.bin");
-    let expected = load_fixture("conv1d_padded/expected_dx.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/dy.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/w.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/expected_dx.bin");
     let mut dx_host = vec![0.0f32; B * C_IN * L];
 
     let mut dy_buf = device.buffer::<f32>(B * C_OUT * OL_P)?;
@@ -427,9 +432,9 @@ fn test_conv1d_padded_backward_dw_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("conv1d_padded/x.bin");
-    let dy_host = load_fixture("conv1d_padded/dy.bin");
-    let expected = load_fixture("conv1d_padded/expected_dw.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/expected_dw.bin");
     let mut dw_host = vec![0.0f32; C_OUT * C_IN * KL as usize];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;

@@ -23,8 +23,10 @@ use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_core::device::{Device, buffer::Buffer};
 #[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+use teeny_cuda::{device::CudaLaunchConfig, errors::Result};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+use teeny_test::load_fixture;
 
 const M: usize = 16;
 const N: usize = 128;
@@ -98,10 +100,10 @@ fn test_layer_norm_inference_cuda() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
 
-    let x_host = load_fixture("layernorm/x.bin");
-    let weight_host = load_fixture("layernorm/weight.bin");
-    let bias_host = load_fixture("layernorm/bias.bin");
-    let expected = load_fixture("layernorm/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "layernorm/x.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "layernorm/weight.bin");
+    let bias_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "layernorm/bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "layernorm/expected_forward.bin");
     let mut y_host = vec![0.0f32; M * N];
 
     let mut x_buf = device.buffer::<f32>(M * N)?;

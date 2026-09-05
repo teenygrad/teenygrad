@@ -126,7 +126,7 @@ const WARMUP: usize = 5;
 const ITERS: usize = 30;
 
 fn main() -> Result<()> {
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
     let target = Target::new(env.capability);
 
@@ -158,8 +158,8 @@ fn throughput(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target) -> R
 
             let k = <$ktype>::new(256);
             let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
-            let prog = teeny_cuda::testing::load_program_from_ptx::<$ktype>(&ptx)?;
-            let cfg = teeny_cuda::testing::launch_config_with_grid(N.div_ceil(256), &prog);
+            let prog = teeny_test::cuda::load_program_from_ptx::<$ktype>(&ptx)?;
+            let cfg = teeny_test::cuda::launch_config_with_grid(N.div_ceil(256), &prog);
             let args = (
                 a.as_device_ptr() as *mut $ty,
                 b.as_device_ptr() as *mut $ty,
@@ -213,8 +213,8 @@ fn reproducibility(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target)
 
         let k = PartialSum::<f32>::new(block);
         let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
-        let prog = teeny_cuda::testing::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
-        let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &prog);
+        let prog = teeny_test::cuda::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
+        let cfg = teeny_test::cuda::launch_config_with_grid(grid, &prog);
         device.launch(
             &prog,
             &cfg,
@@ -268,8 +268,8 @@ fn accumulator(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target) -> 
 
     let k = PartialSum::<f32>::new(block);
     let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
-    let prog = teeny_cuda::testing::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
-    let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &prog);
+    let prog = teeny_test::cuda::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
+    let cfg = teeny_test::cuda::launch_config_with_grid(grid, &prog);
     device.launch(
         &prog,
         &cfg,
