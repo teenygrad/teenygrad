@@ -52,7 +52,7 @@ mod schedule;
 mod tile_graph;
 mod trace;
 
-pub use codegen::{DagCodegen, ExecuteDevice, codegen};
+pub use codegen::{AnduinCodegen, ExecuteDevice};
 pub use grid::common_thread_block_size;
 pub use profile::{Profiler, SimpleProfiler};
 pub use schedule::schedule_graph;
@@ -113,7 +113,7 @@ impl Anduin {
     /// `Trace::trace_graph`'s own `executed` bookkeeping, since a node can
     /// be the source of more than one outgoing edge whose resolved
     /// subgraphs overlap.
-    fn schedule(
+    pub fn schedule(
         dag: &Dag<Box<dyn ExecutableOp>>,
         hardware: &HardwareProfile,
     ) -> Result<(TileGraph, Vec<Trace>)> {
@@ -152,11 +152,9 @@ impl Anduin {
         dag: Dag<Box<dyn ExecutableOp>>,
         traces: &[Trace],
     ) -> (Dag<Box<dyn ExecutableOp>>, Vec<usize>) {
-        let mut codegen_device = DagCodegen::new(dag);
-        for trace in traces {
-            codegen::codegen(&trace.events, &mut codegen_device);
-        }
-        codegen_device.into_dag()
+        let mut codegen = AnduinCodegen::default();
+        codegen.codegen(&traces[0].events);
+        todo!("implement codegen");
     }
 }
 
@@ -170,7 +168,7 @@ mod tests {
     use teeny_core::graph::{DtypeRepr, Graph, Op};
     use teeny_core::model::{LoweringMode, RuntimeOp};
 
-    use crate::testing::orin_nano_hardware_profile;
+    use crate::testing::hardware_profile::{nvidia_rtx5070, orin_nano};
 
     #[test]
     fn two_pointwise_then_reduction_then_pointwise_preserves_chain() {
@@ -205,7 +203,7 @@ mod tests {
         // two-level hardware profile: the full [2048, 4096] F32 tile is
         // bigger than shared memory but comfortably smaller than device
         // memory.
-        let profile = orin_nano_hardware_profile();
+        let profile = orin_nano();
 
         let lowering = TritonLowering::default();
         let (dag, mapping, _) = lowering
@@ -300,7 +298,7 @@ mod tests {
         );
         graph.add_node(Op::Silu, vec![bn], DtypeRepr::F32, out_shape);
 
-        let profile = orin_nano_hardware_profile();
+        let profile = orin_nano();
         let lowering = TritonLowering::default();
         let (dag, _mapping, _) = lowering
             .lower_with_mapping(&graph, LoweringMode::Inference)
@@ -442,7 +440,7 @@ mod tests {
         );
         graph.add_node(Op::Relu, vec![reduce_sum], DtypeRepr::F32, reduced_shape);
 
-        let profile = orin_nano_hardware_profile();
+        let profile = orin_nano();
         let lowering = TritonLowering::default();
         let (dag, _mapping, _) = lowering
             .lower_with_mapping(&graph, LoweringMode::Inference)
@@ -479,6 +477,59 @@ mod tests {
             compute_tiles.contains(&0),
             "expected input (node 0) to still be computed somewhere in the trace, \
              got: {compute_tiles:?}"
+        );
+    }
+
+    #[test]
+    fn relu_then_silu_schedule_covers_relu_and_silu_for_codegen() {
+        // input -> relu -> silu — the same graph as
+        // `tests/test_fused_pointwise.rs` (the DagCodegen acceptance test).
+        // `N` matches that test's `N_FUSED`. The integration test drives
+        // `Anduin::optimize` end-to-end on real CUDA hardware; here we lock
+        // in the schedule half: relu (node 1) and silu (node 2) are the
+        // two `compute_tile` bodies `DagCodegen` must splice into one
+        // fused kernel once teenygrad-1nr.19–24 land.
+        const N: usize = 262144;
+        let mut graph = Graph::new();
+        let shape = vec![Some(1), Some(N)];
+
+        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape.clone());
+        let relu = graph.add_node(Op::Relu, vec![input], DtypeRepr::F32, shape.clone());
+        graph.add_node(Op::Silu, vec![relu], DtypeRepr::F32, shape);
+
+        let profile = nvidia_rtx5070();
+        let lowering = TritonLowering::default();
+        let (dag, _mapping, _) = lowering
+            .lower_with_mapping(&graph, LoweringMode::Inference)
+            .expect("lowering should not fail here");
+
+        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile).unwrap();
+
+        assert_eq!(traces.len(), 1);
+
+        let virtual_nodes = virtual_nodes(&traces[0].events);
+        assert!(
+            virtual_nodes
+                .iter()
+                .any(|&(nodes, _)| nodes.contains(&1) && nodes.contains(&2)),
+            "expected relu+silu (nodes 1 and 2) to appear together in a \
+             virtual node — the 2-node group `tests/test_fused_pointwise.rs` \
+             drives DagCodegen against, got: {virtual_nodes:?}"
+        );
+
+        let compute_tiles: Vec<NodeId> = traces[0]
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                TraceEvent::ComputeTile { node } => Some(*node),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            compute_tiles.windows(2).any(|window| window == [1, 2]),
+            "expected relu (1) then silu (2) as consecutive compute_tile \
+             events — the tile-op bodies DagCodegen must splice, got: \
+             {compute_tiles:?}"
         );
     }
 }

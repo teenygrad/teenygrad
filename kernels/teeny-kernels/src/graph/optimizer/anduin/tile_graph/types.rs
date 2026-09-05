@@ -125,7 +125,7 @@ fn dtype_bytes(dtype: DtypeRepr) -> u64 {
 /// dereferenced via [`super::TileGraph::edge`]/[`super::TileGraph::connect_level`]
 /// and mutated via [`super::TileGraph::set_connect`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EdgeId(pub(super) usize);
+pub struct EdgeId(pub(crate) usize);
 
 /// One arena slot: a [`TileEdge`] plus the node indices of its endpoints.
 /// `producer`/`consumer` are `None` exactly when this edge is a

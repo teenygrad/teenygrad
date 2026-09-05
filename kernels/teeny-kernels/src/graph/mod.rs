@@ -27,9 +27,9 @@ use teeny_core::{
 pub mod optimizer;
 
 pub use optimizer::{
-    Anduin, DagCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
+    Anduin, AnduinCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
     SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp, Trace,
-    TraceEvent, codegen, common_thread_block_size, schedule_graph,
+    TraceEvent, common_thread_block_size, schedule_graph,
 };
 
 use crate::nn::{

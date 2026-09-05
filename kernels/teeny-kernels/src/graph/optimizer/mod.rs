@@ -23,9 +23,9 @@
 mod anduin;
 
 pub use anduin::{
-    Anduin, DagCodegen, EdgeId, ExecuteDevice, NodeId, Profiler, SimpleProfiler,
+    Anduin, AnduinCodegen, EdgeId, ExecuteDevice, NodeId, Profiler, SimpleProfiler,
     SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp, Trace,
-    TraceEvent, codegen, common_thread_block_size, schedule_graph,
+    TraceEvent, common_thread_block_size, schedule_graph,
 };
 
 use teeny_core::device::hardware::HardwareProfile;
