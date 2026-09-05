@@ -19,24 +19,29 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
 // RAdam hyperparameters (must match generate.py)
+#[cfg(feature = "hardware")]
 const LR: f32 = 0.001;
+#[cfg(feature = "hardware")]
 const BETA1: f32 = 0.9;
+#[cfg(feature = "hardware")]
 const BETA2: f32 = 0.999;
+#[cfg(feature = "hardware")]
 const EPS: f32 = 1e-8;
+#[cfg(feature = "hardware")]
 const WD: f32 = 1e-4;
 
+#[cfg(feature = "hardware")]
 fn radam_adaptive_scalars(step: i32) -> (f32, f32) {
     let rho_inf: f32 = 2.0 / (1.0 - BETA2) - 1.0;
     let bc1 = 1.0 - BETA1.powi(step);
@@ -50,6 +55,7 @@ fn radam_adaptive_scalars(step: i32) -> (f32, f32) {
     (step_size, bc2_sqrt)
 }
 
+#[cfg(feature = "hardware")]
 fn radam_sgd_scalars(step: i32) -> f32 {
     let bc1 = 1.0 - BETA1.powi(step);
     LR / bc1
@@ -61,11 +67,19 @@ fn radam_sgd_scalars(step: i32) -> f32 {
 fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("radam_adaptive_step_source", kernel.source());
-    assert_debug_snapshot!("radam_adaptive_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("radam_adaptive_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("radam_adaptive_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -73,57 +87,87 @@ fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
 fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("radam_sgd_step_source", kernel.source());
-    assert_debug_snapshot!("radam_sgd_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("radam_sgd_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("radam_sgd_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA: RAdam adaptive (step=100, rho_t > 5) ────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_radam_adaptive_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_radam_adaptive_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
     let (step_size, bc2_sqrt) = radam_adaptive_scalars(100);
 
-    let params_in = load_fixture("optim_radam/radam_adap_params_in.bin");
-    let grad = load_fixture("optim_radam/radam_adap_grad.bin");
-    let exp_avg_in = load_fixture("optim_radam/radam_adap_exp_avg_in.bin");
-    let exp_avg_sq_in = load_fixture("optim_radam/radam_adap_exp_avg_sq_in.bin");
-    let params_ex = load_fixture("optim_radam/radam_adap_params_out.bin");
-    let exp_avg_ex = load_fixture("optim_radam/radam_adap_exp_avg_out.bin");
-    let exp_avg_sq_ex = load_fixture("optim_radam/radam_adap_exp_avg_sq_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_params_in.bin",
+    );
+    let grad = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_grad.bin",
+    );
+    let exp_avg_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_exp_avg_in.bin",
+    );
+    let exp_avg_sq_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_exp_avg_sq_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_params_out.bin",
+    );
+    let exp_avg_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_exp_avg_out.bin",
+    );
+    let exp_avg_sq_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_adap_exp_avg_sq_out.bin",
+    );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_sq_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_sq_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     exp_avg_buf.to_device(&exp_avg_in)?;
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::radam::RadamAdaptiveStep>(&ptx)?;
-    env.device.launch(
+    )?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::optim::radam::RadamAdaptiveStep>(
+        &ptx_path,
+    )?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            exp_avg_buf.as_device_ptr() as *mut f32,
-            exp_avg_sq_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            exp_avg_buf.as_device_ptr(),
+            exp_avg_sq_buf.as_device_ptr(),
             N as i32,
             step_size,
             bc2_sqrt,
@@ -166,46 +210,64 @@ fn test_radam_adaptive_step_cuda() -> Result<()> {
 // ── CUDA: RAdam SGD fallback (step=1, rho_t <= 5) ─────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_radam_sgd_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_radam_sgd_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
     let step_size = radam_sgd_scalars(1);
 
-    let params_in = load_fixture("optim_radam/radam_sgd_params_in.bin");
-    let grad = load_fixture("optim_radam/radam_sgd_grad.bin");
-    let exp_avg_in = load_fixture("optim_radam/radam_sgd_exp_avg_in.bin");
-    let exp_avg_sq_in = load_fixture("optim_radam/radam_sgd_exp_avg_sq_in.bin");
-    let params_ex = load_fixture("optim_radam/radam_sgd_params_out.bin");
-    let exp_avg_ex = load_fixture("optim_radam/radam_sgd_exp_avg_out.bin");
-    let exp_avg_sq_ex = load_fixture("optim_radam/radam_sgd_exp_avg_sq_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_sgd_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_radam/radam_sgd_grad.bin");
+    let exp_avg_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_sgd_exp_avg_in.bin",
+    );
+    let exp_avg_sq_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_sgd_exp_avg_sq_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_sgd_params_out.bin",
+    );
+    let exp_avg_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_sgd_exp_avg_out.bin",
+    );
+    let exp_avg_sq_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_radam/radam_sgd_exp_avg_sq_out.bin",
+    );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_sq_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_sq_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     exp_avg_buf.to_device(&exp_avg_in)?;
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
+    )?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::radam::RadamSgdStep>(&ptx)?;
-    env.device.launch(
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::radam::RadamSgdStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            exp_avg_buf.as_device_ptr() as *mut f32,
-            exp_avg_sq_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            exp_avg_buf.as_device_ptr(),
+            exp_avg_sq_buf.as_device_ptr(),
             N as i32,
             step_size,
             BETA1,

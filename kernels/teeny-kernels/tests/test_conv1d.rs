@@ -17,30 +17,38 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
 // ── No-padding constants ─────────────────────────────────────────────────────
+#[cfg(feature = "hardware")]
 const B: usize = 1;
+#[cfg(feature = "hardware")]
 const C_IN: usize = 2;
+#[cfg(feature = "hardware")]
 const C_OUT: usize = 4;
+#[cfg(feature = "hardware")]
 const L: usize = 16;
 const KL: i32 = 3;
 const STRIDE: i32 = 1;
 const PAD: i32 = 0;
+#[cfg(feature = "hardware")]
 const OL: usize = (L + 2 * PAD as usize - KL as usize) / STRIDE as usize + 1; // 14
 const BLOCK_OL: i32 = 8;
 
 // ── Same-padding constants (PAD=1, same spatial size) ────────────────────────
+#[cfg(feature = "hardware")]
 const PAD_P: i32 = 1;
+#[cfg(feature = "hardware")]
 const OL_P: usize = (L + 2 * PAD_P as usize - KL as usize) / STRIDE as usize + 1; // 16
 
+#[cfg(feature = "hardware")]
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 // ---------------------------------------------------------------------------
@@ -48,49 +56,73 @@ const PTX_LAUNCH_THREADS_X: u32 = 128;
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_conv1d_forward_mlir_output() -> Result<()> {
+fn test_conv1d_forward_mlir_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dForward::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("conv1d_forward_source", kernel.source());
-    assert_debug_snapshot!("conv1d_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("conv1d_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("conv1d_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_conv1d_backward_dx_mlir_output() -> Result<()> {
+fn test_conv1d_backward_dx_mlir_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("conv1d_backward_dx_source", kernel.source());
-    assert_debug_snapshot!("conv1d_backward_dx_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("conv1d_backward_dx_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("conv1d_backward_dx_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_conv1d_backward_dw_mlir_output() -> Result<()> {
+fn test_conv1d_backward_dw_mlir_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("conv1d_backward_dw_source", kernel.source());
-    assert_debug_snapshot!("conv1d_backward_dw_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("conv1d_backward_dw_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("conv1d_backward_dw_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
 
     Ok(())
 }
@@ -100,15 +132,14 @@ fn test_conv1d_backward_dw_mlir_output() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv1d_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv1d_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let x_host = load_fixture("conv1d/x.bin");
-    let w_host = load_fixture("conv1d/w.bin");
-    let expected = load_fixture("conv1d/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/x.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/w.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/expected_forward.bin");
     let mut y_host = vec![0.0f32; B * C_OUT * OL];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -120,27 +151,26 @@ fn test_conv1d_forward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dForward::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[conv1d_forward] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::conv::conv1d::Conv1dForward<f32>,
-    >(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::conv::conv1d::Conv1dForward<f32>>(
+        &ptx_path,
+    )?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);
     let grid_size = B * C_OUT * num_ol_tiles;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_size as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_size as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        x_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        y_buf.as_device_ptr(),
         B as i32,
         C_IN as i32,
         C_OUT as i32,
@@ -164,15 +194,14 @@ fn test_conv1d_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv1d_backward_dx_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv1d_backward_dx_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("conv1d/dy.bin");
-    let w_host = load_fixture("conv1d/w.bin");
-    let expected = load_fixture("conv1d/expected_dx.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/dy.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/w.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/expected_dx.bin");
     let mut dx_host = vec![0.0f32; B * C_IN * L];
 
     let mut dy_buf = device.buffer::<f32>(B * C_OUT * OL)?;
@@ -184,26 +213,25 @@ fn test_conv1d_backward_dx_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);
     let grid_size = B * C_OUT * num_ol_tiles;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_size as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_size as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         B as i32,
         C_IN as i32,
         C_OUT as i32,
@@ -227,15 +255,14 @@ fn test_conv1d_backward_dx_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv1d_backward_dw_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv1d_backward_dw_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let x_host = load_fixture("conv1d/x.bin");
-    let dy_host = load_fixture("conv1d/dy.bin");
-    let expected = load_fixture("conv1d/expected_dw.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d/expected_dw.bin");
     let mut dw_host = vec![0.0f32; C_OUT * C_IN * KL as usize];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -247,26 +274,25 @@ fn test_conv1d_backward_dw_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw::<f32>::new(KL, STRIDE, PAD, BLOCK_OL);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);
     let grid_size = B * C_OUT * num_ol_tiles;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_size as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_size as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dw_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        x_buf.as_device_ptr(),
+        dw_buf.as_device_ptr(),
         B as i32,
         C_IN as i32,
         C_OUT as i32,
@@ -294,15 +320,17 @@ fn test_conv1d_backward_dw_cuda() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv1d_padded_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv1d_padded_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let x_host = load_fixture("conv1d_padded/x.bin");
-    let w_host = load_fixture("conv1d_padded/w.bin");
-    let expected = load_fixture("conv1d_padded/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/x.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/w.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "conv1d_padded/expected_forward.bin",
+    );
     let mut y_host = vec![0.0f32; B * C_OUT * OL_P];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -314,27 +342,26 @@ fn test_conv1d_padded_forward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dForward::<f32>::new(KL, STRIDE, PAD_P, BLOCK_OL);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[conv1d_padded_forward] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::conv::conv1d::Conv1dForward<f32>,
-    >(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::conv::conv1d::Conv1dForward<f32>>(
+        &ptx_path,
+    )?;
 
     let num_ol_tiles = OL_P.div_ceil(BLOCK_OL as usize);
     let grid_size = B * C_OUT * num_ol_tiles;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_size as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_size as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        x_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        y_buf.as_device_ptr(),
         B as i32,
         C_IN as i32,
         C_OUT as i32,
@@ -358,15 +385,14 @@ fn test_conv1d_padded_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv1d_padded_backward_dx_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv1d_padded_backward_dx_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("conv1d_padded/dy.bin");
-    let w_host = load_fixture("conv1d_padded/w.bin");
-    let expected = load_fixture("conv1d_padded/expected_dx.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/dy.bin");
+    let w_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/w.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/expected_dx.bin");
     let mut dx_host = vec![0.0f32; B * C_IN * L];
 
     let mut dy_buf = device.buffer::<f32>(B * C_OUT * OL_P)?;
@@ -378,26 +404,25 @@ fn test_conv1d_padded_backward_dx_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx::<f32>::new(KL, STRIDE, PAD_P, BLOCK_OL);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDx<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ol_tiles = OL_P.div_ceil(BLOCK_OL as usize);
     let grid_size = B * C_OUT * num_ol_tiles;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_size as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_size as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         B as i32,
         C_IN as i32,
         C_OUT as i32,
@@ -421,15 +446,14 @@ fn test_conv1d_padded_backward_dx_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv1d_padded_backward_dw_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv1d_padded_backward_dw_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let x_host = load_fixture("conv1d_padded/x.bin");
-    let dy_host = load_fixture("conv1d_padded/dy.bin");
-    let expected = load_fixture("conv1d_padded/expected_dw.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "conv1d_padded/expected_dw.bin");
     let mut dw_host = vec![0.0f32; C_OUT * C_IN * KL as usize];
 
     let mut x_buf = device.buffer::<f32>(B * C_IN * L)?;
@@ -441,26 +465,25 @@ fn test_conv1d_padded_backward_dw_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw::<f32>::new(KL, STRIDE, PAD_P, BLOCK_OL);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::conv::conv1d::Conv1dBackwardDw<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ol_tiles = OL_P.div_ceil(BLOCK_OL as usize);
     let grid_size = B * C_OUT * num_ol_tiles;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_size as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_size as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        x_buf.as_device_ptr() as *mut f32,
-        dw_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        x_buf.as_device_ptr(),
+        dw_buf.as_device_ptr(),
         B as i32,
         C_IN as i32,
         C_OUT as i32,

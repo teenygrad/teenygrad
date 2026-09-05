@@ -19,14 +19,13 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
@@ -36,11 +35,19 @@ const BLOCK_SIZE: i32 = 128;
 fn test_tanh_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::tanh::TanhForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("tanh_forward_source", kernel.source());
-    assert_debug_snapshot!("tanh_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("tanh_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("tanh_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -48,47 +55,51 @@ fn test_tanh_mlir() -> anyhow::Result<()> {
 fn test_tanhshrink_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("tanhshrink_forward_source", kernel.source());
-    assert_debug_snapshot!("tanhshrink_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("tanhshrink_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("tanhshrink_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA: Tanh ────────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_tanh_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_tanh_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanh/x.bin");
-    let expected = load_fixture("tanh/expected_forward.bin");
+    let device = teeny_runtime::open()?;
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/x.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/expected_forward.bin");
     let mut y_host = vec![0.0f32; N];
 
-    let mut x_buf = env.device.buffer::<f32>(N)?;
-    let y_buf = env.device.buffer::<f32>(N)?;
+    let mut x_buf = device.buffer::<f32>(N)?;
+    let y_buf = device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<
+    )?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::tanh::TanhForward<f32>,
-    >(&ptx)?;
-    env.device.launch(
+    >(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
-        (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            N as i32,
-        ),
+        &teeny_runtime::launch_config(N, &program),
+        (x_buf.as_device_ptr(), y_buf.as_device_ptr(), N as i32),
     )?;
     y_buf.to_host(&mut y_host)?;
 
@@ -104,41 +115,41 @@ fn test_tanh_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_tanh_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_tanh_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanh/x.bin");
-    let dy_host = load_fixture("tanh/dy.bin");
-    let expected = load_fixture("tanh/expected_backward.bin");
+    let device = teeny_runtime::open()?;
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/dy.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N];
 
     // Compute y = tanh(x) for backward input
     let y_host: Vec<f32> = x_host.iter().map(|&x| x.tanh()).collect();
 
-    let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut y_buf = env.device.buffer::<f32>(N)?;
-    let dx_buf = env.device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
+    let mut y_buf = device.buffer::<f32>(N)?;
+    let dx_buf = device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     y_buf.to_device(&y_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<
+    )?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::tanh::TanhBackward<f32>,
-    >(&ptx)?;
-    env.device.launch(
+    >(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
             N as i32,
         ),
     )?;
@@ -158,36 +169,35 @@ fn test_tanh_backward_cuda() -> Result<()> {
 // ── CUDA: Tanhshrink ──────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_tanhshrink_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_tanhshrink_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanhshrink/x.bin");
-    let expected = load_fixture("tanhshrink/expected_forward.bin");
+    let device = teeny_runtime::open()?;
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "tanhshrink/expected_forward.bin",
+    );
     let mut y_host = vec![0.0f32; N];
 
-    let mut x_buf = env.device.buffer::<f32>(N)?;
-    let y_buf = env.device.buffer::<f32>(N)?;
+    let mut x_buf = device.buffer::<f32>(N)?;
+    let y_buf = device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<
+    )?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::tanh::TanhshrinkForward<f32>,
-    >(&ptx)?;
-    env.device.launch(
+    >(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
-        (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            N as i32,
-        ),
+        &teeny_runtime::launch_config(N, &program),
+        (x_buf.as_device_ptr(), y_buf.as_device_ptr(), N as i32),
     )?;
     y_buf.to_host(&mut y_host)?;
 
@@ -203,44 +213,47 @@ fn test_tanhshrink_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_tanhshrink_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_tanhshrink_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let x_host = load_fixture("tanhshrink/x.bin");
-    let dy_host = load_fixture("tanhshrink/dy.bin");
-    let expected = load_fixture("tanhshrink/expected_backward.bin");
+    let device = teeny_runtime::open()?;
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "tanhshrink/expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
     // y = x - tanh(x)
     let y_host: Vec<f32> = x_host.iter().map(|&x| x - x.tanh()).collect();
 
-    let mut dy_buf = env.device.buffer::<f32>(N)?;
-    let mut x_buf = env.device.buffer::<f32>(N)?;
-    let mut y_buf = env.device.buffer::<f32>(N)?;
-    let dx_buf = env.device.buffer::<f32>(N)?;
+    let mut dy_buf = device.buffer::<f32>(N)?;
+    let mut x_buf = device.buffer::<f32>(N)?;
+    let mut y_buf = device.buffer::<f32>(N)?;
+    let dx_buf = device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
     x_buf.to_device(&x_host)?;
     y_buf.to_device(&y_host)?;
 
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkBackward::<f32>::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<
+    )?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::tanh::TanhshrinkBackward<f32>,
-    >(&ptx)?;
-    env.device.launch(
+    >(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
             N as i32,
         ),
     )?;

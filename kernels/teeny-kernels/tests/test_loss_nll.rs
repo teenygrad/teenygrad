@@ -17,35 +17,38 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::{load_fixture, load_fixture_i32};
+#[cfg(feature = "hardware")]
+use teeny_test::{load_fixture, load_fixture_i32};
 
+#[cfg(feature = "hardware")]
 const N_ROWS: usize = 64;
+#[cfg(feature = "hardware")]
 const N_COLS: usize = 16;
 const BLOCK_SIZE_CE: i32 = 16; // next_power_of_two(N_COLS)
+#[cfg(feature = "hardware")]
 const N_MLSM: usize = 1024;
 const BLOCK_SIZE_MLSM: i32 = 1024;
+#[cfg(feature = "hardware")]
 const PTX_THREADS: u32 = 128;
 
-fn row_launch_cfg() -> CudaLaunchConfig {
-    CudaLaunchConfig {
-        grid: [N_ROWS as u32, 1, 1],
-        block: [PTX_THREADS, 1, 1],
-        cluster: [1, 1, 1],
-    }
+#[cfg(feature = "hardware")]
+fn row_launch_cfg() -> teeny_runtime::LaunchConfig {
+    teeny_runtime::launch_config_custom([N_ROWS as u32, 1, 1], [PTX_THREADS, 1, 1], [1, 1, 1])
 }
 
-fn mlsm_launch_cfg() -> CudaLaunchConfig {
-    CudaLaunchConfig {
-        grid: [(N_MLSM as u32).div_ceil(BLOCK_SIZE_MLSM as u32), 1, 1],
-        block: [PTX_THREADS, 1, 1],
-        cluster: [1, 1, 1],
-    }
+#[cfg(feature = "hardware")]
+fn mlsm_launch_cfg() -> teeny_runtime::LaunchConfig {
+    teeny_runtime::launch_config_custom(
+        [(N_MLSM as u32).div_ceil(BLOCK_SIZE_MLSM as u32), 1, 1],
+        [PTX_THREADS, 1, 1],
+        [1, 1, 1],
+    )
 }
 
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
@@ -54,11 +57,19 @@ fn mlsm_launch_cfg() -> CudaLaunchConfig {
 fn test_nll_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::nll::NllLossForward::new();
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("nll_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("nll_loss_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("nll_loss_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("nll_loss_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -66,11 +77,25 @@ fn test_nll_loss_mlir() -> anyhow::Result<()> {
 fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("cross_entropy_loss_forward_source", kernel.source());
-    assert_debug_snapshot!("cross_entropy_loss_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "cross_entropy_loss_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "cross_entropy_loss_forward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -79,29 +104,42 @@ fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel =
         teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
     assert_debug_snapshot!(
-        "multilabel_soft_margin_loss_forward_source",
+        format!(
+            "multilabel_soft_margin_loss_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
         kernel.source()
     );
-    assert_debug_snapshot!("multilabel_soft_margin_loss_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "multilabel_soft_margin_loss_forward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA integration tests ────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_nll_loss_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_nll_loss_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let lp_host = load_fixture("loss_nll/nll_log_probs.bin");
-    let tgt_host = load_fixture_i32("loss_nll/nll_targets.bin");
-    let expected = load_fixture("loss_nll/nll_expected_forward.bin");
+    let lp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/nll_log_probs.bin");
+    let tgt_host = load_fixture_i32(env!("CARGO_MANIFEST_DIR"), "loss_nll/nll_targets.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_nll/nll_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N_ROWS];
 
     let mut lp_buf = device.buffer::<f32>(N_ROWS * N_COLS)?;
@@ -111,15 +149,15 @@ fn test_nll_loss_forward_cuda() -> Result<()> {
     tgt_buf.to_device(&tgt_host)?;
 
     let kernel = teeny_kernels::nn::loss::nll::NllLossForward::new();
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::NllLossForward>(&ptx)?;
+        teeny_runtime::load_program::<teeny_kernels::nn::loss::nll::NllLossForward>(&ptx_path)?;
 
     let args = (
-        lp_buf.as_device_ptr() as *mut f32,
-        tgt_buf.as_device_ptr() as *mut i32,
-        out_buf.as_device_ptr() as *mut f32,
+        lp_buf.as_device_ptr(),
+        tgt_buf.as_device_ptr(),
+        out_buf.as_device_ptr(),
         N_ROWS as i32,
         N_COLS as i32,
     );
@@ -138,15 +176,17 @@ fn test_nll_loss_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_nll_loss_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_nll_loss_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("loss_nll/nll_dy.bin");
-    let tgt_host = load_fixture_i32("loss_nll/nll_targets.bin");
-    let expected = load_fixture("loss_nll/nll_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/nll_dy.bin");
+    let tgt_host = load_fixture_i32(env!("CARGO_MANIFEST_DIR"), "loss_nll/nll_targets.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_nll/nll_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N_ROWS * N_COLS];
 
     let mut dy_buf = device.buffer::<f32>(N_ROWS)?;
@@ -157,15 +197,15 @@ fn test_nll_loss_backward_cuda() -> Result<()> {
     dx_buf.to_device(&vec![0.0f32; N_ROWS * N_COLS])?; // kernel only writes target column
 
     let kernel = teeny_kernels::nn::loss::nll::NllLossBackward::new();
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::loss::nll::NllLossBackward>(&ptx)?;
+        teeny_runtime::load_program::<teeny_kernels::nn::loss::nll::NllLossBackward>(&ptx_path)?;
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        tgt_buf.as_device_ptr() as *mut i32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        tgt_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         N_ROWS as i32,
         N_COLS as i32,
     );
@@ -184,15 +224,17 @@ fn test_nll_loss_backward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_cross_entropy_loss_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_cross_entropy_loss_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let inp_host = load_fixture("loss_nll/ce_input.bin");
-    let tgt_host = load_fixture_i32("loss_nll/ce_targets.bin");
-    let expected = load_fixture("loss_nll/ce_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/ce_input.bin");
+    let tgt_host = load_fixture_i32(env!("CARGO_MANIFEST_DIR"), "loss_nll/ce_targets.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_nll/ce_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N_ROWS];
 
     let mut inp_buf = device.buffer::<f32>(N_ROWS * N_COLS)?;
@@ -202,16 +244,16 @@ fn test_cross_entropy_loss_forward_cuda() -> Result<()> {
     tgt_buf.to_device(&tgt_host)?;
 
     let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::loss::nll::CrossEntropyLossForward,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let args = (
-        inp_buf.as_device_ptr() as *mut f32,
-        tgt_buf.as_device_ptr() as *mut i32,
-        out_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr(),
+        tgt_buf.as_device_ptr(),
+        out_buf.as_device_ptr(),
         N_ROWS as i32,
         N_COLS as i32,
     );
@@ -230,16 +272,18 @@ fn test_cross_entropy_loss_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_cross_entropy_loss_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_cross_entropy_loss_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("loss_nll/ce_dy.bin");
-    let inp_host = load_fixture("loss_nll/ce_input.bin");
-    let tgt_host = load_fixture_i32("loss_nll/ce_targets.bin");
-    let expected = load_fixture("loss_nll/ce_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/ce_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/ce_input.bin");
+    let tgt_host = load_fixture_i32(env!("CARGO_MANIFEST_DIR"), "loss_nll/ce_targets.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_nll/ce_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N_ROWS * N_COLS];
 
     let mut dy_buf = device.buffer::<f32>(N_ROWS)?;
@@ -251,17 +295,17 @@ fn test_cross_entropy_loss_backward_cuda() -> Result<()> {
     tgt_buf.to_device(&tgt_host)?;
 
     let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossBackward::new(BLOCK_SIZE_CE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::loss::nll::CrossEntropyLossBackward,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        inp_buf.as_device_ptr() as *mut f32,
-        tgt_buf.as_device_ptr() as *mut i32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        inp_buf.as_device_ptr(),
+        tgt_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         N_ROWS as i32,
         N_COLS as i32,
     );
@@ -280,15 +324,17 @@ fn test_cross_entropy_loss_backward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_multilabel_soft_margin_loss_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_multilabel_soft_margin_loss_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let inp_host = load_fixture("loss_nll/mlsm_input.bin");
-    let tgt_host = load_fixture("loss_nll/mlsm_target.bin");
-    let expected = load_fixture("loss_nll/mlsm_expected_forward.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/mlsm_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/mlsm_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_nll/mlsm_expected_forward.bin",
+    );
     let mut out_host = vec![0.0f32; N_MLSM];
 
     let mut inp_buf = device.buffer::<f32>(N_MLSM)?;
@@ -299,16 +345,16 @@ fn test_multilabel_soft_margin_loss_forward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let args = (
-        inp_buf.as_device_ptr() as *mut f32,
-        tgt_buf.as_device_ptr() as *mut f32,
-        out_buf.as_device_ptr() as *mut f32,
+        inp_buf.as_device_ptr(),
+        tgt_buf.as_device_ptr(),
+        out_buf.as_device_ptr(),
         N_MLSM as i32,
     );
     device.launch(&program, &mlsm_launch_cfg(), args)?;
@@ -326,16 +372,18 @@ fn test_multilabel_soft_margin_loss_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_multilabel_soft_margin_loss_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_multilabel_soft_margin_loss_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("loss_nll/mlsm_dy.bin");
-    let inp_host = load_fixture("loss_nll/mlsm_input.bin");
-    let tgt_host = load_fixture("loss_nll/mlsm_target.bin");
-    let expected = load_fixture("loss_nll/mlsm_expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/mlsm_dy.bin");
+    let inp_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/mlsm_input.bin");
+    let tgt_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "loss_nll/mlsm_target.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "loss_nll/mlsm_expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N_MLSM];
 
     let mut dy_buf = device.buffer::<f32>(N_MLSM)?;
@@ -348,17 +396,17 @@ fn test_multilabel_soft_margin_loss_backward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossBackward::new(BLOCK_SIZE_MLSM);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossBackward,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        inp_buf.as_device_ptr() as *mut f32,
-        tgt_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        inp_buf.as_device_ptr(),
+        tgt_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         N_MLSM as i32,
     );
     device.launch(&program, &mlsm_launch_cfg(), args)?;

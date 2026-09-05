@@ -13,13 +13,22 @@ categories = ["hardware-support", "science", "external-ffi-bindings"]
 
 [lib]
 
+[features]
+# Executes a compiled kernel under `qemu-riscv64` (see `teeny-test`'s `riscv::qemu` module) --
+# needs a RISC-V cross toolchain and QEMU's user-mode emulator on the host. Compiling for RISC-V
+# itself (this crate's whole purpose) needs neither and is always available.
+qemu = ["teeny-test/riscv", "teeny-test/qemu"]
+
 [dependencies]
 teeny-core.workspace = true
 teeny-compiler.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 libloading.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-test.workspace = true
 dotenv.workspace = true

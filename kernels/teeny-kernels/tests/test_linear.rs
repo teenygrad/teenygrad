@@ -17,17 +17,20 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const M: usize = 64;
+#[cfg(feature = "hardware")]
 const N: usize = 48;
+#[cfg(feature = "hardware")]
 const K: usize = 64;
 const BLOCK_M: i32 = 32;
 const BLOCK_N: i32 = 32;
@@ -35,14 +38,18 @@ const BLOCK_K: i32 = 32;
 const GROUP_M: i32 = 8;
 
 /// Must match `.reqntid` in the generated PTX.
+#[cfg(feature = "hardware")]
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 // TF32 tensor-core precision, not full f32: error scales with the magnitude
 // of the accumulated sum (K=64 here), so atol + rtol * |expected| is used
 // instead of a flat absolute tolerance.
+#[cfg(feature = "hardware")]
 const ATOL: f32 = 1e-1;
+#[cfg(feature = "hardware")]
 const RTOL: f32 = 2e-2;
 
+#[cfg(feature = "hardware")]
 fn tf32_close(actual: f32, expected: f32) -> bool {
     (actual - expected).abs() < ATOL + RTOL * expected.abs()
 }
@@ -50,7 +57,7 @@ fn tf32_close(actual: f32, expected: f32) -> bool {
 /// Naive host-side reference for `LinearForward`: `y = x @ w^T (+ bias)`.
 /// `x` is (M, K) row-major, `w` is (N, K) row-major (PyTorch `nn.Linear`
 /// weight layout — out_features first), `y` is (M, N) row-major.
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 fn linear_reference(
     x: &[f32],
     w: &[f32],
@@ -76,84 +83,121 @@ fn linear_reference(
 }
 
 #[test]
-fn test_linear_mlir_without_bias_output() -> Result<()> {
+fn test_linear_mlir_without_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("linear_source", kernel.source());
-    assert_debug_snapshot!("linear_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("linear_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("linear_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_linear_mlir_with_bias_output() -> Result<()> {
+fn test_linear_mlir_with_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("linear_with_bias_source", kernel.source());
-    assert_debug_snapshot!("linear_with_bias_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("linear_with_bias_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("linear_with_bias_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_linear_backward_mlir_without_bias_output() -> Result<()> {
+fn test_linear_backward_mlir_without_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("linear_backward_source", kernel.source());
-    assert_debug_snapshot!("linear_backward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("linear_backward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("linear_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_linear_backward_mlir_with_bias_output() -> Result<()> {
+fn test_linear_backward_mlir_with_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("linear_backward_with_bias_source", kernel.source());
-    assert_debug_snapshot!("linear_backward_with_bias_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "linear_backward_with_bias_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "linear_backward_with_bias_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_linear_forward_no_bias_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_linear_forward_no_bias_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
     let bias_host = vec![0.0f32; N]; // no-bias kernel ignores the pointer value
-    let expected = load_fixture("linear/expected_no_bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_no_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
 
     let mut in_buf = device.buffer::<f32>(M * K)?;
@@ -168,30 +212,27 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[6/9] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::mlp::linear::LinearForward<f32>>(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::mlp::linear::LinearForward<f32>>(
+        &ptx_path,
+    )?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32) * (N as u32).div_ceil(BLOCK_N as u32);
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
-    println!(
-        "[8/9] launching: grid={:?} block={:?} M={M} N={N} K={K}",
-        cfg.grid, cfg.block,
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
     );
+    println!("[8/9] launching: grid={grid_x} block={PTX_LAUNCH_THREADS_X} M={M} N={N} K={K}",);
 
     let args = (
-        in_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        bias_buf.as_device_ptr() as *mut f32,
-        out_buf.as_device_ptr() as *mut f32,
+        in_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        bias_buf.as_device_ptr(),
+        out_buf.as_device_ptr(),
         M as i32,
         N as i32,
         K as i32,
@@ -227,16 +268,15 @@ fn test_linear_forward_no_bias_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_linear_forward_with_bias_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_linear_forward_with_bias_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
-    let bias_host = load_fixture("linear/bias.bin");
-    let expected = load_fixture("linear/expected_with_bias.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
+    let bias_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_with_bias.bin");
     let mut output_host = vec![0.0f32; M * N];
 
     let mut in_buf = device.buffer::<f32>(M * K)?;
@@ -251,30 +291,27 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[6/9] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::mlp::linear::LinearForward<f32>>(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::mlp::linear::LinearForward<f32>>(
+        &ptx_path,
+    )?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32) * (N as u32).div_ceil(BLOCK_N as u32);
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
-    println!(
-        "[8/9] launching: grid={:?} block={:?} M={M} N={N} K={K}",
-        cfg.grid, cfg.block,
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
     );
+    println!("[8/9] launching: grid={grid_x} block={PTX_LAUNCH_THREADS_X} M={M} N={N} K={K}",);
 
     let args = (
-        in_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        bias_buf.as_device_ptr() as *mut f32,
-        out_buf.as_device_ptr() as *mut f32,
+        in_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        bias_buf.as_device_ptr(),
+        out_buf.as_device_ptr(),
         M as i32,
         N as i32,
         K as i32,
@@ -314,7 +351,7 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
 // Same LinearForward kernel as above (the simplest tensor-core-eligible tl.dot
 // call in the codebase — see LinearForward's single T::dot call), but with
 // data generated inline instead of loaded from fixtures, and compiled with
-// `compile_kernel(..., debug=true)` so teenyc's ttir/ttgpuir/llir/llvmir/ptx
+// `teeny_runtime::compile_kernel(..., debug=true)` so teenyc's ttir/ttgpuir/llir/llvmir/ptx
 // pipeline stages are logged to stderr as the compile runs. Run with
 // `--nocapture` (and redirect stderr) to capture them, e.g.:
 //
@@ -322,11 +359,10 @@ fn test_linear_forward_with_bias_cuda() -> Result<()> {
 //     test_linear_forward_logs_pipeline_stages -- --nocapture 2>pipeline.log
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_linear_forward_logs_pipeline_stages() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     // Deterministic inline data instead of the .bin fixtures the tests above
     // use, so this test is fully self-contained.
@@ -348,28 +384,28 @@ fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(env.capability);
+    let target = teeny_runtime::default_target(&device)?;
 
     // force=true so teenyc actually runs (a cache hit would emit no pipeline logs).
-    let ptx_path = compile_kernel(&kernel, &target, true, true)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, true)?;
     println!("compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::mlp::linear::LinearForward<f32>>(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::mlp::linear::LinearForward<f32>>(
+        &ptx_path,
+    )?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32) * (N as u32).div_ceil(BLOCK_N as u32);
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        in_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        bias_buf.as_device_ptr() as *mut f32,
-        out_buf.as_device_ptr() as *mut f32,
+        in_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        bias_buf.as_device_ptr(),
+        out_buf.as_device_ptr(),
         M as i32,
         N as i32,
         K as i32,
@@ -397,17 +433,16 @@ fn test_linear_forward_logs_pipeline_stages() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_linear_backward_without_bias_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_linear_backward_without_bias_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
-    let dy_host = load_fixture("linear/dy.bin");
-    let expected_dx = load_fixture("linear/expected_dx.bin");
-    let expected_dw = load_fixture("linear/expected_dw.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/dy.bin");
+    let expected_dx = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dx.bin");
+    let expected_dw = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dw.bin");
 
     let mut dx_host = vec![0.0f32; M * K];
     let mut dw_host = vec![0.0f32; N * K];
@@ -426,31 +461,30 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
         false, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[linear_backward no bias] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::mlp::linear::LinearBackward<f32>,
-    >(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::mlp::linear::LinearBackward<f32>>(
+        &ptx_path,
+    )?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32)
         * (N as u32).div_ceil(BLOCK_N as u32)
         * (K as u32).div_ceil(BLOCK_K as u32);
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        x_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        dy_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        dw_buf.as_device_ptr() as *mut f32,
-        db_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        dy_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
+        dw_buf.as_device_ptr(),
+        db_buf.as_device_ptr(),
         M as i32,
         N as i32,
         K as i32,
@@ -493,18 +527,17 @@ fn test_linear_backward_without_bias_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_linear_backward_with_bias_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_linear_backward_with_bias_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let input_host = load_fixture("linear/input.bin");
-    let weight_host = load_fixture("linear/weight.bin");
-    let dy_host = load_fixture("linear/dy.bin");
-    let expected_dx = load_fixture("linear/expected_dx.bin");
-    let expected_dw = load_fixture("linear/expected_dw.bin");
-    let expected_db = load_fixture("linear/expected_db.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/input.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/weight.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/dy.bin");
+    let expected_dx = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dx.bin");
+    let expected_dw = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_dw.bin");
+    let expected_db = load_fixture(env!("CARGO_MANIFEST_DIR"), "linear/expected_db.bin");
 
     let mut dx_host = vec![0.0f32; M * K];
     let mut dw_host = vec![0.0f32; N * K];
@@ -524,31 +557,30 @@ fn test_linear_backward_with_bias_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
         true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M,
     );
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[linear_backward with bias] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
-        teeny_kernels::nn::mlp::linear::LinearBackward<f32>,
-    >(&ptx)?;
+    let program = teeny_runtime::load_program::<teeny_kernels::nn::mlp::linear::LinearBackward<f32>>(
+        &ptx_path,
+    )?;
 
     let grid_x = (M as u32).div_ceil(BLOCK_M as u32)
         * (N as u32).div_ceil(BLOCK_N as u32)
         * (K as u32).div_ceil(BLOCK_K as u32);
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        x_buf.as_device_ptr() as *mut f32,
-        w_buf.as_device_ptr() as *mut f32,
-        dy_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
-        dw_buf.as_device_ptr() as *mut f32,
-        db_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr(),
+        w_buf.as_device_ptr(),
+        dy_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
+        dw_buf.as_device_ptr(),
+        db_buf.as_device_ptr(),
         M as i32,
         N as i32,
         K as i32,

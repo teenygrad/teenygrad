@@ -19,21 +19,24 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
 // Rprop hyperparameters (must match generate.py)
+#[cfg(feature = "hardware")]
 const ETA_PLUS: f32 = 1.2;
+#[cfg(feature = "hardware")]
 const ETA_MINUS: f32 = 0.5;
+#[cfg(feature = "hardware")]
 const STEP_MIN: f32 = 1e-6;
+#[cfg(feature = "hardware")]
 const STEP_MAX: f32 = 50.0;
 
 // ── MLIR snapshot ─────────────────────────────────────────────────────────────
@@ -42,56 +45,82 @@ const STEP_MAX: f32 = 50.0;
 fn test_rprop_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::rprop::RpropStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("rprop_step_source", kernel.source());
-    assert_debug_snapshot!("rprop_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("rprop_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("rprop_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA: Rprop ───────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_rprop_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_rprop_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
 
-    let params_in = load_fixture("optim_rprop/rprop_params_in.bin");
-    let grad = load_fixture("optim_rprop/rprop_grad.bin");
-    let prev_grad_in = load_fixture("optim_rprop/rprop_prev_grad_in.bin");
-    let step_size_in = load_fixture("optim_rprop/rprop_step_size_in.bin");
-    let params_ex = load_fixture("optim_rprop/rprop_params_out.bin");
-    let step_size_ex = load_fixture("optim_rprop/rprop_step_size_out.bin");
-    let prev_grad_ex = load_fixture("optim_rprop/rprop_prev_grad_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_rprop/rprop_grad.bin");
+    let prev_grad_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_prev_grad_in.bin",
+    );
+    let step_size_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_step_size_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_params_out.bin",
+    );
+    let step_size_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_step_size_out.bin",
+    );
+    let prev_grad_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rprop/rprop_prev_grad_out.bin",
+    );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut prev_grad_buf = env.device.buffer::<f32>(N)?;
-    let mut step_size_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut prev_grad_buf = device.buffer::<f32>(N)?;
+    let mut step_size_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     prev_grad_buf.to_device(&prev_grad_in)?;
     step_size_buf.to_device(&step_size_in)?;
 
     let kernel = teeny_kernels::nn::optim::rprop::RpropStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
+    )?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::rprop::RpropStep>(&ptx)?;
-    env.device.launch(
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::rprop::RpropStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            prev_grad_buf.as_device_ptr() as *mut f32,
-            step_size_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            prev_grad_buf.as_device_ptr(),
+            step_size_buf.as_device_ptr(),
             N as i32,
             ETA_PLUS,
             ETA_MINUS,

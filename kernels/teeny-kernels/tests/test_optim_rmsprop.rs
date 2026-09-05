@@ -19,22 +19,26 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
 // RMSprop hyperparameters (must match generate.py)
+#[cfg(feature = "hardware")]
 const LR: f32 = 0.01;
+#[cfg(feature = "hardware")]
 const ALPHA: f32 = 0.99;
+#[cfg(feature = "hardware")]
 const EPS: f32 = 1e-8;
+#[cfg(feature = "hardware")]
 const WD: f32 = 1e-4;
+#[cfg(feature = "hardware")]
 const MU: f32 = 0.9;
 
 // ── MLIR snapshots ────────────────────────────────────────────────────────────
@@ -43,11 +47,19 @@ const MU: f32 = 0.9;
 fn test_rmsprop_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("rmsprop_step_source", kernel.source());
-    assert_debug_snapshot!("rmsprop_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("rmsprop_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("rmsprop_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -55,51 +67,74 @@ fn test_rmsprop_step_mlir() -> anyhow::Result<()> {
 fn test_rmsprop_momentum_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropMomentumStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("rmsprop_momentum_step_source", kernel.source());
-    assert_debug_snapshot!("rmsprop_momentum_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "rmsprop_momentum_step_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("rmsprop_momentum_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA: RMSprop (no momentum) ───────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_rmsprop_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_rmsprop_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
 
-    let params_in = load_fixture("optim_rmsprop/rms_params_in.bin");
-    let grad = load_fixture("optim_rmsprop/rms_grad.bin");
-    let sq_avg_in = load_fixture("optim_rmsprop/rms_sq_avg_in.bin");
-    let params_ex = load_fixture("optim_rmsprop/rms_params_out.bin");
-    let sq_avg_ex = load_fixture("optim_rmsprop/rms_sq_avg_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rms_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_rmsprop/rms_grad.bin");
+    let sq_avg_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rms_sq_avg_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rms_params_out.bin",
+    );
+    let sq_avg_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rms_sq_avg_out.bin",
+    );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut sq_avg_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut sq_avg_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     sq_avg_buf.to_device(&sq_avg_in)?;
 
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
+    )?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::rmsprop::RmspropStep>(&ptx)?;
-    env.device.launch(
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::rmsprop::RmspropStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            sq_avg_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            sq_avg_buf.as_device_ptr(),
             N as i32,
             LR,
             ALPHA,
@@ -132,46 +167,58 @@ fn test_rmsprop_step_cuda() -> Result<()> {
 // ── CUDA: RMSprop with momentum ───────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_rmsprop_momentum_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_rmsprop_momentum_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
 
-    let params_in = load_fixture("optim_rmsprop/rmsm_params_in.bin");
-    let grad = load_fixture("optim_rmsprop/rmsm_grad.bin");
-    let sq_avg_in = load_fixture("optim_rmsprop/rmsm_sq_avg_in.bin");
-    let buf_in = load_fixture("optim_rmsprop/rmsm_buf_in.bin");
-    let params_ex = load_fixture("optim_rmsprop/rmsm_params_out.bin");
-    let sq_avg_ex = load_fixture("optim_rmsprop/rmsm_sq_avg_out.bin");
-    let buf_ex = load_fixture("optim_rmsprop/rmsm_buf_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rmsm_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_rmsprop/rmsm_grad.bin");
+    let sq_avg_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rmsm_sq_avg_in.bin",
+    );
+    let buf_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_rmsprop/rmsm_buf_in.bin");
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rmsm_params_out.bin",
+    );
+    let sq_avg_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_rmsprop/rmsm_sq_avg_out.bin",
+    );
+    let buf_ex = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_rmsprop/rmsm_buf_out.bin");
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut sq_avg_buf = env.device.buffer::<f32>(N)?;
-    let mut buf_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut sq_avg_buf = device.buffer::<f32>(N)?;
+    let mut buf_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     sq_avg_buf.to_device(&sq_avg_in)?;
     buf_buf.to_device(&buf_in)?;
 
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropMomentumStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<
+    )?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::optim::rmsprop::RmspropMomentumStep,
-    >(&ptx)?;
-    env.device.launch(
+    >(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            sq_avg_buf.as_device_ptr() as *mut f32,
-            buf_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            sq_avg_buf.as_device_ptr(),
+            buf_buf.as_device_ptr(),
             N as i32,
             LR,
             ALPHA,

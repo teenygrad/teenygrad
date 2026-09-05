@@ -257,6 +257,10 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     pub fn num_ctas(&self) -> u32 {
         self.metadata.num_ctas
     }
+    /// Number of warps per thread block, from the kernel's parsed metadata.
+    pub fn num_warps(&self) -> u32 {
+        self.metadata.num_warps
+    }
     // ANCHOR: ptxas_stats_accessor
     /// Register/spill/constant-memory statistics from `ptxas -v`, if available.
     ///

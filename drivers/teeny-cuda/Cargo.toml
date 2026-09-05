@@ -37,6 +37,7 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-test = { workspace = true, features = ["cuda"] }
 dotenv.workspace = true
 
 [build-dependencies]

@@ -27,25 +27,32 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
+#[cfg(feature = "hardware")]
 const BH: usize = 4; // BATCH=2 * N_HEADS=2
+#[cfg(feature = "hardware")]
 const N_CTX: usize = 8;
 const HEAD_DIM: i32 = 64;
+#[cfg(feature = "hardware")]
 const HEAD_DIM_U: usize = HEAD_DIM as usize;
+#[cfg(feature = "hardware")]
 const SOFTMAX_SCALE: f32 = 0.125; // 1 / sqrt(64)
 // Triton compiles to 4 warps (128 threads) regardless of HEAD_DIM.
+#[cfg(feature = "hardware")]
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
+#[cfg(feature = "hardware")]
 const N_QKV: usize = BH * N_CTX * HEAD_DIM_U;
+#[cfg(feature = "hardware")]
 const N_L: usize = BH * N_CTX;
 
 // ── Fixture loader ─────────────────────────────────────────────────────────────
@@ -53,17 +60,31 @@ const N_L: usize = BH * N_CTX;
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
-fn test_flash_attention2_forward_snapshot() -> Result<()> {
+fn test_flash_attention2_forward_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::<f32>::new(HEAD_DIM);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("flash_attention2_forward_source", kernel.source());
-    assert_debug_snapshot!("flash_attention2_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "flash_attention2_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "flash_attention2_forward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
 
     Ok(())
 }
@@ -71,17 +92,22 @@ fn test_flash_attention2_forward_snapshot() -> Result<()> {
 // ── CUDA integration test — forward ──────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_flash_attention2_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_flash_attention2_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let q_host = load_fixture("flash_attn2/q.bin");
-    let k_host = load_fixture("flash_attn2/k.bin");
-    let v_host = load_fixture("flash_attn2/v.bin");
-    let expected_o = load_fixture("flash_attn2/expected_forward_o.bin");
-    let expected_l = load_fixture("flash_attn2/expected_forward_l.bin");
+    let q_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/q.bin");
+    let k_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/k.bin");
+    let v_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/v.bin");
+    let expected_o = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_o.bin",
+    );
+    let expected_l = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_l.bin",
+    );
 
     assert_eq!(q_host.len(), N_QKV);
     assert_eq!(expected_o.len(), N_QKV);
@@ -99,30 +125,29 @@ fn test_flash_attention2_forward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward::<f32>::new(HEAD_DIM);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[flash_attention2_forward] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2Forward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = CudaLaunchConfig {
-        grid: [N_CTX as u32, BH as u32, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [N_CTX as u32, BH as u32, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     device.launch(
         &program,
         &cfg,
         (
-            q_buf.as_device_ptr() as *mut f32,
-            k_buf.as_device_ptr() as *mut f32,
-            v_buf.as_device_ptr() as *mut f32,
-            o_buf.as_device_ptr() as *mut f32,
-            l_buf.as_device_ptr() as *mut f32,
+            q_buf.as_device_ptr(),
+            k_buf.as_device_ptr(),
+            v_buf.as_device_ptr(),
+            o_buf.as_device_ptr(),
+            l_buf.as_device_ptr(),
             N_CTX as i32,
             N_CTX as i32,
             SOFTMAX_SCALE,
@@ -159,33 +184,61 @@ fn test_flash_attention2_forward_cuda() -> Result<()> {
 // ── MLIR snapshot tests — backward ───────────────────────────────────────────
 
 #[test]
-fn test_flash_attention2_backward_dq_snapshot() -> Result<()> {
+fn test_flash_attention2_backward_dq_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::<f32>::new(HEAD_DIM);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("flash_attention2_backward_dq_source", kernel.source());
-    assert_debug_snapshot!("flash_attention2_backward_dq_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "flash_attention2_backward_dq_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "flash_attention2_backward_dq_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_flash_attention2_backward_dkv_snapshot() -> Result<()> {
+fn test_flash_attention2_backward_dkv_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::<f32>::new(HEAD_DIM);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("flash_attention2_backward_dkv_source", kernel.source());
-    assert_debug_snapshot!("flash_attention2_backward_dkv_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "flash_attention2_backward_dkv_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "flash_attention2_backward_dkv_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
 
     Ok(())
 }
@@ -193,19 +246,27 @@ fn test_flash_attention2_backward_dkv_snapshot() -> Result<()> {
 // ── CUDA integration test — backward dQ ──────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_flash_attention2_backward_dq_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_flash_attention2_backward_dq_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let q_host = load_fixture("flash_attn2/q.bin");
-    let k_host = load_fixture("flash_attn2/k.bin");
-    let v_host = load_fixture("flash_attn2/v.bin");
-    let o_host_f = load_fixture("flash_attn2/expected_forward_o.bin");
-    let l_host_f = load_fixture("flash_attn2/expected_forward_l.bin");
-    let do_host = load_fixture("flash_attn2/do.bin");
-    let expected_dq = load_fixture("flash_attn2/expected_backward_dq.bin");
+    let q_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/q.bin");
+    let k_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/k.bin");
+    let v_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/v.bin");
+    let o_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_o.bin",
+    );
+    let l_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_l.bin",
+    );
+    let do_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/do.bin");
+    let expected_dq = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_backward_dq.bin",
+    );
 
     let mut q_buf = device.buffer::<f32>(N_QKV)?;
     let mut k_buf = device.buffer::<f32>(N_QKV)?;
@@ -224,32 +285,31 @@ fn test_flash_attention2_backward_dq_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq::<f32>::new(HEAD_DIM);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[flash_attention2_backward_dq] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDq<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = CudaLaunchConfig {
-        grid: [N_CTX as u32, BH as u32, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [N_CTX as u32, BH as u32, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     device.launch(
         &program,
         &cfg,
         (
-            q_buf.as_device_ptr() as *mut f32,
-            k_buf.as_device_ptr() as *mut f32,
-            v_buf.as_device_ptr() as *mut f32,
-            o_buf.as_device_ptr() as *mut f32,
-            do_buf.as_device_ptr() as *mut f32,
-            l_buf.as_device_ptr() as *mut f32,
-            dq_buf.as_device_ptr() as *mut f32,
+            q_buf.as_device_ptr(),
+            k_buf.as_device_ptr(),
+            v_buf.as_device_ptr(),
+            o_buf.as_device_ptr(),
+            do_buf.as_device_ptr(),
+            l_buf.as_device_ptr(),
+            dq_buf.as_device_ptr(),
             N_CTX as i32,
             N_CTX as i32,
             SOFTMAX_SCALE,
@@ -274,20 +334,31 @@ fn test_flash_attention2_backward_dq_cuda() -> Result<()> {
 // ── CUDA integration test — backward dK / dV ─────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_flash_attention2_backward_dkv_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_flash_attention2_backward_dkv_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let q_host = load_fixture("flash_attn2/q.bin");
-    let k_host = load_fixture("flash_attn2/k.bin");
-    let v_host = load_fixture("flash_attn2/v.bin");
-    let o_host_f = load_fixture("flash_attn2/expected_forward_o.bin");
-    let l_host_f = load_fixture("flash_attn2/expected_forward_l.bin");
-    let do_host = load_fixture("flash_attn2/do.bin");
-    let expected_dk = load_fixture("flash_attn2/expected_backward_dk.bin");
-    let expected_dv = load_fixture("flash_attn2/expected_backward_dv.bin");
+    let q_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/q.bin");
+    let k_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/k.bin");
+    let v_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/v.bin");
+    let o_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_o.bin",
+    );
+    let l_host_f = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_forward_l.bin",
+    );
+    let do_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "flash_attn2/do.bin");
+    let expected_dk = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_backward_dk.bin",
+    );
+    let expected_dv = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "flash_attn2/expected_backward_dv.bin",
+    );
 
     let mut q_buf = device.buffer::<f32>(N_QKV)?;
     let mut k_buf = device.buffer::<f32>(N_QKV)?;
@@ -307,33 +378,32 @@ fn test_flash_attention2_backward_dkv_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv::<f32>::new(HEAD_DIM);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[flash_attention2_backward_dkv] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::attention::flash_attn2::FlashAttention2BackwardDkv<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = CudaLaunchConfig {
-        grid: [N_CTX as u32, BH as u32, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [N_CTX as u32, BH as u32, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     device.launch(
         &program,
         &cfg,
         (
-            q_buf.as_device_ptr() as *mut f32,
-            k_buf.as_device_ptr() as *mut f32,
-            v_buf.as_device_ptr() as *mut f32,
-            o_buf.as_device_ptr() as *mut f32,
-            do_buf.as_device_ptr() as *mut f32,
-            l_buf.as_device_ptr() as *mut f32,
-            dk_buf.as_device_ptr() as *mut f32,
-            dv_buf.as_device_ptr() as *mut f32,
+            q_buf.as_device_ptr(),
+            k_buf.as_device_ptr(),
+            v_buf.as_device_ptr(),
+            o_buf.as_device_ptr(),
+            do_buf.as_device_ptr(),
+            l_buf.as_device_ptr(),
+            dk_buf.as_device_ptr(),
+            dv_buf.as_device_ptr(),
             N_CTX as i32,
             N_CTX as i32,
             SOFTMAX_SCALE,

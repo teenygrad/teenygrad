@@ -17,23 +17,28 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const B: usize = 2;
+#[cfg(feature = "hardware")]
 const C: usize = 4;
+#[cfg(feature = "hardware")]
 const L: usize = 8;
 const PAD_LEFT: i32 = 2;
 const PAD_RIGHT: i32 = 3;
+#[cfg(feature = "hardware")]
 const OL: usize = L + PAD_LEFT as usize + PAD_RIGHT as usize; // 13
 const BLOCK_OL: i32 = 16;
 
+#[cfg(feature = "hardware")]
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 #[test]
@@ -43,11 +48,25 @@ fn test_circular_pad1d_forward_mlir_output() -> std::result::Result<(), Box<dyn 
     let kernel = teeny_kernels::nn::pad::circular_pad1d::CircularPad1dForward::<f32>::new(
         PAD_LEFT, PAD_RIGHT, BLOCK_OL,
     );
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("circular_pad1d_forward_source", kernel.source());
-    assert_debug_snapshot!("circular_pad1d_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "circular_pad1d_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "circular_pad1d_forward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -58,23 +77,39 @@ fn test_circular_pad1d_backward_mlir_output() -> std::result::Result<(), Box<dyn
     let kernel = teeny_kernels::nn::pad::circular_pad1d::CircularPad1dBackward::<f32>::new(
         PAD_LEFT, PAD_RIGHT, BLOCK_OL,
     );
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("circular_pad1d_backward_source", kernel.source());
-    assert_debug_snapshot!("circular_pad1d_backward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "circular_pad1d_backward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "circular_pad1d_backward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
     Ok(())
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_circular_pad1d_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_circular_pad1d_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let input_host = load_fixture("circular_pad1d/x.bin");
-    let expected = load_fixture("circular_pad1d/expected_forward.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "circular_pad1d/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "circular_pad1d/expected_forward.bin",
+    );
     let mut output_host = vec![0.0f32; B * C * OL];
 
     let mut input_buf = device.buffer::<f32>(B * C * L)?;
@@ -84,23 +119,22 @@ fn test_circular_pad1d_forward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::pad::circular_pad1d::CircularPad1dForward::<f32>::new(
         PAD_LEFT, PAD_RIGHT, BLOCK_OL,
     );
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::pad::circular_pad1d::CircularPad1dForward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);
     let grid_x = (B * C * num_ol_tiles) as u32;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
     let args = (
-        input_buf.as_device_ptr() as *mut f32,
-        output_buf.as_device_ptr() as *mut f32,
+        input_buf.as_device_ptr(),
+        output_buf.as_device_ptr(),
         B as i32,
         C as i32,
         L as i32,
@@ -121,14 +155,16 @@ fn test_circular_pad1d_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_circular_pad1d_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_circular_pad1d_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("circular_pad1d/dy.bin");
-    let expected = load_fixture("circular_pad1d/expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "circular_pad1d/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "circular_pad1d/expected_backward.bin",
+    );
     let zeros = vec![0.0f32; B * C * L];
     let mut dx_host = vec![0.0f32; B * C * L];
 
@@ -140,23 +176,22 @@ fn test_circular_pad1d_backward_cuda() -> Result<()> {
     let kernel = teeny_kernels::nn::pad::circular_pad1d::CircularPad1dBackward::<f32>::new(
         PAD_LEFT, PAD_RIGHT, BLOCK_OL,
     );
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::pad::circular_pad1d::CircularPad1dBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ol_tiles = OL.div_ceil(BLOCK_OL as usize);
     let grid_x = (B * C * num_ol_tiles) as u32;
-    let cfg = CudaLaunchConfig {
-        grid: [grid_x, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [grid_x, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         B as i32,
         C as i32,
         L as i32,

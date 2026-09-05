@@ -31,9 +31,10 @@ use teeny_core::{
 };
 use teeny_cuda::compiler::target::Target;
 use teeny_cuda::{
-    compiler::graph::CudaGraphCompiler, device::mem, errors::Result, model::TensorRef, testing,
+    compiler::graph::CudaGraphCompiler, device::mem, errors::Result, model::TensorRef,
 };
 use teeny_kernels::graph::TritonLowering;
+use teeny_test::cuda as testing;
 
 const BATCH: usize = 4;
 const FEATURES: usize = 128;

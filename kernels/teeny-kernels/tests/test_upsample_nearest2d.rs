@@ -33,24 +33,30 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
 // ── Dimensions ────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "hardware")]
 const B: usize = 2;
+#[cfg(feature = "hardware")]
 const C: usize = 4;
+#[cfg(feature = "hardware")]
 const H: usize = 4;
+#[cfg(feature = "hardware")]
 const W: usize = 4;
 const SCALE_H: i32 = 2;
 const SCALE_W: i32 = 2;
+#[cfg(feature = "hardware")]
 const OH: usize = H * SCALE_H as usize; // 8
+#[cfg(feature = "hardware")]
 const OW: usize = W * SCALE_W as usize; // 8
 const BLOCK_OW: i32 = 4;
 
@@ -59,37 +65,65 @@ const BLOCK_OW: i32 = 4;
 // ── MLIR snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
-fn test_upsample_nearest2d_forward_snapshot() -> Result<()> {
+fn test_upsample_nearest2d_forward_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
             SCALE_H, SCALE_W, BLOCK_OW,
         );
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("upsample_nearest2d_forward_source", kernel.source());
-    assert_debug_snapshot!("upsample_nearest2d_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "upsample_nearest2d_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "upsample_nearest2d_forward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_upsample_nearest2d_backward_snapshot() -> Result<()> {
+fn test_upsample_nearest2d_backward_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel =
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
             SCALE_H, SCALE_W, BLOCK_OW,
         );
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
-    assert_debug_snapshot!("upsample_nearest2d_backward_source", kernel.source());
-    assert_debug_snapshot!("upsample_nearest2d_backward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "upsample_nearest2d_backward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!(
+            "upsample_nearest2d_backward_mlir_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        mlir.trim()
+    );
 
     Ok(())
 }
@@ -97,14 +131,16 @@ fn test_upsample_nearest2d_backward_snapshot() -> Result<()> {
 // ── CUDA forward test ─────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_upsample_nearest2d_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let x_host = load_fixture("upsample_nearest2d/x.bin");
-    let expected = load_fixture("upsample_nearest2d/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "upsample_nearest2d/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "upsample_nearest2d/expected_forward.bin",
+    );
 
     assert_eq!(x_host.len(), B * C * H * W);
     assert_eq!(expected.len(), B * C * OH * OW);
@@ -117,26 +153,26 @@ fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward::<f32>::new(
             SCALE_H, SCALE_W, BLOCK_OW,
         );
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dForward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     // Grid: B*C*OH * ceil(OW/BLOCK_OW)
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
-    let cfg = CudaLaunchConfig {
-        grid: [(B * C * OH * num_ow_tiles) as u32, 1, 1],
-        block: [128, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [(B * C * OH * num_ow_tiles) as u32, 1, 1],
+        [128, 1, 1],
+        [1, 1, 1],
+    );
 
     device.launch(
         &program,
         &cfg,
         (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
             B as i32,
             C as i32,
             H as i32,
@@ -163,14 +199,16 @@ fn test_upsample_nearest2d_forward_cuda() -> Result<()> {
 // ── CUDA backward test ────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_upsample_nearest2d_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("upsample_nearest2d/dy.bin");
-    let expected = load_fixture("upsample_nearest2d/expected_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "upsample_nearest2d/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "upsample_nearest2d/expected_backward.bin",
+    );
 
     assert_eq!(dy_host.len(), B * C * OH * OW);
     assert_eq!(expected.len(), B * C * H * W);
@@ -183,26 +221,26 @@ fn test_upsample_nearest2d_backward_cuda() -> Result<()> {
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward::<f32>::new(
             SCALE_H, SCALE_W, BLOCK_OW,
         );
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::tensor::upsample_nearest2d::UpsampleNearest2dBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     // Grid: B*C*H * ceil(W/BLOCK_IW) — over input positions.
     let num_iw_tiles = W.div_ceil(BLOCK_OW as usize);
-    let cfg = CudaLaunchConfig {
-        grid: [(B * C * H * num_iw_tiles) as u32, 1, 1],
-        block: [128, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [(B * C * H * num_iw_tiles) as u32, 1, 1],
+        [128, 1, 1],
+        [1, 1, 1],
+    );
 
     device.launch(
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
             B as i32,
             C as i32,
             H as i32,
