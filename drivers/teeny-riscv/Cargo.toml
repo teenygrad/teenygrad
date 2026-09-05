@@ -1,0 +1,25 @@
+[package]
+name = "teeny-riscv"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_riscv/"
+keywords = ["riscv", "cpu", "machine-learning", "kernels"]
+categories = ["hardware-support", "science", "external-ffi-bindings"]
+
+[lib]
+
+[dependencies]
+teeny-core.workspace = true
+teeny-compiler.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+libloading.workspace = true
+
+[dev-dependencies]
+teeny-kernels = { path = "../../kernels/teeny-kernels" }
+dotenv.workspace = true
