@@ -158,6 +158,10 @@ impl TileGraph {
         &self.nodes[index]
     }
 
+    pub fn num_edges(&self) -> usize {
+        self.edges.len()
+    }
+
     /// Deduped producer indices for the node at `index` (see the module doc
     /// comment for why duplicate operand slots aren't distinguishable here).
     pub fn parents(&self, index: NodeId) -> Vec<NodeId> {

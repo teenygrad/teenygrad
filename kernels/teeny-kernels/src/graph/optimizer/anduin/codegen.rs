@@ -16,9 +16,7 @@
 
 //! The code generator built on Welder §3.3's `ExecuteGraph`/`Profile`
 //! interfaces (teenygrad-1nr.6) — turning a scheduled tile-graph into a
-//! `Dag` of (possibly fused) custom ops, the way the original,
-//! hand-coded Anduin fusion strategies did before they were removed for
-//! not being Welder (see this crate's `anduin` module doc comment).
+//! `Dag` of (possibly fused) custom ops.
 //!
 //! [`ExecuteDevice`] is Table 1's four abstracted device interfaces
 //! (`Allocate`/`LoadTiles`/`ComputeTile`/`StoreTiles`), the same pluggable
@@ -47,14 +45,64 @@
 //!   load/store rewriting, block/thread index remapping, a best-fit
 //!   shared-memory allocator) and overlaps heavily with teenygrad-1nr.1's
 //!   still-open `Tile<D>` composition rework.
+//!
+//! ## Flat elementwise virtual nodes (the simple case)
+//!
+//! For a fused group whose every member is a unary `In<Tile<..>>` /
+//! `Out<Tile<..>>` kernel with the usual `#[tile(block = BLOCK_SIZE,
+//! extent = n_elements)]` + `n_elements: i32` shape (relu, silu, …),
+//! [`DagCodegen`] drives codegen from the members' [`KernelTileSpec`] /
+//! [`GridSpec`] (teenygrad-1nr.18/19) and the schedule's resolved
+//! [`TileConfig`], not from each kernel's hand-picked constructor default:
+//!
+//! - **`BLOCK_SIZE`** — the concrete tile extent the scheduler chose
+//!   (`TileDim::Fixed` on the virtual node's output edge in
+//!   `resolved_tiling`), emitted as the fused kernel's `const BLOCK_SIZE`
+//!   generic and as `cdiv(n_elements, BLOCK_SIZE)` CTAs on the grid axis
+//!   named by `grid_spec()` (today always `GridDim::X` for this shape).
+//! - **`n_elements`** — the runtime `i32` extent param named by
+//!   `tile_spec()` (`extent_param`, usually `"n_elements"`): product of
+//!   the graph node's output shape, passed through unchanged from the
+//!   unfused `RuntimeOp::pack_args` ABI.
+//!
+//! The **wrapper** (owned by `virtual_node` + `load_tiles` +
+//! `store_tiles`, emitted once per fused kernel) performs the pid decode
+//! that standalone `#[tiled_kernel]` preludes inject today; composed
+//! tile-op bodies must not repeat it. [`TraceEvent::Allocate`] is still
+//! recorded by [`super::trace::Trace::trace_graph`] for scheduling cost
+//! (`mem_footprint_with_config`), but [`DagCodegen`] does **not** emit a
+//! separate workspace allocation for this shape: `load_tiles` materialises
+//! boundary tiles directly via `T::load`, and intermediate `Tile` values
+//! between chained `compute_tile` calls live in SSA registers, not an
+//! explicitly allocated buffer.
+//!
+//! ```text
+//! pid         = program_id(X)
+//! block_start = pid * BLOCK_SIZE
+//! offsets     = arange(0, BLOCK_SIZE) + block_start
+//! in_bounds   = offsets.lt(n_elements)
+//!
+//! x  = Tile { load(x_ptr.add_offsets(offsets), mask=in_bounds), mask }
+//! y  = Tile { y_ptr.add_offsets(offsets), mask }   // addressed, not loaded
+//! ```
+//!
+//! `load_tiles` materialises boundary `In<Tile<..>>` params (`x` above).
+//! Each `compute_tile` splices one member's tile-op *body* only (e.g.
+//! `maximum(x.tensor, …)` for relu), threading the resulting `Tile`
+//! through the chain as SSA values — no explicit staging buffer between
+//! ops. `store_tiles` finishes with `store(y.tensor, result, y.mask, …)`.
+//!
+//! **Acceptance test:** `tests/test_fused_pointwise.rs` — `input -> relu ->
+//! silu`, lowered and scheduled on real CUDA hardware.
 
 use teeny_core::device::hardware::MemoryLevelKind;
 use teeny_core::model::ExecutableOp;
 use teeny_core::utils::dag::Dag;
 
+use super::tile_graph::NodeId;
 use super::trace::TraceEvent;
 
-use super::tile_graph::NodeId;
+use crate::errors::Result;
 
 /// Welder Table 1's four abstracted device interfaces, as a pluggable
 /// trait — mirrors [`super::Profiler`]'s existing pattern — plus one
@@ -87,37 +135,27 @@ pub trait ExecuteDevice {
     /// [`DagCodegen`] needs to decide "these nodes become one compiled
     /// kernel."
     fn virtual_node(&mut self, nodes: &[NodeId], level: MemoryLevelKind);
-    /// Allocate a `footprint`-byte workspace in `level`
+
+    /// Record a `footprint`-byte workspace at `level`
     /// (`TileGraph::mem_footprint_with_config`'s result for the current
-    /// node set and config).
+    /// node set and config). [`Trace`] records this for scheduling; for
+    /// flat elementwise fusion [`DagCodegen`] is a no-op here — boundary
+    /// tiles are materialised by `T::load` in [`load_tiles`](Self::load_tiles),
+    /// and intermediate tiles between chained [`compute_tile`](Self::compute_tile)
+    /// calls are SSA values, not an explicitly allocated buffer.
     fn allocate(&mut self, footprint: u64, level: MemoryLevelKind);
-    /// Load `nodes`' input tiles into the workspace just allocated at
-    /// `level`.
+
+    /// Load `nodes`' boundary input tiles at `level` — for flat elementwise
+    /// fusion, emits `T::load` into a `Tile` (see the module doc's wrapper
+    /// prelude).
     fn load_tiles(&mut self, nodes: &[NodeId], level: MemoryLevelKind);
+
     /// Compute `node`'s operator-tile directly — only called once
     /// `Trace::trace_graph` has recursed to the top of the memory hierarchy.
     fn compute_tile(&mut self, node: NodeId);
+
     /// Store `nodes`' result tiles from `level`'s workspace back down.
     fn store_tiles(&mut self, nodes: &[NodeId], level: MemoryLevelKind);
-}
-
-/// Replays an already-recorded `trace` (typically
-/// [`Trace::events`](super::trace::Trace::events), from a
-/// completed [`Trace::trace_graph`](super::trace::Trace::trace_graph) run) through
-/// `device` — the same [`ExecuteDevice`] interface `Trace::trace_graph` drives
-/// live, just fed from a static event list instead of a recursive walk.
-/// Dispatches each [`TraceEvent`] variant to `device`'s corresponding
-/// method, in order.
-pub fn codegen(trace: &[TraceEvent], device: &mut dyn ExecuteDevice) {
-    for event in trace {
-        match event {
-            TraceEvent::VirtualNode { nodes, level } => device.virtual_node(nodes, *level),
-            TraceEvent::Allocate { footprint, level } => device.allocate(*footprint, *level),
-            TraceEvent::LoadTiles { nodes, level } => device.load_tiles(nodes, *level),
-            TraceEvent::ComputeTile { node } => device.compute_tile(*node),
-            TraceEvent::StoreTiles { nodes, level } => device.store_tiles(nodes, *level),
-        }
-    }
 }
 
 /// The genuine code generator [`codegen`] is meant to drive: an
@@ -130,35 +168,61 @@ pub fn codegen(trace: &[TraceEvent], device: &mut dyn ExecuteDevice) {
 /// real needs the same composition machinery `#[tiled_kernel]`'s rework
 /// (teenygrad-1nr.1) is blocked on — see this module's doc comment.
 #[derive(Default)]
-pub struct DagCodegen {
-    // Not read yet -- every method below is a stub. Will back
-    // `ExecuteDevice`'s methods and `into_dag` once implemented.
-    #[allow(dead_code)]
+pub struct AnduinCodegen {
     dag: Option<Dag<Box<dyn ExecutableOp>>>,
+
+    /// The source code of the generated kernel.
+    source: String,
 }
 
-impl DagCodegen {
-    /// A fresh codegen pass over `dag` (the original, un-fused `Dag` — the
-    /// same one [`TraceEvent::ComputeTile`]'s `NodeId`s index into).
-    pub fn new(dag: Dag<Box<dyn ExecutableOp>>) -> Self {
-        Self { dag: Some(dag) }
+impl AnduinCodegen {
+    pub fn new() -> Self {
+        Self {
+            dag: None,
+            source: String::new(),
+        }
     }
 
-    /// Consumes this pass and returns the generated `Dag` of custom ops
-    /// plus the original-node-index -> generated-node-index mapping,
-    /// mirroring `GraphOptimizer::optimize`'s return shape.
-    pub fn into_dag(self) -> (Dag<Box<dyn ExecutableOp>>, Vec<usize>) {
-        todo!("teenygrad-1nr: finalize the generated Dag of custom ops from the replayed trace")
+    pub fn into_dag(self) -> Dag<Box<dyn ExecutableOp>> {
+        self.dag.unwrap()
+    }
+
+    /// Replays an already-recorded `trace` (typically
+    /// [`Trace::events`](super::trace::Trace::events), from a
+    /// completed [`Trace::trace_graph`](super::trace::Trace::trace_graph) run) through
+    /// `device` — the same [`ExecuteDevice`] interface `Trace::trace_graph` drives
+    /// live, just fed from a static event list instead of a recursive walk.
+    /// Dispatches each [`TraceEvent`] variant to `device`'s corresponding
+    /// method, in order.
+    pub fn codegen(&mut self, trace: &[TraceEvent]) -> Result<&str> {
+        for event in trace {
+            match event {
+                TraceEvent::VirtualNode { nodes, level } => self.virtual_node(nodes, *level),
+                TraceEvent::Allocate { footprint, level } => self.allocate(*footprint, *level),
+                TraceEvent::LoadTiles { nodes, level } => self.load_tiles(nodes, *level),
+                TraceEvent::ComputeTile { node } => self.compute_tile(*node),
+                TraceEvent::StoreTiles { nodes, level } => self.store_tiles(nodes, *level),
+            }
+        }
+
+        Ok(&self.source)
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
     }
 }
 
-impl ExecuteDevice for DagCodegen {
+impl ExecuteDevice for AnduinCodegen {
     fn virtual_node(&mut self, _nodes: &[NodeId], _level: MemoryLevelKind) {
         todo!("teenygrad-1nr: begin generating a custom op for this virtual node's group")
     }
 
     fn allocate(&mut self, _footprint: u64, _level: MemoryLevelKind) {
-        todo!("teenygrad-1nr: allocate a workspace for the fused group being generated")
+        // Scheduling-only for flat elementwise fusion: `load_tiles` emits
+        // `T::load` directly; intermediate tiles are SSA between
+        // `compute_tile` calls. Explicit workspace allocation is for
+        // future multi-level, not this path.
     }
 
     fn load_tiles(&mut self, _nodes: &[NodeId], _level: MemoryLevelKind) {
@@ -176,112 +240,43 @@ impl ExecuteDevice for DagCodegen {
 
 #[cfg(test)]
 mod tests {
-    use teeny_core::device::hardware::{HardwareProfile, MemoryLevel};
-    use teeny_core::graph::{DtypeRepr, Shape};
-    use teeny_core::model::ExecutableOp;
-    use teeny_core::utils::dag::Dag;
-
     use super::*;
-    use crate::graph::optimizer::anduin::trace::Trace;
-    use crate::graph::optimizer::anduin::{SubGraphTilingResult, TileConfig, TileGraph};
 
-    struct TestOp {
-        name: &'static str,
-        dtype: DtypeRepr,
-        shape: Shape,
-        is_input: bool,
-    }
+    use teeny_core::graph::{DtypeRepr, Graph, Op};
+    use teeny_core::model::LoweringMode;
 
-    impl ExecutableOp for TestOp {
-        fn name(&self) -> &str {
-            self.name
-        }
-
-        fn is_input(&self) -> bool {
-            self.is_input
-        }
-
-        fn forward_kernel_source(&self) -> &str {
-            ""
-        }
-
-        fn forward_kernel_entry_point(&self) -> &str {
-            ""
-        }
-
-        fn output_shape(&self) -> &Shape {
-            &self.shape
-        }
-
-        fn output_dtype(&self) -> DtypeRepr {
-            self.dtype
-        }
-
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-    }
-
-    fn op(name: &'static str, shape: Shape, is_input: bool) -> Box<dyn ExecutableOp> {
-        Box::new(TestOp {
-            name,
-            dtype: DtypeRepr::F32,
-            shape,
-            is_input,
-        })
-    }
-
-    fn two_level_hardware() -> HardwareProfile {
-        HardwareProfile {
-            name: "two-level".to_string(),
-            compute_units: 1,
-            memory_levels: vec![
-                MemoryLevel {
-                    kind: MemoryLevelKind::Register,
-                    capacity: u64::MAX,
-                    bandwidth: None,
-                    latency: None,
-                },
-                MemoryLevel {
-                    kind: MemoryLevelKind::DeviceMemory,
-                    capacity: u64::MAX,
-                    bandwidth: None,
-                    latency: None,
-                },
-            ],
-            execution: None,
-        }
-    }
+    use crate::graph::TritonLowering;
+    use crate::graph::optimizer::anduin::Anduin;
+    use crate::testing::hardware_profile::orin_nano;
 
     #[test]
-    fn codegen_replays_a_trace_through_a_device_in_order() {
-        // Record a real trace via trace_graph, then replay it through a
-        // fresh Trace via codegen -- the replayed trace must match
-        // the original exactly.
-        let shape = vec![Some(4)];
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape.clone(), true));
-        let b = dag.add_node(op("b", shape, false));
-        dag.add_edge(a, b);
+    fn test_codegen_pointwise_virtual_node() {
+        let mut graph = Graph::new();
+        let shape = vec![Some(2048), Some(4096)];
 
-        let tile_graph = TileGraph::from_dag(&dag);
-        let hardware = two_level_hardware();
-        let result = SubGraphTilingResult {
-            nodes: vec![a, b],
-            config: TileConfig::default(),
-            children: Vec::new(),
-        };
+        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape.clone());
+        let relu = graph.add_node(Op::Relu, vec![input], DtypeRepr::F32, shape.clone());
+        let _silu = graph.add_node(Op::Silu, vec![relu], DtypeRepr::F32, shape.clone());
 
-        let recorder = Trace::trace_graph(
-            &tile_graph,
-            &result,
-            MemoryLevelKind::DeviceMemory,
-            &hardware,
-        );
+        // Anchor the "won't fit on a single SM" claim above against a real
+        // two-level hardware profile: the full [2048, 4096] F32 tile is
+        // bigger than shared memory but comfortably smaller than device
+        // memory.
+        let profile = orin_nano();
 
-        let mut replayed = Trace::default();
-        codegen(&recorder.events, &mut replayed);
+        let lowering = TritonLowering::default();
+        let (dag, _, _) = lowering
+            .lower_with_mapping(&graph, LoweringMode::Inference)
+            .unwrap();
 
-        assert_eq!(replayed.events, recorder.events);
+        let (_, traces) = Anduin::schedule(&dag, &profile).unwrap();
+        eprintln!("traces: {:?}", traces);
+
+        let mut codegen = AnduinCodegen::default();
+        codegen
+            .codegen(&traces[0].events)
+            .expect("Codegen should not fail here");
+
+        assert_eq!(codegen.source(), "TO DO: implement codegen");
     }
 }

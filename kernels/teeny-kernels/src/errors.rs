@@ -77,4 +77,7 @@ pub enum Error {
         op_name: String,
         extent_param: &'static str,
     },
+
+    #[error("Codegen error: {0}")]
+    CodegenError(String),
 }
