@@ -50,16 +50,32 @@ fn compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
     let cache_dir = teeny_compiler::compiler::default_cache_dir();
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?
         .with_target_triple(TARGET_TRIPLE)
-        .with_target_cpu(target.target_cpu().expect("Target::target_cpu is always Some"));
+        .with_target_cpu(
+            target
+                .target_cpu()
+                .expect("Target::target_cpu is always Some"),
+        );
 
     let output_path = compiler.compile(&kernel, &target, true)?;
     let bytes = std::fs::read(&output_path)?;
 
-    assert_eq!(&bytes[..4], b"\x7fELF", "expected a real ELF file, not assembly/PTX text");
+    assert_eq!(
+        &bytes[..4],
+        b"\x7fELF",
+        "expected a real ELF file, not assembly/PTX text"
+    );
     // e_type at offset 16 (u16 LE): ET_DYN (3) for a shared object.
-    assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3, "expected ET_DYN (shared object)");
+    assert_eq!(
+        u16::from_le_bytes([bytes[16], bytes[17]]),
+        3,
+        "expected ET_DYN (shared object)"
+    );
     // e_machine at offset 18 (u16 LE): EM_RISCV (243).
-    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 243, "expected EM_RISCV");
+    assert_eq!(
+        u16::from_le_bytes([bytes[18], bytes[19]]),
+        243,
+        "expected EM_RISCV"
+    );
 
     Ok(())
 }

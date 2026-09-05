@@ -88,9 +88,18 @@ mod tests {
 
     #[test]
     fn accepts_canonical_forms() {
-        assert_eq!("generic-rvv1.0".parse::<Capability>().unwrap(), Capability::GenericRvv1_0);
-        assert_eq!("spacemit-k1".parse::<Capability>().unwrap(), Capability::SpacemitK1);
-        assert_eq!("SPACEMIT-K3".parse::<Capability>().unwrap(), Capability::SpacemitK3);
+        assert_eq!(
+            "generic-rvv1.0".parse::<Capability>().unwrap(),
+            Capability::GenericRvv1_0
+        );
+        assert_eq!(
+            "spacemit-k1".parse::<Capability>().unwrap(),
+            Capability::SpacemitK1
+        );
+        assert_eq!(
+            "SPACEMIT-K3".parse::<Capability>().unwrap(),
+            Capability::SpacemitK3
+        );
     }
 
     #[test]
@@ -100,7 +109,11 @@ mod tests {
 
     #[test]
     fn display_round_trips_through_from_str() {
-        for cap in [Capability::GenericRvv1_0, Capability::SpacemitK1, Capability::SpacemitK3] {
+        for cap in [
+            Capability::GenericRvv1_0,
+            Capability::SpacemitK1,
+            Capability::SpacemitK3,
+        ] {
             assert_eq!(cap.to_string().parse::<Capability>().unwrap(), cap);
         }
     }

@@ -41,8 +41,10 @@ impl KernelLibrary {
         // called with a signature matching what the compiler actually generated.
         // The caller is responsible for path being a kernel library this backend
         // produced, not arbitrary/untrusted input.
-        let lib = unsafe { Library::new(&path) }
-            .map_err(|source| Error::LoadLibrary { path: path.clone(), source })?;
+        let lib = unsafe { Library::new(&path) }.map_err(|source| Error::LoadLibrary {
+            path: path.clone(),
+            source,
+        })?;
         Ok(Self { path, lib })
     }
 
