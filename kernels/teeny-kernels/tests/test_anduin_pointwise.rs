@@ -19,43 +19,47 @@
 use std::rc::Rc;
 
 use teeny_core::graph::{CustomOp, DtypeRepr, Graph, Op, SymTensor};
+#[cfg(feature = "cuda")]
 use teeny_core::model::LoweringMode;
-use teeny_kernels::graph::{Anduin, GraphOptimizer, PointwiseFuse, TritonLowering};
+#[cfg(feature = "cuda")]
+use teeny_kernels::graph::TritonLowering;
+use teeny_kernels::graph::{Anduin, GraphOptimizer, PointwiseFuse};
 
 #[cfg(feature = "cuda")]
 use dotenv::dotenv;
 #[cfg(feature = "cuda")]
 use insta::assert_debug_snapshot;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 use std::mem::size_of;
 #[cfg(feature = "cuda")]
 use std::path::PathBuf;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use teeny_core::device::program::ArgVisitor;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use teeny_core::device::program::Kernel;
 #[cfg(feature = "cuda")]
 use teeny_cuda::compiler::compile_cuda_graph;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use teeny_cuda::compiler::compile_kernel;
 #[cfg(feature = "cuda")]
 use teeny_cuda::compiler::target::{Capability, Target};
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use teeny_cuda::device::CudaArgPacker;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 use teeny_cuda::device::mem;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use teeny_cuda::device::program::ErasedKernel;
 #[cfg(feature = "cuda")]
 use teeny_cuda::errors::Result;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 use teeny_cuda::model::TensorRef;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 use teeny_test::cuda as testing;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 use teeny_test::load_fixture;
 
 const N: usize = 64;
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 const TOL: f32 = 1e-4;
 
 fn shape_1d(n: usize) -> Vec<Option<usize>> {
@@ -300,6 +304,7 @@ fn test_anduin_round_does_not_fuse() {
     assert_no_fusion(&graph);
 }
 
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 fn pointwise_fuse_from(graph: &Graph) -> PointwiseFuse {
     let opt = Anduin.optimize(graph).unwrap();
     match &opt.nodes.last().unwrap().op {
@@ -367,13 +372,13 @@ fn test_anduin_fuses_relu_sigmoid_tanh_into_pointwise_fuse() {
 }
 
 /// Thin `Kernel` adapter so fused backward source can go through `compile_kernel`.
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 struct SourceKernel {
     name: String,
     source: String,
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 impl Kernel for SourceKernel {
     type Args<'a> = ();
 
@@ -432,7 +437,7 @@ fn test_anduin_pointwise_relu_sigmoid_mlir() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 fn test_anduin_pointwise_relu_sigmoid_matches_pytorch() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
@@ -486,7 +491,7 @@ fn test_anduin_pointwise_relu_sigmoid_matches_pytorch() -> Result<()> {
 /// Case-1 rounding/sign batch (teenygrad-1bf.1.7): forward-only -- none of
 /// Abs/Neg/Sign are y-style, so there is no fused backward to check here.
 #[test]
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 fn test_anduin_pointwise_abs_neg_sign_matches_pytorch() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
@@ -537,7 +542,7 @@ fn test_anduin_pointwise_abs_neg_sign_matches_pytorch() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
 fn test_anduin_pointwise_relu_sigmoid_tanh_matches_pytorch() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
@@ -596,7 +601,7 @@ fn test_anduin_pointwise_relu_sigmoid_tanh_matches_pytorch() -> Result<()> {
 }
 
 #[test]
-#[cfg(all(feature = "cuda", feature = "training"))]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 fn test_anduin_pointwise_relu_sigmoid_backward_matches_pytorch() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;
@@ -691,7 +696,7 @@ fn test_anduin_pointwise_relu_sigmoid_backward_matches_pytorch() -> Result<()> {
 }
 
 #[test]
-#[cfg(all(feature = "cuda", feature = "training"))]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 fn test_anduin_pointwise_relu_sigmoid_tanh_backward_matches_pytorch() -> Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;

@@ -17,17 +17,18 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
+use teeny_cuda::compiler::target::Target;
+
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result};
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use teeny_test::cuda as testing;
 
+#[cfg(feature = "hardware")]
 use teeny_test::load_fixture;
-#[cfg(all(feature = "cuda", feature = "training"))]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 use {
     teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler,
     teeny_core::{
@@ -39,11 +40,16 @@ use {
     teeny_kernels::graph::TritonLowering,
 };
 
+#[cfg(feature = "hardware")]
 const N: usize = 64;
+#[cfg(feature = "hardware")]
 const C: usize = 32;
+#[cfg(feature = "hardware")]
 const EPS: f32 = 1e-5;
+#[cfg(all(feature = "hardware", feature = "training"))]
 const MOMENTUM: f32 = 0.1;
 const BLOCK_N: i32 = 128;
+#[cfg(feature = "hardware")]
 const TOL: f32 = 1e-4;
 
 // ─── Source snapshot tests (no CUDA required) ─────────────────────────────────
@@ -51,11 +57,16 @@ const TOL: f32 = 1e-4;
 #[test]
 fn test_batch_norm_inference_source() -> anyhow::Result<()> {
     dotenv().ok();
-    use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true, false)?;
-    assert_debug_snapshot!("batch_norm_inference_source", kernel.source());
+    let target = teeny_runtime::reference_target();
+    teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    assert_debug_snapshot!(
+        format!(
+            "batch_norm_inference_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
     Ok(())
 }
 
@@ -63,11 +74,13 @@ fn test_batch_norm_inference_source() -> anyhow::Result<()> {
 #[test]
 fn test_batch_norm_stats_source() -> anyhow::Result<()> {
     dotenv().ok();
-    use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true, false)?;
-    assert_debug_snapshot!("batch_norm_stats_source", kernel.source());
+    let target = teeny_runtime::reference_target();
+    teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    assert_debug_snapshot!(
+        format!("batch_norm_stats_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
     Ok(())
 }
 
@@ -75,11 +88,16 @@ fn test_batch_norm_stats_source() -> anyhow::Result<()> {
 #[test]
 fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
     dotenv().ok();
-    use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true, false)?;
-    assert_debug_snapshot!("batch_norm_normalize_source", kernel.source());
+    let target = teeny_runtime::reference_target();
+    teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    assert_debug_snapshot!(
+        format!(
+            "batch_norm_normalize_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
     Ok(())
 }
 
@@ -87,31 +105,28 @@ fn test_batch_norm_normalize_source() -> anyhow::Result<()> {
 #[test]
 fn test_batch_norm_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
-    use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormBackward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true, false)?;
-    assert_debug_snapshot!("batch_norm_backward_source", kernel.source());
+    let target = teeny_runtime::reference_target();
+    teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    assert_debug_snapshot!(
+        format!("batch_norm_backward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
     Ok(())
 }
 
 // ─── CUDA execution tests ─────────────────────────────────────────────────────
 
-#[cfg(feature = "cuda")]
-fn bn_cfg() -> CudaLaunchConfig {
-    CudaLaunchConfig {
-        grid: [C as u32, 1, 1],
-        block: [1, 1, 1],
-        cluster: [1, 1, 1],
-    }
+#[cfg(feature = "hardware")]
+fn bn_cfg() -> teeny_runtime::LaunchConfig {
+    teeny_runtime::launch_config_custom([C as u32, 1, 1], [1, 1, 1], [1, 1, 1])
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_batch_norm_inference_gpu() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_batch_norm_inference_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
     let weight = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/weight.bin");
@@ -138,22 +153,22 @@ fn test_batch_norm_inference_gpu() -> Result<()> {
     rv_buf.to_device(&running_var)?;
 
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference::<f32>::new(BLOCK_N);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::norm::batchnorm::BatchNormForwardInference<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     device.launch(
         &program,
         &bn_cfg(),
         (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            w_buf.as_device_ptr() as *mut f32,
-            b_buf.as_device_ptr() as *mut f32,
-            rm_buf.as_device_ptr() as *mut f32,
-            rv_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            rm_buf.as_device_ptr(),
+            rv_buf.as_device_ptr(),
             N as i32,
             C as i32,
             EPS,
@@ -173,11 +188,10 @@ fn test_batch_norm_inference_gpu() -> Result<()> {
 }
 
 #[test]
-#[cfg(all(feature = "cuda", feature = "training"))]
-fn test_batch_norm_forward_training_gpu() -> Result<()> {
+#[cfg(all(feature = "hardware", feature = "training"))]
+fn test_batch_norm_forward_training_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
     let weight = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/weight.bin");
@@ -205,23 +219,23 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
     rm_buf.to_device(&running_mean)?;
     rv_buf.to_device(&running_var)?;
 
-    let target = Target::new(env.capability);
+    let target = teeny_runtime::default_target(&device)?;
 
     let stats_kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
-    let stats_ptx = std::fs::read(compile_kernel(&stats_kernel, &target, true, false)?)?;
-    let stats_prog = testing::load_program_from_ptx::<
+    let stats_ptx_path = teeny_runtime::compile_kernel(&stats_kernel, &target, true, false)?;
+    let stats_prog = teeny_runtime::load_program::<
         teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward<f32>,
-    >(&stats_ptx)?;
+    >(&stats_ptx_path)?;
     device.launch(
         &stats_prog,
         &bn_cfg(),
         (
-            x_buf.as_device_ptr() as *mut f32,
-            mean_buf.as_device_ptr() as *mut f32,
-            rstd_buf.as_device_ptr() as *mut f32,
-            rm_buf.as_device_ptr() as *mut f32,
-            rv_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            mean_buf.as_device_ptr(),
+            rstd_buf.as_device_ptr(),
+            rm_buf.as_device_ptr(),
+            rv_buf.as_device_ptr(),
             N as i32,
             C as i32,
             EPS,
@@ -231,20 +245,20 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
 
     let norm_kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward::<f32>::new(BLOCK_N);
-    let norm_ptx = std::fs::read(compile_kernel(&norm_kernel, &target, true, false)?)?;
-    let norm_prog = testing::load_program_from_ptx::<
+    let norm_ptx_path = teeny_runtime::compile_kernel(&norm_kernel, &target, true, false)?;
+    let norm_prog = teeny_runtime::load_program::<
         teeny_kernels::nn::norm::batchnorm::BatchNormNormalizeForward<f32>,
-    >(&norm_ptx)?;
+    >(&norm_ptx_path)?;
     device.launch(
         &norm_prog,
         &bn_cfg(),
         (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            w_buf.as_device_ptr() as *mut f32,
-            b_buf.as_device_ptr() as *mut f32,
-            mean_buf.as_device_ptr() as *mut f32,
-            rstd_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            mean_buf.as_device_ptr(),
+            rstd_buf.as_device_ptr(),
             N as i32,
             C as i32,
         ),
@@ -263,11 +277,10 @@ fn test_batch_norm_forward_training_gpu() -> Result<()> {
 }
 
 #[test]
-#[cfg(all(feature = "cuda", feature = "training"))]
-fn test_batch_norm_backward_gpu() -> Result<()> {
+#[cfg(all(feature = "hardware", feature = "training"))]
+fn test_batch_norm_backward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/x.bin");
     let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/dy.bin");
@@ -298,24 +311,24 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
     rstd_buf.to_device(&rstd)?;
 
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormBackward::<f32>::new(BLOCK_N);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::norm::batchnorm::BatchNormBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     device.launch(
         &program,
         &bn_cfg(),
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            x_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
-            w_buf.as_device_ptr() as *mut f32,
-            mean_buf.as_device_ptr() as *mut f32,
-            rstd_buf.as_device_ptr() as *mut f32,
-            dw_buf.as_device_ptr() as *mut f32,
-            db_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            x_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            mean_buf.as_device_ptr(),
+            rstd_buf.as_device_ptr(),
+            dw_buf.as_device_ptr(),
+            db_buf.as_device_ptr(),
             N as i32,
             C as i32,
         ),
@@ -356,11 +369,16 @@ fn test_batch_norm_backward_gpu() -> Result<()> {
 #[test]
 fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
     dotenv().ok();
-    use teeny_cuda::compiler::target::Capability;
     let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BLOCK_N);
-    let target = Target::new(Capability::Sm89);
-    compile_kernel(&kernel, &target, true, false)?;
-    assert_debug_snapshot!("batch_norm_2d_nchw_backward_source", kernel.source());
+    let target = teeny_runtime::reference_target();
+    teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    assert_debug_snapshot!(
+        format!(
+            "batch_norm_2d_nchw_backward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
     Ok(())
 }
 
@@ -371,11 +389,10 @@ fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
 //   dweight[c] = B*H*W * (1 * 3) = 4 * 3 = 12.0.
 //   dbias[c]   = B*H*W * 1       = 4.0.
 #[test]
-#[cfg(all(feature = "cuda", feature = "training"))]
-fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
+#[cfg(all(feature = "hardware", feature = "training"))]
+fn test_batch_norm_2d_nchw_backward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     const BN_B: usize = 1;
     const BN_C: usize = 4;
@@ -409,29 +426,29 @@ fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BN_BLOCK_HW);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = CudaLaunchConfig {
-        grid: [BN_C as u32, 1, 1],
-        block: [BN_BLOCK_HW as u32, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [BN_C as u32, 1, 1],
+        [BN_BLOCK_HW as u32, 1, 1],
+        [1, 1, 1],
+    );
     device.launch(
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            x_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
-            w_buf.as_device_ptr() as *mut f32,
-            rm_buf.as_device_ptr() as *mut f32,
-            rv_buf.as_device_ptr() as *mut f32,
-            dw_buf.as_device_ptr() as *mut f32,
-            db_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            x_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            rm_buf.as_device_ptr(),
+            rv_buf.as_device_ptr(),
+            dw_buf.as_device_ptr(),
+            db_buf.as_device_ptr(),
             BN_B as i32,
             BN_C as i32,
             BN_HW as i32,
@@ -473,7 +490,7 @@ fn test_batch_norm_2d_nchw_backward_gpu() -> Result<()> {
 // ─── Graph-compiler training test ─────────────────────────────────────────────
 
 #[test]
-#[cfg(all(feature = "cuda", feature = "training"))]
+#[cfg(all(feature = "cuda", feature = "hardware", feature = "training"))]
 fn test_batch_norm_training_graph() -> anyhow::Result<()> {
     dotenv().ok();
     let env = testing::setup_cuda_env()?;

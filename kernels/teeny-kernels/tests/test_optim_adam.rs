@@ -19,27 +19,31 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::errors::Result;
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
+#[cfg(feature = "hardware")]
 use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
 // Adam hyperparameters (must match generate.py)
+#[cfg(feature = "hardware")]
 const BETA1: f32 = 0.9;
+#[cfg(feature = "hardware")]
 const BETA2: f32 = 0.999;
+#[cfg(feature = "hardware")]
 const EPS: f32 = 1e-8;
+#[cfg(feature = "hardware")]
 const WD: f32 = 1e-4;
+#[cfg(feature = "hardware")]
 const LR: f32 = 0.001;
+#[cfg(feature = "hardware")]
 const STEP: i32 = 5;
 
+#[cfg(feature = "hardware")]
 fn adam_scalars() -> (f32, f32) {
     let bias_c1 = 1.0 - BETA1.powi(STEP);
     let bias_c2 = 1.0 - BETA2.powi(STEP);
@@ -54,11 +58,19 @@ fn adam_scalars() -> (f32, f32) {
 fn test_adam_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("adam_step_source", kernel.source());
-    assert_debug_snapshot!("adam_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("adam_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("adam_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -66,21 +78,29 @@ fn test_adam_step_mlir() -> anyhow::Result<()> {
 fn test_adamw_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamwStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("adamw_step_source", kernel.source());
-    assert_debug_snapshot!("adamw_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("adamw_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("adamw_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA: Adam ────────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_adam_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_adam_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
     let (step_size, bc2_sqrt) = adam_scalars();
 
     let params_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_adam/adam_params_in.bin");
@@ -100,31 +120,32 @@ fn test_adam_step_cuda() -> Result<()> {
         "optim_adam/adam_exp_avg_sq_out.bin",
     );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_sq_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_sq_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     exp_avg_buf.to_device(&exp_avg_in)?;
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::adam::AdamStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::adam::AdamStep>(&ptx)?;
-    env.device.launch(
+    )?;
+    let program =
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::adam::AdamStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            exp_avg_buf.as_device_ptr() as *mut f32,
-            exp_avg_sq_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            exp_avg_buf.as_device_ptr(),
+            exp_avg_sq_buf.as_device_ptr(),
             N as i32,
             step_size,
             bc2_sqrt,
@@ -167,10 +188,10 @@ fn test_adam_step_cuda() -> Result<()> {
 // ── CUDA: AdamW ───────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_adamw_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_adamw_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
     let (step_size, bc2_sqrt) = adam_scalars();
 
     let params_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_adam/adamw_params_in.bin");
@@ -196,32 +217,32 @@ fn test_adamw_step_cuda() -> Result<()> {
         "optim_adam/adamw_exp_avg_sq_out.bin",
     );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_buf = env.device.buffer::<f32>(N)?;
-    let mut exp_avg_sq_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_buf = device.buffer::<f32>(N)?;
+    let mut exp_avg_sq_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     exp_avg_buf.to_device(&exp_avg_in)?;
     exp_avg_sq_buf.to_device(&exp_avg_sq_in)?;
 
     let kernel = teeny_kernels::nn::optim::adam::AdamwStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
+    )?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::adam::AdamwStep>(&ptx)?;
-    env.device.launch(
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::adam::AdamwStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            exp_avg_buf.as_device_ptr() as *mut f32,
-            exp_avg_sq_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            exp_avg_buf.as_device_ptr(),
+            exp_avg_sq_buf.as_device_ptr(),
             N as i32,
             step_size,
             bc2_sqrt,

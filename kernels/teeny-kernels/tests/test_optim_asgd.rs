@@ -19,22 +19,22 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::errors::Result;
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
+#[cfg(feature = "hardware")]
 use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
 // ASGD hyperparameters (must match generate.py: step=20, t0=10, d_ax=max(1,20-10)=10)
+#[cfg(feature = "hardware")]
 const LR: f32 = 0.01;
+#[cfg(feature = "hardware")]
 const WD: f32 = 1e-4;
+#[cfg(feature = "hardware")]
 const D_AX: f32 = 10.0;
 
 // ── MLIR snapshot ─────────────────────────────────────────────────────────────
@@ -43,21 +43,29 @@ const D_AX: f32 = 10.0;
 fn test_asgd_step_mlir() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::asgd::AsgdStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("asgd_step_source", kernel.source());
-    assert_debug_snapshot!("asgd_step_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("asgd_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("asgd_step_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA: ASGD ────────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_asgd_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_asgd_step_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
 
     let params_in = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_asgd/asgd_params_in.bin");
     let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_asgd/asgd_grad.bin");
@@ -65,28 +73,29 @@ fn test_asgd_step_cuda() -> Result<()> {
     let params_ex = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_asgd/asgd_params_out.bin");
     let ax_ex = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_asgd/asgd_ax_out.bin");
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut ax_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut ax_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     ax_buf.to_device(&ax_in)?;
 
     let kernel = teeny_kernels::nn::optim::asgd::AsgdStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(
+    let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
-        &Target::new(env.capability),
+        &teeny_runtime::default_target(&device)?,
         true,
         false,
-    )?)?;
-    let program = testing::load_program_from_ptx::<teeny_kernels::nn::optim::asgd::AsgdStep>(&ptx)?;
-    env.device.launch(
+    )?;
+    let program =
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::asgd::AsgdStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            ax_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            ax_buf.as_device_ptr(),
             N as i32,
             LR,
             WD,

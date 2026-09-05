@@ -19,16 +19,11 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
-#[cfg(feature = "cuda")]
-use teeny_cuda::errors::Result;
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
 
 use teeny_kernels::nn::tensor::elemwise_binary::{
     ElemwiseClipBackward, ElemwiseClipForward, ElemwiseDivBackward, ElemwiseDivForward,
@@ -39,9 +34,11 @@ use teeny_kernels::nn::tensor::elemwise_binary::{
     ElemwiseSubBackward, ElemwiseSubForward, ElemwiseSumBackward, ElemwiseSumForward,
     ElemwiseWhereBackward, ElemwiseWhereForward,
 };
+#[cfg(feature = "hardware")]
 use teeny_test::load_fixture;
 
 const BLOCK_SIZE: i32 = 1024;
+#[cfg(feature = "hardware")]
 const TOL: f32 = 1e-4;
 
 // ── Macro: source + MLIR snapshot ────────────────────────────────────────────
@@ -52,11 +49,27 @@ macro_rules! source_test {
         fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
             let kernel = <$kernel_ty>::new(BLOCK_SIZE);
-            let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-            let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+            let target = teeny_runtime::reference_target();
+            let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+                &kernel, &target, true, false,
+            )?);
             let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-            assert_debug_snapshot!(concat!($snap_prefix, "_source"), kernel.source());
-            assert_debug_snapshot!(concat!($snap_prefix, "_mlir"), mlir.trim());
+            assert_debug_snapshot!(
+                format!(
+                    "{}_{}",
+                    concat!($snap_prefix, "_source"),
+                    teeny_runtime::BACKEND_NAME
+                ),
+                kernel.source()
+            );
+            assert_debug_snapshot!(
+                format!(
+                    "{}_{}",
+                    concat!($snap_prefix, "_mlir"),
+                    teeny_runtime::BACKEND_NAME
+                ),
+                mlir.trim()
+            );
             Ok(())
         }
     };
@@ -66,12 +79,11 @@ macro_rules! source_test {
 
 macro_rules! gpu_forward_test_2 {
     ($test_name:ident, $kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "hardware")]
         #[test]
-        fn $test_name() -> Result<()> {
+        fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
-            let env = testing::setup_cuda_env()?;
-            let device = env.device;
+            let device = teeny_runtime::open()?;
             let a = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/a.bin");
             let b = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/b.bin");
             let expected = load_fixture(
@@ -86,17 +98,17 @@ macro_rules! gpu_forward_test_2 {
             a_buf.to_device(&a)?;
             b_buf.to_device(&b)?;
             let kernel = <$kernel_ty>::new(BLOCK_SIZE);
-            let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-            let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
-            let cfg = testing::launch_config_from_program(n, &program);
+            let target = teeny_runtime::default_target(&device)?;
+            let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+            let program = teeny_runtime::load_program::<$kernel_ty>(&ptx_path)?;
+            let cfg = teeny_runtime::launch_config(n, &program);
             device.launch(
                 &program,
                 &cfg,
                 (
-                    a_buf.as_device_ptr() as *mut f32,
-                    b_buf.as_device_ptr() as *mut f32,
-                    out_buf.as_device_ptr() as *mut f32,
+                    a_buf.as_device_ptr(),
+                    b_buf.as_device_ptr(),
+                    out_buf.as_device_ptr(),
                     n as i32,
                 ),
             )?;
@@ -119,12 +131,11 @@ macro_rules! gpu_forward_test_2 {
 
 macro_rules! gpu_backward_test_2 {
     ($test_name:ident, $bwd_kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "hardware")]
         #[test]
-        fn $test_name() -> Result<()> {
+        fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
-            let env = testing::setup_cuda_env()?;
-            let device = env.device;
+            let device = teeny_runtime::open()?;
             let a = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/a.bin");
             let b = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/b.bin");
             let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/dy.bin");
@@ -148,19 +159,19 @@ macro_rules! gpu_backward_test_2 {
             b_buf.to_device(&b)?;
             dy_buf.to_device(&dy)?;
             let kernel = <$bwd_kernel_ty>::new(BLOCK_SIZE);
-            let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-            let program = testing::load_program_from_ptx::<$bwd_kernel_ty>(&ptx)?;
-            let cfg = testing::launch_config_from_program(n, &program);
+            let target = teeny_runtime::default_target(&device)?;
+            let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+            let program = teeny_runtime::load_program::<$bwd_kernel_ty>(&ptx_path)?;
+            let cfg = teeny_runtime::launch_config(n, &program);
             device.launch(
                 &program,
                 &cfg,
                 (
-                    dy_buf.as_device_ptr() as *mut f32,
-                    a_buf.as_device_ptr() as *mut f32,
-                    b_buf.as_device_ptr() as *mut f32,
-                    da_buf.as_device_ptr() as *mut f32,
-                    db_buf.as_device_ptr() as *mut f32,
+                    dy_buf.as_device_ptr(),
+                    a_buf.as_device_ptr(),
+                    b_buf.as_device_ptr(),
+                    da_buf.as_device_ptr(),
+                    db_buf.as_device_ptr(),
                     n as i32,
                 ),
             )?;
@@ -192,12 +203,11 @@ macro_rules! gpu_backward_test_2 {
 
 macro_rules! gpu_backward_test_dyonly {
     ($test_name:ident, $bwd_kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "hardware")]
         #[test]
-        fn $test_name() -> Result<()> {
+        fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
-            let env = testing::setup_cuda_env()?;
-            let device = env.device;
+            let device = teeny_runtime::open()?;
             let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/dy.bin");
             let expected_da = load_fixture(
                 env!("CARGO_MANIFEST_DIR"),
@@ -215,17 +225,17 @@ macro_rules! gpu_backward_test_dyonly {
             let mut db_out = vec![0.0f32; n];
             dy_buf.to_device(&dy)?;
             let kernel = <$bwd_kernel_ty>::new(BLOCK_SIZE);
-            let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-            let program = testing::load_program_from_ptx::<$bwd_kernel_ty>(&ptx)?;
-            let cfg = testing::launch_config_from_program(n, &program);
+            let target = teeny_runtime::default_target(&device)?;
+            let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+            let program = teeny_runtime::load_program::<$bwd_kernel_ty>(&ptx_path)?;
+            let cfg = teeny_runtime::launch_config(n, &program);
             device.launch(
                 &program,
                 &cfg,
                 (
-                    dy_buf.as_device_ptr() as *mut f32,
-                    da_buf.as_device_ptr() as *mut f32,
-                    db_buf.as_device_ptr() as *mut f32,
+                    dy_buf.as_device_ptr(),
+                    da_buf.as_device_ptr(),
+                    db_buf.as_device_ptr(),
                     n as i32,
                 ),
             )?;
@@ -475,12 +485,11 @@ gpu_forward_test_2!(
 );
 
 // Where forward: (cond_ptr, x_ptr, y_ptr, out_ptr, n)
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 #[test]
-fn test_where_forward_gpu() -> Result<()> {
+fn test_where_forward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
     let cond = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/cond.bin");
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/a.bin");
     let y = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/b.bin");
@@ -498,18 +507,18 @@ fn test_where_forward_gpu() -> Result<()> {
     x_buf.to_device(&x)?;
     y_buf.to_device(&y)?;
     let kernel = ElemwiseWhereForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<ElemwiseWhereForward<f32>>(&ptx)?;
-    let cfg = testing::launch_config_from_program(n, &program);
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<ElemwiseWhereForward<f32>>(&ptx_path)?;
+    let cfg = teeny_runtime::launch_config(n, &program);
     device.launch(
         &program,
         &cfg,
         (
-            cond_buf.as_device_ptr() as *mut f32,
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
-            out_buf.as_device_ptr() as *mut f32,
+            cond_buf.as_device_ptr(),
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            out_buf.as_device_ptr(),
             n as i32,
         ),
     )?;
@@ -526,12 +535,11 @@ fn test_where_forward_gpu() -> Result<()> {
 }
 
 // Clip forward: (x_ptr, out_ptr, n, min_val, max_val)
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 #[test]
-fn test_clip_forward_gpu() -> Result<()> {
+fn test_clip_forward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/a.bin");
     let expected = load_fixture(
         env!("CARGO_MANIFEST_DIR"),
@@ -543,17 +551,17 @@ fn test_clip_forward_gpu() -> Result<()> {
     let mut out = vec![0.0f32; n];
     x_buf.to_device(&x)?;
     let kernel = ElemwiseClipForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<ElemwiseClipForward<f32>>(&ptx)?;
-    let cfg = testing::launch_config_from_program(n, &program);
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<ElemwiseClipForward<f32>>(&ptx_path)?;
+    let cfg = teeny_runtime::launch_config(n, &program);
     // min_val=-1.0, max_val=1.0 (must match fixture)
     device.launch(
         &program,
         &cfg,
         (
-            x_buf.as_device_ptr() as *mut f32,
-            out_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            out_buf.as_device_ptr(),
             n as i32,
             -1.0f32,
             1.0f32,
@@ -625,12 +633,11 @@ gpu_backward_test_dyonly!(
 );
 
 // Where backward: (dy_ptr, cond_ptr, dx_ptr, dy_in_ptr, n)
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 #[test]
-fn test_where_backward_gpu() -> Result<()> {
+fn test_where_backward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
     let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/dy.bin");
     let cond = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/cond.bin");
     let expected_dx = load_fixture(
@@ -651,18 +658,18 @@ fn test_where_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     cond_buf.to_device(&cond)?;
     let kernel = ElemwiseWhereBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<ElemwiseWhereBackward<f32>>(&ptx)?;
-    let cfg = testing::launch_config_from_program(n, &program);
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<ElemwiseWhereBackward<f32>>(&ptx_path)?;
+    let cfg = teeny_runtime::launch_config(n, &program);
     device.launch(
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            cond_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
-            dy_in_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            cond_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
+            dy_in_buf.as_device_ptr(),
             n as i32,
         ),
     )?;
@@ -686,12 +693,11 @@ fn test_where_backward_gpu() -> Result<()> {
 }
 
 // Clip backward: (dy_ptr, x_ptr, dx_ptr, n, min_val, max_val)
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 #[test]
-fn test_clip_backward_gpu() -> Result<()> {
+fn test_clip_backward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
     let dy = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/dy.bin");
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "elemwise_binary/a.bin");
     let expected = load_fixture(
@@ -706,17 +712,17 @@ fn test_clip_backward_gpu() -> Result<()> {
     dy_buf.to_device(&dy)?;
     x_buf.to_device(&x)?;
     let kernel = ElemwiseClipBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<ElemwiseClipBackward<f32>>(&ptx)?;
-    let cfg = testing::launch_config_from_program(n, &program);
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<ElemwiseClipBackward<f32>>(&ptx_path)?;
+    let cfg = teeny_runtime::launch_config(n, &program);
     device.launch(
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            x_buf.as_device_ptr() as *mut f32,
-            dx_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            x_buf.as_device_ptr(),
+            dx_buf.as_device_ptr(),
             n as i32,
             -1.0f32,
             1.0f32,

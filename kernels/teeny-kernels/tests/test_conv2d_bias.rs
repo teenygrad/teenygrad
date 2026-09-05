@@ -26,16 +26,10 @@ use teeny_core::{
 };
 use teeny_kernels::graph::TritonLowering;
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use dotenv::dotenv;
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::compiler::{compile_kernel, target::Target};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{device::CudaLaunchConfig, errors::Result};
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
 
 const NB: usize = 1;
 const C_IN: usize = 3;
@@ -48,6 +42,7 @@ const STRIDE_H: i32 = 1;
 const STRIDE_W: i32 = 1;
 const PAD_H: i32 = 1;
 const PAD_W: i32 = 1;
+#[cfg(feature = "hardware")]
 const BLOCK_OW: i32 = 16;
 const OH: usize = (HH + 2 * PAD_H as usize - KH as usize) / STRIDE_H as usize + 1; // 9
 const OW: usize = (WW + 2 * PAD_W as usize - KW as usize) / STRIDE_W as usize + 1; // 9
@@ -112,7 +107,8 @@ fn test_conv2d_bias_training_still_splits_into_two_kernels() {
     assert!(!dag.node(1).value.name().contains("conv2d_bias_forward"));
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
+#[allow(clippy::too_many_arguments)]
 fn conv2d_bias_reference(
     x: &[f32],
     w: &[f32],
@@ -158,11 +154,10 @@ fn conv2d_bias_reference(
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_conv2d_bias_forward_matches_reference() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_conv2d_bias_forward_matches_reference() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     let x_host: Vec<f32> = (0..NB * C_IN * HH * WW)
         .map(|i| (i as f32 % 17.0 - 8.0) * 0.1)
@@ -201,28 +196,24 @@ fn test_conv2d_bias_forward_matches_reference() -> Result<()> {
     let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBiasForward::<f32>::new(
         KH, KW, STRIDE_H, STRIDE_W, PAD_H, PAD_W, 1, BLOCK_OW,
     );
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::conv::conv2d::Conv2dBiasForward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_ow_tiles = OW.div_ceil(BLOCK_OW as usize);
     let grid = (NB * C_OUT * OH * num_ow_tiles) as u32;
-    let cfg = CudaLaunchConfig {
-        grid: [grid, 1, 1],
-        block: [128, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom([grid, 1, 1], [128, 1, 1], [1, 1, 1]);
 
     device.launch(
         &program,
         &cfg,
         (
-            x_buf.as_device_ptr() as *mut f32,
-            w_buf.as_device_ptr() as *mut f32,
-            bias_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            bias_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
             NB as i32,
             C_IN as i32,
             C_OUT as i32,

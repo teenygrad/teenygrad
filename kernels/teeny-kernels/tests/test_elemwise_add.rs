@@ -24,19 +24,17 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, errors::Result};
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
-
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
+#[cfg(feature = "hardware")]
 fn load(rel: &str) -> Vec<f32> {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing {path}: {e}"));
@@ -55,11 +53,22 @@ fn test_elemwise_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::
     dotenv().ok();
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("elemwise_add_forward_source", kernel.source());
-    assert_debug_snapshot!("elemwise_add_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "elemwise_add_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("elemwise_add_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
@@ -68,22 +77,32 @@ fn test_elemwise_add_backward_snapshot() -> std::result::Result<(), Box<dyn std:
     dotenv().ok();
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("elemwise_add_backward_source", kernel.source());
-    assert_debug_snapshot!("elemwise_add_backward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "elemwise_add_backward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("elemwise_add_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
+        mlir.trim()
+    );
     Ok(())
 }
 
 // ── CUDA integration tests ────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_elemwise_add_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_elemwise_add_forward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     let a_host = load("elemwise_add/a.bin");
     let b_host = load("elemwise_add/b.bin");
@@ -102,20 +121,20 @@ fn test_elemwise_add_forward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = testing::launch_config_from_program(N, &program);
+    let cfg = teeny_runtime::launch_config(N, &program);
     device.launch(
         &program,
         &cfg,
         (
-            a_buf.as_device_ptr() as *mut f32,
-            b_buf.as_device_ptr() as *mut f32,
-            out_buf.as_device_ptr() as *mut f32,
+            a_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            out_buf.as_device_ptr(),
             N as i32,
         ),
     )?;
@@ -135,11 +154,10 @@ fn test_elemwise_add_forward_cuda() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_elemwise_add_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_elemwise_add_backward_cuda() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
     let dy_host = load("elemwise_add/dy.bin");
     let expected_ga = load("elemwise_add/expected_ga.bin");
@@ -157,20 +175,20 @@ fn test_elemwise_add_backward_cuda() -> Result<()> {
 
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = testing::launch_config_from_program(N, &program);
+    let cfg = teeny_runtime::launch_config(N, &program);
     device.launch(
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            grad_a_buf.as_device_ptr() as *mut f32,
-            grad_b_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            grad_a_buf.as_device_ptr(),
+            grad_b_buf.as_device_ptr(),
             N as i32,
         ),
     )?;
