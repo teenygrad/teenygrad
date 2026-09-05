@@ -200,8 +200,10 @@ pub fn validate_checkpoint(
             Some(
                 zp_view
                     .data()
-                    .chunks_exact(4)
-                    .map(|b| i32::from_le_bytes(b.try_into().expect("chunks_exact(4)")))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| i32::from_le_bytes(*b))
                     .collect::<Vec<_>>(),
             )
         };

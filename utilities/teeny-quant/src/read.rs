@@ -35,18 +35,24 @@ pub fn read_f32(view: &TensorView<'_>, name: &str) -> Result<Vec<f32>> {
     match view.dtype() {
         Dtype::F32 => Ok(view
             .data()
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes(b.try_into().expect("chunks_exact(4)")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect()),
         Dtype::F16 => Ok(view
             .data()
-            .chunks_exact(2)
-            .map(|b| f16::from_le_bytes(b.try_into().expect("chunks_exact(2)")).to_f32())
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| f16::from_le_bytes(*b).to_f32())
             .collect()),
         Dtype::BF16 => Ok(view
             .data()
-            .chunks_exact(2)
-            .map(|b| bf16::from_le_bytes(b.try_into().expect("chunks_exact(2)")).to_f32())
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| bf16::from_le_bytes(*b).to_f32())
             .collect()),
         other => Err(Error::UnsupportedDtype {
             tensor: name.to_string(),
