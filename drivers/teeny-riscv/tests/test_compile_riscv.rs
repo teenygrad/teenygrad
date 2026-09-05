@@ -41,7 +41,7 @@ fn compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::GenericRvv1_0);
 
-    let output_path = compile_kernel(&kernel, &target, true)?;
+    let output_path = compile_kernel(&kernel, &target, true, false)?;
     let bytes = std::fs::read(&output_path)?;
 
     assert_eq!(

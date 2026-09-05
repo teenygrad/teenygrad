@@ -21,25 +21,20 @@ use insta::assert_debug_snapshot;
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
+#[cfg(feature = "cuda")]
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 #[cfg(feature = "cuda")]
 use teeny_cuda::{compiler::target::Capability, errors::Result};
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
 use teeny_test::load_fixture;
-
-#[cfg(all(feature = "riscv", feature = "qemu"))]
-use teeny_riscv::compiler::compile_kernel as compile_riscv_kernel;
-#[cfg(all(feature = "riscv", feature = "qemu"))]
-use teeny_riscv::compiler::target::{Capability as RiscvCapability, Target as RiscvTarget};
-#[cfg(all(feature = "riscv", feature = "qemu"))]
-use teeny_test::riscv::qemu::setup_qemu_env;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
+/// CUDA-only: checks the compiled MLIR/PTX for a specific compute capability
+/// (`Capability::Sm89`) -- inherently target-specific, not something to genericize.
 #[test]
+#[cfg(feature = "cuda")]
 fn test_relu() -> Result<()> {
     dotenv().ok();
 
@@ -54,12 +49,19 @@ fn test_relu() -> Result<()> {
     Ok(())
 }
 
+/// Device-agnostic: `teeny_runtime::open()` resolves to whichever of `teeny-cuda`/`teeny-riscv`
+/// is compiled in (see the `cuda`/`riscv` features), so this same test body runs against either
+/// backend. On `riscv` it's expected to simply fail today -- `teeny_riscv::device::RiscvDevice`
+/// can't yet load a compiled kernel on a non-RISC-V host (real hardware or `qemu-riscv64` would
+/// be needed), and even then `Device::launch` is a stub until real per-kernel argument passing
+/// lands (`teenygrad-1zd`). That's fine for now: this test exists to prove out the
+/// `teeny-runtime` path, not to assert RISC-V correctness yet.
 #[test]
-#[cfg(feature = "cuda")]
-fn test_relu_forward_gpu() -> Result<()> {
+fn test_relu_forward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+
+    let device = teeny_runtime::open()?;
+    let target = teeny_runtime::default_target(&device)?;
 
     let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/x.bin");
     let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/expected_forward.bin");
@@ -67,30 +69,14 @@ fn test_relu_forward_gpu() -> Result<()> {
 
     let mut in_buf = device.buffer::<f32>(N)?;
     let out_buf = device.buffer::<f32>(N)?;
-    println!(
-        "[4/9] allocated device buffers: in={:#x} out={:#x}",
-        in_buf.as_device_ptr(),
-        out_buf.as_device_ptr(),
-    );
-
     in_buf.to_device(&input_host)?;
-    println!("[5/9] copied input data to device");
 
     let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    println!("[6/9] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
-
-    let program = testing::load_program_from_ptx::<
+    let compiled_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::relu::ReluForward<f32>,
-    >(&ptx)?;
-
-    let cfg = testing::launch_config_from_program(N, &program);
-    println!(
-        "[8/9] launching: grid={:?} block={:?} n_elements={N}",
-        cfg.grid, cfg.block,
-    );
+    >(&compiled_path)?;
+    let cfg = teeny_runtime::launch_config(N, &program);
 
     let args = (
         in_buf.as_device_ptr() as *mut f32,
@@ -99,20 +85,13 @@ fn test_relu_forward_gpu() -> Result<()> {
     );
 
     device.launch(&program, &cfg, args)?;
-    println!("      kernel completed (synchronized)");
 
     out_buf.to_host(&mut output_host)?;
-    println!(
-        "[9/9] copied results back: output[0]={} output[{}]={}",
-        output_host[0],
-        N - 1,
-        output_host[N - 1]
-    );
 
     for i in 0..N {
         assert_eq!(
             output_host[i], expected[i],
-            "relu mismatch at index {i}: input={}, gpu={}, expected={}",
+            "relu mismatch at index {i}: input={}, actual={}, expected={}",
             input_host[i], output_host[i], expected[i]
         );
     }
@@ -120,12 +99,13 @@ fn test_relu_forward_gpu() -> Result<()> {
     Ok(())
 }
 
+/// Device-agnostic -- see [`test_relu_forward_gpu`]'s doc comment.
 #[test]
-#[cfg(feature = "cuda")]
-fn test_relu_backward_gpu() -> Result<()> {
+fn test_relu_backward_gpu() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+
+    let device = teeny_runtime::open()?;
+    let target = teeny_runtime::default_target(&device)?;
 
     let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/y_backward.bin");
     let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu/dy_backward.bin");
@@ -140,15 +120,12 @@ fn test_relu_backward_gpu() -> Result<()> {
     y_buf.to_device(&y_host)?;
 
     let kernel = teeny_kernels::nn::activation::relu::ReluBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
-    let ptx = std::fs::read(&ptx_path)?;
-
-    let program = testing::load_program_from_ptx::<
+    let compiled_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::relu::ReluBackward<f32>,
-    >(&ptx)?;
+    >(&compiled_path)?;
+    let cfg = teeny_runtime::launch_config(N, &program);
 
-    let cfg = testing::launch_config_from_program(N, &program);
     let args = (
         dy_buf.as_device_ptr() as *mut f32,
         y_buf.as_device_ptr() as *mut f32,
@@ -163,31 +140,10 @@ fn test_relu_backward_gpu() -> Result<()> {
     for i in 0..N {
         assert_eq!(
             dx_host[i], expected[i],
-            "relu_backward mismatch at index {i}: y={}, dy={}, gpu={}, expected={}",
+            "relu_backward mismatch at index {i}: y={}, dy={}, actual={}, expected={}",
             y_host[i], dy_host[i], dx_host[i], expected[i]
         );
     }
-
-    Ok(())
-}
-
-#[test]
-#[cfg(all(feature = "riscv", feature = "qemu"))]
-fn test_relu_forward_riscv_qemu() -> anyhow::Result<()> {
-    // Proves the riscv+qemu driver path end-to-end: compile ReluForward for RISC-V (same
-    // pipeline `teeny-riscv`'s own tests exercise), then load and call the resulting `.so`
-    // under `qemu-riscv64`. `RiscvBackend` is still a stub -- this only proves the compiled
-    // kernel loads and runs under emulation, not that it computes relu (see
-    // `teeny-riscv/tests/test_qemu_relu.rs`'s doc comment for why the symbol is
-    // `"riscv_kernel"`, not the kernel's own name).
-    dotenv().ok();
-
-    let kernel = teeny_kernels::nn::activation::relu::ReluForward::<f32>::new(BLOCK_SIZE);
-    let target = RiscvTarget::new(RiscvCapability::GenericRvv1_0);
-    let so_path = compile_riscv_kernel(&kernel, &target, true)?;
-
-    let qemu = setup_qemu_env()?;
-    qemu.run_kernel(std::path::Path::new(&so_path), "riscv_kernel")?;
 
     Ok(())
 }

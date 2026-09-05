@@ -43,7 +43,7 @@ fn compiled_kernel_loads_and_runs_under_qemu() -> anyhow::Result<()> {
 
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::GenericRvv1_0);
-    let so_path = compile_kernel(&kernel, &target, true)?;
+    let so_path = compile_kernel(&kernel, &target, true, false)?;
 
     let qemu = setup_qemu_env()?;
     qemu.run_kernel(std::path::Path::new(&so_path), "riscv_kernel")?;

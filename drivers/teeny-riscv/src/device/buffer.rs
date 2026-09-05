@@ -48,6 +48,17 @@ impl<'a, N: Num> RiscvBuffer<'a, N> {
     pub fn count(&self) -> usize {
         self.data.len()
     }
+
+    /// A raw pointer to this buffer's host-owned storage.
+    ///
+    /// Named to match `CudaBuffer::as_device_ptr` so generic call sites (e.g. building a
+    /// [`teeny_core::device::program::Kernel::Args`] tuple, which is a fixed pointer-argument
+    /// shape regardless of backend) compile the same way against either buffer type. RISC-V
+    /// kernel launches don't dereference this yet -- see
+    /// [`crate::errors::Error::ArgumentPassingNotSupported`].
+    pub fn as_device_ptr(&self) -> *mut N {
+        self.data.as_ptr() as *mut N
+    }
 }
 
 impl<'a, N: Num> Buffer<'a, N> for RiscvBuffer<'a, N> {
