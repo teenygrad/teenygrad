@@ -63,11 +63,11 @@ const OW_P: usize = (W + 2 * PAD_W_P as usize - KW as usize) / STRIDE_W as usize
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 // ---------------------------------------------------------------------------
-// MLIR snapshot tests
+// ASM snapshot tests
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_conv2d_forward_mlir_output() -> anyhow::Result<()> {
+fn test_conv2d_forward_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::conv::conv2d::Conv2dForward::<f32>::new(
@@ -77,22 +77,22 @@ fn test_conv2d_forward_mlir_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("conv2d_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("conv2d_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("conv2d_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
 }
 
 #[test]
-fn test_conv2d_backward_dx_mlir_output() -> anyhow::Result<()> {
+fn test_conv2d_backward_dx_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDx::<f32>::new(
@@ -102,22 +102,22 @@ fn test_conv2d_backward_dx_mlir_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("conv2d_backward_dx_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("conv2d_backward_dx_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("conv2d_backward_dx_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
 }
 
 #[test]
-fn test_conv2d_backward_dw_mlir_output() -> anyhow::Result<()> {
+fn test_conv2d_backward_dw_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::conv::conv2d::Conv2dBackwardDw::<f32>::new(
@@ -127,15 +127,15 @@ fn test_conv2d_backward_dw_mlir_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("conv2d_backward_dw_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("conv2d_backward_dw_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("conv2d_backward_dw_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
@@ -147,7 +147,7 @@ fn test_conv2d_backward_dw_mlir_output() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_conv2d_forward_cuda() -> anyhow::Result<()> {
+fn test_conv2d_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -212,7 +212,7 @@ fn test_conv2d_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_conv2d_backward_dx_cuda() -> anyhow::Result<()> {
+fn test_conv2d_backward_dx() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -276,7 +276,7 @@ fn test_conv2d_backward_dx_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_conv2d_backward_dw_cuda() -> anyhow::Result<()> {
+fn test_conv2d_backward_dw() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -344,7 +344,7 @@ fn test_conv2d_backward_dw_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_conv2d_padded_forward_cuda() -> anyhow::Result<()> {
+fn test_conv2d_padded_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -412,7 +412,7 @@ fn test_conv2d_padded_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_conv2d_padded_backward_dx_cuda() -> anyhow::Result<()> {
+fn test_conv2d_padded_backward_dx() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -476,7 +476,7 @@ fn test_conv2d_padded_backward_dx_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_conv2d_padded_backward_dw_cuda() -> anyhow::Result<()> {
+fn test_conv2d_padded_backward_dw() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

@@ -29,64 +29,64 @@ use teeny_test::load_fixture;
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_elu_mlir() -> anyhow::Result<()> {
+fn test_elu_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::elu::EluForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("elu_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("elu_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("elu_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_selu_mlir() -> anyhow::Result<()> {
+fn test_selu_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::elu::SeluForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("selu_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("selu_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("selu_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_celu_mlir() -> anyhow::Result<()> {
+fn test_celu_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::elu::CeluForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("celu_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("celu_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("celu_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -95,7 +95,7 @@ fn test_celu_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_elu_forward_cuda() -> anyhow::Result<()> {
+fn test_elu_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/x.bin");
@@ -140,7 +140,7 @@ fn test_elu_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_elu_backward_cuda() -> anyhow::Result<()> {
+fn test_elu_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "elu/x.bin");
@@ -191,7 +191,7 @@ fn test_elu_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_selu_forward_cuda() -> anyhow::Result<()> {
+fn test_selu_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/x.bin");
@@ -231,7 +231,7 @@ fn test_selu_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_selu_backward_cuda() -> anyhow::Result<()> {
+fn test_selu_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "selu/x.bin");
@@ -281,7 +281,7 @@ fn test_selu_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_celu_forward_cuda() -> anyhow::Result<()> {
+fn test_celu_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/x.bin");
@@ -326,7 +326,7 @@ fn test_celu_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_celu_backward_cuda() -> anyhow::Result<()> {
+fn test_celu_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "celu/x.bin");

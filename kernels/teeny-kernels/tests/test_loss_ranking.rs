@@ -53,17 +53,17 @@ fn row_launch_cfg() -> teeny_runtime::LaunchConfig {
     teeny_runtime::launch_config_custom([N_ROWS as u32, 1, 1], [PTX_THREADS, 1, 1], [1, 1, 1])
 }
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
-fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
+fn test_margin_ranking_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::ranking::MarginRankingLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "margin_ranking_loss_forward_source_{}",
@@ -73,23 +73,23 @@ fn test_margin_ranking_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "margin_ranking_loss_forward_mlir_{}",
+            "margin_ranking_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
+fn test_hinge_embedding_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::ranking::HingeEmbeddingLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "hinge_embedding_loss_forward_source_{}",
@@ -99,23 +99,23 @@ fn test_hinge_embedding_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "hinge_embedding_loss_forward_mlir_{}",
+            "hinge_embedding_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_multi_margin_loss_mlir() -> anyhow::Result<()> {
+fn test_multi_margin_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::ranking::MultiMarginLossForward::new(BLOCK_SIZE_MM);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "multi_margin_loss_forward_source_{}",
@@ -125,10 +125,10 @@ fn test_multi_margin_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "multi_margin_loss_forward_mlir_{}",
+            "multi_margin_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
@@ -137,7 +137,7 @@ fn test_multi_margin_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_margin_ranking_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_margin_ranking_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -189,7 +189,7 @@ fn test_margin_ranking_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_margin_ranking_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_margin_ranking_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -259,7 +259,7 @@ fn test_margin_ranking_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hinge_embedding_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_hinge_embedding_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -307,7 +307,7 @@ fn test_hinge_embedding_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hinge_embedding_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_hinge_embedding_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -359,7 +359,7 @@ fn test_hinge_embedding_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_multi_margin_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_multi_margin_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -408,7 +408,7 @@ fn test_multi_margin_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_multi_margin_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_multi_margin_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

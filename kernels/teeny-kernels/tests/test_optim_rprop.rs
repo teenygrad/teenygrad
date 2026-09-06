@@ -39,24 +39,24 @@ const STEP_MIN: f32 = 1e-6;
 #[cfg(feature = "hardware")]
 const STEP_MAX: f32 = 50.0;
 
-// ── MLIR snapshot ─────────────────────────────────────────────────────────────
+// ── ASM snapshot ─────────────────────────────────────────────────────────────
 
 #[test]
-fn test_rprop_step_mlir() -> anyhow::Result<()> {
+fn test_rprop_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::rprop::RpropStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("rprop_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("rprop_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("rprop_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -65,7 +65,7 @@ fn test_rprop_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_rprop_step_cuda() -> anyhow::Result<()> {
+fn test_rprop_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

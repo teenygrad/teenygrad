@@ -59,7 +59,7 @@ fn test_channel_bias_add_forward_snapshot() -> std::result::Result<(), Box<dyn s
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "channel_bias_add_forward_source_{}",
@@ -69,10 +69,10 @@ fn test_channel_bias_add_forward_snapshot() -> std::result::Result<(), Box<dyn s
     );
     assert_debug_snapshot!(
         format!(
-            "channel_bias_add_forward_mlir_{}",
+            "channel_bias_add_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
@@ -87,7 +87,7 @@ fn test_channel_bias_add_backward_snapshot() -> std::result::Result<(), Box<dyn 
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "channel_bias_add_backward_source_{}",
@@ -97,17 +97,17 @@ fn test_channel_bias_add_backward_snapshot() -> std::result::Result<(), Box<dyn 
     );
     assert_debug_snapshot!(
         format!(
-            "channel_bias_add_backward_mlir_{}",
+            "channel_bias_add_backward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_channel_bias_add_forward_cuda() -> anyhow::Result<()> {
+fn test_channel_bias_add_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -164,7 +164,7 @@ fn test_channel_bias_add_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_channel_bias_add_backward_cuda() -> anyhow::Result<()> {
+fn test_channel_bias_add_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

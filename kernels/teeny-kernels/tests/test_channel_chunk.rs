@@ -57,7 +57,7 @@ const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C; // 1024
 
 // ── Fixture loader ────────────────────────────────────────────────────────────
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
 fn test_channel_chunk_forward_snapshot() -> anyhow::Result<()> {
@@ -69,7 +69,7 @@ fn test_channel_chunk_forward_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -79,8 +79,8 @@ fn test_channel_chunk_forward_snapshot() -> anyhow::Result<()> {
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("channel_chunk_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("channel_chunk_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
@@ -96,7 +96,7 @@ fn test_channel_chunk_backward_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -106,11 +106,8 @@ fn test_channel_chunk_backward_snapshot() -> anyhow::Result<()> {
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!(
-            "channel_chunk_backward_mlir_{}",
-            teeny_runtime::BACKEND_NAME
-        ),
-        mlir.trim()
+        format!("channel_chunk_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
@@ -120,7 +117,7 @@ fn test_channel_chunk_backward_snapshot() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_channel_chunk_forward_cuda() -> anyhow::Result<()> {
+fn test_channel_chunk_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -209,7 +206,7 @@ fn test_channel_chunk_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_channel_chunk_backward_cuda() -> anyhow::Result<()> {
+fn test_channel_chunk_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

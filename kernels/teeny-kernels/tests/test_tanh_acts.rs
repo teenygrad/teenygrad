@@ -29,44 +29,44 @@ use teeny_test::load_fixture;
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_tanh_mlir() -> anyhow::Result<()> {
+fn test_tanh_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::tanh::TanhForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("tanh_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("tanh_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("tanh_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_tanhshrink_mlir() -> anyhow::Result<()> {
+fn test_tanhshrink_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::tanh::TanhshrinkForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("tanhshrink_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("tanhshrink_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("tanhshrink_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -75,7 +75,7 @@ fn test_tanhshrink_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_tanh_forward_cuda() -> anyhow::Result<()> {
+fn test_tanh_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/x.bin");
@@ -116,7 +116,7 @@ fn test_tanh_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_tanh_backward_cuda() -> anyhow::Result<()> {
+fn test_tanh_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanh/x.bin");
@@ -170,7 +170,7 @@ fn test_tanh_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_tanhshrink_forward_cuda() -> anyhow::Result<()> {
+fn test_tanhshrink_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/x.bin");
@@ -214,7 +214,7 @@ fn test_tanhshrink_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_tanhshrink_backward_cuda() -> anyhow::Result<()> {
+fn test_tanhshrink_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "tanhshrink/x.bin");

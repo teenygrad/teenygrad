@@ -404,10 +404,10 @@ impl Kernel for SourceKernel {
 // `--nocapture` (and redirect stderr) to capture them, e.g.:
 //
 //   cargo test -p teeny-kernels --test test_anduin_pointwise --features cuda \
-//     test_anduin_pointwise_relu_sigmoid_mlir -- --nocapture 2>pipeline.log
+//     test_anduin_pointwise_relu_sigmoid_asm -- --nocapture 2>pipeline.log
 #[test]
 #[cfg(feature = "cuda")]
-fn test_anduin_pointwise_relu_sigmoid_mlir() -> Result<()> {
+fn test_anduin_pointwise_relu_sigmoid_asm() -> Result<()> {
     dotenv().ok();
 
     let graph = build_relu_sigmoid_graph();
@@ -431,8 +431,8 @@ fn test_anduin_pointwise_relu_sigmoid_mlir() -> Result<()> {
         node.entry_point
     );
 
-    let mlir = std::fs::read_to_string(PathBuf::from(&node.ptx_path).with_extension("mlir"))?;
-    assert_debug_snapshot!("anduin_pointwise_relu_sigmoid_mlir", mlir.trim());
+    let asm = teeny_test::read_compiled_asm(PathBuf::from(&node.ptx_path));
+    assert_debug_snapshot!("anduin_pointwise_relu_sigmoid_asm", asm);
     Ok(())
 }
 

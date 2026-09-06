@@ -36,7 +36,7 @@ const BLOCK_SIZE: i32 = 1024;
 #[cfg(feature = "hardware")]
 const TOL: f32 = 1e-4;
 
-// ── Source + MLIR snapshots ───────────────────────────────────────────────────
+// ── Source + ASM snapshots ───────────────────────────────────────────────────
 
 #[test]
 fn test_swish_source() -> anyhow::Result<()> {
@@ -46,14 +46,14 @@ fn test_swish_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("swish_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("swish_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("swish_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -66,14 +66,14 @@ fn test_swish_backward_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("swish_backward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("swish_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("swish_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -86,14 +86,14 @@ fn test_prelu_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("prelu_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("prelu_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("prelu_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -106,14 +106,14 @@ fn test_prelu_backward_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("prelu_backward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("prelu_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("prelu_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -129,14 +129,14 @@ fn test_log_softmax_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("log_softmax_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("log_softmax_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("log_softmax_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -149,7 +149,7 @@ fn test_log_softmax_backward_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "log_softmax_backward_source_{}",
@@ -158,8 +158,8 @@ fn test_log_softmax_backward_source() -> anyhow::Result<()> {
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("log_softmax_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("log_softmax_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -172,7 +172,7 @@ fn test_thresholded_relu_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "thresholded_relu_forward_source_{}",
@@ -182,10 +182,10 @@ fn test_thresholded_relu_source() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "thresholded_relu_forward_mlir_{}",
+            "thresholded_relu_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
@@ -198,7 +198,7 @@ fn test_thresholded_relu_backward_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "thresholded_relu_backward_source_{}",
@@ -208,10 +208,10 @@ fn test_thresholded_relu_backward_source() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "thresholded_relu_backward_mlir_{}",
+            "thresholded_relu_backward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
@@ -224,14 +224,14 @@ fn test_shrink_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("shrink_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("shrink_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("shrink_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -244,14 +244,14 @@ fn test_shrink_backward_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("shrink_backward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("shrink_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("shrink_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -261,7 +261,7 @@ fn test_shrink_backward_source() -> anyhow::Result<()> {
 // Swish forward: (x_ptr, y_ptr, n)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_swish_forward_gpu() -> anyhow::Result<()> {
+fn test_swish_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -299,7 +299,7 @@ fn test_swish_forward_gpu() -> anyhow::Result<()> {
 // Swish backward: (dy_ptr, x_ptr, dx_ptr, n)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_swish_backward_gpu() -> anyhow::Result<()> {
+fn test_swish_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -345,7 +345,7 @@ fn test_swish_backward_gpu() -> anyhow::Result<()> {
 // PRelu forward: (x_ptr, slope_ptr, y_ptr, n)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_prelu_forward_gpu() -> anyhow::Result<()> {
+fn test_prelu_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -391,7 +391,7 @@ fn test_prelu_forward_gpu() -> anyhow::Result<()> {
 // PRelu backward: (dy_ptr, x_ptr, slope_ptr, dx_ptr, dslope_ptr, n)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_prelu_backward_gpu() -> anyhow::Result<()> {
+fn test_prelu_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -460,7 +460,7 @@ const LOG_SOFTMAX_COLS_VAL: usize = 128;
 
 #[cfg(feature = "hardware")]
 #[test]
-fn test_log_softmax_forward_gpu() -> anyhow::Result<()> {
+fn test_log_softmax_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x_2d.bin");
@@ -509,7 +509,7 @@ fn test_log_softmax_forward_gpu() -> anyhow::Result<()> {
 // LogSoftmax backward: (dy_ptr, y_ptr, dx_ptr, n_rows, n_cols)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_log_softmax_backward_gpu() -> anyhow::Result<()> {
+fn test_log_softmax_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let y = load_fixture(
@@ -568,7 +568,7 @@ const THRELU_ALPHA: f32 = 1.0;
 
 #[cfg(feature = "hardware")]
 #[test]
-fn test_thresholded_relu_forward_gpu() -> anyhow::Result<()> {
+fn test_thresholded_relu_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -611,7 +611,7 @@ fn test_thresholded_relu_forward_gpu() -> anyhow::Result<()> {
 // ThresholdedRelu backward: (dy_ptr, x_ptr, dx_ptr, n, alpha)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_thresholded_relu_backward_gpu() -> anyhow::Result<()> {
+fn test_thresholded_relu_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -663,7 +663,7 @@ const SHRINK_BIAS: f32 = 0.0;
 
 #[cfg(feature = "hardware")]
 #[test]
-fn test_shrink_forward_gpu() -> anyhow::Result<()> {
+fn test_shrink_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");
@@ -707,7 +707,7 @@ fn test_shrink_forward_gpu() -> anyhow::Result<()> {
 // Shrink backward: (dy_ptr, x_ptr, dx_ptr, n, lambd)
 #[cfg(feature = "hardware")]
 #[test]
-fn test_shrink_backward_gpu() -> anyhow::Result<()> {
+fn test_shrink_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "extra_activations/x.bin");

@@ -83,21 +83,21 @@ fn test_layer_norm_backward_source() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// MLIR snapshot tests (compile to MLIR, no GPU required)
+// ASM snapshot tests (compile to ASM, no GPU required)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_layer_norm_inference_mlir() -> anyhow::Result<()> {
+fn test_layer_norm_inference_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::norm::layernorm::LayerNormForwardInference::<f32>::new(BLOCK_N);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
-        format!("layer_norm_inference_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("layer_norm_inference_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -108,7 +108,7 @@ fn test_layer_norm_inference_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_layer_norm_inference_cuda() -> anyhow::Result<()> {
+fn test_layer_norm_inference() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

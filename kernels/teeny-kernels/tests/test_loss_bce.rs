@@ -41,37 +41,37 @@ fn launch_cfg() -> teeny_runtime::LaunchConfig {
     )
 }
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
-fn test_bce_loss_mlir() -> anyhow::Result<()> {
+fn test_bce_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::BceLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("bce_loss_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("bce_loss_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("bce_loss_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
+fn test_bce_with_logits_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::BceWithLogitsLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "bce_with_logits_loss_forward_source_{}",
@@ -81,23 +81,23 @@ fn test_bce_with_logits_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "bce_with_logits_loss_forward_mlir_{}",
+            "bce_with_logits_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
+fn test_soft_margin_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::SoftMarginLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "soft_margin_loss_forward_source_{}",
@@ -107,43 +107,43 @@ fn test_soft_margin_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "soft_margin_loss_forward_mlir_{}",
+            "soft_margin_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_kl_div_loss_mlir() -> anyhow::Result<()> {
+fn test_kl_div_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::KlDivLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("kl_div_loss_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("kl_div_loss_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("kl_div_loss_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
+fn test_poisson_nll_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::PoissonNllLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "poisson_nll_loss_forward_source_{}",
@@ -153,23 +153,23 @@ fn test_poisson_nll_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "poisson_nll_loss_forward_mlir_{}",
+            "poisson_nll_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
+fn test_gaussian_nll_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::bce::GaussianNllLossForward::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "gaussian_nll_loss_forward_source_{}",
@@ -179,10 +179,10 @@ fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "gaussian_nll_loss_forward_mlir_{}",
+            "gaussian_nll_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
@@ -191,7 +191,7 @@ fn test_gaussian_nll_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_bce_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_bce_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -237,7 +237,7 @@ fn test_bce_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_bce_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_bce_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -287,7 +287,7 @@ fn test_bce_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_bce_with_logits_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_bce_with_logits_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -334,7 +334,7 @@ fn test_bce_with_logits_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_bce_with_logits_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_bce_with_logits_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -385,7 +385,7 @@ fn test_bce_with_logits_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_soft_margin_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_soft_margin_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -432,7 +432,7 @@ fn test_soft_margin_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_soft_margin_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_soft_margin_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -483,7 +483,7 @@ fn test_soft_margin_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_kl_div_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_kl_div_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -529,7 +529,7 @@ fn test_kl_div_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_kl_div_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_kl_div_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -575,7 +575,7 @@ fn test_kl_div_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_poisson_nll_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_poisson_nll_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -622,7 +622,7 @@ fn test_poisson_nll_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_poisson_nll_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_poisson_nll_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -673,7 +673,7 @@ fn test_poisson_nll_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_gaussian_nll_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_gaussian_nll_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -726,7 +726,7 @@ fn test_gaussian_nll_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_gaussian_nll_loss_backward_input_cuda() -> anyhow::Result<()> {
+fn test_gaussian_nll_loss_backward_input() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

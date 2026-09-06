@@ -66,21 +66,21 @@ fn test_rms_norm_backward_source() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// MLIR snapshot tests (compile to MLIR, no GPU required)
+// ASM snapshot tests (compile to ASM, no GPU required)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_rms_norm_forward_mlir() -> anyhow::Result<()> {
+fn test_rms_norm_forward_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::norm::rmsnorm::RmsNormForward::<f32>::new(BLOCK_N);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
-        format!("rms_norm_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("rms_norm_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -91,7 +91,7 @@ fn test_rms_norm_forward_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_rms_norm_forward_cuda() -> anyhow::Result<()> {
+fn test_rms_norm_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

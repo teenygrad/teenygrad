@@ -41,37 +41,37 @@ const WD: f32 = 1e-4;
 #[cfg(feature = "hardware")]
 const MU: f32 = 0.9;
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_rmsprop_step_mlir() -> anyhow::Result<()> {
+fn test_rmsprop_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("rmsprop_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("rmsprop_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("rmsprop_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_rmsprop_momentum_step_mlir() -> anyhow::Result<()> {
+fn test_rmsprop_momentum_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::rmsprop::RmspropMomentumStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "rmsprop_momentum_step_source_{}",
@@ -80,8 +80,8 @@ fn test_rmsprop_momentum_step_mlir() -> anyhow::Result<()> {
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("rmsprop_momentum_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("rmsprop_momentum_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -90,7 +90,7 @@ fn test_rmsprop_momentum_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_rmsprop_step_cuda() -> anyhow::Result<()> {
+fn test_rmsprop_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -168,7 +168,7 @@ fn test_rmsprop_step_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_rmsprop_momentum_step_cuda() -> anyhow::Result<()> {
+fn test_rmsprop_momentum_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

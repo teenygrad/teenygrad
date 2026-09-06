@@ -83,7 +83,7 @@ fn linear_reference(
 }
 
 #[test]
-fn test_linear_mlir_without_bias_output() -> anyhow::Result<()> {
+fn test_linear_asm_without_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
@@ -93,22 +93,19 @@ fn test_linear_mlir_without_bias_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("linear_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
-    assert_debug_snapshot!(
-        format!("linear_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
-    );
+    assert_debug_snapshot!(format!("linear_asm_{}", teeny_runtime::BACKEND_NAME), asm);
 
     Ok(())
 }
 
 #[test]
-fn test_linear_mlir_with_bias_output() -> anyhow::Result<()> {
+fn test_linear_asm_with_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearForward::<f32>::new(
@@ -118,22 +115,22 @@ fn test_linear_mlir_with_bias_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("linear_with_bias_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("linear_with_bias_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("linear_with_bias_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
 }
 
 #[test]
-fn test_linear_backward_mlir_without_bias_output() -> anyhow::Result<()> {
+fn test_linear_backward_asm_without_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
@@ -143,22 +140,22 @@ fn test_linear_backward_mlir_without_bias_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("linear_backward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("linear_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("linear_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
 }
 
 #[test]
-fn test_linear_backward_mlir_with_bias_output() -> anyhow::Result<()> {
+fn test_linear_backward_asm_with_bias_output() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::linear::LinearBackward::<f32>::new(
@@ -168,7 +165,7 @@ fn test_linear_backward_mlir_with_bias_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -179,10 +176,10 @@ fn test_linear_backward_mlir_with_bias_output() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "linear_backward_with_bias_mlir_{}",
+            "linear_backward_with_bias_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
 
     Ok(())
@@ -190,7 +187,7 @@ fn test_linear_backward_mlir_with_bias_output() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_linear_forward_no_bias_cuda() -> anyhow::Result<()> {
+fn test_linear_forward_no_bias() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -269,7 +266,7 @@ fn test_linear_forward_no_bias_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_linear_forward_with_bias_cuda() -> anyhow::Result<()> {
+fn test_linear_forward_with_bias() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -434,7 +431,7 @@ fn test_linear_forward_logs_pipeline_stages() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_linear_backward_without_bias_cuda() -> anyhow::Result<()> {
+fn test_linear_backward_without_bias() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -528,7 +525,7 @@ fn test_linear_backward_without_bias_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_linear_backward_with_bias_cuda() -> anyhow::Result<()> {
+fn test_linear_backward_with_bias() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

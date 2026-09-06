@@ -54,8 +54,7 @@ const BLOCK_OW: i32 = 16;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 #[test]
-fn test_reflection_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
+fn test_reflection_pad3d_forward_asm() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::pad::reflection_pad3d::ReflectionPad3dForward::<f32>::new(
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
@@ -64,7 +63,7 @@ fn test_reflection_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dy
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "reflection_pad3d_forward_source_{}",
@@ -74,17 +73,16 @@ fn test_reflection_pad3d_forward_mlir_output() -> std::result::Result<(), Box<dy
     );
     assert_debug_snapshot!(
         format!(
-            "reflection_pad3d_forward_mlir_{}",
+            "reflection_pad3d_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_reflection_pad3d_backward_mlir_output()
--> std::result::Result<(), Box<dyn std::error::Error>> {
+fn test_reflection_pad3d_backward_asm() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::pad::reflection_pad3d::ReflectionPad3dBackward::<f32>::new(
         PD1, PD2, PH1, PH2, PW1, PW2, BLOCK_OW,
@@ -93,7 +91,7 @@ fn test_reflection_pad3d_backward_mlir_output()
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "reflection_pad3d_backward_source_{}",
@@ -103,17 +101,17 @@ fn test_reflection_pad3d_backward_mlir_output()
     );
     assert_debug_snapshot!(
         format!(
-            "reflection_pad3d_backward_mlir_{}",
+            "reflection_pad3d_backward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_reflection_pad3d_forward_cuda() -> anyhow::Result<()> {
+fn test_reflection_pad3d_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -172,7 +170,7 @@ fn test_reflection_pad3d_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_reflection_pad3d_backward_cuda() -> anyhow::Result<()> {
+fn test_reflection_pad3d_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

@@ -48,8 +48,7 @@ const BLOCK_OW: i32 = 16;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 #[test]
-fn test_circular_pad2d_forward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
+fn test_circular_pad2d_forward_asm() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::pad::circular_pad2d::CircularPad2dForward::<f32>::new(
         PT, PB, PL, PR, BLOCK_OW,
@@ -58,7 +57,7 @@ fn test_circular_pad2d_forward_mlir_output() -> std::result::Result<(), Box<dyn 
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "circular_pad2d_forward_source_{}",
@@ -67,18 +66,14 @@ fn test_circular_pad2d_forward_mlir_output() -> std::result::Result<(), Box<dyn 
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!(
-            "circular_pad2d_forward_mlir_{}",
-            teeny_runtime::BACKEND_NAME
-        ),
-        mlir.trim()
+        format!("circular_pad2d_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_circular_pad2d_backward_mlir_output() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
+fn test_circular_pad2d_backward_asm() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::pad::circular_pad2d::CircularPad2dBackward::<f32>::new(
         PT, PB, PL, PR, BLOCK_OW,
@@ -87,7 +82,7 @@ fn test_circular_pad2d_backward_mlir_output() -> std::result::Result<(), Box<dyn
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "circular_pad2d_backward_source_{}",
@@ -97,17 +92,17 @@ fn test_circular_pad2d_backward_mlir_output() -> std::result::Result<(), Box<dyn
     );
     assert_debug_snapshot!(
         format!(
-            "circular_pad2d_backward_mlir_{}",
+            "circular_pad2d_backward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_circular_pad2d_forward_cuda() -> anyhow::Result<()> {
+fn test_circular_pad2d_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -164,7 +159,7 @@ fn test_circular_pad2d_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_circular_pad2d_backward_cuda() -> anyhow::Result<()> {
+fn test_circular_pad2d_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

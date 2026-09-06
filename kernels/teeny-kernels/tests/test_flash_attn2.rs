@@ -57,7 +57,7 @@ const N_L: usize = BH * N_CTX;
 
 // ── Fixture loader ─────────────────────────────────────────────────────────────
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
 fn test_flash_attention2_forward_snapshot() -> anyhow::Result<()> {
@@ -69,7 +69,7 @@ fn test_flash_attention2_forward_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -80,10 +80,10 @@ fn test_flash_attention2_forward_snapshot() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "flash_attention2_forward_mlir_{}",
+            "flash_attention2_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
 
     Ok(())
@@ -93,7 +93,7 @@ fn test_flash_attention2_forward_snapshot() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_flash_attention2_forward_cuda() -> anyhow::Result<()> {
+fn test_flash_attention2_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -181,7 +181,7 @@ fn test_flash_attention2_forward_cuda() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ── MLIR snapshot tests — backward ───────────────────────────────────────────
+// ── ASM snapshot tests — backward ───────────────────────────────────────────
 
 #[test]
 fn test_flash_attention2_backward_dq_snapshot() -> anyhow::Result<()> {
@@ -193,7 +193,7 @@ fn test_flash_attention2_backward_dq_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -204,10 +204,10 @@ fn test_flash_attention2_backward_dq_snapshot() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "flash_attention2_backward_dq_mlir_{}",
+            "flash_attention2_backward_dq_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
 
     Ok(())
@@ -223,7 +223,7 @@ fn test_flash_attention2_backward_dkv_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -234,10 +234,10 @@ fn test_flash_attention2_backward_dkv_snapshot() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "flash_attention2_backward_dkv_mlir_{}",
+            "flash_attention2_backward_dkv_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
 
     Ok(())
@@ -247,7 +247,7 @@ fn test_flash_attention2_backward_dkv_snapshot() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_flash_attention2_backward_dq_cuda() -> anyhow::Result<()> {
+fn test_flash_attention2_backward_dq() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -335,7 +335,7 @@ fn test_flash_attention2_backward_dq_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_flash_attention2_backward_dkv_cuda() -> anyhow::Result<()> {
+fn test_flash_attention2_backward_dkv() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

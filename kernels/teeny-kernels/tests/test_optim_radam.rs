@@ -61,44 +61,44 @@ fn radam_sgd_scalars(step: i32) -> f32 {
     LR / bc1
 }
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_radam_adaptive_step_mlir() -> anyhow::Result<()> {
+fn test_radam_adaptive_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamAdaptiveStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("radam_adaptive_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("radam_adaptive_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("radam_adaptive_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
+fn test_radam_sgd_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::radam::RadamSgdStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("radam_sgd_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("radam_sgd_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("radam_sgd_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -107,7 +107,7 @@ fn test_radam_sgd_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_radam_adaptive_step_cuda() -> anyhow::Result<()> {
+fn test_radam_adaptive_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let (step_size, bc2_sqrt) = radam_adaptive_scalars(100);
@@ -211,7 +211,7 @@ fn test_radam_adaptive_step_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_radam_sgd_step_cuda() -> anyhow::Result<()> {
+fn test_radam_sgd_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let step_size = radam_sgd_scalars(1);

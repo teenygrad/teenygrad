@@ -52,44 +52,44 @@ fn adam_scalars() -> (f32, f32) {
     (step_size, bc2_sqrt)
 }
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_adam_step_mlir() -> anyhow::Result<()> {
+fn test_adam_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("adam_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("adam_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("adam_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_adamw_step_mlir() -> anyhow::Result<()> {
+fn test_adamw_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adam::AdamwStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("adamw_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("adamw_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("adamw_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -98,7 +98,7 @@ fn test_adamw_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_adam_step_cuda() -> anyhow::Result<()> {
+fn test_adam_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let (step_size, bc2_sqrt) = adam_scalars();
@@ -189,7 +189,7 @@ fn test_adam_step_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_adamw_step_cuda() -> anyhow::Result<()> {
+fn test_adamw_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let (step_size, bc2_sqrt) = adam_scalars();

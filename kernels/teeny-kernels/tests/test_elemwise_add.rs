@@ -46,7 +46,7 @@ fn load(rel: &str) -> Vec<f32> {
         .collect()
 }
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
 fn test_elemwise_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -57,7 +57,7 @@ fn test_elemwise_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "elemwise_add_forward_source_{}",
@@ -66,8 +66,8 @@ fn test_elemwise_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("elemwise_add_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("elemwise_add_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -81,7 +81,7 @@ fn test_elemwise_add_backward_snapshot() -> std::result::Result<(), Box<dyn std:
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "elemwise_add_backward_source_{}",
@@ -90,8 +90,8 @@ fn test_elemwise_add_backward_snapshot() -> std::result::Result<(), Box<dyn std:
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("elemwise_add_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("elemwise_add_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -100,7 +100,7 @@ fn test_elemwise_add_backward_snapshot() -> std::result::Result<(), Box<dyn std:
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_elemwise_add_forward_cuda() -> anyhow::Result<()> {
+fn test_elemwise_add_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -155,7 +155,7 @@ fn test_elemwise_add_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_elemwise_add_backward_cuda() -> anyhow::Result<()> {
+fn test_elemwise_add_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

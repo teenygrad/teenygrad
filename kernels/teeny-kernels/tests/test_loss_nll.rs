@@ -51,37 +51,37 @@ fn mlsm_launch_cfg() -> teeny_runtime::LaunchConfig {
     )
 }
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
-fn test_nll_loss_mlir() -> anyhow::Result<()> {
+fn test_nll_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::nll::NllLossForward::new();
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("nll_loss_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("nll_loss_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("nll_loss_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
+fn test_cross_entropy_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::loss::nll::CrossEntropyLossForward::new(BLOCK_SIZE_CE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "cross_entropy_loss_forward_source_{}",
@@ -91,16 +91,16 @@ fn test_cross_entropy_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "cross_entropy_loss_forward_mlir_{}",
+            "cross_entropy_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
+fn test_multilabel_soft_margin_loss_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel =
         teeny_kernels::nn::loss::nll::MultilabelSoftMarginLossForward::new(BLOCK_SIZE_MLSM);
@@ -108,7 +108,7 @@ fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "multilabel_soft_margin_loss_forward_source_{}",
@@ -118,10 +118,10 @@ fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "multilabel_soft_margin_loss_forward_mlir_{}",
+            "multilabel_soft_margin_loss_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
@@ -130,7 +130,7 @@ fn test_multilabel_soft_margin_loss_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_nll_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_nll_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -177,7 +177,7 @@ fn test_nll_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_nll_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_nll_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -225,7 +225,7 @@ fn test_nll_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_cross_entropy_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_cross_entropy_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -273,7 +273,7 @@ fn test_cross_entropy_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_cross_entropy_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_cross_entropy_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -325,7 +325,7 @@ fn test_cross_entropy_loss_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_multilabel_soft_margin_loss_forward_cuda() -> anyhow::Result<()> {
+fn test_multilabel_soft_margin_loss_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -373,7 +373,7 @@ fn test_multilabel_soft_margin_loss_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_multilabel_soft_margin_loss_backward_cuda() -> anyhow::Result<()> {
+fn test_multilabel_soft_margin_loss_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

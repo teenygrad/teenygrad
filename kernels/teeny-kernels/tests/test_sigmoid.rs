@@ -29,64 +29,64 @@ use teeny_test::load_fixture;
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_sigmoid_mlir() -> anyhow::Result<()> {
+fn test_sigmoid_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::sigmoid::SigmoidForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("sigmoid_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("sigmoid_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("sigmoid_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_silu_mlir() -> anyhow::Result<()> {
+fn test_silu_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::sigmoid::SiluForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("silu_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("silu_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("silu_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_logsigmoid_mlir() -> anyhow::Result<()> {
+fn test_logsigmoid_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::activation::sigmoid::LogsigmoidForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("logsigmoid_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("logsigmoid_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("logsigmoid_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -95,7 +95,7 @@ fn test_logsigmoid_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_sigmoid_forward_cuda() -> anyhow::Result<()> {
+fn test_sigmoid_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/x.bin");
@@ -137,7 +137,7 @@ fn test_sigmoid_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_sigmoid_backward_cuda() -> anyhow::Result<()> {
+fn test_sigmoid_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/x.bin");
@@ -190,7 +190,7 @@ fn test_sigmoid_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_silu_forward_cuda() -> anyhow::Result<()> {
+fn test_silu_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/x.bin");
@@ -232,7 +232,7 @@ fn test_silu_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_silu_backward_cuda() -> anyhow::Result<()> {
+fn test_silu_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "silu/x.bin");
@@ -282,7 +282,7 @@ fn test_silu_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_logsigmoid_forward_cuda() -> anyhow::Result<()> {
+fn test_logsigmoid_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "logsigmoid/x.bin");
@@ -327,7 +327,7 @@ fn test_logsigmoid_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_logsigmoid_backward_cuda() -> anyhow::Result<()> {
+fn test_logsigmoid_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "logsigmoid/x.bin");

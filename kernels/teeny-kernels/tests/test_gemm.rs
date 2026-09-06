@@ -49,7 +49,7 @@ fn tf32_close(actual: f32, expected: f32) -> bool {
 #[cfg(feature = "hardware")]
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-// ── Source + MLIR snapshots ───────────────────────────────────────────────────
+// ── Source + ASM snapshots ───────────────────────────────────────────────────
 
 #[test]
 fn test_matmul_forward_source() -> anyhow::Result<()> {
@@ -59,14 +59,14 @@ fn test_matmul_forward_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("matmul_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("matmul_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("matmul_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -79,14 +79,14 @@ fn test_matmul_backward_da_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("matmul_backward_da_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("matmul_backward_da_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("matmul_backward_da_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -99,14 +99,14 @@ fn test_matmul_backward_db_source() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("matmul_backward_db_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("matmul_backward_db_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("matmul_backward_db_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -115,7 +115,7 @@ fn test_matmul_backward_db_source() -> anyhow::Result<()> {
 
 #[cfg(feature = "hardware")]
 #[test]
-fn test_matmul_forward_gpu() -> anyhow::Result<()> {
+fn test_matmul_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -286,7 +286,7 @@ fn test_matmul_forward_logs_pipeline_stages() -> anyhow::Result<()> {
 
 #[cfg(feature = "hardware")]
 #[test]
-fn test_matmul_backward_da_gpu() -> anyhow::Result<()> {
+fn test_matmul_backward_da() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -358,7 +358,7 @@ fn test_matmul_backward_da_gpu() -> anyhow::Result<()> {
 
 #[cfg(feature = "hardware")]
 #[test]
-fn test_matmul_backward_db_gpu() -> anyhow::Result<()> {
+fn test_matmul_backward_db() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

@@ -42,11 +42,11 @@ const PAD_ROWS: usize = 2 * B;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 // ---------------------------------------------------------------------------
-// MLIR snapshot tests
+// ASM snapshot tests
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_flatten_forward_mlir_output() -> anyhow::Result<()> {
+fn test_flatten_forward_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenForward::<f32>::new(BLOCK_B, BLOCK_N);
@@ -54,22 +54,22 @@ fn test_flatten_forward_mlir_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("flatten_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("flatten_forward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("flatten_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
 }
 
 #[test]
-fn test_flatten_backward_mlir_output() -> anyhow::Result<()> {
+fn test_flatten_backward_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::mlp::flatten::FlattenBackward::<f32>::new(BLOCK_B, BLOCK_N);
@@ -77,15 +77,15 @@ fn test_flatten_backward_mlir_output() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!("flatten_backward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("flatten_backward_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("flatten_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
 
     Ok(())
@@ -105,7 +105,7 @@ fn test_flatten_backward_mlir_output() -> anyhow::Result<()> {
 /// After flatten_forward, output[b, n] must equal raw_input[2*b, n].
 #[test]
 #[cfg(feature = "hardware")]
-fn test_flatten_forward_cuda() -> anyhow::Result<()> {
+fn test_flatten_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -168,7 +168,7 @@ fn test_flatten_forward_cuda() -> anyhow::Result<()> {
 /// Odd rows of raw_dx must remain zero (unwritten).
 #[test]
 #[cfg(feature = "hardware")]
-fn test_flatten_backward_cuda() -> anyhow::Result<()> {
+fn test_flatten_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

@@ -37,24 +37,24 @@ const WD: f32 = 1e-4;
 #[cfg(feature = "hardware")]
 const D_AX: f32 = 10.0;
 
-// ── MLIR snapshot ─────────────────────────────────────────────────────────────
+// ── ASM snapshot ─────────────────────────────────────────────────────────────
 
 #[test]
-fn test_asgd_step_mlir() -> anyhow::Result<()> {
+fn test_asgd_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::asgd::AsgdStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("asgd_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("asgd_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("asgd_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -63,7 +63,7 @@ fn test_asgd_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_asgd_step_cuda() -> anyhow::Result<()> {
+fn test_asgd_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

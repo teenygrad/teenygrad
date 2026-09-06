@@ -41,7 +41,7 @@ const BLOCK_INNER: i32 = 64;
 #[cfg(feature = "hardware")]
 const TOL: f32 = 1e-4;
 
-// ── Macro: source + MLIR snapshot ────────────────────────────────────────────
+// ── Macro: source + ASM snapshot ────────────────────────────────────────────
 
 macro_rules! source_test {
     ($test_name:ident, $kernel_ty:ty, $snap_prefix:literal) => {
@@ -53,7 +53,7 @@ macro_rules! source_test {
             let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
                 &kernel, &target, true, false,
             )?);
-            let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+            let asm = teeny_test::read_compiled_asm(ptx_path);
             assert_debug_snapshot!(
                 format!(
                     "{}_{}",
@@ -65,10 +65,10 @@ macro_rules! source_test {
             assert_debug_snapshot!(
                 format!(
                     "{}_{}",
-                    concat!($snap_prefix, "_mlir"),
+                    concat!($snap_prefix, "_asm"),
                     teeny_runtime::BACKEND_NAME
                 ),
-                mlir.trim()
+                asm
             );
             Ok(())
         }
@@ -180,7 +180,7 @@ macro_rules! gpu_cum_test {
     };
 }
 
-// ── Source + MLIR snapshots ───────────────────────────────────────────────────
+// ── Source + ASM snapshots ───────────────────────────────────────────────────
 
 source_test!(
     test_reduce_sum_source,
@@ -252,25 +252,25 @@ source_test!(
 // ── GPU forward tests ─────────────────────────────────────────────────────────
 
 gpu_reduce_test!(
-    test_reduce_sum_gpu,
+    test_reduce_sum,
     ReduceSumForward::<f32>,
     "reduce_sum",
     "reduce_sum"
 );
 gpu_reduce_test!(
-    test_reduce_mean_gpu,
+    test_reduce_mean,
     ReduceMeanForward::<f32>,
     "reduce_mean",
     "reduce_mean"
 );
 gpu_reduce_test!(
-    test_reduce_max_gpu,
+    test_reduce_max,
     ReduceMaxForward::<f32>,
     "reduce_max",
     "reduce_max"
 );
 gpu_reduce_test!(
-    test_reduce_min_gpu,
+    test_reduce_min,
     ReduceMinForward::<f32>,
     "reduce_min",
     "reduce_min"
@@ -278,7 +278,7 @@ gpu_reduce_test!(
 // reduce_prod uses exp(sum(log)) which accumulates fp error; use relative tolerance
 #[cfg(feature = "hardware")]
 #[test]
-fn test_reduce_prod_gpu() -> anyhow::Result<()> {
+fn test_reduce_prod() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
@@ -322,53 +322,53 @@ fn test_reduce_prod_gpu() -> anyhow::Result<()> {
     Ok(())
 }
 gpu_reduce_test!(
-    test_reduce_l1_gpu,
+    test_reduce_l1,
     ReduceL1Forward::<f32>,
     "reduce_l1",
     "reduce_l1"
 );
 gpu_reduce_test!(
-    test_reduce_l2_gpu,
+    test_reduce_l2,
     ReduceL2Forward::<f32>,
     "reduce_l2",
     "reduce_l2"
 );
 gpu_reduce_test!(
-    test_reduce_log_sum_gpu,
+    test_reduce_log_sum,
     ReduceLogSumForward::<f32>,
     "reduce_log_sum",
     "reduce_log_sum"
 );
 gpu_reduce_test!(
-    test_reduce_log_sum_exp_gpu,
+    test_reduce_log_sum_exp,
     ReduceLogSumExpForward::<f32>,
     "reduce_log_sum_exp",
     "reduce_log_sum_exp"
 );
 gpu_reduce_test!(
-    test_reduce_sum_square_gpu,
+    test_reduce_sum_square,
     ReduceSumSquareForward::<f32>,
     "reduce_sum_square",
     "reduce_sum_square"
 );
 gpu_reduce_test!(
-    test_global_avg_pool_gpu,
+    test_global_avg_pool,
     GlobalAvgPoolForward::<f32>,
     "global_avg_pool",
     "global_avg_pool"
 );
 gpu_reduce_test!(
-    test_global_max_pool_gpu,
+    test_global_max_pool,
     GlobalMaxPoolForward::<f32>,
     "global_max_pool",
     "global_max_pool"
 );
 
-gpu_cum_test!(test_cum_sum_gpu, CumSumForward::<f32>, "cum_sum", "cum_sum");
+gpu_cum_test!(test_cum_sum, CumSumForward::<f32>, "cum_sum", "cum_sum");
 // cum_prod accumulates floating-point error for large products; use relative tolerance
 #[cfg(feature = "hardware")]
 #[test]
-fn test_cum_prod_gpu() -> anyhow::Result<()> {
+fn test_cum_prod() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");

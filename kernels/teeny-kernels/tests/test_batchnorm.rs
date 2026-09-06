@@ -124,7 +124,7 @@ fn bn_cfg() -> teeny_runtime::LaunchConfig {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_batch_norm_inference_gpu() -> anyhow::Result<()> {
+fn test_batch_norm_inference() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -189,7 +189,7 @@ fn test_batch_norm_inference_gpu() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(all(feature = "hardware", feature = "training"))]
-fn test_batch_norm_forward_training_gpu() -> anyhow::Result<()> {
+fn test_batch_norm_forward_training() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -278,7 +278,7 @@ fn test_batch_norm_forward_training_gpu() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(all(feature = "hardware", feature = "training"))]
-fn test_batch_norm_backward_gpu() -> anyhow::Result<()> {
+fn test_batch_norm_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -390,7 +390,7 @@ fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
 //   dbias[c]   = B*H*W * 1       = 4.0.
 #[test]
 #[cfg(all(feature = "hardware", feature = "training"))]
-fn test_batch_norm_2d_nchw_backward_gpu() -> anyhow::Result<()> {
+fn test_batch_norm_2d_nchw_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

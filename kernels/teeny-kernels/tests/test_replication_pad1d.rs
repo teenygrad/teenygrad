@@ -42,8 +42,7 @@ const BLOCK_OL: i32 = 16;
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
 #[test]
-fn test_replication_pad1d_forward_mlir_output()
--> std::result::Result<(), Box<dyn std::error::Error>> {
+fn test_replication_pad1d_forward_asm() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::pad::replication_pad1d::ReplicationPad1dForward::<f32>::new(
         PAD_LEFT, PAD_RIGHT, BLOCK_OL,
@@ -52,7 +51,7 @@ fn test_replication_pad1d_forward_mlir_output()
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "replication_pad1d_forward_source_{}",
@@ -62,17 +61,16 @@ fn test_replication_pad1d_forward_mlir_output()
     );
     assert_debug_snapshot!(
         format!(
-            "replication_pad1d_forward_mlir_{}",
+            "replication_pad1d_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_replication_pad1d_backward_mlir_output()
--> std::result::Result<(), Box<dyn std::error::Error>> {
+fn test_replication_pad1d_backward_asm() -> std::result::Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::pad::replication_pad1d::ReplicationPad1dBackward::<f32>::new(
         PAD_LEFT, PAD_RIGHT, BLOCK_OL,
@@ -81,7 +79,7 @@ fn test_replication_pad1d_backward_mlir_output()
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!(
             "replication_pad1d_backward_source_{}",
@@ -91,17 +89,17 @@ fn test_replication_pad1d_backward_mlir_output()
     );
     assert_debug_snapshot!(
         format!(
-            "replication_pad1d_backward_mlir_{}",
+            "replication_pad1d_backward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_replication_pad1d_forward_cuda() -> anyhow::Result<()> {
+fn test_replication_pad1d_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -156,7 +154,7 @@ fn test_replication_pad1d_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_replication_pad1d_backward_cuda() -> anyhow::Result<()> {
+fn test_replication_pad1d_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

@@ -63,30 +63,30 @@ fn cpu_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
     c
 }
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_muon_frob_norm_sq_mlir() -> anyhow::Result<()> {
+fn test_muon_frob_norm_sq_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::muon::MuonFrobNormSq::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("muon_frob_norm_sq_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("muon_frob_norm_sq_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("muon_frob_norm_sq_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
 
 #[test]
-fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
+fn test_muon_ns_xtx_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let target = teeny_runtime::reference_target();
 
@@ -95,20 +95,20 @@ fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
     let ptx_no_t = PathBuf::from(teeny_runtime::compile_kernel(
         &k_no_t, &target, true, false,
     )?);
-    let mlir_no_t = std::fs::read_to_string(ptx_no_t.with_extension("mlir"))?;
+    let asm_no_t = teeny_test::read_compiled_asm(ptx_no_t);
     assert_debug_snapshot!(
         format!("muon_ns_xtx_source_{}", teeny_runtime::BACKEND_NAME),
         k_no_t.source()
     );
     assert_debug_snapshot!(
-        format!("muon_ns_xtx_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir_no_t.trim()
+        format!("muon_ns_xtx_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm_no_t
     );
 
     // TRANSPOSE: T = X.T @ X
     let k_t = teeny_kernels::nn::optim::muon::MuonNsXtx::new(true, BLOCK_R, BLOCK_K, GROUP_R);
     let ptx_t = PathBuf::from(teeny_runtime::compile_kernel(&k_t, &target, true, false)?);
-    let mlir_t = std::fs::read_to_string(ptx_t.with_extension("mlir"))?;
+    let asm_t = teeny_test::read_compiled_asm(ptx_t);
     assert_debug_snapshot!(
         format!(
             "muon_ns_xtx_transpose_source_{}",
@@ -117,15 +117,15 @@ fn test_muon_ns_xtx_mlir() -> anyhow::Result<()> {
         k_t.source()
     );
     assert_debug_snapshot!(
-        format!("muon_ns_xtx_transpose_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir_t.trim()
+        format!("muon_ns_xtx_transpose_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm_t
     );
 
     Ok(())
 }
 
 #[test]
-fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
+fn test_muon_ns_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let target = teeny_runtime::reference_target();
 
@@ -135,21 +135,21 @@ fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
     let ptx_no_t = PathBuf::from(teeny_runtime::compile_kernel(
         &k_no_t, &target, true, false,
     )?);
-    let mlir_no_t = std::fs::read_to_string(ptx_no_t.with_extension("mlir"))?;
+    let asm_no_t = teeny_test::read_compiled_asm(ptx_no_t);
     assert_debug_snapshot!(
         format!("muon_ns_step_source_{}", teeny_runtime::BACKEND_NAME),
         k_no_t.source()
     );
     assert_debug_snapshot!(
-        format!("muon_ns_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir_no_t.trim()
+        format!("muon_ns_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm_no_t
     );
 
     // TRANSPOSE: X ← a·X + b·(X·T)
     let k_t =
         teeny_kernels::nn::optim::muon::MuonNsStep::new(true, BLOCK_M, BLOCK_N, BLOCK_K, GROUP_M);
     let ptx_t = PathBuf::from(teeny_runtime::compile_kernel(&k_t, &target, true, false)?);
-    let mlir_t = std::fs::read_to_string(ptx_t.with_extension("mlir"))?;
+    let asm_t = teeny_test::read_compiled_asm(ptx_t);
     assert_debug_snapshot!(
         format!(
             "muon_ns_step_transpose_source_{}",
@@ -158,32 +158,29 @@ fn test_muon_ns_step_mlir() -> anyhow::Result<()> {
         k_t.source()
     );
     assert_debug_snapshot!(
-        format!(
-            "muon_ns_step_transpose_mlir_{}",
-            teeny_runtime::BACKEND_NAME
-        ),
-        mlir_t.trim()
+        format!("muon_ns_step_transpose_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm_t
     );
 
     Ok(())
 }
 
 #[test]
-fn test_muon_update_mlir() -> anyhow::Result<()> {
+fn test_muon_update_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::muon::MuonUpdate::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("muon_update_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("muon_update_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("muon_update_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -193,7 +190,7 @@ fn test_muon_update_mlir() -> anyhow::Result<()> {
 /// Verify muon_update: W_out[i] = W_in[i] - lr * G[i].
 #[test]
 #[cfg(feature = "hardware")]
-fn test_muon_update_cuda() -> anyhow::Result<()> {
+fn test_muon_update() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let n = M * N;
@@ -247,7 +244,7 @@ fn test_muon_update_cuda() -> anyhow::Result<()> {
 /// Verify muon_frob_norm_sq: out = sum(x²).
 #[test]
 #[cfg(feature = "hardware")]
-fn test_muon_frob_norm_sq_cuda() -> anyhow::Result<()> {
+fn test_muon_frob_norm_sq() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let n = M * N;
@@ -292,7 +289,7 @@ fn test_muon_frob_norm_sq_cuda() -> anyhow::Result<()> {
 #[test]
 #[ignore = "fails numerically on RTX 5070 (sm_120), see teenygrad-0mr"]
 #[cfg(feature = "hardware")]
-fn test_muon_ns_xtx_cuda() -> anyhow::Result<()> {
+fn test_muon_ns_xtx() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -348,7 +345,7 @@ fn test_muon_ns_xtx_cuda() -> anyhow::Result<()> {
 /// Verify muon_ns_step (!TRANSPOSE): X ← a·X + b·(T·X).
 #[test]
 #[cfg(feature = "hardware")]
-fn test_muon_ns_step_cuda() -> anyhow::Result<()> {
+fn test_muon_ns_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

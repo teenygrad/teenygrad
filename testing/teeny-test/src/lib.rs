@@ -18,17 +18,19 @@
 //! so the same fixture-loading / kernel-compiling helpers work across every driver backend
 //! instead of each crate's tests hardcoding one (historically `teeny-cuda`) directly.
 //!
-//! - [`ExecKernel`], [`load_fixture`], [`load_fixture_i32`], [`teenyc_cache_dir`] are
-//!   driver-agnostic and always available.
+//! - [`ExecKernel`], [`load_fixture`], [`load_fixture_i32`], [`teenyc_cache_dir`],
+//!   [`read_compiled_asm`] are driver-agnostic and always available.
 //! - [`cuda`] (feature `cuda`) wraps `teeny-cuda`'s device/program types for test setup.
 //! - [`riscv`] (feature `riscv`) wraps `teeny-riscv`'s host-tool discovery; its [`riscv::qemu`]
 //!   submodule (feature `qemu`, additionally) can actually execute a compiled kernel under
 //!   `qemu-riscv64`.
 
+mod asm;
 mod cache;
 mod exec_kernel;
 mod fixtures;
 
+pub use asm::read_compiled_asm;
 pub use cache::teenyc_cache_dir;
 pub use exec_kernel::ExecKernel;
 pub use fixtures::{load_fixture, load_fixture_i32};

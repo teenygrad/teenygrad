@@ -60,24 +60,24 @@ fn nadam_scalars() -> (f32, f32, f32) {
     (bias_c2_sqrt, coeff_g, coeff_m)
 }
 
-// ── MLIR snapshot ─────────────────────────────────────────────────────────────
+// ── ASM snapshot ─────────────────────────────────────────────────────────────
 
 #[test]
-fn test_nadam_step_mlir() -> anyhow::Result<()> {
+fn test_nadam_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::nadam::NadamStep::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
         format!("nadam_step_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("nadam_step_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
+        format!("nadam_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
     );
     Ok(())
 }
@@ -86,7 +86,7 @@ fn test_nadam_step_mlir() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_nadam_step_cuda() -> anyhow::Result<()> {
+fn test_nadam_step() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let (bc2_sqrt, coeff_g, coeff_m) = nadam_scalars();

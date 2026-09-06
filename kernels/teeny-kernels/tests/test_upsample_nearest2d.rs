@@ -62,7 +62,7 @@ const BLOCK_OW: i32 = 4;
 
 // ── Fixture loader ─────────────────────────────────────────────────────────────
 
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
 fn test_upsample_nearest2d_forward_snapshot() -> anyhow::Result<()> {
@@ -76,7 +76,7 @@ fn test_upsample_nearest2d_forward_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -87,10 +87,10 @@ fn test_upsample_nearest2d_forward_snapshot() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "upsample_nearest2d_forward_mlir_{}",
+            "upsample_nearest2d_forward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
 
     Ok(())
@@ -108,7 +108,7 @@ fn test_upsample_nearest2d_backward_snapshot() -> anyhow::Result<()> {
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
     assert_debug_snapshot!(
         format!(
@@ -119,10 +119,10 @@ fn test_upsample_nearest2d_backward_snapshot() -> anyhow::Result<()> {
     );
     assert_debug_snapshot!(
         format!(
-            "upsample_nearest2d_backward_mlir_{}",
+            "upsample_nearest2d_backward_asm_{}",
             teeny_runtime::BACKEND_NAME
         ),
-        mlir.trim()
+        asm
     );
 
     Ok(())
@@ -132,7 +132,7 @@ fn test_upsample_nearest2d_backward_snapshot() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_upsample_nearest2d_forward_cuda() -> anyhow::Result<()> {
+fn test_upsample_nearest2d_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
@@ -200,7 +200,7 @@ fn test_upsample_nearest2d_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_upsample_nearest2d_backward_cuda() -> anyhow::Result<()> {
+fn test_upsample_nearest2d_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 

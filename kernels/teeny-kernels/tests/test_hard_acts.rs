@@ -29,10 +29,10 @@ use teeny_test::load_fixture;
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
-macro_rules! mlir_snap {
-    ($test:ident, $KernelTy:ty, $src_name:expr, $mlir_name:expr) => {
+macro_rules! asm_snap {
+    ($test:ident, $KernelTy:ty, $src_name:expr, $asm_name:expr) => {
         #[test]
         fn $test() -> anyhow::Result<()> {
             dotenv().ok();
@@ -41,56 +41,56 @@ macro_rules! mlir_snap {
             let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
                 &kernel, &target, true, false,
             )?);
-            let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+            let asm = teeny_test::read_compiled_asm(ptx_path);
             assert_debug_snapshot!(
                 format!("{}_{}", $src_name, teeny_runtime::BACKEND_NAME),
                 kernel.source()
             );
             assert_debug_snapshot!(
-                format!("{}_{}", $mlir_name, teeny_runtime::BACKEND_NAME),
-                mlir.trim()
+                format!("{}_{}", $asm_name, teeny_runtime::BACKEND_NAME),
+                asm
             );
             Ok(())
         }
     };
 }
 
-mlir_snap!(
-    test_hardtanh_mlir,
+asm_snap!(
+    test_hardtanh_asm,
     teeny_kernels::nn::activation::hard::HardtanhForward<f32>,
     "hardtanh_forward_source",
-    "hardtanh_forward_mlir"
+    "hardtanh_forward_asm"
 );
-mlir_snap!(
-    test_relu6_mlir,
+asm_snap!(
+    test_relu6_asm,
     teeny_kernels::nn::activation::hard::Relu6Forward<f32>,
     "relu6_forward_source",
-    "relu6_forward_mlir"
+    "relu6_forward_asm"
 );
-mlir_snap!(
-    test_hardsigmoid_mlir,
+asm_snap!(
+    test_hardsigmoid_asm,
     teeny_kernels::nn::activation::hard::HardsigmoidForward<f32>,
     "hardsigmoid_forward_source",
-    "hardsigmoid_forward_mlir"
+    "hardsigmoid_forward_asm"
 );
-mlir_snap!(
-    test_hardswish_mlir,
+asm_snap!(
+    test_hardswish_asm,
     teeny_kernels::nn::activation::hard::HardswishForward<f32>,
     "hardswish_forward_source",
-    "hardswish_forward_mlir"
+    "hardswish_forward_asm"
 );
-mlir_snap!(
-    test_hardshrink_mlir,
+asm_snap!(
+    test_hardshrink_asm,
     teeny_kernels::nn::activation::hard::HardshrinkForward<f32>,
     "hardshrink_forward_source",
-    "hardshrink_forward_mlir"
+    "hardshrink_forward_asm"
 );
 
 // ── CUDA: Hardtanh ────────────────────────────────────────────────────────────
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardtanh_forward_cuda() -> anyhow::Result<()> {
+fn test_hardtanh_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardtanh/x.bin");
@@ -136,7 +136,7 @@ fn test_hardtanh_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardtanh_backward_cuda() -> anyhow::Result<()> {
+fn test_hardtanh_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardtanh/x.bin");
@@ -188,7 +188,7 @@ fn test_hardtanh_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_relu6_forward_cuda() -> anyhow::Result<()> {
+fn test_relu6_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu6/x.bin");
@@ -228,7 +228,7 @@ fn test_relu6_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_relu6_backward_cuda() -> anyhow::Result<()> {
+fn test_relu6_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "relu6/x.bin");
@@ -278,7 +278,7 @@ fn test_relu6_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardsigmoid_forward_cuda() -> anyhow::Result<()> {
+fn test_hardsigmoid_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardsigmoid/x.bin");
@@ -321,7 +321,7 @@ fn test_hardsigmoid_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardsigmoid_backward_cuda() -> anyhow::Result<()> {
+fn test_hardsigmoid_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardsigmoid/x.bin");
@@ -374,7 +374,7 @@ fn test_hardsigmoid_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardswish_forward_cuda() -> anyhow::Result<()> {
+fn test_hardswish_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardswish/x.bin");
@@ -414,7 +414,7 @@ fn test_hardswish_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardswish_backward_cuda() -> anyhow::Result<()> {
+fn test_hardswish_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardswish/x.bin");
@@ -467,7 +467,7 @@ fn test_hardswish_backward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardshrink_forward_cuda() -> anyhow::Result<()> {
+fn test_hardshrink_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardshrink/x.bin");
@@ -515,7 +515,7 @@ fn test_hardshrink_forward_cuda() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_hardshrink_backward_cuda() -> anyhow::Result<()> {
+fn test_hardshrink_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
     let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "hardshrink/x.bin");

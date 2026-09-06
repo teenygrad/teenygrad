@@ -33,7 +33,7 @@ const BLOCK_SIZE: i32 = 128;
 
 /// Device-agnostic: compiles for whichever backend is active via a fixed reference target (no
 /// real device needed -- `teeny_runtime::reference_target()`, not `default_target()`, so this
-/// stays a pure compile check). The compiled MLIR differs by backend (target triple/codegen), so
+/// stays a pure compile check). The compiled ASM differs by backend (target triple/codegen), so
 /// the snapshot names are suffixed with `teeny_runtime::BACKEND_NAME` to keep each backend's
 /// snapshot separate rather than one clobbering the other across feature-flag switches.
 #[test]
@@ -45,16 +45,13 @@ fn test_relu() -> anyhow::Result<()> {
     let compiled_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
-    let mlir = std::fs::read_to_string(compiled_path.with_extension("mlir"))?;
+    let asm = teeny_test::read_compiled_asm(compiled_path);
 
     assert_debug_snapshot!(
         format!("relu_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
-    assert_debug_snapshot!(
-        format!("relu_mlir_{}", teeny_runtime::BACKEND_NAME),
-        mlir.trim()
-    );
+    assert_debug_snapshot!(format!("relu_asm_{}", teeny_runtime::BACKEND_NAME), asm);
 
     Ok(())
 }
@@ -70,7 +67,7 @@ fn test_relu() -> anyhow::Result<()> {
 /// `teeny-runtime` path, not to assert RISC-V correctness yet.
 #[test]
 #[cfg(feature = "hardware")]
-fn test_relu_forward_gpu() -> anyhow::Result<()> {
+fn test_relu_forward() -> anyhow::Result<()> {
     dotenv().ok();
 
     let device = teeny_runtime::open()?;
@@ -108,10 +105,10 @@ fn test_relu_forward_gpu() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Device-agnostic -- see [`test_relu_forward_gpu`]'s doc comment.
+/// Device-agnostic -- see [`test_relu_forward`]'s doc comment.
 #[test]
 #[cfg(feature = "hardware")]
-fn test_relu_backward_gpu() -> anyhow::Result<()> {
+fn test_relu_backward() -> anyhow::Result<()> {
     dotenv().ok();
 
     let device = teeny_runtime::open()?;
