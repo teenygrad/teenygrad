@@ -1,0 +1,28 @@
+[package]
+name = "teeny-runtime"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_runtime/"
+keywords = ["runtime", "device", "cuda", "riscv", "machine-learning"]
+categories = ["hardware-support", "science"]
+
+[lib]
+
+[features]
+# Matches teeny-kernels' default -- the rest of the workspace already assumes a CUDA-capable
+# dev machine by default (`cargo check --workspace` would otherwise hard-fail here on the
+# compile_error! below with no features selected).
+default = ["cuda"]
+cuda = ["dep:teeny-cuda"]
+riscv = ["dep:teeny-riscv"]
+
+[dependencies]
+teeny-core.workspace = true
+teeny-cuda = { workspace = true, optional = true }
+teeny-riscv = { workspace = true, optional = true }
+anyhow.workspace = true

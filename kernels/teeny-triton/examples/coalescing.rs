@@ -125,7 +125,7 @@ const WARMUP: usize = 5;
 const ITERS: usize = 30;
 
 fn main() -> Result<()> {
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
     let target = Target::new(env.capability);
 
@@ -156,8 +156,8 @@ fn main() -> Result<()> {
     macro_rules! timed {
         ($kernel:expr, $ty:ty, $label:literal) => {{
             let ptx = std::fs::read(compile_kernel(&$kernel, &target, false, false)?)?;
-            let prog = teeny_cuda::testing::load_program_from_ptx::<$ty>(&ptx)?;
-            let cfg = teeny_cuda::testing::launch_config_with_grid(GRID, &prog);
+            let prog = teeny_test::cuda::load_program_from_ptx::<$ty>(&ptx)?;
+            let cfg = teeny_test::cuda::launch_config_with_grid(GRID, &prog);
 
             for _ in 0..WARMUP {
                 device.launch(&prog, &cfg, args)?;

@@ -295,8 +295,10 @@ impl Compiler for LlvmCompiler {
                 }
 
                 // `teenyc` also writes a `.mlir` sidecar next to the object file (the
-                // pre-Triton MLIR source, read back by e.g. the `*_mlir_output` snapshot
-                // tests) -- derived from the same `-o` path, so it needs the same
+                // pre-Triton MLIR source, useful for pipeline debugging via `debug = true`
+                // above -- not read by the `*_asm` snapshot tests, which assert on the
+                // object file's own content instead, since that's the part that's actually
+                // target-specific) -- derived from the same `-o` path, so it needs the same
                 // temp-then-rename treatment. It may not exist for every invocation, hence
                 // the existence check rather than treating a missing file as an error.
                 let tmp_mlir_file = tmp_output_file.with_extension("mlir");

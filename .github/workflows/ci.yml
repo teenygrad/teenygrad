@@ -71,17 +71,34 @@ jobs:
         run: cargo clippy --workspace --exclude teeny-torch -- -D warnings
 
       - name: Test
-        # teeny-cuda, teeny-kernels, teeny-triton, and teeny-vision all have
-        # tests that open a real CUDA device (teeny_cuda::testing::setup_cuda_env)
-        # to compile and run kernels on — this runner has the toolkit to
-        # *compile* against (installed above) but no GPU to run anything on,
-        # so those crates stay excluded here even though Build/Clippy above
-        # now cover them.
+        # teeny-cuda, teeny-triton, and teeny-vision all have tests that open a
+        # real CUDA device (teeny_cuda::testing::setup_cuda_env) to compile and
+        # run kernels on — this runner has the toolkit to *compile* against
+        # (installed above) but no GPU to run anything on, so those crates stay
+        # excluded here even though Build/Clippy above now cover them.
+        #
+        # teeny-kernels instead gates any test that needs a real device behind
+        # its own `hardware` feature (orthogonal to `cuda`/`riscv`, which only
+        # mean "compile for this target"), so it's run explicitly below for
+        # both backends with `hardware` off — this exercises every
+        # compile-only snapshot test against both `Sm89` (cuda) and
+        # `GenericRvv1_0` (riscv) with no GPU or RISC-V hardware needed. `riscv`
+        # is combined with `training` since the library itself isn't yet clean
+        # under `riscv` alone (see teeny-kernels/src/graph/mod.rs's training-
+        # gated imports) — that combination was never a supported target and is
+        # left as a follow-up.
         run: >
           cargo test --workspace
-          --exclude teeny-cuda --exclude teeny-kernels
+          --exclude teeny-cuda
+          --exclude teeny-kernels
           --exclude teeny-torch
           --exclude teeny-triton --exclude teeny-vision
+
+      - name: Test teeny-kernels (cuda)
+        run: cargo test -p teeny-kernels --features cuda
+
+      - name: Test teeny-kernels (riscv)
+        run: cargo test -p teeny-kernels --no-default-features --features riscv,training
 
       - name: Check formatting
         run: cargo fmt --all -- --check

@@ -686,6 +686,7 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
 /// each of shape `[C]`.
 pub struct BatchNorm2dNchwInferenceRuntimeOp<D: Float + Send + Sync + 'static> {
     fwd: BatchNorm2dNchwForwardInference<D>,
+    #[cfg(feature = "training")]
     block_hw: i32,
     eps: f32,
 }
@@ -694,6 +695,7 @@ impl<D: Float + Send + Sync + 'static> BatchNorm2dNchwInferenceRuntimeOp<D> {
     pub fn new(block_hw: i32, eps: f32) -> Self {
         Self {
             fwd: BatchNorm2dNchwForwardInference::<D>::new(block_hw),
+            #[cfg(feature = "training")]
             block_hw,
             eps,
         }

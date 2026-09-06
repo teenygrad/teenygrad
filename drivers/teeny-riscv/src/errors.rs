@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,4 +47,23 @@ pub enum Error {
         #[source]
         source: libloading::Error,
     },
+
+    /// A source buffer had more elements than the destination buffer could hold.
+    #[error("buffer overflow: source has {src} elements but buffer holds {buf}")]
+    BufferOverflow {
+        /// Number of elements in the source.
+        src: usize,
+        /// Capacity of the destination buffer.
+        buf: usize,
+    },
+
+    /// [`crate::device::Device::launch`] was called, but the RISC-V compiler backend
+    /// (`RiscvBackend`) always emits the same no-argument placeholder function regardless of a
+    /// kernel's actual body -- there is no real per-kernel argument ABI to marshal `args` into
+    /// yet. Tracked on the `teenygrad-1zd` epic; see `teeny-riscv`'s README for current status.
+    #[error(
+        "RISC-V kernel argument passing is not supported yet -- the compiler backend only \
+         produces a fixed no-argument placeholder kernel (see teenygrad-1zd)"
+    )]
+    ArgumentPassingNotSupported,
 }

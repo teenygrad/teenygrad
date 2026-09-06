@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,13 @@
  * limitations under the License.
  */
 
+/// RISC-V kernel compilation driver (`teenyc` / LLVM path).
+pub mod driver;
 /// `-C target-cpu` chip identifiers and the [`teeny_core::compiler::Target`] impl for RISC-V.
 pub mod target;
+
+/// Compiles a kernel to a RISC-V ELF shared library via `teenyc` (see [`driver::compile_kernel`]).
+pub use driver::compile_kernel;
 
 /// `--target` triple `teenyc` uses for the RISC-V backend, set on `LlvmCompiler` via
 /// [`teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler::with_target_triple`].

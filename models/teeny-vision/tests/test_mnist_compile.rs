@@ -26,8 +26,8 @@ use teeny_core::{
 };
 use teeny_cuda::compiler::graph::CudaGraphCompiler;
 use teeny_cuda::compiler::target::Target;
-use teeny_cuda::testing;
 use teeny_kernels::graph::TritonLowering;
+use teeny_test::cuda as testing;
 use teeny_vision::mnist;
 
 #[test]

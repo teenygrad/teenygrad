@@ -37,11 +37,12 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use dotenv::dotenv;
 use teeny_core::device::{Device, buffer::Buffer};
 use teeny_cuda::compiler::{compile_kernel, target::Target};
-use teeny_cuda::{device::CudaDevice, device::CudaLaunchConfig, testing};
+use teeny_cuda::{device::CudaDevice, device::CudaLaunchConfig};
 use teeny_kernels::nn::fused::{
     conv2d_bn_silu::Conv2dBnSiluForward, conv2d_bn_silu_gemm::Conv2dBnSiluGemmForward,
     conv2d_bn_silu_tiled::Conv2dBnSiluTiledForward,
 };
+use teeny_test::cuda as testing;
 
 const BLOCK_OW_SCALAR: i32 = 16;
 const BLOCK_OW_TILED: i32 = 16;

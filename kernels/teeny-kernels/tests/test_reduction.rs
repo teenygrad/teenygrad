@@ -19,14 +19,11 @@ use std::path::PathBuf;
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use teeny_core::device::program::Kernel;
-use teeny_cuda::compiler::{compile_kernel, target::Target};
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
-#[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
 
 use teeny_kernels::nn::tensor::reduction::{
     CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward, ReduceL1Forward,
@@ -34,15 +31,17 @@ use teeny_kernels::nn::tensor::reduction::{
     ReduceMeanForward, ReduceMinForward, ReduceProdForward, ReduceSumForward,
     ReduceSumSquareForward,
 };
-use teeny_kernels::testing::load_fixture;
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
 // Reduction tests use a 2-D input: OUTER rows of INNER elements.
-const OUTER: usize = 32;
+#[cfg(feature = "hardware")]
 const INNER: usize = 64;
 const BLOCK_INNER: i32 = 64;
+#[cfg(feature = "hardware")]
 const TOL: f32 = 1e-4;
 
-// ── Macro: source + MLIR snapshot ────────────────────────────────────────────
+// ── Macro: source + ASM snapshot ────────────────────────────────────────────
 
 macro_rules! source_test {
     ($test_name:ident, $kernel_ty:ty, $snap_prefix:literal) => {
@@ -50,11 +49,27 @@ macro_rules! source_test {
         fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
             let kernel = <$kernel_ty>::new(BLOCK_INNER);
-            let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-            let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true, false)?);
-            let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-            assert_debug_snapshot!(concat!($snap_prefix, "_source"), kernel.source());
-            assert_debug_snapshot!(concat!($snap_prefix, "_mlir"), mlir.trim());
+            let target = teeny_runtime::reference_target();
+            let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+                &kernel, &target, true, false,
+            )?);
+            let asm = teeny_test::read_compiled_asm(ptx_path);
+            assert_debug_snapshot!(
+                format!(
+                    "{}_{}",
+                    concat!($snap_prefix, "_source"),
+                    teeny_runtime::BACKEND_NAME
+                ),
+                kernel.source()
+            );
+            assert_debug_snapshot!(
+                format!(
+                    "{}_{}",
+                    concat!($snap_prefix, "_asm"),
+                    teeny_runtime::BACKEND_NAME
+                ),
+                asm
+            );
             Ok(())
         }
     };
@@ -65,14 +80,16 @@ macro_rules! source_test {
 
 macro_rules! gpu_reduce_test {
     ($test_name:ident, $kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "hardware")]
         #[test]
-        fn $test_name() -> Result<()> {
+        fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
-            let env = testing::setup_cuda_env()?;
-            let device = env.device;
-            let x = load_fixture("reduction/x.bin");
-            let expected = load_fixture(concat!("reduction/expected_", $fixture_op, ".bin"));
+            let device = teeny_runtime::open()?;
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("reduction/expected_", $fixture_op, ".bin"),
+            );
             let n_total = x.len();
             let n_outer = expected.len();
             let n_inner = n_total / n_outer;
@@ -81,24 +98,18 @@ macro_rules! gpu_reduce_test {
             let mut y_out = vec![0.0f32; n_outer];
             x_buf.to_device(&x)?;
             let kernel = <$kernel_ty>::new(BLOCK_INNER);
-            let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-            let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
-            // Use threads_per_block from PTX metadata — Triton may choose a
-            // different thread count (e.g. 128) than BLOCK_INNER (64).
-            let tpb = program.threads_per_block();
-            use teeny_cuda::device::CudaLaunchConfig;
-            let cfg = CudaLaunchConfig {
-                grid: [n_outer as u32, 1, 1],
-                block: [tpb, 1, 1],
-                cluster: [program.num_ctas().max(1), 1, 1],
-            };
+            let target = teeny_runtime::default_target(&device)?;
+            let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+            let program = teeny_runtime::load_program::<$kernel_ty>(&ptx_path)?;
+            // threads-per-block comes from PTX metadata via launch_config_with_grid --
+            // Triton may choose a different thread count (e.g. 128) than BLOCK_INNER (64).
+            let cfg = teeny_runtime::launch_config_with_grid(n_outer, &program);
             device.launch(
                 &program,
                 &cfg,
                 (
-                    x_buf.as_device_ptr() as *mut f32,
-                    y_buf.as_device_ptr() as *mut f32,
+                    x_buf.as_device_ptr(),
+                    y_buf.as_device_ptr(),
                     n_inner as i32,
                     n_outer as i32,
                 ),
@@ -122,14 +133,16 @@ macro_rules! gpu_reduce_test {
 
 macro_rules! gpu_cum_test {
     ($test_name:ident, $kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "hardware")]
         #[test]
-        fn $test_name() -> Result<()> {
+        fn $test_name() -> anyhow::Result<()> {
             dotenv().ok();
-            let env = testing::setup_cuda_env()?;
-            let device = env.device;
-            let x = load_fixture("reduction/x.bin");
-            let expected = load_fixture(concat!("reduction/expected_", $fixture_op, ".bin"));
+            let device = teeny_runtime::open()?;
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("reduction/expected_", $fixture_op, ".bin"),
+            );
             let n_total = x.len();
             let n_inner = INNER;
             let n_outer = n_total / n_inner;
@@ -138,22 +151,16 @@ macro_rules! gpu_cum_test {
             let mut y_out = vec![0.0f32; n_total];
             x_buf.to_device(&x)?;
             let kernel = <$kernel_ty>::new(BLOCK_INNER);
-            let target = Target::new(env.capability);
-            let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-            let program = testing::load_program_from_ptx::<$kernel_ty>(&ptx)?;
-            let tpb = program.threads_per_block();
-            use teeny_cuda::device::CudaLaunchConfig;
-            let cfg = CudaLaunchConfig {
-                grid: [n_outer as u32, 1, 1],
-                block: [tpb, 1, 1],
-                cluster: [program.num_ctas().max(1), 1, 1],
-            };
+            let target = teeny_runtime::default_target(&device)?;
+            let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+            let program = teeny_runtime::load_program::<$kernel_ty>(&ptx_path)?;
+            let cfg = teeny_runtime::launch_config_with_grid(n_outer, &program);
             device.launch(
                 &program,
                 &cfg,
                 (
-                    x_buf.as_device_ptr() as *mut f32,
-                    y_buf.as_device_ptr() as *mut f32,
+                    x_buf.as_device_ptr(),
+                    y_buf.as_device_ptr(),
                     n_inner as i32,
                     n_outer as i32,
                 ),
@@ -173,7 +180,7 @@ macro_rules! gpu_cum_test {
     };
 }
 
-// ── Source + MLIR snapshots ───────────────────────────────────────────────────
+// ── Source + ASM snapshots ───────────────────────────────────────────────────
 
 source_test!(
     test_reduce_sum_source,
@@ -245,38 +252,40 @@ source_test!(
 // ── GPU forward tests ─────────────────────────────────────────────────────────
 
 gpu_reduce_test!(
-    test_reduce_sum_gpu,
+    test_reduce_sum,
     ReduceSumForward::<f32>,
     "reduce_sum",
     "reduce_sum"
 );
 gpu_reduce_test!(
-    test_reduce_mean_gpu,
+    test_reduce_mean,
     ReduceMeanForward::<f32>,
     "reduce_mean",
     "reduce_mean"
 );
 gpu_reduce_test!(
-    test_reduce_max_gpu,
+    test_reduce_max,
     ReduceMaxForward::<f32>,
     "reduce_max",
     "reduce_max"
 );
 gpu_reduce_test!(
-    test_reduce_min_gpu,
+    test_reduce_min,
     ReduceMinForward::<f32>,
     "reduce_min",
     "reduce_min"
 );
 // reduce_prod uses exp(sum(log)) which accumulates fp error; use relative tolerance
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 #[test]
-fn test_reduce_prod_gpu() -> Result<()> {
+fn test_reduce_prod() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
-    let x = load_fixture("reduction/x.bin");
-    let expected = load_fixture("reduction/expected_reduce_prod.bin");
+    let device = teeny_runtime::open()?;
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "reduction/expected_reduce_prod.bin",
+    );
     let n_total = x.len();
     let n_outer = expected.len();
     let n_inner = n_total / n_outer;
@@ -285,22 +294,16 @@ fn test_reduce_prod_gpu() -> Result<()> {
     let mut y_out = vec![0.0f32; n_outer];
     x_buf.to_device(&x)?;
     let kernel = ReduceProdForward::<f32>::new(BLOCK_INNER);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<ReduceProdForward<f32>>(&ptx)?;
-    let tpb = program.threads_per_block();
-    use teeny_cuda::device::CudaLaunchConfig;
-    let cfg = CudaLaunchConfig {
-        grid: [n_outer as u32, 1, 1],
-        block: [tpb, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<ReduceProdForward<f32>>(&ptx_path)?;
+    let cfg = teeny_runtime::launch_config_with_grid(n_outer, &program);
     device.launch(
         &program,
         &cfg,
         (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
             n_inner as i32,
             n_outer as i32,
         ),
@@ -319,58 +322,60 @@ fn test_reduce_prod_gpu() -> Result<()> {
     Ok(())
 }
 gpu_reduce_test!(
-    test_reduce_l1_gpu,
+    test_reduce_l1,
     ReduceL1Forward::<f32>,
     "reduce_l1",
     "reduce_l1"
 );
 gpu_reduce_test!(
-    test_reduce_l2_gpu,
+    test_reduce_l2,
     ReduceL2Forward::<f32>,
     "reduce_l2",
     "reduce_l2"
 );
 gpu_reduce_test!(
-    test_reduce_log_sum_gpu,
+    test_reduce_log_sum,
     ReduceLogSumForward::<f32>,
     "reduce_log_sum",
     "reduce_log_sum"
 );
 gpu_reduce_test!(
-    test_reduce_log_sum_exp_gpu,
+    test_reduce_log_sum_exp,
     ReduceLogSumExpForward::<f32>,
     "reduce_log_sum_exp",
     "reduce_log_sum_exp"
 );
 gpu_reduce_test!(
-    test_reduce_sum_square_gpu,
+    test_reduce_sum_square,
     ReduceSumSquareForward::<f32>,
     "reduce_sum_square",
     "reduce_sum_square"
 );
 gpu_reduce_test!(
-    test_global_avg_pool_gpu,
+    test_global_avg_pool,
     GlobalAvgPoolForward::<f32>,
     "global_avg_pool",
     "global_avg_pool"
 );
 gpu_reduce_test!(
-    test_global_max_pool_gpu,
+    test_global_max_pool,
     GlobalMaxPoolForward::<f32>,
     "global_max_pool",
     "global_max_pool"
 );
 
-gpu_cum_test!(test_cum_sum_gpu, CumSumForward::<f32>, "cum_sum", "cum_sum");
+gpu_cum_test!(test_cum_sum, CumSumForward::<f32>, "cum_sum", "cum_sum");
 // cum_prod accumulates floating-point error for large products; use relative tolerance
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 #[test]
-fn test_cum_prod_gpu() -> Result<()> {
+fn test_cum_prod() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
-    let x = load_fixture("reduction/x.bin");
-    let expected = load_fixture("reduction/expected_cum_prod.bin");
+    let device = teeny_runtime::open()?;
+    let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "reduction/expected_cum_prod.bin",
+    );
     let n_total = x.len();
     let n_inner = INNER;
     let n_outer = n_total / n_inner;
@@ -379,22 +384,16 @@ fn test_cum_prod_gpu() -> Result<()> {
     let mut y_out = vec![0.0f32; n_total];
     x_buf.to_device(&x)?;
     let kernel = CumProdForward::<f32>::new(BLOCK_INNER);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true, false)?)?;
-    let program = testing::load_program_from_ptx::<CumProdForward<f32>>(&ptx)?;
-    let tpb = program.threads_per_block();
-    use teeny_cuda::device::CudaLaunchConfig;
-    let cfg = CudaLaunchConfig {
-        grid: [n_outer as u32, 1, 1],
-        block: [tpb, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<CumProdForward<f32>>(&ptx_path)?;
+    let cfg = teeny_runtime::launch_config_with_grid(n_outer, &program);
     device.launch(
         &program,
         &cfg,
         (
-            x_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
             n_inner as i32,
             n_outer as i32,
         ),
