@@ -33,6 +33,7 @@ use crate::nn::activation::sigmoid::SigmoidBackward;
 use crate::nn::activation::tanh::TanhBackward;
 
 /// CTA block size used when lowering unary activations into PointwiseFuse members.
+#[cfg(feature = "training")]
 const MEMBER_BLOCK_SIZE: i32 = 1024;
 
 /// Probe whether `op` is pointwise-fusable at `dtype`.

@@ -28,3 +28,4 @@ rand.workspace = true
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
 teeny-cuda = { path = "../../drivers/teeny-cuda" }
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-test = { workspace = true, features = ["cuda"] }

@@ -1,0 +1,28 @@
+[package]
+name = "teeny-test"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme.workspace = true
+publish = false
+
+[lib]
+
+[features]
+default = []
+cuda = ["dep:teeny-cuda"]
+riscv = ["dep:teeny-riscv"]
+# Meaningful only combined with `riscv` -- gates the `riscv::qemu` submodule that shells out to
+# `qemu-riscv64` and a `riscv64-linux-gnu-gcc` cross toolchain to actually execute a compiled
+# kernel, rather than just compiling it.
+qemu = []
+
+[dependencies]
+teeny-core.workspace = true
+teeny-cuda = { workspace = true, optional = true }
+teeny-riscv = { workspace = true, optional = true }
+anyhow.workspace = true
+thiserror.workspace = true

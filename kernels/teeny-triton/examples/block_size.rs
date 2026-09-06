@@ -101,7 +101,7 @@ const WARMUP: usize = 5;
 const ITERS: usize = 50;
 
 fn main() -> Result<()> {
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
     let target = Target::new(env.capability);
 
@@ -130,14 +130,14 @@ fn main() -> Result<()> {
     for block_size in BLOCK_SIZES {
         let kernel = SweepAdd::<f32>::new(block_size);
         let ptx = std::fs::read(compile_kernel(&kernel, &target, false, false)?)?;
-        let program = teeny_cuda::testing::load_program_from_ptx::<SweepAdd<f32>>(&ptx)?;
+        let program = teeny_test::cuda::load_program_from_ptx::<SweepAdd<f32>>(&ptx)?;
 
         // One program per BLOCK_SIZE-wide slice of the data. The *thread* count
         // is not ours to choose — teenyc records it in the PTX and the driver
         // rejects any other block dimension with "invalid argument" — so the
         // grid comes from BLOCK_SIZE and the block from the compiled metadata.
         let grid = N.div_ceil(block_size as usize);
-        let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &program);
+        let cfg = teeny_test::cuda::launch_config_with_grid(grid, &program);
 
         let args = (
             a_buf.as_device_ptr() as *mut f32,

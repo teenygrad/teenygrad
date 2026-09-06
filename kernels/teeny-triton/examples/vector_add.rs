@@ -115,7 +115,7 @@ fn main() -> Result<()> {
 
     // Open the first GPU and ask what it is, so the kernel is compiled for the
     // card that will run it rather than for a guess.
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
 
     // Build the kernel for this block size, then compile it to PTX.
@@ -131,13 +131,13 @@ fn main() -> Result<()> {
     b_buf.to_device(&b_host)?;
 
     let ptx = std::fs::read(&ptx_path)?;
-    let program = teeny_cuda::testing::load_program_from_ptx::<VectorAdd<f32>>(&ptx)?;
+    let program = teeny_test::cuda::load_program_from_ptx::<VectorAdd<f32>>(&ptx)?;
 
     // One program per BLOCK_SIZE-wide slice, rounding up so the ragged tail
     // still gets one. The threads-per-program is not ours to pick: teenyc
     // records it in the PTX, and the driver rejects any other block dimension.
     let grid = N.div_ceil(BLOCK_SIZE as usize);
-    let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &program);
+    let cfg = teeny_test::cuda::launch_config_with_grid(grid, &program);
     println!(
         "launching {} programs of {} threads",
         cfg.grid[0], cfg.block[0]

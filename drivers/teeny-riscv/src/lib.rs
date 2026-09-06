@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,11 @@
 
 /// `Target`/`Capability` types for compiling kernels via `LlvmCompiler`.
 pub mod compiler;
+/// `teeny_core::device` trait implementations -- a "device" here is just the local machine or
+/// the `qemu-riscv64` process this code runs under/targets, not a discrete accelerator. Most of
+/// the surface is real; [`device::Device::launch`] is a structured-error stub until the compiler
+/// backend supports real per-kernel arguments.
+pub mod device;
 /// Error types.
 pub mod errors;
 /// Loading and calling a compiled kernel's shared library.

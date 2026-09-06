@@ -15,7 +15,14 @@ categories = ["science", "algorithms"]
 
 [features]
 default = ["cuda", "training"]
-cuda = ["dep:teeny-cuda"]
+cuda = ["dep:teeny-cuda", "teeny-test/cuda", "teeny-runtime/cuda"]
+riscv = ["teeny-test/riscv", "teeny-runtime/riscv"]
+# Orthogonal to cuda/riscv, which only mean "compile for this target". hardware means a real
+# device for the compiled-in backend is actually present, so execution tests should run against
+# it -- keeping it separate lets CI validate compilation for both targets on a device-less runner
+# (`--features cuda` / `--features riscv`, hardware off) while a GPU-equipped runner opts in with
+# `--features cuda,hardware`.
+hardware = []
 training = ["teeny-core/training"]
 
 [dependencies]
@@ -25,9 +32,17 @@ teeny-macros.workspace = true
 teeny-core.workspace = true
 teeny-triton.workspace = true
 teeny-cuda = { workspace = true, optional = true }
+# Test-only (integration tests get a device generically via teeny-runtime instead of hardcoding
+# teeny-cuda/teeny-riscv) -- optional dev-dependencies aren't supported by Cargo, so this lives
+# here instead. Not `workspace = true`: Cargo won't let a member override `default-features` on
+# a workspace-inherited dependency, and it must be off here -- teeny-runtime's own default is
+# `cuda`, which would otherwise silently win even when only this crate's `riscv` feature (and not
+# `cuda`) is enabled.
+teeny-runtime = { path = "../../runtime/teeny-runtime", version = "0.2.1", optional = true, default-features = false }
 
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }
+teeny-test.workspace = true
 dotenv.workspace = true
 insta.workspace = true
 criterion.workspace = true
