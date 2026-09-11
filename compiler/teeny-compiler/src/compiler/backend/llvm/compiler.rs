@@ -209,8 +209,13 @@ impl Compiler for LlvmCompiler {
             .cache_dir
             .join(kernel_file_name.clone())
             .with_extension("o");
+        // The generated assembly, kept next to the object file for snapshot tests
+        // (see `teeny_test::read_compiled_asm`). For RISC-V the object is a linked
+        // shared library, so it is the only readable form of the kernel's code.
+        let asm_file = output_file.with_extension("s");
+        let needs_compile = || force || !output_file.exists() || !asm_file.exists();
 
-        if !output_file.exists() || force {
+        if needs_compile() {
             anyhow::ensure!(
                 self.teenyc_path.exists(),
                 "kernel not cached and rustc not found at {:?}; \
@@ -233,7 +238,7 @@ impl Compiler for LlvmCompiler {
             // released the lock for) this exact hash while we were waiting, reuse its
             // output rather than redundantly recompiling. This -- not just avoiding the
             // corrupted-write symptom -- is the actual point of taking the lock.
-            if !output_file.exists() || force {
+            if needs_compile() {
                 let mut file = File::create(&kernel_file)?;
 
                 info!("Writing kernel code to file");
@@ -246,13 +251,19 @@ impl Compiler for LlvmCompiler {
                 let tmp_output_file = self
                     .cache_dir
                     .join(format!("{kernel_file_name}.o.tmp.{}", std::process::id()));
+                let tmp_asm_file = self
+                    .cache_dir
+                    .join(format!("{kernel_file_name}.s.tmp.{}", std::process::id()));
 
                 let mut cmd = Command::new(&self.teenyc_path);
                 cmd.arg(&kernel_file)
                     .arg("-Copt-level=3")
                     .arg("-Zcodegen-backend=mlir")
-                    .arg("--emit=obj")
-                    .arg(format!("-o{}", tmp_output_file.display()))
+                    .arg(format!(
+                        "--emit=obj={},asm={}",
+                        tmp_output_file.display(),
+                        tmp_asm_file.display()
+                    ))
                     .arg(format!("--target={}", self.target_triple))
                     .arg("--crate-type=lib")
                     .arg("-C")
@@ -289,6 +300,7 @@ impl Compiler for LlvmCompiler {
 
                 if !output.status.success() {
                     let _ = std::fs::remove_file(&tmp_output_file);
+                    let _ = std::fs::remove_file(&tmp_asm_file);
                     let _ = std::fs::remove_file(tmp_output_file.with_extension("mlir"));
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!("rustc exited with status {}\n{}", output.status, stderr);
@@ -297,15 +309,19 @@ impl Compiler for LlvmCompiler {
                 // `teenyc` also writes a `.mlir` sidecar next to the object file (the
                 // pre-Triton MLIR source, useful for pipeline debugging via `debug = true`
                 // above -- not read by the `*_asm` snapshot tests, which assert on the
-                // object file's own content instead, since that's the part that's actually
-                // target-specific) -- derived from the same `-o` path, so it needs the same
-                // temp-then-rename treatment. It may not exist for every invocation, hence
+                // generated assembly instead, since that's the part that's actually
+                // target-specific) -- derived from the object output path, so it needs the
+                // same temp-then-rename treatment. It may not exist for every invocation, hence
                 // the existence check rather than treating a missing file as an error.
                 let tmp_mlir_file = tmp_output_file.with_extension("mlir");
                 if tmp_mlir_file.exists() {
                     std::fs::rename(&tmp_mlir_file, output_file.with_extension("mlir"))?;
                 }
 
+                // Rename the assembly before the object: `needs_compile` treats a
+                // missing `.s` as uncached, so a reader never sees an object whose
+                // assembly is still being moved into place.
+                std::fs::rename(&tmp_asm_file, &asm_file)?;
                 std::fs::rename(&tmp_output_file, &output_file)?;
             }
         }
