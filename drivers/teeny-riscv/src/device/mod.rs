@@ -15,17 +15,18 @@
  */
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use teeny_core::device::program::Kernel;
 use teeny_core::device::{Device, LaunchConfig};
 use teeny_core::dtype::Num;
 
-use crate::device::buffer::RiscvBuffer;
+use crate::device::buffer::{BufferRegistry, RiscvBuffer};
 use crate::device::context::RiscvDeviceInfo;
 use crate::device::program::RiscvProgram;
-use crate::errors::{Error, Result};
+use crate::errors::Result;
 
-/// Device-side memory buffers (host `Vec`s -- RISC-V kernels run against host-owned memory,
+/// Device-side memory buffers (host memory -- RISC-V kernels run against host-owned memory,
 /// there is no separate device address space to copy across).
 pub mod buffer;
 /// Device/context management.
@@ -33,21 +34,39 @@ pub mod context;
 /// Compiled kernel programs.
 pub mod program;
 
-/// A RISC-V kernel launch's configuration.
+/// A RISC-V kernel launch's configuration: the Triton launch grid.
 ///
-/// Empty for now: no real grid/block scheduling exists yet (the compiler backend always emits a
-/// single no-argument placeholder function -- see [`crate::errors::Error::ArgumentPassingNotSupported`]).
-#[derive(Debug, Default, Clone, Copy)]
-pub struct RiscvLaunchConfig;
+/// [`RiscvDevice`]'s `launch` calls the kernel once for every program id in `grid`, the same
+/// program ids a Triton launcher would pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RiscvLaunchConfig {
+    /// The number of program ids along the x, y and z axes.
+    pub grid: [u32; 3],
+}
+
+impl RiscvLaunchConfig {
+    /// A launch over `grid` program ids.
+    pub fn new(grid: [u32; 3]) -> Self {
+        Self { grid }
+    }
+}
+
+impl Default for RiscvLaunchConfig {
+    /// A single program id.
+    fn default() -> Self {
+        Self::new([1, 1, 1])
+    }
+}
 
 impl LaunchConfig for RiscvLaunchConfig {}
 
 /// A RISC-V "device": there is no discrete accelerator to open, so this just represents the
-/// local machine (native RISC-V) or the `qemu-riscv64` user-mode emulation environment this
-/// process is running under/targeting.
+/// local machine or the `qemu-riscv64` user-mode emulation environment kernels run under.
 pub struct RiscvDevice<'a> {
     /// This device's (synthetic) static properties.
     pub info: RiscvDeviceInfo,
+    /// The buffers this device has allocated, so `launch` can resolve pointer arguments.
+    buffers: Arc<BufferRegistry>,
     _unused: PhantomData<&'a ()>,
 }
 
@@ -56,6 +75,7 @@ impl<'a> RiscvDevice<'a> {
     pub fn new(info: RiscvDeviceInfo) -> Self {
         Self {
             info,
+            buffers: Arc::default(),
             _unused: PhantomData,
         }
     }
@@ -73,34 +93,57 @@ impl<'a> Device<'a> for RiscvDevice<'a> {
 
     /// Allocates a zero-initialized host buffer -- host memory *is* the device memory here.
     fn buffer<N: Num>(&self, count: usize) -> Result<Self::Buffer<N>> {
-        RiscvBuffer::try_new(count)
+        Ok(RiscvBuffer::with_registry(count, Arc::clone(&self.buffers)))
     }
 
-    /// Not supported yet: see [`Error::ArgumentPassingNotSupported`]'s doc comment. The
-    /// compiler backend (`RiscvBackend`) always emits the same no-argument placeholder function
-    /// regardless of `program`'s actual kernel body, so there is no real per-kernel argument ABI
-    /// to marshal `args` into. Load and call the placeholder directly via
-    /// [`crate::runtime::KernelLibrary::call_void_kernel`] instead, as
-    /// `tests/test_qemu_relu.rs` does, until `teenygrad-1zd`'s compiler-side work lands.
+    /// Runs `program` once for every program id in `cfg.grid`, under `qemu-riscv64`.
+    ///
+    /// Every pointer in `args` must point into a buffer allocated by this device; whatever the
+    /// kernel writes to those buffers is copied back before this returns.
+    #[cfg(feature = "qemu")]
+    fn launch<K: Kernel>(
+        &self,
+        program: &Self::Program<K>,
+        cfg: &Self::LaunchConfig,
+        args: K::Args<'a>,
+    ) -> Result<()> {
+        crate::qemu::launch(
+            &self.buffers,
+            program.path(),
+            program.entry_point(),
+            cfg.grid,
+            &args,
+        )
+    }
+
+    /// Always panics: there is no RISC-V hardware support, and without the `qemu` feature there
+    /// is nothing else to run the kernel on.
+    #[cfg(not(feature = "qemu"))]
     fn launch<K: Kernel>(
         &self,
         _program: &Self::Program<K>,
         _cfg: &Self::LaunchConfig,
         _args: K::Args<'a>,
     ) -> Result<()> {
-        Err(Error::ArgumentPassingNotSupported.into())
+        panic!(
+            "no RISC-V hardware to launch kernels on; enable teeny-riscv's `qemu` feature to run \
+             them under qemu-riscv64"
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::buffer::Region;
     use crate::device::context::Riscv;
     use teeny_core::device::buffer::Buffer;
     use teeny_core::device::context::Context;
 
+    #[cfg(not(feature = "qemu"))]
     struct TestKernel;
 
+    #[cfg(not(feature = "qemu"))]
     impl Kernel for TestKernel {
         type Args<'a> = ();
 
@@ -136,6 +179,21 @@ mod tests {
     }
 
     #[test]
+    fn device_buffers_are_registered_until_dropped() {
+        let device = RiscvDevice::new(RiscvDeviceInfo::default());
+        let buf = device.buffer::<f32>(4).unwrap();
+        let addr = buf.as_device_ptr() as usize;
+        let region = Region { addr, bytes: 16 };
+
+        assert_eq!(device.buffers.find(addr), Some(region));
+        assert_eq!(device.buffers.find(addr + 12), Some(region));
+        assert_eq!(device.buffers.find(addr + 16), None);
+
+        drop(buf);
+        assert_eq!(device.buffers.find(addr), None);
+    }
+
+    #[test]
     fn context_lists_exactly_one_synthetic_device() {
         let ctx = Riscv::try_new().unwrap();
         let devices = ctx.list_devices().unwrap();
@@ -143,17 +201,12 @@ mod tests {
     }
 
     #[test]
-    fn launch_is_not_yet_supported() {
-        // `libc.so.6` stands in for a compiled kernel .so here -- `launch`'s stub doesn't
-        // inspect the loaded library at all, so any loadable library exercises the same path a
-        // real (RISC-V) kernel .so would.
-        let program = RiscvProgram::<TestKernel>::try_new("libc.so.6").unwrap();
+    #[cfg(not(feature = "qemu"))]
+    #[should_panic(expected = "no RISC-V hardware")]
+    fn launch_without_qemu_panics() {
+        let program =
+            RiscvProgram::<TestKernel>::from_parts("kernel.so", "test_kernel_entry_point");
         let device = RiscvDevice::new(RiscvDeviceInfo::default());
-
-        let err = device.launch(&program, &RiscvLaunchConfig, ()).unwrap_err();
-        assert!(matches!(
-            err.downcast_ref::<Error>(),
-            Some(Error::ArgumentPassingNotSupported)
-        ));
+        let _ = device.launch(&program, &RiscvLaunchConfig::default(), ());
     }
 }

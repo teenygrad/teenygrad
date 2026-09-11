@@ -25,10 +25,15 @@
 use std::path::Path;
 
 use dotenv::dotenv;
+use teeny_core::device::Device;
+use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 use teeny_kernels::nn::activation::relu::ReluForward;
 use teeny_riscv::compiler::compile_kernel;
 use teeny_riscv::compiler::target::{Capability, Target};
+use teeny_riscv::device::context::RiscvDeviceInfo;
+use teeny_riscv::device::program::RiscvProgram;
+use teeny_riscv::device::{RiscvDevice, RiscvLaunchConfig};
 use teeny_test::riscv::qemu::setup_qemu_env;
 
 const BLOCK_SIZE: i32 = 1024;
@@ -80,6 +85,41 @@ fn compiled_relu_kernel_runs_correctly_under_qemu() -> anyhow::Result<()> {
         y[N_ELEMENTS..].iter().all(|&v| v == SENTINEL),
         "the kernel wrote past n_elements"
     );
+
+    Ok(())
+}
+
+#[test]
+fn device_launch_runs_relu_under_qemu() -> anyhow::Result<()> {
+    dotenv().ok();
+
+    let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
+    let target = Target::new(Capability::GenericRvv1_0);
+    let so_path = compile_kernel(&kernel, &target, true, false)?;
+
+    let device = RiscvDevice::new(RiscvDeviceInfo::default());
+    let x: Vec<f32> = (0..N_ELEMENTS).map(|i| (i % 17) as f32 - 8.25).collect();
+    let mut x_buf = device.buffer::<f32>(N_ELEMENTS)?;
+    let y_buf = device.buffer::<f32>(N_ELEMENTS)?;
+    x_buf.to_device(&x)?;
+
+    let program = RiscvProgram::<ReluForward<f32>>::try_new(&so_path)?;
+    let blocks = N_ELEMENTS.div_ceil(BLOCK_SIZE as usize) as u32;
+    device.launch(
+        &program,
+        &RiscvLaunchConfig::new([blocks, 1, 1]),
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            N_ELEMENTS as i32,
+        ),
+    )?;
+
+    let mut y = vec![0.0f32; N_ELEMENTS];
+    y_buf.to_host(&mut y)?;
+    for (i, (&xi, &yi)) in x.iter().zip(&y).enumerate() {
+        assert_eq!(yi, xi.max(0.0), "y[{i}] for x[{i}] = {xi}");
+    }
 
     Ok(())
 }
