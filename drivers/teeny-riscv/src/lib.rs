@@ -15,23 +15,24 @@
  */
 
 //! The RISC-V device backend for [teenygrad](https://teenygrad.org) — `Target`/`Capability`
-//! types for the `mlir`/Triton compiler backend's `riscv64-generic` path ([`compiler`]), and a
-//! `libloading`-based runtime for loading a compiled kernel's shared library and calling its
-//! exported symbol ([`runtime`]).
+//! types for the `mlir`/Triton compiler backend's `riscv64-generic` path ([`compiler`]),
+//! `teeny_core::device` implementations ([`device`]), and a `libloading` wrapper for calling a
+//! kernel's exported symbol on a native RISC-V host ([`runtime`]).
 //!
-//! See the crate README for current status: the underlying compiler backend is an early stub, so
-//! only the placeholder no-argument kernel it always produces can be compiled/loaded today.
+//! There is no RISC-V hardware support yet. With the `qemu` feature, [`device::RiscvDevice`]
+//! runs launched kernels under `qemu-riscv64`; without it, launching a kernel panics.
 
 #![warn(missing_docs)]
 
 /// `Target`/`Capability` types for compiling kernels via `LlvmCompiler`.
 pub mod compiler;
 /// `teeny_core::device` trait implementations -- a "device" here is just the local machine or
-/// the `qemu-riscv64` process this code runs under/targets, not a discrete accelerator. Most of
-/// the surface is real; [`device::Device::launch`] is a structured-error stub until the compiler
-/// backend supports real per-kernel arguments.
+/// the `qemu-riscv64` environment kernels run under, not a discrete accelerator.
 pub mod device;
+mod elf;
 /// Error types.
 pub mod errors;
+#[cfg(feature = "qemu")]
+mod qemu;
 /// Loading and calling a compiled kernel's shared library.
 pub mod runtime;

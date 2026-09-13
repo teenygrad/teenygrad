@@ -15,7 +15,7 @@
  */
 
 use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
-use teeny_core::compiler::Compiler;
+use teeny_core::compiler::{Compiler, CompilerOptions};
 use teeny_core::device::program::Kernel;
 use teeny_core::graph::Graph;
 use teeny_core::model::{Lowering, LoweringMode};
@@ -62,7 +62,16 @@ pub fn compile_kernel(
     debug: bool,
 ) -> Result<String> {
     let compiler = make_llvm_compiler(target, debug)?;
-    with_pipeline_logging(debug, || compiler.compile(kernel, target, force))
+    // Both outputs are spelled out rather than taken from `CompilerOptions::default()`: the
+    // compile-only snapshot tests assert on the generated assembly, and `read_compiled_asm`
+    // silently falls back to the object file when no `.s` exists -- so a future change to that
+    // default would not fail here, it would quietly start snapshotting the wrong bytes.
+    let options = CompilerOptions {
+        force,
+        emit_asm: true,
+        emit_bin: true,
+    };
+    with_pipeline_logging(debug, || compiler.compile(kernel, target, &options))
 }
 
 /// Compiles a lowered `graph` to a [`CudaModel`] via [`CudaGraphCompiler`], using the `teenyc`

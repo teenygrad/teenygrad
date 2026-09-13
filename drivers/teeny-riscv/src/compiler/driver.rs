@@ -15,7 +15,7 @@
  */
 
 use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
-use teeny_core::compiler::{Compiler, Target as _};
+use teeny_core::compiler::{Compiler, CompilerOptions, Target as _};
 use teeny_core::device::program::Kernel;
 
 use crate::compiler::TARGET_TRIPLE;
@@ -56,7 +56,16 @@ pub fn compile_kernel(
         compiler = compiler.with_log_level(LogLevel::Debug);
     }
 
-    with_pipeline_logging(debug, || compiler.compile(kernel, target, force))
+    // Both outputs are spelled out rather than taken from `CompilerOptions::default()`: the
+    // compile-only snapshot tests assert on the generated assembly, and `read_compiled_asm`
+    // silently falls back to the object file when no `.s` exists -- which on RISC-V means
+    // snapshotting raw ELF bytes of the linked shared library rather than failing outright.
+    let options = CompilerOptions {
+        force,
+        emit_asm: true,
+        emit_bin: true,
+    };
+    with_pipeline_logging(debug, || compiler.compile(kernel, target, &options))
 }
 
 /// When `debug` is set, install a thread-local stderr tracing subscriber for the duration of `f`

@@ -182,33 +182,34 @@ mod backend {
     /// target (e.g. `format!("relu_mlir_{BACKEND_NAME}")`).
     pub const BACKEND_NAME: &str = "riscv";
 
-    /// Loads a [`compile_kernel`]-produced artifact (a RISC-V ELF shared library) at `path`.
-    /// Only succeeds when actually running on RISC-V (native, or under `qemu-riscv64`) -- see
-    /// [`Program`]'s doc comment.
+    /// Opens a [`compile_kernel`]-produced artifact (a RISC-V ELF shared library) at `path` and
+    /// finds its entry point. Nothing is loaded into this process -- see [`Program`].
     pub fn load_program<K: Kernel>(path: &str) -> anyhow::Result<Program<'static, K>> {
         Program::<K>::try_new(path)
     }
 
-    /// Always the empty [`LaunchConfig`] -- no real grid/block scheduling exists yet.
-    pub fn launch_config<K: Kernel>(_n_elements: usize, _program: &Program<'_, K>) -> LaunchConfig {
-        LaunchConfig::default()
+    /// One program id per element. The kernel's block size isn't known here, so this covers any
+    /// block size; like the CUDA backend's grid it can exceed the kernel's block count, and a
+    /// pointwise kernel masks out program ids past `n_elements`.
+    pub fn launch_config<K: Kernel>(n_elements: usize, _program: &Program<'_, K>) -> LaunchConfig {
+        LaunchConfig::new([n_elements as u32, 1, 1])
     }
 
-    /// Always the empty [`LaunchConfig`] -- see [`launch_config`].
+    /// `grid_x` program ids along x.
     pub fn launch_config_with_grid<K: Kernel>(
-        _grid_x: usize,
+        grid_x: usize,
         _program: &Program<'_, K>,
     ) -> LaunchConfig {
-        LaunchConfig::default()
+        LaunchConfig::new([grid_x as u32, 1, 1])
     }
 
-    /// Always the empty [`LaunchConfig`] -- see [`launch_config`].
+    /// `grid` program ids; `block` and `cluster` only mean something to the CUDA backend.
     pub fn launch_config_custom(
-        _grid: [u32; 3],
+        grid: [u32; 3],
         _block: [u32; 3],
         _cluster: [u32; 3],
     ) -> LaunchConfig {
-        LaunchConfig::default()
+        LaunchConfig::new(grid)
     }
 }
 
