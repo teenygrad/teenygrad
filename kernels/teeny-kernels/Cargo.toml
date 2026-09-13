@@ -10,6 +10,10 @@ readme = "README.md"
 documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_kernels/"
 keywords = ["kernels", "gpu", "attention", "machine-learning"]
 categories = ["science", "algorithms"]
+# Benches are not auto-discovered: `benches/conv2d_bn_silu.rs` is kept on disk as
+# reference while `nn/fused` is unlinked, and Cargo would otherwise pick it up and
+# fail to build it (`cargo check --benches`).
+autobenches = false
 
 [lib]
 
