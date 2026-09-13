@@ -15,22 +15,17 @@
  */
 
 //! Compiles a real kernel through `teenyc`'s RISC-V path and checks that the output is a
-//! well-formed RISC-V ELF shared library.
+//! well-formed RISC-V ELF shared library exporting the kernel's entry point.
 //!
-//! `RiscvBackend` (in the `teeny` compiler fork) is still a stub: every kernel compiles to the
-//! same placeholder no-argument `void @<name>()` function regardless of source (see the crate
-//! README), so this deliberately doesn't check the kernel's *behavior* -- there isn't one yet --
-//! only that the compile pipeline (real LLVM RISC-V codegen, linked via `ld.lld`) produces a
-//! genuine RISC-V shared object.
-//!
-//! Actually loading and calling it (via [`teeny_riscv::runtime::KernelLibrary`]) requires running
-//! on RISC-V (native, or under `qemu-riscv64`) -- see `test_qemu_relu.rs` (feature `qemu`) for
-//! that, via `teeny-test`'s `riscv::qemu` module.
+//! Running the kernel needs RISC-V (native, or under `qemu-riscv64`) -- see `test_qemu_relu.rs`
+//! (feature `qemu`).
 
 use dotenv::dotenv;
+use teeny_core::device::program::Kernel;
 use teeny_kernels::nn::activation::relu::ReluForward;
 use teeny_riscv::compiler::compile_kernel;
 use teeny_riscv::compiler::target::{Capability, Target};
+use teeny_riscv::device::program::RiscvProgram;
 
 const BLOCK_SIZE: i32 = 1024;
 
@@ -61,6 +56,10 @@ fn compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
         243,
         "expected EM_RISCV"
     );
+
+    // `launch` finds the kernel in the library by this entry point.
+    let program = RiscvProgram::<ReluForward<f32>>::try_new(&output_path)?;
+    assert_eq!(program.entry_point(), kernel.entry_point_name());
 
     Ok(())
 }

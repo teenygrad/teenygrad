@@ -42,9 +42,9 @@ fn test_tensor_add() -> Result<()> {
     let out_buf = device.buffer::<f32>(N)?;
     println!(
         "[4/9] allocated device buffers: x={:#x} y={:#x} out={:#x}",
-        x_buf.as_device_ptr(),
-        y_buf.as_device_ptr(),
-        out_buf.as_device_ptr(),
+        x_buf.as_device_ptr() as usize,
+        y_buf.as_device_ptr() as usize,
+        out_buf.as_device_ptr() as usize,
     );
 
     x_buf.to_device(&x_host)?;

@@ -14,39 +14,112 @@
  * limitations under the License.
  */
 
-//! Automates the manual verification recorded on `teenygrad-1zd`: compiles a real kernel through
-//! `teenyc`'s RISC-V path (same as `test_compile_riscv.rs`), then actually loads and calls the
-//! resulting `.so` under `qemu-riscv64`, via `teeny-test`'s `riscv::qemu` module. Gated behind
-//! the `qemu` feature (needs a RISC-V cross toolchain and QEMU's user-mode emulator on the host;
-//! see `teeny-test`'s `riscv` module for how those are resolved).
-//!
-//! `RiscvBackend` is still a stub (see `test_compile_riscv.rs`'s doc comment) -- every kernel
-//! compiles to the same placeholder no-argument `void @riscv_kernel()` function regardless of
-//! `kernel`'s actual body (the exported symbol is `"riscv_kernel"`, `RiscvBackend`'s fallback
-//! name for a module with no name of its own -- see `kernelNameFor` in the `teeny` compiler
-//! fork's `RiscvBackend.cpp`). So this only proves the compiled `.so` is loadable and callable
-//! under emulation, not that it runs `kernel`'s actual logic.
+//! Compiles `ReluForward` through `teenyc`'s RISC-V path (same as `test_compile_riscv.rs`), runs
+//! the resulting `.so` under `qemu-riscv64` via `teeny-test`'s `riscv::qemu` module, and checks
+//! its output against relu computed on the host. Gated behind the `qemu` feature (needs a RISC-V
+//! cross toolchain and QEMU's user-mode emulator on the host; see `teeny-test`'s `riscv` module
+//! for how those are resolved).
 
 #![cfg(feature = "qemu")]
 
+use std::path::Path;
+
 use dotenv::dotenv;
+use teeny_core::device::Device;
+use teeny_core::device::buffer::Buffer;
+use teeny_core::device::program::Kernel;
 use teeny_kernels::nn::activation::relu::ReluForward;
 use teeny_riscv::compiler::compile_kernel;
 use teeny_riscv::compiler::target::{Capability, Target};
+use teeny_riscv::device::context::RiscvDeviceInfo;
+use teeny_riscv::device::program::RiscvProgram;
+use teeny_riscv::device::{RiscvDevice, RiscvLaunchConfig};
 use teeny_test::riscv::qemu::setup_qemu_env;
 
 const BLOCK_SIZE: i32 = 1024;
 
+/// Two full blocks and part of a third, so the run exercises both the program id's block offset
+/// and the mask on the last block.
+const N_ELEMENTS: usize = 2 * BLOCK_SIZE as usize + 500;
+
+/// Pre-fills the output past `N_ELEMENTS`; the kernel must leave it untouched.
+const SENTINEL: f32 = 12345.0;
+
 #[test]
-fn compiled_kernel_loads_and_runs_under_qemu() -> anyhow::Result<()> {
+fn compiled_relu_kernel_runs_correctly_under_qemu() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(Capability::GenericRvv1_0);
     let so_path = compile_kernel(&kernel, &target, true, false)?;
 
+    let block_size = BLOCK_SIZE as usize;
+    let len = N_ELEMENTS.div_ceil(block_size) * block_size;
+    // Negative and positive inputs; the padding is negative, so a store that ignored the mask
+    // would replace the sentinel with 0.
+    let x: Vec<f32> = (0..len)
+        .map(|i| {
+            if i < N_ELEMENTS {
+                (i % 17) as f32 - 8.25
+            } else {
+                -1.0
+            }
+        })
+        .collect();
+    let mut y = vec![SENTINEL; len];
+
     let qemu = setup_qemu_env()?;
-    qemu.run_kernel(std::path::Path::new(&so_path), "riscv_kernel")?;
+    qemu.run_pointwise_kernel(
+        Path::new(&so_path),
+        &kernel.entry_point_name(),
+        block_size,
+        N_ELEMENTS,
+        &x,
+        &mut y,
+    )?;
+
+    for (i, (&xi, &yi)) in x.iter().zip(&y).take(N_ELEMENTS).enumerate() {
+        assert_eq!(yi, xi.max(0.0), "y[{i}] for x[{i}] = {xi}");
+    }
+    assert!(
+        y[N_ELEMENTS..].iter().all(|&v| v == SENTINEL),
+        "the kernel wrote past n_elements"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn device_launch_runs_relu_under_qemu() -> anyhow::Result<()> {
+    dotenv().ok();
+
+    let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
+    let target = Target::new(Capability::GenericRvv1_0);
+    let so_path = compile_kernel(&kernel, &target, true, false)?;
+
+    let device = RiscvDevice::new(RiscvDeviceInfo::default());
+    let x: Vec<f32> = (0..N_ELEMENTS).map(|i| (i % 17) as f32 - 8.25).collect();
+    let mut x_buf = device.buffer::<f32>(N_ELEMENTS)?;
+    let y_buf = device.buffer::<f32>(N_ELEMENTS)?;
+    x_buf.to_device(&x)?;
+
+    let program = RiscvProgram::<ReluForward<f32>>::try_new(&so_path)?;
+    let blocks = N_ELEMENTS.div_ceil(BLOCK_SIZE as usize) as u32;
+    device.launch(
+        &program,
+        &RiscvLaunchConfig::new([blocks, 1, 1]),
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            N_ELEMENTS as i32,
+        ),
+    )?;
+
+    let mut y = vec![0.0f32; N_ELEMENTS];
+    y_buf.to_host(&mut y)?;
+    for (i, (&xi, &yi)) in x.iter().zip(&y).enumerate() {
+        assert_eq!(yi, xi.max(0.0), "y[{i}] for x[{i}] = {xi}");
+    }
 
     Ok(())
 }

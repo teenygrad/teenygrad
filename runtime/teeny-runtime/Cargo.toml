@@ -20,6 +20,9 @@ categories = ["hardware-support", "science"]
 default = ["cuda"]
 cuda = ["dep:teeny-cuda"]
 riscv = ["dep:teeny-riscv"]
+# Runs `riscv` kernels under `qemu-riscv64` instead of panicking for lack of RISC-V hardware (see
+# teeny-riscv's `qemu` feature).
+qemu = ["riscv", "teeny-riscv/qemu"]
 
 [dependencies]
 teeny-core.workspace = true

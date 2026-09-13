@@ -15,47 +15,51 @@
  */
 
 use std::marker::PhantomData;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use teeny_core::device::program::{Kernel, Program};
 
+use crate::elf;
 use crate::errors::Result;
-use crate::runtime::KernelLibrary;
 
-/// A kernel `K` compiled for RISC-V and `dlopen`'d, ready to (eventually) launch.
+/// A kernel `K` compiled for RISC-V: the shared library `compile_kernel` produced and the entry
+/// point it exports.
 ///
-/// `try_new` genuinely loads `path` via [`KernelLibrary::load`] -- this only succeeds when
-/// actually running on RISC-V (native, or under `qemu-riscv64`); on any other host it fails
-/// immediately with an architecture-mismatch error, the same way `KernelLibrary::load` always
-/// has. That's a real, correct error, not something this type papers over.
+/// Nothing is loaded into this process -- the library is a RISC-V ELF, which can't be `dlopen`ed
+/// on another architecture. [`crate::device::RiscvDevice`]'s `launch` runs it instead.
 pub struct RiscvProgram<'a, K: Kernel> {
-    library: KernelLibrary,
+    path: PathBuf,
+    entry_point: String,
     _unused: PhantomData<&'a ()>,
     _kernel: PhantomData<K>,
 }
 
 impl<'a, K: Kernel> RiscvProgram<'a, K> {
-    /// Loads the kernel shared library at `path`.
-    pub fn try_new(path: impl Into<std::path::PathBuf>) -> Result<Self> {
-        let library = KernelLibrary::load(path)?;
-        Ok(Self {
-            library,
+    /// Opens the kernel shared library at `path` and finds its entry point, the one exported
+    /// function named `*_entry_point`.
+    pub fn try_new(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        let entry_point = elf::find_entry_point(&path)?;
+        Ok(Self::from_parts(path, entry_point))
+    }
+
+    pub(crate) fn from_parts(path: impl Into<PathBuf>, entry_point: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            entry_point: entry_point.into(),
             _unused: PhantomData,
             _kernel: PhantomData,
-        })
+        }
     }
 
-    /// Path this program's shared library was loaded from.
+    /// Path to this program's shared library.
     pub fn path(&self) -> &Path {
-        self.library.path()
+        &self.path
     }
 
-    /// The underlying loaded library, for callers that need
-    /// [`KernelLibrary::call_void_kernel`] directly (real per-kernel argument passing isn't
-    /// supported by [`teeny_core::device::Device::launch`] yet -- see
-    /// [`crate::errors::Error::ArgumentPassingNotSupported`]).
-    pub fn library(&self) -> &KernelLibrary {
-        &self.library
+    /// The name of the kernel's entry point in the shared library.
+    pub fn entry_point(&self) -> &str {
+        &self.entry_point
     }
 }
 

@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_core::{
-    compiler::{Compiler, Target},
+    compiler::{Compiler, CompilerOptions, Target},
     device::program::Kernel,
     graph::{Graph, compiler::GraphCompiler},
     model::{ExecutableOp, Lowering, LoweringMode, Model},
@@ -119,6 +119,7 @@ impl CudaGraphCompiler {
             Some(cpu) => self.compiler.clone().with_target_cpu(cpu),
             None => self.compiler.clone(),
         };
+        let options = CompilerOptions::default().with_force(force);
 
         let mut compiled_dag: Dag<CompiledNode> = Dag::new();
 
@@ -133,7 +134,7 @@ impl CudaGraphCompiler {
                 ));
             } else {
                 let adapter = ForwardKernelAdapter(op);
-                compiler.compile(&adapter, target, force)?
+                compiler.compile(&adapter, target, &options)?
             };
 
             #[cfg(feature = "training")]
@@ -141,7 +142,7 @@ impl CudaGraphCompiler {
                 None
             } else {
                 let adapter = BackwardKernelAdapter(op);
-                Some(compiler.compile(&adapter, target, force)?)
+                Some(compiler.compile(&adapter, target, &options)?)
             };
 
             compiled_dag.add_node(CompiledNode {

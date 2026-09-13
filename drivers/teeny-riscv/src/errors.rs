@@ -57,13 +57,29 @@ pub enum Error {
         buf: usize,
     },
 
-    /// [`crate::device::Device::launch`] was called, but the RISC-V compiler backend
-    /// (`RiscvBackend`) always emits the same no-argument placeholder function regardless of a
-    /// kernel's actual body -- there is no real per-kernel argument ABI to marshal `args` into
-    /// yet. Tracked on the `teenygrad-1zd` epic; see `teeny-riscv`'s README for current status.
+    /// A kernel library isn't a little-endian ELF64 file.
+    #[error("{path:?} is not a little-endian ELF64 shared library")]
+    InvalidKernelLibrary {
+        /// Path to the file.
+        path: PathBuf,
+    },
+
+    /// A kernel library doesn't export exactly one `*_entry_point` function.
+    #[error("{path:?} does not export exactly one `*_entry_point` function")]
+    EntryPointNotFound {
+        /// Path to the kernel library.
+        path: PathBuf,
+    },
+
+    /// A pointer argument passed to `launch` doesn't point into a buffer allocated by the
+    /// launching device, so there is no memory to pass to the kernel for it.
     #[error(
-        "RISC-V kernel argument passing is not supported yet -- the compiler backend only \
-         produces a fixed no-argument placeholder kernel (see teenygrad-1zd)"
+        "kernel argument {index} ({addr:#x}) does not point into a buffer allocated by this device"
     )]
-    ArgumentPassingNotSupported,
+    UnknownBufferPointer {
+        /// The argument's position in the kernel's argument list.
+        index: usize,
+        /// The pointer's address.
+        addr: usize,
+    },
 }
