@@ -247,7 +247,7 @@ mod tests {
 
     use crate::graph::TritonLowering;
     use crate::graph::optimizer::anduin::Anduin;
-    use crate::testing::hardware_profile::orin_nano;
+    use teeny_test::hardware_profile::orin_nano;
 
     #[test]
     fn test_codegen_pointwise_virtual_node() {

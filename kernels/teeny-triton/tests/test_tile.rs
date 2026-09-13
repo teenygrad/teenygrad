@@ -25,7 +25,11 @@ use std::path::PathBuf;
 
 use insta::assert_debug_snapshot;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_core::{compiler::Compiler, device::program::Kernel, dtype::Float};
+use teeny_core::{
+    compiler::{Compiler, CompilerOptions},
+    device::program::Kernel,
+    dtype::Float,
+};
 use teeny_cuda::compiler::target::{Capability, Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
@@ -97,7 +101,8 @@ fn test_tile_smoke() -> anyhow::Result<()> {
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let target = Target::new(Capability::Sm90);
-    let ptx_path: PathBuf = compiler.compile(&kernel, &target, true)?.into();
+    let options = CompilerOptions::default().with_force(true);
+    let ptx_path: PathBuf = compiler.compile(&kernel, &target, &options)?.into();
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("tile_smoke_source", kernel.source());

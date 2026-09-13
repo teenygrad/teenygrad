@@ -17,6 +17,12 @@
 //! teenygrad-3w0.10 Step 1: `transpose_2d_forward` compiles and produces
 //! numerically correct output on real CUDA hardware.
 
+// Every item in this file needs `teeny_cuda` -- its compiler, `Target`/`Capability`, and the
+// CUDA test harness -- so the whole file is gated rather than item by item. Several items were
+// already gated individually, but the top-level `use` and the `Capability::Sm89` in the test
+// body were not, which broke `--no-default-features --features riscv,training`.
+#![cfg(feature = "cuda")]
+
 use std::path::PathBuf;
 
 use dotenv::dotenv;
@@ -29,7 +35,9 @@ use teeny_core::device::Device;
 #[cfg(feature = "cuda")]
 use teeny_core::device::buffer::Buffer;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+use teeny_cuda::errors::Result;
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
 
 use teeny_kernels::nn::tensor::transpose::Transpose2dForward;
 

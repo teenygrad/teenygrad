@@ -103,7 +103,14 @@ impl CudaGraphCompiler {
         force: bool,
     ) -> Result<CudaModel<'a>> {
         let (op_dag, graph_to_dag, lowered_graph) = lowering.lower_with_mapping(graph, mode)?;
-        self.compile_lowered(op_dag, graph_to_dag, &lowered_graph, lowering, target, force)
+        self.compile_lowered(
+            op_dag,
+            graph_to_dag,
+            &lowered_graph,
+            lowering,
+            target,
+            force,
+        )
     }
 
     /// Compile an already-lowered `op_dag`/`graph_to_dag` pair (as produced by

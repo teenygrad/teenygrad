@@ -55,11 +55,13 @@ use teeny_cuda::compiler::graph::CudaGraphCompiler;
 #[cfg(feature = "cuda")]
 use teeny_cuda::compiler::target::Target;
 #[cfg(feature = "cuda")]
-use teeny_cuda::{model::TensorRef, testing};
+use teeny_cuda::model::TensorRef;
 #[cfg(feature = "cuda")]
 use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
 #[cfg(feature = "cuda")]
-use teeny_kernels::testing::{load_fixture, teenyc_cache_dir};
+use teeny_test::cuda as testing;
+#[cfg(feature = "cuda")]
+use teeny_test::{load_fixture, teenyc_cache_dir};
 
 // Sized to force real tiling in Anduin's SubGraphTiling search
 // (teenygrad-1nr), not just trivially fit in one shot. Measured on a real
@@ -128,8 +130,11 @@ fn test_fused_pointwise_relu_then_silu() {
         .load(&env.device, BATCH)
         .expect("load should not fail here");
 
-    let x_host = load_fixture("fused_pointwise/x.bin");
-    let expected = load_fixture("fused_pointwise/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "fused_pointwise/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "fused_pointwise/expected_forward.bin",
+    );
     assert_eq!(x_host.len(), BATCH * N);
 
     let x_tensor =

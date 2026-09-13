@@ -80,9 +80,9 @@ pub fn hardware_profile_for(
         .collect();
 
     let key = capability.to_string();
-    let entry = by_capability.get(&key).ok_or_else(|| {
-        anyhow!("hardware_profiles.json has no entry for capability '{key}'")
-    })?;
+    let entry = by_capability
+        .get(&key)
+        .ok_or_else(|| anyhow!("hardware_profiles.json has no entry for capability '{key}'"))?;
 
     Ok(HardwareProfile {
         name: entry.name.clone(),
@@ -144,8 +144,8 @@ mod tests {
 
     #[test]
     fn sm_count_override_wins_over_the_packaged_default() {
-        let profile = hardware_profile_for(Capability::Sm87, Some(16))
-            .expect("sm_87 has a packaged profile");
+        let profile =
+            hardware_profile_for(Capability::Sm87, Some(16)).expect("sm_87 has a packaged profile");
         assert_eq!(profile.compute_units, 16);
     }
 }

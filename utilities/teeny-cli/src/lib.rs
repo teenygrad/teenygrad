@@ -124,10 +124,8 @@ where
                 lowering.lower_with_mapping(&graph, mode)?;
 
             use teeny_kernels::graph::{Anduin, GraphOptimizer};
-            let hardware = hardware_profiles::hardware_profile_for(
-                options.gpu_name,
-                options.sm_count,
-            )?;
+            let hardware =
+                hardware_profiles::hardware_profile_for(options.gpu_name, options.sm_count)?;
             let (op_dag, graph_to_dag) = Anduin.optimize(op_dag, graph_to_dag, &hardware)?;
 
             let cache_dir = args.resolve_cache_dir();

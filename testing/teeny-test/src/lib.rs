@@ -35,6 +35,11 @@ pub use cache::teenyc_cache_dir;
 pub use exec_kernel::ExecKernel;
 pub use fixtures::{load_fixture, load_fixture_i32};
 
+/// Hand-calibrated [`teeny_core::device::hardware::HardwareProfile`]s for scheduler and
+/// cost-model tests that have no open device to query one from. Backend-agnostic, so it is
+/// not gated behind the `cuda`/`riscv` features.
+pub mod hardware_profile;
+
 #[cfg(feature = "cuda")]
 pub mod cuda;
 

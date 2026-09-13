@@ -36,7 +36,11 @@ use std::path::PathBuf;
 
 use insta::assert_debug_snapshot;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_core::{compiler::Compiler, device::program::Kernel, dtype::Num};
+use teeny_core::{
+    compiler::{Compiler, CompilerOptions},
+    device::program::Kernel,
+    dtype::Num,
+};
 use teeny_cuda::compiler::target::{Capability, Target};
 use teeny_macros::tiled_kernel;
 use teeny_triton::triton::{
@@ -149,11 +153,12 @@ fn test_conv2d_boundary_type_param_zero_and_clamp_both_compile() -> anyhow::Resu
     let target = Target::new(Capability::Sm90);
 
     let zero_kernel = Conv2dBoundaryTypeParamProbe::<f32, Zero>::new(3, 3, 1, 1, 1, 1, 16);
-    let zero_ptx: PathBuf = compiler.compile(&zero_kernel, &target, true)?.into();
+    let options = CompilerOptions::default().with_force(true);
+    let zero_ptx: PathBuf = compiler.compile(&zero_kernel, &target, &options)?.into();
     let zero_mlir = std::fs::read_to_string(zero_ptx.with_extension("mlir"))?;
 
     let clamp_kernel = Conv2dBoundaryTypeParamProbe::<f32, Clamp>::new(3, 3, 1, 1, 1, 1, 16);
-    let clamp_ptx: PathBuf = compiler.compile(&clamp_kernel, &target, true)?.into();
+    let clamp_ptx: PathBuf = compiler.compile(&clamp_kernel, &target, &options)?.into();
     let clamp_mlir = std::fs::read_to_string(clamp_ptx.with_extension("mlir"))?;
 
     // Distinct BoundaryFold impls must produce distinct compiled bodies

@@ -165,8 +165,9 @@ mod tests {
         // regardless of the chosen tile -- capacity must clear it.
         let hardware = two_level_hardware(2000, u64::MAX);
 
-        let results =
-            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 5).unwrap();
+        let results = tile_graph
+            .sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 5)
+            .unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -196,8 +197,9 @@ mod tests {
             execution: None,
         };
 
-        let results =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::DeviceMemory), &hardware, 3).unwrap();
+        let results = tile_graph
+            .sub_graph_tiling(&[a], a, Some(MemoryLevelKind::DeviceMemory), &hardware, 3)
+            .unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -213,8 +215,9 @@ mod tests {
         let tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
-        let results =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3).unwrap();
+        let results = tile_graph
+            .sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3)
+            .unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -264,7 +267,9 @@ mod tests {
             execution: None,
         };
 
-        let results = tile_graph.sub_graph_tiling(&[a], a, None, &hardware, 3).unwrap();
+        let results = tile_graph
+            .sub_graph_tiling(&[a], a, None, &hardware, 3)
+            .unwrap();
 
         assert!(!results.is_empty());
         for result in &results {
@@ -295,10 +300,12 @@ mod tests {
         let tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
-        let top_1 =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 1).unwrap();
-        let top_3 =
-            tile_graph.sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3).unwrap();
+        let top_1 = tile_graph
+            .sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 1)
+            .unwrap();
+        let top_3 = tile_graph
+            .sub_graph_tiling(&[a], a, Some(MemoryLevelKind::Register), &hardware, 3)
+            .unwrap();
 
         assert_eq!(top_1.len(), 1);
         assert_eq!(top_3.len(), 3);
@@ -314,8 +321,9 @@ mod tests {
         let tile_graph = TileGraph::from_dag(&dag);
         let hardware = two_level_hardware(u64::MAX, u64::MAX);
 
-        let results =
-            tile_graph.sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 1).unwrap();
+        let results = tile_graph
+            .sub_graph_tiling(&[a, b], b, Some(MemoryLevelKind::Register), &hardware, 1)
+            .unwrap();
 
         assert!(!results.is_empty());
         for result in &results {

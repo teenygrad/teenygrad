@@ -168,7 +168,7 @@ mod tests {
     use teeny_core::graph::{DtypeRepr, Graph, Op};
     use teeny_core::model::{LoweringMode, RuntimeOp};
 
-    use crate::testing::hardware_profile::{nvidia_rtx5070, orin_nano};
+    use teeny_test::hardware_profile::{nvidia_rtx5070, orin_nano};
 
     #[test]
     fn two_pointwise_then_reduction_then_pointwise_preserves_chain() {

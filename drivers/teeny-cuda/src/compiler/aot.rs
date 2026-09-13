@@ -70,7 +70,14 @@ pub fn compile_lowered_graph<'a, L: Lowering<'a>>(
     force: bool,
 ) -> Result<CudaModel<'a>> {
     let (graph_compiler, target) = graph_compiler(options, cache_dir)?;
-    graph_compiler.compile_lowered(op_dag, graph_to_dag, lowered_graph, lowering, &target, force)
+    graph_compiler.compile_lowered(
+        op_dag,
+        graph_to_dag,
+        lowered_graph,
+        lowering,
+        &target,
+        force,
+    )
 }
 
 /// Shared `LlvmCompiler` + `CudaGraphCompiler` + `Target` setup for
