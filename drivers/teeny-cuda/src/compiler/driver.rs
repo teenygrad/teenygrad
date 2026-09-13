@@ -62,7 +62,15 @@ pub fn compile_kernel(
     debug: bool,
 ) -> Result<String> {
     let compiler = make_llvm_compiler(target, debug)?;
-    let options = CompilerOptions::default().with_force(force);
+    // Both outputs are spelled out rather than taken from `CompilerOptions::default()`: the
+    // compile-only snapshot tests assert on the generated assembly, and `read_compiled_asm`
+    // silently falls back to the object file when no `.s` exists -- so a future change to that
+    // default would not fail here, it would quietly start snapshotting the wrong bytes.
+    let options = CompilerOptions {
+        force,
+        emit_asm: true,
+        emit_bin: true,
+    };
     with_pipeline_logging(debug, || compiler.compile(kernel, target, &options))
 }
 
