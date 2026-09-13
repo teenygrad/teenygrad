@@ -27,9 +27,66 @@ pub trait Target: Sized {
     }
 }
 
+/// Which artifacts a [`Compiler`] should produce, and whether cached ones may be reused.
+///
+/// [`Default`] asks for both the object and the assembly without forcing a rebuild, which is
+/// what every call site relied on before these options existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompilerOptions {
+    /// Recompile even if a cached artifact already exists.
+    pub force: bool,
+    /// Emit the generated assembly (`.s`) alongside the object. Snapshot tests read this (see
+    /// `teeny_test::read_compiled_asm`); on RISC-V it is the only readable form of the kernel,
+    /// since the object there is a linked shared library.
+    pub emit_asm: bool,
+    /// Emit the object file (`.o`) -- the artifact that actually gets loaded and launched.
+    pub emit_bin: bool,
+}
+
+impl Default for CompilerOptions {
+    fn default() -> Self {
+        Self {
+            force: false,
+            emit_asm: true,
+            emit_bin: true,
+        }
+    }
+}
+
+impl CompilerOptions {
+    /// Requests only the object file, skipping assembly generation.
+    pub fn bin_only() -> Self {
+        Self {
+            emit_asm: false,
+            ..Self::default()
+        }
+    }
+
+    /// Requests only the generated assembly, skipping the object file.
+    pub fn asm_only() -> Self {
+        Self {
+            emit_bin: false,
+            ..Self::default()
+        }
+    }
+
+    /// Returns `self` with [`force`](Self::force) set to `force`.
+    pub fn with_force(mut self, force: bool) -> Self {
+        self.force = force;
+        self
+    }
+}
+
 /// Something capable of compiling a [`Kernel`] for a [`Target`].
 pub trait Compiler {
-    /// Compiles `kernel` for `target`, returning the path to the compiled artifact.
-    /// `force` recompiles even if a cached artifact exists.
-    fn compile(&self, kernel: &impl Kernel, target: &impl Target, force: bool) -> Result<String>;
+    /// Compiles `kernel` for `target` as directed by `options`, returning the path to the
+    /// primary artifact: the object file when [`CompilerOptions::emit_bin`] is set, and the
+    /// generated assembly otherwise. Both share a stem, so either path locates the other by
+    /// extension -- which is how `teeny_test::read_compiled_asm` finds the `.s`.
+    fn compile(
+        &self,
+        kernel: &impl Kernel,
+        target: &impl Target,
+        options: &CompilerOptions,
+    ) -> Result<String>;
 }

@@ -21,7 +21,7 @@ use std::process::Command;
 
 use derive_more::Display;
 use sha2::{Digest, Sha256};
-use teeny_core::compiler::{Compiler, Target};
+use teeny_core::compiler::{Compiler, CompilerOptions, Target};
 use teeny_core::device::program::Kernel;
 use tracing::info;
 
@@ -184,7 +184,17 @@ impl LlvmCompiler {
 }
 
 impl Compiler for LlvmCompiler {
-    fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
+    fn compile(
+        &self,
+        kernel: &impl Kernel,
+        _target: &impl Target,
+        options: &CompilerOptions,
+    ) -> Result<String> {
+        anyhow::ensure!(
+            options.emit_bin || options.emit_asm,
+            "CompilerOptions requests no output; set emit_bin and/or emit_asm"
+        );
+
         // Hash the kernel id together with target cpu and ptx version so that
         // different targets/overrides each get their own cache entry. target_cpu's
         // vocabulary never overlaps between backends (sm_XX for CUDA vs. chip names for
@@ -213,13 +223,19 @@ impl Compiler for LlvmCompiler {
         // (see `teeny_test::read_compiled_asm`). For RISC-V the object is a linked
         // shared library, so it is the only readable form of the kernel's code.
         let asm_file = output_file.with_extension("s");
-        let requires_compilation = || force || !output_file.exists() || !asm_file.exists();
+        // Only the artifacts actually requested gate the cache: asking for assembly alone
+        // must not recompile just because no object was ever produced, and vice versa.
+        let requires_compilation = || {
+            options.force
+                || (options.emit_bin && !output_file.exists())
+                || (options.emit_asm && !asm_file.exists())
+        };
 
         if requires_compilation() {
             anyhow::ensure!(
                 self.teenyc_path.exists(),
-                "kernel not cached and rustc not found at {:?}; \
-                 set TEENYC_PATH to a valid rustc binary",
+                "kernel not cached and teenyc not found at {:?}; \
+                 set TEENYC_PATH to a valid teenyc binary",
                 self.teenyc_path
             );
 
@@ -255,15 +271,21 @@ impl Compiler for LlvmCompiler {
                     .cache_dir
                     .join(format!("{kernel_file_name}.s.tmp.{}", std::process::id()));
 
+                // Ask `teenyc` only for the requested artifacts -- emitting an object the
+                // caller does not want costs a full codegen (and, on RISC-V, link) pass.
+                let mut emit = Vec::new();
+                if options.emit_bin {
+                    emit.push(format!("obj={}", tmp_output_file.display()));
+                }
+                if options.emit_asm {
+                    emit.push(format!("asm={}", tmp_asm_file.display()));
+                }
+
                 let mut cmd = Command::new(&self.teenyc_path);
                 cmd.arg(&kernel_file)
                     .arg("-Copt-level=3")
                     .arg("-Zcodegen-backend=mlir")
-                    .arg(format!(
-                        "--emit=obj={},asm={}",
-                        tmp_output_file.display(),
-                        tmp_asm_file.display()
-                    ))
+                    .arg(format!("--emit={}", emit.join(",")))
                     .arg(format!("--target={}", self.target_triple))
                     .arg("--crate-type=lib")
                     .arg("-C")
@@ -302,6 +324,7 @@ impl Compiler for LlvmCompiler {
                     let _ = std::fs::remove_file(&tmp_output_file);
                     let _ = std::fs::remove_file(&tmp_asm_file);
                     let _ = std::fs::remove_file(tmp_output_file.with_extension("mlir"));
+                    let _ = std::fs::remove_file(tmp_asm_file.with_extension("mlir"));
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!("rustc exited with status {}\n{}", output.status, stderr);
                 }
@@ -310,10 +333,15 @@ impl Compiler for LlvmCompiler {
                 // pre-Triton MLIR source, useful for pipeline debugging via `debug = true`
                 // above -- not read by the `*_asm` snapshot tests, which assert on the
                 // generated assembly instead, since that's the part that's actually
-                // target-specific) -- derived from the object output path, so it needs the
-                // same temp-then-rename treatment. It may not exist for every invocation, hence
-                // the existence check rather than treating a missing file as an error.
-                let tmp_mlir_file = tmp_output_file.with_extension("mlir");
+                // target-specific) -- derived from whichever output path `teenyc` was given, so
+                // it needs the same temp-then-rename treatment. It may not exist for every
+                // invocation, hence the existence check rather than treating a missing file as
+                // an error.
+                let tmp_mlir_file = if options.emit_bin {
+                    tmp_output_file.with_extension("mlir")
+                } else {
+                    tmp_asm_file.with_extension("mlir")
+                };
                 if tmp_mlir_file.exists() {
                     std::fs::rename(&tmp_mlir_file, output_file.with_extension("mlir"))?;
                 }
@@ -321,11 +349,23 @@ impl Compiler for LlvmCompiler {
                 // Rename the assembly before the object: `requires_compilation`
                 // treats a missing `.s` as uncached, so a reader never sees an
                 // object whose assembly is still being moved into place.
-                std::fs::rename(&tmp_asm_file, &asm_file)?;
-                std::fs::rename(&tmp_output_file, &output_file)?;
+                if options.emit_asm {
+                    std::fs::rename(&tmp_asm_file, &asm_file)?;
+                }
+                if options.emit_bin {
+                    std::fs::rename(&tmp_output_file, &output_file)?;
+                }
             }
         }
 
-        Ok(output_file.to_string_lossy().to_string())
+        // The object is what callers load and launch; when it wasn't requested, the assembly is
+        // the only artifact there is. Both share a stem, so either lets a caller derive the
+        // other by extension (see `teeny_test::read_compiled_asm`).
+        let artifact = if options.emit_bin {
+            &output_file
+        } else {
+            &asm_file
+        };
+        Ok(artifact.to_string_lossy().to_string())
     }
 }

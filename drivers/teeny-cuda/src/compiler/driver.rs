@@ -15,7 +15,7 @@
  */
 
 use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
-use teeny_core::compiler::Compiler;
+use teeny_core::compiler::{Compiler, CompilerOptions};
 use teeny_core::device::program::Kernel;
 use teeny_core::graph::Graph;
 use teeny_core::model::{Lowering, LoweringMode};
@@ -62,7 +62,8 @@ pub fn compile_kernel(
     debug: bool,
 ) -> Result<String> {
     let compiler = make_llvm_compiler(target, debug)?;
-    with_pipeline_logging(debug, || compiler.compile(kernel, target, force))
+    let options = CompilerOptions::default().with_force(force);
+    with_pipeline_logging(debug, || compiler.compile(kernel, target, &options))
 }
 
 /// Compiles a lowered `graph` to a [`CudaModel`] via [`CudaGraphCompiler`], using the `teenyc`

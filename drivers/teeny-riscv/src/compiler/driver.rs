@@ -15,7 +15,7 @@
  */
 
 use teeny_compiler::compiler::backend::llvm::compiler::{LlvmCompiler, LogLevel};
-use teeny_core::compiler::{Compiler, Target as _};
+use teeny_core::compiler::{Compiler, CompilerOptions, Target as _};
 use teeny_core::device::program::Kernel;
 
 use crate::compiler::TARGET_TRIPLE;
@@ -56,7 +56,8 @@ pub fn compile_kernel(
         compiler = compiler.with_log_level(LogLevel::Debug);
     }
 
-    with_pipeline_logging(debug, || compiler.compile(kernel, target, force))
+    let options = CompilerOptions::default().with_force(force);
+    with_pipeline_logging(debug, || compiler.compile(kernel, target, &options))
 }
 
 /// When `debug` is set, install a thread-local stderr tracing subscriber for the duration of `f`
