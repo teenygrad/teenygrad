@@ -213,9 +213,9 @@ impl Compiler for LlvmCompiler {
         // (see `teeny_test::read_compiled_asm`). For RISC-V the object is a linked
         // shared library, so it is the only readable form of the kernel's code.
         let asm_file = output_file.with_extension("s");
-        let needs_compile = || force || !output_file.exists() || !asm_file.exists();
+        let requires_compilation = || force || !output_file.exists() || !asm_file.exists();
 
-        if needs_compile() {
+        if requires_compilation() {
             anyhow::ensure!(
                 self.teenyc_path.exists(),
                 "kernel not cached and rustc not found at {:?}; \
@@ -238,7 +238,7 @@ impl Compiler for LlvmCompiler {
             // released the lock for) this exact hash while we were waiting, reuse its
             // output rather than redundantly recompiling. This -- not just avoiding the
             // corrupted-write symptom -- is the actual point of taking the lock.
-            if needs_compile() {
+            if requires_compilation() {
                 let mut file = File::create(&kernel_file)?;
 
                 info!("Writing kernel code to file");
@@ -318,9 +318,9 @@ impl Compiler for LlvmCompiler {
                     std::fs::rename(&tmp_mlir_file, output_file.with_extension("mlir"))?;
                 }
 
-                // Rename the assembly before the object: `needs_compile` treats a
-                // missing `.s` as uncached, so a reader never sees an object whose
-                // assembly is still being moved into place.
+                // Rename the assembly before the object: `requires_compilation`
+                // treats a missing `.s` as uncached, so a reader never sees an
+                // object whose assembly is still being moved into place.
                 std::fs::rename(&tmp_asm_file, &asm_file)?;
                 std::fs::rename(&tmp_output_file, &output_file)?;
             }
