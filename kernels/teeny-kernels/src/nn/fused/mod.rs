@@ -14,11 +14,54 @@
  * limitations under the License.
  */
 
-//! Hand-written fused Conv2d+BN+SiLU kernels kept as reference.
+//! Historical hand-written fused Conv2d+BN+SiLU kernels.
 //!
-//! This module is **not** linked from [`crate::nn`] — Anduin should compose
-//! fusion natively rather than dispatching these special-cased ops.
+//! Not used by Anduin (teenygrad-1bf.8 hand-kernel path removed). Kept for
+//! microbenchmarks only — do not wire these back into graph lowering.
 
 pub mod conv2d_bn_silu;
 pub mod conv2d_bn_silu_gemm;
 pub mod conv2d_bn_silu_tiled;
+
+/// Prefold BatchNorm2d inference affine into scale/shift (bench / tooling helper).
+///
+/// ```text
+/// bn_scale[c] = gamma[c] / sqrt(var[c] + eps)
+/// bn_shift[c] = beta[c]  - bn_scale[c] * mean[c]
+/// ```
+pub fn prefold_bn_affine(
+    gamma: &[f32],
+    beta: &[f32],
+    mean: &[f32],
+    var: &[f32],
+    eps: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let n = gamma.len();
+    debug_assert_eq!(beta.len(), n);
+    debug_assert_eq!(mean.len(), n);
+    debug_assert_eq!(var.len(), n);
+    let mut scale = Vec::with_capacity(n);
+    let mut shift = Vec::with_capacity(n);
+    for i in 0..n {
+        let s = gamma[i] / (var[i] + eps).sqrt();
+        scale.push(s);
+        shift.push(beta[i] - s * mean[i]);
+    }
+    (scale, shift)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefold_bn_affine;
+
+    #[test]
+    fn prefold_identity_bn() {
+        let gamma = vec![1.0f32];
+        let beta = vec![0.0f32];
+        let mean = vec![0.0f32];
+        let var = vec![1.0f32];
+        let (scale, shift) = prefold_bn_affine(&gamma, &beta, &mean, &var, 0.0);
+        assert!((scale[0] - 1.0).abs() < 1e-6);
+        assert!(shift[0].abs() < 1e-6);
+    }
+}

@@ -1,0 +1,76 @@
+{
+  "profiles": [
+    {
+      "capability": "sm_75",
+      "name": "NVIDIA T4 (Turing)",
+      "compute_units": 40,
+      "shared_memory_bytes": 65536,
+      "device_memory_bytes": 17179869184,
+      "device_memory_bandwidth_bytes_per_sec": 320000000000.0,
+      "notes": "Representative sm_75 chip (T4); other sm_75 cards (RTX 20xx, GTX 16xx) vary in SM count and VRAM."
+    },
+    {
+      "capability": "sm_80",
+      "name": "NVIDIA A100 40GB (Ampere datacenter)",
+      "compute_units": 108,
+      "shared_memory_bytes": 167936,
+      "device_memory_bytes": 42949672960,
+      "device_memory_bandwidth_bytes_per_sec": 1555000000000.0,
+      "notes": "Representative sm_80 chip (A100 40GB); the 80GB variant has more memory/bandwidth."
+    },
+    {
+      "capability": "sm_86",
+      "name": "NVIDIA RTX 3090 (Ampere)",
+      "compute_units": 82,
+      "shared_memory_bytes": 102400,
+      "device_memory_bytes": 25769803776,
+      "device_memory_bandwidth_bytes_per_sec": 936200000000.0,
+      "notes": "Representative sm_86 chip (RTX 3090); other sm_86 cards (A40, A10, A16) vary in SM count and VRAM."
+    },
+    {
+      "capability": "sm_87",
+      "name": "NVIDIA Jetson Orin Nano (Ampere, 8 GB)",
+      "compute_units": 8,
+      "shared_memory_bytes": 98304,
+      "device_memory_bytes": 8589934592,
+      "device_memory_bandwidth_bytes_per_sec": 68300000000.0,
+      "notes": "Matches teeny-kernels' orin_nano_hardware_profile() test fixture; Orin NX/AGX variants have more SMs."
+    },
+    {
+      "capability": "sm_89",
+      "name": "NVIDIA RTX 4090 (Ada Lovelace)",
+      "compute_units": 128,
+      "shared_memory_bytes": 102400,
+      "device_memory_bytes": 25769803776,
+      "device_memory_bandwidth_bytes_per_sec": 1008000000000.0,
+      "notes": "Representative sm_89 chip (RTX 4090); other sm_89 cards (L4, L40S) vary in SM count and VRAM."
+    },
+    {
+      "capability": "sm_90",
+      "name": "NVIDIA H100 SXM5 80GB (Hopper)",
+      "compute_units": 132,
+      "shared_memory_bytes": 232448,
+      "device_memory_bytes": 85899345920,
+      "device_memory_bandwidth_bytes_per_sec": 3350000000000.0,
+      "notes": "Representative sm_90 chip (H100 SXM5); PCIe variants have lower bandwidth."
+    },
+    {
+      "capability": "sm_100",
+      "name": "NVIDIA B200 (Blackwell datacenter)",
+      "compute_units": 132,
+      "shared_memory_bytes": 232448,
+      "device_memory_bytes": 206158430208,
+      "device_memory_bandwidth_bytes_per_sec": 8000000000000.0,
+      "notes": "LOW CONFIDENCE placeholder: Blackwell-datacenter public specs weren't verified against a primary source when this table was written. Verify against NVIDIA's datasheet before relying on this for real scheduling decisions."
+    },
+    {
+      "capability": "sm_120",
+      "name": "NVIDIA RTX 5070 (Blackwell)",
+      "compute_units": 48,
+      "shared_memory_bytes": 101376,
+      "device_memory_bytes": 12884901888,
+      "device_memory_bandwidth_bytes_per_sec": 672000000000.0,
+      "notes": "SM count/bandwidth are LOW CONFIDENCE placeholders; the ~99 KiB shared-memory ceiling matches this repo's own pick_gemm_tile_sizes doc comment (kernels/teeny-kernels/src/graph/mod.rs)."
+    }
+  ]
+}

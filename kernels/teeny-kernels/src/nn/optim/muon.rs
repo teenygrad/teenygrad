@@ -33,8 +33,8 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn muon_frob_norm_sq<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: InPtr<T::Pointer<f32>>,
-    out_ptr: OutPtr<T::Pointer<f32>>,
+    x_ptr: In<T::Pointer<f32>>,
+    out_ptr: Out<T::Pointer<f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -82,8 +82,8 @@ pub fn muon_ns_xtx<
     const BLOCK_K: i32,
     const GROUP_R: i32,
 >(
-    x_ptr: InPtr<T::Pointer<f32>>,
-    t_ptr: InPtr<T::Pointer<f32>>,
+    x_ptr: In<T::Pointer<f32>>,
+    t_ptr: In<T::Pointer<f32>>,
     M: i32,
     N: i32,
     stride_xm: i32,
@@ -175,8 +175,8 @@ pub fn muon_ns_step<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    t_ptr: InPtr<T::Pointer<f32>>,
-    x_ptr: InPtr<T::Pointer<f32>>,
+    t_ptr: In<T::Pointer<f32>>,
+    x_ptr: In<T::Pointer<f32>>,
     M: i32,
     N: i32,
     stride_tm: i32,
@@ -273,8 +273,8 @@ pub fn muon_ns_step<
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn muon_update<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
     n_elements: i32,
     lr: f32,
 ) where

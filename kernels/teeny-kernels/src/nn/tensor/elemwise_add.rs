@@ -27,9 +27,9 @@ use teeny_triton::triton::{
 
 #[kernel]
 pub fn elemwise_add_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    out_ptr: OutPtr<T::Pointer<D>>,
+    a_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    out_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -78,9 +78,9 @@ pub fn elemwise_add_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 
 #[kernel]
 pub fn elemwise_add_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    grad_a_ptr: OutPtr<T::Pointer<D>>,
-    grad_b_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    grad_a_ptr: Out<T::Pointer<D>>,
+    grad_b_ptr: Out<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

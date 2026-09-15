@@ -17,6 +17,7 @@
 use std::marker::PhantomData;
 
 use teeny_core::device::context::{Context, DeviceInfo};
+use teeny_core::device::hardware::HardwareProfile;
 
 use crate::device::RiscvDevice;
 use crate::errors::Result;
@@ -48,6 +49,30 @@ impl DeviceInfo for RiscvDeviceInfo {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Reports only what this synthetic device actually knows, which is little beyond its
+    /// name: there is no hardware to query here (see [`RiscvDeviceInfo`]), and this crate's
+    /// policy is real hardware data or nothing, never a guess -- the same rule `teeny-cuda`
+    /// follows when it leaves bandwidth/latency `None`.
+    ///
+    /// `execution` is `None` rather than a fabricated warp width. RVV has no warp/wavefront
+    /// concept at all: vector length is runtime-queried via `vsetvli` and the effective
+    /// element count varies with `SEW`/`LMUL`, so `simt_width` cannot be a single fixed
+    /// number here -- exactly the case `ExecutionProfile`'s own doc comment calls out as
+    /// needing to be computed per-dtype at codegen time instead.
+    ///
+    /// `memory_levels` is empty for the same reason: nothing about this target's hierarchy
+    /// is queryable, so a cost-model search finds no levels rather than being handed invented
+    /// capacities. `compute_units` is `1` -- the single synthetic device described above, not
+    /// a claim about any real core count.
+    fn hardware_profile(&self) -> HardwareProfile {
+        HardwareProfile {
+            name: self.name.clone(),
+            compute_units: 1,
+            memory_levels: Vec::new(),
+            execution: None,
+        }
     }
 }
 

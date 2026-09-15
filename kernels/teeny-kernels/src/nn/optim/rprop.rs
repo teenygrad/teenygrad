@@ -39,10 +39,10 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn rprop_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: InOutPtr<T::Pointer<f32>>,
-    grad_ptr: InPtr<T::Pointer<f32>>,
-    prev_grad_ptr: InOutPtr<T::Pointer<f32>>,
-    step_size_ptr: InOutPtr<T::Pointer<f32>>,
+    params_ptr: InOut<T::Pointer<f32>>,
+    grad_ptr: In<T::Pointer<f32>>,
+    prev_grad_ptr: InOut<T::Pointer<f32>>,
+    step_size_ptr: InOut<T::Pointer<f32>>,
     n_elements: i32,
     eta_plus: f32,
     eta_minus: f32,

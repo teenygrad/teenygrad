@@ -27,6 +27,8 @@ use crate::{
 pub mod buffer;
 /// Device/context management.
 pub mod context;
+/// Backend-agnostic hardware facts for scheduling/cost models.
+pub mod hardware;
 /// Compiled kernel programs.
 pub mod program;
 

@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-//! Procedural macros for [teenygrad](https://teenygrad.org). Currently provides the
+//! Procedural macros for [teenygrad](https://teenygrad.org). Provides the
 //! [`macro@kernel`] attribute macro, used to mark functions as GPU/CPU kernel definitions
-//! consumed by `teeny-triton`/`teeny-kernels`.
+//! consumed by `teeny-triton`/`teeny-kernels`, and the [`macro@tiled_kernel`] variant.
 
 #![warn(missing_docs)]
 
@@ -28,4 +28,13 @@ mod macros;
 #[proc_macro_attribute]
 pub fn kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
     macros::kernel::kernel(attr, item)
+}
+
+/// Marks a function as a kernel definition, like [`macro@kernel`]. See
+/// `macros::tiled_kernel`'s module docs for what currently differs from
+/// plain [`macro@kernel`] (an always-`None` `fusion_core()` stub) and what
+/// used to (the removed `#[tile(...)]` tile-shape DSL).
+#[proc_macro_attribute]
+pub fn tiled_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
+    macros::tiled_kernel::tiled_kernel(attr, item)
 }

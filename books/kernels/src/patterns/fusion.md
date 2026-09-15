@@ -130,8 +130,17 @@ Everything above is manual — you decide what to fuse and write one kernel that
 does it.
 
 There is a second kind, where the framework notices that two operations in a
-graph could be merged and does it for you. teenygrad's lowering does some of
-this, and Part 5 covers where the seam is between what you fuse by hand and what
-the graph fuses for you.
+graph could be merged and does it for you. That is Anduin's job.
+
+### Hard boundary (Welder / Anduin / inductor)
+
+Anduin **never** merges a conv or GEMM *main loop* with the case-1–7
+elementwise machinery (`PointwiseFuse` / `TileFuse` source-concat of flat
+`BLOCK_SIZE=1024` kernels). Those grids are incompatible with output-tile-per-CTA
+K-reduction. Case-8 epilogue absorption (BN / activation into the conv/GEMM
+write-back) is the intended shape — Welder's register-level `SetConnect`, torch
+inductor's `epilogue_fn` — but it must be driven by a general epilogue injection
+mechanism, **not** hand-written `nn/fused` special kernels. Do not resurrect
+`Op::Conv2dBnSilu` or `ConvEpilogueFuse`→hand-kernel lowering.
 
 Next: reductions beyond the sum.

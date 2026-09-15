@@ -19,7 +19,7 @@
 use core::ops::BitAnd;
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -40,7 +40,7 @@ use teeny_triton::triton::{
 ///
 /// Zero-padding of `PAD_H` / `PAD_W` elements is applied on each spatial side.
 /// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
-#[kernel]
+#[tiled_kernel]
 pub fn conv2d_forward<
     T: Triton,
     D: Num,
@@ -53,9 +53,26 @@ pub fn conv2d_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    x_ptr: InPtr<T::Pointer<D>>,
-    w_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    // This kernel's `pid` decodes into `(b, c_out, oh, ow_tile)` before any
+    // tile offset is computed, not the flat `arange(BLOCK)+pid*BLOCK` the
+    // (now-removed) auto-generated prelude assumed.
+    //
+    // `#[tile(...)]` below (teenygrad-1nr.19) is metadata-only -- it
+    // drives `tile_spec()`/`grid_spec()` generation, replacing the
+    // previously hand-authored `CONV2D_TILE_SPEC` at the `TritonLowering`
+    // call site, but never touches this body: `x_ptr`/`y_ptr` stay plain
+    // pointers, and the `pid` decode above is unchanged.
+    #[tile(name = "B", extent = _B)]
+    #[tile(name = "C_IN", extent = C_IN)]
+    #[tile(name = "H", extent = H)]
+    #[tile(name = "W", extent = W)]
+    x_ptr: In<T::Pointer<D>>,
+    w_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(name = "C_OUT", extent = C_OUT)]
+    #[tile(name = "OH", extent = OH)]
+    #[tile(name = "OW", block = BLOCK_OW, extent = OW)]
+    y_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -181,9 +198,9 @@ pub fn conv2d_backward_dx<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    w_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    w_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -296,9 +313,9 @@ pub fn conv2d_backward_dw<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    dw_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    dw_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -409,11 +426,11 @@ pub fn conv2d_backward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    x_ptr: InPtr<T::Pointer<D>>,
-    w_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
-    dw_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    w_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
+    dw_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -652,10 +669,10 @@ pub fn conv2d_bias_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    x_ptr: InPtr<T::Pointer<D>>,
-    w_ptr: InPtr<T::Pointer<D>>,
-    bias_ptr: InPtr<T::Pointer<D>>,
-    y_ptr: OutPtr<T::Pointer<D>>,
+    x_ptr: In<T::Pointer<D>>,
+    w_ptr: In<T::Pointer<D>>,
+    bias_ptr: In<T::Pointer<D>>,
+    y_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,

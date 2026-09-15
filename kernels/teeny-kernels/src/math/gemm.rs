@@ -28,7 +28,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{PaddingOption, *};
 
 // ── MatMul Forward ────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ use teeny_triton::triton::{PaddingOption, *};
 
 /// Forward: C = A @ B
 // ANCHOR: matmul_forward
-#[kernel]
+#[tiled_kernel]
 pub fn matmul_forward<
     T: Triton,
     D: Num,
@@ -49,9 +49,9 @@ pub fn matmul_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    a_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    c_ptr: InOutPtr<T::Pointer<D>>,
+    a_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    c_ptr: InOut<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -119,9 +119,9 @@ pub fn matmul_backward_da<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    dc_ptr: InPtr<T::Pointer<D>>,
-    b_ptr: InPtr<T::Pointer<D>>,
-    da_ptr: InPtr<T::Pointer<D>>,
+    dc_ptr: In<T::Pointer<D>>,
+    b_ptr: In<T::Pointer<D>>,
+    da_ptr: In<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,
@@ -178,9 +178,9 @@ pub fn matmul_backward_db<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    dc_ptr: InPtr<T::Pointer<D>>,
-    a_ptr: InPtr<T::Pointer<D>>,
-    db_ptr: OutPtr<T::Pointer<D>>,
+    dc_ptr: In<T::Pointer<D>>,
+    a_ptr: In<T::Pointer<D>>,
+    db_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,

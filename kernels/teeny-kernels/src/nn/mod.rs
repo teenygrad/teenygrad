@@ -17,8 +17,8 @@
 pub mod activation;
 pub mod attention;
 pub mod conv;
-// `fused/` (conv2d_bn_silu*) is kept on disk as reference but not linked —
-// Anduin should compose fusion natively rather than dispatching a special-cased op.
+/// Historical hand-written Conv2d+BN+SiLU kernels (unused by Anduin).
+pub mod fused;
 pub mod loss;
 pub mod mlp;
 pub mod norm;

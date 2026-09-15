@@ -28,6 +28,9 @@
 
 /// Error types.
 pub mod error;
+/// A chain member's splice-ready per-element compute (`FusionCore`), derived
+/// from a single-input, single-axis `#[tile(...)]` kernel.
+pub mod fusion_core;
 /// Host-side kernel I/O layout (`KernelIo` / `PtrRole`), derived from marked pointer params.
 pub mod kernel_io;
 /// The `Triton` DSL trait and its supporting types.
@@ -35,6 +38,7 @@ pub mod triton;
 /// The generated DSL source text, embedded as [`triton_lang::TRITON`].
 pub mod triton_lang;
 
+pub use fusion_core::FusionCore;
 pub use kernel_io::{
     BlockSized, KernelIo, KernelIoLayout, NElementsTiled, PointwiseFuseProbe,
     PointwiseFuseProbeExt, PtrRole,

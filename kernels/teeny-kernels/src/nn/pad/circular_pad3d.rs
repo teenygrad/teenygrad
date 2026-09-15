@@ -40,8 +40,8 @@ pub fn circular_pad3d_forward<
     const PW2: i32,
     const BLOCK_OW: i32,
 >(
-    input_ptr: InPtr<T::Pointer<D>>,
-    output_ptr: OutPtr<T::Pointer<D>>,
+    input_ptr: In<T::Pointer<D>>,
+    output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     Dv: i32,
@@ -152,8 +152,8 @@ pub fn circular_pad3d_backward<
     const PW2: i32,
     const BLOCK_OW: i32,
 >(
-    dy_ptr: InPtr<T::Pointer<D>>,
-    dx_ptr: OutPtr<T::Pointer<D>>,
+    dy_ptr: In<T::Pointer<D>>,
+    dx_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     Dv: i32,
