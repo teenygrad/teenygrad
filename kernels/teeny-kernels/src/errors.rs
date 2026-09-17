@@ -80,4 +80,7 @@ pub enum Error {
 
     #[error("Codegen error: {0}")]
     CodegenError(String),
+
+    #[error("Node not found: {0}")]
+    NodeNotFound(usize),
 }
