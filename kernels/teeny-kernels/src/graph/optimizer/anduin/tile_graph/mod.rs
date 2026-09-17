@@ -14,69 +14,14 @@
  * limitations under the License.
  */
 
-use std::hash::Hash;
+use crate::{
+    errors::{Error, Result},
+    graph::optimizer::anduin::tile_graph::node::{Edge, EdgeId},
+};
 
-use crate::errors::{Error, Result};
-use teeny_core::graph::{DtypeRepr, Shape};
+use self::node::{Node, NodeId, NodeKind};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct NodeId(usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct EdgeId(usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct Edge {
-    src_node_id: NodeId,
-    src_edge_id: EdgeId,
-    dst_node_id: NodeId,
-    dst_edge_id: EdgeId,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum NodeKind {
-    Placeholder,
-    Output,
-    IRNode,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct Node {
-    id: NodeId,
-    kind: NodeKind,
-    name: String,
-    in_edges: Vec<Edge>,
-    out_edges: Vec<Edge>,
-    shapes: Vec<Shape>,
-    dtypes: Vec<DtypeRepr>,
-}
-
-impl Node {
-    pub fn id(&self) -> NodeId {
-        self.id
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn in_edges(&self) -> &Vec<Edge> {
-        &self.in_edges
-    }
-    pub fn out_edges(&self) -> &Vec<Edge> {
-        &self.out_edges
-    }
-    pub fn out_edges_mut(&mut self) -> &mut Vec<Edge> {
-        &mut self.out_edges
-    }
-
-    pub fn shapes(&self) -> &Vec<Shape> {
-        &self.shapes
-    }
-    pub fn dtypes(&self) -> &Vec<DtypeRepr> {
-        &self.dtypes
-    }
-}
+pub mod node;
 
 pub struct TileGraph {
     nodes: Vec<Node>,
