@@ -16,7 +16,7 @@
 
 use std::hash::Hash;
 
-use teeny_core::graph::{DtypeRepr, Graph, Shape};
+use teeny_core::graph::{DtypeRepr, Shape};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);

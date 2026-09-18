@@ -180,7 +180,7 @@ impl TileGraph {
 mod tests {
     use teeny_core::{
         graph::{DtypeRepr, Graph, Op, Shape},
-        model::LoweringMode,
+        model::{ExecutableOp, LoweringMode},
     };
 
     use crate::graph::TritonLowering;
@@ -266,13 +266,17 @@ mod tests {
             ]
         );
 
-        // Names come from each lowered kernel's `ExecutableOp::name()`.
+        // Every tile node but the trailing `Output` takes its name straight
+        // from its lowered kernel's `ExecutableOp::name()` -- compared
+        // against the DAG itself rather than against literals, so renaming
+        // a kernel can't quietly stop being checked here. Today those four
+        // names are `input`, `conv2d_forward`,
+        // `batch_norm_2d_nchw_forward_inference` and `silu_forward`.
         let names: Vec<&str> = tile_graph.nodes.iter().map(|node| node.name()).collect();
-        assert_eq!(names[0], "input");
+        let dag_names: Vec<&str> = (0..dag.len()).map(|i| dag.node(i).value.name()).collect();
+        assert_eq!(names[..dag.len()], dag_names[..]);
+        assert_eq!(names[0], "input", "the lowered `Op::Input` node");
         assert_eq!(names[names.len() - 1], "output");
-        assert!(names[1].contains("conv2d"));
-        assert!(names[2].contains("batch_norm"));
-        assert!(names[3].contains("silu"));
 
         // This chain is lowered in producer-before-consumer order, so tile
         // `NodeId`s line up with DAG indices (plus the trailing `Output`).
