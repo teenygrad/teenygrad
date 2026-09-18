@@ -30,60 +30,58 @@ pub use node::{EdgeId, NodeId};
 
 pub mod node;
 
+#[derive(Debug, Default)]
 pub struct TileGraph {
     nodes: Vec<Node>,
 }
 
 impl TileGraph {
     pub fn new() -> Self {
-        Self { nodes: vec![] }
+        Self::default()
     }
 
     /// Convert an already-lowered `Dag` (e.g. from [`TritonLowering`]) into a
-    /// `TileGraph`, preserving DAG node indices and wiring a synthetic
-    /// [`NodeKind::Output`] on each sink.
+    /// `TileGraph`, walking the DAG in topological order.
     pub fn from_dag(dag: &Dag<Box<dyn ExecutableOp>>) -> Self {
         let mut tile_graph = TileGraph::new();
         let n = dag.len();
+        let mut dag_to_tile: Vec<Option<NodeId>> = (0..n).map(|_| None).collect();
 
-        for i in 0..n {
-            let dag_node = dag.node(i);
+        for dag_idx in dag.topological_sort() {
+            let dag_node = dag.node(dag_idx);
             let op = &dag_node.value;
-            let shapes = vec![op.output_shape().clone()];
-            let dtypes = vec![op.output_dtype()];
 
-            let node_id = if op.is_input() {
+            let tile_id = if op.is_input() {
                 tile_graph.add_placeholder(op.name())
             } else {
                 let inputs: Vec<(NodeId, EdgeId)> = dag_node
                     .parents
                     .iter()
-                    .map(|&parent| (NodeId(parent), EdgeId(0)))
+                    .map(|&parent| {
+                        (
+                            dag_to_tile[parent]
+                                .expect("parent must appear earlier in topological order"),
+                            EdgeId(0),
+                        )
+                    })
                     .collect();
                 tile_graph
                     .add_ir_node(op.name(), &inputs)
-                    .unwrap_or_else(|e| panic!("failed to wire dag node {i}: {e}"))
+                    .unwrap_or_else(|e| panic!("failed to add dag node {dag_idx}: {e}"))
             };
 
-            tile_graph.set_output_metadata(node_id, shapes, dtypes);
-        }
+            let shape = op.output_shape().clone();
+            let dtype = op.output_dtype();
+            tile_graph.set_port_metadata(tile_id, vec![shape.clone()], vec![dtype]);
+            dag_to_tile[dag_idx] = Some(tile_id);
 
-        let sinks: Vec<usize> = (0..n)
-            .filter(|i| dag.node(*i).children.is_empty())
-            .collect();
-        assert!(
-            sinks.len() == 1,
-            "from_dag expects a single sink, found {}: {:?}",
-            sinks.len(),
-            sinks
-        );
-        let sink = sinks[0];
-        let sink_shape = dag.node(sink).value.output_shape().clone();
-        let sink_dtype = dag.node(sink).value.output_dtype();
-        let output_id = tile_graph
-            .add_output((NodeId(sink), EdgeId(0)))
-            .unwrap_or_else(|e| panic!("failed to add output for sink {sink}: {e}"));
-        tile_graph.set_output_metadata(output_id, vec![sink_shape], vec![sink_dtype]);
+            if dag_node.children.is_empty() {
+                let output_id = tile_graph
+                    .add_output((tile_id, EdgeId(0)))
+                    .unwrap_or_else(|e| panic!("failed to add output for dag node {dag_idx}: {e}"));
+                tile_graph.set_port_metadata(output_id, vec![shape], vec![dtype]);
+            }
+        }
 
         tile_graph
     }
@@ -120,7 +118,7 @@ impl TileGraph {
     pub fn add_output(&mut self, producer: (NodeId, EdgeId)) -> Result<NodeId> {
         let node_id = NodeId(self.nodes.len());
 
-        let mut node = Node {
+        let node = Node {
             id: node_id,
             kind: NodeKind::Output,
             name: "output".to_string(),
@@ -130,16 +128,15 @@ impl TileGraph {
             dtypes: vec![],
         };
 
-        self.init_node(&mut node, &[producer])?;
-
         self.nodes.push(node);
+        self.connect_inputs(node_id, &[producer])?;
         Ok(node_id)
     }
 
     pub fn add_ir_node(&mut self, name: &str, inputs: &[(NodeId, EdgeId)]) -> Result<NodeId> {
         let dst_node_id = NodeId(self.nodes.len());
 
-        let mut node = Node {
+        let node = Node {
             id: dst_node_id,
             kind: NodeKind::IRNode,
             name: name.to_string(),
@@ -149,35 +146,33 @@ impl TileGraph {
             dtypes: vec![],
         };
 
-        self.init_node(&mut node, inputs)?;
-
         self.nodes.push(node);
+        self.connect_inputs(dst_node_id, inputs)?;
         Ok(dst_node_id)
     }
 
-    fn init_node(&mut self, node: &mut Node, inputs: &[(NodeId, EdgeId)]) -> Result<()> {
-        let dst_node_id = node.id();
-
-        for (dst_edge_id, (src_node_id, src_edge_id)) in inputs.iter().enumerate() {
-            let edge = Edge {
-                src_node_id: *src_node_id,
-                src_edge_id: *src_edge_id,
-                dst_node_id,
-                dst_edge_id: EdgeId(dst_edge_id),
-            };
-
-            node.in_edges.push(edge);
-            self.node_mut(*src_node_id)?.out_edges_mut().push(edge);
-        }
-
-        Ok(())
-    }
-
-    fn set_output_metadata(&mut self, node_id: NodeId, shapes: Vec<Shape>, dtypes: Vec<DtypeRepr>) {
+    fn set_port_metadata(&mut self, node_id: NodeId, shapes: Vec<Shape>, dtypes: Vec<DtypeRepr>) {
         if let Ok(node) = self.node_mut(node_id) {
             node.shapes = shapes;
             node.dtypes = dtypes;
         }
+    }
+
+    /// Wire `dst` to its producers and back-patch each producer's `out_edges`.
+    fn connect_inputs(&mut self, dst: NodeId, inputs: &[(NodeId, EdgeId)]) -> Result<()> {
+        for (dst_edge_id, (src_node_id, src_edge_id)) in inputs.iter().enumerate() {
+            let edge = Edge {
+                src_node_id: *src_node_id,
+                src_edge_id: *src_edge_id,
+                dst_node_id: dst,
+                dst_edge_id: EdgeId(dst_edge_id),
+            };
+
+            self.node_mut(dst)?.in_edges.push(edge);
+            self.node_mut(*src_node_id)?.out_edges_mut().push(edge);
+        }
+
+        Ok(())
     }
 }
 
@@ -279,7 +274,8 @@ mod tests {
         assert!(names[2].contains("batch_norm"));
         assert!(names[3].contains("silu"));
 
-        // Node order matches the lowered DAG indices; `NodeId(i)` is dag node `i`.
+        // This chain is lowered in producer-before-consumer order, so tile
+        // `NodeId`s line up with DAG indices (plus the trailing `Output`).
         for (id, expected_in, expected_out) in [
             (0usize, vec![], vec![edge(0, 1)]),
             (1, vec![edge(0, 1)], vec![edge(1, 2)]),
