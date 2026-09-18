@@ -56,13 +56,10 @@ pub use codegen::{AnduinCodegen, ExecuteDevice};
 pub use grid::common_thread_block_size;
 pub use profile::{Profiler, SimpleProfiler};
 pub use schedule::schedule_graph;
-pub use tile_graph::{
-    EdgeId, NodeId, SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph,
-    TileOp,
-};
+pub use tile_graph::{EdgeId, NodeId, TileGraph};
 pub use trace::{Trace, TraceEvent};
 
-use teeny_core::device::hardware::{HardwareProfile, MemoryLevelKind};
+use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::model::ExecutableOp;
 use teeny_core::utils::dag::Dag;
 
@@ -117,29 +114,7 @@ impl Anduin {
         dag: &Dag<Box<dyn ExecutableOp>>,
         hardware: &HardwareProfile,
     ) -> Result<(TileGraph, Vec<Trace>)> {
-        let mut tile_graph = TileGraph::from_dag(dag);
-        schedule_graph(&mut tile_graph, hardware, &SimpleProfiler)?;
-
-        let mut already_traced = std::collections::HashSet::new();
-        let mut traces = Vec::new();
-
-        for node in tile_graph.topological_sort() {
-            for (_, edge_id) in tile_graph.children(node) {
-                let Some(result) = tile_graph.resolved_tiling(edge_id) else {
-                    continue;
-                };
-                if result.nodes.iter().all(|n| already_traced.contains(n)) {
-                    continue;
-                }
-
-                let trace =
-                    Trace::trace_graph(&tile_graph, result, MemoryLevelKind::Register, hardware);
-                already_traced.extend(result.nodes.iter().copied());
-                traces.push(trace);
-            }
-        }
-
-        Ok((tile_graph, traces))
+        todo!("teenygrad-1nr: implement Anduin::schedule")
     }
 
     /// §3.3's codegen finalization: replays every trace [`Self::schedule`]
@@ -321,14 +296,16 @@ mod tests {
         assert!(
             virtual_nodes
                 .iter()
-                .any(|&(nodes, level)| nodes == [1, 2, 3] && level == MemoryLevelKind::SharedMemory),
+                .any(|&(nodes, level)| nodes == [NodeId(1), NodeId(2), NodeId(3)]
+                    && level == MemoryLevelKind::SharedMemory),
             "expected conv+batchnorm+silu (nodes [1, 2, 3]) to be grouped into one \
              SharedMemory-level virtual node, got: {virtual_nodes:?}"
         );
         assert!(
             virtual_nodes
                 .iter()
-                .any(|&(nodes, level)| nodes == [0] && level == MemoryLevelKind::SharedMemory),
+                .any(|&(nodes, level)| nodes == [NodeId(0)]
+                    && level == MemoryLevelKind::SharedMemory),
             "expected input (node [0]) to stay its own SharedMemory-level virtual node, \
              separate from the fused group, got: {virtual_nodes:?}"
         );
@@ -454,12 +431,13 @@ mod tests {
         assert!(
             virtual_nodes
                 .iter()
-                .any(|&(nodes, level)| nodes == [1, 2, 3] && level == MemoryLevelKind::SharedMemory),
+                .any(|&(nodes, level)| nodes == [NodeId(1), NodeId(2), NodeId(3)]
+                    && level == MemoryLevelKind::SharedMemory),
             "expected relu+reduce_sum+relu (nodes [1, 2, 3]) to be grouped into one \
              SharedMemory-level virtual node, got: {virtual_nodes:?}"
         );
         assert!(
-            virtual_nodes.iter().all(|&(nodes, _)| nodes != [0]),
+            virtual_nodes.iter().all(|&(nodes, _)| nodes != [NodeId(0)]),
             "expected input (node 0) to have no child covering it and compute \
              directly at the top frame, not get its own virtual node, got: \
              {virtual_nodes:?}"
@@ -474,7 +452,7 @@ mod tests {
             })
             .collect();
         assert!(
-            compute_tiles.contains(&0),
+            compute_tiles.contains(&NodeId(0)),
             "expected input (node 0) to still be computed somewhere in the trace, \
              got: {compute_tiles:?}"
         );
@@ -511,7 +489,7 @@ mod tests {
         assert!(
             virtual_nodes
                 .iter()
-                .any(|&(nodes, _)| nodes.contains(&1) && nodes.contains(&2)),
+                .any(|&(nodes, _)| nodes.contains(&NodeId(1)) && nodes.contains(&NodeId(2))),
             "expected relu+silu (nodes 1 and 2) to appear together in a \
              virtual node — the 2-node group `tests/test_fused_pointwise.rs` \
              drives DagCodegen against, got: {virtual_nodes:?}"
@@ -526,7 +504,9 @@ mod tests {
             })
             .collect();
         assert!(
-            compute_tiles.windows(2).any(|window| window == [1, 2]),
+            compute_tiles
+                .windows(2)
+                .any(|window| window == [NodeId(1), NodeId(2)]),
             "expected relu (1) then silu (2) as consecutive compute_tile \
              events — the tile-op bodies DagCodegen must splice, got: \
              {compute_tiles:?}"

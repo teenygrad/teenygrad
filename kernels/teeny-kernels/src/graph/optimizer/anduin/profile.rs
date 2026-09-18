@@ -36,7 +36,7 @@
 use teeny_core::device::hardware::HardwareProfile;
 use teeny_core::graph::DtypeRepr;
 
-use super::{NodeId, TileEdge, TileGraph};
+use super::{NodeId, TileGraph};
 
 /// Welder §3.2's `Profile` device interface: an estimated cost (lower is
 /// better) of executing `nodes` — typically a
@@ -61,26 +61,7 @@ pub struct SimpleProfiler;
 
 impl Profiler for SimpleProfiler {
     fn profile(&self, tile_graph: &TileGraph, nodes: &[NodeId], hardware: &HardwareProfile) -> f64 {
-        tile_graph
-            .boundary_edges(nodes)
-            .into_iter()
-            .map(|(edge_id, dtype)| edge_latency(tile_graph.edge(edge_id), dtype, hardware))
-            .sum()
-    }
-}
-
-/// Estimated seconds to move `edge`'s data through its own connect level,
-/// using `hardware`'s bandwidth for that level. Zero if that level's
-/// bandwidth isn't known.
-fn edge_latency(edge: &TileEdge, dtype: DtypeRepr, hardware: &HardwareProfile) -> f64 {
-    let bytes = edge.byte_size(dtype);
-    let bandwidth = hardware
-        .level(edge.memory_level)
-        .and_then(|level| level.bandwidth);
-
-    match bandwidth {
-        Some(bandwidth) if bandwidth > 0.0 => bytes as f64 / bandwidth,
-        _ => 0.0,
+        todo!("teenygrad-1nr: implement SimpleProfiler::profile")
     }
 }
 
@@ -153,132 +134,5 @@ mod tests {
             }],
             execution: None,
         }
-    }
-
-    #[test]
-    fn profile_of_a_single_boundary_node_sums_its_input_and_output_edges() {
-        // A lone F32 [4] node: an input boundary edge in, an output
-        // boundary edge out, both at DeviceMemory. 4 elements * 4 bytes =
-        // 16 bytes per edge, twice, over a 16 bytes/sec device -> 2.0s.
-        let shape = vec![Some(4)];
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape, true));
-
-        let tile_graph = TileGraph::from_dag(&dag);
-        let hardware = hardware_with_bandwidth(MemoryLevelKind::DeviceMemory, 16.0);
-
-        let latency = SimpleProfiler.profile(&tile_graph, &[a], &hardware);
-
-        assert_eq!(latency, 2.0);
-    }
-
-    #[test]
-    fn profile_ignores_edges_internal_to_the_node_set() {
-        // a -> b, both included: the internal edge contributes nothing:
-        // only a's input boundary and b's output boundary count.
-        let shape = vec![Some(4)];
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape.clone(), true));
-        let b = dag.add_node(op("b", shape, false));
-        dag.add_edge(a, b);
-
-        let tile_graph = TileGraph::from_dag(&dag);
-        let hardware = hardware_with_bandwidth(MemoryLevelKind::DeviceMemory, 16.0);
-
-        let latency = SimpleProfiler.profile(&tile_graph, &[a, b], &hardware);
-
-        // a's input edge (16 bytes) + b's output edge (16 bytes), not the
-        // a -> b edge in between.
-        assert_eq!(latency, 2.0);
-    }
-
-    #[test]
-    fn profile_counts_an_excluded_neighbors_edge_as_boundary_traffic() {
-        // a -> b -> c, but only {a, b} are in the extracted set: b's edge
-        // to the excluded c must still count, from b's outgoing side.
-        let shape = vec![Some(4)];
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape.clone(), true));
-        let b = dag.add_node(op("b", shape.clone(), false));
-        dag.add_edge(a, b);
-        let c = dag.add_node(op("c", shape, false));
-        dag.add_edge(b, c);
-
-        let tile_graph = TileGraph::from_dag(&dag);
-        let hardware = hardware_with_bandwidth(MemoryLevelKind::DeviceMemory, 16.0);
-
-        let latency = SimpleProfiler.profile(&tile_graph, &[a, b], &hardware);
-
-        // a's input edge (16B) + b -> c edge (16B, excluded consumer) = 2.0s.
-        // b -> c is internal-looking but c isn't in the set, so it counts;
-        // a -> b is fully internal and does not.
-        assert_eq!(latency, 2.0);
-    }
-
-    #[test]
-    fn profile_counts_an_excluded_producers_edge_from_the_consumer_side() {
-        // a -> b -> c, extracting {b, c}: b's edge from the excluded a must
-        // still count, read from b's parent_edges.
-        let shape = vec![Some(4)];
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape.clone(), true));
-        let b = dag.add_node(op("b", shape.clone(), false));
-        dag.add_edge(a, b);
-        let c = dag.add_node(op("c", shape, false));
-        dag.add_edge(b, c);
-
-        let tile_graph = TileGraph::from_dag(&dag);
-        let hardware = hardware_with_bandwidth(MemoryLevelKind::DeviceMemory, 16.0);
-
-        let latency = SimpleProfiler.profile(&tile_graph, &[b, c], &hardware);
-
-        // a -> b edge (16B, excluded producer) + c's output edge (16B) = 2.0s.
-        // b -> c is fully internal and does not count.
-        assert_eq!(latency, 2.0);
-    }
-
-    #[test]
-    fn profile_treats_a_dynamic_axis_as_a_single_element() {
-        let shape = vec![None, Some(4)]; // dynamic batch axis
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape, true));
-
-        let tile_graph = TileGraph::from_dag(&dag);
-        let hardware = hardware_with_bandwidth(MemoryLevelKind::DeviceMemory, 16.0);
-
-        let latency = SimpleProfiler.profile(&tile_graph, &[a], &hardware);
-
-        // a is isolated (no dag edges), so from_dag gives it both an input
-        // and an output boundary edge: (1 * 4) elements * 4 bytes = 16
-        // bytes / 16 = 1.0s, twice.
-        assert_eq!(latency, 2.0);
-    }
-
-    #[test]
-    fn profile_treats_unknown_bandwidth_as_zero_cost() {
-        let shape = vec![Some(4)];
-        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        let a = dag.add_node(op("a", shape, true));
-
-        let tile_graph = TileGraph::from_dag(&dag);
-        // No DeviceMemory level declared at all.
-        let hardware = HardwareProfile {
-            name: "test-device".to_string(),
-            compute_units: 1,
-            memory_levels: vec![],
-            execution: None,
-        };
-
-        let latency = SimpleProfiler.profile(&tile_graph, &[a], &hardware);
-
-        assert_eq!(latency, 0.0);
-    }
-
-    #[test]
-    fn profile_of_an_empty_node_set_is_zero() {
-        let tile_graph = TileGraph::default();
-        let hardware = hardware_with_bandwidth(MemoryLevelKind::DeviceMemory, 16.0);
-
-        assert_eq!(SimpleProfiler.profile(&tile_graph, &[], &hardware), 0.0);
     }
 }

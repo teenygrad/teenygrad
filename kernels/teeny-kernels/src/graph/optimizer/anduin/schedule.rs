@@ -52,10 +52,9 @@
 use teeny_core::device::hardware::HardwareProfile;
 
 use crate::errors::Result;
-use crate::graph::EdgeId;
 
 use super::profile::Profiler;
-use super::tile_graph::{SubGraphTilingResult, TileGraph};
+use super::tile_graph::TileGraph;
 
 /// Number of ranked candidates `schedule_graph` asks
 /// [`TileGraph::sub_graph_tiling`] for at each candidate memory level.
@@ -79,85 +78,5 @@ pub fn schedule_graph(
     hardware: &HardwareProfile,
     profiler: &dyn Profiler,
 ) -> Result<()> {
-    let lowest_level = hardware.memory_levels.first().unwrap().kind;
-
-    // Initialize all edges to the lowest level
-    for edge_id in 0..tile_graph.num_edges() {
-        tile_graph.set_connect(EdgeId(edge_id), lowest_level);
-    }
-
-    for node in tile_graph.topological_sort() {
-        let edges: Vec<_> = tile_graph
-            .children(node)
-            .into_iter()
-            .map(|(_, id)| id)
-            .collect();
-
-        for edge_id in edges {
-            let mut best_level = tile_graph.connect_level(edge_id);
-            let mut best_latency = f64::INFINITY;
-            let mut best_result: Option<SubGraphTilingResult> = None;
-
-            for memory_level in &hardware.memory_levels {
-                let level = memory_level.kind;
-                tile_graph.set_connect(edge_id, level);
-
-                let subgraph = tile_graph.extract_subgraph(node, None);
-                let mut candidates =
-                    tile_graph.sub_graph_tiling(&subgraph, node, None, hardware, TOP_K)?;
-                if candidates.is_empty() {
-                    continue;
-                }
-
-                let latency = profiler.profile(tile_graph, &subgraph, hardware);
-                if latency < best_latency {
-                    best_latency = latency;
-                    best_level = level;
-                    best_result = Some(candidates.remove(0));
-                }
-            }
-
-            tile_graph.set_connect(edge_id, best_level);
-            if let Some(result) = best_result {
-                tile_graph.record_resolved_tiling(edge_id, result);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use teeny_core::graph::{DtypeRepr, Graph, Op};
-    use teeny_core::model::LoweringMode;
-
-    use crate::graph::TritonLowering;
-    use crate::graph::optimizer::anduin::Anduin;
-    use teeny_test::hardware_profile::orin_nano;
-
-    #[test]
-    fn test_schedule_pointwise_ops() {
-        let mut graph = Graph::new();
-        let shape = vec![Some(2048), Some(4096)];
-
-        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape.clone());
-        let relu = graph.add_node(Op::Relu, vec![input], DtypeRepr::F32, shape.clone());
-        let _silu = graph.add_node(Op::Silu, vec![relu], DtypeRepr::F32, shape.clone());
-
-        // Anchor the "won't fit on a single SM" claim above against a real
-        // two-level hardware profile: the full [2048, 4096] F32 tile is
-        // bigger than shared memory but comfortably smaller than device
-        // memory.
-        let profile = orin_nano();
-
-        let lowering = TritonLowering::default();
-        let (dag, _, _) = lowering
-            .lower_with_mapping(&graph, LoweringMode::Inference)
-            .unwrap();
-
-        let (_, traces) = Anduin::schedule(&dag, &profile).unwrap();
-        eprintln!("traces: {:?}", traces);
-        todo!("test schedule");
-    }
+    todo!("teenygrad-1nr: implement schedule_graph")
 }

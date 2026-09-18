@@ -28,8 +28,7 @@ pub mod optimizer;
 
 pub use optimizer::{
     Anduin, AnduinCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
-    SubGraphTilingResult, TileConfig, TileDim, TileEdge, TileEdgeShape, TileGraph, TileOp, Trace,
-    TraceEvent, common_thread_block_size, schedule_graph,
+    TileGraph, Trace, TraceEvent, common_thread_block_size, schedule_graph,
 };
 
 use crate::nn::{
