@@ -179,8 +179,10 @@ impl TileGraph {
 #[cfg(test)]
 mod tests {
     use teeny_core::{
-        graph::{DtypeRepr, Graph, Op, Shape},
-        model::{ExecutableOp, LoweringMode},
+        graph::{DtypeRepr, Graph, Shape, SymTensor},
+        model::LoweringMode,
+        nn::{Layer, activation::sigmoid::Silu, batchnorm::BatchNorm2d, conv2d::Conv2d},
+        sequential,
     };
 
     use crate::graph::TritonLowering;
@@ -188,46 +190,31 @@ mod tests {
     use super::TileGraph;
     use super::node::{Edge, EdgeId, NodeId, NodeKind};
 
+    /// Traces `Conv2d(3->8, 3x3, pad=1) -> BatchNorm2d(8) -> SiLU` over a
+    /// `[10, 3, 32, 32]` input.
     ///
-    /// A simple `input -> conv2d -> batchnorm2d -> silu` graph.
+    /// Built from real `nn` layers and recorded through [`SymTensor`] rather
+    /// than from hand-written `Op`s, so the traced graph -- including each
+    /// node's inferred output shape -- is the one a caller actually gets
+    /// from a model. A change in how these layers record themselves then
+    /// shows up here, instead of being papered over by hardwired shapes.
     ///
+    /// Same-padding keeps the 32x32 spatial dims, so only the channel count
+    /// changes (3 -> 8). The returned shapes are the input shape and the
+    /// output shape shared by all three ops.
     fn conv2d_bn_silu_graph() -> (Graph, Shape, Shape) {
         let in_shape: Shape = vec![Some(10), Some(3), Some(32), Some(32)];
         let out_shape: Shape = vec![Some(10), Some(8), Some(32), Some(32)];
 
-        let mut graph = Graph::new();
-        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, in_shape.clone());
-        let conv = graph.add_node(
-            Op::Conv2d {
-                in_channels: 3,
-                out_channels: 8,
-                kernel_h: 3,
-                kernel_w: 3,
-                stride_h: 1,
-                stride_w: 1,
-                padding_h: 1,
-                padding_w: 1,
-                groups: 1,
-                has_bias: false,
-            },
-            vec![input],
-            DtypeRepr::F32,
-            out_shape.clone(),
-        );
-        let bn = graph.add_node(
-            Op::BatchNorm2d {
-                num_features: 8,
-                eps: 1e-5,
-                momentum: 0.1,
-                affine: true,
-                track_running_stats: true,
-            },
-            vec![conv],
-            DtypeRepr::F32,
-            out_shape.clone(),
-        );
-        graph.add_node(Op::Silu, vec![bn], DtypeRepr::F32, out_shape.clone());
+        let (input, graph) = SymTensor::input(DtypeRepr::F32, in_shape.clone());
+        let model = sequential![
+            Conv2d::<f32, _, _, 4>::new(3, 8, (3, 3), (1, 1), (1, 1), false),
+            BatchNorm2d::<f32, _, _, 4>::new(8),
+            Silu::<f32, _, 4>::new()
+        ];
+        let _output = Layer::call(&model, input);
 
+        let graph = graph.borrow().clone();
         (graph, in_shape, out_shape)
     }
 
@@ -246,6 +233,12 @@ mod tests {
     #[test]
     fn conv2d_batchnorm_silu_to_tile_graph() {
         let (graph, in_shape, out_shape) = conv2d_bn_silu_graph();
+        assert_eq!(
+            graph.nodes.len(),
+            4,
+            "tracing conv2d+bn+silu should record 1 Input plus 3 ops"
+        );
+
         let lowering = TritonLowering::default();
         let (dag, _, _) = lowering
             .lower_with_mapping(&graph, LoweringMode::Inference)
