@@ -1653,6 +1653,42 @@ impl Graph {
 // Shape inference — computes the output shape for each Op given an input shape
 // ---------------------------------------------------------------------------
 
+/// Output extent of a sliding-window op (convolution or pooling) along one
+/// axis: `floor((extent + 2 * padding - kernel) / stride) + 1`.
+///
+/// `op` and `axis` name the caller for the panic messages below, e.g.
+/// `("Conv2d", "height")`.
+///
+/// Panics on a window that cannot fit, or a zero stride, rather than leaving
+/// it to the arithmetic. These are all `usize`, so `extent + 2 * padding -
+/// kernel` otherwise underflows: in debug builds that is an "attempt to
+/// subtract with overflow" naming only this line, and in release it wraps to
+/// an enormous extent that propagates silently through the rest of the graph.
+fn window_out_dim(
+    op: &str,
+    axis: &str,
+    extent: usize,
+    kernel: usize,
+    stride: usize,
+    padding: usize,
+) -> usize {
+    assert!(
+        stride != 0,
+        "{op}: {axis} stride is 0, but a sliding window has to advance by at \
+         least one element per step. Set the {axis} stride to 1 or more."
+    );
+    let padded = extent + 2 * padding;
+    assert!(
+        kernel <= padded,
+        "{op}: {axis} kernel {kernel} does not fit its input. The {axis} extent \
+         is {extent}, and padding {padding} widens it to only {padded}, so no \
+         window position is valid. Reduce the {axis} kernel to at most {padded}, \
+         or raise the {axis} padding to at least {}.",
+        (kernel - extent).div_ceil(2)
+    );
+    (padded - kernel) / stride + 1
+}
+
 fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
     // Constant has no tensor inputs — its shape is embedded in the op itself.
     if let Op::Constant { shape, .. } = op {
@@ -1724,7 +1760,8 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             ..
         } => {
             // [N, C_in, L] → [N, C_out, L_out]
-            let l_out = input[2].map(|l| (l + 2 * padding - kernel_l) / stride + 1);
+            let l_out = input[2]
+                .map(|l| window_out_dim("Conv1d", "length", l, *kernel_l, *stride, *padding));
             vec![input[0], Some(*out_channels), l_out]
         }
 
@@ -1739,8 +1776,10 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             ..
         } => {
             // [N, C_in, H, W] → [N, C_out, H_out, W_out]
-            let h_out = input[2].map(|h| (h + 2 * padding_h - kernel_h) / stride_h + 1);
-            let w_out = input[3].map(|w| (w + 2 * padding_w - kernel_w) / stride_w + 1);
+            let h_out = input[2]
+                .map(|h| window_out_dim("Conv2d", "height", h, *kernel_h, *stride_h, *padding_h));
+            let w_out = input[3]
+                .map(|w| window_out_dim("Conv2d", "width", w, *kernel_w, *stride_w, *padding_w));
             vec![input[0], Some(*out_channels), h_out, w_out]
         }
 
@@ -1758,22 +1797,31 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             ..
         } => {
             // [N, C_in, D, H, W] → [N, C_out, D_out, H_out, W_out]
-            let d_out = input[2].map(|d| (d + 2 * padding_d - kernel_d) / stride_d + 1);
-            let h_out = input[3].map(|h| (h + 2 * padding_h - kernel_h) / stride_h + 1);
-            let w_out = input[4].map(|w| (w + 2 * padding_w - kernel_w) / stride_w + 1);
+            let d_out = input[2]
+                .map(|d| window_out_dim("Conv3d", "depth", d, *kernel_d, *stride_d, *padding_d));
+            let h_out = input[3]
+                .map(|h| window_out_dim("Conv3d", "height", h, *kernel_h, *stride_h, *padding_h));
+            let w_out = input[4]
+                .map(|w| window_out_dim("Conv3d", "width", w, *kernel_w, *stride_w, *padding_w));
             vec![input[0], Some(*out_channels), d_out, h_out, w_out]
         }
 
         // --- Pooling ---
         Op::AvgPool1d { kernel_l, stride } | Op::MaxPool1d { kernel_l, stride } => {
-            let l_out = input[2].map(|l| (l - kernel_l) / stride + 1);
+            let name = if matches!(op, Op::AvgPool1d { .. }) {
+                "AvgPool1d"
+            } else {
+                "MaxPool1d"
+            };
+            let l_out = input[2].map(|l| window_out_dim(name, "length", l, *kernel_l, *stride, 0));
             vec![input[0], input[1], l_out]
         }
 
         Op::LpPool1d {
             kernel_l, stride, ..
         } => {
-            let l_out = input[2].map(|l| (l - kernel_l) / stride + 1);
+            let l_out =
+                input[2].map(|l| window_out_dim("LpPool1d", "length", l, *kernel_l, *stride, 0));
             vec![input[0], input[1], l_out]
         }
 
@@ -1783,8 +1831,10 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             stride_h,
             stride_w,
         } => {
-            let h_out = input[2].map(|h| (h - kernel_h) / stride_h + 1);
-            let w_out = input[3].map(|w| (w - kernel_w) / stride_w + 1);
+            let h_out =
+                input[2].map(|h| window_out_dim("AvgPool2d", "height", h, *kernel_h, *stride_h, 0));
+            let w_out =
+                input[3].map(|w| window_out_dim("AvgPool2d", "width", w, *kernel_w, *stride_w, 0));
             vec![input[0], input[1], h_out, w_out]
         }
 
@@ -1796,8 +1846,10 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             pad_h,
             pad_w,
         } => {
-            let h_out = input[2].map(|h| (h + 2 * pad_h - kernel_h) / stride_h + 1);
-            let w_out = input[3].map(|w| (w + 2 * pad_w - kernel_w) / stride_w + 1);
+            let h_out = input[2]
+                .map(|h| window_out_dim("MaxPool2d", "height", h, *kernel_h, *stride_h, *pad_h));
+            let w_out = input[3]
+                .map(|w| window_out_dim("MaxPool2d", "width", w, *kernel_w, *stride_w, *pad_w));
             vec![input[0], input[1], h_out, w_out]
         }
 
@@ -1808,8 +1860,10 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             stride_w,
             ..
         } => {
-            let h_out = input[2].map(|h| (h - kernel_h) / stride_h + 1);
-            let w_out = input[3].map(|w| (w - kernel_w) / stride_w + 1);
+            let h_out =
+                input[2].map(|h| window_out_dim("LpPool2d", "height", h, *kernel_h, *stride_h, 0));
+            let w_out =
+                input[3].map(|w| window_out_dim("LpPool2d", "width", w, *kernel_w, *stride_w, 0));
             vec![input[0], input[1], h_out, w_out]
         }
 
@@ -1829,9 +1883,15 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             stride_h,
             stride_w,
         } => {
-            let d_out = input[2].map(|d| (d - kernel_d) / stride_d + 1);
-            let h_out = input[3].map(|h| (h - kernel_h) / stride_h + 1);
-            let w_out = input[4].map(|w| (w - kernel_w) / stride_w + 1);
+            let name = if matches!(op, Op::AvgPool3d { .. }) {
+                "AvgPool3d"
+            } else {
+                "MaxPool3d"
+            };
+            let d_out = input[2].map(|d| window_out_dim(name, "depth", d, *kernel_d, *stride_d, 0));
+            let h_out =
+                input[3].map(|h| window_out_dim(name, "height", h, *kernel_h, *stride_h, 0));
+            let w_out = input[4].map(|w| window_out_dim(name, "width", w, *kernel_w, *stride_w, 0));
             vec![input[0], input[1], d_out, h_out, w_out]
         }
 
@@ -1844,9 +1904,12 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             stride_w,
             ..
         } => {
-            let d_out = input[2].map(|d| (d - kernel_d) / stride_d + 1);
-            let h_out = input[3].map(|h| (h - kernel_h) / stride_h + 1);
-            let w_out = input[4].map(|w| (w - kernel_w) / stride_w + 1);
+            let d_out =
+                input[2].map(|d| window_out_dim("LpPool3d", "depth", d, *kernel_d, *stride_d, 0));
+            let h_out =
+                input[3].map(|h| window_out_dim("LpPool3d", "height", h, *kernel_h, *stride_h, 0));
+            let w_out =
+                input[4].map(|w| window_out_dim("LpPool3d", "width", w, *kernel_w, *stride_w, 0));
             vec![input[0], input[1], d_out, h_out, w_out]
         }
 
@@ -3248,6 +3311,66 @@ mod tests {
             }
         ));
         assert_eq!(g.nodes[1].shape, vec![None, Some(64), Some(32), Some(32)]);
+    }
+
+    /// A kernel wider than its padded input used to underflow `usize` inside
+    /// `infer_output_shape`, surfacing as a bare "attempt to subtract with
+    /// overflow" in debug and a wrapped, enormous extent in release.
+    #[test]
+    #[should_panic(expected = "Conv2d: height kernel 7 does not fit its input")]
+    fn test_conv2d_kernel_larger_than_padded_input_panics_with_context() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (7, 7), (1, 1), (1, 1), false);
+        let _ = Layer::call(&conv, input);
+    }
+
+    /// The message names the extents involved and both ways out, rather than
+    /// just the failing line.
+    #[test]
+    #[should_panic(expected = "widens it to only 6, so no window position is valid")]
+    fn test_conv2d_window_panic_reports_padded_extent_and_remedies() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (7, 7), (1, 1), (1, 1), false);
+        let _ = Layer::call(&conv, input);
+    }
+
+    /// Exactly-fitting windows are still legal: kernel == padded extent gives
+    /// a single window, so the guard must not be off by one.
+    #[test]
+    fn test_conv2d_kernel_exactly_filling_padded_input_is_allowed() {
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (6, 6), (1, 1), (1, 1), false);
+        let _ = Layer::call(&conv, input);
+
+        let g = graph.borrow();
+        assert_eq!(g.nodes[1].shape, vec![Some(1), Some(8), Some(1), Some(1)]);
+    }
+
+    /// A zero stride divided by zero one line below the subtraction; it now
+    /// says which axis and what to set it to.
+    #[test]
+    #[should_panic(expected = "Conv2d: width stride is 0")]
+    fn test_conv2d_zero_stride_panics_with_context() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(8), Some(8)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (3, 3), (1, 0), (0, 0), false);
+        let _ = Layer::call(&conv, input);
+    }
+
+    /// Pooling shares the same guard, and the combined `AvgPool*`/`MaxPool*`
+    /// match arms must still name the op the caller actually used.
+    #[test]
+    #[should_panic(expected = "MaxPool2d: height kernel 5 does not fit its input")]
+    fn test_maxpool2d_window_panic_names_the_right_op() {
+        use crate::nn::pool::MaxPool2d;
+
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let pool = MaxPool2d::<f32, SymTensor, SymTensor, 4>::new((5, 5), (1, 1));
+        let _ = Layer::call(&pool, input);
     }
 
     #[test]
