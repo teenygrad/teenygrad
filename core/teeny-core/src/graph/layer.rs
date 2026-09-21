@@ -711,3 +711,172 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RAN
         input.record(Op::Softmax { dim: self.dim })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    use crate::graph::DtypeRepr;
+    use crate::sequential;
+
+    #[test]
+    fn test_sequential_graph_extraction() {
+        let (input, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(784)]);
+
+        let model = sequential![
+            Linear::<f32, SymTensor, SymTensor, 2>::new(784, 128, true),
+            Relu::<f32, SymTensor, 2>::new(),
+            Linear::<f32, SymTensor, SymTensor, 2>::new(128, 10, true),
+            Softmax::<f32, SymTensor, 2>::new(1)
+        ];
+
+        let _out = Layer::call(&model, input).unwrap();
+
+        let g = graph.borrow();
+        assert_eq!(g.nodes.len(), 5);
+        assert!(matches!(g.nodes[0].op, Op::Input));
+        assert_eq!(g.nodes[0].shape, vec![None, Some(784)]);
+
+        assert!(matches!(
+            g.nodes[1].op,
+            Op::Linear {
+                in_features: 784,
+                out_features: 128,
+                ..
+            }
+        ));
+        assert_eq!(g.nodes[1].shape, vec![None, Some(128)]);
+
+        assert!(matches!(g.nodes[2].op, Op::Relu));
+        assert_eq!(g.nodes[2].shape, vec![None, Some(128)]);
+
+        assert!(matches!(
+            g.nodes[3].op,
+            Op::Linear {
+                in_features: 128,
+                out_features: 10,
+                ..
+            }
+        ));
+        assert_eq!(g.nodes[3].shape, vec![None, Some(10)]);
+
+        assert!(matches!(g.nodes[4].op, Op::Softmax { dim: 1 }));
+        assert_eq!(g.nodes[4].shape, vec![None, Some(10)]);
+    }
+
+    #[test]
+    fn test_conv2d_graph_extraction() {
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![None, Some(3), Some(32), Some(32)]);
+
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 64, (3, 3), (1, 1), (1, 1), true);
+        let _out = Layer::call(&conv, input).unwrap();
+
+        let g = graph.borrow();
+        assert_eq!(g.nodes.len(), 2);
+        assert!(matches!(
+            g.nodes[1].op,
+            Op::Conv2d {
+                in_channels: 3,
+                out_channels: 64,
+                kernel_h: 3,
+                kernel_w: 3,
+                stride_h: 1,
+                stride_w: 1,
+                padding_h: 1,
+                padding_w: 1,
+                has_bias: true,
+                ..
+            }
+        ));
+        assert_eq!(g.nodes[1].shape, vec![None, Some(64), Some(32), Some(32)]);
+    }
+
+    /// A kernel wider than its padded input used to underflow `usize` inside
+    /// `infer_output_shape`, surfacing as a bare "attempt to subtract with
+    /// overflow" in debug and a wrapped, enormous extent in release.
+    #[test]
+    fn test_conv2d_kernel_larger_than_padded_input_errors_with_context() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (7, 7), (1, 1), (1, 1), false);
+        let err = Layer::call(&conv, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("Conv2d: height kernel 7 does not fit its input"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// The message names the extents involved and both ways out, rather than
+    /// just the failing line.
+    #[test]
+    fn test_conv2d_window_error_reports_padded_extent_and_remedies() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (7, 7), (1, 1), (1, 1), false);
+        let err = Layer::call(&conv, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("widens it to only 6, so no window position is valid"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Exactly-fitting windows are still legal: kernel == padded extent gives
+    /// a single window, so the guard must not be off by one.
+    #[test]
+    fn test_conv2d_kernel_exactly_filling_padded_input_is_allowed() {
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (6, 6), (1, 1), (1, 1), false);
+        Layer::call(&conv, input).unwrap();
+
+        let g = graph.borrow();
+        assert_eq!(g.nodes[1].shape, vec![Some(1), Some(8), Some(1), Some(1)]);
+    }
+
+    /// A zero stride divided by zero one line below the subtraction; it now
+    /// says which axis and what to set it to.
+    #[test]
+    fn test_conv2d_zero_stride_errors_with_context() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(8), Some(8)]);
+        let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (3, 3), (1, 0), (0, 0), false);
+        let err = Layer::call(&conv, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("Conv2d: width stride is 0"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Pooling shares the same guard, and the combined `AvgPool*`/`MaxPool*`
+    /// match arms must still name the op the caller actually used.
+    #[test]
+    fn test_maxpool2d_window_error_names_the_right_op() {
+        let (input, _graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
+        let pool = MaxPool2d::<f32, SymTensor, SymTensor, 4>::new((5, 5), (1, 1));
+        let err = Layer::call(&pool, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("MaxPool2d: height kernel 5 does not fit its input"),
+            "unexpected error: {err}"
+        );
+    }
+}
