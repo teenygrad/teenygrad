@@ -245,8 +245,16 @@ impl SymTensor {
         self.shape.len()
     }
 
+    /// Records `op` with the shape inferred from this tensor.
+    ///
+    /// `Layer::call` returns a `SymTensor` rather than a `Result`, so a shape
+    /// the op cannot produce — a conv window that does not fit, a zero stride —
+    /// panics here with the error's own message. Callers that want to handle
+    /// it instead should ask [`Op::infer_output_shape`] directly.
     fn record(&self, op: Op) -> Self {
-        let output_shape = op.infer_output_shape(&[&self.shape]);
+        let output_shape = op
+            .infer_output_shape(&[&self.shape])
+            .unwrap_or_else(|e| panic!("{e}"));
         self.record_with_shape(op, output_shape)
     }
 
@@ -268,6 +276,13 @@ impl SymTensor {
     /// `self` is the primary (first) input.  Pass additional inputs via
     /// `other_inputs`.  Pass `dtype` to override the output element type;
     /// defaults to the primary input's dtype.
+    ///
+    /// # Panics
+    ///
+    /// Panics with the op's own message if it rejects these input shapes.
+    /// This mirrors `SymTensor::record`: recording returns a `SymTensor` so
+    /// a graph can be built by chaining, and there is nowhere to return an
+    /// error to. Call [`CustomOp::infer_output_shape`] first to handle it.
     pub fn record_custom(
         &self,
         data: Arc<dyn CustomOp>,
@@ -276,7 +291,9 @@ impl SymTensor {
     ) -> Self {
         let mut shapes: Vec<&Shape> = vec![&self.shape];
         shapes.extend(other_inputs.iter().map(|t| &t.shape));
-        let output_shape = data.infer_output_shape(&shapes);
+        let output_shape = data
+            .infer_output_shape(&shapes)
+            .unwrap_or_else(|e| panic!("{e}"));
 
         let mut input_ids: Vec<usize> = vec![self.node_id];
         input_ids.extend(other_inputs.iter().map(|t| t.node_id));
