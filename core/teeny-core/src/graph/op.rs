@@ -2301,10 +2301,15 @@ impl Op {
     /// and `Op::Input` yields none. `Ok(None)` means this op is not
     /// invertible — its forward pass discarded what the reverse would need.
     ///
-    /// Only the unary shape-preserving (pointwise) ops are implemented so far,
-    /// plus `Op::Custom`, which delegates to
-    /// [`CustomOp::infer_input_shape`]; every other variant panics with
-    /// `unimplemented!`. See `teenygrad-3fy`
+    /// Implemented for the single-input shape-preserving ops — the
+    /// activations, norms and unary element-wise math — plus `Op::Input` and
+    /// `Op::Custom`, which delegates to [`CustomOp::infer_input_shape`].
+    /// Every other variant panics with `unimplemented!`.
+    ///
+    /// Multi-input ops are deliberately excluded: this returns one shape per
+    /// input, but an `Op` variant does not record how many inputs its node
+    /// has, so `Add`, `Concat` and the like cannot report a correct-length
+    /// result from the output shape alone. See `teenygrad-3fy`
     /// for the remaining cases — floor-ambiguous conv/pool windows, ops that
     /// lose exactly one dimension, and the total-loss set.
     ///
@@ -2351,6 +2356,50 @@ impl Op {
             | Op::InstanceNorm1d { .. }
             | Op::InstanceNorm2d { .. }
             | Op::InstanceNorm3d { .. } => Ok(Some(vec![output.clone()])),
+
+            // Unary element-wise — same reverse, one input, shape unchanged.
+            // The forward pass groups more ops than these under "unary", but
+            // the rest take several inputs (`PRelu`, `Clip`, `CumSum`, the
+            // attentions) or change shape (`Pad`), and a single returned shape
+            // would misreport their arity. See teenygrad-3fy.5.
+            Op::Abs
+            | Op::Neg
+            | Op::Ceil
+            | Op::Floor
+            | Op::Round
+            | Op::Sqrt
+            | Op::Reciprocal
+            | Op::Exp
+            | Op::Log
+            | Op::Erf
+            | Op::Sign
+            | Op::IsNaN
+            | Op::IsInf { .. }
+            | Op::Not
+            | Op::BitwiseNot
+            | Op::Sin
+            | Op::Cos
+            | Op::Tan
+            | Op::Asin
+            | Op::Acos
+            | Op::Atan
+            | Op::Sinh
+            | Op::Cosh
+            | Op::Asinh
+            | Op::Acosh
+            | Op::Atanh
+            | Op::ThresholdedRelu { .. }
+            | Op::Shrink { .. }
+            | Op::Swish
+            | Op::LogSoftmax { .. }
+            | Op::Hardmax { .. }
+            | Op::Identity
+            | Op::LRN { .. }
+            | Op::MeanVarianceNormalization { .. }
+            | Op::LpNormalization { .. }
+            | Op::Bernoulli { .. }
+            | Op::RandomUniformLike { .. }
+            | Op::EyeLike { .. } => Ok(Some(vec![output.clone()])),
 
             // A custom op knows its own reverse, or reports that it has none.
             Op::Custom { data } => data.infer_input_shape(output),
@@ -2529,6 +2578,37 @@ mod tests {
             dtype: DtypeRepr::F32,
         };
         assert_eq!(op.infer_output_shape(&[]).unwrap(), vec![Some(4), Some(4)]);
+    }
+
+    #[test]
+    fn unary_elementwise_math_reverses_to_the_identity() {
+        let output = vec![None, Some(8), Some(4)];
+        for op in [
+            Op::Abs,
+            Op::Neg,
+            Op::Sqrt,
+            Op::Exp,
+            Op::Log,
+            Op::Erf,
+            Op::Sin,
+            Op::Not,
+            Op::Identity,
+            Op::Hardmax { axis: 1 },
+        ] {
+            assert_eq!(
+                op.infer_input_shape(&output).unwrap(),
+                Some(vec![output.clone()]),
+                "{op:?} should reverse to the identity"
+            );
+        }
+    }
+
+    /// Multi-input ops stay unimplemented: one returned shape would misreport
+    /// how many inputs the node has.
+    #[test]
+    #[should_panic(expected = "not implemented for Add")]
+    fn multi_input_elementwise_is_still_unimplemented() {
+        let _ = Op::Add.infer_input_shape(&vec![Some(2), Some(2)]);
     }
 
     // --- window errors ---------------------------------------------------
