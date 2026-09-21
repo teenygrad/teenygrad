@@ -86,11 +86,12 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 
 // ── network factories ─────────────────────────────────────────────────────────
 
-fn net_linear_only<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -> SymTensor {
+fn net_linear_only<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -> Result<SymTensor> {
     sequential![Linear::<D, _, _, 2>::new(4, 2, false)]
 }
 
-fn net_linear_relu_linear<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -> SymTensor {
+fn net_linear_relu_linear<D: teeny_core::dtype::Float>() -> impl Fn(SymTensor) -> Result<SymTensor>
+{
     sequential![
         Linear::<D, _, _, 2>::new(4, 4, false),
         Relu::<D, _, 2>::new(),
@@ -151,7 +152,7 @@ async fn main() -> Result<()> {
     println!("expected dW = {:?}", expected_dw);
 
     let (input_sym, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(K)]);
-    let _output = Layer::call(&net_linear_only::<f32>(), input_sym);
+    let _output = Layer::call(&net_linear_only::<f32>(), input_sym)?;
     let graph = graph.borrow();
 
     let cuda_model =
@@ -255,7 +256,7 @@ async fn main() -> Result<()> {
     println!("expected dW1 = {expected_dw1:?}");
 
     let (input_sym2, graph2) = SymTensor::input(DtypeRepr::F32, vec![None, Some(K2)]);
-    let _output2 = Layer::call(&net_linear_relu_linear::<f32>(), input_sym2);
+    let _output2 = Layer::call(&net_linear_relu_linear::<f32>(), input_sym2)?;
     let graph2 = graph2.borrow();
 
     let cuda_model2 = graph_compiler.compile_model(

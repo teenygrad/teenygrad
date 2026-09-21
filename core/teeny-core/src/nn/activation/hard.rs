@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -45,7 +46,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Hardtanh<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -70,7 +71,7 @@ impl<D: Float, T, const RANK: usize> Default for Relu6<D, T, RANK> {
 
 impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Relu6<D, T, RANK> {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -97,7 +98,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Hardsigmoid<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -124,7 +125,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Hardswish<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -150,7 +151,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Hardshrink<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }

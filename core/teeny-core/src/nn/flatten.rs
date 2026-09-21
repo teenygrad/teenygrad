@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -53,7 +54,7 @@ impl<D: Dtype, IT, OT> Default for Flatten<D, IT, OT> {
 impl<D: Dtype, IT: Tensor<D, 4> + EagerTensor, OT: Tensor<D, 2>> Layer<IT> for Flatten<D, IT, OT> {
     type Output = OT;
 
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }

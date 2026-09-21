@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -45,7 +46,7 @@ macro_rules! pad_layer {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output {
+            fn call(&self, _input: IT) -> Result<Self::Output> {
                 todo!()
             }
         }

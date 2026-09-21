@@ -3403,10 +3403,10 @@ impl TritonLowering {
                     ));
                 }
 
-                Op::Custom { data } => match data.0.lower() {
+                Op::Custom { data } => match data.lower() {
                     Some((name, kernel_source, entry_point, runtime_op)) => {
                         #[cfg(feature = "training")]
-                        let backward_kernel_source = data.0.lower_backward_source();
+                        let backward_kernel_source = data.lower_backward_source();
                         #[cfg(feature = "training")]
                         let backward_entry_point = if backward_kernel_source.is_empty() {
                             String::new()

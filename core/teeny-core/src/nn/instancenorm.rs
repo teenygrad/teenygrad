@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -87,7 +88,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     for InstanceNorm1d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -148,7 +149,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     for InstanceNorm2d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -209,7 +210,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     for InstanceNorm3d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }

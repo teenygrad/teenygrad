@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -73,7 +74,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
 {
     type Output = OT;
 
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }

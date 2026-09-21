@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -42,7 +43,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for LeakyRelu<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -71,7 +72,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Threshold<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -98,7 +99,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Softsign<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -124,7 +125,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Softshrink<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -154,7 +155,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
     for Softplus<D, T, RANK>
 {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
