@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
+
 /// Activation layers (ReLU, GELU, sigmoid, etc).
 pub mod activation;
 /// Batch normalization.
@@ -47,16 +49,23 @@ pub trait Layer<I> {
     type Output;
 
     /// Applies this layer to `input`.
-    fn call(&self, input: I) -> Self::Output;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the layer cannot accept `input` — for the
+    /// symbolic path, a shape its op cannot produce.
+    fn call(&self, input: I) -> Result<Self::Output>;
 }
 
+/// Any fallible closure is a layer, which is what lets `sequential!` return
+/// something composable with the layers it chains.
 impl<F, I, O> Layer<I> for F
 where
-    F: Fn(I) -> O,
+    F: Fn(I) -> Result<O>,
 {
     type Output = O;
 
-    fn call(&self, input: I) -> O {
+    fn call(&self, input: I) -> Result<O> {
         self(input)
     }
 }
@@ -89,13 +98,18 @@ mod tests {
     ///
     /// RANK=2 throughout so a batch dimension `[batch, features]` flows
     /// through every layer without changing rank.
+    /// Pins the composed model's input and output types, which a bare
+    /// `sequential!` binding cannot infer on its own.
+    fn assert_layer<L: Layer<DummyTensor, Output = DummyTensor>>(_: &L) {}
+
     #[test]
     fn test_mlp_composition() {
-        let _model = sequential![
+        let model = sequential![
             Linear::<f32, DummyTensor, DummyTensor, 2>::new(784, 128, true),
             Relu::<f32, DummyTensor, 2>::new(),
             Linear::<f32, DummyTensor, DummyTensor, 2>::new(128, 10, true),
             Softmax::<f32, DummyTensor, 2>::new(1)
         ];
+        assert_layer(&model);
     }
 }

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -51,7 +52,7 @@ macro_rules! pool_layer_1d {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output {
+            fn call(&self, _input: IT) -> Result<Self::Output> {
                 todo!()
             }
         }
@@ -113,7 +114,7 @@ macro_rules! pool_layer_2d {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output {
+            fn call(&self, _input: IT) -> Result<Self::Output> {
                 todo!()
             }
         }
@@ -158,7 +159,7 @@ macro_rules! pool_layer_3d {
             Layer<IT> for $name<D, IT, OT, RANK>
         {
             type Output = OT;
-            fn call(&self, _input: IT) -> Self::Output {
+            fn call(&self, _input: IT) -> Result<Self::Output> {
                 todo!()
             }
         }
@@ -230,7 +231,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     for LpPool1d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -268,7 +269,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     for LpPool2d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -312,7 +313,7 @@ impl<D: Dtype, IT: Tensor<D, RANK> + EagerTensor, OT: Tensor<D, RANK>, const RAN
     for LpPool3d<D, IT, OT, RANK>
 {
     type Output = OT;
-    fn call(&self, _input: IT) -> Self::Output {
+    fn call(&self, _input: IT) -> Result<Self::Output> {
         todo!()
     }
 }

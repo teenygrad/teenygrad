@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -41,7 +42,7 @@ impl<D: Float, T, const RANK: usize> Default for Gelu<D, T, RANK> {
 
 impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Gelu<D, T, RANK> {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }
@@ -66,7 +67,7 @@ impl<D: Float, T, const RANK: usize> Default for Mish<D, T, RANK> {
 
 impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for Mish<D, T, RANK> {
     type Output = T;
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }

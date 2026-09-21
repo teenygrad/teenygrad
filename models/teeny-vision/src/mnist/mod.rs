@@ -78,7 +78,7 @@ use teeny_core::{
 /// ReLU
 /// Linear(84→10)             →  [N, 10]  raw logits
 /// ```
-pub fn mnist_lenet5<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
+pub fn mnist_lenet5<D: Float>() -> impl Fn(SymTensor) -> teeny_core::errors::Result<SymTensor> {
     sequential![
         Conv2d::<D, _, _, 4>::new(1, 6, (5, 5), (1, 1), (0, 0), false),
         Relu::<D, _, 4>::new(),
@@ -114,7 +114,7 @@ pub fn mnist_lenet5<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
 /// Linear(84→10)
 /// Softmax(dim=1)            →  [N, 10]
 /// ```
-pub fn mnist_valid<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
+pub fn mnist_valid<D: Float>() -> impl Fn(SymTensor) -> teeny_core::errors::Result<SymTensor> {
     sequential![
         Conv2d::<D, _, _, 4>::new(1, 6, (5, 5), (1, 1), (0, 0), false),
         Relu::<D, _, 4>::new(),
@@ -143,7 +143,7 @@ pub fn mnist_valid<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
 /// ReLU
 /// Linear(64→10,  no bias)   →  [N, 10]  raw logits (no softmax)
 /// ```
-pub fn mnist_mlp<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
+pub fn mnist_mlp<D: Float>() -> impl Fn(SymTensor) -> teeny_core::errors::Result<SymTensor> {
     sequential![
         Flatten::<D, _, _>::new(),
         Linear::<D, _, _, 2>::new(784, 256, false),
@@ -156,7 +156,7 @@ pub fn mnist_mlp<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
 
 /// Another LeNet-5 pipeline (see [`mnist_lenet5`]), with biased convolutions and same-padding on
 /// the first layer.
-pub fn mnist<D: Float>() -> impl Fn(SymTensor) -> SymTensor {
+pub fn mnist<D: Float>() -> impl Fn(SymTensor) -> teeny_core::errors::Result<SymTensor> {
     // -----------------------------------------------------------------------
     // Build the LeNet-5 model as a sequential pipeline.
     // Every layer is parameterised by its IO tensor type (SymTensor here) so

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::errors::Result;
 use core::marker::PhantomData;
 
 use crate::{
@@ -43,7 +44,7 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
 {
     type Output = T;
 
-    fn call(&self, _input: T) -> Self::Output {
+    fn call(&self, _input: T) -> Result<Self::Output> {
         todo!()
     }
 }

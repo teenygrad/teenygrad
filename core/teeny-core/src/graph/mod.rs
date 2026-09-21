@@ -17,6 +17,7 @@
 use alloc::{collections::BTreeMap, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
 use core::cell::RefCell;
 
+use crate::errors::Result;
 use crate::{
     dtype::{Dtype, Float, RankedTensor, Tensor},
     nn::{
@@ -251,11 +252,9 @@ impl SymTensor {
     /// the op cannot produce — a conv window that does not fit, a zero stride —
     /// panics here with the error's own message. Callers that want to handle
     /// it instead should ask [`Op::infer_output_shape`] directly.
-    fn record(&self, op: Op) -> Self {
-        let output_shape = op
-            .infer_output_shape(&[&self.shape])
-            .unwrap_or_else(|e| panic!("{e}"));
-        self.record_with_shape(op, output_shape)
+    fn record(&self, op: Op) -> Result<Self> {
+        let output_shape = op.infer_output_shape(&[&self.shape])?;
+        Ok(self.record_with_shape(op, output_shape))
     }
 
     fn record_with_shape(&self, op: Op, shape: Shape) -> Self {
@@ -277,23 +276,18 @@ impl SymTensor {
     /// `other_inputs`.  Pass `dtype` to override the output element type;
     /// defaults to the primary input's dtype.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics with the op's own message if it rejects these input shapes.
-    /// This mirrors `SymTensor::record`: recording returns a `SymTensor` so
-    /// a graph can be built by chaining, and there is nowhere to return an
-    /// error to. Call [`CustomOp::infer_output_shape`] first to handle it.
+    /// Returns the op's own error if it rejects these input shapes.
     pub fn record_custom(
         &self,
         data: Arc<dyn CustomOp>,
         other_inputs: &[&SymTensor],
         dtype: Option<DtypeRepr>,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut shapes: Vec<&Shape> = vec![&self.shape];
         shapes.extend(other_inputs.iter().map(|t| &t.shape));
-        let output_shape = data
-            .infer_output_shape(&shapes)
-            .unwrap_or_else(|e| panic!("{e}"));
+        let output_shape = data.infer_output_shape(&shapes)?;
 
         let mut input_ids: Vec<usize> = vec![self.node_id];
         input_ids.extend(other_inputs.iter().map(|t| t.node_id));
@@ -305,12 +299,12 @@ impl SymTensor {
             out_dtype,
             output_shape.clone(),
         );
-        Self {
+        Ok(Self {
             node_id,
             graph: self.graph.clone(),
             dtype: out_dtype,
             shape: output_shape,
-        }
+        })
     }
 }
 
@@ -322,7 +316,7 @@ impl SymTensor {
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Linear<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Linear {
             in_features: self.in_features,
             out_features: self.out_features,
@@ -333,7 +327,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Linear<D, SymTensor, SymT
 
 impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Flatten)
     }
 }
@@ -342,7 +336,7 @@ impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::BatchNorm1d {
             num_features: self.num_features,
             eps: self.eps,
@@ -355,7 +349,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm1d<D, SymTensor,
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm2d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::BatchNorm2d {
             num_features: self.num_features,
             eps: self.eps,
@@ -368,7 +362,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm2d<D, SymTensor,
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm3d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::BatchNorm3d {
             num_features: self.num_features,
             eps: self.eps,
@@ -381,7 +375,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm3d<D, SymTensor,
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LayerNorm<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::LayerNorm {
             normalized_shape: self.normalized_shape.clone(),
             eps: self.eps,
@@ -392,7 +386,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LayerNorm<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for RmsNorm<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::RmsNorm {
             normalized_shape: self.normalized_shape.clone(),
             eps: self.eps,
@@ -403,7 +397,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for RmsNorm<D, SymTensor, Sym
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for GroupNorm<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::GroupNorm {
             num_groups: self.num_groups,
             num_channels: self.num_channels,
@@ -417,7 +411,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for InstanceNorm1d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::InstanceNorm1d {
             num_features: self.num_features,
             eps: self.eps,
@@ -432,7 +426,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for InstanceNorm2d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::InstanceNorm2d {
             num_features: self.num_features,
             eps: self.eps,
@@ -447,7 +441,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for InstanceNorm3d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::InstanceNorm3d {
             num_features: self.num_features,
             eps: self.eps,
@@ -462,7 +456,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Conv1d {
             in_channels: self.in_channels,
             out_channels: self.out_channels,
@@ -476,7 +470,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv1d<D, SymTensor, SymT
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv2d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Conv2d {
             in_channels: self.in_channels,
             out_channels: self.out_channels,
@@ -494,7 +488,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv2d<D, SymTensor, SymT
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv3d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Conv3d {
             in_channels: self.in_channels,
             out_channels: self.out_channels,
@@ -516,7 +510,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv3d<D, SymTensor, SymT
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::AvgPool1d {
             kernel_l: self.kernel_l,
             stride: self.stride,
@@ -526,7 +520,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool1d<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool2d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::AvgPool2d {
             kernel_h: self.kernel_h,
             kernel_w: self.kernel_w,
@@ -538,7 +532,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool2d<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool3d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::AvgPool3d {
             kernel_d: self.kernel_d,
             kernel_h: self.kernel_h,
@@ -552,7 +546,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool3d<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::MaxPool1d {
             kernel_l: self.kernel_l,
             stride: self.stride,
@@ -562,7 +556,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool1d<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool2d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::MaxPool2d {
             kernel_h: self.kernel_h,
             kernel_w: self.kernel_w,
@@ -576,7 +570,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool2d<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool3d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::MaxPool3d {
             kernel_d: self.kernel_d,
             kernel_h: self.kernel_h,
@@ -590,7 +584,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool3d<D, SymTensor, S
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool1d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::LpPool1d {
             kernel_l: self.kernel_l,
             stride: self.stride,
@@ -601,7 +595,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool1d<D, SymTensor, Sy
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool2d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::LpPool2d {
             kernel_h: self.kernel_h,
             kernel_w: self.kernel_w,
@@ -614,7 +608,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool2d<D, SymTensor, Sy
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool3d<D, SymTensor, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::LpPool3d {
             kernel_d: self.kernel_d,
             kernel_h: self.kernel_h,
@@ -633,7 +627,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ConstantPad1d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ConstantPad1d {
             pad_left: self.pad_left,
             pad_right: self.pad_right,
@@ -646,7 +640,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ConstantPad2d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ConstantPad2d {
             pad_l: self.pad_l,
             pad_r: self.pad_r,
@@ -661,7 +655,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ConstantPad3d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ConstantPad3d {
             pad_d1: self.pad_d1,
             pad_d2: self.pad_d2,
@@ -678,7 +672,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ReflectionPad1d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ReflectionPad1d {
             pad_left: self.pad_left,
             pad_right: self.pad_right,
@@ -690,7 +684,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ReflectionPad2d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ReflectionPad2d {
             pad_l: self.pad_l,
             pad_r: self.pad_r,
@@ -704,7 +698,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ReflectionPad3d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ReflectionPad3d {
             pad_d1: self.pad_d1,
             pad_d2: self.pad_d2,
@@ -720,7 +714,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ReplicationPad1d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ReplicationPad1d {
             pad_left: self.pad_left,
             pad_right: self.pad_right,
@@ -732,7 +726,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ReplicationPad2d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ReplicationPad2d {
             pad_l: self.pad_l,
             pad_r: self.pad_r,
@@ -746,7 +740,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for ReplicationPad3d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::ReplicationPad3d {
             pad_d1: self.pad_d1,
             pad_d2: self.pad_d2,
@@ -762,7 +756,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for CircularPad1d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::CircularPad1d {
             pad_left: self.pad_left,
             pad_right: self.pad_right,
@@ -774,7 +768,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for CircularPad2d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::CircularPad2d {
             pad_l: self.pad_l,
             pad_r: self.pad_r,
@@ -788,7 +782,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
     for CircularPad3d<D, SymTensor, SymTensor, RANK>
 {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::CircularPad3d {
             pad_d1: self.pad_d1,
             pad_d2: self.pad_d2,
@@ -804,49 +798,49 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor>
 
 impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Relu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Relu)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Elu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Elu { alpha: self.alpha })
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Selu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Selu)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Celu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Celu { alpha: self.alpha })
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Gelu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Gelu)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Mish<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Mish)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardtanh<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Hardtanh {
             min_val: self.min_val,
             max_val: self.max_val,
@@ -856,28 +850,28 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardtanh<D, SymTensor, RA
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Relu6<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Relu6)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardsigmoid<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Hardsigmoid)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardswish<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Hardswish)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardshrink<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Hardshrink {
             lambda: self.lambda,
         })
@@ -886,7 +880,7 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardshrink<D, SymTensor, 
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for LeakyRelu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::LeakyRelu {
             negative_slope: self.negative_slope,
         })
@@ -895,7 +889,7 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for LeakyRelu<D, SymTensor, R
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Threshold<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Threshold {
             threshold: self.threshold,
             value: self.value,
@@ -905,14 +899,14 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Threshold<D, SymTensor, R
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softsign<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Softsign)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softshrink<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Softshrink {
             lambda: self.lambda,
         })
@@ -921,7 +915,7 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softshrink<D, SymTensor, 
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softplus<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Softplus {
             beta: self.beta,
             threshold: self.threshold,
@@ -931,42 +925,42 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softplus<D, SymTensor, RA
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Sigmoid<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Sigmoid)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Silu<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Silu)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Logsigmoid<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Logsigmoid)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Tanh<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Tanh)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Tanhshrink<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Tanhshrink)
     }
 }
 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RANK> {
     type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
+    fn call(&self, input: SymTensor) -> Result<SymTensor> {
         input.record(Op::Softmax { dim: self.dim })
     }
 }
@@ -986,6 +980,7 @@ mod tests {
         },
         sequential,
     };
+    use alloc::string::ToString;
 
     #[test]
     fn test_sequential_graph_extraction() {
@@ -998,7 +993,7 @@ mod tests {
             Softmax::<f32, SymTensor, 2>::new(1)
         ];
 
-        let _out = Layer::call(&model, input);
+        let _out = Layer::call(&model, input).unwrap();
 
         let g = graph.borrow();
         assert_eq!(g.nodes.len(), 5);
@@ -1043,7 +1038,7 @@ mod tests {
             Softmax::<f32, SymTensor, 2>::new(1)
         ];
 
-        let _out = Layer::call(&model, input);
+        let _out = Layer::call(&model, input).unwrap();
 
         let g = graph.borrow();
         let order = g.topological_sort();
@@ -1063,9 +1058,13 @@ mod tests {
     fn test_residual_graph_extraction() {
         let (input, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(64)]);
 
-        let main = Linear::<f32, SymTensor, SymTensor, 2>::new(64, 64, true).call(input.clone());
-        let main = Relu::<f32, SymTensor, 2>::new().call(main);
-        let skip = Linear::<f32, SymTensor, SymTensor, 2>::new(64, 64, false).call(input);
+        let main = Linear::<f32, SymTensor, SymTensor, 2>::new(64, 64, true)
+            .call(input.clone())
+            .unwrap();
+        let main = Relu::<f32, SymTensor, 2>::new().call(main).unwrap();
+        let skip = Linear::<f32, SymTensor, SymTensor, 2>::new(64, 64, false)
+            .call(input)
+            .unwrap();
 
         assert!(Rc::ptr_eq(&main.graph, &skip.graph));
 
@@ -1081,7 +1080,7 @@ mod tests {
             SymTensor::input(DtypeRepr::F32, vec![None, Some(3), Some(32), Some(32)]);
 
         let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 64, (3, 3), (1, 1), (1, 1), true);
-        let _out = Layer::call(&conv, input);
+        let _out = Layer::call(&conv, input).unwrap();
 
         let g = graph.borrow();
         assert_eq!(g.nodes.len(), 2);
@@ -1107,23 +1106,35 @@ mod tests {
     /// `infer_output_shape`, surfacing as a bare "attempt to subtract with
     /// overflow" in debug and a wrapped, enormous extent in release.
     #[test]
-    #[should_panic(expected = "Conv2d: height kernel 7 does not fit its input")]
-    fn test_conv2d_kernel_larger_than_padded_input_panics_with_context() {
+    fn test_conv2d_kernel_larger_than_padded_input_errors_with_context() {
         let (input, _graph) =
             SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
         let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (7, 7), (1, 1), (1, 1), false);
-        let _ = Layer::call(&conv, input);
+        let err = Layer::call(&conv, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("Conv2d: height kernel 7 does not fit its input"),
+            "unexpected error: {err}"
+        );
     }
 
     /// The message names the extents involved and both ways out, rather than
     /// just the failing line.
     #[test]
-    #[should_panic(expected = "widens it to only 6, so no window position is valid")]
-    fn test_conv2d_window_panic_reports_padded_extent_and_remedies() {
+    fn test_conv2d_window_error_reports_padded_extent_and_remedies() {
         let (input, _graph) =
             SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
         let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (7, 7), (1, 1), (1, 1), false);
-        let _ = Layer::call(&conv, input);
+        let err = Layer::call(&conv, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("widens it to only 6, so no window position is valid"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Exactly-fitting windows are still legal: kernel == padded extent gives
@@ -1133,7 +1144,7 @@ mod tests {
         let (input, graph) =
             SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
         let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (6, 6), (1, 1), (1, 1), false);
-        let _ = Layer::call(&conv, input);
+        Layer::call(&conv, input).unwrap();
 
         let g = graph.borrow();
         assert_eq!(g.nodes[1].shape, vec![Some(1), Some(8), Some(1), Some(1)]);
@@ -1142,24 +1153,36 @@ mod tests {
     /// A zero stride divided by zero one line below the subtraction; it now
     /// says which axis and what to set it to.
     #[test]
-    #[should_panic(expected = "Conv2d: width stride is 0")]
-    fn test_conv2d_zero_stride_panics_with_context() {
+    fn test_conv2d_zero_stride_errors_with_context() {
         let (input, _graph) =
             SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(8), Some(8)]);
         let conv = Conv2d::<f32, SymTensor, SymTensor, 4>::new(3, 8, (3, 3), (1, 0), (0, 0), false);
-        let _ = Layer::call(&conv, input);
+        let err = Layer::call(&conv, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("Conv2d: width stride is 0"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Pooling shares the same guard, and the combined `AvgPool*`/`MaxPool*`
     /// match arms must still name the op the caller actually used.
     #[test]
-    #[should_panic(expected = "MaxPool2d: height kernel 5 does not fit its input")]
-    fn test_maxpool2d_window_panic_names_the_right_op() {
+    fn test_maxpool2d_window_error_names_the_right_op() {
         use crate::nn::pool::MaxPool2d;
 
         let (input, _graph) =
             SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(4), Some(4)]);
         let pool = MaxPool2d::<f32, SymTensor, SymTensor, 4>::new((5, 5), (1, 1));
-        let _ = Layer::call(&pool, input);
+        let err = Layer::call(&pool, input)
+            .err()
+            .expect("expected an error")
+            .to_string();
+        assert!(
+            err.contains("MaxPool2d: height kernel 5 does not fit its input"),
+            "unexpected error: {err}"
+        );
     }
 }

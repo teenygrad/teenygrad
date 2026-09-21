@@ -22,12 +22,12 @@ macro_rules! sequential {
     ( $first:expr $(, $rest:expr )* ) => {
         {
             move |input| {
-                let out0 = $first.call(input);
+                let out0 = $first.call(input)?;
                 $(
-                    let out = $rest.call(out0);
+                    let out = $rest.call(out0)?;
                     let out0 = out;
                 )*
-                out0
+                Ok(out0)
             }
 
         }
