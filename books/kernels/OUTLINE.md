@@ -406,7 +406,7 @@ limits this chapter and is recorded in `KNOWN-GAPS.md`.
 **Introduces.** The computation graph; symbolic vs concrete shapes; shape
 inference.
 
-**Uses.** `teeny_core::graph::{CustomOp, CustomData, Op, Graph, Shape,
+**Uses.** `teeny_core::graph::{CustomOp, Op, Graph, Shape,
 SymTensor}`; `SymTensor::{input, record_custom}`; `CustomOp::{name,
 infer_output_shape, as_any, lower}`; `TritonLowering`
 (`kernels/teeny-kernels/src/graph/mod.rs`) and its `Op::Custom` arm;

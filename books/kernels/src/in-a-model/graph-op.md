@@ -51,13 +51,12 @@ its output shape from symbolic inputs, before anyone knows the batch size.
 ## Recording your op
 
 ```rust,ignore
-let y = x.record_custom(CustomData::new(MyOp::new(block_size)), &[], None);
+let y = x.record_custom(Arc::new(MyOp::new(block_size)), &[], None);
 ```
 
 Three arguments:
 
-- **the op**, wrapped in `CustomData`, which is an `Arc<dyn CustomOp>` that also
-  implements `Debug`;
+- **the op**, as an `Arc<dyn CustomOp>`;
 - **additional inputs**, since `self` is the first one — a two-input op passes
   `&[&other]`;
 - **an output dtype**, or `None` to keep the primary input's.
@@ -70,7 +69,7 @@ graph's point of view your op is now indistinguishable from a built-in one.
 Four methods matter:
 
 ```rust,ignore
-pub trait CustomOp: Any + Send + Sync {
+pub trait CustomOp: Any + Send + Sync + Debug {
     fn name(&self) -> &str;
     fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape;
     fn as_any(&self) -> &dyn Any;
