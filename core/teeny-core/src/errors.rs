@@ -62,4 +62,17 @@ pub enum Error {
         /// The padding applied to each side of `axis`.
         padding: usize,
     },
+
+    /// A [`crate::model::tile_spec::KernelTileSpec`] contradicts itself.
+    ///
+    /// These are spec-authoring bugs. The consumer's documented behaviour
+    /// for each is to skip or overwrite silently, so nothing surfaces them
+    /// at the point they are written — hence the explicit check.
+    #[error("tile spec for `{param}`: {problem}")]
+    InvalidTileSpec {
+        /// The tensor parameter the bad spec describes, e.g. `"x_ptr"`.
+        param: String,
+        /// What is wrong, naming the offending index or name.
+        problem: String,
+    },
 }

@@ -3484,6 +3484,104 @@ impl<'a> Lowering<'a> for TritonLowering {
 }
 
 #[cfg(test)]
+mod tile_spec_validation_tests {
+    //! teenygrad-1iy.1: every `KernelTileSpec` this module registers must
+    //! satisfy its own declared invariants.
+    //!
+    //! The invariants are stated in prose on the types in
+    //! `teeny_core::model::tile_spec` and enforced nowhere else: an
+    //! out-of-range `dims` index is *silently skipped* by `propagate` and a
+    //! repeated one is last-write-wins, so a malformed spec produces a
+    //! quietly wrong tile rather than a failure. With `propagate` currently
+    //! deleted (teenygrad-1nr.25) nothing reads these specs at all, so
+    //! without this test a mistake here would not surface until the
+    //! scheduler is re-landed.
+    //!
+    //! Add every new spec to `registered_specs` as it is written.
+
+    use super::*;
+
+    /// Every spec reachable from a `TritonLowering` arm: the hand-authored
+    /// consts above, plus the ones `#[tiled_kernel]` derives from a
+    /// kernel's own `#[tile(...)]`-tagged params.
+    fn registered_specs() -> Vec<(&'static str, KernelTileSpec)> {
+        vec![
+            ("MATMUL_TILE_SPEC", MATMUL_TILE_SPEC),
+            ("BATCHNORM2D_TILE_SPEC", BATCHNORM2D_TILE_SPEC),
+            ("CONV1D_TILE_SPEC", CONV1D_TILE_SPEC),
+            ("CONV3D_TILE_SPEC", CONV3D_TILE_SPEC),
+            (
+                "Conv2dForward::tile_spec",
+                Conv2dForward::<f32>::tile_spec(),
+            ),
+            (
+                "Conv2dForward::tile_spec + CONV2D_LOOP_SPEC",
+                KernelTileSpec {
+                    loop_spec: Some(CONV2D_LOOP_SPEC),
+                    ..Conv2dForward::<f32>::tile_spec()
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_registered_spec_is_self_consistent() {
+        for (name, spec) in registered_specs() {
+            if let Err(e) = spec.validate() {
+                panic!("{name} is malformed: {e}");
+            }
+        }
+    }
+
+    /// The flat elementwise specs are built per node rank, so they have to
+    /// hold at every rank a real graph edge can carry, not just one.
+    #[test]
+    fn rank_parameterised_specs_are_consistent_at_every_rank() {
+        for rank in 1..=6 {
+            for (name, spec) in [
+                ("ReluForward", ReluForward::<f32>::tile_spec(rank)),
+                ("SiluForward", SiluForward::<f32>::tile_spec(rank)),
+            ] {
+                if let Err(e) = spec.validate() {
+                    panic!("{name}::tile_spec({rank}) is malformed: {e}");
+                }
+            }
+        }
+    }
+
+    /// The check has teeth: corrupting a real spec the way a hand edit
+    /// would is caught, and the message names the tensor and the index.
+    #[test]
+    fn a_corrupted_real_spec_is_rejected() {
+        // Derived from the real spec so the test tracks it: only `axes` is
+        // corrupted, every other field is whatever CONV1D declares.
+        const OUT_OF_RANGE: &[TensorTileSpec] = &[TensorTileSpec {
+            axes: &[TileAxisBinding {
+                dims: &[7],
+                block_const: "BLOCK_OL",
+                extent_param: "OL",
+                window: None,
+                divide_by: None,
+            }],
+            ..CONV1D_TILE_SPEC.outputs[0]
+        }];
+        const SPEC: KernelTileSpec = KernelTileSpec {
+            inputs: CONV1D_TILE_SPEC.inputs,
+            outputs: OUT_OF_RANGE,
+            loop_spec: None,
+        };
+
+        let msg = SPEC
+            .validate()
+            .expect_err("dim 7 on a rank-3 tensor must be rejected")
+            .to_string();
+        assert!(msg.contains("y_ptr"), "{msg}");
+        assert!(msg.contains("binds dim 7"), "{msg}");
+        assert!(msg.contains("rank 3"), "{msg}");
+    }
+}
+
+#[cfg(test)]
 mod relu_silu_tile_spec_tests {
     //! teenygrad-1nr.18: `ReluForward`/`SiluForward::tile_spec()` (emitted
     //! by `#[tiled_kernel]` from `relu_forward`/`silu_forward`'s own
