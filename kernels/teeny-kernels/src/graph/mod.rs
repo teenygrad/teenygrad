@@ -25,6 +25,7 @@ use teeny_core::{
 };
 
 pub mod optimizer;
+pub mod tile_resolve;
 
 pub use optimizer::{
     Anduin, AnduinCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
