@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_and_signs_round_trip_exactly() {
+    fn test_zero_and_signs_round_trip_exactly() {
         for variant in [Fp8Variant::E4M3, Fp8Variant::E5M2] {
             assert_eq!(f8_to_f32(f32_to_f8(0.0, variant), variant), 0.0);
             round_trip(1.0, variant, 0.0);
@@ -291,13 +291,13 @@ mod tests {
     }
 
     #[test]
-    fn e4m3_max_finite_round_trips_exactly() {
+    fn test_e4m3_max_finite_round_trips_exactly() {
         round_trip(448.0, Fp8Variant::E4M3, 0.0);
         round_trip(-448.0, Fp8Variant::E4M3, 0.0);
     }
 
     #[test]
-    fn e4m3_overflow_saturates_to_max_finite() {
+    fn test_e4m3_overflow_saturates_to_max_finite() {
         let byte = f32_to_f8(1.0e6, Fp8Variant::E4M3);
         assert_eq!(f8_to_f32(byte, Fp8Variant::E4M3), 448.0);
         let byte = f32_to_f8(f32::INFINITY, Fp8Variant::E4M3);
@@ -305,25 +305,25 @@ mod tests {
     }
 
     #[test]
-    fn e5m2_max_finite_round_trips_exactly() {
+    fn test_e5m2_max_finite_round_trips_exactly() {
         round_trip(57344.0, Fp8Variant::E5M2, 0.0);
     }
 
     #[test]
-    fn e5m2_overflow_saturates_to_infinity() {
+    fn test_e5m2_overflow_saturates_to_infinity() {
         let byte = f32_to_f8(1.0e6, Fp8Variant::E5M2);
         assert!(f8_to_f32(byte, Fp8Variant::E5M2).is_infinite());
     }
 
     #[test]
-    fn small_values_flush_to_zero() {
+    fn test_small_values_flush_to_zero() {
         // Well below E4M3's smallest normal (2^-6).
         let byte = f32_to_f8(1.0e-10, Fp8Variant::E4M3);
         assert_eq!(f8_to_f32(byte, Fp8Variant::E4M3), 0.0);
     }
 
     #[test]
-    fn mid_range_round_trips_within_quantization_error() {
+    fn test_mid_range_round_trips_within_quantization_error() {
         for variant in [Fp8Variant::E4M3, Fp8Variant::E5M2] {
             for x in [0.1f32, 0.3, 1.5, 3.7, -12.25, 100.0] {
                 let byte = f32_to_f8(x, variant);
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn per_channel_quantization_uses_independent_scales() {
+    fn test_per_channel_quantization_uses_independent_scales() {
         let data = vec![0.1f32, -0.1, 200.0, -200.0];
         let shape = [2usize, 2];
         let q = quantize_fp8(

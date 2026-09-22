@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn round_trips_full_int4_range() {
+    fn test_round_trips_full_int4_range() {
         let values: Vec<i8> = (-8..=7).collect();
         let packed = pack_i4(&values);
         assert_eq!(packed.len(), values.len().div_ceil(2));
@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[test]
-    fn odd_length_pads_trailing_nibble() {
+    fn test_odd_length_pads_trailing_nibble() {
         let values = vec![-8i8, 7, -1];
         let packed = pack_i4(&values);
         assert_eq!(packed.len(), 2);
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_round_trips() {
+    fn test_empty_round_trips() {
         let values: Vec<i8> = vec![];
         let packed = pack_i4(&values);
         assert!(packed.is_empty());

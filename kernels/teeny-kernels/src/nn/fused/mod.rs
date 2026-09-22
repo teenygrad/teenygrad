@@ -55,7 +55,7 @@ mod tests {
     use super::prefold_bn_affine;
 
     #[test]
-    fn prefold_identity_bn() {
+    fn test_prefold_identity_bn() {
         let gamma = vec![1.0f32];
         let beta = vec![0.0f32];
         let mean = vec![0.0f32];

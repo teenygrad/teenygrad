@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn conv2d_batchnorm_silu_to_tile_graph() {
+    fn test_conv2d_batchnorm_silu_to_tile_graph() {
         let (graph, in_shape, out_shape) = conv2d_bn_silu_graph();
         assert_eq!(
             graph.nodes.len(),

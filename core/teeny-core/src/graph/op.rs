@@ -2351,14 +2351,14 @@ mod tests {
     // unreachable through the layer API.
 
     #[test]
-    fn elementwise_ops_preserve_the_input_shape() {
+    fn test_elementwise_ops_preserve_the_input_shape() {
         let input = vec![None, Some(16), Some(8), Some(8)];
         assert_eq!(Op::Relu.infer_output_shape(&[&input]).unwrap(), input);
         assert_eq!(Op::Sigmoid.infer_output_shape(&[&input]).unwrap(), input);
     }
 
     #[test]
-    fn linear_replaces_only_the_last_dim() {
+    fn test_linear_replaces_only_the_last_dim() {
         let input = vec![None, Some(784)];
         let op = Op::Linear {
             in_features: 784,
@@ -2372,7 +2372,7 @@ mod tests {
     }
 
     #[test]
-    fn flatten_folds_the_trailing_dims_and_keeps_the_batch_axis() {
+    fn test_flatten_folds_the_trailing_dims_and_keeps_the_batch_axis() {
         let input = vec![None, Some(16), Some(5), Some(5)];
         assert_eq!(
             Op::Flatten.infer_output_shape(&[&input]).unwrap(),
@@ -2381,7 +2381,7 @@ mod tests {
     }
 
     #[test]
-    fn flatten_is_unknown_when_any_folded_dim_is_dynamic() {
+    fn test_flatten_is_unknown_when_any_folded_dim_is_dynamic() {
         let input = vec![Some(2), Some(16), None, Some(5)];
         assert_eq!(
             Op::Flatten.infer_output_shape(&[&input]).unwrap(),
@@ -2390,7 +2390,7 @@ mod tests {
     }
 
     #[test]
-    fn conv2d_applies_the_window_arithmetic_per_spatial_axis() {
+    fn test_conv2d_applies_the_window_arithmetic_per_spatial_axis() {
         let input = vec![None, Some(3), Some(32), Some(32)];
         let op = Op::Conv2d {
             in_channels: 3,
@@ -2411,7 +2411,7 @@ mod tests {
     }
 
     #[test]
-    fn global_avg_pool_collapses_the_spatial_dims_to_one() {
+    fn test_global_avg_pool_collapses_the_spatial_dims_to_one() {
         let input = vec![None, Some(16), Some(7), Some(7)];
         assert_eq!(
             Op::GlobalAvgPool.infer_output_shape(&[&input]).unwrap(),
@@ -2420,7 +2420,7 @@ mod tests {
     }
 
     #[test]
-    fn concat_sums_the_axis_extent_across_every_input() {
+    fn test_concat_sums_the_axis_extent_across_every_input() {
         let a = vec![Some(2), Some(3), Some(8)];
         let b = vec![Some(2), Some(5), Some(8)];
         let c = vec![Some(2), Some(7), Some(8)];
@@ -2432,7 +2432,7 @@ mod tests {
     }
 
     #[test]
-    fn concat_axis_is_unknown_when_any_input_is_dynamic() {
+    fn test_concat_axis_is_unknown_when_any_input_is_dynamic() {
         let a = vec![Some(2), Some(3)];
         let b = vec![Some(2), None];
         let op = Op::Concat { axis: -1 };
@@ -2443,7 +2443,7 @@ mod tests {
     }
 
     #[test]
-    fn matmul_takes_the_trailing_dim_from_the_second_input() {
+    fn test_matmul_takes_the_trailing_dim_from_the_second_input() {
         let a = vec![None, Some(2), Some(3)];
         let b = vec![Some(3), Some(4)];
         assert_eq!(
@@ -2453,7 +2453,7 @@ mod tests {
     }
 
     #[test]
-    fn gemm_reads_m_and_n_transpose_aware() {
+    fn test_gemm_reads_m_and_n_transpose_aware() {
         let a = vec![Some(3), Some(2)];
         let b = vec![Some(5), Some(3)];
         let op = Op::Gemm {
@@ -2470,7 +2470,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_cat_takes_the_channel_count_from_its_config() {
+    fn test_channel_cat_takes_the_channel_count_from_its_config() {
         let a = vec![Some(1), Some(4), Some(8), Some(8)];
         let b = vec![Some(1), Some(6), Some(8), Some(8)];
         let op = Op::ChannelCat { c_total: 10 };
@@ -2481,7 +2481,7 @@ mod tests {
     }
 
     #[test]
-    fn split_divides_the_axis_by_the_output_count() {
+    fn test_split_divides_the_axis_by_the_output_count() {
         let input = vec![Some(2), Some(12), Some(8)];
         let op = Op::Split {
             axis: 1,
@@ -2494,7 +2494,7 @@ mod tests {
     }
 
     #[test]
-    fn constant_carries_its_own_shape_and_ignores_its_inputs() {
+    fn test_constant_carries_its_own_shape_and_ignores_its_inputs() {
         let op = Op::Constant {
             shape: vec![Some(4), Some(4)],
             dtype: DtypeRepr::F32,
@@ -2520,7 +2520,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_that_cannot_fit_is_an_error_not_a_panic() {
+    fn test_a_window_that_cannot_fit_is_an_error_not_a_panic() {
         let input = vec![Some(1), Some(3), Some(4), Some(4)];
         let err = conv2d(7, 1, 1).infer_output_shape(&[&input]).unwrap_err();
         let msg = err.to_string();
@@ -2535,7 +2535,7 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_stride_is_an_error_not_a_panic() {
+    fn test_a_zero_stride_is_an_error_not_a_panic() {
         let input = vec![Some(1), Some(3), Some(8), Some(8)];
         let err = conv2d(3, 0, 0).infer_output_shape(&[&input]).unwrap_err();
         assert!(
@@ -2547,7 +2547,7 @@ mod tests {
     /// The context travels as typed fields, so a caller can inspect the
     /// failure rather than parse the message.
     #[test]
-    fn window_errors_carry_their_context_as_fields() {
+    fn test_window_errors_carry_their_context_as_fields() {
         let input = vec![Some(1), Some(3), Some(4), Some(4)];
         let err = conv2d(7, 1, 1).infer_output_shape(&[&input]).unwrap_err();
         match err.downcast_ref::<Error>() {
@@ -2569,7 +2569,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_that_exactly_fills_its_padded_input_is_not_an_error() {
+    fn test_a_window_that_exactly_fills_its_padded_input_is_not_an_error() {
         let input = vec![Some(1), Some(3), Some(4), Some(4)];
         assert_eq!(
             conv2d(6, 1, 1).infer_output_shape(&[&input]).unwrap(),
@@ -2602,7 +2602,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_op_forward_errors_propagate_through_op() {
+    fn test_custom_op_forward_errors_propagate_through_op() {
         let op = Op::Custom {
             data: Arc::new(EvenRankOnlyOp),
         };

@@ -146,7 +146,7 @@ mod capability_from_str_tests {
     use super::Capability;
 
     #[test]
-    fn accepts_canonical_and_tolerant_forms() {
+    fn test_accepts_canonical_and_tolerant_forms() {
         assert_eq!("sm_90".parse::<Capability>().unwrap(), Capability::Sm90);
         assert_eq!("sm-90".parse::<Capability>().unwrap(), Capability::Sm90);
         assert_eq!("SM90".parse::<Capability>().unwrap(), Capability::Sm90);
@@ -155,7 +155,7 @@ mod capability_from_str_tests {
     }
 
     #[test]
-    fn rejects_unknown_capability() {
+    fn test_rejects_unknown_capability() {
         assert!("sm_61".parse::<Capability>().is_err());
     }
 }
