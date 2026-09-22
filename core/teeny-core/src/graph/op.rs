@@ -23,7 +23,7 @@
 //! [`CustomOp`] is the extension point for ops defined outside this crate;
 //! `Op::Custom` wraps one and delegates shape inference and lowering to it.
 
-use alloc::{string::String, sync::Arc, vec, vec::Vec};
+use alloc::{string::String, sync::Arc, vec};
 use core::any::Any;
 
 use super::{DtypeRepr, Shape};
@@ -41,20 +41,6 @@ pub trait CustomOp: Any + Send + Sync + core::fmt::Debug {
     /// Return an error when `input_shapes` are ones this op cannot accept —
     /// a rank it does not handle, or an extent that leaves no valid output.
     fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Result<Shape>;
-
-    /// Compute the input shapes given the shape of the output tensor — the
-    /// reverse of [`CustomOp::infer_output_shape`].
-    ///
-    /// Return `Ok(Some(shapes))` with one shape per input, in the order
-    /// `infer_output_shape` receives them, or `Ok(None)` when this op is not
-    /// invertible because its forward pass discards what the reverse would
-    /// need. Return an error when `output_shape` could not have been produced
-    /// by this op.
-    ///
-    /// There is no default: an op that cannot invert must say so explicitly
-    /// with `Ok(None)`, so that a missing reverse is a decision rather than an
-    /// oversight.
-    fn infer_input_shape(&self, output_shape: &Shape) -> Result<Option<Vec<Shape>>>;
 
     /// Expose `self` as `&dyn Any` so the custom lowering can downcast to the
     /// concrete op type.  Implement as `fn as_any(&self) -> &dyn Any { self }`.
@@ -1525,6 +1511,68 @@ fn window_out_dim(
     Ok((padded - kernel) / stride + 1)
 }
 
+/// One spatial axis's window parameters — kernel, stride and padding, in the
+/// order [`window_out_dim`] takes them.
+type Window = (usize, usize, usize);
+
+/// Names the spatial axes of an `N`-dimensional window, matching the wording
+/// used in the window errors.
+fn spatial_axes(n: usize) -> &'static [&'static str] {
+    match n {
+        1 => &["length"],
+        2 => &["height", "width"],
+        _ => &["depth", "height", "width"],
+    }
+}
+
+/// Computes a `[N, C, spatial..]` window op's output shape from its input
+/// shape.
+///
+/// The batch dim carries over untouched. `out_channels` replaces the channel
+/// dim for an op that changes it — a convolution — and `None` keeps the one
+/// already there, which is what every pool wants. Each spatial dim goes
+/// through [`window_out_dim`], and a dim that is already unknown stays
+/// unknown.
+///
+/// `N` is the number of spatial dims, so `windows` holds one entry per axis in
+/// axis order and cannot disagree with the rank the op works at.
+///
+/// # Panics
+///
+/// Indexes `input` up to `N + 2`, so a shorter shape panics — the existing
+/// behaviour of every arm this replaces, tracked by `teenygrad-3kt`.
+///
+/// # Errors
+///
+/// Whatever [`window_out_dim`] reports — a zero stride, or a kernel that does
+/// not fit the padded input.
+fn window_out_shape<const N: usize>(
+    op: &str,
+    input: &Shape,
+    out_channels: Option<usize>,
+    windows: [Window; N],
+) -> Result<Shape> {
+    let mut output = Shape::with_capacity(N + 2);
+    output.push(input[0]);
+    output.push(match out_channels {
+        Some(channels) => Some(channels),
+        None => input[1],
+    });
+
+    let axes = spatial_axes(N);
+    for (i, (kernel, stride, padding)) in windows.into_iter().enumerate() {
+        // `axes` covers the 1-D to 3-D ops that exist; the fallback keeps a
+        // wider one from indexing off the end.
+        let axis = axes.get(i).copied().unwrap_or("spatial");
+        let extent = input[i + 2]
+            .map(|extent| window_out_dim(op, axis, extent, kernel, stride, padding))
+            .transpose()?;
+        output.push(extent);
+    }
+
+    Ok(output)
+}
+
 impl Op {
     /// Computes this op's output shape from the shapes of its inputs, in order.
     ///
@@ -1600,6 +1648,11 @@ impl Op {
             }
 
             // --- Convolution ---
+            //
+            // Each arm names its axes in order and hands them to
+            // `window_out_shape`, which walks them through the window
+            // arithmetic. A convolution passes `out_channels`, which replaces
+            // the input's channel dim; a pool passes `None`, leaving it alone.
             Op::Conv1d {
                 out_channels,
                 kernel_l,
@@ -1608,10 +1661,12 @@ impl Op {
                 ..
             } => {
                 // [N, C_in, L] → [N, C_out, L_out]
-                let l_out = input[2]
-                    .map(|l| window_out_dim("Conv1d", "length", l, *kernel_l, *stride, *padding))
-                    .transpose()?;
-                vec![input[0], Some(*out_channels), l_out]
+                window_out_shape(
+                    "Conv1d",
+                    input,
+                    Some(*out_channels),
+                    [(*kernel_l, *stride, *padding)],
+                )?
             }
 
             Op::Conv2d {
@@ -1625,15 +1680,15 @@ impl Op {
                 ..
             } => {
                 // [N, C_in, H, W] → [N, C_out, H_out, W_out]
-                let h_out = input[2]
-                    .map(|h| {
-                        window_out_dim("Conv2d", "height", h, *kernel_h, *stride_h, *padding_h)
-                    })
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("Conv2d", "width", w, *kernel_w, *stride_w, *padding_w))
-                    .transpose()?;
-                vec![input[0], Some(*out_channels), h_out, w_out]
+                window_out_shape(
+                    "Conv2d",
+                    input,
+                    Some(*out_channels),
+                    [
+                        (*kernel_h, *stride_h, *padding_h),
+                        (*kernel_w, *stride_w, *padding_w),
+                    ],
+                )?
             }
 
             Op::Conv3d {
@@ -1650,18 +1705,16 @@ impl Op {
                 ..
             } => {
                 // [N, C_in, D, H, W] → [N, C_out, D_out, H_out, W_out]
-                let d_out = input[2]
-                    .map(|d| window_out_dim("Conv3d", "depth", d, *kernel_d, *stride_d, *padding_d))
-                    .transpose()?;
-                let h_out = input[3]
-                    .map(|h| {
-                        window_out_dim("Conv3d", "height", h, *kernel_h, *stride_h, *padding_h)
-                    })
-                    .transpose()?;
-                let w_out = input[4]
-                    .map(|w| window_out_dim("Conv3d", "width", w, *kernel_w, *stride_w, *padding_w))
-                    .transpose()?;
-                vec![input[0], Some(*out_channels), d_out, h_out, w_out]
+                window_out_shape(
+                    "Conv3d",
+                    input,
+                    Some(*out_channels),
+                    [
+                        (*kernel_d, *stride_d, *padding_d),
+                        (*kernel_h, *stride_h, *padding_h),
+                        (*kernel_w, *stride_w, *padding_w),
+                    ],
+                )?
             }
 
             // --- Pooling ---
@@ -1671,35 +1724,24 @@ impl Op {
                 } else {
                     "MaxPool1d"
                 };
-                let l_out = input[2]
-                    .map(|l| window_out_dim(name, "length", l, *kernel_l, *stride, 0))
-                    .transpose()?;
-                vec![input[0], input[1], l_out]
+                window_out_shape(name, input, None, [(*kernel_l, *stride, 0)])?
             }
 
             Op::LpPool1d {
                 kernel_l, stride, ..
-            } => {
-                let l_out = input[2]
-                    .map(|l| window_out_dim("LpPool1d", "length", l, *kernel_l, *stride, 0))
-                    .transpose()?;
-                vec![input[0], input[1], l_out]
-            }
+            } => window_out_shape("LpPool1d", input, None, [(*kernel_l, *stride, 0)])?,
 
             Op::AvgPool2d {
                 kernel_h,
                 kernel_w,
                 stride_h,
                 stride_w,
-            } => {
-                let h_out = input[2]
-                    .map(|h| window_out_dim("AvgPool2d", "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("AvgPool2d", "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], h_out, w_out]
-            }
+            } => window_out_shape(
+                "AvgPool2d",
+                input,
+                None,
+                [(*kernel_h, *stride_h, 0), (*kernel_w, *stride_w, 0)],
+            )?,
 
             Op::MaxPool2d {
                 kernel_h,
@@ -1708,15 +1750,15 @@ impl Op {
                 stride_w,
                 pad_h,
                 pad_w,
-            } => {
-                let h_out = input[2]
-                    .map(|h| window_out_dim("MaxPool2d", "height", h, *kernel_h, *stride_h, *pad_h))
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("MaxPool2d", "width", w, *kernel_w, *stride_w, *pad_w))
-                    .transpose()?;
-                vec![input[0], input[1], h_out, w_out]
-            }
+            } => window_out_shape(
+                "MaxPool2d",
+                input,
+                None,
+                [
+                    (*kernel_h, *stride_h, *pad_h),
+                    (*kernel_w, *stride_w, *pad_w),
+                ],
+            )?,
 
             Op::LpPool2d {
                 kernel_h,
@@ -1724,15 +1766,12 @@ impl Op {
                 stride_h,
                 stride_w,
                 ..
-            } => {
-                let h_out = input[2]
-                    .map(|h| window_out_dim("LpPool2d", "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("LpPool2d", "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], h_out, w_out]
-            }
+            } => window_out_shape(
+                "LpPool2d",
+                input,
+                None,
+                [(*kernel_h, *stride_h, 0), (*kernel_w, *stride_w, 0)],
+            )?,
 
             Op::AvgPool3d {
                 kernel_d,
@@ -1755,16 +1794,16 @@ impl Op {
                 } else {
                     "MaxPool3d"
                 };
-                let d_out = input[2]
-                    .map(|d| window_out_dim(name, "depth", d, *kernel_d, *stride_d, 0))
-                    .transpose()?;
-                let h_out = input[3]
-                    .map(|h| window_out_dim(name, "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[4]
-                    .map(|w| window_out_dim(name, "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], d_out, h_out, w_out]
+                window_out_shape(
+                    name,
+                    input,
+                    None,
+                    [
+                        (*kernel_d, *stride_d, 0),
+                        (*kernel_h, *stride_h, 0),
+                        (*kernel_w, *stride_w, 0),
+                    ],
+                )?
             }
 
             Op::LpPool3d {
@@ -1775,18 +1814,16 @@ impl Op {
                 stride_h,
                 stride_w,
                 ..
-            } => {
-                let d_out = input[2]
-                    .map(|d| window_out_dim("LpPool3d", "depth", d, *kernel_d, *stride_d, 0))
-                    .transpose()?;
-                let h_out = input[3]
-                    .map(|h| window_out_dim("LpPool3d", "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[4]
-                    .map(|w| window_out_dim("LpPool3d", "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], d_out, h_out, w_out]
-            }
+            } => window_out_shape(
+                "LpPool3d",
+                input,
+                None,
+                [
+                    (*kernel_d, *stride_d, 0),
+                    (*kernel_h, *stride_h, 0),
+                    (*kernel_w, *stride_w, 0),
+                ],
+            )?,
 
             // --- Upsample ---
             Op::UpsampleNearest2d { scale_h, scale_w } => {
@@ -2292,121 +2329,6 @@ impl Op {
             Op::SequenceEmpty | Op::OptionalHasElement => vec![],
         })
     }
-
-    /// Recovers this op's input shapes from its output shape — the reverse of
-    /// [`Op::infer_output_shape`].
-    ///
-    /// `Ok(Some(shapes))` holds one shape per input, in the order
-    /// `infer_output_shape` expects them, so a unary op yields a single shape
-    /// and `Op::Input` yields none. `Ok(None)` means this op is not
-    /// invertible — its forward pass discarded what the reverse would need.
-    ///
-    /// Implemented for the single-input shape-preserving ops — the
-    /// activations, norms and unary element-wise math — plus `Op::Input` and
-    /// `Op::Custom`, which delegates to [`CustomOp::infer_input_shape`].
-    /// Every other variant panics with `unimplemented!`.
-    ///
-    /// Multi-input ops are deliberately excluded: this returns one shape per
-    /// input, but an `Op` variant does not record how many inputs its node
-    /// has, so `Add`, `Concat` and the like cannot report a correct-length
-    /// result from the output shape alone. See `teenygrad-3fy`
-    /// for the remaining cases — floor-ambiguous conv/pool windows, ops that
-    /// lose exactly one dimension, and the total-loss set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when `output` could not have been produced by this op,
-    /// which is why the reverse pass is fallible where the forward one is not.
-    /// No pointwise op can fail this way: the reverse is the identity and
-    /// every shape is reachable.
-    pub fn infer_input_shape(&self, output: &Shape) -> Result<Option<Vec<Shape>>> {
-        match self {
-            // A placeholder has no producers, so there is nothing to infer.
-            Op::Input => Ok(Some(vec![])),
-
-            // Element-wise / shape-preserving — input shape = output shape.
-            Op::Relu
-            | Op::Elu { .. }
-            | Op::Selu
-            | Op::Celu { .. }
-            | Op::Gelu
-            | Op::Mish
-            | Op::Hardtanh { .. }
-            | Op::Relu6
-            | Op::Hardsigmoid
-            | Op::Hardswish
-            | Op::Hardshrink { .. }
-            | Op::LeakyRelu { .. }
-            | Op::Threshold { .. }
-            | Op::Softsign
-            | Op::Softshrink { .. }
-            | Op::Softplus { .. }
-            | Op::Sigmoid
-            | Op::Silu
-            | Op::Logsigmoid
-            | Op::Tanh
-            | Op::Tanhshrink
-            | Op::Softmax { .. }
-            | Op::BatchNorm1d { .. }
-            | Op::BatchNorm2d { .. }
-            | Op::BatchNorm3d { .. }
-            | Op::LayerNorm { .. }
-            | Op::RmsNorm { .. }
-            | Op::GroupNorm { .. }
-            | Op::InstanceNorm1d { .. }
-            | Op::InstanceNorm2d { .. }
-            | Op::InstanceNorm3d { .. } => Ok(Some(vec![output.clone()])),
-
-            // Unary element-wise — same reverse, one input, shape unchanged.
-            // The forward pass groups more ops than these under "unary", but
-            // the rest take several inputs (`PRelu`, `Clip`, `CumSum`, the
-            // attentions) or change shape (`Pad`), and a single returned shape
-            // would misreport their arity. See teenygrad-3fy.5.
-            Op::Abs
-            | Op::Neg
-            | Op::Ceil
-            | Op::Floor
-            | Op::Round
-            | Op::Sqrt
-            | Op::Reciprocal
-            | Op::Exp
-            | Op::Log
-            | Op::Erf
-            | Op::Sign
-            | Op::IsNaN
-            | Op::IsInf { .. }
-            | Op::Not
-            | Op::BitwiseNot
-            | Op::Sin
-            | Op::Cos
-            | Op::Tan
-            | Op::Asin
-            | Op::Acos
-            | Op::Atan
-            | Op::Sinh
-            | Op::Cosh
-            | Op::Asinh
-            | Op::Acosh
-            | Op::Atanh
-            | Op::ThresholdedRelu { .. }
-            | Op::Shrink { .. }
-            | Op::Swish
-            | Op::LogSoftmax { .. }
-            | Op::Hardmax { .. }
-            | Op::Identity
-            | Op::LRN { .. }
-            | Op::MeanVarianceNormalization { .. }
-            | Op::LpNormalization { .. }
-            | Op::Bernoulli { .. }
-            | Op::RandomUniformLike { .. }
-            | Op::EyeLike { .. } => Ok(Some(vec![output.clone()])),
-
-            // A custom op knows its own reverse, or reports that it has none.
-            Op::Custom { data } => data.infer_input_shape(output),
-
-            other => unimplemented!("Op::infer_input_shape is not implemented for {other:?}"),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -2580,37 +2502,6 @@ mod tests {
         assert_eq!(op.infer_output_shape(&[]).unwrap(), vec![Some(4), Some(4)]);
     }
 
-    #[test]
-    fn unary_elementwise_math_reverses_to_the_identity() {
-        let output = vec![None, Some(8), Some(4)];
-        for op in [
-            Op::Abs,
-            Op::Neg,
-            Op::Sqrt,
-            Op::Exp,
-            Op::Log,
-            Op::Erf,
-            Op::Sin,
-            Op::Not,
-            Op::Identity,
-            Op::Hardmax { axis: 1 },
-        ] {
-            assert_eq!(
-                op.infer_input_shape(&output).unwrap(),
-                Some(vec![output.clone()]),
-                "{op:?} should reverse to the identity"
-            );
-        }
-    }
-
-    /// Multi-input ops stay unimplemented: one returned shape would misreport
-    /// how many inputs the node has.
-    #[test]
-    #[should_panic(expected = "not implemented for Add")]
-    fn multi_input_elementwise_is_still_unimplemented() {
-        let _ = Op::Add.infer_input_shape(&vec![Some(2), Some(2)]);
-    }
-
     // --- window errors ---------------------------------------------------
 
     fn conv2d(kernel: usize, stride: usize, padding: usize) -> Op {
@@ -2686,93 +2577,6 @@ mod tests {
         );
     }
 
-    // --- infer_input_shape (reverse) -------------------------------------
-
-    #[test]
-    fn pointwise_reverse_is_the_identity() {
-        let output = vec![Some(2), Some(16), Some(8), Some(8)];
-        for op in [Op::Relu, Op::Sigmoid, Op::Silu, Op::Tanh, Op::Gelu] {
-            assert_eq!(
-                op.infer_input_shape(&output).unwrap(),
-                Some(vec![output.clone()])
-            );
-        }
-    }
-
-    #[test]
-    fn pointwise_reverse_keeps_dynamic_dims_dynamic() {
-        let output = vec![None, Some(128)];
-        assert_eq!(
-            Op::Relu.infer_input_shape(&output).unwrap(),
-            Some(vec![vec![None, Some(128)]])
-        );
-    }
-
-    #[test]
-    fn shape_preserving_ops_with_config_also_reverse_to_identity() {
-        let output = vec![None, Some(16), Some(8), Some(8)];
-        let batchnorm = Op::BatchNorm2d {
-            num_features: 16,
-            eps: 1e-5,
-            momentum: 0.1,
-            affine: true,
-            track_running_stats: true,
-        };
-        let softmax = Op::Softmax { dim: 1 };
-        assert_eq!(
-            batchnorm.infer_input_shape(&output).unwrap(),
-            Some(vec![output.clone()])
-        );
-        assert_eq!(
-            softmax.infer_input_shape(&output).unwrap(),
-            Some(vec![output])
-        );
-    }
-
-    #[test]
-    fn input_placeholder_has_no_producers_to_infer() {
-        let out = Op::Input.infer_input_shape(&vec![None, Some(3)]).unwrap();
-        assert_eq!(out, Some(vec![]));
-    }
-
-    /// The reverse of the forward pass round-trips for every pointwise op.
-    #[test]
-    fn pointwise_round_trips_through_both_directions() {
-        let input = vec![None, Some(16), Some(8), Some(8)];
-        let op = Op::Relu;
-        let output = op.infer_output_shape(&[&input]).unwrap();
-        assert_eq!(op.infer_input_shape(&output).unwrap(), Some(vec![input]));
-    }
-
-    #[test]
-    #[should_panic(expected = "Op::infer_input_shape is not implemented for Flatten")]
-    fn unimplemented_ops_panic_naming_the_variant() {
-        let _ = Op::Flatten.infer_input_shape(&vec![Some(2), Some(400)]);
-    }
-
-    /// A custom op that can invert itself: shape-preserving, like a fused
-    /// activation.
-    #[derive(Debug)]
-    struct PassThroughOp;
-
-    impl CustomOp for PassThroughOp {
-        fn name(&self) -> &str {
-            "test.pass_through"
-        }
-
-        fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Result<Shape> {
-            Ok(input_shapes[0].clone())
-        }
-
-        fn infer_input_shape(&self, output_shape: &Shape) -> Result<Option<Vec<Shape>>> {
-            Ok(Some(vec![output_shape.clone()]))
-        }
-
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-    }
-
     /// A custom op that rejects output shapes it could not have produced.
     #[derive(Debug)]
     struct EvenRankOnlyOp;
@@ -2792,38 +2596,6 @@ mod tests {
             Ok(input_shapes[0].clone())
         }
 
-        fn infer_input_shape(&self, output_shape: &Shape) -> Result<Option<Vec<Shape>>> {
-            if !output_shape.len().is_multiple_of(2) {
-                return Err(anyhow::anyhow!(
-                    "test.even_rank_only: rank {} is odd",
-                    output_shape.len()
-                ));
-            }
-            Ok(Some(vec![output_shape.clone()]))
-        }
-
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-    }
-
-    /// A custom op that declines to invert, which it must now say explicitly.
-    #[derive(Debug)]
-    struct OpaqueOp;
-
-    impl CustomOp for OpaqueOp {
-        fn name(&self) -> &str {
-            "test.opaque"
-        }
-
-        fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Result<Shape> {
-            Ok(input_shapes[0].clone())
-        }
-
-        fn infer_input_shape(&self, _output_shape: &Shape) -> Result<Option<Vec<Shape>>> {
-            Ok(None)
-        }
-
         fn as_any(&self) -> &dyn Any {
             self
         }
@@ -2840,38 +2612,6 @@ mod tests {
 
         let even = vec![Some(2), Some(4)];
         assert_eq!(op.infer_output_shape(&[&even]).unwrap(), even);
-    }
-
-    #[test]
-    fn custom_op_reverse_is_delegated_to_the_trait() {
-        let output = vec![None, Some(16), Some(8), Some(8)];
-        let op = Op::Custom {
-            data: Arc::new(PassThroughOp),
-        };
-        assert_eq!(
-            op.infer_input_shape(&output).unwrap(),
-            Some(vec![output.clone()])
-        );
-    }
-
-    #[test]
-    fn custom_op_errors_propagate_unchanged() {
-        let op = Op::Custom {
-            data: Arc::new(EvenRankOnlyOp),
-        };
-        let err = op
-            .infer_input_shape(&vec![Some(2), Some(3), Some(4)])
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("rank 3 is odd"), "unexpected error: {err}");
-    }
-
-    #[test]
-    fn custom_op_declining_to_invert_reports_none_not_an_error() {
-        let op = Op::Custom {
-            data: Arc::new(OpaqueOp),
-        };
-        assert_eq!(op.infer_input_shape(&vec![Some(2), Some(4)]).unwrap(), None);
     }
 
     /// End-to-end cover for the inference arms an actual model walks through.
