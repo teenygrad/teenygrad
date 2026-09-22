@@ -143,12 +143,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_bytes_that_are_not_elf64() {
+    fn test_rejects_bytes_that_are_not_elf64() {
         assert!(exported_functions(b"not an ELF file at all").is_none());
     }
 
     #[test]
-    fn reports_a_library_without_an_entry_point() {
+    fn test_reports_a_library_without_an_entry_point() {
         // The test binary itself is a valid ELF64 file that exports no kernel entry point.
         let err = find_entry_point(Path::new("/proc/self/exe")).unwrap_err();
         assert!(matches!(

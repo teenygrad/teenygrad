@@ -30,7 +30,7 @@ use teeny_riscv::device::program::RiscvProgram;
 const BLOCK_SIZE: i32 = 1024;
 
 #[test]
-fn compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
+fn test_compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);

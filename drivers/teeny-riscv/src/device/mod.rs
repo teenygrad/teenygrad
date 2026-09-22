@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn buffer_round_trips_to_device_and_to_host() {
+    fn test_buffer_round_trips_to_device_and_to_host() {
         let device = RiscvDevice::new(RiscvDeviceInfo::default());
         let mut buf = device.buffer::<f32>(4).unwrap();
 
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn device_buffers_are_registered_until_dropped() {
+    fn test_device_buffers_are_registered_until_dropped() {
         let device = RiscvDevice::new(RiscvDeviceInfo::default());
         let buf = device.buffer::<f32>(4).unwrap();
         let addr = buf.as_device_ptr() as usize;
@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn context_lists_exactly_one_synthetic_device() {
+    fn test_context_lists_exactly_one_synthetic_device() {
         let ctx = Riscv::try_new().unwrap();
         let devices = ctx.list_devices().unwrap();
         assert_eq!(devices.len(), 1);
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     #[cfg(not(feature = "qemu"))]
     #[should_panic(expected = "no RISC-V hardware")]
-    fn launch_without_qemu_panics() {
+    fn test_launch_without_qemu_panics() {
         let program =
             RiscvProgram::<TestKernel>::from_parts("kernel.so", "test_kernel_entry_point");
         let device = RiscvDevice::new(RiscvDeviceInfo::default());

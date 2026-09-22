@@ -222,14 +222,14 @@ mod tests {
     }
 
     #[test]
-    fn constructible_without_a_device() {
+    fn test_constructible_without_a_device() {
         let profile = profile();
         assert_eq!(profile.compute_units, 48);
         assert_eq!(profile.memory_levels.len(), 2);
     }
 
     #[test]
-    fn level_finds_the_matching_kind() {
+    fn test_level_finds_the_matching_kind() {
         let profile = profile();
         let shared = profile
             .level(MemoryLevelKind::SharedMemory)
@@ -238,13 +238,13 @@ mod tests {
     }
 
     #[test]
-    fn level_returns_none_for_an_absent_kind() {
+    fn test_level_returns_none_for_an_absent_kind() {
         let profile = profile();
         assert!(profile.level(MemoryLevelKind::L1Cache).is_none());
     }
 
     #[test]
-    fn execution_profile_is_constructible_and_optional() {
+    fn test_execution_profile_is_constructible_and_optional() {
         let profile = profile();
         let execution = profile
             .execution
@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_level_kind_orders_fast_to_slow() {
+    fn test_memory_level_kind_orders_fast_to_slow() {
         use MemoryLevelKind::*;
         assert!(Register < SharedMemory);
         assert!(SharedMemory < L1Cache);
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_level_kind_sorts_into_hierarchy_order() {
+    fn test_memory_level_kind_sorts_into_hierarchy_order() {
         let mut kinds = alloc::vec![
             MemoryLevelKind::HostMemory,
             MemoryLevelKind::Register,

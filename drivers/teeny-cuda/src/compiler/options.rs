@@ -661,68 +661,68 @@ mod parse_tests {
     use super::*;
 
     #[test]
-    fn parses_capability_and_maxnreg_alias() {
+    fn test_parses_capability_and_maxnreg_alias() {
         let opts = Options::parse("capability=sm_90,maxnreg=16").unwrap();
         assert_eq!(opts.gpu_name, Capability::Sm90);
         assert_eq!(opts.maxrregcount, Some(16));
     }
 
     #[test]
-    fn bare_bool_flag_means_true() {
+    fn test_bare_bool_flag_means_true() {
         let opts = Options::parse("capability=sm_90,verbose").unwrap();
         assert!(opts.verbose);
     }
 
     #[test]
-    fn missing_capability_errors() {
+    fn test_missing_capability_errors() {
         assert!(Options::parse("maxnreg=16").is_err());
     }
 
     #[test]
-    fn unknown_key_errors() {
+    fn test_unknown_key_errors() {
         assert!(Options::parse("capability=sm_90,shared-memory=25k").is_err());
     }
 
     #[test]
-    fn parses_ptx_version_override() {
+    fn test_parses_ptx_version_override() {
         let opts = Options::parse("capability=sm_87,ptx-version=82").unwrap();
         assert_eq!(opts.gpu_name, Capability::Sm87);
         assert_eq!(opts.ptx_version, Some(82));
     }
 
     #[test]
-    fn ptx_version_defaults_to_none() {
+    fn test_ptx_version_defaults_to_none() {
         let opts = Options::parse("capability=sm_87").unwrap();
         assert_eq!(opts.ptx_version, None);
     }
 
     #[test]
-    fn parses_sm_count_override() {
+    fn test_parses_sm_count_override() {
         let opts = Options::parse("capability=sm_87,sm-count=20").unwrap();
         assert_eq!(opts.gpu_name, Capability::Sm87);
         assert_eq!(opts.sm_count, Some(20));
     }
 
     #[test]
-    fn sm_count_defaults_to_none() {
+    fn test_sm_count_defaults_to_none() {
         let opts = Options::parse("capability=sm_87").unwrap();
         assert_eq!(opts.sm_count, None);
     }
 
     #[test]
-    fn parses_log_level() {
+    fn test_parses_log_level() {
         let opts = Options::parse("capability=sm_87,log-level=debug").unwrap();
         assert_eq!(opts.log_level, Some(LogLevel::Debug));
     }
 
     #[test]
-    fn log_level_defaults_to_none() {
+    fn test_log_level_defaults_to_none() {
         let opts = Options::parse("capability=sm_87").unwrap();
         assert_eq!(opts.log_level, None);
     }
 
     #[test]
-    fn invalid_log_level_errors() {
+    fn test_invalid_log_level_errors() {
         assert!(Options::parse("capability=sm_87,log-level=verbose").is_err());
     }
 }

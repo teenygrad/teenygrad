@@ -933,28 +933,28 @@ mod pick_gemm_tile_sizes_tests {
     use super::pick_gemm_tile_sizes;
 
     #[test]
-    fn small_shape_gets_smallest_tiles() {
+    fn test_small_shape_gets_smallest_tiles() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
     }
 
     #[test]
-    fn large_m_and_n_get_the_largest_tile() {
+    fn test_large_m_and_n_get_the_largest_tile() {
         // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
         assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
     }
 
     #[test]
-    fn large_m_only_widens_block_m_not_block_n() {
+    fn test_large_m_only_widens_block_m_not_block_n() {
         assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
     }
 
     #[test]
-    fn large_n_only_widens_block_n_not_block_m() {
+    fn test_large_n_only_widens_block_n_not_block_m() {
         assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
     }
 
     #[test]
-    fn unknown_dynamic_batch_treated_as_small() {
+    fn test_unknown_dynamic_batch_treated_as_small() {
         // m=None should behave the same as an explicit small m, not a large one.
         assert_eq!(
             pick_gemm_tile_sizes(None, 64, 16),
@@ -963,13 +963,13 @@ mod pick_gemm_tile_sizes_tests {
     }
 
     #[test]
-    fn block_k_never_drops_below_the_tensor_core_minimum() {
+    fn test_block_k_never_drops_below_the_tensor_core_minimum() {
         let (_, _, block_k) = pick_gemm_tile_sizes(Some(64), 64, 1);
         assert!(block_k >= 8);
     }
 
     #[test]
-    fn block_k_grows_with_k() {
+    fn test_block_k_grows_with_k() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);
@@ -3519,7 +3519,7 @@ mod relu_silu_tile_spec_tests {
     }
 
     #[test]
-    fn relu_tile_spec_matches_its_real_tile_tagged_signature() {
+    fn test_relu_tile_spec_matches_its_real_tile_tagged_signature() {
         let lowering = TritonLowering::default();
         let exec = lowering
             .lower_unary_op(&Op::Relu, DtypeRepr::F32)
@@ -3531,7 +3531,7 @@ mod relu_silu_tile_spec_tests {
     }
 
     #[test]
-    fn silu_tile_spec_matches_its_real_tile_tagged_signature() {
+    fn test_silu_tile_spec_matches_its_real_tile_tagged_signature() {
         let lowering = TritonLowering::default();
         let exec = lowering
             .lower_unary_op(&Op::Silu, DtypeRepr::F32)
@@ -3560,7 +3560,7 @@ mod conv2d_grid_spec_tests {
     use teeny_core::model::{GridAxisBinding, GridDim};
 
     #[test]
-    fn tile_spec_matches_the_real_tagged_signature() {
+    fn test_tile_spec_matches_the_real_tagged_signature() {
         let spec = Conv2dForward::<f32>::tile_spec();
         assert_eq!(spec.loop_spec, None);
 
@@ -3585,7 +3585,7 @@ mod conv2d_grid_spec_tests {
     }
 
     #[test]
-    fn grid_spec_reflects_the_real_pid_decode_order_and_shape() {
+    fn test_grid_spec_reflects_the_real_pid_decode_order_and_shape() {
         // conv2d_forward's own body decodes one flat `pid` (all axes on
         // GridDim::X) outermost-to-innermost as (b, c_out, oh, ow_tile) --
         // see that function's own comment on its `pid` decode.
@@ -3609,7 +3609,7 @@ mod conv2d_grid_spec_tests {
     }
 
     #[test]
-    fn grid_spec_axis_matches_a_grid_axis_binding_directly() {
+    fn test_grid_spec_axis_matches_a_grid_axis_binding_directly() {
         // Sanity check the type itself is what a future consumer would
         // actually construct/compare against.
         let expected_ow_axis = GridAxisBinding {

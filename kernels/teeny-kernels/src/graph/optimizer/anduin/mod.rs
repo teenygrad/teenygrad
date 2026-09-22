@@ -146,7 +146,7 @@ mod tests {
     use teeny_test::hardware_profile::{nvidia_rtx5070, orin_nano};
 
     #[test]
-    fn two_pointwise_then_reduction_then_pointwise_preserves_chain() {
+    fn test_two_pointwise_then_reduction_then_pointwise_preserves_chain() {
         // input -> relu -> sigmoid -> reduce_sum -> relu
         //          \_____________/    \________/    \__/
         //          2 pointwise ops     reduction   pointwise
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input() {
+    fn test_conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input() {
         // input -> conv2d -> batchnorm2d -> silu
         //          \___________________________/
         //             Conv2d/Silu still have no declared KernelTileSpec
@@ -386,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn relu_reduce_sum_relu_schedule_fuses_relu_reduce_sum_relu_apart_from_input() {
+    fn test_relu_reduce_sum_relu_schedule_fuses_relu_reduce_sum_relu_apart_from_input() {
         // input -> relu -> reduce_sum -> relu
         //
         // Both `Relu`s now carry a real, working `KernelTileSpec`
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn relu_then_silu_schedule_covers_relu_and_silu_for_codegen() {
+    fn test_relu_then_silu_schedule_covers_relu_and_silu_for_codegen() {
         // input -> relu -> silu — the same graph as
         // `tests/test_fused_pointwise.rs` (the DagCodegen acceptance test).
         // `N` matches that test's `N_FUSED`. The integration test drives

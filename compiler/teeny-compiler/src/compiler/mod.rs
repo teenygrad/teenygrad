@@ -133,7 +133,7 @@ mod find_teenyc_tests {
     use super::*;
 
     #[test]
-    fn finds_single_teenyc_toolchain() {
+    fn test_finds_single_teenyc_toolchain() {
         let output = "stable-x86_64-unknown-linux-gnu (default)\n\
                        stable-teenyc-x86_64-unknown-linux-gnu\n";
         assert_eq!(
@@ -143,14 +143,14 @@ mod find_teenyc_tests {
     }
 
     #[test]
-    fn empty_when_no_teenyc_toolchain() {
+    fn test_empty_when_no_teenyc_toolchain() {
         let output =
             "stable-x86_64-unknown-linux-gnu (default)\nnightly-x86_64-unknown-linux-gnu\n";
         assert!(teenyc_toolchain_names(output).is_empty());
     }
 
     #[test]
-    fn finds_multiple_teenyc_toolchains() {
+    fn test_finds_multiple_teenyc_toolchains() {
         let output = "stable-teenyc-x86_64-unknown-linux-gnu (default)\n\
                        my-teenyc-toolchain\n";
         assert_eq!(
@@ -179,7 +179,7 @@ mod cache_dir_tests {
     }
 
     #[test]
-    fn finds_sibling_cache_dir_when_present() {
+    fn test_finds_sibling_cache_dir_when_present() {
         let root = tmp_root("present");
         let bin_dir = root.join("bin");
         fs::create_dir_all(&bin_dir).unwrap();
@@ -193,7 +193,7 @@ mod cache_dir_tests {
     }
 
     #[test]
-    fn none_when_cache_dir_missing() {
+    fn test_none_when_cache_dir_missing() {
         let root = tmp_root("missing");
         let bin_dir = root.join("bin");
         fs::create_dir_all(&bin_dir).unwrap();
@@ -205,7 +205,7 @@ mod cache_dir_tests {
     }
 
     #[test]
-    fn none_when_exe_has_no_grandparent() {
+    fn test_none_when_exe_has_no_grandparent() {
         assert!(sibling_cache_dir(std::path::Path::new("myapp")).is_none());
     }
 }

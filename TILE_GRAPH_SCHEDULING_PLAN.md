@@ -567,7 +567,7 @@ interface definition:
    just composes them through. Two tests exercise `Anduin::schedule`
    directly against real lowered ops (not the toy `TestOp`s the
    `tile_graph`/`trace` unit tests use):
-   - `conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input`
+   - `test_conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input`
      — none of `Conv2d`/`BatchNorm2d`/`Silu` has a declared `KernelTileSpec`
      (only `Relu`/`MatMul` do), yet `schedule_graph`/`sub_graph_tiling`
      still group conv+batchnorm+silu into one SharedMemory-level virtual

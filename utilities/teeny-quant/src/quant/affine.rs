@@ -164,7 +164,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn per_tensor_symmetric_round_trip() {
+    fn test_per_tensor_symmetric_round_trip() {
         let data = vec![-1.0f32, -0.5, 0.0, 0.5, 1.0, 2.0];
         let shape = [6usize];
         let q = quantize_affine("t", &data, &shape, Granularity::PerTensor, true, 8).unwrap();
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn per_tensor_asymmetric_covers_positive_only_range() {
+    fn test_per_tensor_asymmetric_covers_positive_only_range() {
         // All-positive data: asymmetric should use the full qmin..qmax range, unlike symmetric.
         let data = vec![0.0f32, 1.0, 2.0, 3.0, 4.0];
         let shape = [5usize];
@@ -189,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn per_channel_independent_scales() {
+    fn test_per_channel_independent_scales() {
         // shape [2, 4]: row 0 has small magnitude, row 1 much larger -- per-channel (axis 0)
         // should give each row its own scale, so both round-trip tightly.
         let data = vec![0.1f32, -0.1, 0.05, -0.05, 100.0, -100.0, 50.0, -50.0];
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn group_wise_matches_per_channel_when_group_size_covers_axis() {
+    fn test_group_wise_matches_per_channel_when_group_size_covers_axis() {
         let data: Vec<f32> = (0..8).map(|i| i as f32 - 4.0).collect();
         let shape = [2usize, 4];
         let per_channel = quantize_affine(
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_group_size() {
+    fn test_rejects_zero_group_size() {
         let data = vec![1.0f32; 4];
         let shape = [4usize];
         let err = quantize_affine(
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_out_of_range_axis() {
+    fn test_rejects_out_of_range_axis() {
         let data = vec![1.0f32; 4];
         let shape = [4usize];
         let err = quantize_affine(
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn int4_range_is_clamped() {
+    fn test_int4_range_is_clamped() {
         let data = vec![-100.0f32, 100.0];
         let shape = [2usize];
         let q = quantize_affine("t", &data, &shape, Granularity::PerTensor, true, 4).unwrap();

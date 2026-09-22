@@ -87,7 +87,7 @@ mod tests {
     use super::Capability;
 
     #[test]
-    fn accepts_canonical_forms() {
+    fn test_accepts_canonical_forms() {
         assert_eq!(
             "generic-rvv1.0".parse::<Capability>().unwrap(),
             Capability::GenericRvv1_0
@@ -103,12 +103,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_capability() {
+    fn test_rejects_unknown_capability() {
         assert!("spacemit-k9".parse::<Capability>().is_err());
     }
 
     #[test]
-    fn display_round_trips_through_from_str() {
+    fn test_display_round_trips_through_from_str() {
         for cap in [
             Capability::GenericRvv1_0,
             Capability::SpacemitK1,

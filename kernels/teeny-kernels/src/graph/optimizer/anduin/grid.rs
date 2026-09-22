@@ -94,14 +94,14 @@ mod tests {
     }
 
     #[test]
-    fn gcd_within_bounds_is_returned_unchanged() {
+    fn test_gcd_within_bounds_is_returned_unchanged() {
         // gcd(256, 384) = 128 -- already >= 4*32 and <= 1024.
         let execution = cuda_like_execution();
         assert_eq!(common_thread_block_size(&[256, 384], &execution, 4), 128);
     }
 
     #[test]
-    fn welders_own_worked_example() {
+    fn test_welders_own_worked_example() {
         // Welder's own text: "128 (4 warps)" as the floor, "1024" as the
         // ceiling, on a 32-wide warp -- confirm the floor is exactly what
         // the paper's example says.
@@ -111,27 +111,27 @@ mod tests {
     }
 
     #[test]
-    fn gcd_below_the_occupancy_floor_is_clamped_up() {
+    fn test_gcd_below_the_occupancy_floor_is_clamped_up() {
         // gcd(64, 96) = 32 -- below the 128-thread floor (4 warps).
         let execution = cuda_like_execution();
         assert_eq!(common_thread_block_size(&[64, 96], &execution, 4), 128);
     }
 
     #[test]
-    fn gcd_above_the_hardware_ceiling_is_clamped_down() {
+    fn test_gcd_above_the_hardware_ceiling_is_clamped_down() {
         // gcd(2048, 4096) = 2048 -- above CUDA's real 1024-thread limit.
         let execution = cuda_like_execution();
         assert_eq!(common_thread_block_size(&[2048, 4096], &execution, 4), 1024);
     }
 
     #[test]
-    fn a_single_tile_size_is_its_own_gcd() {
+    fn test_a_single_tile_size_is_its_own_gcd() {
         let execution = cuda_like_execution();
         assert_eq!(common_thread_block_size(&[256], &execution, 4), 256);
     }
 
     #[test]
-    fn an_amd_wave64_floor_is_double_cudas() {
+    fn test_an_amd_wave64_floor_is_double_cudas() {
         // Same occupancy multiplier (4), a wider SIMT group -- the floor
         // portably derives from simt_width rather than being a hardcoded
         // 128, exactly the reason ExecutionProfile stores no minimum
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "tile_sizes must be non-empty")]
-    fn empty_tile_sizes_panics() {
+    fn test_empty_tile_sizes_panics() {
         let execution = cuda_like_execution();
         common_thread_block_size(&[], &execution, 4);
     }

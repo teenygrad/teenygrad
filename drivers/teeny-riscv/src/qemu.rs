@@ -572,7 +572,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn trampoline_declares_the_kernel_arguments_then_the_program_context() {
+    fn test_trampoline_declares_the_kernel_arguments_then_the_program_context() {
         let source = trampoline_source(&[Arg::Ptr(0), Arg::I32(4), Arg::F32(0.5)]);
         assert!(source.contains(
             "typedef void (*kernel_fn)(void *, int32_t, float, int32_t, int32_t, int32_t, \

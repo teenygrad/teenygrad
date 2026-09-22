@@ -30,7 +30,7 @@ use teeny_kernels::nn::conv::conv2d::Conv2dForward;
 use teeny_kernels::nn::tensor::elemwise_unary::ElemwiseExpForward;
 
 #[test]
-fn elu_forward_fusion_core_captures_body_minus_trailing_store() {
+fn test_elu_forward_fusion_core_captures_body_minus_trailing_store() {
     let core = EluForward::<f32>::fusion_core()
         .expect("elu_forward is single-input, single-axis, trailing-store");
     assert_eq!(core.input_ident, "x");
@@ -42,7 +42,7 @@ fn elu_forward_fusion_core_captures_body_minus_trailing_store() {
 }
 
 #[test]
-fn relu_forward_fusion_core_has_no_extra_params() {
+fn test_relu_forward_fusion_core_has_no_extra_params() {
     let core = ReluForward::<f32>::fusion_core()
         .expect("relu_forward is single-input, single-axis, trailing-store");
     assert_eq!(core.input_ident, "x");
@@ -51,14 +51,14 @@ fn relu_forward_fusion_core_has_no_extra_params() {
 }
 
 #[test]
-fn sigmoid_tanh_exp_fusion_core_resolve() {
+fn test_sigmoid_tanh_exp_fusion_core_resolve() {
     assert!(SigmoidForward::<f32>::fusion_core().is_some());
     assert!(TanhForward::<f32>::fusion_core().is_some());
     assert!(ElemwiseExpForward::<f32>::fusion_core().is_some());
 }
 
 #[test]
-fn selu_forward_fusion_core_resolves_with_no_extra_params() {
+fn test_selu_forward_fusion_core_resolves_with_no_extra_params() {
     let core = SeluForward::<f32>::fusion_core()
         .expect("selu_forward is single-input, single-axis, trailing-store");
     assert_eq!(core.input_ident, "x");
@@ -66,14 +66,14 @@ fn selu_forward_fusion_core_resolves_with_no_extra_params() {
 }
 
 #[test]
-fn elu_backward_fusion_core_is_none_multi_input() {
+fn test_elu_backward_fusion_core_is_none_multi_input() {
     // Two #[tile(...)]-tagged In params (dy_ptr, x_ptr) sharing the same
     // axis -- fusion_core is scoped to single-input chains only.
     assert!(EluBackward::<f32>::fusion_core().is_none());
 }
 
 #[test]
-fn conv2d_fusion_core_is_none_multi_axis() {
+fn test_conv2d_fusion_core_is_none_multi_axis() {
     // conv2d_forward's tags are multi-axis / prelude = false -- no shared
     // single-axis prelude group, so fusion_core must be None.
     assert!(Conv2dForward::<f32>::fusion_core().is_none());

@@ -126,7 +126,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_capability_has_a_profile() {
+    fn test_every_capability_has_a_profile() {
         for capability in [
             Capability::Sm75,
             Capability::Sm80,
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn sm_count_override_wins_over_the_packaged_default() {
+    fn test_sm_count_override_wins_over_the_packaged_default() {
         let profile =
             hardware_profile_for(Capability::Sm87, Some(16)).expect("sm_87 has a packaged profile");
         assert_eq!(profile.compute_units, 16);

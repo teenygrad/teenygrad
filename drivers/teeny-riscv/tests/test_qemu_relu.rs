@@ -46,7 +46,7 @@ const N_ELEMENTS: usize = 2 * BLOCK_SIZE as usize + 500;
 const SENTINEL: f32 = 12345.0;
 
 #[test]
-fn compiled_relu_kernel_runs_correctly_under_qemu() -> anyhow::Result<()> {
+fn test_compiled_relu_kernel_runs_correctly_under_qemu() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);
@@ -90,7 +90,7 @@ fn compiled_relu_kernel_runs_correctly_under_qemu() -> anyhow::Result<()> {
 }
 
 #[test]
-fn device_launch_runs_relu_under_qemu() -> anyhow::Result<()> {
+fn test_device_launch_runs_relu_under_qemu() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = ReluForward::<f32>::new(BLOCK_SIZE);

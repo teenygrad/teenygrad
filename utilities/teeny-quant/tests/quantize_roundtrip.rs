@@ -144,7 +144,7 @@ fn assert_round_trips(scheme: Scheme, granularity: Granularity, max_tol_fraction
 }
 
 #[test]
-fn int8_symmetric_per_channel_round_trips() {
+fn test_int8_symmetric_per_channel_round_trips() {
     assert_round_trips(
         Scheme::Int8 { symmetric: true },
         Granularity::PerChannel { axis: 0 },
@@ -153,7 +153,7 @@ fn int8_symmetric_per_channel_round_trips() {
 }
 
 #[test]
-fn int8_asymmetric_per_tensor_round_trips() {
+fn test_int8_asymmetric_per_tensor_round_trips() {
     assert_round_trips(
         Scheme::Int8 { symmetric: false },
         Granularity::PerTensor,
@@ -162,7 +162,7 @@ fn int8_asymmetric_per_tensor_round_trips() {
 }
 
 #[test]
-fn int4_group_round_trips_with_looser_tolerance() {
+fn test_int4_group_round_trips_with_looser_tolerance() {
     assert_round_trips(
         Scheme::Int4 { symmetric: true },
         Granularity::Group {
@@ -174,7 +174,7 @@ fn int4_group_round_trips_with_looser_tolerance() {
 }
 
 #[test]
-fn fp8_e4m3_per_channel_round_trips() {
+fn test_fp8_e4m3_per_channel_round_trips() {
     assert_round_trips(
         Scheme::Fp8 {
             variant: Fp8Variant::E4M3,
@@ -185,7 +185,7 @@ fn fp8_e4m3_per_channel_round_trips() {
 }
 
 #[test]
-fn fp8_e5m2_per_tensor_round_trips() {
+fn test_fp8_e5m2_per_tensor_round_trips() {
     assert_round_trips(
         Scheme::Fp8 {
             variant: Fp8Variant::E5M2,
@@ -202,7 +202,7 @@ fn fp8_e5m2_per_tensor_round_trips() {
 /// `E5M2` bytes as `E4M3` (~0dB SQNR, i.e. noise). This exercises that exact metadata ->
 /// scheme -> dequantize path end to end, unlike `assert_round_trips`.
 #[test]
-fn validate_checkpoint_decodes_fp8_e5m2_correctly() {
+fn test_validate_checkpoint_decodes_fp8_e5m2_correctly() {
     let dir = std::env::temp_dir().join(format!("teeny-quant-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let original_path = dir.join("original.safetensors");
@@ -233,7 +233,7 @@ fn validate_checkpoint_decodes_fp8_e5m2_correctly() {
 }
 
 #[test]
-fn quantization_config_metadata_round_trips() {
+fn test_quantization_config_metadata_round_trips() {
     let original_bytes = fake_checkpoint();
     let quantized_bytes = quantize_bytes(
         &original_bytes,
