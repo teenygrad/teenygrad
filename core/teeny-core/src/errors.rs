@@ -62,4 +62,64 @@ pub enum Error {
         /// The padding applied to each side of `axis`.
         padding: usize,
     },
+
+    /// A sliding-window op was asked to recover an input extent from an output
+    /// extent its forward pass could never produce.
+    #[error(
+        "{op}: {axis} output extent {out} is not reachable. With kernel \
+         {kernel}, stride {stride} and padding {padding}, the smallest output \
+         this op can produce is {}, so no input extent maps to {out}. Check \
+         the {axis} extent of the shape being reversed.",
+        // `out = floor((in + 2p - k) / s) + 1` is smallest at `in = 0`; the
+        // saturating subtraction covers a kernel wider than the padding
+        // alone, and `max(1)` keeps a hand-built zero stride out of the
+        // division.
+        (2 * *.padding).saturating_sub(*.kernel) / (*.stride).max(1) + 1
+    )]
+    WindowOutputUnreachable {
+        /// The op that owns the window, e.g. `"Conv2d"`.
+        op: String,
+        /// The axis the window runs along, e.g. `"height"`.
+        axis: String,
+        /// The output extent along `axis` that could not be reversed.
+        out: usize,
+        /// The kernel size along `axis`.
+        kernel: usize,
+        /// The stride along `axis`.
+        stride: usize,
+        /// The padding applied to each side of `axis`.
+        padding: usize,
+    },
+
+    /// Reversing an op's shape would need an extent too large for `usize`.
+    #[error(
+        "{op}: reversing axis {axis} needs an extent of {extent} x {factor}, \
+         which overflows usize. A shape that large cannot have been produced \
+         by this op."
+    )]
+    ShapeExtentOverflow {
+        /// The op being reversed, e.g. `"Split"`.
+        op: String,
+        /// The axis whose extent overflowed.
+        axis: usize,
+        /// The output extent along `axis`.
+        extent: usize,
+        /// The factor `extent` had to be multiplied by.
+        factor: usize,
+    },
+
+    /// An op was handed a shape whose rank it cannot work with.
+    #[error(
+        "{op}: expected a rank-{expected} shape, got rank {actual}. {op} \
+         operates on rank-{expected} tensors, so a rank-{actual} shape cannot \
+         be one of its shapes."
+    )]
+    ShapeRankMismatch {
+        /// The op that rejected the shape, e.g. `"Conv2d"`.
+        op: String,
+        /// The rank the op requires.
+        expected: usize,
+        /// The rank it was given.
+        actual: usize,
+    },
 }

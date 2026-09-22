@@ -1525,6 +1525,175 @@ fn window_out_dim(
     Ok((padded - kernel) / stride + 1)
 }
 
+/// Recovers a sliding window's input extent from its output extent — the
+/// reverse of [`window_out_dim`], sharing its `op`/`axis` naming.
+///
+/// Floor division makes the forward map many-to-one: exactly `stride` inputs
+/// produce any given output. This returns the smallest of them,
+/// `stride * (out - 1) + kernel - 2 * padding`, which is the only one when
+/// `stride == 1`. Re-running [`window_out_dim`] on the result always gives
+/// `out` back, and never trips either of its guards.
+///
+/// # Errors
+///
+/// Returns [`Error::ZeroWindowStride`] for a zero stride, and
+/// [`Error::WindowOutputUnreachable`] when no input produces `out` — which is
+/// every `out` below `(2p - k) / s + 1`, including 0.
+fn window_in_dim(
+    op: &str,
+    axis: &str,
+    out: usize,
+    kernel: usize,
+    stride: usize,
+    padding: usize,
+) -> Result<usize> {
+    if stride == 0 {
+        return Err(Error::ZeroWindowStride {
+            op: op.into(),
+            axis: axis.into(),
+        }
+        .into());
+    }
+    out.checked_sub(1)
+        .and_then(|steps| steps.checked_mul(stride))
+        .and_then(|span| span.checked_add(kernel))
+        .and_then(|padded| padded.checked_sub(2 * padding))
+        .ok_or_else(|| {
+            Error::WindowOutputUnreachable {
+                op: op.into(),
+                axis: axis.into(),
+                out,
+                kernel,
+                stride,
+                padding,
+            }
+            .into()
+        })
+}
+
+/// One spatial axis's window parameters — kernel, stride and padding, in the
+/// order [`window_in_dim`] and [`window_out_dim`] take them.
+type Window = (usize, usize, usize);
+
+/// One direction's per-axis arithmetic: [`window_out_dim`] going forward,
+/// [`window_in_dim`] going back.
+type WindowDim = fn(&str, &str, usize, usize, usize, usize) -> Result<usize>;
+
+/// Names the spatial axes of an `N`-dimensional window, matching the wording
+/// both directions use in their errors.
+fn spatial_axes(n: usize) -> &'static [&'static str] {
+    match n {
+        1 => &["length"],
+        2 => &["height", "width"],
+        _ => &["depth", "height", "width"],
+    }
+}
+
+/// Maps one `[N, C, spatial..]` shape of a window op onto the other, in
+/// whichever direction `axis_dim` runs.
+///
+/// The batch dim carries over untouched. `channels` replaces the channel dim
+/// for an op that changes it — a convolution's `out_channels` going forward,
+/// its `in_channels` coming back — and `None` keeps the one already there,
+/// which is what every pool wants. Each spatial dim goes through `axis_dim`,
+/// and a dim that is already unknown stays unknown.
+///
+/// `N` is the number of spatial dims, so `windows` holds one entry per axis in
+/// axis order and cannot disagree with the rank the op works at.
+///
+/// # Panics
+///
+/// Indexes `shape` up to `N + 2`, so a shorter one panics — see
+/// `teenygrad-3kt`. [`window_in_shape`] rank-checks before calling this;
+/// [`window_out_shape`] inherits `infer_output_shape`'s existing behaviour.
+///
+/// # Errors
+///
+/// Whatever `axis_dim` reports for a spatial extent it cannot map.
+fn window_shape<const N: usize>(
+    op: &str,
+    shape: &Shape,
+    channels: Option<usize>,
+    windows: [Window; N],
+    axis_dim: WindowDim,
+) -> Result<Shape> {
+    let mut mapped = Shape::with_capacity(N + 2);
+    mapped.push(shape[0]);
+    mapped.push(match channels {
+        Some(channels) => Some(channels),
+        None => shape[1],
+    });
+
+    let axes = spatial_axes(N);
+    for (i, (kernel, stride, padding)) in windows.into_iter().enumerate() {
+        // `axes` covers the 1-D to 3-D ops that exist; the fallback keeps a
+        // wider one from indexing off the end.
+        let axis = axes.get(i).copied().unwrap_or("spatial");
+        let extent = shape[i + 2]
+            .map(|extent| axis_dim(op, axis, extent, kernel, stride, padding))
+            .transpose()?;
+        mapped.push(extent);
+    }
+
+    Ok(mapped)
+}
+
+/// Computes a window op's output shape from its input shape.
+///
+/// # Panics
+///
+/// Inherits [`window_shape`]'s indexing.
+///
+/// # Errors
+///
+/// Whatever [`window_out_dim`] reports — a zero stride, or a kernel that does
+/// not fit the padded input.
+fn window_out_shape<const N: usize>(
+    op: &str,
+    input: &Shape,
+    out_channels: Option<usize>,
+    windows: [Window; N],
+) -> Result<Shape> {
+    window_shape(op, input, out_channels, windows, window_out_dim)
+}
+
+/// Recovers a window op's input shape from its output shape, in the
+/// `Ok(Some(one_shape))` form [`Op::infer_input_shape`] returns: these ops
+/// record a single data input, their kernel coming from the variant.
+///
+/// # Errors
+///
+/// Returns [`Error::ShapeRankMismatch`] when `output` is not rank `N + 2`, and
+/// whatever [`window_in_dim`] reports for a spatial extent it cannot reverse.
+fn window_in_shape<const N: usize>(
+    op: &str,
+    output: &Shape,
+    in_channels: Option<usize>,
+    windows: [Window; N],
+) -> Result<Option<Vec<Shape>>> {
+    expect_rank(op, output, N + 2)?;
+    let input = window_shape(op, output, in_channels, windows, window_in_dim)?;
+    Ok(Some(vec![input]))
+}
+
+/// Checks a shape's rank before the fixed-rank arms of
+/// [`Op::infer_input_shape`] index into it.
+///
+/// # Errors
+///
+/// Returns [`Error::ShapeRankMismatch`] when `shape` is not rank `expected`.
+fn expect_rank(op: &str, shape: &Shape, expected: usize) -> Result<()> {
+    if shape.len() != expected {
+        return Err(Error::ShapeRankMismatch {
+            op: op.into(),
+            expected,
+            actual: shape.len(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 impl Op {
     /// Computes this op's output shape from the shapes of its inputs, in order.
     ///
@@ -1600,6 +1769,11 @@ impl Op {
             }
 
             // --- Convolution ---
+            //
+            // Each arm names its axes in order and hands them to
+            // `window_out_shape`, which walks them through the window
+            // arithmetic. A convolution passes `out_channels`, which replaces
+            // the input's channel dim; a pool passes `None`, leaving it alone.
             Op::Conv1d {
                 out_channels,
                 kernel_l,
@@ -1608,10 +1782,12 @@ impl Op {
                 ..
             } => {
                 // [N, C_in, L] → [N, C_out, L_out]
-                let l_out = input[2]
-                    .map(|l| window_out_dim("Conv1d", "length", l, *kernel_l, *stride, *padding))
-                    .transpose()?;
-                vec![input[0], Some(*out_channels), l_out]
+                window_out_shape(
+                    "Conv1d",
+                    input,
+                    Some(*out_channels),
+                    [(*kernel_l, *stride, *padding)],
+                )?
             }
 
             Op::Conv2d {
@@ -1625,15 +1801,15 @@ impl Op {
                 ..
             } => {
                 // [N, C_in, H, W] → [N, C_out, H_out, W_out]
-                let h_out = input[2]
-                    .map(|h| {
-                        window_out_dim("Conv2d", "height", h, *kernel_h, *stride_h, *padding_h)
-                    })
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("Conv2d", "width", w, *kernel_w, *stride_w, *padding_w))
-                    .transpose()?;
-                vec![input[0], Some(*out_channels), h_out, w_out]
+                window_out_shape(
+                    "Conv2d",
+                    input,
+                    Some(*out_channels),
+                    [
+                        (*kernel_h, *stride_h, *padding_h),
+                        (*kernel_w, *stride_w, *padding_w),
+                    ],
+                )?
             }
 
             Op::Conv3d {
@@ -1650,18 +1826,16 @@ impl Op {
                 ..
             } => {
                 // [N, C_in, D, H, W] → [N, C_out, D_out, H_out, W_out]
-                let d_out = input[2]
-                    .map(|d| window_out_dim("Conv3d", "depth", d, *kernel_d, *stride_d, *padding_d))
-                    .transpose()?;
-                let h_out = input[3]
-                    .map(|h| {
-                        window_out_dim("Conv3d", "height", h, *kernel_h, *stride_h, *padding_h)
-                    })
-                    .transpose()?;
-                let w_out = input[4]
-                    .map(|w| window_out_dim("Conv3d", "width", w, *kernel_w, *stride_w, *padding_w))
-                    .transpose()?;
-                vec![input[0], Some(*out_channels), d_out, h_out, w_out]
+                window_out_shape(
+                    "Conv3d",
+                    input,
+                    Some(*out_channels),
+                    [
+                        (*kernel_d, *stride_d, *padding_d),
+                        (*kernel_h, *stride_h, *padding_h),
+                        (*kernel_w, *stride_w, *padding_w),
+                    ],
+                )?
             }
 
             // --- Pooling ---
@@ -1671,35 +1845,24 @@ impl Op {
                 } else {
                     "MaxPool1d"
                 };
-                let l_out = input[2]
-                    .map(|l| window_out_dim(name, "length", l, *kernel_l, *stride, 0))
-                    .transpose()?;
-                vec![input[0], input[1], l_out]
+                window_out_shape(name, input, None, [(*kernel_l, *stride, 0)])?
             }
 
             Op::LpPool1d {
                 kernel_l, stride, ..
-            } => {
-                let l_out = input[2]
-                    .map(|l| window_out_dim("LpPool1d", "length", l, *kernel_l, *stride, 0))
-                    .transpose()?;
-                vec![input[0], input[1], l_out]
-            }
+            } => window_out_shape("LpPool1d", input, None, [(*kernel_l, *stride, 0)])?,
 
             Op::AvgPool2d {
                 kernel_h,
                 kernel_w,
                 stride_h,
                 stride_w,
-            } => {
-                let h_out = input[2]
-                    .map(|h| window_out_dim("AvgPool2d", "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("AvgPool2d", "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], h_out, w_out]
-            }
+            } => window_out_shape(
+                "AvgPool2d",
+                input,
+                None,
+                [(*kernel_h, *stride_h, 0), (*kernel_w, *stride_w, 0)],
+            )?,
 
             Op::MaxPool2d {
                 kernel_h,
@@ -1708,15 +1871,15 @@ impl Op {
                 stride_w,
                 pad_h,
                 pad_w,
-            } => {
-                let h_out = input[2]
-                    .map(|h| window_out_dim("MaxPool2d", "height", h, *kernel_h, *stride_h, *pad_h))
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("MaxPool2d", "width", w, *kernel_w, *stride_w, *pad_w))
-                    .transpose()?;
-                vec![input[0], input[1], h_out, w_out]
-            }
+            } => window_out_shape(
+                "MaxPool2d",
+                input,
+                None,
+                [
+                    (*kernel_h, *stride_h, *pad_h),
+                    (*kernel_w, *stride_w, *pad_w),
+                ],
+            )?,
 
             Op::LpPool2d {
                 kernel_h,
@@ -1724,15 +1887,12 @@ impl Op {
                 stride_h,
                 stride_w,
                 ..
-            } => {
-                let h_out = input[2]
-                    .map(|h| window_out_dim("LpPool2d", "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[3]
-                    .map(|w| window_out_dim("LpPool2d", "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], h_out, w_out]
-            }
+            } => window_out_shape(
+                "LpPool2d",
+                input,
+                None,
+                [(*kernel_h, *stride_h, 0), (*kernel_w, *stride_w, 0)],
+            )?,
 
             Op::AvgPool3d {
                 kernel_d,
@@ -1755,16 +1915,16 @@ impl Op {
                 } else {
                     "MaxPool3d"
                 };
-                let d_out = input[2]
-                    .map(|d| window_out_dim(name, "depth", d, *kernel_d, *stride_d, 0))
-                    .transpose()?;
-                let h_out = input[3]
-                    .map(|h| window_out_dim(name, "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[4]
-                    .map(|w| window_out_dim(name, "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], d_out, h_out, w_out]
+                window_out_shape(
+                    name,
+                    input,
+                    None,
+                    [
+                        (*kernel_d, *stride_d, 0),
+                        (*kernel_h, *stride_h, 0),
+                        (*kernel_w, *stride_w, 0),
+                    ],
+                )?
             }
 
             Op::LpPool3d {
@@ -1775,18 +1935,16 @@ impl Op {
                 stride_h,
                 stride_w,
                 ..
-            } => {
-                let d_out = input[2]
-                    .map(|d| window_out_dim("LpPool3d", "depth", d, *kernel_d, *stride_d, 0))
-                    .transpose()?;
-                let h_out = input[3]
-                    .map(|h| window_out_dim("LpPool3d", "height", h, *kernel_h, *stride_h, 0))
-                    .transpose()?;
-                let w_out = input[4]
-                    .map(|w| window_out_dim("LpPool3d", "width", w, *kernel_w, *stride_w, 0))
-                    .transpose()?;
-                vec![input[0], input[1], d_out, h_out, w_out]
-            }
+            } => window_out_shape(
+                "LpPool3d",
+                input,
+                None,
+                [
+                    (*kernel_d, *stride_d, 0),
+                    (*kernel_h, *stride_h, 0),
+                    (*kernel_w, *stride_w, 0),
+                ],
+            )?,
 
             // --- Upsample ---
             Op::UpsampleNearest2d { scale_h, scale_w } => {
@@ -2302,23 +2460,37 @@ impl Op {
     /// invertible — its forward pass discarded what the reverse would need.
     ///
     /// Implemented for the single-input shape-preserving ops — the
-    /// activations, norms and unary element-wise math — plus `Op::Input` and
-    /// `Op::Custom`, which delegates to [`CustomOp::infer_input_shape`].
-    /// Every other variant panics with `unimplemented!`.
+    /// activations, norms and unary element-wise math — plus `Op::Input`,
+    /// `Op::Custom`, which delegates to [`CustomOp::infer_input_shape`], and
+    /// the sliding-window ops: the three convolutions, the nine pooling
+    /// variants and `Op::Split`. Every other variant panics with
+    /// `unimplemented!`.
+    ///
+    /// # Ambiguity
+    ///
+    /// Floor division makes a window's forward pass many-to-one: `stride`
+    /// different input extents produce the same output extent, and `Split`
+    /// divides its axis the same way. Where the true reverse is a set, these
+    /// arms return its smallest member — the input that fits exactly, with no
+    /// remainder the forward pass would have dropped. For `stride == 1` that
+    /// set is a single value, so the answer is the exact reverse.
     ///
     /// Multi-input ops are deliberately excluded: this returns one shape per
     /// input, but an `Op` variant does not record how many inputs its node
     /// has, so `Add`, `Concat` and the like cannot report a correct-length
-    /// result from the output shape alone. See `teenygrad-3fy`
-    /// for the remaining cases — floor-ambiguous conv/pool windows, ops that
-    /// lose exactly one dimension, and the total-loss set.
+    /// result from the output shape alone. The convolutions are covered
+    /// despite their weights because a node records only the data input; the
+    /// kernel comes from the variant. See `teenygrad-3fy` for the remaining
+    /// cases — ops that lose exactly one dimension, and the total-loss set.
     ///
     /// # Errors
     ///
     /// Returns an error when `output` could not have been produced by this op,
     /// which is why the reverse pass is fallible where the forward one is not.
     /// No pointwise op can fail this way: the reverse is the identity and
-    /// every shape is reachable.
+    /// every shape is reachable. A window op rejects an output whose rank is
+    /// not the one it produces ([`Error::ShapeRankMismatch`]) and an extent
+    /// below the smallest it can emit ([`Error::WindowOutputUnreachable`]).
     pub fn infer_input_shape(&self, output: &Shape) -> Result<Option<Vec<Shape>>> {
         match self {
             // A placeholder has no producers, so there is nothing to infer.
@@ -2403,6 +2575,204 @@ impl Op {
 
             // A custom op knows its own reverse, or reports that it has none.
             Op::Custom { data } => data.infer_input_shape(output),
+
+            // --- Floor-ambiguous windows: convolution and pooling ---
+            //
+            // Each arm names its axes in order and hands them to
+            // `window_in_shape`, which enforces the rank and reverses every
+            // spatial dim. Convolutions pass `in_channels`, which the forward
+            // pass overwrote with `out_channels`; pools pass `None`, having
+            // left the channel dim alone.
+            Op::Conv1d {
+                in_channels,
+                kernel_l,
+                stride,
+                padding,
+                ..
+            } => window_in_shape(
+                "Conv1d",
+                output,
+                Some(*in_channels),
+                [(*kernel_l, *stride, *padding)],
+            ),
+
+            Op::Conv2d {
+                in_channels,
+                kernel_h,
+                kernel_w,
+                stride_h,
+                stride_w,
+                padding_h,
+                padding_w,
+                ..
+            } => window_in_shape(
+                "Conv2d",
+                output,
+                Some(*in_channels),
+                [
+                    (*kernel_h, *stride_h, *padding_h),
+                    (*kernel_w, *stride_w, *padding_w),
+                ],
+            ),
+
+            Op::Conv3d {
+                in_channels,
+                kernel_d,
+                kernel_h,
+                kernel_w,
+                stride_d,
+                stride_h,
+                stride_w,
+                padding_d,
+                padding_h,
+                padding_w,
+                ..
+            } => window_in_shape(
+                "Conv3d",
+                output,
+                Some(*in_channels),
+                [
+                    (*kernel_d, *stride_d, *padding_d),
+                    (*kernel_h, *stride_h, *padding_h),
+                    (*kernel_w, *stride_w, *padding_w),
+                ],
+            ),
+
+            Op::AvgPool1d { kernel_l, stride } | Op::MaxPool1d { kernel_l, stride } => {
+                let name = if matches!(self, Op::AvgPool1d { .. }) {
+                    "AvgPool1d"
+                } else {
+                    "MaxPool1d"
+                };
+                window_in_shape(name, output, None, [(*kernel_l, *stride, 0)])
+            }
+
+            Op::LpPool1d {
+                kernel_l, stride, ..
+            } => window_in_shape("LpPool1d", output, None, [(*kernel_l, *stride, 0)]),
+
+            Op::AvgPool2d {
+                kernel_h,
+                kernel_w,
+                stride_h,
+                stride_w,
+            } => window_in_shape(
+                "AvgPool2d",
+                output,
+                None,
+                [(*kernel_h, *stride_h, 0), (*kernel_w, *stride_w, 0)],
+            ),
+
+            Op::MaxPool2d {
+                kernel_h,
+                kernel_w,
+                stride_h,
+                stride_w,
+                pad_h,
+                pad_w,
+            } => window_in_shape(
+                "MaxPool2d",
+                output,
+                None,
+                [
+                    (*kernel_h, *stride_h, *pad_h),
+                    (*kernel_w, *stride_w, *pad_w),
+                ],
+            ),
+
+            Op::LpPool2d {
+                kernel_h,
+                kernel_w,
+                stride_h,
+                stride_w,
+                ..
+            } => window_in_shape(
+                "LpPool2d",
+                output,
+                None,
+                [(*kernel_h, *stride_h, 0), (*kernel_w, *stride_w, 0)],
+            ),
+
+            Op::AvgPool3d {
+                kernel_d,
+                kernel_h,
+                kernel_w,
+                stride_d,
+                stride_h,
+                stride_w,
+            }
+            | Op::MaxPool3d {
+                kernel_d,
+                kernel_h,
+                kernel_w,
+                stride_d,
+                stride_h,
+                stride_w,
+            } => {
+                let name = if matches!(self, Op::AvgPool3d { .. }) {
+                    "AvgPool3d"
+                } else {
+                    "MaxPool3d"
+                };
+                window_in_shape(
+                    name,
+                    output,
+                    None,
+                    [
+                        (*kernel_d, *stride_d, 0),
+                        (*kernel_h, *stride_h, 0),
+                        (*kernel_w, *stride_w, 0),
+                    ],
+                )
+            }
+
+            Op::LpPool3d {
+                kernel_d,
+                kernel_h,
+                kernel_w,
+                stride_d,
+                stride_h,
+                stride_w,
+                ..
+            } => window_in_shape(
+                "LpPool3d",
+                output,
+                None,
+                [
+                    (*kernel_d, *stride_d, 0),
+                    (*kernel_h, *stride_h, 0),
+                    (*kernel_w, *stride_w, 0),
+                ],
+            ),
+
+            // `Split` divides one axis by `num_outputs`, so it has the same
+            // floor fan-in as a window of kernel and stride `num_outputs`:
+            // `num_outputs` inputs share each output. Same convention — the
+            // smallest, which is the one that divided evenly. A rank-0 shape
+            // has no axis to split, and the forward pass passes it through.
+            Op::Split { axis, num_outputs } => {
+                let rank = output.len();
+                if rank == 0 {
+                    return Ok(Some(vec![output.clone()]));
+                }
+                let ax = axis.rem_euclid(rank as i64) as usize;
+                let parts = *num_outputs.max(&1);
+                let mut input = output.clone();
+                input[ax] = output[ax]
+                    .map(|d| -> Result<usize> {
+                        d.checked_mul(parts).ok_or_else(|| {
+                            Error::ShapeExtentOverflow {
+                                op: "Split".into(),
+                                axis: ax,
+                                extent: d,
+                                factor: parts,
+                            }
+                            .into()
+                        })
+                    })
+                    .transpose()?;
+                Ok(Some(vec![input]))
+            }
 
             other => unimplemented!("Op::infer_input_shape is not implemented for {other:?}"),
         }
@@ -2742,6 +3112,393 @@ mod tests {
         let op = Op::Relu;
         let output = op.infer_output_shape(&[&input]).unwrap();
         assert_eq!(op.infer_input_shape(&output).unwrap(), Some(vec![input]));
+    }
+
+    /// The closed form, swept directly over the helper pair: for every
+    /// `(kernel, stride, padding)` and every reachable output, the reverse is
+    /// a genuine pre-image, and it is the smallest one.
+    #[test]
+    fn window_in_dim_is_the_smallest_pre_image_of_window_out_dim() {
+        for kernel in 1..8 {
+            for stride in 1..6 {
+                for padding in 0..4 {
+                    for out in 1..60 {
+                        let Ok(extent) = window_in_dim("op", "axis", out, kernel, stride, padding)
+                        else {
+                            continue; // `out` below the smallest this config emits.
+                        };
+                        assert_eq!(
+                            window_out_dim("op", "axis", extent, kernel, stride, padding).unwrap(),
+                            out,
+                            "k={kernel} s={stride} p={padding} out={out}: {extent} is not a pre-image"
+                        );
+                        // Smallest: one less either underflows the window or
+                        // lands on a smaller output.
+                        if extent > 0 {
+                            let below =
+                                window_out_dim("op", "axis", extent - 1, kernel, stride, padding);
+                            assert!(
+                                below.is_err() || below.unwrap() < out,
+                                "k={kernel} s={stride} p={padding} out={out}: {extent} is not the smallest"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every sliding-window op covered by the reverse pass, built from one
+    /// `(kernel, stride, padding)` triple, paired with the input shape it was
+    /// sized for. Only the convolutions and `MaxPool2d` carry padding; the
+    /// other pools always window their input unpadded.
+    fn window_ops(kernel: usize, stride: usize, padding: usize, extent: usize) -> Vec<(Op, Shape)> {
+        let (n, c, e) = (Some(2), Some(3), Some(extent));
+        let (k, s, p) = (kernel, stride, padding);
+        vec![
+            (
+                Op::Conv1d {
+                    in_channels: 3,
+                    out_channels: 8,
+                    kernel_l: k,
+                    stride: s,
+                    padding: p,
+                    has_bias: true,
+                },
+                vec![n, c, e],
+            ),
+            (
+                Op::Conv2d {
+                    in_channels: 3,
+                    out_channels: 8,
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_h: s,
+                    stride_w: s,
+                    padding_h: p,
+                    padding_w: p,
+                    groups: 1,
+                    has_bias: true,
+                },
+                vec![n, c, e, e],
+            ),
+            (
+                Op::Conv3d {
+                    in_channels: 3,
+                    out_channels: 8,
+                    kernel_d: k,
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_d: s,
+                    stride_h: s,
+                    stride_w: s,
+                    padding_d: p,
+                    padding_h: p,
+                    padding_w: p,
+                    has_bias: true,
+                },
+                vec![n, c, e, e, e],
+            ),
+            (
+                Op::AvgPool1d {
+                    kernel_l: k,
+                    stride: s,
+                },
+                vec![n, c, e],
+            ),
+            (
+                Op::MaxPool1d {
+                    kernel_l: k,
+                    stride: s,
+                },
+                vec![n, c, e],
+            ),
+            (
+                Op::LpPool1d {
+                    kernel_l: k,
+                    stride: s,
+                    p: 2.0,
+                },
+                vec![n, c, e],
+            ),
+            (
+                Op::AvgPool2d {
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_h: s,
+                    stride_w: s,
+                },
+                vec![n, c, e, e],
+            ),
+            (
+                Op::MaxPool2d {
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_h: s,
+                    stride_w: s,
+                    pad_h: p,
+                    pad_w: p,
+                },
+                vec![n, c, e, e],
+            ),
+            (
+                Op::LpPool2d {
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_h: s,
+                    stride_w: s,
+                    p: 2.0,
+                },
+                vec![n, c, e, e],
+            ),
+            (
+                Op::AvgPool3d {
+                    kernel_d: k,
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_d: s,
+                    stride_h: s,
+                    stride_w: s,
+                },
+                vec![n, c, e, e, e],
+            ),
+            (
+                Op::MaxPool3d {
+                    kernel_d: k,
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_d: s,
+                    stride_h: s,
+                    stride_w: s,
+                },
+                vec![n, c, e, e, e],
+            ),
+            (
+                Op::LpPool3d {
+                    kernel_d: k,
+                    kernel_h: k,
+                    kernel_w: k,
+                    stride_d: s,
+                    stride_h: s,
+                    stride_w: s,
+                    p: 2.0,
+                },
+                vec![n, c, e, e, e],
+            ),
+        ]
+    }
+
+    /// Unit stride is the unambiguous case: one input produces each output, so
+    /// the reverse recovers the original shape exactly, for every window op.
+    #[test]
+    fn unit_stride_window_reverse_round_trips_exactly() {
+        for (op, input) in window_ops(3, 1, 1, 32) {
+            let output = op.infer_output_shape(&[&input]).unwrap();
+            assert_eq!(
+                op.infer_input_shape(&output).unwrap(),
+                Some(vec![input.clone()]),
+                "unit-stride reverse lost information for {op:?}"
+            );
+        }
+    }
+
+    /// With a stride above 1 the fan-in is real, so the reverse is only
+    /// required to land on an input the forward pass maps back to `output`.
+    #[test]
+    fn strided_window_reverse_re_runs_forward_to_the_same_output() {
+        for stride in [2, 3, 4] {
+            for (op, input) in window_ops(3, stride, 1, 32) {
+                let output = op.infer_output_shape(&[&input]).unwrap();
+                let reversed = op.infer_input_shape(&output).unwrap().unwrap();
+                assert_eq!(
+                    op.infer_output_shape(&[&reversed[0]]).unwrap(),
+                    output,
+                    "reversed shape does not re-run forward for {op:?}"
+                );
+            }
+        }
+    }
+
+    /// The convention: of the `stride` inputs that produce a given output, the
+    /// reverse returns the smallest. The bead's worked example is `k = 3,
+    /// s = 2, p = 1`, where both 15 and 16 produce an output of 8.
+    #[test]
+    fn strided_reverse_returns_the_smallest_input_of_the_fan_in() {
+        let op = Op::MaxPool2d {
+            kernel_h: 3,
+            kernel_w: 3,
+            stride_h: 2,
+            stride_w: 2,
+            pad_h: 1,
+            pad_w: 1,
+        };
+        let output = vec![Some(2), Some(3), Some(8), Some(8)];
+        assert_eq!(
+            op.infer_input_shape(&output).unwrap(),
+            Some(vec![vec![Some(2), Some(3), Some(15), Some(15)]])
+        );
+        // The larger member of the fan-in is a real input, just not the one
+        // the convention picks.
+        let larger = vec![Some(2), Some(3), Some(16), Some(16)];
+        assert_eq!(op.infer_output_shape(&[&larger]).unwrap(), output);
+    }
+
+    /// A convolution's channel count comes from the op, not the output: the
+    /// forward pass replaced `in_channels` with `out_channels`.
+    #[test]
+    fn conv_reverse_restores_the_declared_input_channels() {
+        let op = Op::Conv2d {
+            in_channels: 3,
+            out_channels: 64,
+            kernel_h: 3,
+            kernel_w: 3,
+            stride_h: 1,
+            stride_w: 1,
+            padding_h: 1,
+            padding_w: 1,
+            groups: 1,
+            has_bias: true,
+        };
+        let output = vec![None, Some(64), Some(32), Some(32)];
+        assert_eq!(
+            op.infer_input_shape(&output).unwrap(),
+            Some(vec![vec![None, Some(3), Some(32), Some(32)]])
+        );
+    }
+
+    /// An unknown spatial extent stays unknown; there is nothing to reverse.
+    #[test]
+    fn window_reverse_keeps_dynamic_dims_dynamic() {
+        for (op, input) in window_ops(3, 2, 1, 32) {
+            let mut output = op.infer_output_shape(&[&input]).unwrap();
+            let last = output.len() - 1;
+            output[last] = None;
+            let reversed = op.infer_input_shape(&output).unwrap().unwrap();
+            assert_eq!(reversed[0][last], None, "dynamic dim resolved for {op:?}");
+        }
+    }
+
+    /// The window guards are unreachable from the reverse — every shape it
+    /// returns fits its own kernel — but a caller can still hand it a shape
+    /// the forward pass never produced. That is an error, not a panic.
+    #[test]
+    fn window_reverse_rejects_an_output_extent_it_could_not_have_produced() {
+        // Padding 5 around a kernel of 3 means the smallest output is 8.
+        let op = Op::Conv1d {
+            in_channels: 3,
+            out_channels: 8,
+            kernel_l: 3,
+            stride: 1,
+            padding: 5,
+            has_bias: true,
+        };
+        let err = op
+            .infer_input_shape(&vec![Some(2), Some(8), Some(1)])
+            .expect_err("output extent 1 is below the smallest this op emits");
+        let msg = err.to_string();
+        assert!(msg.contains("length"), "{msg}");
+        assert!(
+            msg.contains("smallest output this op can produce is 8"),
+            "{msg}"
+        );
+    }
+
+    /// A zero-extent output is unreachable for the same reason: a window op
+    /// always emits at least one position.
+    #[test]
+    fn window_reverse_rejects_a_zero_output_extent() {
+        let op = Op::AvgPool1d {
+            kernel_l: 2,
+            stride: 2,
+        };
+        assert!(
+            op.infer_input_shape(&vec![Some(2), Some(3), Some(0)])
+                .is_err()
+        );
+    }
+
+    /// A zero stride is rejected rather than dividing or multiplying by zero.
+    #[test]
+    fn window_reverse_rejects_a_zero_stride() {
+        let op = Op::MaxPool1d {
+            kernel_l: 2,
+            stride: 0,
+        };
+        let err = op
+            .infer_input_shape(&vec![Some(2), Some(3), Some(4)])
+            .expect_err("a zero stride has no reverse");
+        assert!(err.to_string().contains("stride is 0"), "{err}");
+    }
+
+    /// Indexing the spatial dims is guarded by a rank check.
+    #[test]
+    fn window_reverse_rejects_a_wrong_rank_output() {
+        for (op, input) in window_ops(3, 1, 1, 32) {
+            let rank = input.len();
+            let short = vec![Some(2), Some(3)];
+            let err = op
+                .infer_input_shape(&short)
+                .expect_err("rank 2 is not a shape this op produces");
+            let msg = err.to_string();
+            assert!(msg.contains(&alloc::format!("rank-{rank} shape")), "{msg}");
+        }
+    }
+
+    /// `Split` divides one axis, so its reverse multiplies it back — landing on
+    /// the input that divided evenly, the smallest of the `num_outputs` inputs
+    /// that share this output.
+    #[test]
+    fn split_reverse_multiplies_the_axis_back_out() {
+        let op = Op::Split {
+            axis: 1,
+            num_outputs: 4,
+        };
+        let input = vec![Some(2), Some(32), Some(8)];
+        let output = op.infer_output_shape(&[&input]).unwrap();
+        assert_eq!(output, vec![Some(2), Some(8), Some(8)]);
+        assert_eq!(op.infer_input_shape(&output).unwrap(), Some(vec![input]));
+    }
+
+    /// A negative axis counts from the end, in both directions.
+    #[test]
+    fn split_reverse_resolves_a_negative_axis() {
+        let op = Op::Split {
+            axis: -1,
+            num_outputs: 2,
+        };
+        let output = vec![Some(2), Some(6)];
+        assert_eq!(
+            op.infer_input_shape(&output).unwrap(),
+            Some(vec![vec![Some(2), Some(12)]])
+        );
+    }
+
+    /// An uneven split loses the remainder, so the reverse lands on the
+    /// even input rather than the original — the documented convention.
+    #[test]
+    fn split_reverse_returns_the_even_input_of_an_uneven_split() {
+        let op = Op::Split {
+            axis: 0,
+            num_outputs: 3,
+        };
+        let input = vec![Some(10)];
+        let output = op.infer_output_shape(&[&input]).unwrap();
+        assert_eq!(output, vec![Some(3)]);
+        let reversed = op.infer_input_shape(&output).unwrap().unwrap();
+        assert_eq!(reversed[0], vec![Some(9)]);
+        // Still a valid answer: it re-runs forward to the same output.
+        assert_eq!(op.infer_output_shape(&[&reversed[0]]).unwrap(), output);
+    }
+
+    /// A rank-0 shape has no axis to split; the forward pass passes it through
+    /// untouched, and so does the reverse.
+    #[test]
+    fn split_reverse_passes_a_rank_zero_shape_through() {
+        let op = Op::Split {
+            axis: 0,
+            num_outputs: 2,
+        };
+        assert_eq!(op.infer_input_shape(&vec![]).unwrap(), Some(vec![vec![]]));
     }
 
     #[test]
