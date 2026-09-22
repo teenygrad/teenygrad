@@ -470,14 +470,14 @@ mod tests {
     }
 
     #[test]
-    fn a_well_formed_tensor_validates() {
+    fn test_well_formed_tensor_validates() {
         const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_M"), axis(&[1], "BLOCK_K")];
         assert!(tensor(2, AXES).validate().is_ok());
     }
 
     /// The flattened multi-dim case (`BATCHNORM2D_TILE_SPEC`'s `HW`).
     #[test]
-    fn one_binding_may_span_several_dims() {
+    fn test_binding_may_span_several_dims() {
         const AXES: &[TileAxisBinding] = &[axis(&[2, 3], "BLOCK_HW")];
         let spec = TensorTileSpec {
             param: "x_ptr",
@@ -492,12 +492,12 @@ mod tests {
     /// `CONV1D_TILE_SPEC`'s input describes no dims at all — untiled_dims is
     /// documentation and need not be complete.
     #[test]
-    fn a_tensor_describing_none_of_its_dims_is_allowed() {
+    fn test_tensor_describing_none_of_its_dims_is_allowed() {
         assert!(tensor(3, &[]).validate().is_ok());
     }
 
     #[test]
-    fn a_dim_at_or_beyond_rank_is_rejected() {
+    fn test_dim_at_or_beyond_rank_is_rejected() {
         const AXES: &[TileAxisBinding] = &[axis(&[2], "BLOCK_OOB")];
         let msg = err(&tensor(2, AXES));
         assert!(msg.contains("binds dim 2"), "{msg}");
@@ -506,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn binding_the_same_dim_twice_is_rejected() {
+    fn test_binding_the_same_dim_twice_is_rejected() {
         const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_A"), axis(&[0], "BLOCK_B")];
         let msg = err(&tensor(2, AXES));
         assert!(msg.contains("dim 0 is bound twice"), "{msg}");
@@ -514,21 +514,21 @@ mod tests {
 
     /// Across bindings, not just within one.
     #[test]
-    fn a_dim_repeated_across_a_flattened_binding_is_rejected() {
+    fn test_dim_repeated_across_a_flattened_binding_is_rejected() {
         const AXES: &[TileAxisBinding] = &[axis(&[1, 2], "BLOCK_HW"), axis(&[2], "BLOCK_W")];
         let msg = err(&tensor(4, AXES));
         assert!(msg.contains("dim 2 is bound twice"), "{msg}");
     }
 
     #[test]
-    fn a_binding_with_no_dims_is_rejected() {
+    fn test_binding_with_no_dims_is_rejected() {
         const AXES: &[TileAxisBinding] = &[axis(&[], "BLOCK_NONE")];
         let msg = err(&tensor(2, AXES));
         assert!(msg.contains("binds no dims"), "{msg}");
     }
 
     #[test]
-    fn an_out_of_range_reduction_axis_is_rejected() {
+    fn test_out_of_range_reduction_axis_is_rejected() {
         let spec = TensorTileSpec {
             param: "a_ptr",
             rank: 2,
@@ -541,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn divide_by_zero_is_rejected() {
+    fn test_divide_by_zero_is_rejected() {
         const AXES: &[TileAxisBinding] = &[TileAxisBinding {
             dims: &[0],
             block_const: "BLOCK_C",
@@ -555,7 +555,7 @@ mod tests {
 
     /// A dim cannot be both tiled and declared untiled.
     #[test]
-    fn an_extent_param_in_untiled_dims_is_rejected() {
+    fn test_extent_param_in_untiled_dims_is_rejected() {
         const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_N")];
         let spec = TensorTileSpec {
             param: "x_ptr",
@@ -569,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn describing_more_dims_than_the_rank_is_rejected() {
+    fn test_describing_more_dims_than_the_rank_is_rejected() {
         const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_N")];
         let spec = TensorTileSpec {
             param: "x_ptr",
@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn a_kernel_spec_with_no_outputs_is_rejected() {
+    fn test_kernel_spec_with_no_outputs_is_rejected() {
         const SPEC: KernelTileSpec = KernelTileSpec {
             inputs: &[],
             outputs: &[],
@@ -594,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn a_kernel_spec_checks_every_tensor_not_just_the_first() {
+    fn test_kernel_spec_checks_every_tensor_not_just_the_first() {
         const GOOD: &[TileAxisBinding] = &[axis(&[0], "BLOCK_M")];
         const BAD: &[TileAxisBinding] = &[axis(&[9], "BLOCK_OOB")];
         const SPEC: KernelTileSpec = KernelTileSpec {
@@ -619,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn a_carry_with_no_shape_consts_is_rejected() {
+    fn test_carry_with_no_shape_consts_is_rejected() {
         const SPEC: KernelTileSpec = KernelTileSpec {
             inputs: &[],
             outputs: &[TensorTileSpec {

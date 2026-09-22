@@ -3525,7 +3525,7 @@ mod tile_spec_validation_tests {
     }
 
     #[test]
-    fn every_registered_spec_is_self_consistent() {
+    fn test_every_registered_spec_is_self_consistent() {
         for (name, spec) in registered_specs() {
             if let Err(e) = spec.validate() {
                 panic!("{name} is malformed: {e}");
@@ -3536,7 +3536,7 @@ mod tile_spec_validation_tests {
     /// The flat elementwise specs are built per node rank, so they have to
     /// hold at every rank a real graph edge can carry, not just one.
     #[test]
-    fn rank_parameterised_specs_are_consistent_at_every_rank() {
+    fn test_rank_parameterised_specs_are_consistent_at_every_rank() {
         for rank in 1..=6 {
             for (name, spec) in [
                 ("ReluForward", ReluForward::<f32>::tile_spec(rank)),
@@ -3552,7 +3552,7 @@ mod tile_spec_validation_tests {
     /// The check has teeth: corrupting a real spec the way a hand edit
     /// would is caught, and the message names the tensor and the index.
     #[test]
-    fn a_corrupted_real_spec_is_rejected() {
+    fn test_corrupted_real_spec_is_rejected() {
         // Derived from the real spec so the test tracks it: only `axes` is
         // corrupted, every other field is whatever CONV1D declares.
         const OUT_OF_RANGE: &[TensorTileSpec] = &[TensorTileSpec {
