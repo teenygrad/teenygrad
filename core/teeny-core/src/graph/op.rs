@@ -598,8 +598,8 @@ pub enum Op {
     Sigmoid,
     /// SiLU/Swish activation (see `nn::activation::sigmoid::Silu`).
     Silu,
-    /// Log-sigmoid activation (see `nn::activation::sigmoid::Logsigmoid`).
-    Logsigmoid,
+    /// Log-sigmoid activation (see `nn::activation::sigmoid::LogSigmoid`).
+    LogSigmoid,
     /// Tanh activation (see `nn::activation::tanh::Tanh`).
     Tanh,
     /// Tanhshrink activation (see `nn::activation::tanh::Tanhshrink`).
@@ -1617,7 +1617,7 @@ impl Op {
             | Op::Softplus { .. }
             | Op::Sigmoid
             | Op::Silu
-            | Op::Logsigmoid
+            | Op::LogSigmoid
             | Op::Tanh
             | Op::Tanhshrink
             | Op::Softmax { .. }

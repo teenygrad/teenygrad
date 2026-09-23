@@ -32,20 +32,21 @@ const BLOCK_SIZE: i32 = 128;
 // ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_sigmoid_asm() -> anyhow::Result<()> {
+fn test_log_sigmoid_asm() -> anyhow::Result<()> {
     dotenv().ok();
-    let kernel = teeny_kernels::nn::activation::sigmoid::SigmoidForward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::activation::log_sigmoid::LogSigmoidForward::<f32>::new(BLOCK_SIZE);
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
         &kernel, &target, true, false,
     )?);
     let asm = teeny_test::read_compiled_asm(ptx_path);
     assert_debug_snapshot!(
-        format!("sigmoid_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        format!("log_sigmoid_forward_source_{}", teeny_runtime::BACKEND_NAME),
         kernel.source()
     );
     assert_debug_snapshot!(
-        format!("sigmoid_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        format!("log_sigmoid_forward_asm_{}", teeny_runtime::BACKEND_NAME),
         asm
     );
     Ok(())
@@ -55,18 +56,22 @@ fn test_sigmoid_asm() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_sigmoid_forward() -> anyhow::Result<()> {
+fn test_log_sigmoid_forward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
-    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/x.bin");
-    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/expected_forward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "log_sigmoid/x.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "log_sigmoid/expected_forward.bin",
+    );
     let mut y_host = vec![0.0f32; N];
 
     let mut x_buf = device.buffer::<f32>(N)?;
     let y_buf = device.buffer::<f32>(N)?;
     x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::nn::activation::sigmoid::SigmoidForward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::activation::log_sigmoid::LogSigmoidForward::<f32>::new(BLOCK_SIZE);
     let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
         &teeny_runtime::default_target(&device)?,
@@ -74,7 +79,7 @@ fn test_sigmoid_forward() -> anyhow::Result<()> {
         false,
     )?;
     let program = teeny_runtime::load_program::<
-        teeny_kernels::nn::activation::sigmoid::SigmoidForward<f32>,
+        teeny_kernels::nn::activation::log_sigmoid::LogSigmoidForward<f32>,
     >(&ptx_path)?;
     let cfg = teeny_runtime::launch_config(N, &program);
     device.launch(
@@ -87,7 +92,7 @@ fn test_sigmoid_forward() -> anyhow::Result<()> {
     for i in 0..N {
         assert!(
             (y_host[i] - expected[i]).abs() < 1e-5,
-            "sigmoid_forward mismatch at {i}: got={} expected={}",
+            "log_sigmoid_forward mismatch at {i}: got={} expected={}",
             y_host[i],
             expected[i]
         );
@@ -97,24 +102,25 @@ fn test_sigmoid_forward() -> anyhow::Result<()> {
 
 #[test]
 #[cfg(feature = "hardware")]
-fn test_sigmoid_backward() -> anyhow::Result<()> {
+fn test_log_sigmoid_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
-    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/x.bin");
-    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/dy.bin");
-    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "sigmoid/expected_backward.bin");
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "log_sigmoid/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "log_sigmoid/dy.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "log_sigmoid/expected_backward.bin",
+    );
     let mut dx_host = vec![0.0f32; N];
 
-    // Compute y = sigmoid(x) on host for backward input
-    let y_host: Vec<f32> = x_host.iter().map(|&x| 1.0 / (1.0 + (-x).exp())).collect();
-
     let mut dy_buf = device.buffer::<f32>(N)?;
-    let mut y_buf = device.buffer::<f32>(N)?;
+    let mut x_buf = device.buffer::<f32>(N)?;
     let dx_buf = device.buffer::<f32>(N)?;
     dy_buf.to_device(&dy_host)?;
-    y_buf.to_device(&y_host)?;
+    x_buf.to_device(&x_host)?;
 
-    let kernel = teeny_kernels::nn::activation::sigmoid::SigmoidBackward::<f32>::new(BLOCK_SIZE);
+    let kernel =
+        teeny_kernels::nn::activation::log_sigmoid::LogSigmoidBackward::<f32>::new(BLOCK_SIZE);
     let ptx_path = teeny_runtime::compile_kernel(
         &kernel,
         &teeny_runtime::default_target(&device)?,
@@ -122,7 +128,7 @@ fn test_sigmoid_backward() -> anyhow::Result<()> {
         false,
     )?;
     let program = teeny_runtime::load_program::<
-        teeny_kernels::nn::activation::sigmoid::SigmoidBackward<f32>,
+        teeny_kernels::nn::activation::log_sigmoid::LogSigmoidBackward<f32>,
     >(&ptx_path)?;
     let cfg = teeny_runtime::launch_config(N, &program);
     device.launch(
@@ -130,7 +136,7 @@ fn test_sigmoid_backward() -> anyhow::Result<()> {
         &cfg,
         (
             dy_buf.as_device_ptr(),
-            y_buf.as_device_ptr(),
+            x_buf.as_device_ptr(),
             dx_buf.as_device_ptr(),
             N as i32,
         ),
@@ -140,7 +146,7 @@ fn test_sigmoid_backward() -> anyhow::Result<()> {
     for i in 0..N {
         assert!(
             (dx_host[i] - expected[i]).abs() < 1e-5,
-            "sigmoid_backward mismatch at {i}: got={} expected={}",
+            "log_sigmoid_backward mismatch at {i}: got={} expected={}",
             dx_host[i],
             expected[i]
         );

@@ -25,20 +25,27 @@
 //! that codegen coupling, not this metadata, is what made the original hard
 //! to keep: it broke composability when a kernel is called as a tile-op
 //! from inside another kernel's body. This revival is deliberately
-//! metadata-only: a spec is data describing a kernel's tensors and axes —
-//! either hand-authored `const`s at the `TritonLowering` construction site
-//! (most kernels today), or, for a kernel whose `In<Tile<..>>`/
-//! `Out<Tile<..>>` parameters all carry an explicit
-//! `#[tile(block=..,extent=..)]` (teenygrad-1nr.18), derived by
-//! `#[tiled_kernel]`'s generated `tile_spec()` method from that same
-//! attribute instead — consumed purely for scheduling analysis
+//! metadata-only: a spec is data describing a kernel's tensors and axes,
+//! consumed purely for scheduling analysis
 //! (`TileGraph::propagate`/`mem_traffic`/`mem_footprint`), and never drives
 //! what gets generated into a kernel's source.
 //!
-//! Coverage is opt-in per kernel, same as the original — most ops simply
-//! have no [`KernelTileSpec`] ([`ExecutableOp::tile_spec`] defaults to
-//! `None`), and `TileGraph::propagate` treats that as a hard boundary
-//! rather than guessing.
+//! ## A spec is derived from its kernel, never written beside it
+//!
+//! Every [`KernelTileSpec`] comes from its own kernel's
+//! `#[tiled_kernel]` + `#[tile(...)]` attributes, via the generated
+//! `tile_spec()` method (teenygrad-1nr.18/.19). **Do not hand-author one**
+//! at a lowering call site: a spec written next to a kernel is decoupled
+//! from it, so nothing catches the two disagreeing, and a rename on either
+//! side goes unnoticed. `teeny-kernels` carried seven such `const`s until
+//! they were deleted for exactly that reason; `teenygrad-1tl` is the work
+//! of declaring each kernel's axes on its own signature instead.
+//!
+//! Coverage is therefore opt-in per kernel, same as the original — an op
+//! whose kernel declares no axes has no [`KernelTileSpec`]
+//! ([`ExecutableOp::tile_spec`] defaults to `None`), and
+//! `TileGraph::propagate` treats that as a hard boundary rather than
+//! guessing.
 //!
 //! ## Propagation is name-matching, not expression evaluation
 //!
@@ -71,6 +78,11 @@
 //! no output-side name match (e.g. a reduction axis) already got. The
 //! string names in `untiled_dims` itself still aren't read; the effect
 //! comes from simply omitting a dim from `axes` (teenygrad-1nr.7).
+
+use alloc::format;
+use alloc::string::ToString;
+
+use crate::errors::{Error, Result};
 
 /// Strided/padded window relating an axis's *output* tile to the actual
 /// *input* positions it reads — e.g. a conv kernel's `x_ptr`, whose
@@ -247,4 +259,395 @@ pub struct KernelTileSpec {
     /// state (see [`TileLoopSpec`]) instead of resolving its whole output
     /// in one shot. `None` (the ordinary case) for every non-looping spec.
     pub loop_spec: Option<TileLoopSpec>,
+}
+
+impl TileAxisBinding {
+    /// Checks this binding in isolation, for a tensor of rank `rank`.
+    ///
+    /// `param` names the tensor only so the error can say which one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidTileSpec`] for an empty `dims`, an index at
+    /// or beyond `rank`, an empty name, or a zero `divide_by`.
+    fn validate(&self, param: &str, rank: usize) -> Result<()> {
+        let bad = |problem: alloc::string::String| Error::InvalidTileSpec {
+            param: param.to_string(),
+            problem,
+        };
+
+        if self.dims.is_empty() {
+            return Err(bad(format!(
+                "axis `{}` binds no dims; a binding must cover at least one",
+                self.block_const
+            ))
+            .into());
+        }
+        for &dim in self.dims {
+            if dim >= rank {
+                return Err(bad(format!(
+                    "axis `{}` binds dim {dim}, but the tensor is rank {rank}",
+                    self.block_const
+                ))
+                .into());
+            }
+        }
+        if self.block_const.is_empty() || self.extent_param.is_empty() {
+            return Err(bad(format!(
+                "axis binding on dims {:?} has an empty block const or extent param",
+                self.dims
+            ))
+            .into());
+        }
+        if let Some(window) = self.window
+            && (window.stride_const.is_empty()
+                || window.pad_const.is_empty()
+                || window.kernel_size_const.is_empty())
+        {
+            return Err(bad(format!(
+                "axis `{}` has a window with an empty const name",
+                self.block_const
+            ))
+            .into());
+        }
+        if self.divide_by == Some(0) {
+            return Err(bad(format!(
+                "axis `{}` has `divide_by: Some(0)`, which would divide its extent by zero",
+                self.block_const
+            ))
+            .into());
+        }
+        Ok(())
+    }
+}
+
+impl TensorTileSpec {
+    /// Checks this tensor's bindings against its own `rank`.
+    ///
+    /// The invariants are the ones [`TileAxisBinding::dims`] states in
+    /// prose: every index below `rank`, and no index repeated across this
+    /// tensor's `axes`. Both are documented as authoring bugs that
+    /// `propagate` does not normalise — an out-of-range index is skipped
+    /// and a repeat is last-write-wins — so neither shows up at the point
+    /// the spec is written.
+    ///
+    /// `untiled_dims` is documentation, and deliberately need not be
+    /// complete: a conv kernel's input tensor may leave every dim out of
+    /// both lists. So this checks only that the two do not *contradict*
+    /// each
+    /// other, and that together they do not describe more dims than exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidTileSpec`] naming the tensor and the
+    /// offending index or name.
+    pub fn validate(&self) -> Result<()> {
+        let bad = |problem: alloc::string::String| Error::InvalidTileSpec {
+            param: self.param.to_string(),
+            problem,
+        };
+
+        if self.param.is_empty() {
+            return Err(bad("tensor has an empty param name".to_string()).into());
+        }
+
+        let mut seen: alloc::vec::Vec<usize> = alloc::vec::Vec::new();
+        for axis in self.axes {
+            axis.validate(self.param, self.rank)?;
+            for &dim in axis.dims {
+                if seen.contains(&dim) {
+                    return Err(bad(format!(
+                        "dim {dim} is bound twice; `propagate` resolves repeats \
+                         last-write-wins, so one of the two bindings is dead"
+                    ))
+                    .into());
+                }
+                seen.push(dim);
+            }
+        }
+
+        if let Some(axis) = self.reduction_axis
+            && axis >= self.rank
+        {
+            return Err(bad(format!(
+                "reduction_axis is {axis}, but the tensor is rank {}",
+                self.rank
+            ))
+            .into());
+        }
+
+        for name in self.untiled_dims {
+            if let Some(axis) = self.axes.iter().find(|a| a.extent_param == *name) {
+                return Err(bad(format!(
+                    "`{name}` is listed in untiled_dims but is also the extent param \
+                     of the axis bound to dims {:?}",
+                    axis.dims
+                ))
+                .into());
+            }
+        }
+
+        let described = seen.len() + self.untiled_dims.len();
+        if described > self.rank {
+            return Err(bad(format!(
+                "{} tiled dims plus {} untiled names describe {described} dims, \
+                 but the tensor is rank {}",
+                seen.len(),
+                self.untiled_dims.len(),
+                self.rank
+            ))
+            .into());
+        }
+
+        Ok(())
+    }
+}
+
+impl KernelTileSpec {
+    /// Checks every tensor in this spec, and the loop metadata.
+    ///
+    /// Written to be called from a test that enumerates the registered
+    /// specs. A `const fn` version would have to panic with a static
+    /// string rather than name the offending tensor and index, since
+    /// formatting needs an allocator — the diagnosis is worth more here
+    /// than the compile-time check.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`Error::InvalidTileSpec`] found, naming the
+    /// tensor it came from.
+    pub fn validate(&self) -> Result<()> {
+        if self.outputs.is_empty() {
+            return Err(Error::InvalidTileSpec {
+                param: "<kernel>".to_string(),
+                problem: "spec declares no outputs, but `propagate` reads `outputs[0]`".to_string(),
+            }
+            .into());
+        }
+
+        for tensor in self.inputs.iter().chain(self.outputs) {
+            tensor.validate()?;
+        }
+
+        if let Some(loop_spec) = self.loop_spec {
+            for carry in loop_spec.carries {
+                if carry.name.is_empty() || carry.shape_consts.is_empty() {
+                    return Err(Error::InvalidTileSpec {
+                        param: "<loop_spec>".to_string(),
+                        problem: format!(
+                            "carry `{}` has an empty name or no shape consts",
+                            carry.name
+                        ),
+                    }
+                    .into());
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::String;
+
+    const fn axis(dims: &'static [usize], block: &'static str) -> TileAxisBinding {
+        TileAxisBinding {
+            dims,
+            block_const: block,
+            extent_param: "N",
+            window: None,
+            divide_by: None,
+        }
+    }
+
+    fn tensor(rank: usize, axes: &'static [TileAxisBinding]) -> TensorTileSpec {
+        TensorTileSpec {
+            param: "x_ptr",
+            rank,
+            axes,
+            reduction_axis: None,
+            untiled_dims: &[],
+        }
+    }
+
+    fn err(spec: &TensorTileSpec) -> String {
+        alloc::format!("{}", spec.validate().expect_err("spec should be rejected"))
+    }
+
+    #[test]
+    fn test_well_formed_tensor_validates() {
+        const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_M"), axis(&[1], "BLOCK_K")];
+        assert!(tensor(2, AXES).validate().is_ok());
+    }
+
+    /// The flattened multi-dim case: one `BLOCK_HW` spanning an NCHW
+    /// tensor's H and W dims.
+    #[test]
+    fn test_binding_may_span_several_dims() {
+        const AXES: &[TileAxisBinding] = &[axis(&[2, 3], "BLOCK_HW")];
+        let spec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 4,
+            axes: AXES,
+            reduction_axis: None,
+            untiled_dims: &["B", "C"],
+        };
+        assert!(spec.validate().is_ok());
+    }
+
+    /// A tensor describing no dims at all (a conv kernel's input, before
+    /// its axes are declared) — untiled_dims is documentation and need
+    /// not be complete.
+    #[test]
+    fn test_tensor_describing_none_of_its_dims_is_allowed() {
+        assert!(tensor(3, &[]).validate().is_ok());
+    }
+
+    #[test]
+    fn test_dim_at_or_beyond_rank_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[axis(&[2], "BLOCK_OOB")];
+        let msg = err(&tensor(2, AXES));
+        assert!(msg.contains("binds dim 2"), "{msg}");
+        assert!(msg.contains("rank 2"), "{msg}");
+        assert!(msg.contains("x_ptr"), "{msg}");
+    }
+
+    #[test]
+    fn test_binding_the_same_dim_twice_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_A"), axis(&[0], "BLOCK_B")];
+        let msg = err(&tensor(2, AXES));
+        assert!(msg.contains("dim 0 is bound twice"), "{msg}");
+    }
+
+    /// Across bindings, not just within one.
+    #[test]
+    fn test_dim_repeated_across_a_flattened_binding_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[axis(&[1, 2], "BLOCK_HW"), axis(&[2], "BLOCK_W")];
+        let msg = err(&tensor(4, AXES));
+        assert!(msg.contains("dim 2 is bound twice"), "{msg}");
+    }
+
+    #[test]
+    fn test_binding_with_no_dims_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[axis(&[], "BLOCK_NONE")];
+        let msg = err(&tensor(2, AXES));
+        assert!(msg.contains("binds no dims"), "{msg}");
+    }
+
+    #[test]
+    fn test_out_of_range_reduction_axis_is_rejected() {
+        let spec = TensorTileSpec {
+            param: "a_ptr",
+            rank: 2,
+            axes: &[],
+            reduction_axis: Some(5),
+            untiled_dims: &[],
+        };
+        let msg = alloc::format!("{}", spec.validate().expect_err("out of range"));
+        assert!(msg.contains("reduction_axis is 5"), "{msg}");
+    }
+
+    #[test]
+    fn test_divide_by_zero_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[TileAxisBinding {
+            dims: &[0],
+            block_const: "BLOCK_C",
+            extent_param: "C",
+            window: None,
+            divide_by: Some(0),
+        }];
+        let msg = err(&tensor(1, AXES));
+        assert!(msg.contains("divide_by"), "{msg}");
+    }
+
+    /// A dim cannot be both tiled and declared untiled.
+    #[test]
+    fn test_extent_param_in_untiled_dims_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_N")];
+        let spec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 2,
+            axes: AXES,
+            reduction_axis: None,
+            untiled_dims: &["N"],
+        };
+        let msg = alloc::format!("{}", spec.validate().expect_err("contradiction"));
+        assert!(msg.contains("untiled_dims"), "{msg}");
+    }
+
+    #[test]
+    fn test_describing_more_dims_than_the_rank_is_rejected() {
+        const AXES: &[TileAxisBinding] = &[axis(&[0], "BLOCK_N")];
+        let spec = TensorTileSpec {
+            param: "x_ptr",
+            rank: 2,
+            axes: AXES,
+            reduction_axis: None,
+            untiled_dims: &["B", "C"],
+        };
+        let msg = alloc::format!("{}", spec.validate().expect_err("over-described"));
+        assert!(msg.contains("rank 2"), "{msg}");
+    }
+
+    #[test]
+    fn test_kernel_spec_with_no_outputs_is_rejected() {
+        const SPEC: KernelTileSpec = KernelTileSpec {
+            inputs: &[],
+            outputs: &[],
+            loop_spec: None,
+        };
+        let msg = alloc::format!("{}", SPEC.validate().expect_err("no outputs"));
+        assert!(msg.contains("outputs[0]"), "{msg}");
+    }
+
+    #[test]
+    fn test_kernel_spec_checks_every_tensor_not_just_the_first() {
+        const GOOD: &[TileAxisBinding] = &[axis(&[0], "BLOCK_M")];
+        const BAD: &[TileAxisBinding] = &[axis(&[9], "BLOCK_OOB")];
+        const SPEC: KernelTileSpec = KernelTileSpec {
+            inputs: &[TensorTileSpec {
+                param: "a_ptr",
+                rank: 2,
+                axes: GOOD,
+                reduction_axis: None,
+                untiled_dims: &[],
+            }],
+            outputs: &[TensorTileSpec {
+                param: "c_ptr",
+                rank: 2,
+                axes: BAD,
+                reduction_axis: None,
+                untiled_dims: &[],
+            }],
+            loop_spec: None,
+        };
+        let msg = alloc::format!("{}", SPEC.validate().expect_err("bad output tensor"));
+        assert!(msg.contains("c_ptr"), "{msg}");
+    }
+
+    #[test]
+    fn test_carry_with_no_shape_consts_is_rejected() {
+        const SPEC: KernelTileSpec = KernelTileSpec {
+            inputs: &[],
+            outputs: &[TensorTileSpec {
+                param: "y_ptr",
+                rank: 1,
+                axes: &[],
+                reduction_axis: None,
+                untiled_dims: &[],
+            }],
+            loop_spec: Some(TileLoopSpec {
+                carries: &[TileCarryBinding {
+                    name: "acc",
+                    shape_consts: &[],
+                }],
+                trip_count_factors: &["N"],
+            }),
+        };
+        let msg = alloc::format!("{}", SPEC.validate().expect_err("empty carry"));
+        assert!(msg.contains("acc"), "{msg}");
+    }
 }
