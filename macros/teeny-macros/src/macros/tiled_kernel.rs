@@ -765,14 +765,31 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         };
 
-        let idx_ident = |i: usize| format_ident!("__tile_idx_{}", i);
+        // Each axis's CTA index is bound under a name the kernel body can
+        // use: `#[tile(name = "C", ..)]` binds `tile_c`. A multi-axis kernel
+        // almost always needs them -- `channel_bias_add_forward` indexes its
+        // bias by the channel index, `conv2d_forward` needs `b`/`c_out`/`oh`
+        // -- and the alternative is the body reaching for a generated name it
+        // was never promised. For the blocked axis this is the *tile* index,
+        // not an element offset; the elements are already in the loaded tile.
+        let idx_ident = |i: usize| {
+            let axis: &TileAttrArgs = &axes[i];
+            let label = axis
+                .name
+                .as_ref()
+                .map(syn::LitStr::value)
+                .unwrap_or_else(|| axis.extent.to_string());
+            format_ident!("tile_{}", label.to_lowercase())
+        };
 
-        // The single-axis case is emitted exactly as it always was, so every
-        // kernel in the tree keeps byte-identical generated source (their
-        // `.loc` line/column debug info, and so their asm snapshots, are
-        // sensitive to the statement count here). The generalized decode
-        // below only ever applies to a kernel that really declares several
-        // axes.
+        // The single-axis case is emitted the way it always was. The general
+        // decode below would be correct for it too -- it collapses to the
+        // same arithmetic -- but every kernel's asm snapshot embeds `.loc`
+        // line/column debug info, so routing them through it would rewrite
+        // a pile of snapshots for a purely cosmetic change. Keeping the old
+        // form is churn avoidance, not a correctness requirement; fold the
+        // two paths together whenever re-recording those snapshots is
+        // worth it.
         let mut stmts: Vec<syn::Stmt> = if axes.len() == 1 {
             let dim_ident = axes[0].dim.clone().unwrap_or_else(|| format_ident!("X"));
             let extent_ident = &axes[0].extent;
@@ -851,9 +868,15 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             // Row-major contiguous strides, from the declared extents: the
             // stride of an axis is the product of every extent inside it. Same
             // arithmetic `conv2d_forward` writes by hand as `... * H * W + ... * W`.
-            let stride_of = |i: usize| -> TokenStream2 {
+            // `None` for the innermost axis, whose stride is 1 -- so the
+            // generated source reads `range * C + c` rather than
+            // `range * (1 * C) + c * (1)`, matching what the kernel author
+            // would have written by hand.
+            let stride_of = |i: usize| -> Option<TokenStream2> {
                 let inner: Vec<&Ident> = axes[i + 1..].iter().map(|a| &a.extent).collect();
-                quote! { 1 #( * #inner)* }
+                inner
+                    .split_first()
+                    .map(|(head, rest)| quote! { #head #( * #rest)* })
             };
 
             let blocked_extent = &axes[blocked_at].extent;
@@ -882,14 +905,20 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 .filter(|(i, _)| *i != blocked_at)
                 .map(|(i, _)| {
                     let idx = idx_ident(i);
-                    let stride = stride_of(i);
-                    quote! { (#idx) * (#stride) }
+                    match stride_of(i) {
+                        Some(stride) => quote! { #idx * (#stride) },
+                        None => quote! { #idx },
+                    }
                 })
                 .collect();
+            let blocked_term = match &blocked_stride {
+                Some(stride) => quote! { __tile_range * (#stride) },
+                None => quote! { __tile_range },
+            };
             let offsets_expr: TokenStream2 = if scalar_terms.is_empty() {
-                quote! { __tile_range * (#blocked_stride) }
+                blocked_term
             } else {
-                quote! { __tile_range * (#blocked_stride) + ( #(#scalar_terms)+* ) }
+                quote! { #blocked_term + #(#scalar_terms)+* }
             };
             stmts.push(
                 syn::parse2(quote! { let offsets = #offsets_expr; })
