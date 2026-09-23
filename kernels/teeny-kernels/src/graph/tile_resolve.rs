@@ -226,9 +226,7 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use teeny_core::model::{TileAxisBinding, TileWindow};
-
-    use crate::graph::{BATCHNORM2D_TILE_SPEC, CONV1D_TILE_SPEC, MATMUL_TILE_SPEC};
+    use teeny_core::model::{TensorTileSpec, TileAxisBinding, TileWindow};
 
     /// A lookup backed by an explicit table, the way a real caller's
     /// per-node parameter values would be.
@@ -250,15 +248,86 @@ mod tests {
         dims.to_vec()
     }
 
-    // --- the shapes a real spec takes -----------------------------------
+    // --- fixtures --------------------------------------------------------
+    //
+    // These describe the *shapes* a spec can take, not any particular
+    // kernel. They used to be the hand-authored `GEMM` and
+    // friends from `graph::mod`, which are gone: every spec is derived
+    // from its kernel's own `#[tile(...)]` now (`teenygrad-1tl`), and a
+    // unit test of this module's arithmetic should not depend on which
+    // kernels happen to have been converted yet.
+
+    const fn axis(
+        dims: &'static [usize],
+        block: &'static str,
+        extent: &'static str,
+    ) -> TileAxisBinding {
+        TileAxisBinding {
+            dims,
+            block_const: block,
+            extent_param: extent,
+            window: None,
+            divide_by: None,
+        }
+    }
+
+    const fn tensor(
+        param: &'static str,
+        rank: usize,
+        axes: &'static [TileAxisBinding],
+    ) -> TensorTileSpec {
+        TensorTileSpec {
+            param,
+            rank,
+            axes,
+            reduction_axis: None,
+            untiled_dims: &[],
+        }
+    }
+
+    /// GEMM-shaped: `a_ptr: [M, K]`, `b_ptr: [K, N]`, `c_ptr: [M, N]`.
+    /// `M`/`N` are shared with the output; `K` is on both inputs and
+    /// neither output.
+    const GEMM: KernelTileSpec = {
+        const A: &[TileAxisBinding] = &[axis(&[0], "BLOCK_M", "M"), axis(&[1], "BLOCK_K", "K")];
+        const B: &[TileAxisBinding] = &[axis(&[0], "BLOCK_K", "K"), axis(&[1], "BLOCK_N", "N")];
+        const C: &[TileAxisBinding] = &[axis(&[0], "BLOCK_M", "M"), axis(&[1], "BLOCK_N", "N")];
+        KernelTileSpec {
+            inputs: &[tensor("a_ptr", 2, A), tensor("b_ptr", 2, B)],
+            outputs: &[tensor("c_ptr", 2, C)],
+            loop_spec: None,
+        }
+    };
+
+    /// One block spanning two real dims, NCHW-style: `BLOCK_HW` over dims
+    /// 2 and 3, batch and channels untiled.
+    const FLATTENED: KernelTileSpec = {
+        const AXES: &[TileAxisBinding] = &[axis(&[2, 3], "BLOCK_HW", "HW")];
+        KernelTileSpec {
+            inputs: &[tensor("x_ptr", 4, AXES)],
+            outputs: &[tensor("y_ptr", 4, AXES)],
+            loop_spec: None,
+        }
+    };
+
+    /// An input declaring no axes at all, against a tiled output.
+    const UNTILED_INPUT: KernelTileSpec = {
+        const OUT: &[TileAxisBinding] = &[axis(&[2], "BLOCK_OL", "OL")];
+        KernelTileSpec {
+            inputs: &[tensor("x_ptr", 3, &[])],
+            outputs: &[tensor("y_ptr", 3, OUT)],
+            loop_spec: None,
+        }
+    };
+
+    // --- the shapes a spec takes -----------------------------------------
 
     /// GEMM: `M` and `N` propagate from the output by name; `K` never
     /// appears there, so it stays unresolved — full extent — which is what
     /// Welder's model expects of a reduction axis.
     #[test]
     fn test_matmul_propagates_m_and_n_and_leaves_k_unresolved() {
-        let inputs =
-            resolve_inputs(&MATMUL_TILE_SPEC, &tile(&[Some(64), Some(32)]), &NoConsts).unwrap();
+        let inputs = resolve_inputs(&GEMM, &tile(&[Some(64), Some(32)]), &NoConsts).unwrap();
 
         assert_eq!(inputs.len(), 2);
         assert_eq!(
@@ -279,7 +348,7 @@ mod tests {
     #[test]
     fn test_batchnorm2d_resolves_its_flattened_binding() {
         let inputs = resolve_inputs(
-            &BATCHNORM2D_TILE_SPEC,
+            &FLATTENED,
             &tile(&[None, None, Some(1), Some(256)]),
             &NoConsts,
         )
@@ -289,12 +358,12 @@ mod tests {
         assert_eq!(inputs[0], tile(&[None, None, Some(1), Some(256)]));
     }
 
-    /// `CONV1D_TILE_SPEC`'s input declares no axes at all, so every dim is
+    /// `UNTILED_INPUT`'s input declares no axes at all, so every dim is
     /// at full extent — the documented fallback, not a failure.
     #[test]
     fn test_conv1d_input_is_entirely_unresolved() {
         let inputs = resolve_inputs(
-            &CONV1D_TILE_SPEC,
+            &UNTILED_INPUT,
             &tile(&[Some(2), Some(8), Some(64)]),
             &NoConsts,
         )
@@ -311,8 +380,8 @@ mod tests {
         kernel_size_const: "KW",
     };
 
-    /// No shipped spec carries a `TileWindow` yet — populating conv/pool is
-    /// `teenygrad-1nr.29` — so the window cases use a spec of this shape.
+    /// No spec carries a `TileWindow` yet — declaring them on conv/pool is
+    /// `teenygrad-1tl.7` — so the window cases use a spec of this shape.
     const WINDOWED: KernelTileSpec = {
         const AXIS: TileAxisBinding = TileAxisBinding {
             dims: &[2],
@@ -423,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_output_tile_of_the_wrong_rank_is_rejected() {
-        let msg = resolve_inputs(&MATMUL_TILE_SPEC, &tile(&[Some(64)]), &NoConsts)
+        let msg = resolve_inputs(&GEMM, &tile(&[Some(64)]), &NoConsts)
             .expect_err("rank 1 against a rank-2 output")
             .to_string();
         assert!(msg.contains("rank 1"), "{msg}");
@@ -450,8 +519,7 @@ mod tests {
     /// too, rather than inventing a block for it.
     #[test]
     fn test_unresolved_output_axis_does_not_resolve_its_input() {
-        let inputs =
-            resolve_inputs(&MATMUL_TILE_SPEC, &tile(&[None, Some(32)]), &NoConsts).unwrap();
+        let inputs = resolve_inputs(&GEMM, &tile(&[None, Some(32)]), &NoConsts).unwrap();
 
         assert_eq!(
             inputs[0],

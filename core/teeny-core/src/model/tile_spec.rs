@@ -25,20 +25,27 @@
 //! that codegen coupling, not this metadata, is what made the original hard
 //! to keep: it broke composability when a kernel is called as a tile-op
 //! from inside another kernel's body. This revival is deliberately
-//! metadata-only: a spec is data describing a kernel's tensors and axes —
-//! either hand-authored `const`s at the `TritonLowering` construction site
-//! (most kernels today), or, for a kernel whose `In<Tile<..>>`/
-//! `Out<Tile<..>>` parameters all carry an explicit
-//! `#[tile(block=..,extent=..)]` (teenygrad-1nr.18), derived by
-//! `#[tiled_kernel]`'s generated `tile_spec()` method from that same
-//! attribute instead — consumed purely for scheduling analysis
+//! metadata-only: a spec is data describing a kernel's tensors and axes,
+//! consumed purely for scheduling analysis
 //! (`TileGraph::propagate`/`mem_traffic`/`mem_footprint`), and never drives
 //! what gets generated into a kernel's source.
 //!
-//! Coverage is opt-in per kernel, same as the original — most ops simply
-//! have no [`KernelTileSpec`] ([`ExecutableOp::tile_spec`] defaults to
-//! `None`), and `TileGraph::propagate` treats that as a hard boundary
-//! rather than guessing.
+//! ## A spec is derived from its kernel, never written beside it
+//!
+//! Every [`KernelTileSpec`] comes from its own kernel's
+//! `#[tiled_kernel]` + `#[tile(...)]` attributes, via the generated
+//! `tile_spec()` method (teenygrad-1nr.18/.19). **Do not hand-author one**
+//! at a lowering call site: a spec written next to a kernel is decoupled
+//! from it, so nothing catches the two disagreeing, and a rename on either
+//! side goes unnoticed. `teeny-kernels` carried seven such `const`s until
+//! they were deleted for exactly that reason; `teenygrad-1tl` is the work
+//! of declaring each kernel's axes on its own signature instead.
+//!
+//! Coverage is therefore opt-in per kernel, same as the original — an op
+//! whose kernel declares no axes has no [`KernelTileSpec`]
+//! ([`ExecutableOp::tile_spec`] defaults to `None`), and
+//! `TileGraph::propagate` treats that as a hard boundary rather than
+//! guessing.
 //!
 //! ## Propagation is name-matching, not expression evaluation
 //!
@@ -325,8 +332,9 @@ impl TensorTileSpec {
     /// the spec is written.
     ///
     /// `untiled_dims` is documentation, and deliberately need not be
-    /// complete: `CONV1D_TILE_SPEC`'s input leaves every dim out of both
-    /// lists. So this checks only that the two do not *contradict* each
+    /// complete: a conv kernel's input tensor may leave every dim out of
+    /// both lists. So this checks only that the two do not *contradict*
+    /// each
     /// other, and that together they do not describe more dims than exist.
     ///
     /// # Errors
@@ -475,7 +483,8 @@ mod tests {
         assert!(tensor(2, AXES).validate().is_ok());
     }
 
-    /// The flattened multi-dim case (`BATCHNORM2D_TILE_SPEC`'s `HW`).
+    /// The flattened multi-dim case: one `BLOCK_HW` spanning an NCHW
+    /// tensor's H and W dims.
     #[test]
     fn test_binding_may_span_several_dims() {
         const AXES: &[TileAxisBinding] = &[axis(&[2, 3], "BLOCK_HW")];
@@ -489,8 +498,9 @@ mod tests {
         assert!(spec.validate().is_ok());
     }
 
-    /// `CONV1D_TILE_SPEC`'s input describes no dims at all — untiled_dims is
-    /// documentation and need not be complete.
+    /// A tensor describing no dims at all (a conv kernel's input, before
+    /// its axes are declared) — untiled_dims is documentation and need
+    /// not be complete.
     #[test]
     fn test_tensor_describing_none_of_its_dims_is_allowed() {
         assert!(tensor(3, &[]).validate().is_ok());

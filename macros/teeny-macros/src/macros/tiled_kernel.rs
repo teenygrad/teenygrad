@@ -788,8 +788,8 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // runtime argument, not baked in here: the real tensor rank is a
     // property of the graph node this kernel gets applied to, not of the
     // kernel's own signature (a `Tile`-typed param carries a dtype, never a
-    // rank) -- same reasoning as `teeny-kernels`'
-    // `flat_elementwise_tile_spec`, which this method mirrors the shape of.
+    // rank) -- the same reason a flat elementwise spec has to be built
+    // per node rather than shared as one `const`.
     if has_explicit_tile_attr && !structured_params.is_empty() {
         return syn::Error::new_spanned(
             &input.sig,
