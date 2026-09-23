@@ -381,3 +381,31 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SiluForw
         [n.div_ceil(self.block_size as usize) as u32, 1, 1]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// As `relu`'s: `silu_forward`'s `#[tile(...)]`-tagged `x`/`y` share
+    /// one flattened axis, so an output tile propagates to the input
+    /// unchanged.
+    #[test]
+    fn test_silu_tile_spec_declares_one_flat_axis_shared_by_x_and_y() {
+        for rank in 1..=4 {
+            let spec = SiluForward::<f32>::tile_spec(rank);
+            assert_eq!(spec.loop_spec, None);
+            assert_eq!((spec.inputs.len(), spec.outputs.len()), (1, 1));
+            assert_eq!((spec.inputs[0].param, spec.outputs[0].param), ("x", "y"));
+
+            for tensor in [spec.inputs[0], spec.outputs[0]] {
+                assert_eq!(tensor.rank, rank);
+                assert_eq!(tensor.axes.len(), 1, "one flattened axis");
+                assert_eq!(tensor.axes[0].dims, (0..rank).collect::<Vec<_>>());
+                assert_eq!(tensor.axes[0].block_const, "BLOCK_SIZE");
+                assert_eq!(tensor.axes[0].extent_param, "n_elements");
+            }
+            spec.validate()
+                .expect("a derived spec must be self-consistent");
+        }
+    }
+}
