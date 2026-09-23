@@ -26,8 +26,8 @@ use teeny_triton::triton::{
 // ── LogSigmoid ────────────────────────────────────────────────────────────────
 
 /// Forward: y = log(sigmoid(x)) = -log(1 + exp(-x))
-#[tiled_kernel(backward = LogsigmoidBackward)]
-pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+#[tiled_kernel(backward = LogSigmoidBackward)]
+pub fn log_sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     x: In<Tile<T, D>>,
     y: Out<Tile<T, D>>,
     n_elements: i32,
@@ -50,7 +50,7 @@ pub fn logsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 
 /// Backward: dx = dy * sigmoid(-x) = dy / (1 + exp(x))
 #[kernel]
-pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+pub fn log_sigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     dy_ptr: In<T::Pointer<D>>,
     x_ptr: In<T::Pointer<D>>,
     dx_ptr: Out<T::Pointer<D>>,
@@ -98,7 +98,7 @@ pub fn logsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
 }
 
-pub struct LogsigmoidOp<D: Float> {
-    pub forward: LogsigmoidForward<D>,
-    pub backward: LogsigmoidBackward<D>,
+pub struct LogSigmoidOp<D: Float> {
+    pub forward: LogSigmoidForward<D>,
+    pub backward: LogSigmoidBackward<D>,
 }

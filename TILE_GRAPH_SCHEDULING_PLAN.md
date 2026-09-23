@@ -250,7 +250,7 @@ own investigation):
 - **21 flat elementwise ops** (`Relu` + every `exec_from`-built activation
   — `Elu`/`Selu`/`Celu`/`Gelu`/`Mish`/`Hardtanh`/`Relu6`/`Hardsigmoid`/
   `Hardswish`/`Hardshrink`/`LeakyRelu`/`Threshold`/`Softsign`/
-  `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`Logsigmoid`/`Tanh`/
+  `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`LogSigmoid`/`Tanh`/
   `Tanhshrink`) via a new `flat_elementwise_tile_spec(rank)` function,
   *not* a `const`. The original `RELU_TILE_SPEC` was a `const rank: 1`
   spec — silently inert for any non-1-D `Relu` node (confirmed: neither

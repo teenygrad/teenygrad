@@ -45,7 +45,7 @@ use crate::nn::{
             HardsigmoidForwardDispatch, HardswishForward, HardswishForwardDispatch,
             HardtanhForward, HardtanhForwardDispatch, Relu6Forward, Relu6ForwardDispatch,
         },
-        logsigmoid::{LogsigmoidForward, LogsigmoidForwardDispatch},
+        log_sigmoid::{LogSigmoidForward, LogSigmoidForwardDispatch},
         misc::{
             LeakyReluForward, LeakyReluForwardDispatch, SoftplusForward, SoftplusForwardDispatch,
             SoftshrinkForward, SoftshrinkForwardDispatch, SoftsignForward, SoftsignForwardDispatch,
@@ -291,7 +291,7 @@ macro_rules! make_float_kernel {
 /// caller is one of the flat, single-`BLOCK_SIZE` elementwise activations
 /// (`Elu`/`Selu`/`Celu`/`Gelu`/`Mish`/`Hardtanh`/`Relu6`/`Hardsigmoid`/
 /// `Hardswish`/`Hardshrink`/`LeakyRelu`/`Threshold`/`Softsign`/
-/// `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`Logsigmoid`/`Tanh`/
+/// `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`LogSigmoid`/`Tanh`/
 /// `Tanhshrink`), so `tile_spec` is set unconditionally here via
 /// [`flat_elementwise_tile_spec`] rather than per call site -- if a
 /// future caller of this function isn't shaped like that, give it its
@@ -526,7 +526,7 @@ impl_stub_runtime_op_float!(ThresholdForward);
 impl_stub_runtime_op_float!(SoftsignForward);
 impl_stub_runtime_op_float!(SoftshrinkForward);
 impl_stub_runtime_op_float!(SoftplusForward);
-impl_stub_runtime_op_float!(LogsigmoidForward);
+impl_stub_runtime_op_float!(LogSigmoidForward);
 impl_stub_runtime_op_float!(TanhshrinkForward);
 
 // ---------------------------------------------------------------------------
@@ -1811,10 +1811,10 @@ impl TritonLowering {
                     exec.tile_spec = Some(SiluForward::<f32>::tile_spec(node.shape.len()));
                     exec
                 }
-                Op::Logsigmoid => exec_from(
+                Op::LogSigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
-                    LogsigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
+                    LogSigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
                 Op::Tanh => exec_from(
                     node.shape.clone(),

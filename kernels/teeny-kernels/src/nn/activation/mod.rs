@@ -18,7 +18,7 @@ pub mod elu;
 pub mod extra;
 pub mod gelu;
 pub mod hard;
-pub mod logsigmoid;
+pub mod log_sigmoid;
 pub mod misc;
 pub mod relu;
 pub mod sigmoid;

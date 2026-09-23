@@ -33,7 +33,7 @@ use crate::{
             hard::{Hardshrink, Hardsigmoid, Hardswish, Hardtanh, Relu6},
             misc::{LeakyRelu, Softplus, Softshrink, Softsign, Threshold},
             relu::Relu,
-            sigmoid::{Logsigmoid, Sigmoid, Silu},
+            sigmoid::{LogSigmoid, Sigmoid, Silu},
             softmax::Softmax,
             tanh::{Tanh, Tanhshrink},
         },
@@ -684,10 +684,10 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Silu<D, SymTensor, RANK> 
     }
 }
 
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Logsigmoid<D, SymTensor, RANK> {
+impl<D: Float, const RANK: usize> Layer<SymTensor> for LogSigmoid<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> Result<SymTensor> {
-        input.record(Op::Logsigmoid)
+        input.record(Op::LogSigmoid)
     }
 }
 

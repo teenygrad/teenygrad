@@ -75,25 +75,25 @@ impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T> for
 }
 
 /// Log-sigmoid activation layer: `ln(sigmoid(x))`.
-pub struct Logsigmoid<D: Float, T, const RANK: usize> {
+pub struct LogSigmoid<D: Float, T, const RANK: usize> {
     _pd: PhantomData<(D, T)>,
 }
 
-impl<D: Float, T, const RANK: usize> Logsigmoid<D, T, RANK> {
-    /// Creates a new `Logsigmoid` layer.
+impl<D: Float, T, const RANK: usize> LogSigmoid<D, T, RANK> {
+    /// Creates a new `LogSigmoid` layer.
     pub fn new() -> Self {
         Self { _pd: PhantomData }
     }
 }
 
-impl<D: Float, T, const RANK: usize> Default for Logsigmoid<D, T, RANK> {
+impl<D: Float, T, const RANK: usize> Default for LogSigmoid<D, T, RANK> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<D: Float, T: Tensor<D, RANK> + EagerTensor, const RANK: usize> Layer<T>
-    for Logsigmoid<D, T, RANK>
+    for LogSigmoid<D, T, RANK>
 {
     type Output = T;
     fn call(&self, _input: T) -> Result<Self::Output> {

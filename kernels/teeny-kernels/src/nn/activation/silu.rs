@@ -171,7 +171,7 @@ mod tests {
 
     /// `silu_forward`'s `#[tile(...)]`-tagged `x`/`y` share one
     /// flattened axis, so an output tile propagates to the input
-    /// unchanged. `sigmoid_forward`/`logsigmoid_forward` have no
+    /// unchanged. `sigmoid_forward`/`log_sigmoid_forward` have no
     /// `#[tile(...)]` and so generate no spec -- teenygrad-1tl.2.
     #[test]
     fn test_silu_tile_spec_declares_one_flat_axis_shared_by_x_and_y() {
