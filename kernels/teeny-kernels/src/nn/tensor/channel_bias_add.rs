@@ -48,16 +48,16 @@ use teeny_triton::triton::{
 /// grid covered channels alone, so each CTA had to walk `N` itself. With
 /// `N` a declared axis the grid covers it instead.
 ///
-/// `bias_ptr` stays a raw pointer: it is shape `(C,)`, so it does not sit on
-/// the same axes as `x`/`y`, and every `Tile` parameter on one kernel must
-/// declare the same axes. Indexing it needs the channel index, which the
-/// prelude binds as `tile_c` from this axis's `name = "C"`.
+/// `bias` sits on `C` alone. An input may declare a subset of the output's
+/// axes, which is broadcasting: the prelude loads the single element this
+/// CTA needs and widens it across the block, so `bias.tensor` has the same
+/// shape as `x.tensor` and the body just adds them.
 #[tiled_kernel]
 pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     #[tile(block = BLOCK_N, extent = N)]
     #[tile(extent = C)]
     x: In<Tile<T, D>>,
-    bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] bias: In<Tile<T, D>>,
     #[tile(block = BLOCK_N, extent = N)]
     #[tile(extent = C)]
     y: Out<Tile<T, D>>,
@@ -68,23 +68,7 @@ pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    // Load bias[c] as shape [1], broadcast to [BLOCK_N].
-    let c_idx = T::arange(0, 1) + tile_c;
-    let bias = T::broadcast_to(
-        T::load(
-            bias_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_N],
-    );
-
-    T::store(y.tensor, x.tensor + bias, x.mask, &[], None, None);
+    T::store(y.tensor, x.tensor + bias.tensor, x.mask, &[], None, None);
 }
 
 // ─── Backward ────────────────────────────────────────────────────────────────

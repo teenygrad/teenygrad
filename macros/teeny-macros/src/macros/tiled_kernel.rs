@@ -636,20 +636,52 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // declares today), which is a separate ABI change -- see this issue's
     // own scope note.
     if has_explicit_tile_attr {
-        let first = all_tile_param_attrs[0];
-        for other in all_tile_param_attrs.iter().skip(1) {
-            let same = other.len() == first.len()
-                && other
+        // The *output* defines the kernel's axes: the grid is sized to cover
+        // it, and every other parameter's axes are resolved against it by
+        // name. An input may declare a subset -- a `(C,)` bias against an
+        // `[N, C]` activation -- which is broadcasting, and the prelude
+        // handles it by loading that operand's single element and
+        // broadcasting it across the blocked axis.
+        let Some((_, _, first)) = tile_out_params.first() else {
+            return syn::Error::new_spanned(
+                &input.sig,
+                "a kernel with `#[tile(...)]`-tagged `Tile` parameters needs an \
+                 `Out<Tile<..>>` parameter: the output's axes are what the grid covers \
+                 and what every input's axes resolve against",
+            )
+            .to_compile_error()
+            .into();
+        };
+        let first: &[TileAttrArgs] = first;
+        for (ident, _, other) in tile_in_params.iter().chain(tile_out_params.iter()) {
+            for axis in other.iter() {
+                let known = first
                     .iter()
-                    .zip(first.iter())
-                    .all(|(a, b)| a.block == b.block && a.extent == b.extent && a.dim == b.dim);
-            if !same {
+                    .any(|a| a.extent == axis.extent && a.block == axis.block && a.dim == axis.dim);
+                if !known {
+                    return syn::Error::new_spanned(
+                        &axis.extent,
+                        format!(
+                            "`{ident}` declares an axis the output does not, so the prelude \
+                             cannot place it. An input axis must either match an output axis \
+                             by name, or be left off entirely (which broadcasts it). An axis \
+                             related to an output axis by a stride/padding window is \
+                             teenygrad-1nr.18.2, not this prelude"
+                        ),
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+            }
+        }
+        for (ident, _, axes) in tile_out_params.iter() {
+            if !axes.iter().any(|a| a.block.is_some()) {
                 return syn::Error::new_spanned(
                     &input.sig,
-                    "every `In<Tile<..>>`/`Out<Tile<..>>` parameter on one kernel must declare \
-                     the same `#[tile(...)]` axes, in the same order -- an input whose axes \
-                     differ from the output's needs the window relation \
-                     (teenygrad-1nr.18.2), not this prelude",
+                    format!(
+                        "`{ident}` is an output, so it must declare the block-tiled axis -- a \
+                         broadcast output would have several CTAs writing the same element"
+                    ),
                 )
                 .to_compile_error()
                 .into();
@@ -685,7 +717,12 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // synthesizes the one flat axis the hardcoded
         // `BLOCK_SIZE`/`n_elements` convention has always meant.
         let axes: Vec<TileAttrArgs> = if has_explicit_tile_attr {
-            all_tile_param_attrs[0].to_vec()
+            // The output's axes: the grid covers them, and every input's
+            // axes were checked against them above.
+            tile_out_params
+                .first()
+                .map(|(_, _, a)| a.to_vec())
+                .expect("checked above: an explicit tile spec needs an Out<Tile<..>> param")
         } else {
             let Some(block_size) = const_params.iter().find(|cp| cp.ident == "BLOCK_SIZE") else {
                 return syn::Error::new_spanned(
@@ -777,8 +814,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // -- and the alternative is the body reaching for a generated name it
         // was never promised. For the blocked axis this is the *tile* index,
         // not an element offset; the elements are already in the loaded tile.
-        let idx_ident = |i: usize| {
-            let axis: &TileAttrArgs = &axes[i];
+        let axis_idx_ident = |axis: &TileAttrArgs| {
             let label = axis
                 .name
                 .as_ref()
@@ -786,6 +822,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 .unwrap_or_else(|| axis.extent.to_string());
             format_ident!("tile_{}", label.to_lowercase())
         };
+        let idx_ident = |i: usize| axis_idx_ident(&axes[i]);
 
         // The single-axis case is emitted the way it always was. The general
         // decode below would be correct for it too -- it collapses to the
@@ -932,33 +969,123 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             stmts
         };
 
-        for (ident, dtype, _) in &tile_in_params {
+        // Offsets are per parameter, because a parameter need not sit on
+        // every axis. One that declares the blocked axis addresses a real
+        // tile; one that leaves it off is a broadcast operand -- a `(C,)`
+        // bias against an `[N, C]` activation -- and addresses the single
+        // element this CTA needs, widened across the block after loading so
+        // every `Tile` in the body has the same shape.
+        let param_offsets = |param_axes: &[TileAttrArgs]| -> (TokenStream2, bool) {
+            // No attributes at all means the implicit
+            // `BLOCK_SIZE`/`n_elements` convention, which puts the parameter
+            // on the kernel's one axis. Without this it would look like a
+            // parameter that declares *no* axes, i.e. a broadcast operand.
+            let param_axes = if param_axes.is_empty() {
+                &axes[..]
+            } else {
+                param_axes
+            };
+            // A parameter on the kernel's full axis set reuses the shared
+            // `offsets` binding rather than restating it -- which is every
+            // parameter in the single-axis case, and the activations in a
+            // broadcast one.
+            let same_as_kernel = param_axes.len() == axes.len()
+                && param_axes
+                    .iter()
+                    .zip(axes.iter())
+                    .all(|(a, b)| a.block == b.block && a.extent == b.extent && a.dim == b.dim);
+            if same_as_kernel {
+                return (quote! { offsets }, false);
+            }
+            let stride_within = |i: usize| -> Option<TokenStream2> {
+                let inner: Vec<&Ident> = param_axes[i + 1..].iter().map(|a| &a.extent).collect();
+                inner
+                    .split_first()
+                    .map(|(head, rest)| quote! { #head #( * #rest)* })
+            };
+            let mut blocked_term: Option<TokenStream2> = None;
+            let mut scalar_terms: Vec<TokenStream2> = Vec::new();
+            for (i, axis) in param_axes.iter().enumerate() {
+                let stride = stride_within(i);
+                if axis.block.is_some() {
+                    blocked_term = Some(match stride {
+                        Some(stride) => quote! { __tile_range * (#stride) },
+                        None => quote! { __tile_range },
+                    });
+                } else {
+                    let idx = axis_idx_ident(axis);
+                    scalar_terms.push(match stride {
+                        Some(stride) => quote! { #idx * (#stride) },
+                        None => quote! { #idx },
+                    });
+                }
+            }
+            match blocked_term {
+                Some(blocked) if scalar_terms.is_empty() => (blocked, false),
+                Some(blocked) => (quote! { #blocked + #(#scalar_terms)+* }, false),
+                // No blocked axis: one element, so `arange(0, 1)` makes it a
+                // tensor the pointer arithmetic can take.
+                None if scalar_terms.is_empty() => (quote! { #hw_ident::arange(0, 1) }, true),
+                None => (
+                    quote! { #hw_ident::arange(0, 1) + #(#scalar_terms)+* },
+                    true,
+                ),
+            }
+        };
+
+        for (ident, dtype, param_axes) in &tile_in_params {
+            let (offsets_expr, broadcast) = param_offsets(param_axes);
+            // A broadcast operand has nothing to mask: it is one element,
+            // and which lanes of the block are live is the *output's*
+            // business, carried by its own tile's mask.
+            //
+            // Bare `None`/`Some`, not `::core::option::Option::None`: this
+            // prelude is spliced into the kernel body, which is re-emitted
+            // as device source and compiled by teenyc without a reachable
+            // `::core`.
+            let load_mask = if broadcast {
+                quote! { None }
+            } else {
+                quote! { Some(in_bounds) }
+            };
+            let loaded = quote! {
+                #hw_ident::load(
+                    #ident.add_offsets(#offsets_expr),
+                    #load_mask,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                )
+            };
+            let (loaded, mask_tokens) = if broadcast {
+                (
+                    quote! { #hw_ident::broadcast_to(#loaded, &[#block_ident]) },
+                    quote! { None },
+                )
+            } else {
+                (loaded, quote! { Some(in_bounds) })
+            };
             let load_stmt: syn::Stmt = syn::parse2(quote! {
                 let #ident = Tile::<#hw_ident, #dtype> {
-                    tensor: #hw_ident::load(
-                        #ident.add_offsets(offsets),
-                        Some(in_bounds),
-                        None,
-                        &[],
-                        None,
-                        None,
-                        None,
-                        false,
-                    ),
-                    mask: Some(in_bounds),
+                    tensor: #loaded,
+                    mask: #mask_tokens,
                 };
             })
             .expect("generated tile load statement is valid Rust");
             stmts.push(load_stmt);
         }
-        for (ident, dtype, _) in &tile_out_params {
+        for (ident, dtype, param_axes) in &tile_out_params {
+            let (offsets_expr, _) = param_offsets(param_axes);
             // `.add_offsets()` returns `HW::Tensor<HW::Pointer<D>>` (a tensor
             // of write addresses), not `HW::Tensor<D>` (a tensor of `D`
             // values) -- so the shadowed `Tile` is instantiated with
             // `HW::Pointer<D>` as its own dtype param, not `D` itself.
             let addr_stmt: syn::Stmt = syn::parse2(quote! {
                 let #ident = Tile::<#hw_ident, #hw_ident::Pointer<#dtype>> {
-                    tensor: #ident.add_offsets(offsets),
+                    tensor: #ident.add_offsets(#offsets_expr),
                     mask: Some(in_bounds),
                 };
             })
