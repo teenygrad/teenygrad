@@ -78,8 +78,13 @@ struct TileAttrArgs {
     /// The `{NAME}: i32` parameter this axis's extent is read from.
     extent: Ident,
     /// This axis's identity for [`::teeny_core::model::GridSpec`]
-    /// matching (teenygrad-1nr.19) -- defaults to `extent`'s own name
-    /// when omitted.
+    /// matching (teenygrad-1nr.19), and the suffix of the index the
+    /// prelude binds for it (`name = "C"` gives `tile_c`).
+    ///
+    /// Defaults to `extent`'s own spelling, so **omit it unless the two
+    /// genuinely differ** -- `conv2d_forward`'s batch axis is `B` while
+    /// its parameter is `_B`, which is the only case in the tree that
+    /// needs it.
     name: Option<syn::LitStr>,
     /// Which real hardware grid dimension this axis reads from
     /// (teenygrad-1nr.19) -- `X`, `Y`, or `Z`; defaults to `X`.

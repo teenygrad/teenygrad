@@ -54,12 +54,12 @@ use teeny_triton::triton::{
 /// prelude binds as `tile_c` from this axis's `name = "C"`.
 #[tiled_kernel]
 pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(name = "N", block = BLOCK_N, extent = N)]
-    #[tile(name = "C", extent = C)]
+    #[tile(block = BLOCK_N, extent = N)]
+    #[tile(extent = C)]
     x: In<Tile<T, D>>,
     bias_ptr: In<T::Pointer<D>>,
-    #[tile(name = "N", block = BLOCK_N, extent = N)]
-    #[tile(name = "C", extent = C)]
+    #[tile(block = BLOCK_N, extent = N)]
+    #[tile(extent = C)]
     y: Out<Tile<T, D>>,
     N: i32,
     C: i32,

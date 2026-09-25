@@ -38,11 +38,11 @@ use teeny_triton::triton::{
 /// derivation the prelude generates.
 #[tiled_kernel]
 pub fn multi_axis_probe_forward<T: Triton, D: Num, const BLOCK_W: i32>(
-    #[tile(name = "H", extent = H)]
-    #[tile(name = "W", block = BLOCK_W, extent = W)]
+    #[tile(extent = H)]
+    #[tile(block = BLOCK_W, extent = W)]
     x: In<Tile<T, D>>,
-    #[tile(name = "H", extent = H)]
-    #[tile(name = "W", block = BLOCK_W, extent = W)]
+    #[tile(extent = H)]
+    #[tile(block = BLOCK_W, extent = W)]
     y: Out<Tile<T, D>>,
     H: i32,
     W: i32,
