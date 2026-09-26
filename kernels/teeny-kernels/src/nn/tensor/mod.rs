@@ -20,6 +20,8 @@ pub mod channel_chunk;
 pub mod elemwise_add;
 pub mod elemwise_binary;
 pub mod elemwise_unary;
+#[cfg(test)]
+pub mod multi_axis_probe;
 pub mod reduction;
 pub mod transpose;
 pub mod upsample_nearest2d;

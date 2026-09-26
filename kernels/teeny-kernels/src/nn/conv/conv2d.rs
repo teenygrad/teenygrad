@@ -63,15 +63,15 @@ pub fn conv2d_forward<
     // call site, but never touches this body: `x_ptr`/`y_ptr` stay plain
     // pointers, and the `pid` decode above is unchanged.
     #[tile(name = "B", extent = _B)]
-    #[tile(name = "C_IN", extent = C_IN)]
-    #[tile(name = "H", extent = H)]
-    #[tile(name = "W", extent = W)]
+    #[tile(extent = C_IN)]
+    #[tile(extent = H)]
+    #[tile(extent = W)]
     x_ptr: In<T::Pointer<D>>,
     w_ptr: In<T::Pointer<D>>,
     #[tile(name = "B", extent = _B)]
-    #[tile(name = "C_OUT", extent = C_OUT)]
-    #[tile(name = "OH", extent = OH)]
-    #[tile(name = "OW", block = BLOCK_OW, extent = OW)]
+    #[tile(extent = C_OUT)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     y_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,
