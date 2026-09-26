@@ -487,6 +487,113 @@ fn test_batch_norm_2d_nchw_backward() -> anyhow::Result<()> {
     Ok(())
 }
 
+// ─── NCHW forward inference ───────────────────────────────────────────────────
+
+/// Numeric cover for `batch_norm_2d_nchw_forward_inference`, which had none:
+/// the only NCHW tests were for the *backward* kernel, and
+/// `test_batch_norm_inference` exercises the NC variant
+/// (`BatchNormForwardInference`), not this one.
+///
+/// Written when the kernel was converted to the N-axis Tile ABI
+/// (teenygrad-1nr.18.1), which moved its `HW` walk from an in-kernel loop into
+/// grid coverage and so changed every address it computes. Values are distinct
+/// per (batch, channel, spatial) position deliberately: a uniform input would
+/// pass even with the batch or channel stride wrong, which is precisely the
+/// class of mistake that conversion can introduce.
+///
+/// `HW` exceeds `BLOCK_HW` on purpose, so the grid really does cover several
+/// HW tiles per channel rather than one.
+#[test]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
+fn test_batch_norm_2d_nchw_forward_inference() -> anyhow::Result<()> {
+    dotenv().ok();
+    let device = teeny_runtime::open()?;
+
+    const BN_B: usize = 2;
+    const BN_C: usize = 3;
+    const BN_HW: usize = 256;
+    const BN_ELEM: usize = BN_B * BN_C * BN_HW;
+    // The kernel declares `.reqntid 128`, so the launch block dim has to be
+    // 128 -- a smaller BLOCK_HW makes the launch itself fail with CUDA error 1
+    // (invalid argument) before any arithmetic runs. HW is 256 so the grid
+    // still covers two HW tiles per channel.
+    const BN_BLOCK_HW: i32 = 128;
+    const BN_EPS: f32 = 1.0;
+
+    // x[b, c, hw] = b*100 + c*10 + hw -- every element distinct, so a wrong
+    // batch or channel stride cannot coincidentally produce the right answer.
+    let x_host: Vec<f32> = (0..BN_ELEM).map(|i| (i + 1) as f32).collect();
+    let weight_host: Vec<f32> = (0..BN_C).map(|c| (c + 1) as f32).collect();
+    let bias_host: Vec<f32> = (0..BN_C).map(|c| ((c + 1) * 2) as f32).collect();
+    let mean_host: Vec<f32> = (0..BN_C).map(|c| c as f32).collect();
+    let var_host = vec![0.0_f32; BN_C]; // rstd = 1/sqrt(0 + 1) = 1
+
+    let mut x_buf = device.buffer::<f32>(BN_ELEM)?;
+    let mut w_buf = device.buffer::<f32>(BN_C)?;
+    let mut b_buf = device.buffer::<f32>(BN_C)?;
+    let mut rm_buf = device.buffer::<f32>(BN_C)?;
+    let mut rv_buf = device.buffer::<f32>(BN_C)?;
+    let y_buf = device.buffer::<f32>(BN_ELEM)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&weight_host)?;
+    b_buf.to_device(&bias_host)?;
+    rm_buf.to_device(&mean_host)?;
+    rv_buf.to_device(&var_host)?;
+
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwForwardInference::<f32>::new(
+        BN_BLOCK_HW,
+    );
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
+        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwForwardInference<f32>,
+    >(&ptx_path)?;
+
+    // Grid mirrors the RuntimeOp: x covers C * cdiv(HW, BLOCK_HW), y covers B.
+    let hw_tiles = BN_HW.div_ceil(BN_BLOCK_HW as usize);
+    let cfg = teeny_runtime::launch_config_custom(
+        [(BN_C * hw_tiles) as u32, BN_B as u32, 1],
+        [BN_BLOCK_HW as u32, 1, 1],
+        [1, 1, 1],
+    );
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            rm_buf.as_device_ptr(),
+            rv_buf.as_device_ptr(),
+            BN_B as i32,
+            BN_C as i32,
+            BN_HW as i32,
+            BN_EPS,
+        ),
+    )?;
+
+    let mut y_out = vec![0.0_f32; BN_ELEM];
+    y_buf.to_host(&mut y_out)?;
+
+    for b in 0..BN_B {
+        for c in 0..BN_C {
+            for hw in 0..BN_HW {
+                let i = b * BN_C * BN_HW + c * BN_HW + hw;
+                // rstd == 1, so y = weight[c] * (x - mean[c]) + bias[c]
+                let want = weight_host[c] * (x_host[i] - mean_host[c]) + bias_host[c];
+                assert!(
+                    (y_out[i] - want).abs() < 1e-4,
+                    "nchw_forward: y[b={b}, c={c}, hw={hw}] = {}, expected {want}",
+                    y_out[i],
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 // ─── Graph-compiler training test ─────────────────────────────────────────────
 
 #[test]
