@@ -201,7 +201,8 @@ impl KernelMetadata {
 ///
 /// This function truncates the PTX at the first `.file` or `.section .debug`
 /// directive, which always appears after the kernel body.
-fn strip_debug_sections(ptx: &[u8]) -> &[u8] {
+fn strip_debug_sections(ptx: &[u8]) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::with_capacity(ptx.len());
     let mut pos = 0;
     while pos < ptx.len() {
         let line_end = ptx[pos..]
@@ -221,12 +222,42 @@ fn strip_debug_sections(ptx: &[u8]) -> &[u8] {
         if trimmed.starts_with(b".file")
             || (trimmed.starts_with(b".section") && line.windows(7).any(|w| w == b".debug_"))
         {
-            return &ptx[..pos];
+            break;
+        }
+
+        // `.loc` has to go with them. It is the *only* thing in the retained
+        // prefix that refers into the DWARF we are dropping: LLVM's NVPTX
+        // backend writes `.loc 1 3177 15, function_name $L__info_string0,
+        // inlined_at 1 3199 5` for every inlined frame, and both the file
+        // index and `$L__info_string0` are defined in the sections below --
+        // `.file 1 "..."` and `.section .debug_str` respectively.
+        //
+        // Keeping these while dropping their definitions is what made every
+        // module unassemblable (teenygrad-dd1):
+        //
+        //     ptxas error : Unresolved label '$L__info_string0' used in
+        //                   function_name attribute.
+        //
+        // Line tables have no consumer on the driver-JIT path anyway, so the
+        // consistent thing is to emit none.
+        // Match the directive, not the prefix: `.local` also starts with
+        // `.loc`, and dropping a `.local .align 4 .b8 __local_depot1[28];`
+        // declaration while keeping the `mov.b64 %SPL, __local_depot1;` that
+        // uses it breaks every kernel with a stack frame -- which is any
+        // kernel calling a libdevice function that needs one, e.g.
+        // `__nv_sinf`'s argument reduction.
+        let directive_end = trimmed
+            .iter()
+            .position(|b| b.is_ascii_whitespace())
+            .unwrap_or(trimmed.len());
+        if &trimmed[..directive_end] != b".loc" {
+            out.extend_from_slice(line);
+            out.push(b'\n');
         }
 
         pos = line_end + 1;
     }
-    ptx
+    out
 }
 
 /// A loaded CUDA program: the cubin is loaded into a `CUmodule` and the
@@ -409,5 +440,77 @@ impl Kernel for ErasedKernel {
     }
     fn entry_point_source(&self) -> &str {
         ""
+    }
+}
+
+#[cfg(test)]
+mod strip_debug_sections_tests {
+    use super::strip_debug_sections;
+
+    /// The shape LLVM's NVPTX backend emits: `.loc` inside the function
+    /// referring to a file index and a `$L__info_string0` label that are
+    /// only defined in the DWARF sections after it.
+    const PTX: &str = concat!(
+        ".version 8.7\n",
+        ".target sm_120a\n",
+        ".visible .entry k(\n",
+        ")\n",
+        "{\n",
+        "\t.loc\t1 3177 15, function_name $L__info_string0, inlined_at 1 3199 5\n",
+        "\tmov.u32 \t%r17, %ctaid.x;\n",
+        "\tret;\n",
+        "}\n",
+        "\t.file\t1 \"/tmp/k.rs\"\n",
+        "\t.section\t.debug_str\n",
+        "\t{\n",
+        "$L__info_string0:\n",
+        "\t}\n",
+    );
+
+    /// Both halves of the inconsistency that made every module unassemblable
+    /// (teenygrad-dd1): the DWARF goes, and so does everything referring into
+    /// it. Keeping the `.loc` while dropping `.debug_str` is what produced
+    /// "Unresolved label '$L__info_string0' used in function_name attribute".
+    #[test]
+    fn test_drops_loc_along_with_the_dwarf_it_refers_into() {
+        let out = strip_debug_sections(PTX.as_bytes());
+        let out = String::from_utf8(out).expect("stripping keeps the PTX valid ASCII");
+
+        assert!(
+            !out.contains("$L__info_string0"),
+            "no reference may outlive its definition:\n{out}"
+        );
+        assert!(!out.contains(".loc"), "line tables go entirely:\n{out}");
+        assert!(!out.contains(".file"), "so does the file table:\n{out}");
+        assert!(
+            !out.contains(".debug_str"),
+            "and the DWARF sections:\n{out}"
+        );
+    }
+
+    /// Stripping is not truncation at the first `.loc`: everything the module
+    /// needs to assemble has to survive.
+    #[test]
+    fn test_keeps_the_kernel_body() {
+        let out = strip_debug_sections(PTX.as_bytes());
+        let out = String::from_utf8(out).expect("valid ASCII");
+
+        for needed in [
+            ".version 8.7",
+            ".target sm_120a",
+            ".visible .entry k(",
+            "mov.u32 \t%r17, %ctaid.x;",
+            "ret;",
+        ] {
+            assert!(out.contains(needed), "dropped `{needed}`:\n{out}");
+        }
+    }
+
+    /// PTX carrying no debug info at all is passed through unchanged.
+    #[test]
+    fn test_ptx_without_debug_info_is_untouched() {
+        let plain = ".version 8.7\n.visible .entry k(\n)\n{\n\tret;\n}\n";
+        let out = strip_debug_sections(plain.as_bytes());
+        assert_eq!(String::from_utf8(out).expect("valid ASCII"), plain);
     }
 }
