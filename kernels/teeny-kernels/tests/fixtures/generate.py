@@ -459,7 +459,7 @@ act_fixture("sigmoid", torch.sigmoid, None)
 act_fixture("silu", F.silu, None)
 
 # ── LogSigmoid ────────────────────────────────────────────────────────────────
-act_fixture("logsigmoid", F.logsigmoid, None)
+act_fixture("log_sigmoid", F.logsigmoid, None)
 
 # ── Tanh ──────────────────────────────────────────────────────────────────────
 act_fixture("tanh", torch.tanh, None)
@@ -634,6 +634,56 @@ y_train_bn.backward(dy_bn)
 save(f"{d}/expected_dx.bin", x_r_bn.grad.detach())
 save(f"{d}/expected_dweight.bin", w_r_bn.grad.detach())
 save(f"{d}/expected_dbias.bin", b_r_bn.grad.detach())
+
+# ── batchnorm_nchw (4-D inference, HW flattened by the kernel) ─────────────────
+print("batchnorm_nchw")
+d = os.path.join(BASE, "batchnorm_nchw")
+os.makedirs(d, exist_ok=True)
+# HW = H*W = 256 deliberately exceeds the kernel's BLOCK_HW of 128, so the grid
+# covers two HW tiles per channel rather than one.
+B_BNC, C_BNC, H_BNC, W_BNC = 2, 3, 16, 16
+EPS_BNC = 1e-5
+
+# Drawn from a dedicated generator rather than the global stream: this section
+# was added after the ones below it, and consuming global draws here would
+# shift every fixture generated further down the file.
+g_bnc = torch.Generator().manual_seed(2026)
+
+x_bnc = torch.empty(B_BNC, C_BNC, H_BNC, W_BNC).uniform_(-3, 3, generator=g_bnc)
+weight_bnc = torch.empty(C_BNC).uniform_(0.5, 1.5, generator=g_bnc)
+bias_bnc = torch.empty(C_BNC).uniform_(-0.5, 0.5, generator=g_bnc)
+# Non-zero mean and non-unit variance, so a wrong per-channel index shows up.
+running_mean_bnc = torch.empty(C_BNC).uniform_(-1, 1, generator=g_bnc)
+running_var_bnc = torch.empty(C_BNC).uniform_(0.5, 2.0, generator=g_bnc)
+dy_bnc = torch.empty(B_BNC, C_BNC, H_BNC, W_BNC).uniform_(-2, 2, generator=g_bnc)
+
+save(f"{d}/x.bin", x_bnc)
+save(f"{d}/weight.bin", weight_bnc)
+save(f"{d}/bias.bin", bias_bnc)
+save(f"{d}/running_mean.bin", running_mean_bnc)
+save(f"{d}/running_var.bin", running_var_bnc)
+
+# Inference: frozen running stats (training=False)
+y_inf_bnc = F.batch_norm(x_bnc, running_mean_bnc.clone(), running_var_bnc.clone(),
+                         weight=weight_bnc, bias=bias_bnc, training=False,
+                         eps=EPS_BNC)
+save(f"{d}/expected_forward_inference.bin", y_inf_bnc)
+save(f"{d}/dy.bin", dy_bnc)
+
+# Backward with frozen stats, which is what the NCHW backward kernel computes:
+# mean/rstd are constants, so dx = weight * rstd * dy, with no dependence of
+# the batch statistics on x. Autograd through the eval-mode F.batch_norm above
+# gives exactly that, plus dweight = sum(dy * xhat) and dbias = sum(dy) reduced
+# over (B, H, W) per channel.
+x_r_bnc = x_bnc.clone().requires_grad_(True)
+w_r_bnc = weight_bnc.clone().requires_grad_(True)
+b_r_bnc = bias_bnc.clone().requires_grad_(True)
+y_bwd_bnc = F.batch_norm(x_r_bnc, running_mean_bnc.clone(), running_var_bnc.clone(),
+                         weight=w_r_bnc, bias=b_r_bnc, training=False, eps=EPS_BNC)
+y_bwd_bnc.backward(dy_bnc)
+save(f"{d}/expected_dx.bin", x_r_bnc.grad.detach())
+save(f"{d}/expected_dweight.bin", w_r_bnc.grad.detach())
+save(f"{d}/expected_dbias.bin", b_r_bnc.grad.detach())
 
 # ── conv1d_padded (PAD=1) ──────────────────────────────────────────────────────
 print("conv1d_padded")
