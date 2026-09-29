@@ -39,7 +39,7 @@ use crate::nn::{
             CeluForward, CeluForwardDispatch, EluForward, EluForwardDispatch, SeluForward,
             SeluForwardDispatch,
         },
-        gelu::{GeluForwardDispatch, MishForward, MishForwardDispatch},
+        gelu::{GeluForward, GeluForwardDispatch, MishForward, MishForwardDispatch},
         hard::{
             HardshrinkForward, HardshrinkForwardDispatch, HardsigmoidForward,
             HardsigmoidForwardDispatch, HardswishForward, HardswishForwardDispatch,
@@ -52,10 +52,10 @@ use crate::nn::{
             ThresholdForward, ThresholdForwardDispatch,
         },
         relu::{ReluBackward, ReluForward},
-        sigmoid::SigmoidForwardDispatch,
+        sigmoid::{SigmoidForward, SigmoidForwardDispatch},
         silu::{SiluForward, SiluForwardDispatch},
         softmax::SoftmaxForward,
-        tanh::{TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
+        tanh::{TanhForward, TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
     },
     conv::{
         conv1d::Conv1dForward,
@@ -292,17 +292,26 @@ macro_rules! make_float_kernel {
 /// (`Elu`/`Selu`/`Celu`/`Gelu`/`Mish`/`Hardtanh`/`Relu6`/`Hardsigmoid`/
 /// `Hardswish`/`Hardshrink`/`LeakyRelu`/`Threshold`/`Softsign`/
 /// `Softshrink`/`Softplus`/`Sigmoid`/`Silu`/`LogSigmoid`/`Tanh`/
-/// `Tanhshrink`), so `tile_spec` is set unconditionally here via
-/// [`flat_elementwise_tile_spec`] rather than per call site -- if a
-/// future caller of this function isn't shaped like that, give it its
-/// own construction instead of adding a case here (mirrors `Op::Relu`'s
-/// own arm below, which doesn't call `exec_from` but sets the same spec).
+/// `Tanhshrink`).
+///
+/// `tile_spec` is a required parameter, not an `Option`: each of those
+/// kernels declares its own axes via `#[tile(...)]`, so the caller has a
+/// derived `XForward::<f32>::tile_spec(rank)` to hand over, and a future
+/// caller that is *not* shaped like that has to decide what its spec is
+/// rather than silently inheriting `None` and becoming a scheduling
+/// boundary (teenygrad-39jd). Something genuinely different should get its
+/// own construction rather than a new case here.
+///
+/// The `::<f32>` monomorphization at the call sites is deliberate:
+/// `tile_spec(rank)` reports block/extent *names* and dims, none of which
+/// vary with `D`, so any dtype gives the same answer.
 fn exec_from(
     shape: Shape,
     dtype: DtypeRepr,
     inst: teeny_core::model::KernelInstance,
+    tile_spec: teeny_core::model::KernelTileSpec,
 ) -> Box<KernelExecutable> {
-    let tile_spec = None;
+    let tile_spec = Some(tile_spec);
     Box::new(KernelExecutable {
         entry_point: format!("{}_entry_point", inst.name),
         name: inst.name,
@@ -1708,11 +1717,9 @@ impl TritonLowering {
                 // --- Activation (D: Num) ---
                 Op::Relu => {
                     let mut exec = make_num_kernel!(ReluForward(1024), ReluBackward(1024), node);
-                    // `ReluForward::tile_spec` (teenygrad-1nr.18, derived by
-                    // `#[tiled_kernel]` from `relu_forward`'s own
-                    // `#[tile(...)]`-tagged params) is dtype-independent --
-                    // block/extent names and dims don't vary with `D` -- so
-                    // any dtype monomorphization gives the same result.
+                    // Relu builds its executable through `make_num_kernel!`
+                    // rather than `exec_from`, so it sets the derived spec
+                    // itself; see `exec_from` for why `::<f32>` is safe here.
                     exec.tile_spec = Some(ReluForward::<f32>::tile_spec(node.shape.len()));
                     exec
                 }
@@ -1722,109 +1729,121 @@ impl TritonLowering {
                     node.shape.clone(),
                     node.dtype,
                     EluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    EluForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Selu => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SeluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    SeluForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Celu { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     CeluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    CeluForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Gelu => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     GeluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    GeluForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Mish => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     MishForwardDispatch::dispatch(node.dtype, 1024)?,
+                    MishForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Hardtanh { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardtanhForwardDispatch::dispatch(node.dtype, 1024)?,
+                    HardtanhForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Relu6 => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     Relu6ForwardDispatch::dispatch(node.dtype, 1024)?,
+                    Relu6Forward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Hardsigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardsigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
+                    HardsigmoidForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Hardswish => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardswishForwardDispatch::dispatch(node.dtype, 1024)?,
+                    HardswishForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Hardshrink { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
+                    HardshrinkForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::LeakyRelu { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     LeakyReluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    LeakyReluForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Threshold { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     ThresholdForwardDispatch::dispatch(node.dtype, 1024)?,
+                    ThresholdForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Softsign => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SoftsignForwardDispatch::dispatch(node.dtype, 1024)?,
+                    SoftsignForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Softshrink { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SoftshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
+                    SoftshrinkForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Softplus { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SoftplusForwardDispatch::dispatch(node.dtype, 1024)?,
+                    SoftplusForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Sigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
+                    SigmoidForward::<f32>::tile_spec(node.shape.len()),
                 ),
-                Op::Silu => {
-                    let mut exec = exec_from(
-                        node.shape.clone(),
-                        node.dtype,
-                        SiluForwardDispatch::dispatch(node.dtype, 1024)?,
-                    );
-                    // See the `Op::Relu` arm above: `SiluForward::tile_spec`
-                    // is dtype-independent, so `exec_from`'s hand-authored
-                    // `flat_elementwise_tile_spec` fallback is overridden
-                    // here with the macro-derived one (teenygrad-1nr.18).
-                    exec.tile_spec = Some(SiluForward::<f32>::tile_spec(node.shape.len()));
-                    exec
-                }
+                Op::Silu => exec_from(
+                    node.shape.clone(),
+                    node.dtype,
+                    SiluForwardDispatch::dispatch(node.dtype, 1024)?,
+                    SiluForward::<f32>::tile_spec(node.shape.len()),
+                ),
                 Op::LogSigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     LogSigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
+                    LogSigmoidForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Tanh => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     TanhForwardDispatch::dispatch(node.dtype, 1024)?,
+                    TanhForward::<f32>::tile_spec(node.shape.len()),
                 ),
                 Op::Tanhshrink => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     TanhshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
+                    TanhshrinkForward::<f32>::tile_spec(node.shape.len()),
                 ),
 
                 // --- Activation (D: Float) ---

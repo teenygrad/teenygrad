@@ -390,10 +390,10 @@ mod tests {
         // input -> relu -> reduce_sum -> relu
         //
         // Both `Relu`s now carry a real, working `KernelTileSpec`
-        // (`flat_elementwise_tile_spec`, fixed to match each node's real
-        // rank -- previously `RELU_TILE_SPEC` only ever matched an
-        // already-1-D node, never a realistic ND tensor like this
-        // [2048, 4096] shape, so it was silently inert here). With a
+        // (`ReluForward::tile_spec(rank)`, derived by `#[tiled_kernel]` and
+        // matching each node's real rank -- previously `RELU_TILE_SPEC` only
+        // ever matched an already-1-D node, never a realistic ND tensor like
+        // this [2048, 4096] shape, so it was silently inert here). With a
         // real spec on both ends of the chain, `sub_graph_tiling` now
         // finds real SharedMemory-level structure instead of falling
         // straight through to one flat Register-level group the way it
