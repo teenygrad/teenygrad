@@ -28,16 +28,31 @@
 //! A narrower `#[tile(block=..,extent=..)]` was revived on top of the
 //! `In<Tile<HW,D>>`/`Out<Tile<HW,D>>` auto-prelude (teenygrad-1nr.1's own
 //! addition, `c69c08b63`) by teenygrad-1nr.18, scoped to avoid repeating
-//! `84ca6eedf`'s mistake: it drives *only* the auto-prelude's own
-//! block/extent naming (still the single flat axis
-//! `arange(block)+pid*block` shape that prelude already had -- this does
-//! not add N-axis/windowed/looped prelude codegen) and this file's
-//! generated `tile_spec()` method. It never re-splices index arithmetic
-//! into the kernel author's own body. Optional and additive: a `Tile`
-//! parameter with no `#[tile(...)]` falls back to the pre-existing
-//! hardcoded `BLOCK_SIZE`/`n_elements` convention, unchanged, and no
-//! `tile_spec()` is generated for it. See [`super::common`] for the
-//! parsing/codegen helpers shared with the plain `#[kernel]` macro.
+//! `84ca6eedf`'s mistake: it drives the auto-prelude's own block/extent
+//! naming and this file's generated `tile_spec()` method, and it never
+//! re-splices index arithmetic into the kernel author's own body.
+//!
+//! teenygrad-1nr.18.1 then generalized the prelude from that one flat
+//! `arange(block)+pid*block` axis to N declared axes: a flat `program_id`
+//! decoded innermost-first, row-major strides derived from the declared
+//! extents, a `tile_<name>` index bound per axis, and broadcast subsets
+//! (an input may declare fewer axes than the output). Windowed and looped
+//! prelude codegen is still *not* generated -- the attribute has no syntax
+//! for a stride/pad/kernel window or for an accumulation loop, and
+//! `tile_spec()` emits `window`/`divide_by`/`reduction_axis`/`loop_spec` as
+//! a hardcoded `None`. Those are teenygrad-1nr.18.2 and .18.3.
+//!
+//! Optional and additive: a `Tile` parameter with no `#[tile(...)]` falls
+//! back to the pre-existing hardcoded `BLOCK_SIZE`/`n_elements`
+//! convention, unchanged, and no `tile_spec()` is generated for it. That
+//! fallback is silent, which is why `teeny-kernels`'
+//! `tests/test_tile_declarations.rs` parses the source to catch a forward
+//! kernel that takes `Tile` params and declares nothing.
+//!
+//! **Converting a kernel: see `contributing/TiledKernelRecipe.md`** for the
+//! recipe, the worked examples, the four attribute keys and what they
+//! cannot express yet. See [`super::common`] for the parsing/codegen
+//! helpers shared with the plain `#[kernel]` macro.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

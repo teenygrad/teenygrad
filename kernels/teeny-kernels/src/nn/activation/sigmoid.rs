@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = 1 / (1 + exp(-x))
 #[tiled_kernel(backward = SigmoidBackward)]
 pub fn sigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x: In<Tile<T, D>>,
-    y: Out<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
