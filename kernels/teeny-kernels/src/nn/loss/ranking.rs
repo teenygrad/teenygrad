@@ -16,7 +16,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -29,12 +29,12 @@ use teeny_triton::triton::{
 /// `out[i] = max(0, -y[i] * (x1[i] - x2[i]) + margin)`
 ///
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`
-#[kernel]
+#[tiled_kernel]
 pub fn margin_ranking_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x1_ptr: In<T::Pointer<f32>>,
-    x2_ptr: In<T::Pointer<f32>>,
-    y_ptr: In<T::Pointer<f32>>,
-    out_ptr: Out<T::Pointer<f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x1: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x2: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, f32>>,
     n_elements: i32,
     margin: f32,
 ) where
@@ -42,55 +42,16 @@ pub fn margin_ranking_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
-
-    let x1 = T::load(
-        x1_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let x2 = T::load(
-        x2_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let y = T::load(
-        y_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
 
     let margin_t = T::full(&[BLOCK_SIZE], margin);
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
-    // hinge = max(0, -y*(x1-x2) + margin)
-    let hinge = T::maximum(neg_one * y * (x1 - x2) + margin_t, zeros);
-    T::store(
-        out_ptr.add_offsets(offsets),
-        hinge,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
+    // hinge = max(0, -y.tensor*(x1.tensor-x2.tensor) + margin)
+    let hinge = T::maximum(
+        neg_one * y.tensor * (x1.tensor - x2.tensor) + margin_t,
+        zeros,
     );
+    T::store(out.tensor, hinge, x1.mask, &[], None, None);
 }
 
 /// Margin ranking loss backward (element-wise).
@@ -194,11 +155,11 @@ pub fn margin_ranking_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 ///
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`
-#[kernel]
+#[tiled_kernel]
 pub fn hinge_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    inp_ptr: In<T::Pointer<f32>>,
-    y_ptr: In<T::Pointer<f32>>,
-    out_ptr: Out<T::Pointer<f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] inp: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, f32>>,
     n_elements: i32,
     margin: f32,
 ) where
@@ -206,46 +167,14 @@ pub fn hinge_embedding_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
 
-    let inp = T::load(
-        inp_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let y = T::load(
-        y_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-
     let margin_t = T::full(&[BLOCK_SIZE], margin);
-    // y > 0 means y == 1
-    let y_is_pos = T::gt(y, zeros);
-    let hinge = T::maximum(margin_t - inp, zeros);
-    let out = T::where_(y_is_pos, inp, hinge);
-    T::store(
-        out_ptr.add_offsets(offsets),
-        out,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    // y.tensor > 0 means y.tensor == 1
+    let y_is_pos = T::gt(y.tensor, zeros);
+    let hinge = T::maximum(margin_t - inp.tensor, zeros);
+    let result = T::where_(y_is_pos, inp.tensor, hinge);
+    T::store(out.tensor, result, inp.mask, &[], None, None);
 }
 
 /// Hinge embedding loss backward (element-wise).

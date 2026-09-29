@@ -16,7 +16,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -321,58 +321,26 @@ pub fn cross_entropy_loss_backward<T: Triton, const BLOCK_SIZE: i32>(
 /// ```
 ///
 /// Grid: `[ceil(n / BLOCK_SIZE), 1, 1]`, block `[128, 1, 1]`.
-#[kernel]
+#[tiled_kernel]
 pub fn multilabel_soft_margin_loss_forward<T: Triton, const BLOCK_SIZE: i32>(
-    input_ptr: In<T::Pointer<f32>>,
-    target_ptr: In<T::Pointer<f32>>,
-    out_ptr: Out<T::Pointer<f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] input: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] target: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
     let zeros = T::zeros::<f32>(&[BLOCK_SIZE]);
-
-    let inp = T::load(
-        input_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let tgt = T::load(
-        target_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
 
     let one = T::full(&[BLOCK_SIZE], 1.0_f32);
     let neg_one = T::full(&[BLOCK_SIZE], -1.0_f32);
     // Numerically stable BCE-with-logits:  max(x,0) - x*t + log(1+exp(-|x|))
-    let relu_x = T::maximum(inp, zeros);
-    let neg_abs_x = neg_one * T::abs(inp);
-    let loss = relu_x - inp * tgt + T::log(one + T::exp(neg_abs_x));
-    T::store(
-        out_ptr.add_offsets(offsets),
-        loss,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let relu_x = T::maximum(input.tensor, zeros);
+    let neg_abs_x = neg_one * T::abs(input.tensor);
+    let loss = relu_x - input.tensor * target.tensor + T::log(one + T::exp(neg_abs_x));
+    T::store(out.tensor, loss, input.mask, &[], None, None);
 }
 
 /// Multi-label soft-margin loss backward (element-wise).

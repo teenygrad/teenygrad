@@ -679,4 +679,57 @@ mod tests {
             ElemwiseWhereForward<f32> => ["cond", "x", "y"],
         );
     }
+
+    /// A broadcast operand resolves to its own full extent, not to the output's
+    /// block (teenygrad-1tl.4).
+    ///
+    /// `channel_bias_add_forward` is the worked example: `x` and `y` are
+    /// `[N, C]` with `N` block-tiled, while `bias` is `(C,)` and declares only
+    /// the `C` axis. So `bias` receives no block on any axis and must come back
+    /// at full extent -- correct and conservative, and now *declared* that way
+    /// rather than achieved by omission.
+    ///
+    /// Before this rung the generated spec gave every tensor the first
+    /// parameter's axis list, so `bias` claimed rank 2 with `N` blocked -- an
+    /// axis it does not have. A scheduler reading that would size its tile
+    /// along a nonexistent dimension. The assertions on `rank` below are what
+    /// catch a regression to that.
+    #[test]
+    fn test_a_broadcast_operand_resolves_to_its_own_full_extent() {
+        use crate::nn::tensor::channel_bias_add::ChannelBiasAddForward;
+
+        let spec = ChannelBiasAddForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let (x, bias) = (spec.inputs[0], spec.inputs[1]);
+        assert_eq!((x.param, bias.param), ("x", "bias"));
+        assert_eq!(x.rank, 2, "the activation carries both axes");
+        assert_eq!(
+            bias.rank, 1,
+            "the bias is (C,), so its spec must not claim the N axis it lacks"
+        );
+        assert!(
+            bias.axes.is_empty(),
+            "a broadcast operand receives no block: it declares only the axis \
+             it shares, and that axis is untiled"
+        );
+        assert_eq!(bias.untiled_dims, &["C"]);
+
+        // Resolving an output tile gives the activation a block on N and leaves
+        // the bias entirely unresolved -- i.e. at its full extent.
+        let inputs = resolve_inputs(&spec, &tile(&[Some(8), Some(4)]), &NoConsts)
+            .expect("resolution should succeed");
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(
+            inputs[0],
+            tile(&[Some(8), None]),
+            "x takes the output's N block; its C dim has no binding so stays unresolved"
+        );
+        assert_eq!(
+            inputs[1],
+            tile(&[None]),
+            "bias comes back rank 1 and unresolved -- its whole (C,) vector"
+        );
+    }
 }
