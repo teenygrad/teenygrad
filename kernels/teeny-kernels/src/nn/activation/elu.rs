@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = x if x > 0 else alpha*(exp(x) - 1)
 #[tiled_kernel(backward = EluBackward)]
 pub fn elu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x: In<Tile<T, D>>,
-    y: Out<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
     alpha: f32,
 ) where
@@ -70,8 +70,8 @@ pub fn elu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = SCALE * (x if x > 0 else ALPHA*(exp(x) - 1))
 #[tiled_kernel(backward = SeluBackward)]
 pub fn selu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x: In<Tile<T, D>>,
-    y: Out<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,

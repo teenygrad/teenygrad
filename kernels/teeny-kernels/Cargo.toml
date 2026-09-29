@@ -55,6 +55,9 @@ insta.workspace = true
 criterion.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# `tests/test_tile_declarations.rs` parses this crate's own source to check that every
+# converted forward kernel declares its tile axes (teenygrad-1tl.1).
+syn.workspace = true
 
 # `benches/conv2d_bn_silu.rs` — hand fused Conv2d+BN+SiLU kernel backends.
 [[bench]]

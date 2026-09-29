@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = tanh(x) = 2*sigmoid(2x) - 1 = 2/(1+exp(-2x)) - 1
 #[tiled_kernel(backward = TanhBackward)]
 pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x: In<Tile<T, D>>,
-    y: Out<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
