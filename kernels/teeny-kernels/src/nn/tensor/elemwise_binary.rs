@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::{Float, Num};
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -185,49 +185,18 @@ macro_rules! impl_binary_num_runtime_op_no_bwd {
 // ── Mul ───────────────────────────────────────────────────────────────────────
 
 /// Forward: out = a * b
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_mul_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    T::store(
-        out_ptr.add_offsets(offsets),
-        a * b,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out.tensor, a.tensor * b.tensor, a.mask, &[], None, None);
 }
 
 /// Backward: da = dy * b,  db = dy * a
@@ -301,49 +270,18 @@ impl_binary_num_runtime_op_with_bwd!(ElemwiseMulForward);
 // ── Sub ───────────────────────────────────────────────────────────────────────
 
 /// Forward: out = a - b
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_sub_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    T::store(
-        out_ptr.add_offsets(offsets),
-        a - b,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out.tensor, a.tensor - b.tensor, a.mask, &[], None, None);
 }
 
 /// Backward: da = dy,  db = -dy
@@ -449,49 +387,18 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseSu
 // ── Div ───────────────────────────────────────────────────────────────────────
 
 /// Forward: out = a / b
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_div_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    T::store(
-        out_ptr.add_offsets(offsets),
-        a / b,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out.tensor, a.tensor / b.tensor, a.mask, &[], None, None);
 }
 
 /// Backward: da = dy / b,  db = -a * dy / b^2
@@ -565,50 +472,19 @@ impl_binary_float_runtime_op_with_bwd!(ElemwiseDivForward);
 // ── Pow (D: Float) ────────────────────────────────────────────────────────────
 
 /// Forward: out = a ^ b = exp(b * log(a))
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_pow_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let y = T::exp(b * T::log(a));
-    T::store(
-        out_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let y = T::exp(b.tensor * T::log(a.tensor));
+    T::store(out.tensor, y, a.mask, &[], None, None);
 }
 
 /// Backward: da = b * a^(b-1) * dy,  db = log(a) * a^b * dy
@@ -685,52 +561,21 @@ impl_binary_float_runtime_op_with_bwd!(ElemwisePowForward);
 // ── Mod ───────────────────────────────────────────────────────────────────────
 
 /// Forward fmod: out = a - trunc(a/b)*b  (C-style float remainder)
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_fmod_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    // fmod: a - floor(a/b)*b  (use floor here; for true C fmod we'd need trunc)
+    // fmod: a.tensor - floor(a.tensor/b.tensor)*b.tensor  (use floor here; for true C fmod we'd need trunc)
     // Using floor makes this the Python-style modulo which is more broadly useful.
-    let y = a - T::floor(a / b) * b;
-    T::store(
-        out_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let y = a.tensor - T::floor(a.tensor / b.tensor) * b.tensor;
+    T::store(out.tensor, y, a.mask, &[], None, None);
 }
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseFmodForward<D> {
@@ -764,45 +609,21 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for Elemwise
 // ── ElemMin / ElemMax (D: Num) ────────────────────────────────────────────────
 
 /// Forward: out = min(a, b)
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_min_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     T::store(
-        out_ptr.add_offsets(offsets),
-        T::minimum(a, b),
-        Some(in_bounds),
+        out.tensor,
+        T::minimum(a.tensor, b.tensor),
+        a.mask,
         &[],
         None,
         None,
@@ -880,45 +701,21 @@ pub fn elemwise_min_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 impl_binary_num_runtime_op_with_bwd!(ElemwiseMinForward);
 
 /// Forward: out = max(a, b)
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_max_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     T::store(
-        out_ptr.add_offsets(offsets),
-        T::maximum(a, b),
-        Some(in_bounds),
+        out.tensor,
+        T::maximum(a.tensor, b.tensor),
+        a.mask,
         &[],
         None,
         None,
@@ -998,46 +795,22 @@ impl_binary_num_runtime_op_with_bwd!(ElemwiseMaxForward);
 // ── ElemMean ──────────────────────────────────────────────────────────────────
 
 /// Forward: out = (a + b) / 2
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_mean_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let two = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], 2.0_f32), None, false);
     T::store(
-        out_ptr.add_offsets(offsets),
-        (a + b) / two,
-        Some(in_bounds),
+        out.tensor,
+        (a.tensor + b.tensor) / two,
+        a.mask,
         &[],
         None,
         None,
@@ -1149,49 +922,18 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for Elemwise
 // ── ElemSum (binary add — identical to ElemwiseAdd semantics) ─────────────────
 
 /// Forward: out = a + b  (binary ElemSum)
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_sum_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    T::store(
-        out_ptr.add_offsets(offsets),
-        a + b,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out.tensor, a.tensor + b.tensor, a.mask, &[], None, None);
 }
 
 /// Backward: da = db = dy
@@ -1297,48 +1039,24 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseSu
 // ── Comparison ops (output 0.0/1.0 as float) ──────────────────────────────────
 
 /// Forward: out = 1.0 if a == b else 0.0
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_equal_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let cond = T::eq(a, b);
+    let cond = T::eq(a.tensor, b.tensor);
     let one = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_SIZE], 1), None, false);
-    let zero = T::zeros_like(a);
+    let zero = T::zeros_like(a.tensor);
     T::store(
-        out_ptr.add_offsets(offsets),
+        out.tensor,
         T::where_(cond, one, zero),
-        Some(in_bounds),
+        a.mask,
         &[],
         None,
         None,
@@ -1348,48 +1066,24 @@ pub fn elemwise_equal_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 impl_binary_num_runtime_op_no_bwd!(ElemwiseEqualForward);
 
 /// Forward: out = 1.0 if a > b else 0.0
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_greater_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let cond = T::gt(a, b);
+    let cond = T::gt(a.tensor, b.tensor);
     let one = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_SIZE], 1), None, false);
-    let zero = T::zeros_like(a);
+    let zero = T::zeros_like(a.tensor);
     T::store(
-        out_ptr.add_offsets(offsets),
+        out.tensor,
         T::where_(cond, one, zero),
-        Some(in_bounds),
+        a.mask,
         &[],
         None,
         None,
@@ -1399,48 +1093,24 @@ pub fn elemwise_greater_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 impl_binary_num_runtime_op_no_bwd!(ElemwiseGreaterForward);
 
 /// Forward: out = 1.0 if a >= b else 0.0
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_greater_equal_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let cond = T::ge(a, b);
+    let cond = T::ge(a.tensor, b.tensor);
     let one = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_SIZE], 1), None, false);
-    let zero = T::zeros_like(a);
+    let zero = T::zeros_like(a.tensor);
     T::store(
-        out_ptr.add_offsets(offsets),
+        out.tensor,
         T::where_(cond, one, zero),
-        Some(in_bounds),
+        a.mask,
         &[],
         None,
         None,
@@ -1450,48 +1120,24 @@ pub fn elemwise_greater_equal_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 impl_binary_num_runtime_op_no_bwd!(ElemwiseGreaterEqualForward);
 
 /// Forward: out = 1.0 if a < b else 0.0
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_less_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let cond = T::lt(a, b);
+    let cond = T::lt(a.tensor, b.tensor);
     let one = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_SIZE], 1), None, false);
-    let zero = T::zeros_like(a);
+    let zero = T::zeros_like(a.tensor);
     T::store(
-        out_ptr.add_offsets(offsets),
+        out.tensor,
         T::where_(cond, one, zero),
-        Some(in_bounds),
+        a.mask,
         &[],
         None,
         None,
@@ -1501,48 +1147,24 @@ pub fn elemwise_less_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
 impl_binary_num_runtime_op_no_bwd!(ElemwiseLessForward);
 
 /// Forward: out = 1.0 if a <= b else 0.0
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_less_equal_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let cond = T::le(a, b);
+    let cond = T::le(a.tensor, b.tensor);
     let one = T::cast::<i32, D>(T::full::<i32>(&[BLOCK_SIZE], 1), None, false);
-    let zero = T::zeros_like(a);
+    let zero = T::zeros_like(a.tensor);
     T::store(
-        out_ptr.add_offsets(offsets),
+        out.tensor,
         T::where_(cond, one, zero),
-        Some(in_bounds),
+        a.mask,
         &[],
         None,
         None,
@@ -1556,58 +1178,24 @@ impl_binary_num_runtime_op_no_bwd!(ElemwiseLessEqualForward);
 // Condition is stored as same D type: 0 = false, non-zero = true.
 
 /// Forward: out = x where cond != 0 else y
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_where_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    cond_ptr: In<T::Pointer<D>>,
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] cond: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let cond = T::load(
-        cond_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let y = T::load(
-        y_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let zero = T::zeros_like(cond);
-    let bool_cond = T::ne(cond, zero);
+    let zero = T::zeros_like(cond.tensor);
+    let bool_cond = T::ne(cond.tensor, zero);
     T::store(
-        out_ptr.add_offsets(offsets),
-        T::where_(bool_cond, x, y),
-        Some(in_bounds),
+        out.tensor,
+        T::where_(bool_cond, x.tensor, y.tensor),
+        cond.mask,
         &[],
         None,
         None,
@@ -1735,10 +1323,10 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for Elemwise
 // rather than tensors.  The lowering packs them as f32.
 
 /// Forward: out = clamp(x, min_val, max_val)
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_clip_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
     min_val: f32,
     max_val: f32,
@@ -1747,31 +1335,10 @@ pub fn elemwise_clip_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let lo = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], min_val), None, false);
     let hi = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_SIZE], max_val), None, false);
-    let y = T::clamp(x, lo, hi);
-    T::store(
-        out_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let y = T::clamp(x.tensor, lo, hi);
+    T::store(out.tensor, y, x.mask, &[], None, None);
 }
 
 /// Backward: pass dy through only where x was in [min_val, max_val]

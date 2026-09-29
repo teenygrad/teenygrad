@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -25,50 +25,18 @@ use teeny_triton::triton::{
 
 // ── Forward: out[i] = a[i] + b[i] ────────────────────────────────────────────
 
-#[kernel]
+#[tiled_kernel]
 pub fn elemwise_add_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
-    out_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] a: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] b: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] out: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let a = T::load(
-        a_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let b = T::load(
-        b_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    T::store(
-        out_ptr.add_offsets(offsets),
-        a + b,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out.tensor, a.tensor + b.tensor, a.mask, &[], None, None);
 }
 
 // ── Backward: grad_a[i] = dy[i],  grad_b[i] = dy[i] ─────────────────────────
