@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -26,10 +26,10 @@ use teeny_triton::triton::{
 // ── Hardtanh ─────────────────────────────────────────────────────────────────
 
 /// Forward: y = clamp(x, min_val, max_val)
-#[kernel(backward = HardtanhBackward)]
+#[tiled_kernel(backward = HardtanhBackward)]
 pub fn hardtanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
     min_val: f32,
     max_val: f32,
@@ -38,32 +38,10 @@ pub fn hardtanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let lo = T::full(&[BLOCK_SIZE], D::from_f64(min_val as f64));
     let hi = T::full(&[BLOCK_SIZE], D::from_f64(max_val as f64));
-    let y = T::clamp(x, lo, hi);
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let out = T::clamp(x.tensor, lo, hi);
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy if min_val < x < max_val else 0
@@ -124,42 +102,20 @@ pub fn hardtanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 // ── ReLU6 ────────────────────────────────────────────────────────────────────
 
 /// Forward: y = clamp(x, 0, 6)
-#[kernel(backward = Relu6Backward)]
+#[tiled_kernel(backward = Relu6Backward)]
 pub fn relu6_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let lo = T::zeros_like(x);
+    let lo = T::zeros_like(x.tensor);
     let hi = T::full(&[BLOCK_SIZE], D::from_f64(6.0));
-    let y = T::clamp(x, lo, hi);
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let out = T::clamp(x.tensor, lo, hi);
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy if 0 < x < 6 else 0
@@ -217,44 +173,22 @@ pub fn relu6_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 // ── Hardsigmoid ──────────────────────────────────────────────────────────────
 
 /// Forward: y = clamp((x + 3) / 6, 0, 1)
-#[kernel(backward = HardsigmoidBackward)]
+#[tiled_kernel(backward = HardsigmoidBackward)]
 pub fn hardsigmoid_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let three = T::full(&[BLOCK_SIZE], D::from_f64(3.0));
     let six = T::full(&[BLOCK_SIZE], D::from_f64(6.0));
-    let lo = T::zeros_like(x);
+    let lo = T::zeros_like(x.tensor);
     let hi = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let y = T::clamp((x + three) / six, lo, hi);
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let out = T::clamp((x.tensor + three) / six, lo, hi);
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy/6 if |x| < 3 else 0
@@ -312,45 +246,23 @@ pub fn hardsigmoid_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 // ── Hardswish ────────────────────────────────────────────────────────────────
 
 /// Forward: y = x * clamp((x + 3) / 6, 0, 1)
-#[kernel(backward = HardswishBackward)]
+#[tiled_kernel(backward = HardswishBackward)]
 pub fn hardswish_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let three = T::full(&[BLOCK_SIZE], D::from_f64(3.0));
     let six = T::full(&[BLOCK_SIZE], D::from_f64(6.0));
-    let lo = T::zeros_like(x);
+    let lo = T::zeros_like(x.tensor);
     let hi = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let hs = T::clamp((x + three) / six, lo, hi);
-    let y = x * hs;
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let hs = T::clamp((x.tensor + three) / six, lo, hi);
+    let out = x.tensor * hs;
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward:
@@ -419,10 +331,10 @@ pub fn hardswish_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 // ── Hardshrink ───────────────────────────────────────────────────────────────
 
 /// Forward: y = x if |x| > lambda else 0
-#[kernel(backward = HardshrinkBackward)]
+#[tiled_kernel(backward = HardshrinkBackward)]
 pub fn hardshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
     lambda: f32,
 ) where
@@ -430,32 +342,10 @@ pub fn hardshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let lam = T::full(&[BLOCK_SIZE], D::from_f64(lambda as f64));
-    let outside = T::gt(T::abs(x), lam);
-    let y = T::where_(outside, x, T::zeros_like(x));
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let outside = T::gt(T::abs(x.tensor), lam);
+    let out = T::where_(outside, x.tensor, T::zeros_like(x.tensor));
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy if |x| > lambda else 0
