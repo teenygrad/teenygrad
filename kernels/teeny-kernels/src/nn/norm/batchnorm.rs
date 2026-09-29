@@ -33,7 +33,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -568,16 +568,31 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
 /// Input layout: [B, C, H, W] row-major. Element `x[b, c, h, w]` lives at
 /// offset `b*C*HW + c*HW + h*W + w`.
 ///
-/// Grid: `[C, B]` — one CTA per (channel, batch) pair; each CTA iterates over
-/// H*W spatial positions in `BLOCK_HW`-wide tiles.
-#[kernel]
+/// Grid: `[C * cdiv(HW, BLOCK_HW), B]` — `HW` is a declared axis, so the grid
+/// covers it rather than each CTA walking it (teenygrad-1nr.18.1). The
+/// row-major strides the prelude derives from the declared extents -- `B`
+/// outermost, then `C`, then `HW` -- are exactly the `b*C*HW + c*HW` this
+/// kernel used to compute by hand.
+///
+/// The four per-channel parameters sit on `C` alone. An input may declare a
+/// subset of the output's axes, which is broadcasting: the prelude loads the
+/// single element this CTA needs and widens it across the block, so they have
+/// the same shape as `x` and the body just does arithmetic.
+#[tiled_kernel]
 pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
-    running_mean_ptr: In<T::Pointer<D>>,
-    running_var_ptr: In<T::Pointer<D>>,
+    #[tile(extent = B, dim = Y)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_HW, extent = HW)]
+    x: In<Tile<T, D>>,
+    #[tile(extent = B, dim = Y)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_HW, extent = HW)]
+    y: Out<Tile<T, D>>,
+    #[tile(extent = C)] weight: In<Tile<T, D>>,
+    #[tile(extent = C)] bias: In<Tile<T, D>>,
+    #[tile(extent = C)] running_mean: In<Tile<T, D>>,
+    #[tile(extent = C)] running_var: In<Tile<T, D>>,
+    B: i32,
     C: i32,
     HW: i32,
     eps: f32,
@@ -586,96 +601,11 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let c = T::program_id(Axis::X);
-    let b = T::program_id(Axis::Y);
-    let c_idx = T::arange(0, 1) + c;
-
-    // Load per-channel scalars and broadcast to [BLOCK_HW].
-    let mean = T::broadcast_to(
-        T::load(
-            running_mean_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_HW],
+    let rstd = T::rsqrt(
+        running_var.tensor + T::cast::<f32, D>(T::full::<f32>(&[BLOCK_HW], eps), None, false),
     );
-    let var = T::load(
-        running_var_ptr.add_offsets(c_idx),
-        None,
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let rstd = T::broadcast_to(
-        T::rsqrt(var + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)),
-        &[BLOCK_HW],
-    );
-    let gamma = T::broadcast_to(
-        T::load(
-            weight_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_HW],
-    );
-    let beta = T::broadcast_to(
-        T::load(
-            bias_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_HW],
-    );
-
-    // Flat start offset for (b, c, hw=0) in NCHW: b*C*HW + c*HW
-    let batch_channel_offset: i32 = b * C * HW + c * HW;
-    let zeros = T::zeros::<D>(&[BLOCK_HW]);
-    let mut hw_start: i32 = 0;
-    while hw_start < HW {
-        let offsets = T::arange(0, BLOCK_HW) + hw_start;
-        let mask = offsets.lt(HW);
-        let elem_offsets = offsets + batch_channel_offset;
-
-        let x_tile = T::load(
-            x_ptr.add_offsets(elem_offsets),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let y_tile = gamma * (x_tile - mean) * rstd + beta;
-        T::store(
-            y_ptr.add_offsets(elem_offsets),
-            y_tile,
-            Some(mask),
-            &[],
-            None,
-            None,
-        );
-
-        hw_start += BLOCK_HW;
-    }
+    let y_tile = weight.tensor * (x.tensor - running_mean.tensor) * rstd + bias.tensor;
+    T::store(y.tensor, y_tile, x.mask, &[], None, None);
 }
 
 // ─── Inference (NCHW) RuntimeOp ──────────────────────────────────────────────
@@ -739,6 +669,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
+        let b = output_shape[0] as i32;
         let c = output_shape[1] as i32;
         let hw = (output_shape[2] * output_shape[3]) as i32;
         visitor.visit_ptr(inputs[0].0);
@@ -747,13 +678,24 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor.visit_ptr(params[1]); // bias
         visitor.visit_ptr(params[2]); // running_mean
         visitor.visit_ptr(params[3]); // running_var
+        visitor.visit_i32(b);
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
         visitor.visit_f32(self.eps);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [output_shape[1] as u32, output_shape[0] as u32, 1]
+        // `HW` is a declared axis now, so the grid covers it instead of each
+        // CTA walking it (teenygrad-1nr.18.1). The prelude decodes pid.x
+        // innermost-first -- `tile_hw = pid.x % cdiv(HW, BLOCK_HW)`, then
+        // `tile_c` -- so the HW-tile count is the inner factor here.
+        let hw = output_shape[2] * output_shape[3];
+        let hw_tiles = hw.div_ceil(self.block_hw as usize);
+        [
+            (output_shape[1] * hw_tiles) as u32,
+            output_shape[0] as u32,
+            1,
+        ]
     }
 
     #[cfg(feature = "training")]

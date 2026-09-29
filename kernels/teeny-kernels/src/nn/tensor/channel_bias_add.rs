@@ -26,7 +26,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -36,12 +36,31 @@ use teeny_triton::triton::{
 
 /// Adds a (C,) bias to a tensor in NC layout (N = B*H*W, C = channels).
 ///
-/// Grid: `[C]` — one CTA per channel.
-#[kernel]
+/// Grid: `[cdiv(N, BLOCK_N) * C]` — one CTA per (N-tile, channel) pair.
+///
+/// teenygrad-1nr.18.1: the two axes are declared on the signature and the
+/// indexing is generated. `N` is block-tiled, `C` is one index per CTA, and
+/// the row-major stride the prelude derives from the declared extents --
+/// `N` outer, `C` inner -- is exactly the `offsets_n * C + c` this kernel
+/// used to compute by hand.
+///
+/// Its `while n_start < N` loop is gone: that loop existed only because the
+/// grid covered channels alone, so each CTA had to walk `N` itself. With
+/// `N` a declared axis the grid covers it instead.
+///
+/// `bias` sits on `C` alone. An input may declare a subset of the output's
+/// axes, which is broadcasting: the prelude loads the single element this
+/// CTA needs and widens it across the block, so `bias.tensor` has the same
+/// shape as `x.tensor` and the body just adds them.
+#[tiled_kernel]
 pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_N, extent = N)]
+    #[tile(extent = C)]
+    x: In<Tile<T, D>>,
+    #[tile(extent = C)] bias: In<Tile<T, D>>,
+    #[tile(block = BLOCK_N, extent = N)]
+    #[tile(extent = C)]
+    y: Out<Tile<T, D>>,
     N: i32,
     C: i32,
 ) where
@@ -49,52 +68,7 @@ pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let c = T::program_id(Axis::X);
-    let c_idx = T::arange(0, 1) + c;
-
-    // Load bias[c] as shape [1], broadcast to [BLOCK_N].
-    let bias = T::broadcast_to(
-        T::load(
-            bias_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_N],
-    );
-
-    let zeros = T::zeros::<D>(&[BLOCK_N]);
-    let mut n_start: i32 = 0;
-    while n_start < N {
-        let offsets_n = T::arange(0, BLOCK_N) + n_start;
-        let mask = offsets_n.lt(N);
-        let elem_offsets = offsets_n * C + c;
-
-        let x_tile = T::load(
-            x_ptr.add_offsets(elem_offsets),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        T::store(
-            y_ptr.add_offsets(elem_offsets),
-            x_tile + bias,
-            Some(mask),
-            &[],
-            None,
-            None,
-        );
-
-        n_start += BLOCK_N;
-    }
+    T::store(y.tensor, x.tensor + bias.tensor, x.mask, &[], None, None);
 }
 
 // ─── Backward ────────────────────────────────────────────────────────────────
@@ -382,12 +356,17 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for NchwBias
 /// Forward kernel arguments: `x_ptr`, `bias_ptr`, `y_ptr`, `N_SPATIAL`, `C`.
 /// Backward kernel arguments: `dy_ptr`, `dx_ptr`, `dbias_ptr`, `N_SPATIAL`, `C`.
 ///
-/// Grid: `[C, 1, 1]` for both forward and backward.
+/// Grid: `[cdiv(N, BLOCK_N) * C, 1, 1]` forward (teenygrad-1nr.18.1),
+/// `[C, 1, 1]` backward.
 pub struct ChannelBiasAddRuntimeOp<D: Float + Send + Sync + 'static> {
     fwd: ChannelBiasAddForward<D>,
     bwd: ChannelBiasAddBackward<D>,
     /// Output channel count, fixed at construction time.
     c_out: usize,
+    /// Tile width along `N`. The forward grid covers `N` as a declared axis
+    /// (teenygrad-1nr.18.1), so it needs the block size; the backward still
+    /// walks `N` inside one CTA per channel and does not.
+    block_n: i32,
 }
 
 impl<D: Float + Send + Sync + 'static> ChannelBiasAddRuntimeOp<D> {
@@ -396,6 +375,7 @@ impl<D: Float + Send + Sync + 'static> ChannelBiasAddRuntimeOp<D> {
             fwd: ChannelBiasAddForward::<D>::new(block_n),
             bwd: ChannelBiasAddBackward::<D>::new(block_n),
             c_out,
+            block_n,
         }
     }
 
@@ -449,8 +429,14 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ChannelB
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        // One CTA per output channel.
-        [output_shape[1] as u32, 1, 1]
+        // One CTA per (N-tile, channel). `N` is a declared axis now, so the
+        // grid covers it instead of each CTA walking it (teenygrad-1nr.18.1).
+        // Flat on X, and the generated prelude decodes it innermost-first:
+        // `tile_c = pid % C`, `tile_n = pid / C` -- so the channel count is
+        // the inner factor here, matching that decode.
+        let n_spatial = output_shape[0] * output_shape[2] * output_shape[3];
+        let n_tiles = n_spatial.div_ceil(self.block_n as usize);
+        [(n_tiles * output_shape[1]) as u32, 1, 1]
     }
 
     #[cfg(feature = "training")]

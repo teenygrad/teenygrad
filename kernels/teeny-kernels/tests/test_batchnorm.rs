@@ -382,32 +382,53 @@ fn test_batch_norm_2d_nchw_backward_source() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Analytically verified test: mean=2, var=0, eps=1 → rstd=1.
-//   x = 5.0 everywhere, weight = 3.0 everywhere, dy = 1.0 everywhere.
-//   xhat = (5 - 2) * 1 = 3.
-//   dx   = 3 * 1 * 1 = 3.0 per element.
-//   dweight[c] = B*H*W * (1 * 3) = 4 * 3 = 12.0.
-//   dbias[c]   = B*H*W * 1       = 4.0.
+/// Numeric cover for `batch_norm_2d_nchw_backward`, compared against a PyTorch
+/// fixture (`fixtures/batchnorm_nchw`, see `fixtures/generate.py`).
+///
+/// The kernel treats the running stats as frozen constants, so autograd through
+/// an eval-mode `F.batch_norm` is the right reference: `dx = weight * rstd * dy`,
+/// with `dweight = sum(dy * xhat)` and `dbias = sum(dy)` reduced over (B, H, W)
+/// per channel.
+///
+/// This replaces an earlier analytic version that ran uniform inputs (x = 5,
+/// weight = 3, dy = 1) at `B = 1` with `var = 0, eps = 1` so that `rstd` was
+/// exactly 1. That combination could not detect a wrong batch or channel
+/// stride -- every element held the same value -- and never exercised `rsqrt`.
+/// The fixture has distinct values everywhere, `B = 2`, and per-channel running
+/// stats with non-zero mean and non-unit variance.
 #[test]
 #[cfg(all(feature = "hardware", feature = "training"))]
 fn test_batch_norm_2d_nchw_backward() -> anyhow::Result<()> {
     dotenv().ok();
     let device = teeny_runtime::open()?;
 
-    const BN_B: usize = 1;
-    const BN_C: usize = 4;
-    const BN_H: usize = 2;
-    const BN_W: usize = 2;
-    const BN_HW: usize = BN_H * BN_W;
+    // Must match `batchnorm_nchw` in fixtures/generate.py.
+    const BN_B: usize = 2;
+    const BN_C: usize = 3;
+    const BN_HW: usize = 16 * 16;
     const BN_ELEM: usize = BN_B * BN_C * BN_HW;
+    // The kernel declares `.reqntid 128`, so the launch block dim has to be 128
+    // regardless of HW; the kernel walks B*HW one element per iteration.
     const BN_BLOCK_HW: i32 = 128;
-    const BN_EPS: f32 = 1.0;
+    const BN_EPS: f32 = 1e-5;
 
-    let x_host = vec![5.0_f32; BN_ELEM];
-    let dy_host = vec![1.0_f32; BN_ELEM];
-    let weight_host = vec![3.0_f32; BN_C];
-    let running_mean_host = vec![2.0_f32; BN_C];
-    let running_var_host = vec![0.0_f32; BN_C];
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/x.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/dy.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/weight.bin");
+    let mean_host = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm_nchw/running_mean.bin",
+    );
+    let var_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/running_var.bin");
+    let expected_dx = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/expected_dx.bin");
+    let expected_dweight = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm_nchw/expected_dweight.bin",
+    );
+    let expected_dbias = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm_nchw/expected_dbias.bin",
+    );
 
     let mut x_buf = device.buffer::<f32>(BN_ELEM)?;
     let mut dy_buf = device.buffer::<f32>(BN_ELEM)?;
@@ -421,8 +442,8 @@ fn test_batch_norm_2d_nchw_backward() -> anyhow::Result<()> {
     x_buf.to_device(&x_host)?;
     dy_buf.to_device(&dy_host)?;
     w_buf.to_device(&weight_host)?;
-    rm_buf.to_device(&running_mean_host)?;
-    rv_buf.to_device(&running_var_host)?;
+    rm_buf.to_device(&mean_host)?;
+    rv_buf.to_device(&var_host)?;
 
     let kernel =
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward::<f32>::new(BN_BLOCK_HW);
@@ -432,6 +453,7 @@ fn test_batch_norm_2d_nchw_backward() -> anyhow::Result<()> {
         teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwBackward<f32>,
     >(&ptx_path)?;
 
+    // Grid is [C] -- one CTA per channel, each walking all of B*HW.
     let cfg = teeny_runtime::launch_config_custom(
         [BN_C as u32, 1, 1],
         [BN_BLOCK_HW as u32, 1, 1],
@@ -463,26 +485,153 @@ fn test_batch_norm_2d_nchw_backward() -> anyhow::Result<()> {
     dw_buf.to_host(&mut dw_out)?;
     db_buf.to_host(&mut db_out)?;
 
-    // rstd = 1/sqrt(0 + 1.0) = 1.0; dx = weight * rstd * dy = 3 * 1 * 1 = 3.0
-    for (i, &v) in dx_out.iter().enumerate() {
+    for b in 0..BN_B {
+        for c in 0..BN_C {
+            for hw in 0..BN_HW {
+                let i = b * BN_C * BN_HW + c * BN_HW + hw;
+                assert!(
+                    (dx_out[i] - expected_dx[i]).abs() < TOL,
+                    "nchw_backward: dx[b={b}, c={c}, hw={hw}] = {}, expected {}",
+                    dx_out[i],
+                    expected_dx[i],
+                );
+            }
+        }
+    }
+    // dweight/dbias reduce B*HW = 512 terms, so the kernel's sequential f32
+    // accumulation and PyTorch's differ in rounding; scale the tolerance by
+    // the magnitude rather than comparing absolutely.
+    for c in 0..BN_C {
+        let tol_dw = TOL * expected_dweight[c].abs().max(1.0);
         assert!(
-            (v - 3.0).abs() < 1e-5,
-            "nchw_backward: dx[{i}] = {v}, expected 3.0",
+            (dw_out[c] - expected_dweight[c]).abs() < tol_dw,
+            "nchw_backward: dweight[{c}] = {}, expected {}",
+            dw_out[c],
+            expected_dweight[c],
+        );
+        let tol_db = TOL * expected_dbias[c].abs().max(1.0);
+        assert!(
+            (db_out[c] - expected_dbias[c]).abs() < tol_db,
+            "nchw_backward: dbias[{c}] = {}, expected {}",
+            db_out[c],
+            expected_dbias[c],
         );
     }
-    // dweight[c] = B*H*W * (dy * xhat) = 4 * (1 * 3) = 12.0
-    for (c, &v) in dw_out.iter().enumerate() {
-        assert!(
-            (v - 12.0).abs() < 1e-5,
-            "nchw_backward: dweight[{c}] = {v}, expected 12.0",
-        );
-    }
-    // dbias[c] = B*H*W * dy = 4 * 1 = 4.0
-    for (c, &v) in db_out.iter().enumerate() {
-        assert!(
-            (v - 4.0).abs() < 1e-5,
-            "nchw_backward: dbias[{c}] = {v}, expected 4.0",
-        );
+    Ok(())
+}
+
+// ─── NCHW forward inference ───────────────────────────────────────────────────
+
+/// Numeric cover for `batch_norm_2d_nchw_forward_inference`, which had none:
+/// the only NCHW tests were for the *backward* kernel, and
+/// `test_batch_norm_inference` exercises the NC variant
+/// (`BatchNormForwardInference`), not this one.
+///
+/// Written when the kernel was converted to the N-axis Tile ABI
+/// (teenygrad-1nr.18.1), which moved its `HW` walk from an in-kernel loop into
+/// grid coverage and so changed every address it computes.
+///
+/// Compared against a PyTorch `F.batch_norm(..., training=False)` fixture on a
+/// 4-D NCHW input (`fixtures/batchnorm_nchw`, see `fixtures/generate.py`). The
+/// running stats there have non-zero mean and non-unit variance, and every
+/// input element is distinct, so a wrong batch or channel stride cannot
+/// coincidentally produce the right answer -- which is precisely the class of
+/// mistake the conversion can introduce.
+///
+/// `HW` exceeds `BLOCK_HW` on purpose, so the grid really does cover several
+/// HW tiles per channel rather than one.
+#[test]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
+fn test_batch_norm_2d_nchw_forward_inference() -> anyhow::Result<()> {
+    dotenv().ok();
+    let device = teeny_runtime::open()?;
+
+    // Must match `batchnorm_nchw` in fixtures/generate.py.
+    const BN_B: usize = 2;
+    const BN_C: usize = 3;
+    const BN_HW: usize = 16 * 16;
+    const BN_ELEM: usize = BN_B * BN_C * BN_HW;
+    // The kernel declares `.reqntid 128`, so the launch block dim has to be
+    // 128 -- a smaller BLOCK_HW makes the launch itself fail with CUDA error 1
+    // (invalid argument) before any arithmetic runs. HW is 256 so the grid
+    // still covers two HW tiles per channel.
+    const BN_BLOCK_HW: i32 = 128;
+    const BN_EPS: f32 = 1e-5;
+
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/x.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/weight.bin");
+    let bias_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/bias.bin");
+    let mean_host = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm_nchw/running_mean.bin",
+    );
+    let var_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm_nchw/running_var.bin");
+    let expected = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "batchnorm_nchw/expected_forward_inference.bin",
+    );
+
+    let mut x_buf = device.buffer::<f32>(BN_ELEM)?;
+    let mut w_buf = device.buffer::<f32>(BN_C)?;
+    let mut b_buf = device.buffer::<f32>(BN_C)?;
+    let mut rm_buf = device.buffer::<f32>(BN_C)?;
+    let mut rv_buf = device.buffer::<f32>(BN_C)?;
+    let y_buf = device.buffer::<f32>(BN_ELEM)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&weight_host)?;
+    b_buf.to_device(&bias_host)?;
+    rm_buf.to_device(&mean_host)?;
+    rv_buf.to_device(&var_host)?;
+
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwForwardInference::<f32>::new(
+        BN_BLOCK_HW,
+    );
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
+        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwForwardInference<f32>,
+    >(&ptx_path)?;
+
+    // Grid mirrors the RuntimeOp: x covers C * cdiv(HW, BLOCK_HW), y covers B.
+    let hw_tiles = BN_HW.div_ceil(BN_BLOCK_HW as usize);
+    let cfg = teeny_runtime::launch_config_custom(
+        [(BN_C * hw_tiles) as u32, BN_B as u32, 1],
+        [BN_BLOCK_HW as u32, 1, 1],
+        [1, 1, 1],
+    );
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            rm_buf.as_device_ptr(),
+            rv_buf.as_device_ptr(),
+            BN_B as i32,
+            BN_C as i32,
+            BN_HW as i32,
+            BN_EPS,
+        ),
+    )?;
+
+    let mut y_out = vec![0.0_f32; BN_ELEM];
+    y_buf.to_host(&mut y_out)?;
+
+    for b in 0..BN_B {
+        for c in 0..BN_C {
+            for hw in 0..BN_HW {
+                let i = b * BN_C * BN_HW + c * BN_HW + hw;
+                assert!(
+                    (y_out[i] - expected[i]).abs() < TOL,
+                    "nchw_forward mismatch at b={b}, c={c}, hw={hw}: gpu={} expected={}",
+                    y_out[i],
+                    expected[i],
+                );
+            }
+        }
     }
     Ok(())
 }
