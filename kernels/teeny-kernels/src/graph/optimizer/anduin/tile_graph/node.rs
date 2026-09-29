@@ -17,11 +17,16 @@
 use std::hash::Hash;
 
 use teeny_core::graph::{DtypeRepr, Shape};
+use teeny_core::model::KernelTileSpec;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// `Ord` so a tile config keyed by these can be iterated deterministically
+// rather than in `HashMap` order (teenygrad-1nr.25).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// `Ord` so a tile config keyed by these can be iterated deterministically
+// rather than in `HashMap` order (teenygrad-1nr.25).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EdgeId(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -48,6 +53,16 @@ pub struct Node {
     pub out_edges: Vec<Edge>,
     pub shapes: Vec<Shape>,
     pub dtypes: Vec<DtypeRepr>,
+    /// The tile-shape metadata this node's kernel declares, when it declares
+    /// any (teenygrad-1nr.25).
+    ///
+    /// `None` means the op does not describe its axes, and propagation treats
+    /// it as a hard boundary rather than guessing -- the same opt-in coverage
+    /// `KernelTileSpec` has always had. Note the reverse is not an excuse:
+    /// `teenygrad-39jd` wired `TritonLowering` to pass the derived spec through
+    /// for every flat elementwise activation, so a `None` here now means the op
+    /// genuinely has nothing to say rather than that the lowering dropped it.
+    pub tile_spec: Option<KernelTileSpec>,
 }
 
 impl Node {
@@ -74,5 +89,9 @@ impl Node {
     }
     pub fn dtypes(&self) -> &Vec<DtypeRepr> {
         &self.dtypes
+    }
+
+    pub fn tile_spec(&self) -> Option<&KernelTileSpec> {
+        self.tile_spec.as_ref()
     }
 }

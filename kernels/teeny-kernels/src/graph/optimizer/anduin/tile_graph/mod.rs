@@ -29,6 +29,9 @@ use self::node::{Edge, Node, NodeKind};
 pub use node::{EdgeId, NodeId};
 
 pub mod node;
+pub mod types;
+
+pub use types::{SubGraphTilingResult, TileConfig, TileDim, TileShape, ValueId};
 
 #[derive(Debug, Default)]
 pub struct TileGraph {
@@ -73,6 +76,13 @@ impl TileGraph {
             let shape = op.output_shape().clone();
             let dtype = op.output_dtype();
             tile_graph.set_port_metadata(tile_id, vec![shape.clone()], vec![dtype]);
+            // The op's own declared tile axes, derived by `#[tiled_kernel]` and
+            // passed through by `TritonLowering` (teenygrad-39jd). Dropping it
+            // here is what made every node a scheduling boundary regardless of
+            // what its kernel could describe.
+            if let Ok(node) = tile_graph.node_mut(tile_id) {
+                node.tile_spec = op.tile_spec();
+            }
             dag_to_tile[dag_idx] = Some(tile_id);
 
             if dag_node.children.is_empty() {
@@ -109,6 +119,7 @@ impl TileGraph {
             out_edges: vec![],
             shapes: vec![],
             dtypes: vec![],
+            tile_spec: None,
         };
 
         self.nodes.push(node);
@@ -126,6 +137,7 @@ impl TileGraph {
             out_edges: vec![],
             shapes: vec![],
             dtypes: vec![],
+            tile_spec: None,
         };
 
         self.nodes.push(node);
@@ -144,6 +156,7 @@ impl TileGraph {
             out_edges: vec![],
             shapes: vec![],
             dtypes: vec![],
+            tile_spec: None,
         };
 
         self.nodes.push(node);
@@ -184,6 +197,8 @@ mod tests {
         nn::{Layer, activation::sigmoid::Silu, batchnorm::BatchNorm2d, conv2d::Conv2d},
         sequential,
     };
+
+    use teeny_core::graph::op::Op;
 
     use crate::graph::TritonLowering;
 
@@ -314,5 +329,58 @@ mod tests {
                 node.name()
             );
         }
+    }
+
+    /// The declaration has to survive the whole trip: `#[tile(...)]` on the
+    /// kernel, `tile_spec()` derived by the macro, `TritonLowering` passing it
+    /// to the `KernelExecutable` (teenygrad-39jd), and `from_dag` putting it on
+    /// the node. Nothing checked the last leg before this, and a break anywhere
+    /// along it is silent -- propagation just treats the node as a boundary.
+    #[test]
+    fn test_from_dag_carries_each_op_s_declared_tile_spec_onto_its_node() {
+        let shape = vec![Some(4), Some(32)];
+        let mut graph = Graph::new();
+        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape.clone());
+        let relu = graph.add_node(Op::Relu, vec![input], DtypeRepr::F32, shape.clone());
+        graph.add_node(Op::Silu, vec![relu], DtypeRepr::F32, shape.clone());
+
+        let (dag, _, _) = TritonLowering::default()
+            .lower_with_mapping(&graph, LoweringMode::Inference)
+            .expect("lowering should not fail");
+        let tile_graph = TileGraph::from_dag(&dag);
+
+        // Placeholder first, then relu and silu, then the output node.
+        let relu_node = tile_graph.node(NodeId(1)).expect("relu node");
+        let silu_node = tile_graph.node(NodeId(2)).expect("silu node");
+
+        for node in [relu_node, silu_node] {
+            let spec = node.tile_spec().unwrap_or_else(|| {
+                panic!(
+                    "{} reached the tile graph with no spec; the declaration was dropped \
+                     somewhere between the kernel and here",
+                    node.name()
+                )
+            });
+            spec.validate()
+                .expect("a derived spec must be self-consistent");
+            assert_eq!(spec.inputs.len(), 1, "{}: one input", node.name());
+            assert_eq!(
+                spec.outputs[0].rank,
+                shape.len(),
+                "{}: the spec follows the node's real rank, not 1",
+                node.name()
+            );
+        }
+
+        // A placeholder has no kernel, so it has nothing to declare -- that is
+        // a real boundary rather than a dropped spec.
+        assert!(
+            tile_graph
+                .node(NodeId(0))
+                .expect("placeholder")
+                .tile_spec()
+                .is_none(),
+            "an input placeholder declares no axes"
+        );
     }
 }
