@@ -528,4 +528,82 @@ mod tests {
         );
         assert_eq!(inputs[1], tile(&[None, Some(32)]));
     }
+
+    /// Propagation across the unary flat elementwise family (teenygrad-1tl.2).
+    ///
+    /// The rung's characteristic property is often stated as "the identity",
+    /// and at rank 1 it literally is. Above rank 1 it is the *product
+    /// preserving* identity instead, because the flat spec declares a single
+    /// binding whose `dims` spans every dimension: `resolve_inputs` puts the
+    /// whole element count on the innermost entry and a bare `1` on the rest,
+    /// exactly as [`TileAxisBinding::dims`] documents. So `[8, 9]` resolves to
+    /// `[1, 72]`, not back to `[8, 9]` -- the tile covers the same 72 elements
+    /// without claiming to be an axis-aligned `8 x 9` subregion.
+    ///
+    /// These specs are derived from the kernels' own `#[tile(...)]`
+    /// attributes, so this round-trips through what the macro actually emits
+    /// rather than through a fixture written to agree with it. A representative
+    /// handful across the converted modules: an activation with no extra
+    /// scalar, one with a scalar, one with two, and a plain unary math op.
+    #[test]
+    fn test_unary_flat_kernels_resolve_to_a_product_preserving_tile() {
+        use crate::nn::activation::{
+            hard::HardtanhForward, misc::LeakyReluForward, relu::ReluForward,
+        };
+        use crate::nn::tensor::elemwise_unary::ElemwiseSqrtForward;
+
+        macro_rules! round_trip {
+            ($($kernel:ty),+ $(,)?) => {
+                $({
+                    let name = stringify!($kernel);
+                    for rank in 1..=4usize {
+                        let spec = <$kernel>::tile_spec(rank);
+                        let out: TileShape = (0..rank).map(|i| Some(8 + i)).collect();
+                        let inputs = resolve_inputs(&spec, &out, &NoConsts)
+                            .unwrap_or_else(|e| panic!("{name} rank {rank}: {e}"));
+                        assert_eq!(inputs.len(), 1, "{name}: one input");
+                        let got = &inputs[0];
+
+                        let want_elems: usize = out.iter().map(|d| d.unwrap()).product();
+                        let got_elems: usize = got.iter().map(|d| d.unwrap()).product();
+                        assert_eq!(
+                            got_elems, want_elems,
+                            "{name} rank {rank}: the input tile must cover the same element \
+                             count as the output tile"
+                        );
+
+                        let mut want: TileShape = vec![Some(1); rank];
+                        want[rank - 1] = Some(want_elems);
+                        assert_eq!(
+                            got, &want,
+                            "{name} rank {rank}: a flattened axis resolves onto its innermost dim"
+                        );
+                        if rank == 1 {
+                            assert_eq!(got, &out, "{name}: at rank 1 it is the literal identity");
+                        }
+
+                        // One unresolved output dim leaves the whole flattened
+                        // axis unresolved: it spans every dim, so a partial
+                        // element count cannot be split back across them.
+                        let mut partial = out.clone();
+                        partial[rank - 1] = None;
+                        let inputs = resolve_inputs(&spec, &partial, &NoConsts)
+                            .unwrap_or_else(|e| panic!("{name} rank {rank} partial: {e}"));
+                        assert_eq!(
+                            inputs[0],
+                            vec![None; rank],
+                            "{name} rank {rank}: an unresolved dim unresolves the flattened axis"
+                        );
+                    }
+                })+
+            };
+        }
+
+        round_trip!(
+            ReluForward<f32>,
+            LeakyReluForward<f32>,
+            HardtanhForward<f32>,
+            ElemwiseSqrtForward<f32>,
+        );
+    }
 }

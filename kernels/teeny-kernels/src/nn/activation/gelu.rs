@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -28,48 +28,25 @@ use teeny_triton::triton::{
 /// Forward: y = x / (1 + exp(-2 * c * (x + a*x³)))
 ///   where c = sqrt(2/pi), a = 0.044715 — the tanh GELU approximation.
 // ANCHOR: gelu_forward
-#[kernel(backward = GeluBackward)]
+#[tiled_kernel(backward = GeluBackward)]
 pub fn gelu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let neg2c = T::full(&[BLOCK_SIZE], D::from_f64(-2.0 * 0.7978845608028654));
     let coeff = T::full(&[BLOCK_SIZE], D::from_f64(0.044715));
 
-    // tanh-GELU: y = x * 0.5 * (1 + tanh(c*(x + a*x³)))
-    //              = x / (1 + exp(-2c*(x + a*x³)))
-    let inner = x + coeff * x * x * x;
-    let y = x / (one + T::exp(neg2c * inner));
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    // tanh-GELU: out = x.tensor * 0.5 * (1 + tanh(c*(x.tensor + a*x³)))
+    //              = x.tensor / (1 + exp(-2c*(x.tensor + a*x³)))
+    let inner = x.tensor + coeff * x.tensor * x.tensor * x.tensor;
+    let out = x.tensor / (one + T::exp(neg2c * inner));
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 // ANCHOR_END: gelu_forward
@@ -141,47 +118,25 @@ pub fn gelu_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 // ── Mish ─────────────────────────────────────────────────────────────────────
 
 /// Forward: y = x * tanh(softplus(x)) = x * tanh(log(1 + exp(x)))
-#[kernel(backward = MishBackward)]
+#[tiled_kernel(backward = MishBackward)]
 pub fn mish_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
     let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
-    let sp = T::log(one + T::exp(x)); // softplus(x)
+    let sp = T::log(one + T::exp(x.tensor)); // softplus(x.tensor)
     // tanh(sp) = 2*sigmoid(2*sp) - 1 = 2/(1+exp(-2*sp)) - 1
     let s2 = one / (one + T::exp(neg2 * sp));
     let t = two * s2 - one;
-    let y = x * t;
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let out = x.tensor * t;
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy * (tanh(sp) + x * (1 - tanh²(sp)) * sigmoid(x))

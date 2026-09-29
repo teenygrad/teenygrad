@@ -98,45 +98,23 @@ pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 // ── Tanhshrink ───────────────────────────────────────────────────────────────
 
 /// Forward: y = x - tanh(x)
-#[kernel(backward = TanhshrinkBackward)]
+#[tiled_kernel(backward = TanhshrinkBackward)]
 pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
     let two = T::full(&[BLOCK_SIZE], D::from_f64(2.0));
     let neg2 = T::full(&[BLOCK_SIZE], D::from_f64(-2.0));
-    let s2x = one / (one + T::exp(neg2 * x));
+    let s2x = one / (one + T::exp(neg2 * x.tensor));
     let tanh_x = two * s2x - one;
-    let y = x - tanh_x;
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let out = x.tensor - tanh_x;
+    T::store(y.tensor, out, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy * tanh²(x)
