@@ -606,4 +606,77 @@ mod tests {
             ElemwiseSqrtForward<f32>,
         );
     }
+
+    /// The multi-operand counterpart of the test above (teenygrad-1tl.3).
+    ///
+    /// Every operand of a flat elementwise op declares the *same*
+    /// `extent_param`, so one resolved block satisfies all of them and each
+    /// input tile comes back identical -- for two operands and for three.
+    /// `MATMUL_TILE_SPEC` above covers the opposite case, where the operands
+    /// name different free variables.
+    ///
+    /// Operand order is asserted too, because `TileGraph::propagate` zips
+    /// `spec.inputs` positionally against a node's parent edges: if the
+    /// generated order ever stopped matching the signature, a binary op would
+    /// resolve its operands the wrong way round. That is invisible for `add`
+    /// and very visible for `sub`.
+    #[test]
+    fn test_multi_operand_flat_kernels_resolve_every_input_alike() {
+        use crate::nn::tensor::elemwise_add::ElemwiseAddForward;
+        use crate::nn::tensor::elemwise_binary::{ElemwiseSubForward, ElemwiseWhereForward};
+
+        macro_rules! all_alike {
+            ($($kernel:ty => $params:expr),+ $(,)?) => {
+                $({
+                    let name = stringify!($kernel);
+                    let expected_params: &[&str] = &$params;
+                    for rank in 1..=3usize {
+                        let spec = <$kernel>::tile_spec(rank);
+                        assert_eq!(
+                            spec.inputs.len(),
+                            expected_params.len(),
+                            "{name}: one TensorTileSpec per operand"
+                        );
+                        assert_eq!(
+                            spec.inputs.iter().map(|i| i.param).collect::<Vec<_>>(),
+                            expected_params,
+                            "{name}: operand order must follow the signature, since \
+                             propagate zips inputs positionally against parent edges"
+                        );
+                        // All operands share one extent_param, so one block resolves all.
+                        let names: Vec<&str> =
+                            spec.inputs.iter().flat_map(|i| i.axes).map(|a| a.extent_param).collect();
+                        assert!(
+                            names.windows(2).all(|w| w[0] == w[1]),
+                            "{name}: every operand names the same free variable, got {names:?}"
+                        );
+
+                        let out: TileShape = (0..rank).map(|i| Some(4 + i)).collect();
+                        let inputs = resolve_inputs(&spec, &out, &NoConsts)
+                            .unwrap_or_else(|e| panic!("{name} rank {rank}: {e}"));
+                        let first = &inputs[0];
+                        for (i, tile) in inputs.iter().enumerate() {
+                            assert_eq!(
+                                tile, first,
+                                "{name} rank {rank}: operand {i} must resolve to the same tile \
+                                 as operand 0"
+                            );
+                        }
+                        // And that shared tile is the same product-preserving
+                        // shape the unary family resolves to.
+                        let elems: usize = out.iter().map(|d| d.unwrap()).product();
+                        let mut want: TileShape = vec![Some(1); rank];
+                        want[rank - 1] = Some(elems);
+                        assert_eq!(first, &want, "{name} rank {rank}");
+                    }
+                })+
+            };
+        }
+
+        all_alike!(
+            ElemwiseAddForward<f32> => ["a", "b"],
+            ElemwiseSubForward<f32> => ["a", "b"],
+            ElemwiseWhereForward<f32> => ["cond", "x", "y"],
+        );
+    }
 }
