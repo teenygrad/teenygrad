@@ -28,7 +28,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -39,12 +39,18 @@ use teeny_triton::triton::{
 /// Forward pass using pre-computed running statistics (inference only).
 ///
 /// Grid: `[M]` — one CTA per row.
-#[kernel]
+#[tiled_kernel]
+#[tile_loop(trip_count = [N, BLOCK_N])]
+#[tile_carry(sum = [1], var_sum = [1])]
 pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(name = "M", extent = _M)]
+    #[tile(extent = N, reduce)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "M", extent = _M)]
+    #[tile(extent = N, reduce)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = N)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = N)] bias_ptr: In<T::Pointer<D>>,
     _M: i32,
     N: i32,
     eps: f32,
@@ -159,14 +165,24 @@ pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
 ///
 /// Grid: `[M]` — one CTA per row.
 #[cfg(feature = "training")]
-#[kernel]
+#[tiled_kernel]
+// Declares the row reduction this body walks by hand (teenygrad-1tl.8).
+// `sum`/`var_sum` are `[1]` scalar accumulators -- `T::zeros::<D>(&[1])` -- not
+// `[BLOCK_N]`: the tile is summed *into* them each iteration. The trip count is
+// `cdiv(N, BLOCK_N)`, so its factors are `N` and `BLOCK_N`.
+#[tile_loop(trip_count = [N, BLOCK_N])]
+#[tile_carry(sum = [1], var_sum = [1])]
 pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(name = "M", extent = _M)]
+    #[tile(extent = N, reduce)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "M", extent = _M)]
+    #[tile(extent = N, reduce)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
-    mean_ptr: Out<T::Pointer<D>>,
-    rstd_ptr: Out<T::Pointer<D>>,
+    #[tile(extent = N)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = N)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(name = "M", extent = _M)] mean_ptr: Out<T::Pointer<D>>,
+    #[tile(name = "M", extent = _M)] rstd_ptr: Out<T::Pointer<D>>,
     _M: i32,
     N: i32,
     eps: f32,

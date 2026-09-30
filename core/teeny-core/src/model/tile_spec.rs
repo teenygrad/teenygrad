@@ -218,8 +218,20 @@ pub struct TensorTileSpec {
 pub struct TileCarryBinding {
     /// The variable's name in the kernel body, e.g. `"acc"`.
     pub name: &'static str,
-    /// Names of the `const {NAME}: i32` generics giving the carried
-    /// tensor's shape, in dimension order (e.g. conv2d's `["BLOCK_OW"]`).
+    /// The carried tensor's shape, in dimension order: each entry is either
+    /// the name of a `const {NAME}: i32` generic (conv2d's `["BLOCK_OW"]`) or
+    /// a decimal integer literal (`["1"]` for a scalar accumulator).
+    ///
+    /// Literals are admitted because a scalar carry is the common case and has
+    /// no const to name: every row reduction in the tree accumulates into
+    /// `T::zeros::<D>(&[1])`, and LayerNorm's `sum`/`var_sum` are exactly that
+    /// (teenygrad-1tl.8). A names-only contract could describe conv2d's
+    /// `acc: [BLOCK_OW]` and none of the nine reductions -- which is why
+    /// proving the declaration on conv2d alone did not surface it.
+    ///
+    /// A consumer resolving these must therefore try an integer parse before
+    /// looking a name up. Nothing consumes them yet; `teenygrad-1nr.31` is
+    /// where the cost model starts to.
     pub shape_consts: &'static [&'static str],
 }
 

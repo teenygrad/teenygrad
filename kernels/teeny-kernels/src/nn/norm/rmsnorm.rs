@@ -25,7 +25,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -36,12 +36,18 @@ use teeny_triton::triton::{
 /// RMSNorm forward pass.
 ///
 /// Grid: `[M]` — one CTA per row.
-#[kernel]
+#[tiled_kernel]
+#[tile_loop(trip_count = [N, BLOCK_N])]
+#[tile_carry(sq_sum = [1])]
 pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(name = "M", extent = _M)]
+    #[tile(extent = N, reduce)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "M", extent = _M)]
+    #[tile(extent = N, reduce)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    rrms_ptr: Out<T::Pointer<D>>,
+    #[tile(extent = N)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(name = "M", extent = _M)] rrms_ptr: Out<T::Pointer<D>>,
     _M: i32,
     N: i32,
     eps: f32,

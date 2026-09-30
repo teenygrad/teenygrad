@@ -783,4 +783,64 @@ mod tests {
         assert_eq!(ReluForward::<f32>::tile_spec(2).loop_spec, None);
         assert_eq!(ChannelBiasAddForward::<f32>::tile_spec().loop_spec, None);
     }
+
+    /// Row reductions declare the axis that is *not* available for tiling, and
+    /// the scalar carries they accumulate into (teenygrad-1tl.8).
+    ///
+    /// The carries are `[1]`, not `[BLOCK_N]`: each iteration sums its tile
+    /// *into* a one-element accumulator (`T::zeros::<D>(&[1])`). That is why
+    /// `TileCarryBinding::shape_consts` had to admit an integer literal --
+    /// there is no const named `1`, so a names-only contract could describe
+    /// conv2d's `acc: [BLOCK_OW]` and none of the nine reductions. Proving the
+    /// declaration on conv2d alone did not surface that.
+    #[test]
+    fn test_row_reductions_declare_their_reduced_axis_and_scalar_carries() {
+        use crate::nn::norm::layernorm::{LayerNormForward, LayerNormForwardInference};
+        use crate::nn::norm::rmsnorm::RmsNormForward;
+
+        // LayerNorm: x/y are [M, N] reduced over N; weight/bias are [N];
+        // mean/rstd are [M]. Three outputs, which is new for this family.
+        let spec = LayerNormForward::<f32>::tile_spec();
+        spec.validate().expect("must validate");
+        let x = spec.inputs[0];
+        assert_eq!(x.param, "x_ptr");
+        assert_eq!(x.rank, 2);
+        assert_eq!(
+            x.reduction_axis,
+            Some(1),
+            "N is dim 1 and cannot be tiled: a row's mean needs the whole row"
+        );
+        assert_eq!(x.untiled_dims, &["M", "N"]);
+        assert_eq!(spec.outputs.len(), 3, "y, mean and rstd");
+        assert_eq!(
+            spec.outputs.iter().map(|o| o.param).collect::<Vec<_>>(),
+            vec!["y_ptr", "mean_ptr", "rstd_ptr"]
+        );
+
+        let l = spec.loop_spec.expect("layernorm walks its row");
+        assert_eq!(
+            l.carries
+                .iter()
+                .map(|c| (c.name, c.shape_consts))
+                .collect::<Vec<_>>(),
+            vec![("sum", &["1"][..]), ("var_sum", &["1"][..])],
+            "scalar accumulators, expressed as literals"
+        );
+        assert_eq!(l.trip_count_factors, &["N", "BLOCK_N"], "cdiv(N, BLOCK_N)");
+
+        // RmsNorm carries one accumulator and has two outputs.
+        let spec = RmsNormForward::<f32>::tile_spec();
+        spec.validate().expect("must validate");
+        assert_eq!(spec.inputs[0].reduction_axis, Some(1));
+        let l = spec.loop_spec.expect("rmsnorm walks its row");
+        assert_eq!(l.carries.len(), 1);
+        assert_eq!(l.carries[0].name, "sq_sum");
+        assert_eq!(l.carries[0].shape_consts, &["1"]);
+
+        // The inference variant reduces the same axis with no saved statistics.
+        let spec = LayerNormForwardInference::<f32>::tile_spec();
+        spec.validate().expect("must validate");
+        assert_eq!(spec.inputs[0].reduction_axis, Some(1));
+        assert_eq!(spec.outputs.len(), 1, "inference writes only y");
+    }
 }
