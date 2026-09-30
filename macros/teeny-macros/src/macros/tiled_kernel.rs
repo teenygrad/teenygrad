@@ -1065,16 +1065,10 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             .to_compile_error()
             .into();
         }
-        if blocked.len() > 1 {
-            return syn::Error::new_spanned(
-                blocked[1].block.as_ref().unwrap_or(&blocked[1].extent),
-                "only one `#[tile(...)]` axis may carry `block = ..` today -- two blocked axes \
-                 need a 2-D index tile (`expand_dims` and `Tensor<i32, 2>` bounds), which is a \
-                 separate change (teenygrad-1nr.18.1)",
-            )
-            .to_compile_error()
-            .into();
-        }
+        // Several blocked axes are allowed since teenygrad-1nr.18.5: each
+        // contributes its own range, broadcast into its own dimension. Such a
+        // kernel must declare `T::BoolTensor: BitAnd<Output = T::BoolTensor>`,
+        // because the per-axis bounds are conjoined into one mask.
     }
 
     let final_block = if tile_in_params.is_empty() && tile_out_params.is_empty() {
@@ -1163,11 +1157,19 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        let blocked_at = axes
+        // Every axis carrying `block = ..`, in declaration order
+        // (teenygrad-1nr.18.5). One is the common case; several make the tile
+        // genuinely K-D.
+        let blocked_positions: Vec<usize> = axes
             .iter()
-            .position(|a| a.block.is_some())
-            .expect("checked above: exactly one axis carries `block = ..`");
-        let block_ident = axes[blocked_at].block.clone().expect("position() found it");
+            .enumerate()
+            .filter(|(_, a)| a.block.is_some())
+            .map(|(i, _)| i)
+            .collect();
+        let blocked_at = *blocked_positions
+            .first()
+            .expect("checked above: at least one axis carries `block = ..`");
+        let block_ident = axes[blocked_at].block.clone().expect("filter found it");
 
         // How many CTAs cover each axis: a blocked axis is covered in
         // `cdiv(extent, block)` steps, an untiled one is one CTA per index.
@@ -1293,21 +1295,66 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     .map(|(head, rest)| quote! { #head #( * #rest)* })
             };
 
-            let blocked_extent = &axes[blocked_at].extent;
-            let blocked_idx = idx_ident(blocked_at);
-            let blocked_stride = stride_of(blocked_at);
-            stmts.push(
-                syn::parse2(quote! {
-                    let __tile_range =
-                        #hw_ident::arange(0, #block_ident) + #blocked_idx * #block_ident;
+            // One range per blocked axis (teenygrad-1nr.18.5). With a single
+            // blocked axis this is the familiar `arange(0, B) + idx * B`. With
+            // several, each range is broadcast into its own dimension so the
+            // tile is genuinely K-D: the outer gets `[B0, 1]`, the inner
+            // `[1, B1]`, and the arithmetic below broadcasts them together.
+            //
+            // The ranges are expanded *before* comparing, not after, so the
+            // masks broadcast without needing `expand_dims` over a
+            // `BoolTensor` -- `expand_dims` is declared over `Tensor<D>`.
+            let blocked_ranges: Vec<(usize, Ident)> = blocked_positions
+                .iter()
+                .enumerate()
+                .map(|(slot, &i)| {
+                    let blk = axes[i]
+                        .block
+                        .as_ref()
+                        .expect("blocked_positions only holds blocked axes");
+                    let idx = idx_ident(i);
+                    let mut expr = quote! { #hw_ident::arange(0, #blk) + #idx * #blk };
+                    if blocked_positions.len() > 1 {
+                        // Ascending order: [B] -> expand at 1 -> [B, 1], and so
+                        // on, leaving this axis's own dimension alone.
+                        for d in 0..blocked_positions.len() {
+                            if d != slot {
+                                let d = d as i32;
+                                expr = quote! { #hw_ident::expand_dims_i32(#expr, #d) };
+                            }
+                        }
+                    }
+                    // One blocked axis keeps the original binding name, so
+                    // adding this feature rewrites no existing snapshot -- the
+                    // same churn avoidance the single-axis prelude is written
+                    // for. The suffixed form appears only where there really
+                    // are several blocked axes.
+                    let rng = if blocked_positions.len() == 1 {
+                        format_ident!("__tile_range")
+                    } else {
+                        format_ident!("__tile_range_{}", slot)
+                    };
+                    stmts.push(
+                        syn::parse2(quote! { let #rng = #expr; })
+                            .expect("generated arange statement is valid Rust"),
+                    );
+                    (i, rng)
                 })
-                .expect("generated arange statement is valid Rust"),
-            );
-            stmts.push(
-                syn::parse2(quote! {
-                    let in_bounds = __tile_range.lt(#blocked_extent);
+                .collect();
+            // Every blocked axis contributes a bound; with more than one they
+            // are conjoined, which is why such a kernel must declare
+            // `T::BoolTensor: BitAnd<Output = T::BoolTensor>`.
+            let mask_expr = blocked_ranges
+                .iter()
+                .map(|(i, rng)| {
+                    let extent = &axes[*i].extent;
+                    quote! { #rng.lt(#extent) }
                 })
-                .expect("generated mask statement is valid Rust"),
+                .reduce(|a, b| quote! { #a & #b })
+                .expect("at least one axis carries `block = ..`");
+            stmts.push(
+                syn::parse2(quote! { let in_bounds = #mask_expr; })
+                    .expect("generated mask statement is valid Rust"),
             );
 
             // The untiled axes contribute a scalar base; the blocked one
@@ -1316,7 +1363,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let scalar_terms: Vec<TokenStream2> = axes
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| *i != blocked_at)
+                .filter(|(i, _)| !blocked_positions.contains(i))
                 .map(|(i, _)| {
                     let idx = idx_ident(i);
                     match stride_of(i) {
@@ -1325,14 +1372,17 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     }
                 })
                 .collect();
-            let blocked_term = match &blocked_stride {
-                Some(stride) => quote! { __tile_range * (#stride) },
-                None => quote! { __tile_range },
-            };
+            let blocked_terms: Vec<TokenStream2> = blocked_ranges
+                .iter()
+                .map(|(i, rng)| match stride_of(*i) {
+                    Some(stride) => quote! { #rng * (#stride) },
+                    None => quote! { #rng },
+                })
+                .collect();
             let offsets_expr: TokenStream2 = if scalar_terms.is_empty() {
-                blocked_term
+                quote! { #(#blocked_terms)+* }
             } else {
-                quote! { #blocked_term + #(#scalar_terms)+* }
+                quote! { #(#blocked_terms)+* + #(#scalar_terms)+* }
             };
             stmts.push(
                 syn::parse2(quote! { let offsets = #offsets_expr; })
@@ -1375,14 +1425,32 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     .split_first()
                     .map(|(head, rest)| quote! { #head #( * #rest)* })
             };
-            let mut blocked_term: Option<TokenStream2> = None;
+            // A parameter may sit on several blocked axes, each contributing
+            // its own range (teenygrad-1nr.18.5). The ranges are named by the
+            // *kernel's* blocked order, so a parameter declaring a subset still
+            // picks up the right ones.
+            let mut blocked_terms: Vec<TokenStream2> = Vec::new();
             let mut scalar_terms: Vec<TokenStream2> = Vec::new();
             for (i, axis) in param_axes.iter().enumerate() {
                 let stride = stride_within(i);
                 if axis.block.is_some() {
-                    blocked_term = Some(match stride {
-                        Some(stride) => quote! { __tile_range * (#stride) },
-                        None => quote! { __tile_range },
+                    let slot = blocked_positions
+                        .iter()
+                        .position(|&k| axes[k].block == axis.block)
+                        .unwrap_or(0);
+                    // One blocked axis keeps the original binding name, so
+                    // adding this feature rewrites no existing snapshot -- the
+                    // same churn avoidance the single-axis prelude is written
+                    // for. The suffixed form appears only where there really
+                    // are several blocked axes.
+                    let rng = if blocked_positions.len() == 1 {
+                        format_ident!("__tile_range")
+                    } else {
+                        format_ident!("__tile_range_{}", slot)
+                    };
+                    blocked_terms.push(match stride {
+                        Some(stride) => quote! { #rng * (#stride) },
+                        None => quote! { #rng },
                     });
                 } else {
                     let idx = axis_idx_ident(axis);
@@ -1392,6 +1460,11 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     });
                 }
             }
+            let blocked_term: Option<TokenStream2> = if blocked_terms.is_empty() {
+                None
+            } else {
+                Some(quote! { #(#blocked_terms)+* })
+            };
             match blocked_term {
                 Some(blocked) if scalar_terms.is_empty() => (blocked, false),
                 Some(blocked) => (quote! { #blocked + #(#scalar_terms)+* }, false),
@@ -1434,7 +1507,20 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             };
             let (loaded, mask_tokens) = if broadcast {
                 (
-                    quote! { #hw_ident::broadcast_to(#loaded, &[#block_ident]) },
+                    {
+                        // Widen to the full tile shape: one extent per blocked
+                        // axis, so a broadcast operand matches a K-D tile too.
+                        let shape: Vec<&Ident> = blocked_positions
+                            .iter()
+                            .map(|&i| {
+                                axes[i]
+                                    .block
+                                    .as_ref()
+                                    .expect("blocked axis carries a block")
+                            })
+                            .collect();
+                        quote! { #hw_ident::broadcast_to(#loaded, &[#(#shape),*]) }
+                    },
                     quote! { None },
                 )
             } else {

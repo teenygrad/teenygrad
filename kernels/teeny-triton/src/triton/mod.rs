@@ -149,6 +149,11 @@ pub enum MemScope {
 /// inside a `#[kernel]`-annotated function. See the module docs for how this compiles.
 pub trait Triton
 where
+    // Tensor-plus-tensor, needed to combine one range per blocked axis into a
+    // single offsets tensor (teenygrad-1nr.18.5). The scalar-operand bounds
+    // below cover the single-blocked-axis case, where the other term is always
+    // a scalar base.
+    Self::I32Tensor: Add<Self::I32Tensor, Output = Self::I32Tensor>,
     Self::I32Tensor: Add<i32, Output = Self::I32Tensor>,
     Self::I32Tensor: Sub<i32, Output = Self::I32Tensor>,
     Self::I32Tensor: Mul<i32, Output = Self::I32Tensor>,
@@ -249,6 +254,18 @@ where
 
     /// Insert a size-1 dimension at `axis`.
     fn expand_dims<D: ty::Dtype>(x: Self::Tensor<D>, axis: i32) -> Self::Tensor<D>;
+
+    /// Insert a size-1 dimension at `axis`, for an index tensor.
+    ///
+    /// Separate from [`Triton::expand_dims`] for the same reason
+    /// [`Triton::arange`] is separate from [`Triton::arange_f32`]: `I32Tensor`
+    /// and `Tensor<i32>` are distinct associated types with no equality bound,
+    /// so generic kernel code cannot pass an `arange` result to the dtype-
+    /// generic form even where a backend makes them the same concrete type.
+    ///
+    /// Needed by the multi-blocked-axis prelude (teenygrad-1nr.18.5), which
+    /// broadcasts each blocked axis's range into its own dimension.
+    fn expand_dims_i32(x: Self::I32Tensor, axis: i32) -> Self::I32Tensor;
 
     /// Permute `x`'s dimensions according to `dims`.
     fn permute<D: ty::Dtype>(x: Self::Tensor<D>, dims: &[i32]) -> Self::Tensor<D>;
