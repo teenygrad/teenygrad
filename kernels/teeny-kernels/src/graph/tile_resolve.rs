@@ -385,7 +385,7 @@ mod tests {
     const W: TileWindow = TileWindow {
         output_extent_param: "OW",
         stride_const: "STRIDE_W",
-        pad_const: "PAD_W",
+        pad_const: Some("PAD_W"),
         kernel_size_const: "KW",
     };
 
@@ -886,7 +886,7 @@ mod tests {
         let w = windowed.window.expect("just checked");
         assert_eq!(
             (w.stride_const, w.pad_const, w.kernel_size_const),
-            ("STRIDE_W", "PAD_W", "KW")
+            ("STRIDE_W", Some("PAD_W"), "KW")
         );
         assert_eq!(
             w.output_extent_param, "OW",
@@ -918,5 +918,96 @@ mod tests {
         let strided = Table::new(&[("STRIDE_W", 2), ("KW", 3), ("PAD_W", 1)]);
         let inputs = resolve_inputs(&spec, &out, &strided).expect("resolution should succeed");
         assert_eq!(inputs[0][ow_dim], Some(17));
+    }
+
+    /// The conv and pool family resolves its windowed input to the receptive
+    /// field (teenygrad-1tl.7).
+    ///
+    /// Three things about the declaration are worth stating, because none is
+    /// obvious from reading it:
+    ///
+    /// - The windowed axis keeps its own extent (`L`, `W`) and the window names
+    ///   the *output* axis whose block it resolves against. A windowed input's
+    ///   extent never appears in the output, so both names are needed.
+    /// - It also carries the output's `block_const`. That is structural, not a
+    ///   claim about its tile size: only a blocked axis becomes a
+    ///   `TileAxisBinding`, and a `TileWindow` hangs off one. Resolution never
+    ///   reads the input axis's own `block_const`.
+    /// - `pad` is absent on the pools because most have no padding const at all,
+    ///   and padding shifts the window's origin rather than its size.
+    #[test]
+    fn test_conv_and_pool_windows_resolve_to_the_receptive_field() {
+        use crate::nn::conv::conv1d::Conv1dForward;
+        use crate::nn::pool::{
+            avgpool1d::Avgpool1dForward, lppool2d::Lppool2dForward, maxpool1d::Maxpool1dForward,
+            maxpool2d::Maxpool2dForward,
+        };
+
+        // 1-D: one spatial axis, fully expressible. (8 - 1) * 2 + 3 = 17.
+        for (name, spec) in [
+            ("maxpool1d", Maxpool1dForward::<f32>::tile_spec()),
+            ("avgpool1d", Avgpool1dForward::<f32>::tile_spec()),
+        ] {
+            spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
+            let axis = spec.inputs[0]
+                .axes
+                .iter()
+                .find(|a| a.window.is_some())
+                .unwrap_or_else(|| panic!("{name}: the spatial axis declares a window"));
+            let w = axis.window.expect("just checked");
+            assert_eq!(axis.extent_param, "L", "{name}: keeps its own extent");
+            assert_eq!(w.output_extent_param, "OL", "{name}: resolves against OL");
+            assert_eq!(w.pad_const, None, "{name}: no padding const exists");
+
+            let consts = Table::new(&[("STRIDE", 2), ("KL", 3)]);
+            let inputs = resolve_inputs(&spec, &tile(&[Some(2), Some(4), Some(8)]), &consts)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(inputs[0][2], Some(17), "{name}: (8 - 1) * 2 + 3");
+        }
+
+        // conv1d does have padding, and it still does not enter the extent.
+        let spec = Conv1dForward::<f32>::tile_spec();
+        spec.validate().expect("conv1d spec must validate");
+        let axis = spec.inputs[0]
+            .axes
+            .iter()
+            .find(|a| a.window.is_some())
+            .unwrap();
+        assert_eq!(axis.window.unwrap().pad_const, Some("PAD"));
+        let consts = Table::new(&[("STRIDE", 1), ("KL", 3), ("PAD", 1)]);
+        let inputs = resolve_inputs(&spec, &tile(&[Some(2), Some(6), Some(8)]), &consts).unwrap();
+        assert_eq!(inputs[0][2], Some(10), "(8 - 1) * 1 + 3, padding excluded");
+
+        // 2-D: only W carries a window, because a TileWindow needs a blocked
+        // axis and these kernels block OW alone. H is declared truthfully and
+        // left unresolvable -- lifting that needs teenygrad-1nr.18.5.
+        for (name, spec) in [
+            ("maxpool2d", Maxpool2dForward::<f32>::tile_spec()),
+            ("lppool2d", Lppool2dForward::<f32>::tile_spec()),
+        ] {
+            spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
+            let x = spec.inputs[0];
+            let windowed: Vec<&str> = x
+                .axes
+                .iter()
+                .filter(|a| a.window.is_some())
+                .map(|a| a.extent_param)
+                .collect();
+            assert_eq!(
+                windowed,
+                vec!["W"],
+                "{name}: one window only, on the blocked axis"
+            );
+            assert!(
+                x.untiled_dims.contains(&"H"),
+                "{name}: H stays untiled, its window inexpressible"
+            );
+
+            let consts = Table::new(&[("STRIDE_W", 2), ("KW", 3)]);
+            let out = tile(&[Some(2), Some(4), Some(5), Some(8)]);
+            let inputs =
+                resolve_inputs(&spec, &out, &consts).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(inputs[0][3], Some(17), "{name}: W resolves");
+        }
     }
 }

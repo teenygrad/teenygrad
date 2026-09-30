@@ -107,8 +107,19 @@ pub struct TileWindow {
     /// Name of the `const {NAME}: i32` generic giving this axis's stride.
     pub stride_const: &'static str,
     /// Name of the `const {NAME}: i32` generic giving this axis's symmetric
-    /// padding (applied equally on both sides).
-    pub pad_const: &'static str,
+    /// padding, or `None` when the kernel has no padding const at all.
+    ///
+    /// Optional because most of the family has none: of the thirteen conv and
+    /// pool kernels, only the four convs and `maxpool2d` declare padding, and
+    /// the other eight pools have no such generic to name. Requiring it would
+    /// make a window undeclarable on two thirds of its own population
+    /// (teenygrad-1tl.7).
+    ///
+    /// Nothing computes with it either way. The receptive field is
+    /// `(block - 1) * stride + kernel`; padding shifts the window's origin, not
+    /// its size, so `resolve_inputs` never reads this. It is carried to describe
+    /// the access, not to size it.
+    pub pad_const: Option<&'static str>,
     /// Name of the `const {NAME}: i32` generic giving this axis's kernel
     /// (receptive-field) size.
     pub kernel_size_const: &'static str,
@@ -326,7 +337,7 @@ impl TileAxisBinding {
         }
         if let Some(window) = self.window
             && (window.stride_const.is_empty()
-                || window.pad_const.is_empty()
+                || window.pad_const.is_some_and(str::is_empty)
                 || window.kernel_size_const.is_empty())
         {
             return Err(bad(format!(

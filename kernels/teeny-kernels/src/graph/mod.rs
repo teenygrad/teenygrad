@@ -3096,7 +3096,7 @@ mod conv2d_grid_spec_tests {
         assert_eq!(w.output_extent_param, "OW");
         assert_eq!(
             (w.stride_const, w.pad_const, w.kernel_size_const),
-            ("STRIDE_W", "PAD_W", "KW")
+            ("STRIDE_W", Some("PAD_W"), "KW")
         );
         // H still declares a window in the signature, but only a *blocked* axis
         // becomes a `TileAxisBinding`, and conv2d blocks OW alone -- so H's

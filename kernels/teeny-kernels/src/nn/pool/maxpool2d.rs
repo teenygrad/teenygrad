@@ -19,7 +19,7 @@
 use core::marker::PhantomData;
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -30,7 +30,7 @@ use teeny_triton::triton::{
 /// Grid: `pid = ((b * C + c) * OH + oh) * num_ow_tiles + ow_tile`
 ///
 /// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
-#[kernel]
+#[tiled_kernel]
 pub fn maxpool2d_forward<
     T: Triton,
     D: Num,
@@ -42,7 +42,23 @@ pub fn maxpool2d_forward<
     const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
+    // teenygrad-1tl.7. Only W carries a window: a `TileWindow` lives on a
+    // blocked axis and this kernel blocks OW alone, so H's window cannot be
+    // expressed until teenygrad-1nr.18.5 allows a second blocked axis. H is
+    // declared with its own truthful extent and left unresolvable.
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(extent = H)]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+    )]
     input_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
