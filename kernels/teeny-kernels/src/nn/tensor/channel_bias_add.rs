@@ -137,13 +137,25 @@ pub fn channel_bias_add_backward<T: Triton, D: Float, const BLOCK_N: i32>(
 
 /// Adds a (C,) bias to a tensor in NCHW layout.
 ///
-/// Grid: `[C, B]` — one CTA per (channel, batch) pair; each CTA iterates over
-/// H*W spatial positions in `BLOCK_HW`-wide tiles.
-#[kernel]
+/// Grid: `[C * cdiv(HW, BLOCK_HW), B]` — the generated prelude decodes a flat
+/// `program_id` over the declared `[B, C, HW]` axes (teenygrad-1tl.4).
+///
+/// The hand-written `while hw_start < HW` walk this replaces was an
+/// *independent* walk: nothing crossed its iterations, so covering `HW` with
+/// the grid is equivalent and needs no accumulation loop. Only an accumulating
+/// walk needs `teenygrad-1nr.18.3`.
+#[tiled_kernel]
 pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(extent = B, dim = Y)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_HW, extent = HW)]
+    x: In<Tile<T, D>>,
+    #[tile(extent = C)] bias: In<Tile<T, D>>,
+    #[tile(extent = B, dim = Y)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_HW, extent = HW)]
+    y: Out<Tile<T, D>>,
+    B: i32,
     C: i32,
     HW: i32,
 ) where
@@ -151,51 +163,7 @@ pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let c = T::program_id(Axis::X);
-    let b = T::program_id(Axis::Y);
-    let c_idx = T::arange(0, 1) + c;
-
-    let bias = T::broadcast_to(
-        T::load(
-            bias_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_HW],
-    );
-
-    let zeros = T::zeros::<D>(&[BLOCK_HW]);
-    let batch_channel_offset: i32 = b * C * HW + c * HW;
-    let mut hw_start: i32 = 0;
-    while hw_start < HW {
-        let offsets = T::arange(0, BLOCK_HW) + hw_start;
-        let mask = offsets.lt(HW);
-        let elem_offsets = offsets + batch_channel_offset;
-        let x_tile = T::load(
-            x_ptr.add_offsets(elem_offsets),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        T::store(
-            y_ptr.add_offsets(elem_offsets),
-            x_tile + bias,
-            Some(mask),
-            &[],
-            None,
-            None,
-        );
-        hw_start += BLOCK_HW;
-    }
+    T::store(y.tensor, x.tensor + bias.tensor, x.mask, &[], None, None);
 }
 
 /// NCHW bias add backward: dx = dy, dbias[c] = sum over (B, H, W) of dy.
@@ -257,6 +225,9 @@ pub fn nchw_bias_add_backward<T: Triton, D: Float, const BLOCK_HW: i32>(
 pub struct NchwBiasAddRuntimeOp<D: Float + Send + Sync + 'static> {
     fwd: NchwBiasAddForward<D>,
     bwd: NchwBiasAddBackward<D>,
+    /// Kept so `grid` can size the HW-tile extent the forward prelude now
+    /// covers (teenygrad-1tl.4); the backward kernel still walks HW itself.
+    block_hw: i32,
 }
 
 impl<D: Float + Send + Sync + 'static> NchwBiasAddRuntimeOp<D> {
@@ -264,6 +235,7 @@ impl<D: Float + Send + Sync + 'static> NchwBiasAddRuntimeOp<D> {
         Self {
             fwd: NchwBiasAddForward::<D>::new(block_hw),
             bwd: NchwBiasAddBackward::<D>::new(block_hw),
+            block_hw,
         }
     }
     pub fn forward_source(&self) -> &str {
@@ -300,17 +272,28 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for NchwBias
         _output_row_stride: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
+        // Order follows the kernel signature exactly -- x, bias, y, B, C, HW.
+        // Nothing checks this correspondence at compile time, so a reordering
+        // here surfaces only as a wrong result or a launch failure.
+        let b = output_shape[0] as i32;
         let c = output_shape[1] as i32;
         let hw = (output_shape[2] * output_shape[3]) as i32;
-        visitor.visit_ptr(inputs[0].0); // x_ptr
-        visitor.visit_ptr(params[0]); // bias_ptr
-        visitor.visit_ptr(output); // y_ptr
+        visitor.visit_ptr(inputs[0].0); // x
+        visitor.visit_ptr(params[0]); // bias
+        visitor.visit_ptr(output); // y
+        visitor.visit_i32(b);
         visitor.visit_i32(c);
         visitor.visit_i32(hw);
     }
 
+    /// `[C * cdiv(HW, BLOCK_HW), B]`: the generated prelude covers `HW` with the
+    /// grid rather than walking it, so x now spans the channel *and* HW-tile
+    /// extent while y keeps the batch (teenygrad-1tl.4).
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [output_shape[1] as u32, output_shape[0] as u32, 1]
+        let c = output_shape[1] as u32;
+        let hw = (output_shape[2] * output_shape[3]) as u32;
+        let hw_tiles = hw.div_ceil(self.block_hw as u32);
+        [c * hw_tiles, output_shape[0] as u32, 1]
     }
 
     #[cfg(feature = "training")]

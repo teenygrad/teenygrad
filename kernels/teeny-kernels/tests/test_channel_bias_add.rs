@@ -222,3 +222,33 @@ fn test_channel_bias_add_backward() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// `nchw_bias_add_forward` had no source or asm snapshot at all, unlike its
+/// `channel_bias_add_forward` sibling above -- so when teenygrad-1tl.4 replaced
+/// its hand-written `while hw_start < HW` walk with generated grid coverage,
+/// nothing in the suite recorded that its generated form had changed. The
+/// numerics were covered (via `test_conv2d_bias_forward_matches_reference`,
+/// since this is what Conv2d-with-bias lowers to), but the codegen was not.
+#[test]
+fn test_nchw_bias_add_forward_snapshot() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
+    let kernel =
+        teeny_kernels::nn::tensor::channel_bias_add::NchwBiasAddForward::<f32>::new(BLOCK_N);
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
+    assert_debug_snapshot!(
+        format!(
+            "nchw_bias_add_forward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("nchw_bias_add_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
+    Ok(())
+}
