@@ -91,6 +91,19 @@ use crate::errors::{Error, Result};
 /// `TileGraph::propagate` doesn't resolve this yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileWindow {
+    /// Name of the `{NAME}: i32` parameter giving the *output* axis this window
+    /// relates to -- conv2d's `x_ptr` spatial axis relates to `OW`.
+    ///
+    /// Propagation resolves by name, so a windowed input axis has to be told
+    /// which output variable carries its block; its own `extent_param` names a
+    /// different quantity (`W`, the real input extent) and never appears in the
+    /// output. Naming the input axis `OW` instead would make propagation work
+    /// but would have the spec assert that the input's spatial extent *is* `OW`,
+    /// which is false and which `untiled_dims`/`mem_footprint` would then
+    /// believe. Keeping both names is what lets the spec stay truthful about the
+    /// tensor while still resolving (teenygrad-1nr.18.2, settling the naming
+    /// question `teenygrad-1tl.7` raised).
+    pub output_extent_param: &'static str,
     /// Name of the `const {NAME}: i32` generic giving this axis's stride.
     pub stride_const: &'static str,
     /// Name of the `const {NAME}: i32` generic giving this axis's symmetric

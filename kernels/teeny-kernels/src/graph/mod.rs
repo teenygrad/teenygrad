@@ -3083,8 +3083,27 @@ mod conv2d_grid_spec_tests {
         let x = spec.inputs[0];
         assert_eq!(x.param, "x_ptr");
         assert_eq!(x.rank, 4);
-        assert_eq!(x.axes, &[] as &[TileAxisBinding]);
-        assert_eq!(x.untiled_dims, &["B", "C_IN", "H", "W"]);
+        // teenygrad-1nr.18.2: the W axis is now a real binding carrying a
+        // window, so it leaves `untiled_dims`. It keeps `extent_param = "W"` --
+        // its real extent -- with the window naming the output axis (`OW`) whose
+        // block it resolves against.
+        assert_eq!(x.axes.len(), 1);
+        assert_eq!(x.axes[0].extent_param, "W");
+        assert_eq!(x.axes[0].block_const, "BLOCK_OW");
+        let w = x.axes[0]
+            .window
+            .expect("the spatial axis declares a window");
+        assert_eq!(w.output_extent_param, "OW");
+        assert_eq!(
+            (w.stride_const, w.pad_const, w.kernel_size_const),
+            ("STRIDE_W", "PAD_W", "KW")
+        );
+        // H still declares a window in the signature, but only a *blocked* axis
+        // becomes a `TileAxisBinding`, and conv2d blocks OW alone -- so H's
+        // window is dropped and H stays untiled. A 2-D conv can therefore
+        // express a window on one spatial axis only; lifting that needs either a
+        // second blocked axis (teenygrad-1nr.18.5) or windows on unblocked axes.
+        assert_eq!(x.untiled_dims, &["B", "C_IN", "H"]);
 
         assert_eq!(spec.outputs.len(), 1);
         let y = spec.outputs[0];
