@@ -72,10 +72,19 @@ pub fn conv2d_forward<
     // previously hand-authored `CONV2D_TILE_SPEC` at the `TritonLowering`
     // call site, but never touches this body: `x_ptr`/`y_ptr` stay plain
     // pointers, and the `pid` decode above is unchanged.
+    // The spatial axes are read through a strided, padded sliding window
+    // (teenygrad-1nr.18.2). An output tile of `block` columns reads
+    // `(block - 1) * STRIDE + K` input elements: forward and exact. Padding
+    // shifts the window's origin, not its size, so it is absent from that
+    // extent -- an interior tile touches no padding at all.
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_IN)]
-    #[tile(extent = H)]
-    #[tile(extent = W)]
+    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+    )]
     x_ptr: In<T::Pointer<D>>,
     w_ptr: In<T::Pointer<D>>,
     #[tile(name = "B", extent = _B)]

@@ -177,7 +177,15 @@ fn resolve_one(
         // the caller can supply the axis's full extent — in which case
         // `divide_by` applies, per its own contract that it replaces
         // wherever this axis's raw full extent would be used.
-        let block = match resolved.iter().find(|(name, _)| *name == axis.extent_param) {
+        // A windowed axis resolves against the *output* variable its window
+        // names, not its own `extent_param`: its own names the real input
+        // extent, which never appears in the output (teenygrad-1nr.18.2). An
+        // unwindowed axis resolves against its own name as before.
+        let propagation_name = match axis.window {
+            Some(window) => window.output_extent_param,
+            None => axis.extent_param,
+        };
+        let block = match resolved.iter().find(|(name, _)| *name == propagation_name) {
             Some((_, block)) => Some(*block),
             None => consts
                 .get(axis.extent_param)
@@ -375,6 +383,7 @@ mod tests {
     // --- windows ---------------------------------------------------------
 
     const W: TileWindow = TileWindow {
+        output_extent_param: "OW",
         stride_const: "STRIDE_W",
         pad_const: "PAD_W",
         kernel_size_const: "KW",
@@ -842,5 +851,72 @@ mod tests {
         spec.validate().expect("must validate");
         assert_eq!(spec.inputs[0].reduction_axis, Some(1));
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
+    }
+
+    /// A real kernel's windowed input resolves to its receptive field
+    /// (teenygrad-1nr.18.2).
+    ///
+    /// Until this, `TileWindow` was constructed nowhere in the repo except the
+    /// `WINDOWED` fixture above -- the arithmetic was implemented and tested,
+    /// but no kernel could declare a window, so none ever reached it. This is
+    /// the same computation against `conv2d_forward`'s own generated spec.
+    ///
+    /// Note what the declaration had to say for this to work: `x_ptr`'s spatial
+    /// axis names the *output's* variable (`OW`, with `BLOCK_OW`), not its own
+    /// extent `W`. That is forced, not chosen. Propagation resolves by name, so
+    /// an input axis named `W` can never receive the block the output computed
+    /// for `OW`; and `TileWindow` hangs off `TileAxisBinding`, which the macro
+    /// only creates for an axis carrying a block. The window is precisely what
+    /// explains the size difference between the two. This answers the naming
+    /// question `teenygrad-1tl.7` raises for the conv and pool family.
+    #[test]
+    fn test_conv2d_windowed_input_resolves_to_its_receptive_field() {
+        use crate::nn::conv::conv2d::Conv2dForward;
+
+        let spec = Conv2dForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let x = spec.inputs[0];
+        let windowed = x
+            .axes
+            .iter()
+            .find(|a| a.window.is_some())
+            .expect("x_ptr's spatial axis declares a window");
+        let w = windowed.window.expect("just checked");
+        assert_eq!(
+            (w.stride_const, w.pad_const, w.kernel_size_const),
+            ("STRIDE_W", "PAD_W", "KW")
+        );
+        assert_eq!(
+            w.output_extent_param, "OW",
+            "the window names the output axis it resolves against, so x keeps its real extent W"
+        );
+        assert_eq!(
+            windowed.extent_param, "W",
+            "and the spec stays truthful about the input's own spatial extent"
+        );
+
+        // 3x3 conv, stride 1: an 8-column output tile reads (8 - 1) * 1 + 3 = 10.
+        let consts = Table::new(&[("STRIDE_W", 1), ("KW", 3), ("PAD_W", 1)]);
+        let out = tile(&[Some(2), Some(16), Some(5), Some(8)]);
+        let inputs = resolve_inputs(&spec, &out, &consts).expect("resolution should succeed");
+        let ow_dim = windowed.dims[windowed.dims.len() - 1];
+        assert_eq!(
+            inputs[0][ow_dim],
+            Some(10),
+            "(block - 1) * stride + kernel, forward and exact"
+        );
+
+        // Padding shifts the origin, not the size: the same block with p = 0
+        // reads the same 10 elements. An interior tile touches no padding.
+        let unpadded = Table::new(&[("STRIDE_W", 1), ("KW", 3), ("PAD_W", 0)]);
+        let inputs = resolve_inputs(&spec, &out, &unpadded).expect("resolution should succeed");
+        assert_eq!(inputs[0][ow_dim], Some(10), "pad does not enter the extent");
+
+        // Stride 2 spreads the same block further: (8 - 1) * 2 + 3 = 17.
+        let strided = Table::new(&[("STRIDE_W", 2), ("KW", 3), ("PAD_W", 1)]);
+        let inputs = resolve_inputs(&spec, &out, &strided).expect("resolution should succeed");
+        assert_eq!(inputs[0][ow_dim], Some(17));
     }
 }

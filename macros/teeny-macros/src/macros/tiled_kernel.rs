@@ -104,6 +104,17 @@ struct TileAttrArgs {
     /// Which real hardware grid dimension this axis reads from
     /// (teenygrad-1nr.19) -- `X`, `Y`, or `Z`; defaults to `X`.
     dim: Option<Ident>,
+    /// `Some((stride, pad, kernel))` when this axis is read through a strided,
+    /// padded sliding window, declared as
+    /// `#[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH))]`
+    /// (teenygrad-1nr.18.2).
+    ///
+    /// The three are names of `const {NAME}: i32` generics. An output tile of
+    /// `block` elements along this axis reads a receptive field of
+    /// `(block - 1) * stride + kernel` input elements -- forward and exact.
+    /// Padding shifts the window's origin, not its size, so it does not appear
+    /// in that extent: an interior tile touches no padding at all.
+    window: Option<(Ident, Ident, Ident, Ident)>,
     /// `true` when this axis is the one the tensor is reduced over, declared
     /// as a bare `#[tile(extent = N, reduce)]` (teenygrad-1tl.8).
     ///
@@ -112,6 +123,25 @@ struct TileAttrArgs {
     /// available for tiling, rather than leaving it to be inferred from the
     /// absence of a block.
     reduce: bool,
+}
+
+/// The `TileWindow` an axis declares, or `None` when it is read contiguously.
+fn window_tokens(axis: &TileAttrArgs) -> TokenStream2 {
+    match &axis.window {
+        None => quote! { ::core::option::Option::None },
+        Some((stride, pad, kernel, output)) => {
+            let (s, p, k) = (stride.to_string(), pad.to_string(), kernel.to_string());
+            let o = output.to_string();
+            quote! {
+                ::core::option::Option::Some(::teeny_core::model::TileWindow {
+                    output_extent_param: #o,
+                    stride_const: #s,
+                    pad_const: #p,
+                    kernel_size_const: #k,
+                })
+            }
+        }
+    }
 }
 
 /// The index of the axis a tensor is reduced over, if one declared `reduce`.
@@ -151,6 +181,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
     let mut name = None;
     let mut dim = None;
     let mut reduce = false;
+    let mut window = None;
     let mut nvs: Vec<MetaNameValue> = Vec::new();
     for meta in parsed {
         match meta {
@@ -162,10 +193,62 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
                 ));
             }
             syn::Meta::NameValue(nv) => nvs.push(nv),
+            syn::Meta::List(list) if list.path.is_ident("window") => {
+                let inner = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
+                    .parse2(list.tokens.clone())?;
+                let (mut stride, mut pad, mut kernel, mut output) = (None, None, None, None);
+                for nv in &inner {
+                    let key = nv
+                        .path
+                        .get_ident()
+                        .map(|i| i.to_string())
+                        .unwrap_or_default();
+                    let Expr::Path(p) = &nv.value else {
+                        return Err(syn::Error::new_spanned(
+                            &nv.value,
+                            "a `window(...)` value must be a const generic's name",
+                        ));
+                    };
+                    let Some(id) = p.path.get_ident().cloned() else {
+                        return Err(syn::Error::new_spanned(
+                            &nv.value,
+                            "expected one identifier",
+                        ));
+                    };
+                    match key.as_str() {
+                        "stride" => stride = Some(id),
+                        "pad" => pad = Some(id),
+                        "kernel" => kernel = Some(id),
+                        "output" => output = Some(id),
+                        other => {
+                            return Err(syn::Error::new_spanned(
+                                &nv.path,
+                                format!(
+                                    "unknown `window(...)` key `{other}` (expected `stride`, \
+                                     `pad`, `kernel` or `output`)"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                match (stride, pad, kernel, output) {
+                    (Some(s), Some(p), Some(k), Some(o)) => window = Some((s, p, k, o)),
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            &list,
+                            "`window(...)` needs `stride`, `pad`, `kernel` and `output`: the \
+                             receptive field is `(block - 1) * stride + kernel`, `pad` shifts \
+                             its origin, and `output` names the output axis whose block this \
+                             one resolves against -- this axis's own extent never appears in \
+                             the output",
+                        ));
+                    }
+                }
+            }
             syn::Meta::List(list) => {
                 return Err(syn::Error::new_spanned(
                     &list,
-                    "`#[tile(...)]` takes `key = value` pairs and bare flags, not nested lists",
+                    "`#[tile(...)]` takes `key = value` pairs, bare flags and `window(...)`",
                 ));
             }
         }
@@ -232,6 +315,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         extent,
         name,
         dim,
+        window,
         reduce,
     })
 }
@@ -1029,6 +1113,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 extent: format_ident!("n_elements"),
                 name: None,
                 dim: None,
+                window: None,
                 // The implicit flat convention reduces nothing: it maps one
                 // element to one element.
                 reduce: false,
@@ -1446,12 +1531,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                 Some(block) => {
                                     let block_s = block.to_string();
                                     let extent_s = axis.extent.to_string();
+                                    let window = window_tokens(axis);
                                     bindings.push(quote! {
                                         ::teeny_core::model::TileAxisBinding {
                                             dims: &[#i],
                                             block_const: #block_s,
                                             extent_param: #extent_s,
-                                            window: ::core::option::Option::None,
+                                            window: #window,
                                             divide_by: ::core::option::Option::None,
                                         }
                                     });
@@ -1509,6 +1595,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 };
                 tile_spec_tokens
             } else {
+                let window = window_tokens(blocked);
                 let tile_spec_tokens = quote! {
                     /// Declarative tile-shape metadata derived from this kernel's
                     /// `#[tile(block=..,extent=..)]`-tagged `In<Tile<..>>`/
@@ -1523,7 +1610,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                     dims,
                                     block_const: #block_str,
                                     extent_param: #extent_str,
-                                    window: ::core::option::Option::None,
+                                    window: #window,
                                     divide_by: ::core::option::Option::None,
                                 },
                             ]));
@@ -1600,12 +1687,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         Some(block) => {
                             let block_str = block.to_string();
                             let extent_str = axis.extent.to_string();
+                            let window = window_tokens(axis);
                             tiled_axis_tokens.push(quote! {
                                 ::teeny_core::model::TileAxisBinding {
                                     dims: &[#i],
                                     block_const: #block_str,
                                     extent_param: #extent_str,
-                                    window: ::core::option::Option::None,
+                                    window: #window,
                                     divide_by: ::core::option::Option::None,
                                 }
                             });
