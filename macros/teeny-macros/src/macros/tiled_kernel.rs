@@ -114,7 +114,7 @@ struct TileAttrArgs {
     /// `(block - 1) * stride + kernel` input elements -- forward and exact.
     /// Padding shifts the window's origin, not its size, so it does not appear
     /// in that extent: an interior tile touches no padding at all.
-    window: Option<(Ident, Ident, Ident, Ident)>,
+    window: Option<(Ident, Option<Ident>, Ident, Ident)>,
     /// `true` when this axis is the one the tensor is reduced over, declared
     /// as a bare `#[tile(extent = N, reduce)]` (teenygrad-1tl.8).
     ///
@@ -130,8 +130,15 @@ fn window_tokens(axis: &TileAttrArgs) -> TokenStream2 {
     match &axis.window {
         None => quote! { ::core::option::Option::None },
         Some((stride, pad, kernel, output)) => {
-            let (s, p, k) = (stride.to_string(), pad.to_string(), kernel.to_string());
+            let (s, k) = (stride.to_string(), kernel.to_string());
             let o = output.to_string();
+            let p = match pad {
+                Some(pad) => {
+                    let p = pad.to_string();
+                    quote! { ::core::option::Option::Some(#p) }
+                }
+                None => quote! { ::core::option::Option::None },
+            };
             quote! {
                 ::core::option::Option::Some(::teeny_core::model::TileWindow {
                     output_extent_param: #o,
@@ -231,16 +238,18 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
                         }
                     }
                 }
-                match (stride, pad, kernel, output) {
-                    (Some(s), Some(p), Some(k), Some(o)) => window = Some((s, p, k, o)),
+                match (stride, kernel, output) {
+                    // `pad` is optional: most pools have no padding const, and
+                    // padding does not enter the receptive field anyway.
+                    (Some(s), Some(k), Some(o)) => window = Some((s, pad, k, o)),
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &list,
-                            "`window(...)` needs `stride`, `pad`, `kernel` and `output`: the \
-                             receptive field is `(block - 1) * stride + kernel`, `pad` shifts \
-                             its origin, and `output` names the output axis whose block this \
-                             one resolves against -- this axis's own extent never appears in \
-                             the output",
+                            "`window(...)` needs `stride`, `kernel` and `output` (`pad` is \
+                             optional): the receptive field is \
+                             `(block - 1) * stride + kernel`, and `output` names the output \
+                             axis whose block this one resolves against -- this axis's own \
+                             extent never appears in the output",
                         ));
                     }
                 }

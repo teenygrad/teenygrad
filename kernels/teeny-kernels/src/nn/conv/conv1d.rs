@@ -19,7 +19,7 @@
 use core::ops::BitAnd;
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -35,7 +35,7 @@ use teeny_triton::triton::{
 ///
 /// Zero-padding of `PAD` elements is applied on each side of the input.
 /// `OL = (L + 2*PAD - KL) / STRIDE + 1`.
-#[kernel]
+#[tiled_kernel]
 pub fn conv1d_forward<
     T: Triton,
     D: Num,
@@ -44,8 +44,22 @@ pub fn conv1d_forward<
     const PAD: i32,
     const BLOCK_OL: i32,
 >(
+    // teenygrad-1tl.7. `block = BLOCK_OL` on the input is structural: only a
+    // blocked axis becomes a `TileAxisBinding` and `TileWindow` hangs off one.
+    // The real per-tile extent is the receptive field `(BLOCK_OL - 1) * STRIDE
+    // + KL`, which `resolve_inputs` derives from the window.
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C_IN)]
+    #[tile(
+        block = BLOCK_OL,
+        extent = L,
+        window(stride = STRIDE, pad = PAD, kernel = KL, output = OL)
+    )]
     x_ptr: In<T::Pointer<D>>,
     w_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C_OUT)]
+    #[tile(block = BLOCK_OL, extent = OL)]
     y_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,

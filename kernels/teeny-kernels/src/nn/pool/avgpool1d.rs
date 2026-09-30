@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -31,9 +31,30 @@ use teeny_triton::triton::{
 /// divides by KL.
 ///
 /// **Constraints**: no padding; `OL = (L - KL) / STRIDE + 1`.
-#[kernel]
+// teenygrad-1tl.7: the spatial axis is read through a strided sliding window.
+// An output tile of `block` positions reads `(block - 1) * STRIDE + KL` input
+// elements -- forward and exact. The window names the OUTPUT axis (`OL`) whose
+// block it resolves against, while this axis keeps its own extent `L`: a
+// windowed input's extent never appears in the output, so propagation needs
+// both names (teenygrad-1nr.18.2).
+#[tiled_kernel]
 pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    // `block = BLOCK_OL` is structural, not a claim that this axis is tiled in
+    // BLOCK_OL-sized pieces: only a *blocked* axis becomes a `TileAxisBinding`,
+    // and `TileWindow` hangs off one. The real per-tile extent here is the
+    // receptive field, which `resolve_inputs` computes from the window; it never
+    // reads this axis's own `block_const`.
+    #[tile(
+        block = BLOCK_OL,
+        extent = L,
+        window(stride = STRIDE, kernel = KL, output = OL)
+    )]
     input_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_OL, extent = OL)]
     output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
