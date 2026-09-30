@@ -190,6 +190,144 @@ fn parse_tile_attrs(pt: &PatType) -> Result<Vec<TileAttrArgs>, syn::Error> {
         .collect()
 }
 
+/// A kernel's declared accumulation loop (teenygrad-1nr.18.3).
+///
+/// Metadata only: this drives the generated `tile_spec()`'s
+/// [`TileLoopSpec`](teeny_core::model::TileLoopSpec) and nothing else. The
+/// kernel keeps its own hand-written loop.
+///
+/// Generating the loop was considered and rejected for now -- see this
+/// issue's design notes. The short version is that wrapping a kernel body in
+/// a generated loop puts the body's trailing `T::store` *inside* the loop,
+/// and delimiting "loop part" from "epilogue" needs markers in the body,
+/// which is exactly what `84ca6eedf` was reverted for. A kernel whose input
+/// tile varies per iteration (conv2d's `x`, read at offsets depending on
+/// `(c_in, kh, kw)`) also cannot use the `In<Tile<..>>` form at all, since
+/// the prelude loads such a parameter once, up front.
+struct TileLoopArgs {
+    /// Names of the `{NAME}: i32` params / `const {NAME}: i32` generics whose
+    /// values together determine the trip count. A list of names rather than
+    /// one param because a real trip count mixes them: conv2d's is
+    /// `(C_IN / G) * KH * KW`.
+    trip_count: Vec<Ident>,
+    /// One entry per carried accumulator: the variable's name in the body, and
+    /// the consts giving its shape in dimension order.
+    carries: Vec<(Ident, Vec<Ident>)>,
+}
+
+/// Reads the bracketed list out of `key = [A, B, C]`.
+fn parse_ident_array(nv: &MetaNameValue) -> Result<Vec<Ident>, syn::Error> {
+    let Expr::Array(array) = &nv.value else {
+        return Err(syn::Error::new_spanned(
+            &nv.value,
+            "expected a bracketed list of names, e.g. `[BLOCK_OW]`",
+        ));
+    };
+    array
+        .elems
+        .iter()
+        .map(|e| match e {
+            Expr::Path(p) => p
+                .path
+                .get_ident()
+                .cloned()
+                .ok_or_else(|| syn::Error::new_spanned(e, "expected a single identifier")),
+            other => Err(syn::Error::new_spanned(
+                other,
+                "expected a single identifier",
+            )),
+        })
+        .collect()
+}
+
+/// Parse a kernel's `#[tile_loop(trip_count = [..])]` and
+/// `#[tile_carry(name = [..], ..)]` attributes. `None` when it declares no loop.
+fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs>, syn::Error> {
+    let mut trip_count: Option<Vec<Ident>> = None;
+    let mut carries: Vec<(Ident, Vec<Ident>)> = Vec::new();
+
+    for attr in attrs {
+        let is_loop = attr.path().is_ident("tile_loop");
+        let is_carry = attr.path().is_ident("tile_carry");
+        if !is_loop && !is_carry {
+            continue;
+        }
+        let parsed = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
+            .parse2(attr.meta.require_list()?.tokens.clone())?;
+        for nv in &parsed {
+            let key = nv
+                .path
+                .get_ident()
+                .map(|i| i.to_string())
+                .unwrap_or_default();
+            if is_loop {
+                if key != "trip_count" {
+                    return Err(syn::Error::new_spanned(
+                        &nv.path,
+                        format!("unknown `#[tile_loop(...)]` key `{key}` (expected `trip_count`)"),
+                    ));
+                }
+                if trip_count.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &nv.path,
+                        "`trip_count` declared more than once",
+                    ));
+                }
+                let names = parse_ident_array(nv)?;
+                if names.is_empty() {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "`trip_count` needs at least one name; a loop with no factors has no \
+                         trip count to describe",
+                    ));
+                }
+                trip_count = Some(names);
+            } else {
+                let Some(name) = nv.path.get_ident().cloned() else {
+                    return Err(syn::Error::new_spanned(
+                        &nv.path,
+                        "a carry's name must be a single identifier",
+                    ));
+                };
+                let shape = parse_ident_array(nv)?;
+                if shape.is_empty() {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "a carry needs at least one shape const: `KernelTileSpec::validate` \
+                         rejects a carry that declares no shape",
+                    ));
+                }
+                carries.push((name, shape));
+            }
+        }
+    }
+
+    match (trip_count, carries.is_empty()) {
+        (None, true) => Ok(None),
+        (None, false) => Err(syn::Error::new_spanned(
+            attrs
+                .iter()
+                .find(|a| a.path().is_ident("tile_carry"))
+                .expect("carries is non-empty, so a #[tile_carry] was seen"),
+            "`#[tile_carry(...)]` needs a `#[tile_loop(trip_count = [..])]` alongside it: a \
+             carry without a loop to carry it across means nothing",
+        )),
+        (Some(_), true) => Err(syn::Error::new_spanned(
+            attrs
+                .iter()
+                .find(|a| a.path().is_ident("tile_loop"))
+                .expect("trip_count is Some, so a #[tile_loop] was seen"),
+            "`#[tile_loop(...)]` needs at least one `#[tile_carry(name = [..])]`: a loop that \
+             carries nothing is not an accumulation loop, and teenygrad-1nr.18.3 only describes \
+             accumulating loops -- an independent walk belongs in the grid instead",
+        )),
+        (Some(trip_count), false) => Ok(Some(TileLoopArgs {
+            trip_count,
+            carries,
+        })),
+    }
+}
+
 /// Strip a `#[tile(...)]` attribute from a parameter's attribute list, if
 /// present -- it is host-only metadata (like `Tile` itself), never a real
 /// attribute macro registered anywhere, so it must not reach the
@@ -206,10 +344,45 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error().into(),
     };
     let input = parse_macro_input!(item as ItemFn);
+    let tile_loop = match parse_tile_loop_attrs(&input.attrs) {
+        Ok(l) => l,
+        Err(e) => return e.to_compile_error().into(),
+    };
+    // `loop_spec` for the generated `tile_spec()`, or `None` when the kernel
+    // declares no accumulation loop (teenygrad-1nr.18.3).
+    let loop_spec_tokens: TokenStream2 = match &tile_loop {
+        None => quote! { ::core::option::Option::None },
+        Some(l) => {
+            let carries = l.carries.iter().map(|(name, shape)| {
+                let name_str = name.to_string();
+                let shape_strs: Vec<String> = shape.iter().map(Ident::to_string).collect();
+                quote! {
+                    ::teeny_core::model::TileCarryBinding {
+                        name: #name_str,
+                        shape_consts: &[ #(#shape_strs),* ],
+                    }
+                }
+            });
+            let factors: Vec<String> = l.trip_count.iter().map(Ident::to_string).collect();
+            quote! {
+                ::core::option::Option::Some(::teeny_core::model::TileLoopSpec {
+                    carries: &[ #(#carries),* ],
+                    trip_count_factors: &[ #(#factors),* ],
+                })
+            }
+        }
+    };
     let fn_ident = input.sig.ident.clone();
     let fn_name_str = fn_ident.to_string();
     let vis = &input.vis;
-    let attrs: Vec<&syn::Attribute> = input.attrs.iter().collect();
+    // `#[tile_loop]`/`#[tile_carry]` are host-only metadata, like `#[tile]` on a
+    // parameter: no attribute macro is registered for them anywhere, so they
+    // must not reach the signatures this macro re-emits.
+    let attrs: Vec<&syn::Attribute> = input
+        .attrs
+        .iter()
+        .filter(|a| !a.path().is_ident("tile_loop") && !a.path().is_ident("tile_carry"))
+        .collect();
     let attrs = &attrs;
     let sig = &input.sig;
 
@@ -1227,7 +1400,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         ::teeny_core::model::KernelTileSpec {
                             inputs: INPUTS,
                             outputs: OUTPUTS,
-                            loop_spec: ::core::option::Option::None,
+                            loop_spec: #loop_spec_tokens,
                         }
                     }
                 };
@@ -1274,7 +1447,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         ::teeny_core::model::KernelTileSpec {
                             inputs,
                             outputs,
-                            loop_spec: ::core::option::Option::None,
+                            loop_spec: #loop_spec_tokens,
                         }
                     }
                 };
@@ -1378,7 +1551,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     ::teeny_core::model::KernelTileSpec {
                         inputs: &[ #(#input_tensor_specs),* ],
                         outputs: &[ #(#output_tensor_specs),* ],
-                        loop_spec: ::core::option::Option::None,
+                        loop_spec: #loop_spec_tokens,
                     }
                 }
             };

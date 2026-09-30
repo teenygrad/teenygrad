@@ -732,4 +732,55 @@ mod tests {
             "bias comes back rank 1 and unresolved -- its whole (C,) vector"
         );
     }
+
+    /// `conv2d_forward` declares the accumulation loop it already writes by
+    /// hand, so its spec reports a real `TileLoopSpec` (teenygrad-1nr.18.3).
+    ///
+    /// This is metadata only. The declaration does not generate the loop, and
+    /// the design notes on that issue set out why: wrapping a body puts its
+    /// trailing `T::store` inside the loop, delimiting the loop part needs
+    /// markers in the body (which is what `84ca6eedf` was reverted for), and
+    /// conv2d's `x` cannot be an `In<Tile<..>>` at all because it is read at
+    /// offsets depending on the loop index while the prelude loads such a
+    /// parameter once, up front.
+    ///
+    /// `trip_count_factors` is a list of names, not a formula: the real count
+    /// is `(C_IN / G) * KH * KW`, which mixes a runtime param with three
+    /// consts. Nothing evaluates it yet, and `TileLoopSpec`'s own doc says so.
+    #[test]
+    fn test_conv2d_declares_its_accumulation_loop() {
+        use crate::nn::conv::conv2d::Conv2dForward;
+
+        let spec = Conv2dForward::<f32>::tile_spec();
+        let loop_spec = spec
+            .loop_spec
+            .expect("conv2d declares an accumulation loop, so its spec must carry one");
+
+        assert_eq!(loop_spec.carries.len(), 1, "conv2d carries one accumulator");
+        assert_eq!(loop_spec.carries[0].name, "acc");
+        assert_eq!(
+            loop_spec.carries[0].shape_consts,
+            &["BLOCK_OW"],
+            "acc is a [BLOCK_OW] strip of output columns"
+        );
+        assert_eq!(
+            loop_spec.trip_count_factors,
+            &["C_IN", "G", "KH", "KW"],
+            "the factors of (C_IN / G) * KH * KW, in signature order"
+        );
+
+        spec.validate()
+            .expect("a derived spec with a loop must still be self-consistent");
+    }
+
+    /// A kernel with no declared loop still reports `None`, so the declaration
+    /// is genuinely opt-in and nothing infers a loop that was not stated.
+    #[test]
+    fn test_a_kernel_without_a_declared_loop_reports_none() {
+        use crate::nn::activation::relu::ReluForward;
+        use crate::nn::tensor::channel_bias_add::ChannelBiasAddForward;
+
+        assert_eq!(ReluForward::<f32>::tile_spec(2).loop_spec, None);
+        assert_eq!(ChannelBiasAddForward::<f32>::tile_spec().loop_spec, None);
+    }
 }

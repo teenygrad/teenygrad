@@ -41,6 +41,16 @@ use teeny_triton::triton::{
 /// Zero-padding of `PAD_H` / `PAD_W` elements is applied on each spatial side.
 /// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
 #[tiled_kernel]
+// teenygrad-1nr.18.3: declares the accumulation loop this body already writes
+// by hand, so `tile_spec()` reports a real `TileLoopSpec` instead of `None`.
+// Metadata only -- the `for idx in 0..loop_bound` below is untouched, exactly
+// as `#[tile(...)]` on the raw pointers is metadata-only (teenygrad-1nr.19).
+//
+// `trip_count` is a list of names, not a formula: the real count is
+// `(C_IN / G) * KH * KW`, mixing a runtime param with three consts, and no
+// consumer evaluates it yet.
+#[tile_loop(trip_count = [C_IN, G, KH, KW])]
+#[tile_carry(acc = [BLOCK_OW])]
 pub fn conv2d_forward<
     T: Triton,
     D: Num,

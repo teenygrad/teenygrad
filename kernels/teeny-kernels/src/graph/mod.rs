@@ -3045,9 +3045,14 @@ mod conv2d_grid_spec_tests {
     //! raw-pointer form of `#[tile(...)]`, since `conv2d_forward`'s body
     //! (real, hand-written `pid` decode/loop) is untouched. `tile_spec()`
     //! reproduces what the hand-authored `CONV2D_TILE_SPEC` const used to
-    //! say -- see `Op::Conv2d`'s lowering arm, which now layers
-    //! `CONV2D_LOOP_SPEC` on top of this macro-derived value instead of
-    //! hand-authoring the whole thing.
+    //! say.
+    //!
+    //! The loop half followed later: `CONV2D_LOOP_SPEC` was a hand-authored
+    //! const layered on at the lowering site, then deleted with the other
+    //! hand-authored specs, which is why this test once asserted
+    //! `loop_spec == None`. `teenygrad-1nr.18.3` put it back on the kernel's
+    //! own signature as `#[tile_loop]`/`#[tile_carry]`, so it is now derived
+    //! like everything else here rather than written beside the kernel.
 
     use super::*;
 
@@ -3057,7 +3062,22 @@ mod conv2d_grid_spec_tests {
     #[test]
     fn test_tile_spec_matches_the_real_tagged_signature() {
         let spec = Conv2dForward::<f32>::tile_spec();
-        assert_eq!(spec.loop_spec, None);
+
+        // Derived from `#[tile_loop]`/`#[tile_carry]` on the kernel's own
+        // signature (teenygrad-1nr.18.3). Metadata only -- the body keeps its
+        // hand-written `for idx in 0..loop_bound`, and the asm snapshot proves
+        // the declaration generates no code.
+        let loop_spec = spec
+            .loop_spec
+            .expect("conv2d declares its accumulation loop");
+        assert_eq!(loop_spec.carries.len(), 1);
+        assert_eq!(loop_spec.carries[0].name, "acc");
+        assert_eq!(loop_spec.carries[0].shape_consts, &["BLOCK_OW"]);
+        assert_eq!(
+            loop_spec.trip_count_factors,
+            &["C_IN", "G", "KH", "KW"],
+            "the factors of (C_IN / G) * KH * KW"
+        );
 
         assert_eq!(spec.inputs.len(), 1);
         let x = spec.inputs[0];
