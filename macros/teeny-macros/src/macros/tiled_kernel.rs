@@ -1162,59 +1162,68 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 // axis, the same shape the raw-pointer path already produces. A
                 // single-axis kernel keeps the `tile_spec(rank)` form below, since
                 // the same flat kernel really does apply at any rank.
-                let rank = spec_axes.len();
-                let mut binding_tokens: Vec<TokenStream2> = Vec::new();
-                let mut untiled_tokens: Vec<String> = Vec::new();
-                for (i, axis) in spec_axes.iter().enumerate() {
-                    match &axis.block {
-                        Some(block) => {
-                            let block_s = block.to_string();
-                            let extent_s = axis.extent.to_string();
-                            binding_tokens.push(quote! {
-                                ::teeny_core::model::TileAxisBinding {
-                                    dims: &[#i],
-                                    block_const: #block_s,
-                                    extent_param: #extent_s,
-                                    window: ::core::option::Option::None,
-                                    divide_by: ::core::option::Option::None,
-                                }
-                            });
+                // teenygrad-1tl.4: each parameter reports *its own* declared
+                // axes. Sharing one axis list across every tensor made a
+                // broadcast operand claim axes it does not have -- a `(C,)`
+                // bias against an `[N, C]` activation came back as rank 2 with
+                // `N` blocked, so a scheduler would size its tile along an
+                // axis that is not there. The prelude already honoured the
+                // subset; only the spec was wrong.
+                let tensor_spec = |param: &str, attrs: &[TileAttrArgs]| -> TokenStream2 {
+                    let rank = attrs.len();
+                    let mut bindings: Vec<TokenStream2> = Vec::new();
+                    let mut untiled: Vec<String> = Vec::new();
+                    for (i, axis) in attrs.iter().enumerate() {
+                        match &axis.block {
+                            Some(block) => {
+                                let block_s = block.to_string();
+                                let extent_s = axis.extent.to_string();
+                                bindings.push(quote! {
+                                    ::teeny_core::model::TileAxisBinding {
+                                        dims: &[#i],
+                                        block_const: #block_s,
+                                        extent_param: #extent_s,
+                                        window: ::core::option::Option::None,
+                                        divide_by: ::core::option::Option::None,
+                                    }
+                                });
+                            }
+                            None => untiled.push(
+                                axis.name
+                                    .as_ref()
+                                    .map(syn::LitStr::value)
+                                    .unwrap_or_else(|| axis.extent.to_string()),
+                            ),
                         }
-                        None => untiled_tokens.push(
-                            axis.name
-                                .as_ref()
-                                .map(syn::LitStr::value)
-                                .unwrap_or_else(|| axis.extent.to_string()),
-                        ),
                     }
-                }
+                    quote! {
+                        ::teeny_core::model::TensorTileSpec {
+                            param: #param,
+                            rank: #rank,
+                            axes: &[ #(#bindings),* ],
+                            reduction_axis: ::core::option::Option::None,
+                            untiled_dims: &[ #(#untiled),* ],
+                        }
+                    }
+                };
+                let input_specs: Vec<TokenStream2> = tile_in_params
+                    .iter()
+                    .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
+                    .collect();
+                let output_specs: Vec<TokenStream2> = tile_out_params
+                    .iter()
+                    .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
+                    .collect();
                 let tile_spec_tokens = quote! {
                     /// Declarative tile-shape metadata derived from this kernel's
                     /// `#[tile(...)]`-tagged `In<Tile<..>>`/`Out<Tile<..>>`
                     /// parameters (teenygrad-1nr.18.1). Fixed rank: the signature
                     /// declares every axis.
                     pub fn tile_spec() -> ::teeny_core::model::KernelTileSpec {
-                        const AXES: &[::teeny_core::model::TileAxisBinding] =
-                            &[ #(#binding_tokens),* ];
-                        const UNTILED: &[&str] = &[ #(#untiled_tokens),* ];
-                        const INPUTS: &[::teeny_core::model::TensorTileSpec] = &[ #(
-                            ::teeny_core::model::TensorTileSpec {
-                                param: #in_param_strs,
-                                rank: #rank,
-                                axes: AXES,
-                                reduction_axis: ::core::option::Option::None,
-                                untiled_dims: UNTILED,
-                            }
-                        ),* ];
-                        const OUTPUTS: &[::teeny_core::model::TensorTileSpec] = &[ #(
-                            ::teeny_core::model::TensorTileSpec {
-                                param: #out_param_strs,
-                                rank: #rank,
-                                axes: AXES,
-                                reduction_axis: ::core::option::Option::None,
-                                untiled_dims: UNTILED,
-                            }
-                        ),* ];
+                        const INPUTS: &[::teeny_core::model::TensorTileSpec] =
+                            &[ #(#input_specs),* ];
+                        const OUTPUTS: &[::teeny_core::model::TensorTileSpec] =
+                            &[ #(#output_specs),* ];
                         ::teeny_core::model::KernelTileSpec {
                             inputs: INPUTS,
                             outputs: OUTPUTS,
