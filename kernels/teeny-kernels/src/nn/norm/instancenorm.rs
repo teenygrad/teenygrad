@@ -28,7 +28,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -39,12 +39,20 @@ use teeny_triton::triton::{
 /// InstanceNorm forward (inference — no running stats).
 ///
 /// Grid: `[N * C]` — one CTA per (sample, channel).
-#[kernel]
+#[tiled_kernel]
+#[tile_loop(trip_count = [L, BLOCK_L])]
+#[tile_carry(sum = [1], var_sum = [1])]
 pub fn instance_norm_forward_inference<T: Triton, D: Float, const BLOCK_L: i32>(
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L, reduce)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L, reduce)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -171,13 +179,25 @@ pub fn instance_norm_forward_inference<T: Triton, D: Float, const BLOCK_L: i32>(
 ///
 /// Grid: `[N * C]` — one CTA per (sample, channel).
 #[cfg(feature = "training")]
-#[kernel]
+#[tiled_kernel]
+#[tile_loop(trip_count = [L, BLOCK_L])]
+#[tile_carry(sum = [1], var_sum = [1])]
 pub fn instance_norm_forward<T: Triton, D: Float, const BLOCK_L: i32>(
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L, reduce)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L, reduce)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
     mean_ptr: Out<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
     rstd_ptr: Out<T::Pointer<D>>,
     _N: i32,
     C: i32,

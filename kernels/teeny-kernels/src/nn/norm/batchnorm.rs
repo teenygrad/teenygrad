@@ -44,6 +44,14 @@ use teeny_triton::triton::{
 /// Normalises input `x` using the frozen `running_mean` / `running_var`.
 ///
 /// Grid: `[C]` — one CTA per channel.
+// Not declared yet (teenygrad-1tl.8). Its grid is `[C]` and it walks N in
+// `BLOCK_N` chunks, but nothing crosses the iterations -- an *independent* walk,
+// per teenygrad-1nr.18.3's survey. So N is neither grid-driven (which is what
+// `untiled_dims` means) nor reduced, and the spec has no third category for an
+// axis that is serially traversed. The fix is to convert this to the N-axis ABI
+// so N really is grid-driven, as was done for
+// `batch_norm_2d_nchw_forward_inference` and `nchw_bias_add_forward`; declaring
+// it before then would have to claim something untrue about the grid.
 #[kernel]
 pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
     x_ptr: In<T::Pointer<D>>,
@@ -161,11 +169,19 @@ pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
 ///
 /// **Must complete (host sync) before `batch_norm_normalize_forward` is launched.**
 #[cfg(feature = "training")]
-#[kernel]
+// Grid is `[C]`: one CTA per channel, reducing over the batch. `acc_sum` and
+// `acc_sum_sq` are `[BLOCK_N]` here rather than scalars -- the tile itself is
+// accumulated and summed once after the walk -- so unlike the other norms these
+// carries name a real const (teenygrad-1tl.8).
+#[tiled_kernel]
+#[tile_loop(trip_count = [N, BLOCK_N])]
+#[tile_carry(acc_sum = [BLOCK_N], acc_sum_sq = [BLOCK_N])]
 pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(extent = N, reduce)]
+    #[tile(extent = C)]
     x_ptr: In<T::Pointer<D>>,
-    mean_ptr: Out<T::Pointer<D>>,
-    rstd_ptr: Out<T::Pointer<D>>,
+    #[tile(extent = C)] mean_ptr: Out<T::Pointer<D>>,
+    #[tile(extent = C)] rstd_ptr: Out<T::Pointer<D>>,
     running_mean_ptr: InOut<T::Pointer<D>>,
     running_var_ptr: InOut<T::Pointer<D>>,
     N: i32,
@@ -271,6 +287,14 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 ///
 /// Grid: `[C]` — one CTA per channel.
 #[cfg(feature = "training")]
+// Not declared yet (teenygrad-1tl.8). Its grid is `[C]` and it walks N in
+// `BLOCK_N` chunks, but nothing crosses the iterations -- an *independent* walk,
+// per teenygrad-1nr.18.3's survey. So N is neither grid-driven (which is what
+// `untiled_dims` means) nor reduced, and the spec has no third category for an
+// axis that is serially traversed. The fix is to convert this to the N-axis ABI
+// so N really is grid-driven, as was done for
+// `batch_norm_2d_nchw_forward_inference` and `nchw_bias_add_forward`; declaring
+// it before then would have to claim something untrue about the grid.
 #[kernel]
 pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     x_ptr: In<T::Pointer<D>>,
