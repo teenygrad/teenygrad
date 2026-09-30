@@ -104,18 +104,73 @@ struct TileAttrArgs {
     /// Which real hardware grid dimension this axis reads from
     /// (teenygrad-1nr.19) -- `X`, `Y`, or `Z`; defaults to `X`.
     dim: Option<Ident>,
+    /// `true` when this axis is the one the tensor is reduced over, declared
+    /// as a bare `#[tile(extent = N, reduce)]` (teenygrad-1tl.8).
+    ///
+    /// A reduced axis cannot be tiled -- a row's mean needs the whole row --
+    /// so this is what tells `TileGraph::propagate` which axis is *not*
+    /// available for tiling, rather than leaving it to be inferred from the
+    /// absence of a block.
+    reduce: bool,
+}
+
+/// The index of the axis a tensor is reduced over, if one declared `reduce`.
+///
+/// Rejects more than one: `TensorTileSpec::reduction_axis` is a single index, and
+/// a tensor reduced over two axes at once is not expressible (teenygrad-1tl.8).
+fn reduction_axis_of(attrs: &[TileAttrArgs]) -> Result<Option<usize>, syn::Error> {
+    let marked: Vec<usize> = attrs
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.reduce)
+        .map(|(i, _)| i)
+        .collect();
+    match marked.as_slice() {
+        [] => Ok(None),
+        [i] => Ok(Some(*i)),
+        _ => Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!(
+                "{} axes declare `reduce`, but `reduction_axis` holds a single index; a tensor \
+                 reduced over several axes at once is not expressible today",
+                marked.len()
+            ),
+        )),
+    }
 }
 
 /// Parse one `#[tile(...)]` attribute's contents.
 fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error> {
     let meta_list = attr.meta.require_list()?;
-    let parsed = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
-        .parse2(meta_list.tokens.clone())?;
+    // `Meta`, not `MetaNameValue`: an axis may carry bare flags (`reduce`)
+    // alongside `key = value` pairs.
+    let parsed =
+        Punctuated::<syn::Meta, Token![,]>::parse_terminated.parse2(meta_list.tokens.clone())?;
     let mut block = None;
     let mut extent = None;
     let mut name = None;
     let mut dim = None;
-    for nv in parsed {
+    let mut reduce = false;
+    let mut nvs: Vec<MetaNameValue> = Vec::new();
+    for meta in parsed {
+        match meta {
+            syn::Meta::Path(path) if path.is_ident("reduce") => reduce = true,
+            syn::Meta::Path(path) => {
+                return Err(syn::Error::new_spanned(
+                    &path,
+                    "unknown `#[tile(...)]` flag (expected `reduce`)",
+                ));
+            }
+            syn::Meta::NameValue(nv) => nvs.push(nv),
+            syn::Meta::List(list) => {
+                return Err(syn::Error::new_spanned(
+                    &list,
+                    "`#[tile(...)]` takes `key = value` pairs and bare flags, not nested lists",
+                ));
+            }
+        }
+    }
+    for nv in nvs {
         let key = nv
             .path
             .get_ident()
@@ -177,6 +232,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         extent,
         name,
         dim,
+        reduce,
     })
 }
 
@@ -212,7 +268,38 @@ struct TileLoopArgs {
     trip_count: Vec<Ident>,
     /// One entry per carried accumulator: the variable's name in the body, and
     /// the consts giving its shape in dimension order.
-    carries: Vec<(Ident, Vec<Ident>)>,
+    carries: Vec<(Ident, Vec<String>)>,
+}
+
+/// Reads a carry's shape out of `key = [A, 1, B]`: each entry is a const name
+/// or a decimal integer literal, matching
+/// [`TileCarryBinding::shape_consts`](teeny_core::model::TileCarryBinding::shape_consts).
+fn parse_shape_array(nv: &MetaNameValue) -> Result<Vec<String>, syn::Error> {
+    let Expr::Array(array) = &nv.value else {
+        return Err(syn::Error::new_spanned(
+            &nv.value,
+            "expected a bracketed shape, e.g. `[BLOCK_OW]` or `[1]`",
+        ));
+    };
+    array
+        .elems
+        .iter()
+        .map(|e| match e {
+            Expr::Path(p) => p
+                .path
+                .get_ident()
+                .map(Ident::to_string)
+                .ok_or_else(|| syn::Error::new_spanned(e, "expected a single identifier")),
+            Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(i),
+                ..
+            }) => Ok(i.base10_digits().to_string()),
+            other => Err(syn::Error::new_spanned(
+                other,
+                "a shape entry must be a const name or an integer literal",
+            )),
+        })
+        .collect()
 }
 
 /// Reads the bracketed list out of `key = [A, B, C]`.
@@ -244,7 +331,7 @@ fn parse_ident_array(nv: &MetaNameValue) -> Result<Vec<Ident>, syn::Error> {
 /// `#[tile_carry(name = [..], ..)]` attributes. `None` when it declares no loop.
 fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs>, syn::Error> {
     let mut trip_count: Option<Vec<Ident>> = None;
-    let mut carries: Vec<(Ident, Vec<Ident>)> = Vec::new();
+    let mut carries: Vec<(Ident, Vec<String>)> = Vec::new();
 
     for attr in attrs {
         let is_loop = attr.path().is_ident("tile_loop");
@@ -289,7 +376,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                         "a carry's name must be a single identifier",
                     ));
                 };
-                let shape = parse_ident_array(nv)?;
+                let shape = parse_shape_array(nv)?;
                 if shape.is_empty() {
                     return Err(syn::Error::new_spanned(
                         &nv.value,
@@ -355,7 +442,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         Some(l) => {
             let carries = l.carries.iter().map(|(name, shape)| {
                 let name_str = name.to_string();
-                let shape_strs: Vec<String> = shape.iter().map(Ident::to_string).collect();
+                let shape_strs: Vec<String> = shape.clone();
                 quote! {
                     ::teeny_core::model::TileCarryBinding {
                         name: #name_str,
@@ -942,6 +1029,9 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 extent: format_ident!("n_elements"),
                 name: None,
                 dim: None,
+                // The implicit flat convention reduces nothing: it maps one
+                // element to one element.
+                reduce: false,
             }]
         };
 
@@ -1342,51 +1432,64 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 // `N` blocked, so a scheduler would size its tile along an
                 // axis that is not there. The prelude already honoured the
                 // subset; only the spec was wrong.
-                let tensor_spec = |param: &str, attrs: &[TileAttrArgs]| -> TokenStream2 {
-                    let rank = attrs.len();
-                    let mut bindings: Vec<TokenStream2> = Vec::new();
-                    let mut untiled: Vec<String> = Vec::new();
-                    for (i, axis) in attrs.iter().enumerate() {
-                        match &axis.block {
-                            Some(block) => {
-                                let block_s = block.to_string();
-                                let extent_s = axis.extent.to_string();
-                                bindings.push(quote! {
-                                    ::teeny_core::model::TileAxisBinding {
-                                        dims: &[#i],
-                                        block_const: #block_s,
-                                        extent_param: #extent_s,
-                                        window: ::core::option::Option::None,
-                                        divide_by: ::core::option::Option::None,
-                                    }
-                                });
+                let tensor_spec =
+                    |param: &str, attrs: &[TileAttrArgs]| -> Result<TokenStream2, syn::Error> {
+                        let rank = attrs.len();
+                        let reduction = match reduction_axis_of(attrs)? {
+                            Some(i) => quote! { ::core::option::Option::Some(#i) },
+                            None => quote! { ::core::option::Option::None },
+                        };
+                        let mut bindings: Vec<TokenStream2> = Vec::new();
+                        let mut untiled: Vec<String> = Vec::new();
+                        for (i, axis) in attrs.iter().enumerate() {
+                            match &axis.block {
+                                Some(block) => {
+                                    let block_s = block.to_string();
+                                    let extent_s = axis.extent.to_string();
+                                    bindings.push(quote! {
+                                        ::teeny_core::model::TileAxisBinding {
+                                            dims: &[#i],
+                                            block_const: #block_s,
+                                            extent_param: #extent_s,
+                                            window: ::core::option::Option::None,
+                                            divide_by: ::core::option::Option::None,
+                                        }
+                                    });
+                                }
+                                None => untiled.push(
+                                    axis.name
+                                        .as_ref()
+                                        .map(syn::LitStr::value)
+                                        .unwrap_or_else(|| axis.extent.to_string()),
+                                ),
                             }
-                            None => untiled.push(
-                                axis.name
-                                    .as_ref()
-                                    .map(syn::LitStr::value)
-                                    .unwrap_or_else(|| axis.extent.to_string()),
-                            ),
                         }
-                    }
-                    quote! {
-                        ::teeny_core::model::TensorTileSpec {
-                            param: #param,
-                            rank: #rank,
-                            axes: &[ #(#bindings),* ],
-                            reduction_axis: ::core::option::Option::None,
-                            untiled_dims: &[ #(#untiled),* ],
-                        }
-                    }
+                        Ok(quote! {
+                            ::teeny_core::model::TensorTileSpec {
+                                param: #param,
+                                rank: #rank,
+                                axes: &[ #(#bindings),* ],
+                                reduction_axis: #reduction,
+                                untiled_dims: &[ #(#untiled),* ],
+                            }
+                        })
+                    };
+                let specs: Result<(Vec<TokenStream2>, Vec<TokenStream2>), syn::Error> = (|| {
+                    let ins = tile_in_params
+                        .iter()
+                        .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let outs = tile_out_params
+                        .iter()
+                        .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok((ins, outs))
+                })(
+                );
+                let (input_specs, output_specs) = match specs {
+                    Ok(pair) => pair,
+                    Err(e) => return e.to_compile_error().into(),
                 };
-                let input_specs: Vec<TokenStream2> = tile_in_params
-                    .iter()
-                    .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
-                    .collect();
-                let output_specs: Vec<TokenStream2> = tile_out_params
-                    .iter()
-                    .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
-                    .collect();
                 let tile_spec_tokens = quote! {
                     /// Declarative tile-shape metadata derived from this kernel's
                     /// `#[tile(...)]`-tagged `In<Tile<..>>`/`Out<Tile<..>>`
@@ -1517,12 +1620,17 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         }
                     }
                 }
+                let reduction = match reduction_axis_of(axes) {
+                    Ok(Some(i)) => quote! { ::core::option::Option::Some(#i) },
+                    Ok(None) => quote! { ::core::option::Option::None },
+                    Err(e) => return e.to_compile_error().into(),
+                };
                 let tensor_spec = quote! {
                     ::teeny_core::model::TensorTileSpec {
                         param: #param_str,
                         rank: #rank,
                         axes: &[ #(#tiled_axis_tokens),* ],
-                        reduction_axis: ::core::option::Option::None,
+                        reduction_axis: #reduction,
                         untiled_dims: &[ #(#untiled_name_tokens),* ],
                     }
                 };

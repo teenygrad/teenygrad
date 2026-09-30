@@ -220,8 +220,11 @@ mod tests {
         //             Conv2d/Silu still have no declared KernelTileSpec
         //             (only Relu/MatMul/BatchNorm2d do -- see
         //             `graph::mod`'s "Tile-shape metadata" section);
-        //             BatchNorm2d gained BATCHNORM2D_TILE_SPEC in
-        //             teenygrad-1nr.8, after this test was first written.
+        //             BatchNorm2d gained a hand-authored
+        //             BATCHNORM2D_TILE_SPEC in teenygrad-1nr.8 -- since
+        //             deleted with the other hand-authored specs, and now
+        //             derived from the kernel's own `#[tile(...)]`
+        //             (teenygrad-1tl.8) -- after this test was first written.
         //             Asserts the group still fuses the same way with a
         //             mixed spec/no-spec node set -- `schedule_graph`/
         //             `sub_graph_tiling` don't actually require every
