@@ -32,7 +32,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -43,12 +43,38 @@ use teeny_triton::triton::{
 /// GroupNorm forward (inference).
 ///
 /// Grid: `[N * G]` — one CTA per (sample, group).
-#[kernel]
+// Declares what is true and no more (teenygrad-1tl.8). Two things about this
+// kernel are not expressible today, and guessing at them would be worse than
+// leaving them out:
+//
+// 1. NO `reduce` FLAG. The reduction runs over `group_size = (C / G) * L` --
+//    jointly across this group's channels and the spatial axis -- but
+//    `TensorTileSpec::reduction_axis` is a single index and cannot say "these
+//    two dims together". Marking L alone would understate it.
+// 2. NO `divide_by` ON C. The grid is `[N * G]`, so a CTA owns `C / G`
+//    channels, not all of C. `divide_by` exists for exactly this
+//    (`channels_per_group`), but it is a number fixed at spec-construction
+//    time while `G` here is a runtime `i32` parameter, and the generated
+//    `tile_spec()` returns `&'static` data. So C falls back to its full
+//    extent: conservative and correct, just less precise, which matches the
+//    "never smaller than needed" philosophy used elsewhere.
+//
+// The loop below IS declarable: its carries are scalars and its trip count
+// factors are all named parameters.
+#[tiled_kernel]
+#[tile_loop(trip_count = [C, G, L, BLOCK_NL])]
+#[tile_carry(sum = [1], var_sum = [1])]
 pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -180,13 +206,43 @@ pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
 ///
 /// Grid: `[N * G]` — one CTA per (sample, group).
 #[cfg(feature = "training")]
-#[kernel]
+// Declares what is true and no more (teenygrad-1tl.8). Two things about this
+// kernel are not expressible today, and guessing at them would be worse than
+// leaving them out:
+//
+// 1. NO `reduce` FLAG. The reduction runs over `group_size = (C / G) * L` --
+//    jointly across this group's channels and the spatial axis -- but
+//    `TensorTileSpec::reduction_axis` is a single index and cannot say "these
+//    two dims together". Marking L alone would understate it.
+// 2. NO `divide_by` ON C. The grid is `[N * G]`, so a CTA owns `C / G`
+//    channels, not all of C. `divide_by` exists for exactly this
+//    (`channels_per_group`), but it is a number fixed at spec-construction
+//    time while `G` here is a runtime `i32` parameter, and the generated
+//    `tile_spec()` returns `&'static` data. So C falls back to its full
+//    extent: conservative and correct, just less precise, which matches the
+//    "never smaller than needed" philosophy used elsewhere.
+//
+// The loop below IS declarable: its carries are scalars and its trip count
+// factors are all named parameters.
+#[tiled_kernel]
+#[tile_loop(trip_count = [C, G, L, BLOCK_NL])]
+#[tile_carry(sum = [1], var_sum = [1])]
 pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = C)]
+    #[tile(extent = L)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = G)]
     mean_ptr: Out<T::Pointer<D>>,
+    #[tile(name = "N", extent = _N)]
+    #[tile(extent = G)]
     rstd_ptr: Out<T::Pointer<D>>,
     _N: i32,
     C: i32,

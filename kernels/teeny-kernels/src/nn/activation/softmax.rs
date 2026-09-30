@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Float;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -35,10 +35,19 @@ use teeny_triton::triton::{
 /// is responsible for rounding `n_cols` up to the next power of two and passing
 /// that as `BLOCK_SIZE`.  No masking is needed when `BLOCK_SIZE == n_cols`.
 // ANCHOR: softmax_forward
-#[kernel]
+// No `#[tile_loop]`: softmax reads its whole row in one `BLOCK_SIZE` tile and
+// carries nothing across iterations, so there is no accumulation loop to
+// declare -- which is why it never appeared in teenygrad-1nr.18.3's loop
+// survey. The reduced axis is still declared, since `n_cols` is not available
+// for tiling.
+#[tiled_kernel]
 pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(name = "n_rows", extent = _n_rows)]
+    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(name = "n_rows", extent = _n_rows)]
+    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
+    y: Out<Tile<T, D>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -46,26 +55,15 @@ pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let row_offset = pid * n_cols;
-    let col_offsets = T::arange(0, BLOCK_SIZE);
-    let offsets = col_offsets + row_offset;
-
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        None,
-        None,
+    // Triton's builtin: numerically-stable softmax (max subtraction, exp, sum, div).
+    T::store(
+        y.tensor,
+        T::softmax(x.tensor, None, false, false),
+        x.mask,
         &[],
         None,
         None,
-        None,
-        false,
     );
-
-    // Triton's builtin: numerically-stable softmax (max subtraction, exp, sum, div).
-    let y = T::softmax(x, None, false, false);
-
-    T::store(y_ptr.add_offsets(offsets), y, None, &[], None, None);
 }
 // ANCHOR_END: softmax_forward
 
