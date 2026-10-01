@@ -105,7 +105,7 @@ struct TileAttrArgs {
     /// index). Required (`Some`) on a `Tile`-typed parameter -- untiled
     /// `Tile` axes aren't supported yet, see the auto-prelude's own
     /// requirements.
-    block: Option<Ident>,
+    block: Option<String>,
     /// The `{NAME}: i32` parameter this axis's extent is read from.
     extent: Ident,
     /// This axis's identity for [`::teeny_core::model::GridSpec`]
@@ -325,10 +325,28 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
             name = Some(s.clone());
             continue;
         }
+        // `block` additionally takes a decimal literal, for an axis the kernel
+        // steps one element at a time and so has no `BLOCK_*` const for. The
+        // reduction family is the case: `row = program_id(Axis::X)` handles one
+        // row per program, and there is no `BLOCK_OUTER` to name
+        // (teenygrad-1tl.9). It is documentation either way -- `resolve_inputs`
+        // takes an axis's block from the propagated output tile, never from
+        // this name -- so a larger tile is still resolved correctly.
+        if key == "block" {
+            if let Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(i),
+                ..
+            }) = &nv.value
+            {
+                block = Some(i.base10_digits().to_string());
+                continue;
+            }
+        }
         let Expr::Path(p) = &nv.value else {
             return Err(syn::Error::new_spanned(
                 &nv.value,
-                "`#[tile(...)]` values must be bare identifiers (except `name`, a string literal)",
+                "`#[tile(...)]` values must be bare identifiers (except `name`, a string literal, \
+                 and `block`, which also takes a decimal integer literal)",
             ));
         };
         let Some(id) = p.path.get_ident().cloned() else {
@@ -338,7 +356,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
             ));
         };
         match key.as_str() {
-            "block" => block = Some(id),
+            "block" => block = Some(id.to_string()),
             "extent" => extent = Some(id),
             "dim" => {
                 if !matches!(id.to_string().as_str(), "X" | "Y" | "Z") {
@@ -1057,11 +1075,16 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
 
     for (_, _, axes) in &structured_params {
         for axis in *axes {
+            // A decimal literal names no const generic and is exempt: it
+            // says the kernel steps this axis one element at a time
+            // (teenygrad-1tl.9). The span is the axis's extent, a real
+            // identifier, since the block is now a plain `String`.
             if let Some(block) = &axis.block
-                && !const_params.iter().any(|cp| &cp.ident == block)
+                && block.parse::<u32>().is_err()
+                && !const_params.iter().any(|cp| cp.ident == *block)
             {
                 return syn::Error::new_spanned(
-                    block,
+                    &axis.extent,
                     format!(
                         "`#[tile(block = {block})]` names a const generic this kernel doesn't \
                          declare"
@@ -1237,7 +1260,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 .into();
             }
             vec![TileAttrArgs {
-                block: Some(block_size.ident.clone()),
+                block: Some(block_size.ident.to_string()),
                 extent: format_ident!("n_elements"),
                 name: None,
                 dim: None,
@@ -1250,11 +1273,16 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
 
         // Every name an axis refers to must really exist on this kernel.
         for axis in &axes {
+            // A decimal literal names no const generic and is exempt: it
+            // says the kernel steps this axis one element at a time
+            // (teenygrad-1tl.9). The span is the axis's extent, a real
+            // identifier, since the block is now a plain `String`.
             if let Some(block) = &axis.block
-                && !const_params.iter().any(|cp| &cp.ident == block)
+                && block.parse::<u32>().is_err()
+                && !const_params.iter().any(|cp| cp.ident == *block)
             {
                 return syn::Error::new_spanned(
-                    block,
+                    &axis.extent,
                     format!(
                         "`#[tile(block = {block})]` names a const generic this kernel doesn't \
                          declare"
@@ -1294,14 +1322,27 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         let blocked_at = *blocked_positions
             .first()
             .expect("checked above: at least one axis carries `block = ..`");
-        let block_ident = axes[blocked_at].block.clone().expect("filter found it");
+        // Re-parsed into tokens: a block is a const generic's name or a decimal
+        // literal, and a `String` in `quote!` would emit a string literal
+        // (teenygrad-1tl.9).
+        let block_ident: TokenStream2 = axes[blocked_at]
+            .block
+            .as_ref()
+            .expect("filter found it")
+            .parse()
+            .expect("a block is an identifier or an integer literal");
 
         // How many CTAs cover each axis: a blocked axis is covered in
         // `cdiv(extent, block)` steps, an untiled one is one CTA per index.
         let axis_count = |a: &TileAttrArgs| -> TokenStream2 {
             let extent = &a.extent;
             match &a.block {
-                Some(b) => quote! { #hw_ident::cdiv(#extent, #b) },
+                Some(b) => {
+                    let b: TokenStream2 = b
+                        .parse()
+                        .expect("a block is an identifier or an integer literal");
+                    quote! { #hw_ident::cdiv(#extent, #b) }
+                }
                 None => quote! { #extent },
             }
         };
@@ -1433,10 +1474,12 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 .iter()
                 .enumerate()
                 .map(|(slot, &i)| {
-                    let blk = axes[i]
+                    let blk: TokenStream2 = axes[i]
                         .block
                         .as_ref()
-                        .expect("blocked_positions only holds blocked axes");
+                        .expect("blocked_positions only holds blocked axes")
+                        .parse()
+                        .expect("a block is an identifier or an integer literal");
                     let idx = idx_ident(i);
                     let mut expr = quote! { #hw_ident::arange(0, #blk) + #idx * #blk };
                     if blocked_positions.len() > 1 {
@@ -1635,13 +1678,19 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     {
                         // Widen to the full tile shape: one extent per blocked
                         // axis, so a broadcast operand matches a K-D tile too.
-                        let shape: Vec<&Ident> = blocked_positions
+                        // A block is a const generic's name or a decimal
+                        // literal (teenygrad-1tl.9), so it is re-parsed into
+                        // tokens rather than interpolated as a string -- a
+                        // `String` in `quote!` would emit a string literal.
+                        let shape: Vec<TokenStream2> = blocked_positions
                             .iter()
                             .map(|&i| {
                                 axes[i]
                                     .block
                                     .as_ref()
                                     .expect("blocked axis carries a block")
+                                    .parse()
+                                    .expect("a block is an identifier or an integer literal")
                             })
                             .collect();
                         quote! { #hw_ident::broadcast_to(#loaded, &[#(#shape),*]) }
