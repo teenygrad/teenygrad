@@ -449,6 +449,60 @@ fn parse_ident_array(nv: &MetaNameValue) -> Result<Vec<Ident>, syn::Error> {
 
 /// Parse a kernel's `#[tile_loop(trip_count = [..])]` and
 /// `#[tile_carry(name = [..], ..)]` attributes. `None` when it declares no loop.
+/// Parse a kernel's `#[tile_grid(order = [A, B, ..])]`, naming the grid axes
+/// outermost to innermost as the body's `pid` decode actually produces them.
+///
+/// `grid_spec()` is otherwise built from the single `Out` parameter's axes in
+/// *tensor dim* order, which is the decode order for every kernel whose output
+/// dims and grid happen to agree -- all of them until `transpose_2d_forward`.
+/// A transpose permutes the two: its output is `[N, M]` while its body decodes
+/// `pid_m` outer (`pid / num_pid_n`), and `GridSpec::axes` is documented as
+/// mattering, outermost to innermost. Declaration order cannot serve both,
+/// because an axis's `dims` entry comes from its position
+/// (teenygrad-1tl.5).
+fn parse_tile_grid_order(attrs: &[syn::Attribute]) -> Result<Option<Vec<Ident>>, syn::Error> {
+    let Some(attr) = attrs.iter().find(|a| a.path().is_ident("tile_grid")) else {
+        return Ok(None);
+    };
+    let inner = attr.parse_args_with(
+        syn::punctuated::Punctuated::<syn::MetaNameValue, syn::Token![,]>::parse_terminated,
+    )?;
+    let mut order = None;
+    for nv in &inner {
+        let key = nv
+            .path
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        if key != "order" {
+            return Err(syn::Error::new_spanned(
+                &nv.path,
+                format!("unknown `#[tile_grid(...)]` key `{key}` (expected `order`)"),
+            ));
+        }
+        let Expr::Array(arr) = &nv.value else {
+            return Err(syn::Error::new_spanned(
+                &nv.value,
+                "`order` takes a list of axis names, e.g. `order = [M, N]`",
+            ));
+        };
+        let mut names = Vec::new();
+        for e in &arr.elems {
+            let Expr::Path(path) = e else {
+                return Err(syn::Error::new_spanned(
+                    e,
+                    "each `order` entry names one grid axis",
+                ));
+            };
+            names.push(path.path.get_ident().cloned().ok_or_else(|| {
+                syn::Error::new_spanned(e, "each `order` entry is a single identifier")
+            })?);
+        }
+        order = Some(names);
+    }
+    Ok(order)
+}
+
 fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs>, syn::Error> {
     let mut trip_count: Option<Vec<Ident>> = None;
     let mut carries: Vec<(Ident, Vec<String>)> = Vec::new();
@@ -555,6 +609,10 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         Ok(l) => l,
         Err(e) => return e.to_compile_error().into(),
     };
+    let grid_order = match parse_tile_grid_order(&input.attrs) {
+        Ok(o) => o,
+        Err(e) => return e.to_compile_error().into(),
+    };
     // `loop_spec` for the generated `tile_spec()`, or `None` when the kernel
     // declares no accumulation loop (teenygrad-1nr.18.3).
     let loop_spec_tokens: TokenStream2 = match &tile_loop {
@@ -588,7 +646,11 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let attrs: Vec<&syn::Attribute> = input
         .attrs
         .iter()
-        .filter(|a| !a.path().is_ident("tile_loop") && !a.path().is_ident("tile_carry"))
+        .filter(|a| {
+            !a.path().is_ident("tile_loop")
+                && !a.path().is_ident("tile_carry")
+                && !a.path().is_ident("tile_grid")
+        })
         .collect();
     let attrs = &attrs;
     let sig = &input.sig;
@@ -1916,7 +1978,51 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             // than one qualifying parameter.
             let grid_spec = match grid_output {
                 Some((_, axes)) => {
-                    let axis_tokens: Vec<TokenStream2> = axes
+                    // `#[tile_grid(order = [..])]` states the body's real
+                    // decode order when it differs from the output's dim
+                    // order; without it, dim order *is* the decode order.
+                    let ordered: Vec<&TileAttrArgs> = match &grid_order {
+                        None => axes.iter().collect(),
+                        Some(order) => {
+                            let mut picked = Vec::new();
+                            for want in order {
+                                let want_s = want.to_string();
+                                let Some(found) = axes.iter().find(|a| {
+                                    a.name
+                                        .as_ref()
+                                        .map(syn::LitStr::value)
+                                        .unwrap_or_else(|| a.extent.to_string())
+                                        == want_s
+                                }) else {
+                                    return syn::Error::new_spanned(
+                                        want,
+                                        format!(
+                                            "`#[tile_grid(order = ..)]` names `{want_s}`, which \
+                                             is not an axis of this kernel's output parameter"
+                                        ),
+                                    )
+                                    .to_compile_error()
+                                    .into();
+                                };
+                                picked.push(found);
+                            }
+                            if picked.len() != axes.len() {
+                                return syn::Error::new_spanned(
+                                    &input.sig.ident,
+                                    format!(
+                                        "`#[tile_grid(order = ..)]` lists {} axes but the \
+                                         output declares {} -- every grid axis must appear",
+                                        picked.len(),
+                                        axes.len()
+                                    ),
+                                )
+                                .to_compile_error()
+                                .into();
+                            }
+                            picked
+                        }
+                    };
+                    let axis_tokens: Vec<TokenStream2> = ordered
                         .iter()
                         .map(|axis| {
                             let name = axis

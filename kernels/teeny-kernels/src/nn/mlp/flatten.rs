@@ -15,7 +15,7 @@
  */
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{Axis, In, Out, PaddingOption, Triton};
 
 /// Copy a [B, N] tensor with arbitrary input strides to a contiguous row-major [B, N] output.
@@ -28,9 +28,22 @@ use teeny_triton::triton::{Axis, In, Out, PaddingOption, Triton};
 /// kernel performs the necessary reordering so that downstream kernels can assume unit strides.
 ///
 /// Grid: one flat 1D pid that encodes (pid_b, pid_n) = (pid / num_pid_n, pid % num_pid_n).
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.5. A flatten is an identity reindex -- both descriptors are
+// `[B, N]` with the same `[BLOCK_B, BLOCK_N]` tile read and written at the
+// same `[b_off, n_off]`; only the input's *strides* differ, which is what
+// makes it a copy rather than a no-op. So both axes carry their own block and
+// resolve to themselves by name.
+//
+// No `#[tile_grid(..)]`: the body decodes `pid_b = pid / num_pid_n` outer,
+// and the output's dims already run B then N, so dim order *is* the decode
+// order here -- unlike `transpose_2d_forward`.
 pub fn flatten_forward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i32>(
+    #[tile(block = BLOCK_B, extent = B)]
+    #[tile(block = BLOCK_N, extent = N)]
     input_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_B, extent = B)]
+    #[tile(block = BLOCK_N, extent = N)]
     output_ptr: Out<T::Pointer<D>>,
     B: i32,
     N: i32,

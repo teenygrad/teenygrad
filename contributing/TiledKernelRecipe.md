@@ -115,12 +115,26 @@ Rules the macro enforces:
 
 Anything else is a compile error naming these keys.
 
-Two further attributes go on the **function**, not a parameter:
+Three further attributes go on the **function**, not a parameter:
 
 | attribute | meaning |
 |---|---|
 | `#[tile_loop(trip_count = [A, B, ..])]` | The kernel's accumulation loop. The list is names multiplied together, not a formula — no consumer evaluates it yet. |
 | `#[tile_carry(name = [EXTENT, ..])]` | One loop-carried accumulator and its shape. `[1]` for a scalar carry. |
+| `#[tile_grid(order = [A, B, ..])]` | The grid axes outermost to innermost, when the body's `pid` decode order differs from the output's dim order. Only `transpose_2d_forward` needs it so far. |
+
+### When to reach for `#[tile_grid]`
+
+`grid_spec()` is built from the single `Out` parameter's axes in **tensor dim
+order**, and `GridSpec::axes` is documented as mattering, outermost to
+innermost. Those agree for nearly every kernel, so the attribute is usually
+unnecessary. They disagree when the body permutes: `transpose_2d_forward`'s
+output is `[N, M]` while it decodes `pid_m = pid / num_pid_n` outer, so its
+grid runs M then N. Declaration order cannot serve both, because an axis's
+`dims` entry comes from its position in the list.
+
+Read the `pid` decode before trusting the default. If it yields the output's
+dims outermost-to-innermost, omit the attribute.
 
 ## Padding is a degenerate window
 
