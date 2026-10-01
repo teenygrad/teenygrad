@@ -34,6 +34,27 @@ use teeny_triton::triton::{
 /// of this op is `channel_chunk_forward` with the same parameters.
 ///
 /// Grid: `n_spatial * cdiv(chunk_c, BLOCK_SIZE)` CTAs.
+// teenygrad-1tl.5: this kernel deliberately carries no `#[tiled_kernel]`
+// declaration, for three reasons, the last of which is not a macro gap.
+//
+// 1. The leading axis has no parameter to name. `n_spatial` is never passed;
+//    it is implicit in `pid / num_c_tiles`. `#[tile(extent = ..)]` names a
+//    runtime parameter, so that axis's extent is unnameable as the signature
+//    stands.
+// 2. The channel axis is a sub-range, not a whole axis. The output axis is
+//    `c_total` while this call writes a `chunk_c`-wide slice of it at
+//    `chunk_offset`. The offset resembles a window's `pad`, but `pad_const`
+//    is documented as naming a `const` generic and is explicitly not used for
+//    sizing, so it cannot carry a runtime base.
+// 3. One output is written by *several* launches -- one per input chunk, see
+//    `ChannelCatRuntimeOp` below. A `KernelTileSpec` describes one launch's
+//    footprint, so no per-kernel spec can express an output that k invocations
+//    tile between them. Fusing across a concat seam needs the *graph* to relate
+//    those launches, which is a different mechanism from this one.
+//
+// Reason 3 is why this stays undeclared rather than waiting on a macro
+// feature: the rung predicted it, and inspecting the launch pattern confirms
+// it.
 #[kernel]
 pub fn channel_cat_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     x_ptr: In<T::Pointer<D>>,  // one input: n_spatial * chunk_c  (narrow NC)

@@ -874,6 +874,69 @@ mod tests {
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
     }
 
+    /// A transpose's permuted axes resolve by name alone (teenygrad-1tl.5).
+    ///
+    /// `transpose_2d_forward` is the first kernel in the tree with *two*
+    /// blocked axes, and the first whose input and output disagree about dim
+    /// order: the input is `[M, N]`, the output `[N, M]`. Nothing in the spec
+    /// relates them but the extent names. Seeding the output resolves the
+    /// input's `M` axis wherever it sits, so a transpose needs no permutation
+    /// field -- it falls out of the naming convention, which is what this rung
+    /// set out to check.
+    ///
+    /// Its grid, however, does *not* fall out of dim order: the body decodes
+    /// `pid_m` outer, so the grid runs M then N while the output's dims run
+    /// N then M. That is what `#[tile_grid(order = ..)]` states.
+    #[test]
+    fn test_transpose_resolves_permuted_axes_by_name_and_states_its_grid_order() {
+        use crate::nn::tensor::transpose::Transpose2dForward;
+
+        let spec = Transpose2dForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let axes = |t: &TensorTileSpec| -> Vec<(usize, &'static str, &'static str)> {
+            t.axes
+                .iter()
+                .map(|a| (a.dims[0], a.extent_param, a.block_const))
+                .collect()
+        };
+        assert_eq!(
+            axes(&spec.inputs[0]),
+            vec![(0, "M", "BLOCK_M"), (1, "N", "BLOCK_N")],
+            "the input is [M, N]"
+        );
+        assert_eq!(
+            axes(&spec.outputs[0]),
+            vec![(0, "N", "BLOCK_N"), (1, "M", "BLOCK_M")],
+            "and the output is [N, M] -- the permutation lives here"
+        );
+        assert!(
+            spec.inputs[0].axes.iter().all(|a| a.window.is_none()),
+            "a transpose reindexes, it does not slide a window"
+        );
+
+        // An output tile of 16 along N and 8 along M must give the input 8
+        // along M and 16 along N: the blocks cross over, by name.
+        let inputs = resolve_inputs(&spec, &tile(&[Some(16), Some(8)]), &NoConsts)
+            .expect("resolution should succeed");
+        assert_eq!(
+            inputs[0],
+            vec![Some(8), Some(16)],
+            "blocks follow their names across the permutation"
+        );
+
+        // The grid is the body's decode order, not the output's dim order.
+        let grid = Transpose2dForward::<f32>::grid_spec();
+        let named: Vec<(&str, Option<&str>)> =
+            grid.axes.iter().map(|a| (a.name, a.block_const)).collect();
+        assert_eq!(
+            named,
+            vec![("M", Some("BLOCK_M")), ("N", Some("BLOCK_N"))],
+            "pid_m is the outer index, so M comes first"
+        );
+    }
+
     /// Padding is a degenerate window, and resolves to the tile's own width
     /// (teenygrad-1tl.5).
     ///

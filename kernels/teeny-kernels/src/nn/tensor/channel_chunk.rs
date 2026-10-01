@@ -36,6 +36,15 @@ use teeny_triton::triton::{
 /// Grid: `n_spatial * cdiv(chunk_c, BLOCK_SIZE)` CTAs.
 /// `pid` is decoded into `(pid_n, ci_tile)` via scalar integer division —
 /// no tensor-level division or modulo is required.
+// teenygrad-1tl.5: no `#[tiled_kernel]` declaration here either, for the
+// mirror of `channel_cat_forward`'s reasons -- see the comment there.
+//
+// Chunk is the better-behaved direction: one launch per output chunk, each
+// reading a `chunk_c`-wide slice of the input at `chunk_offset`, so its
+// *output* is a whole tensor rather than a shared one. What still blocks it is
+// `n_spatial` having no parameter to name, and the input axis being a runtime
+// sub-range of `c_total` that no field can express. If those two are lifted,
+// chunk can be declared while cat still cannot.
 #[kernel]
 pub fn channel_chunk_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
     x_ptr: In<T::Pointer<D>>,  // input:  n_spatial * c_total  (wide NC)

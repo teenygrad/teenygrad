@@ -50,14 +50,33 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{Axis, In, Out, PaddingOption, Triton};
 
 /// `y[n, m] = x[m, n]` for a rank-2 `[M, N]` input.
 // ANCHOR: transpose_2d_forward
-#[kernel]
+#[tiled_kernel]
+// The body decodes one flat `pid` as `pid_m = pid / num_pid_n` (outer) and
+// `pid_n = pid % num_pid_n` (inner), so the grid runs M then N -- the reverse
+// of the output's dim order `[N, M]`. `GridSpec::axes` is documented as
+// mattering, outermost to innermost, so the order has to be stated rather
+// than taken from the output (teenygrad-1tl.5).
+#[tile_grid(order = [M, N])]
+// teenygrad-1tl.5. Both axes are genuinely blocked -- the first kernel in the
+// tree with two, which is what teenygrad-1nr.18.5 built the N-blocked-axis
+// path for.
+//
+// The axes are declared in each tensor's own dim order, which is *permuted*
+// between them: the input is [M, N] and the output is [N, M]. Nothing relates
+// them but the extent names, which is the point. Seeding the output's `M` axis
+// resolves the input's `M` axis wherever it sits, so a transpose needs no
+// permutation field -- it falls out of name matching.
 pub fn transpose_2d_forward<T: Triton, D: Num, const BLOCK_M: i32, const BLOCK_N: i32>(
+    #[tile(block = BLOCK_M, extent = M)]
+    #[tile(block = BLOCK_N, extent = N)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_N, extent = N)]
+    #[tile(block = BLOCK_M, extent = M)]
     y_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,

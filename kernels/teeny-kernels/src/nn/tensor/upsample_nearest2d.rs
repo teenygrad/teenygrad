@@ -34,6 +34,22 @@ use teeny_triton::triton::{
 ///   `ih = oh / SCALE_H`,  `iw = ow / SCALE_W`
 ///
 /// Output shape: `[B, C, OH=H*SCALE_H, OW=W*SCALE_W]`.
+// teenygrad-1tl.5: undeclared, blocked on teenygrad-12l6, and a window
+// provably cannot stand in for it.
+//
+// Both spatial axes map by integer division -- `ih = oh / SCALE_H` and
+// `iw_range = ow_range / SCALE_W` -- so an output tile of `block` reads about
+// `ceil(block / SCALE)` input elements: the region *shrinks*. A `TileWindow`'s
+// receptive field is `(block - 1) * stride + kernel`, which is minimised at
+// `stride = 1, kernel = 1` and equals `block` there, so it is never smaller
+// than the tile. The pad family sits exactly on that floor (teenygrad-1tl.5);
+// upsampling needs to go below it, which is a different arithmetic, not a
+// degenerate case of this one.
+//
+// `divide_by` looks like the field for it and is not: `resolve_inputs` applies
+// it only where the caller supplies a full extent, never to a propagated
+// block, which matches its contract (GroupNorm's `channels_per_group`) rather
+// than a per-tile input/output ratio. teenygrad-12l6 has the analysis.
 #[kernel]
 pub fn upsample_nearest2d_forward<
     T: Triton,
