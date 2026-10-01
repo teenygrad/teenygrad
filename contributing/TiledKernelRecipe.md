@@ -121,7 +121,8 @@ Three further attributes go on the **function**, not a parameter:
 |---|---|
 | `#[tile_loop(trip_count = [A, B, ..])]` | The kernel's accumulation loop. The list is names multiplied together, not a formula — no consumer evaluates it yet. |
 | `#[tile_carry(name = [EXTENT, ..])]` | One loop-carried accumulator and its shape. `[1]` for a scalar carry. |
-| `#[tile_grid(order = [A, B, ..])]` | The grid axes outermost to innermost, when the body's `pid` decode order differs from the output's dim order. Only `transpose_2d_forward` needs it so far. |
+| `#[tile_grid(order = [A, B, ..])]` | The grid axes outermost to innermost, when the body's `pid` decode order differs from the output's dim order, or when a loop covers an axis so it is not a grid axis at all. A subset is meaningful; a repeat is an error. |
+| `#[tile_grid(swizzled)]` | No `GridSpec` is emitted. For a `pid` decode that is not a mixed-radix decode of the output's axes — the matmul family's `GROUP_M` grouping. |
 
 ### When to reach for `#[tile_grid]`
 
@@ -135,6 +136,19 @@ grid runs M then N. Declaration order cannot serve both, because an axis's
 
 Read the `pid` decode before trusting the default. If it yields the output's
 dims outermost-to-innermost, omit the attribute.
+
+Three shapes need it:
+
+| body | attribute | why |
+|---|---|---|
+| `transpose_2d_forward` | `order = [M, N]` | output is `[N, M]`, decode is M-outer |
+| `batch_norm_normalize_forward` | `order = [C]` | one program per channel, N walked by a loop |
+| `matmul_forward`, `linear_forward` | `swizzled` | `GROUP_M` grouping is not a mixed-radix decode |
+
+`swizzled` means *no* `GridSpec` rather than a wrong one. `GridAxisBinding::dim`
+documents several axes on one dim as `pid % extent`, `pid / extent`, repeat —
+and a fused rider reads the anchor's decoded values, so asserting a decode the
+body does not perform would hand out wrong indices.
 
 ## Padding is a degenerate window
 

@@ -36,11 +36,27 @@
 //! `arange(block)+pid*block` axis to N declared axes: a flat `program_id`
 //! decoded innermost-first, row-major strides derived from the declared
 //! extents, a `tile_<name>` index bound per axis, and broadcast subsets
-//! (an input may declare fewer axes than the output). Windowed and looped
-//! prelude codegen is still *not* generated -- the attribute has no syntax
-//! for a stride/pad/kernel window or for an accumulation loop, and
-//! `tile_spec()` emits `window`/`divide_by`/`reduction_axis`/`loop_spec` as
-//! a hardcoded `None`. Those are teenygrad-1nr.18.2 and .18.3.
+//! (an input may declare fewer axes than the output), and .18.5 generalized
+//! it again to several blocked axes at once.
+//!
+//! The attribute vocabulary has since caught up with most of the spec type.
+//! `window(stride, pad, kernel, output)` emits a real `TileWindow`
+//! (teenygrad-1nr.18.2), the bare `reduce` flag sets `reduction_axis`, and
+//! `#[tile_loop]`/`#[tile_carry]` emit a `TileLoopSpec` (.18.3). Only
+//! `divide_by` is still a hardcoded `None`, because GroupNorm's
+//! `channels_per_group` is a runtime value while `tile_spec()` returns
+//! `&'static` data -- teenygrad-1nr.15, and the reasoning is written out in
+//! `groupnorm.rs`.
+//!
+//! Two function-level attributes sit beside those: `#[tile_loop]`/
+//! `#[tile_carry]` above, and `#[tile_grid]`, which says what
+//! `grid_spec()` cannot otherwise know -- the body's real `pid` decode order
+//! when it differs from the output's dim order, which axes are grid axes at
+//! all when a loop covers one, or `swizzled` when the decode is not a
+//! mixed-radix decode of those axes and so has no `GridSpec` at all
+//! (teenygrad-1tl.5, .1tl.8, .1tl.10). Note the *prelude* still generates no
+//! windowed or looped index arithmetic: these attributes describe a
+//! route-2 kernel's hand-written body, they do not write it.
 //!
 //! Optional and additive: a `Tile` parameter with no `#[tile(...)]` falls
 //! back to the pre-existing hardcoded `BLOCK_SIZE`/`n_elements`
@@ -466,47 +482,61 @@ fn parse_ident_array(nv: &MetaNameValue) -> Result<Vec<Ident>, syn::Error> {
 /// `batch_norm_normalize_forward` runs one program per channel and walks `N`
 /// in a `while` loop, so its grid is `[C]` while its output is `[N, C]`
 /// (teenygrad-1tl.8).
-fn parse_tile_grid_order(attrs: &[syn::Attribute]) -> Result<Option<Vec<Ident>>, syn::Error> {
+/// What a kernel says about its launch grid.
+enum TileGridArgs {
+    /// The grid axes, outermost to innermost.
+    Order(Vec<Ident>),
+    /// The `pid` decode is not a mixed-radix decode of the output's axes, so
+    /// no `GridSpec` can describe it and none is emitted.
+    Swizzled,
+}
+
+fn parse_tile_grid_order(attrs: &[syn::Attribute]) -> Result<Option<TileGridArgs>, syn::Error> {
     let Some(attr) = attrs.iter().find(|a| a.path().is_ident("tile_grid")) else {
         return Ok(None);
     };
+    // `syn::Meta`, not `MetaNameValue`, so that the bare `swizzled` flag parses
+    // alongside `order = [..]` -- the same reason `#[tile(.., reduce)]` does.
     let inner = attr.parse_args_with(
-        syn::punctuated::Punctuated::<syn::MetaNameValue, syn::Token![,]>::parse_terminated,
+        syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
     )?;
-    let mut order = None;
-    for nv in &inner {
-        let key = nv
-            .path
-            .get_ident()
-            .map(|i| i.to_string())
-            .unwrap_or_default();
-        if key != "order" {
-            return Err(syn::Error::new_spanned(
-                &nv.path,
-                format!("unknown `#[tile_grid(...)]` key `{key}` (expected `order`)"),
-            ));
-        }
-        let Expr::Array(arr) = &nv.value else {
-            return Err(syn::Error::new_spanned(
-                &nv.value,
-                "`order` takes a list of axis names, e.g. `order = [M, N]`",
-            ));
-        };
-        let mut names = Vec::new();
-        for e in &arr.elems {
-            let Expr::Path(path) = e else {
+    let mut out = None;
+    for meta in &inner {
+        match meta {
+            syn::Meta::Path(path) if path.is_ident("swizzled") => {
+                out = Some(TileGridArgs::Swizzled);
+            }
+            syn::Meta::NameValue(nv) if nv.path.is_ident("order") => {
+                let Expr::Array(arr) = &nv.value else {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "`order` takes a list of axis names, e.g. `order = [M, N]`",
+                    ));
+                };
+                let mut names = Vec::new();
+                for e in &arr.elems {
+                    let Expr::Path(path) = e else {
+                        return Err(syn::Error::new_spanned(
+                            e,
+                            "each `order` entry names one grid axis",
+                        ));
+                    };
+                    names.push(path.path.get_ident().cloned().ok_or_else(|| {
+                        syn::Error::new_spanned(e, "each `order` entry is a single identifier")
+                    })?);
+                }
+                out = Some(TileGridArgs::Order(names));
+            }
+            other => {
                 return Err(syn::Error::new_spanned(
-                    e,
-                    "each `order` entry names one grid axis",
+                    other,
+                    "unknown `#[tile_grid(...)]` argument (expected `order = [..]` or the bare \
+                     flag `swizzled`)",
                 ));
-            };
-            names.push(path.path.get_ident().cloned().ok_or_else(|| {
-                syn::Error::new_spanned(e, "each `order` entry is a single identifier")
-            })?);
+            }
         }
-        order = Some(names);
     }
-    Ok(order)
+    Ok(out)
 }
 
 fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs>, syn::Error> {
@@ -1983,13 +2013,24 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             // `grid_spec()` generated) when that's ambiguous -- zero or more
             // than one qualifying parameter.
             let grid_spec = match grid_output {
+                // A swizzled `pid` decode has no `GridSpec` that could describe
+                // it: `GridAxisBinding::dim` documents multiple axes on one dim
+                // as a mixed-radix decode, and the matmul family's `GROUP_M`
+                // grouping is not one. Emitting axes anyway would assert a
+                // decode the body does not perform, and a fused rider reads the
+                // anchor's decoded values, so it would hand out wrong indices
+                // (teenygrad-1tl.10).
+                Some(_) if matches!(grid_order, Some(TileGridArgs::Swizzled)) => quote! {},
                 Some((_, axes)) => {
                     // `#[tile_grid(order = [..])]` states the body's real
                     // decode order when it differs from the output's dim
                     // order; without it, dim order *is* the decode order.
                     let ordered: Vec<&TileAttrArgs> = match &grid_order {
                         None => axes.iter().collect(),
-                        Some(order) => {
+                        // Unreachable: handled before this match, which returns
+                        // an empty `grid_spec` for a swizzled kernel.
+                        Some(TileGridArgs::Swizzled) => axes.iter().collect(),
+                        Some(TileGridArgs::Order(order)) => {
                             let mut picked = Vec::new();
                             for want in order {
                                 let want_s = want.to_string();
