@@ -15,10 +15,19 @@
  */
 
 use teeny_core::dtype::{AddOffsets, Comparison, Num, Tensor};
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{Axis, In, InputPrecision, Out, PaddingOption, Triton};
 
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.10. Same shape as `matmul_forward` in `math/gemm.rs`: x takes
+// M, w takes N, and K is reduced and left unresolved. Two differences worth
+// naming -- `w` is stored `[N, K]` and transposed in-kernel, so its N axis is
+// dim 0 rather than dim 1; and the bias is rank 1 over N, blocked like the
+// output's N because it is loaded as a `BLOCK_N` range.
+#[tile_loop(trip_count = [K, BLOCK_K])]
+#[tile_carry(acc = [BLOCK_M, BLOCK_N])]
+// Swizzled by GROUP_M, as in gemm.rs -- see the note there.
+#[tile_grid(swizzled)]
 pub fn linear_forward<
     T: Triton,
     D: Num,
@@ -28,9 +37,15 @@ pub fn linear_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
+    #[tile(block = BLOCK_M, extent = M)]
+    #[tile(extent = K, reduce)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_N, extent = N)]
+    #[tile(extent = K, reduce)]
     w_ptr: In<T::Pointer<D>>,
-    b_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_N, extent = N)] b_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_M, extent = M)]
+    #[tile(block = BLOCK_N, extent = N)]
     y_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,

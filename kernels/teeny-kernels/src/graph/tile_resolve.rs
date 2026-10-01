@@ -874,6 +874,113 @@ mod tests {
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
     }
 
+    /// The matmul family's operands take *different* tiles, and K is left
+    /// unresolved by design (teenygrad-1tl.10).
+    ///
+    /// This is the only family where the two inputs need different tiles from
+    /// each other: `a` takes M, `b` takes N, and K -- shared by both, present
+    /// on neither output -- resolves to nothing. That is what the `reduce`
+    /// flag says, and `TensorTileSpec::axes` documents the fallback: a dim
+    /// with no binding keeps its full extent, "the same fallback an axis with
+    /// no output-side counterpart (e.g. a reduction axis) already gets".
+    ///
+    /// `BLOCK_K` is real but is the *loop's* chunk, recorded by `loop_spec`
+    /// rather than bound as an axis. Binding it would advertise a per-tile K
+    /// extent `resolve_inputs` has no channel to honour -- teenygrad-2sd1,
+    /// which is why both inputs come back at full K here and why every GEMM
+    /// currently looks unfusable.
+    ///
+    /// Note what that gap is *not*: a missing const. `resolve_inputs` only
+    /// visits an axis that has a binding, so supplying `K` and `BLOCK_K`
+    /// through the `ConstLookup` changes nothing, as this test checks. The K
+    /// block needs a channel of its own.
+    ///
+    /// Neither kernel emits a `grid_spec()` at all: both swizzle `pid` by
+    /// GROUP_M, and `GridAxisBinding::dim` documents several axes on one dim
+    /// as a mixed-radix decode, which a GROUP_M grouping is not. That absence
+    /// is enforced by the compiler, not here -- calling `grid_spec()` on
+    /// either is a compile error.
+    #[test]
+    fn test_matmul_family_takes_different_operand_tiles_and_leaves_k_unresolved() {
+        use crate::math::gemm::MatmulForward;
+        use crate::nn::mlp::linear::LinearForward;
+
+        for (name, spec) in [
+            ("matmul", MatmulForward::<f32>::tile_spec()),
+            ("linear", LinearForward::<f32>::tile_spec()),
+        ] {
+            spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
+
+            let l = spec
+                .loop_spec
+                .unwrap_or_else(|| panic!("{name}: declares its K loop"));
+            assert_eq!(l.trip_count_factors, &["K", "BLOCK_K"], "{name}");
+            assert_eq!(l.carries.len(), 1, "{name}: one accumulator");
+
+            // Every *operand* reduces over K, and none binds it. GEMM's
+            // `c_ptr` is `InOut`, so it appears among the inputs too and is
+            // excluded by name -- it is the accumulator, not an operand.
+            let out_param = spec.outputs[0].param;
+            for input in spec
+                .inputs
+                .iter()
+                .filter(|i| i.rank == 2 && i.param != out_param)
+            {
+                assert!(
+                    input.reduction_axis.is_some(),
+                    "{name}/{}: K is the reduced axis",
+                    input.param
+                );
+                assert!(
+                    input.untiled_dims.contains(&"K"),
+                    "{name}/{}: K binds no block, so it stays untiled",
+                    input.param
+                );
+                assert!(
+                    input.axes.iter().all(|a| a.extent_param != "K"),
+                    "{name}/{}: binding K would claim a per-tile extent nothing honours",
+                    input.param
+                );
+            }
+
+            // The output takes both blocks.
+            let out = spec.outputs[0];
+            let blocks: Vec<(&str, &str)> = out
+                .axes
+                .iter()
+                .map(|a| (a.extent_param, a.block_const))
+                .collect();
+            assert_eq!(
+                blocks,
+                vec![("M", "BLOCK_M"), ("N", "BLOCK_N")],
+                "{name}: the output is tiled on both axes"
+            );
+        }
+
+        // The operands genuinely differ: seeding a 64x32 output gives `a` the
+        // M block and nothing else, `b` the N block and nothing else.
+        let spec = MatmulForward::<f32>::tile_spec();
+        let inputs = resolve_inputs(&spec, &tile(&[Some(64), Some(32)]), &NoConsts)
+            .expect("resolution should succeed");
+        assert_eq!(inputs[0], vec![Some(64), None], "a: M tiled, K unresolved");
+        assert_eq!(inputs[1], vec![None, Some(32)], "b: K unresolved, N tiled");
+
+        // And K stays unresolved even when the lookup *can* supply it. That is
+        // the shape of teenygrad-2sd1: `resolve_inputs` only visits an axis
+        // that has a binding, and K deliberately has none, so no `ConstLookup`
+        // can reach it. The K block needs a channel of its own, not a better
+        // const table.
+        let with_k = Table::new(&[("K", 1024), ("BLOCK_K", 32)]);
+        let inputs = resolve_inputs(&spec, &tile(&[Some(64), Some(32)]), &with_k)
+            .expect("resolution should succeed");
+        assert_eq!(
+            inputs[0],
+            vec![Some(64), None],
+            "supplying K changes nothing: an unbound axis is never visited"
+        );
+        assert_eq!(inputs[1], vec![None, Some(32)]);
+    }
+
     /// BatchNorm's normalize half declares a grid of `[C]`, not `[N, C]`
     /// (teenygrad-1tl.8).
     ///

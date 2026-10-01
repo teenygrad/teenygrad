@@ -41,6 +41,24 @@ use teeny_triton::triton::{PaddingOption, *};
 /// Forward: C = A @ B
 // ANCHOR: matmul_forward
 #[tiled_kernel]
+// teenygrad-1tl.10. The only family whose inputs need genuinely *different*
+// tiles from each other: `a_ptr` takes M, `b_ptr` takes N, and K -- shared by
+// both, present on neither output -- is left unresolved by design, which is
+// what `reduce` says here.
+//
+// K carries no `block`, deliberately. `TensorTileSpec::axes` documents a dim
+// with no binding as keeping its full extent, "the same fallback an axis with
+// no output-side counterpart (e.g. a reduction axis) already gets". BLOCK_K is
+// real, but it is the *loop's* chunk, which `#[tile_loop]` below records;
+// binding it as an axis would advertise a per-tile K extent that
+// `resolve_inputs` has no channel to honour (teenygrad-2sd1).
+#[tile_loop(trip_count = [K, BLOCK_K])]
+#[tile_carry(acc = [BLOCK_M, BLOCK_N])]
+// The grid is `[M, N]` in extent, but the `pid` decode is swizzled by GROUP_M
+// for L2 locality, and `GridAxisBinding::dim` documents several axes on one
+// dim as a *mixed-radix* decode. A GROUP_M grouping is not one, so no
+// `GridSpec` can describe this launch and none is emitted.
+#[tile_grid(swizzled)]
 pub fn matmul_forward<
     T: Triton,
     D: Num,
@@ -49,8 +67,14 @@ pub fn matmul_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
+    #[tile(block = BLOCK_M, extent = M)]
+    #[tile(extent = K, reduce)]
     a_ptr: In<T::Pointer<D>>,
+    #[tile(extent = K, reduce)]
+    #[tile(block = BLOCK_N, extent = N)]
     b_ptr: In<T::Pointer<D>>,
+    #[tile(block = BLOCK_M, extent = M)]
+    #[tile(block = BLOCK_N, extent = N)]
     c_ptr: InOut<T::Pointer<D>>,
     M: i32,
     N: i32,
