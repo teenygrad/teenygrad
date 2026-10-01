@@ -675,7 +675,12 @@ pub struct Conv2dOp<'a, T: Num> {
 /// Inference-only; no backward pass (training still uses the two-kernel path via
 /// `conv2d_forward` + a separate bias-add, whose backward is a plain per-channel sum
 /// over the output gradient — fusing that isn't this kernel's job).
-#[kernel]
+#[tiled_kernel]
+// Same `pid` decode, accumulation loop and window structure as
+// `conv2d_forward` above -- this one only adds the bias term -- so it
+// declares the same axes and the same loop (teenygrad-1tl.7).
+#[tile_loop(trip_count = [C_IN, G, KH, KW])]
+#[tile_carry(acc = [BLOCK_OW])]
 pub fn conv2d_bias_forward<
     T: Triton,
     D: Num,
@@ -688,9 +693,26 @@ pub fn conv2d_bias_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
+    // Both spatial axes are read through a sliding window. H's block is the
+    // literal 1 (one scalar `oh` per program), W's is `BLOCK_OW`.
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C_IN)]
+    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+    )]
     x_ptr: In<T::Pointer<D>>,
+    // `w_ptr`/`bias_ptr` stay untagged, as `conv2d_forward` leaves `w_ptr`:
+    // the weights are not sliced by the output tile, and the bias is indexed
+    // by `c_out` alone.
     w_ptr: In<T::Pointer<D>>,
     bias_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C_OUT)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     y_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C_IN: i32,

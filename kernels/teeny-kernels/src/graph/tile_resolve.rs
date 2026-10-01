@@ -187,6 +187,13 @@ fn resolve_one(
         };
         let block = match resolved.iter().find(|(name, _)| *name == propagation_name) {
             Some((_, block)) => Some(*block),
+            // The const fallback supplies this axis's *full* extent, which does
+            // not compose with a window: feeding `H` through
+            // `(block - 1) * stride + kernel` yields more than `H` and claims
+            // the kernel reads past the tensor. A windowed axis whose output
+            // variable went unresolved therefore stays at full extent, which is
+            // what an unresolved axis means everywhere else (teenygrad-1tl.7).
+            None if axis.window.is_some() => None,
             None => consts
                 .get(axis.extent_param)
                 .map(|extent| extent / axis.divide_by.unwrap_or(1).max(1)),
@@ -865,10 +872,14 @@ mod tests {
     /// axis names the *output's* variable (`OW`, with `BLOCK_OW`), not its own
     /// extent `W`. That is forced, not chosen. Propagation resolves by name, so
     /// an input axis named `W` can never receive the block the output computed
-    /// for `OW`; and `TileWindow` hangs off `TileAxisBinding`, which the macro
-    /// only creates for an axis carrying a block. The window is precisely what
-    /// explains the size difference between the two. This answers the naming
-    /// question `teenygrad-1tl.7` raises for the conv and pool family.
+    /// for `OW`. The window is precisely what explains the size difference
+    /// between the two. This answers the naming question `teenygrad-1tl.7`
+    /// raises for the conv and pool family.
+    ///
+    /// `x_ptr` now carries a window on *both* spatial axes: H's has a fixed
+    /// block of 1, since one program instance computes one output row
+    /// (teenygrad-1tl.7). So this picks the W axis out by the output variable
+    /// its window names rather than taking the first windowed axis.
     #[test]
     fn test_conv2d_windowed_input_resolves_to_its_receptive_field() {
         use crate::nn::conv::conv2d::Conv2dForward;
@@ -881,8 +892,8 @@ mod tests {
         let windowed = x
             .axes
             .iter()
-            .find(|a| a.window.is_some())
-            .expect("x_ptr's spatial axis declares a window");
+            .find(|a| a.window.is_some_and(|w| w.output_extent_param == "OW"))
+            .expect("x_ptr's W axis declares a window");
         let w = windowed.window.expect("just checked");
         assert_eq!(
             (w.stride_const, w.pad_const, w.kernel_size_const),
@@ -931,22 +942,28 @@ mod tests {
     ///   extent never appears in the output, so both names are needed.
     /// - It also carries the output's `block_const`. That is structural, not a
     ///   claim about its tile size: only a blocked axis becomes a
-    ///   `TileAxisBinding`, and a `TileWindow` hangs off one. Resolution never
-    ///   reads the input axis's own `block_const`.
+    ///   `TileAxisBinding`, and a `TileWindow` hangs off one -- including an
+    ///   axis the kernel does not block, whose binding carries the literal
+    ///   block `1` (teenygrad-1tl.7). Resolution never reads the input axis's
+    ///   own `block_const`.
     /// - `pad` is absent on the pools because most have no padding const at all,
     ///   and padding shifts the window's origin rather than its size.
     #[test]
     fn test_conv_and_pool_windows_resolve_to_the_receptive_field() {
-        use crate::nn::conv::conv1d::Conv1dForward;
+        use crate::nn::conv::{
+            conv1d::Conv1dForward, conv2d::Conv2dBiasForward, conv3d::Conv3dForward,
+        };
         use crate::nn::pool::{
-            avgpool1d::Avgpool1dForward, lppool2d::Lppool2dForward, maxpool1d::Maxpool1dForward,
-            maxpool2d::Maxpool2dForward,
+            avgpool1d::Avgpool1dForward, avgpool2d::Avgpool2dForward, avgpool3d::Avgpool3dForward,
+            lppool1d::Lppool1dForward, lppool2d::Lppool2dForward, lppool3d::Lppool3dForward,
+            maxpool1d::Maxpool1dForward, maxpool2d::Maxpool2dForward, maxpool3d::Maxpool3dForward,
         };
 
         // 1-D: one spatial axis, fully expressible. (8 - 1) * 2 + 3 = 17.
         for (name, spec) in [
             ("maxpool1d", Maxpool1dForward::<f32>::tile_spec()),
             ("avgpool1d", Avgpool1dForward::<f32>::tile_spec()),
+            ("lppool1d", Lppool1dForward::<f32>::tile_spec()),
         ] {
             spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
             let axis = spec.inputs[0]
@@ -978,36 +995,115 @@ mod tests {
         let inputs = resolve_inputs(&spec, &tile(&[Some(2), Some(6), Some(8)]), &consts).unwrap();
         assert_eq!(inputs[0][2], Some(10), "(8 - 1) * 1 + 3, padding excluded");
 
-        // 2-D: only W carries a window, because a TileWindow needs a blocked
-        // axis and these kernels block OW alone. H is declared truthfully and
-        // left unresolvable -- lifting that needs teenygrad-1nr.18.5.
-        for (name, spec) in [
-            ("maxpool2d", Maxpool2dForward::<f32>::tile_spec()),
-            ("lppool2d", Lppool2dForward::<f32>::tile_spec()),
+        // 2-D: *both* spatial axes carry a window now (teenygrad-1tl.7).
+        // They differ only in block -- `BLOCK_OW` on W, the literal 1 on H,
+        // because the body computes a tile of columns for one scalar `oh`.
+        for (name, spec, pad_h) in [
+            (
+                "maxpool2d",
+                Maxpool2dForward::<f32>::tile_spec(),
+                Some("PAD_H"),
+            ),
+            ("lppool2d", Lppool2dForward::<f32>::tile_spec(), None),
+            ("avgpool2d", Avgpool2dForward::<f32>::tile_spec(), None),
+            (
+                "conv2d_bias",
+                Conv2dBiasForward::<f32>::tile_spec(),
+                Some("PAD_H"),
+            ),
         ] {
             spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
             let x = spec.inputs[0];
-            let windowed: Vec<&str> = x
+            let windowed: Vec<(&str, &str)> = x
                 .axes
                 .iter()
                 .filter(|a| a.window.is_some())
-                .map(|a| a.extent_param)
+                .map(|a| (a.extent_param, a.block_const))
                 .collect();
             assert_eq!(
                 windowed,
-                vec!["W"],
-                "{name}: one window only, on the blocked axis"
+                vec![("H", "1"), ("W", "BLOCK_OW")],
+                "{name}: every spatial axis is windowed, H with a fixed block of 1"
             );
             assert!(
-                x.untiled_dims.contains(&"H"),
-                "{name}: H stays untiled, its window inexpressible"
+                !x.untiled_dims.contains(&"H"),
+                "{name}: H is a binding now, so it has left untiled_dims"
             );
+            let h = x.axes.iter().find(|a| a.extent_param == "H").unwrap();
+            let hw = h.window.expect("H declares a window");
+            assert_eq!(
+                hw.output_extent_param, "OH",
+                "{name}: H resolves against OH"
+            );
+            assert_eq!(hw.pad_const, pad_h, "{name}: only maxpool2d has padding");
 
-            let consts = Table::new(&[("STRIDE_W", 2), ("KW", 3)]);
+            let consts = Table::new(&[("STRIDE_W", 2), ("KW", 3), ("STRIDE_H", 2), ("KH", 3)]);
             let out = tile(&[Some(2), Some(4), Some(5), Some(8)]);
             let inputs =
                 resolve_inputs(&spec, &out, &consts).unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(inputs[0][3], Some(17), "{name}: W resolves");
+            assert_eq!(
+                inputs[0][3],
+                Some(17),
+                "{name}: W resolves, (8 - 1) * 2 + 3"
+            );
+            // H's window is declared but still unresolvable: it resolves
+            // against `OH`, and the *output* leaves OH untiled, so no block
+            // ever propagates for it. It stays at full extent rather than
+            // feeding `H` through the receptive field and claiming the kernel
+            // reads past the tensor. Giving it a block means rewriting the
+            // `pid` decode (teenygrad-1nr.18.4).
+            assert_eq!(
+                inputs[0][2], None,
+                "{name}: H unresolved, so full extent -- not an over-read"
+            );
+        }
+
+        // 3-D: all three spatial axes, same shape of answer.
+        for (name, spec, pads) in [
+            ("maxpool3d", Maxpool3dForward::<f32>::tile_spec(), false),
+            ("avgpool3d", Avgpool3dForward::<f32>::tile_spec(), false),
+            ("lppool3d", Lppool3dForward::<f32>::tile_spec(), false),
+            ("conv3d", Conv3dForward::<f32>::tile_spec(), true),
+        ] {
+            spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
+            let x = spec.inputs[0];
+            let windowed: Vec<(&str, &str)> = x
+                .axes
+                .iter()
+                .filter(|a| a.window.is_some())
+                .map(|a| (a.extent_param, a.block_const))
+                .collect();
+            assert_eq!(
+                windowed,
+                vec![("Dv", "1"), ("H", "1"), ("W", "BLOCK_OW")],
+                "{name}: all three spatial axes are windowed"
+            );
+            let outs: Vec<&str> = x
+                .axes
+                .iter()
+                .filter_map(|a| a.window.map(|w| w.output_extent_param))
+                .collect();
+            assert_eq!(
+                outs,
+                vec!["OD", "OH", "OW"],
+                "{name}: each window names its own output axis"
+            );
+            let has_pad = x
+                .axes
+                .iter()
+                .filter_map(|a| a.window)
+                .all(|w| w.pad_const.is_some());
+            assert_eq!(has_pad, pads, "{name}: only the conv declares padding");
+
+            let consts = Table::new(&[("STRIDE_W", 2), ("KW", 3)]);
+            let out = tile(&[Some(2), Some(4), Some(3), Some(5), Some(8)]);
+            let inputs =
+                resolve_inputs(&spec, &out, &consts).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(
+                inputs[0][4],
+                Some(17),
+                "{name}: W resolves, (8 - 1) * 2 + 3"
+            );
         }
     }
 }

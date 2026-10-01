@@ -110,24 +110,59 @@ Rules the macro enforces:
 | `block = BLOCK_X` | no | The `const {NAME}: i32` giving the tile size. Omitted means an untiled axis — one CTA per index. |
 | `name = "C"` | no | The axis's identity for `GridSpec` matching, and the suffix of the index the prelude binds (`tile_c`). Defaults to `extent`'s spelling, so **omit it unless they genuinely differ**. |
 | `dim = X\|Y\|Z` | no | Which hardware grid dimension the axis reads. Defaults to `X`. |
+| `reduce` | no | Bare flag marking the axis this tensor reduces over. At most one per tensor, since `reduction_axis` is a single index. |
+| `window(stride = S, pad = P, kernel = K, output = O)` | no | The axis is read through a strided sliding window. `pad` is optional — most pools have no padding const. `output` names the **output** variable the window resolves against, leaving `extent` free to stay truthful about the input's own extent. |
 
-Anything else is a compile error naming these four.
+Anything else is a compile error naming these keys.
+
+Two further attributes go on the **function**, not a parameter:
+
+| attribute | meaning |
+|---|---|
+| `#[tile_loop(trip_count = [A, B, ..])]` | The kernel's accumulation loop. The list is names multiplied together, not a formula — no consumer evaluates it yet. |
+| `#[tile_carry(name = [EXTENT, ..])]` | One loop-carried accumulator and its shape. `[1]` for a scalar carry. |
+
+## A windowed axis the kernel does not block
+
+A window has to hang off a `TileAxisBinding`, and a binding needs a
+`block_const`. The 2-D and 3-D convs and pools block `OW` alone — their `pid`
+decode yields a scalar `oh` (and `od`) — so those spatial axes have no
+`BLOCK_OH` to name, and before `teenygrad-1tl.7` their windows were silently
+dropped, leaving the spec claiming the input was read at full extent.
+
+Write the window anyway and omit `block`. The macro emits a binding with the
+decimal literal `"1"`, and `(1 - 1) * stride + kernel` is exactly the rows one
+output row reads:
+
+```rust
+#[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
+#[tile(block = BLOCK_OW, extent = W,
+       window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW))]
+x_ptr: In<T::Pointer<D>>,
+```
+
+This describes the body as written; it does not make the axis tileable. Such an
+axis resolves against the output variable its window names, and the output
+leaves `OH` untiled, so no block ever propagates for it and it stays at full
+extent. Giving it a real block means rewriting the `pid` decode — a port
+(`teenygrad-1nr.18.4`), not a declaration.
 
 ## What the attributes cannot express yet
 
-The spec type is richer than the attribute vocabulary. `#[tiled_kernel]`
-currently hardcodes `window: None`, `divide_by: None`, `reduction_axis: None`
-and `loop_spec: None`, always emits one dim per axis, and gives every input and
-output the **first** tile parameter's axis set.
-
-So these are blocked on macro work, not kernel work:
+Most of the original gaps are closed: `window` (`teenygrad-1nr.18.2`),
+`loop_spec` via `#[tile_loop]`/`#[tile_carry]` (`.18.3`), `reduction_axis` via
+`reduce`, and a prelude over several blocked axes (`.18.5`). What remains:
 
 | need | kernel family | blocked on |
 |---|---|---|
-| `TileWindow` (stride/pad/kernel) | conv 1/2/3d, the nine pools | `teenygrad-1nr.18.2` |
-| accumulation loop / `loop_spec` | conv, pools, norms, reductions, attention | `teenygrad-1nr.18.3` |
-| two blocked axes | matmul family | `teenygrad-1nr.18.5` |
-| per-parameter distinct axis sets | any input whose axes differ from the output's | see `teenygrad-1tl.7` |
+| `divide_by` built per instance from a runtime param | GroupNorm (`C / G`) | `teenygrad-1nr.15` |
+| relating an input axis to *no* output axis | `reduce_*`, global pools | `teenygrad-1nr.16` |
+| `grid_spec` over several blocked axes | matmul family | route-1 path still takes the first blocked axis |
+| supplying const *values* so a window resolves | conv, pools | `teenygrad-1nr.30` |
+
+That last one is why a declared window can still resolve to full extent: nothing
+builds a `ConstLookup` at graph level yet. Declare it regardless — the
+declaration is what `.30` will read.
 
 Do not hand-author a `KernelTileSpec` beside a kernel to work around a gap. A
 spec written next to a kernel is decoupled from it, so nothing catches the two

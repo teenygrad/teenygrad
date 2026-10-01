@@ -17,7 +17,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -30,7 +30,11 @@ use teeny_triton::triton::{
 /// **Constraints**: no padding;
 /// `OD = (D - KD) / STRIDE_D + 1`, `OH = (H - KH) / STRIDE_H + 1`,
 /// `OW = (W - KW) / STRIDE_W + 1`.
-#[kernel]
+#[tiled_kernel]
+// All three spatial axes are read through a sliding window. Only `OW` is
+// blocked, so D and H carry the literal block 1 -- this body's `pid` decode
+// yields one scalar `od` and one scalar `oh` per program, and each reads a
+// full `KD`/`KH` window of its own input axis (teenygrad-1tl.7).
 pub fn maxpool3d_forward<
     T: Triton,
     D: Num,
@@ -42,7 +46,27 @@ pub fn maxpool3d_forward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(
+        extent = Dv,
+        window(stride = STRIDE_D, kernel = KD, output = OD)
+    )]
+    #[tile(
+        extent = H,
+        window(stride = STRIDE_H, kernel = KH, output = OH)
+    )]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = STRIDE_W, kernel = KW, output = OW)
+    )]
     input_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(extent = OD)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,

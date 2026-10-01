@@ -1793,6 +1793,41 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                 }
                             });
                         }
+                        // An axis with a window but no block is windowed with a
+                        // *fixed* block of 1: one program instance covers one
+                        // element of it. conv2d blocks `OW` alone, so its `pid`
+                        // decode yields a scalar `oh` and a `BLOCK_OW`-wide
+                        // `ow` range -- yet `x_ptr`'s H axis is still read
+                        // through a `KH`-tall sliding window, and dropping that
+                        // window made the input look as though it were read at
+                        // full extent (teenygrad-1tl.7).
+                        //
+                        // So it becomes a real binding carrying its window,
+                        // with `block_const: "1"` -- a decimal literal, the
+                        // same spelling `shape_consts` already accepts for a
+                        // scalar accumulator, because there is no `BLOCK_OH`
+                        // const to name. `resolve_inputs` then derives the
+                        // receptive field `(1 - 1) * STRIDE_H + KH = KH`:
+                        // exactly the rows one output row reads.
+                        //
+                        // This describes the body as written; it does not make
+                        // the axis tileable. Letting a consumer *choose* a
+                        // block for H means rewriting the body's `pid` decode,
+                        // which is a port, not a declaration
+                        // (teenygrad-1nr.18.4).
+                        None if axis.window.is_some() => {
+                            let extent_str = axis.extent.to_string();
+                            let window = window_tokens(axis);
+                            tiled_axis_tokens.push(quote! {
+                                ::teeny_core::model::TileAxisBinding {
+                                    dims: &[#i],
+                                    block_const: "1",
+                                    extent_param: #extent_str,
+                                    window: #window,
+                                    divide_by: ::core::option::Option::None,
+                                }
+                            });
+                        }
                         None => {
                             let label = axis
                                 .name

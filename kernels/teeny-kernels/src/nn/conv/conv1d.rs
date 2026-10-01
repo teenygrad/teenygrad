@@ -44,10 +44,13 @@ pub fn conv1d_forward<
     const PAD: i32,
     const BLOCK_OL: i32,
 >(
-    // teenygrad-1tl.7. `block = BLOCK_OL` on the input is structural: only a
-    // blocked axis becomes a `TileAxisBinding` and `TileWindow` hangs off one.
-    // The real per-tile extent is the receptive field `(BLOCK_OL - 1) * STRIDE
-    // + KL`, which `resolve_inputs` derives from the window.
+    // teenygrad-1tl.7. `block = BLOCK_OL` names the block this axis resolves
+    // against, not its per-tile extent: that is the receptive field
+    // `(BLOCK_OL - 1) * STRIDE + KL`, which `resolve_inputs` derives from the
+    // window and never from this axis's own `block_const`. One spatial axis,
+    // and the kernel blocks it, so this one is fully expressible -- unlike the
+    // 2-D and 3-D members of the family, whose unblocked spatial axes carry
+    // the literal block `1` instead.
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_IN)]
     #[tile(

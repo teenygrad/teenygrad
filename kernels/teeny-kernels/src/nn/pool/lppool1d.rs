@@ -49,11 +49,10 @@ pub fn lppool1d_forward<
 >(
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
-    // `block = BLOCK_OL` is structural, not a claim that this axis is tiled in
-    // BLOCK_OL-sized pieces: only a *blocked* axis becomes a `TileAxisBinding`,
-    // and `TileWindow` hangs off one. The real per-tile extent here is the
-    // receptive field, which `resolve_inputs` computes from the window; it never
-    // reads this axis's own `block_const`.
+    // `block = BLOCK_OL` is not a claim that this axis is tiled in BLOCK_OL-sized
+    // pieces: it names the block the window resolves against. The real per-tile
+    // extent here is the receptive field, which `resolve_inputs` computes from
+    // the window; it never reads this axis's own `block_const`.
     #[tile(
         block = BLOCK_OL,
         extent = L,
