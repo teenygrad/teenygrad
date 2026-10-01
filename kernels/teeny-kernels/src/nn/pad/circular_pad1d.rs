@@ -19,7 +19,7 @@
 use core::ops::{BitAnd, BitOr};
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -36,7 +36,19 @@ use teeny_triton::triton::{
 /// - else: `ip_raw`
 ///
 /// **Constraints**: `PAD_LEFT <= L`, `PAD_RIGHT <= L`.
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.5. Padding is a window of `stride = 1, kernel = 1`: each
+// output element reads exactly one input element, at an origin shifted by the
+// leading pad, so `(block - 1) * 1 + 1 = block` -- the tile's own width. Only
+// the innermost axis is blocked, so the others carry the literal block 1,
+// their `pid` index being a scalar.
+//
+// Exact for an interior tile, which is what the receptive field describes. A
+// tile overlapping the pad region reads *fewer* distinct input elements, and
+// the four families differ in where the out-of-range lanes land -- masked off
+// (constant), mirrored (reflection), clamped (replication) or wrapped
+// (circular). That changes which elements are read, not how many, so `block`
+// stays a correct upper bound on the footprint.
 pub fn circular_pad1d_forward<
     T: Triton,
     D: Num,
@@ -44,7 +56,17 @@ pub fn circular_pad1d_forward<
     const PAD_RIGHT: i32,
     const BLOCK_OL: i32,
 >(
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(
+        block = BLOCK_OL,
+        extent = L,
+        window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL)
+    )]
     input_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_OL, extent = OL)]
     output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,

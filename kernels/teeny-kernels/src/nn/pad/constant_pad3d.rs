@@ -19,7 +19,7 @@
 use core::ops::{BitAnd, BitOr};
 
 use teeny_core::dtype::Num;
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -30,7 +30,19 @@ use teeny_triton::triton::{
 /// Grid: `pid = (((b*C+c)*OD+od)*OH+oh)*num_ow_tiles + ow_tile`
 ///
 /// `OD = PD1+D+PD2`, `OH = PH1+H+PH2`, `OW = PW1+W+PW2`.
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.5. Padding is a window of `stride = 1, kernel = 1`: each
+// output element reads exactly one input element, at an origin shifted by the
+// leading pad, so `(block - 1) * 1 + 1 = block` -- the tile's own width. Only
+// the innermost axis is blocked, so the others carry the literal block 1,
+// their `pid` index being a scalar.
+//
+// Exact for an interior tile, which is what the receptive field describes. A
+// tile overlapping the pad region reads *fewer* distinct input elements, and
+// the four families differ in where the out-of-range lanes land -- masked off
+// (constant), mirrored (reflection), clamped (replication) or wrapped
+// (circular). That changes which elements are read, not how many, so `block`
+// stays a correct upper bound on the footprint.
 pub fn constant_pad3d_forward<
     T: Triton,
     D: Num,
@@ -42,7 +54,27 @@ pub fn constant_pad3d_forward<
     const PW2: i32,
     const BLOCK_OW: i32,
 >(
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(
+        extent = Dv,
+        window(stride = 1, pad = PD1, kernel = 1, output = OD)
+    )]
+    #[tile(
+        extent = H,
+        window(stride = 1, pad = PH1, kernel = 1, output = OH)
+    )]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = 1, pad = PW1, kernel = 1, output = OW)
+    )]
     input_ptr: In<T::Pointer<D>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C)]
+    #[tile(extent = OD)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
