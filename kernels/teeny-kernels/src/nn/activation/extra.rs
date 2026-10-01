@@ -155,53 +155,26 @@ impl teeny_core::model::RuntimeOp for SwishForward {
 
 /// Forward: y = max(0, x) + slope * min(0, x)
 /// The slope tensor has the same shape as x (or broadcastable; kernel assumes same shape here).
-#[kernel]
+#[tiled_kernel]
 pub fn prelu_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<f32>>,
-    slope_ptr: In<T::Pointer<f32>>,
-    y_ptr: Out<T::Pointer<f32>>,
+    // teenygrad-1tl: a flat elementwise binary -- `slope` is indexed by the
+    // same offsets as `x`, so it is the same shape, not per-channel. That puts
+    // it in teenygrad-1tl.3's shape; it was missed because that rung's
+    // population was scoped by file and this one lives in `activation/extra.rs`
+    // rather than `tensor/elemwise_binary.rs`.
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] x: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] slope: In<Tile<T, f32>>,
+    #[tile(block = BLOCK_SIZE, extent = n_elements)] y: Out<Tile<T, f32>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let block_start = pid * BLOCK_SIZE;
-    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
-    let in_bounds = offsets.lt(n_elements);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let slope = T::load(
-        slope_ptr.add_offsets(offsets),
-        Some(in_bounds),
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let zero = T::zeros_like(x);
-    let pos = T::maximum(x, zero);
-    let neg = slope * T::minimum(x, zero);
-    let y = pos + neg;
-    T::store(
-        y_ptr.add_offsets(offsets),
-        y,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    let zero = T::zeros_like(x.tensor);
+    let pos = T::maximum(x.tensor, zero);
+    let neg = slope.tensor * T::minimum(x.tensor, zero);
+    T::store(y.tensor, pos + neg, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy if x >= 0 else slope * dy;
@@ -654,10 +627,22 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
 // Grid: one CTA per row. BLOCK_SIZE must equal n_cols (power of 2).
 
 /// Forward: y = x - log(sum(exp(x)))  [numerically stable: subtract max first]
-#[kernel]
+#[tiled_kernel]
 pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
-    x_ptr: In<T::Pointer<f32>>,
-    y_ptr: Out<T::Pointer<f32>>,
+    // teenygrad-1tl: declared exactly as `softmax_forward` is -- the same row
+    // shape, and the sibling operation. `BLOCK_SIZE` binds the *reduced* axis
+    // because route 1's auto-prelude generates the load from it, so a route-1
+    // row kernel has to block the axis it loads. (A route-2 row kernel, like
+    // the norms, blocks nothing: it writes its own load.)
+    //
+    // Unchanged from the hand-written version: both assume `BLOCK_SIZE` covers
+    // `n_cols`, since the whole row must be present for the max and the sum.
+    #[tile(name = "n_rows", extent = _n_rows)]
+    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
+    x: In<Tile<T, f32>>,
+    #[tile(name = "n_rows", extent = _n_rows)]
+    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
+    y: Out<Tile<T, f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where
@@ -665,25 +650,10 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let row_offset = pid * n_cols;
-    let col_offsets = T::arange(0, BLOCK_SIZE);
-    let offsets = col_offsets + row_offset;
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        None,
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let m = T::max(x, Some(0), true); // max for numerical stability
-    let x_m = x - m;
+    let m = T::max(x.tensor, Some(0), true); // max for numerical stability
+    let x_m = x.tensor - m;
     let log_sum = T::log(T::sum(T::exp(x_m), Some(0), true));
-    let y = x_m - log_sum;
-    T::store(y_ptr.add_offsets(offsets), y, None, &[], None, None);
+    T::store(y.tensor, x_m - log_sum, x.mask, &[], None, None);
 }
 
 /// Backward: dx = dy - softmax(x) * sum(dy)
