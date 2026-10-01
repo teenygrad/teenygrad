@@ -111,7 +111,7 @@ Rules the macro enforces:
 | `name = "C"` | no | The axis's identity for `GridSpec` matching, and the suffix of the index the prelude binds (`tile_c`). Defaults to `extent`'s spelling, so **omit it unless they genuinely differ**. |
 | `dim = X\|Y\|Z` | no | Which hardware grid dimension the axis reads. Defaults to `X`. |
 | `reduce` | no | Bare flag marking the axis this tensor reduces over. At most one per tensor, since `reduction_axis` is a single index. |
-| `window(stride = S, pad = P, kernel = K, output = O)` | no | The axis is read through a strided sliding window. `pad` is optional — most pools have no padding const. `output` names the **output** variable the window resolves against, leaving `extent` free to stay truthful about the input's own extent. |
+| `window(stride = S, pad = P, kernel = K, output = O)` | no | The axis is read through a strided sliding window. `stride`, `pad` and `kernel` each take a const generic's name **or a decimal integer literal**; `output` always names a runtime parameter. `pad` is optional — most pools have no padding const. `output` names the **output** variable the window resolves against, leaving `extent` free to stay truthful about the input's own extent. |
 
 Anything else is a compile error naming these keys.
 
@@ -121,6 +121,30 @@ Two further attributes go on the **function**, not a parameter:
 |---|---|
 | `#[tile_loop(trip_count = [A, B, ..])]` | The kernel's accumulation loop. The list is names multiplied together, not a formula — no consumer evaluates it yet. |
 | `#[tile_carry(name = [EXTENT, ..])]` | One loop-carried accumulator and its shape. `[1]` for a scalar carry. |
+
+## Padding is a degenerate window
+
+A pad kernel maps an output index to an input index by a pure shift
+(`ip_range = ol_range - PAD_LEFT`), so an output tile of `block` reads `block`
+input elements at a shifted origin. That is a window of `stride = 1,
+kernel = 1`: `(block - 1) * 1 + 1 = block`. The pad family has no stride or
+kernel const to name, so those fields take literals:
+
+```rust
+#[tile(block = BLOCK_OL, extent = L,
+       window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL))]
+input_ptr: In<T::Pointer<D>>,
+```
+
+This is the one family where the input region is *not* larger than the output
+tile — the opposite end of the arithmetic the conv and pool rung exercises.
+
+It is exact for an interior tile, which is what a receptive field describes. A
+tile overlapping the pad region reads *fewer* distinct input elements, and the
+four families differ in where the out-of-range lanes land: masked off
+(constant), mirrored (reflection), clamped (replication) or wrapped
+(circular). That changes which elements are read, not how many, so `block`
+remains a correct upper bound on the footprint.
 
 ## A windowed axis the kernel does not block
 

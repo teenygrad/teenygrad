@@ -109,12 +109,20 @@ struct TileAttrArgs {
     /// `#[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH))]`
     /// (teenygrad-1nr.18.2).
     ///
-    /// The three are names of `const {NAME}: i32` generics. An output tile of
-    /// `block` elements along this axis reads a receptive field of
-    /// `(block - 1) * stride + kernel` input elements -- forward and exact.
-    /// Padding shifts the window's origin, not its size, so it does not appear
-    /// in that extent: an interior tile touches no padding at all.
-    window: Option<(Ident, Option<Ident>, Ident, Ident)>,
+    /// `stride`, `pad` and `kernel` are each the name of a `const {NAME}: i32`
+    /// generic *or* a decimal integer literal; `output` always names a runtime
+    /// parameter. An output tile of `block` elements along this axis reads a
+    /// receptive field of `(block - 1) * stride + kernel` input elements --
+    /// forward and exact. Padding shifts the window's origin, not its size, so
+    /// it does not appear in that extent: an interior tile touches no padding
+    /// at all.
+    ///
+    /// Literals exist for the pad family, which has no stride or kernel const
+    /// to name: padding is a window of `stride = 1, kernel = 1` -- each output
+    /// element reads exactly one input element, at an origin shifted by the
+    /// pad -- giving `(block - 1) * 1 + 1 = block`, the tile's own width
+    /// (teenygrad-1tl.5).
+    window: Option<(String, Option<String>, String, Ident)>,
     /// `true` when this axis is the one the tensor is reduced over, declared
     /// as a bare `#[tile(extent = N, reduce)]` (teenygrad-1tl.8).
     ///
@@ -130,11 +138,11 @@ fn window_tokens(axis: &TileAttrArgs) -> TokenStream2 {
     match &axis.window {
         None => quote! { ::core::option::Option::None },
         Some((stride, pad, kernel, output)) => {
-            let (s, k) = (stride.to_string(), kernel.to_string());
+            let (s, k) = (stride.clone(), kernel.clone());
             let o = output.to_string();
             let p = match pad {
                 Some(pad) => {
-                    let p = pad.to_string();
+                    let p = pad.clone();
                     quote! { ::core::option::Option::Some(#p) }
                 }
                 None => quote! { ::core::option::Option::None },
@@ -210,23 +218,42 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
                         .get_ident()
                         .map(|i| i.to_string())
                         .unwrap_or_default();
-                    let Expr::Path(p) = &nv.value else {
-                        return Err(syn::Error::new_spanned(
-                            &nv.value,
-                            "a `window(...)` value must be a const generic's name",
-                        ));
+                    // `stride`/`pad`/`kernel` take a const generic's name or a
+                    // decimal literal; `output` names a runtime parameter, so
+                    // it stays an identifier.
+                    let named = match &nv.value {
+                        Expr::Path(p) => p.path.get_ident().cloned(),
+                        _ => None,
                     };
-                    let Some(id) = p.path.get_ident().cloned() else {
-                        return Err(syn::Error::new_spanned(
+                    let literal = match &nv.value {
+                        Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Int(i),
+                            ..
+                        }) => Some(i.base10_digits().to_string()),
+                        _ => None,
+                    };
+                    let scalar = || match (&named, &literal) {
+                        (Some(id), _) => Ok(id.to_string()),
+                        (None, Some(lit)) => Ok(lit.clone()),
+                        (None, None) => Err(syn::Error::new_spanned(
                             &nv.value,
-                            "expected one identifier",
-                        ));
+                            "a `window(...)` stride, pad or kernel must be a const \
+                             generic's name or a decimal integer literal",
+                        )),
                     };
                     match key.as_str() {
-                        "stride" => stride = Some(id),
-                        "pad" => pad = Some(id),
-                        "kernel" => kernel = Some(id),
-                        "output" => output = Some(id),
+                        "stride" => stride = Some(scalar()?),
+                        "pad" => pad = Some(scalar()?),
+                        "kernel" => kernel = Some(scalar()?),
+                        "output" => {
+                            output = Some(named.ok_or_else(|| {
+                                syn::Error::new_spanned(
+                                    &nv.value,
+                                    "a `window(...)` `output` must name the output's runtime \
+                                     extent parameter, not a literal",
+                                )
+                            })?)
+                        }
                         other => {
                             return Err(syn::Error::new_spanned(
                                 &nv.path,

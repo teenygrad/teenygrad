@@ -80,6 +80,20 @@ impl<F: Fn(&str) -> Option<usize>> ConstLookup for F {
     }
 }
 
+/// The value a window's `stride`/`pad`/`kernel` field names: a decimal
+/// literal stands for itself, anything else is asked of `consts`.
+///
+/// The pad family has no stride or kernel const to name — padding is a window
+/// of `stride = 1, kernel = 1` — so those fields carry literals, and a
+/// `ConstLookup` built from a kernel's real parameters would never contain a
+/// key called `"1"` (teenygrad-1tl.5).
+fn window_const(name: &str, consts: &impl ConstLookup) -> Option<usize> {
+    match name.parse::<usize>() {
+        Ok(literal) => Some(literal),
+        Err(_) => consts.get(name),
+    }
+}
+
 /// A [`ConstLookup`] that knows nothing, so every axis it is asked about
 /// falls back to its full extent.
 pub struct NoConsts;
@@ -209,8 +223,8 @@ fn resolve_one(
             None => block,
             Some(window) => {
                 let (Some(stride), Some(kernel)) = (
-                    consts.get(window.stride_const),
-                    consts.get(window.kernel_size_const),
+                    window_const(window.stride_const, consts),
+                    window_const(window.kernel_size_const, consts),
                 ) else {
                     continue; // Window consts unavailable: full extent.
                 };
@@ -858,6 +872,115 @@ mod tests {
         spec.validate().expect("must validate");
         assert_eq!(spec.inputs[0].reduction_axis, Some(1));
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
+    }
+
+    /// Padding is a degenerate window, and resolves to the tile's own width
+    /// (teenygrad-1tl.5).
+    ///
+    /// `stride = 1, kernel = 1` gives `(block - 1) * 1 + 1 = block`: each
+    /// output element reads one input element, at an origin shifted by the
+    /// leading pad. The pad family has no stride or kernel const to name, so
+    /// those window fields carry decimal literals, which is why
+    /// `window_const` resolves a literal to itself.
+    ///
+    /// This is the one family where the input region is *not* larger than the
+    /// output tile — the opposite end of the same arithmetic the conv and pool
+    /// rung exercises.
+    #[test]
+    fn test_padding_resolves_to_the_tile_width_as_a_degenerate_window() {
+        use crate::nn::pad::{
+            circular_pad1d::CircularPad1dForward, constant_pad1d::ConstantPad1dForward,
+            constant_pad2d::ConstantPad2dForward, constant_pad3d::ConstantPad3dForward,
+            reflection_pad1d::ReflectionPad1dForward, replication_pad1d::ReplicationPad1dForward,
+        };
+
+        // 1-D: all four families are the same shift, so the same spec.
+        for (name, spec, pad) in [
+            (
+                "constant",
+                ConstantPad1dForward::<f32>::tile_spec(),
+                "PAD_LEFT",
+            ),
+            (
+                "reflection",
+                ReflectionPad1dForward::<f32>::tile_spec(),
+                "PAD_LEFT",
+            ),
+            (
+                "replication",
+                ReplicationPad1dForward::<f32>::tile_spec(),
+                "PAD_LEFT",
+            ),
+            (
+                "circular",
+                CircularPad1dForward::<f32>::tile_spec(),
+                "PAD_LEFT",
+            ),
+        ] {
+            spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
+            let x = spec.inputs[0];
+            assert_eq!(x.axes.len(), 1, "{name}: one spatial axis");
+            let axis = x.axes[0];
+            assert_eq!(axis.extent_param, "L", "{name}: truthful about its extent");
+            assert_eq!(axis.block_const, "BLOCK_OL", "{name}");
+            let w = axis.window.expect("padding declares a window");
+            assert_eq!(
+                (w.stride_const, w.kernel_size_const, w.pad_const),
+                ("1", "1", Some(pad)),
+                "{name}: a window of stride 1, kernel 1"
+            );
+            assert_eq!(w.output_extent_param, "OL", "{name}: resolves against OL");
+
+            // No stride or kernel const exists, so the lookup knows nothing
+            // and the literals alone have to carry it.
+            let inputs = resolve_inputs(&spec, &tile(&[Some(2), Some(3), Some(8)]), &NoConsts)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(
+                inputs[0][2],
+                Some(8),
+                "{name}: (8 - 1) * 1 + 1 = 8, the tile's own width"
+            );
+        }
+
+        // 2-D and 3-D: the innermost axis is blocked, the rest carry block 1,
+        // and each window names its own output axis.
+        let spec = ConstantPad2dForward::<f32>::tile_spec();
+        spec.validate().expect("pad2d must validate");
+        let axes: Vec<(&str, &str, &str)> = spec.inputs[0]
+            .axes
+            .iter()
+            .map(|a| {
+                (
+                    a.extent_param,
+                    a.block_const,
+                    a.window
+                        .expect("every spatial axis is windowed")
+                        .pad_const
+                        .expect("pads always name a pad const"),
+                )
+            })
+            .collect();
+        assert_eq!(axes, vec![("H", "1", "PT"), ("W", "BLOCK_OW", "PL")]);
+
+        let spec = ConstantPad3dForward::<f32>::tile_spec();
+        spec.validate().expect("pad3d must validate");
+        let axes: Vec<(&str, &str)> = spec.inputs[0]
+            .axes
+            .iter()
+            .map(|a| (a.extent_param, a.block_const))
+            .collect();
+        assert_eq!(
+            axes,
+            vec![("Dv", "1"), ("H", "1"), ("W", "BLOCK_OW")],
+            "all three spatial axes windowed, innermost blocked"
+        );
+        let inputs = resolve_inputs(
+            &spec,
+            &tile(&[Some(2), Some(3), Some(1), Some(1), Some(8)]),
+            &NoConsts,
+        )
+        .expect("pad3d resolution");
+        assert_eq!(inputs[0][4], Some(8), "innermost resolves to the block");
     }
 
     /// A real kernel's windowed input resolves to its receptive field
