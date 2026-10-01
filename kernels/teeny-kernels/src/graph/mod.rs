@@ -3087,23 +3087,37 @@ mod conv2d_grid_spec_tests {
         // window, so it leaves `untiled_dims`. It keeps `extent_param = "W"` --
         // its real extent -- with the window naming the output axis (`OW`) whose
         // block it resolves against.
-        assert_eq!(x.axes.len(), 1);
-        assert_eq!(x.axes[0].extent_param, "W");
-        assert_eq!(x.axes[0].block_const, "BLOCK_OW");
-        let w = x.axes[0]
-            .window
-            .expect("the spatial axis declares a window");
+        // Both spatial axes are bindings carrying windows (teenygrad-1tl.7).
+        // They differ in block, not in kind: W's is `BLOCK_OW` because the
+        // body computes a tile of columns, H's is the literal `1` because the
+        // body's `pid` decode yields one scalar `oh` per program instance.
+        // Each still reads a full sliding window of its own input axis, which
+        // is what the spec has to say for the input tile to come out larger
+        // than the output tile.
+        assert_eq!(x.axes.len(), 2);
+
+        let [h, w_axis] = [x.axes[0], x.axes[1]];
+        assert_eq!(h.dims, &[2]);
+        assert_eq!(h.extent_param, "H");
+        assert_eq!(h.block_const, "1");
+        let hw = h.window.expect("the H axis declares a window");
+        assert_eq!(hw.output_extent_param, "OH");
+        assert_eq!(
+            (hw.stride_const, hw.pad_const, hw.kernel_size_const),
+            ("STRIDE_H", Some("PAD_H"), "KH")
+        );
+
+        assert_eq!(w_axis.dims, &[3]);
+        assert_eq!(w_axis.extent_param, "W");
+        assert_eq!(w_axis.block_const, "BLOCK_OW");
+        let w = w_axis.window.expect("the W axis declares a window");
         assert_eq!(w.output_extent_param, "OW");
         assert_eq!(
             (w.stride_const, w.pad_const, w.kernel_size_const),
             ("STRIDE_W", Some("PAD_W"), "KW")
         );
-        // H still declares a window in the signature, but only a *blocked* axis
-        // becomes a `TileAxisBinding`, and conv2d blocks OW alone -- so H's
-        // window is dropped and H stays untiled. A 2-D conv can therefore
-        // express a window on one spatial axis only; lifting that needs either a
-        // second blocked axis (teenygrad-1nr.18.5) or windows on unblocked axes.
-        assert_eq!(x.untiled_dims, &["B", "C_IN", "H"]);
+        // Only the genuinely untiled dims remain: H has left this list.
+        assert_eq!(x.untiled_dims, &["B", "C_IN"]);
 
         assert_eq!(spec.outputs.len(), 1);
         let y = spec.outputs[0];

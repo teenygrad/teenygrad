@@ -48,7 +48,13 @@ pub fn avgpool2d_forward<
     // declared with its own truthful extent and left unresolvable.
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
-    #[tile(extent = H)]
+    // The H axis is windowed with a fixed block of 1: this body's `pid`
+    // decode yields one scalar `oh`, and that one output row reads `KH`
+    // input rows (teenygrad-1tl.7).
+    #[tile(
+        extent = H,
+        window(stride = STRIDE_H, kernel = KH, output = OH)
+    )]
     #[tile(
         block = BLOCK_OW,
         extent = W,

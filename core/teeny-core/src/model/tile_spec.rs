@@ -153,7 +153,22 @@ pub struct TileAxisBinding {
     /// `TileGraph::enumerate_subtiles`'s doc comment).
     pub dims: &'static [usize],
     /// Name of the `const {NAME}: i32` generic providing this axis's tile
-    /// size.
+    /// size, or the decimal literal `"1"` for an axis the kernel steps one
+    /// element at a time.
+    ///
+    /// The literal exists for a windowed axis the kernel does not block: a
+    /// 2-D pool's `pid` decode yields one scalar `oh`, so H has no `BLOCK_OH`
+    /// to name, yet the axis is still read through a `KH`-tall window and that
+    /// window has to hang off a binding to be expressed at all
+    /// (teenygrad-1tl.7). `(1 - 1) * stride + kernel` then gives exactly the
+    /// rows one output row reads.
+    ///
+    /// Nothing parses this name. `resolve_inputs` takes an axis's block from
+    /// the propagated output tile, never from here, so the field describes the
+    /// kernel's own spelling and is what error messages name the axis by. A
+    /// literal here is therefore a statement about the body as written, not a
+    /// block a consumer may choose: tiling such an axis means rewriting that
+    /// `pid` decode.
     pub block_const: &'static str,
     /// Name of the `{NAME}: i32` kernel parameter providing this axis's
     /// total extent. Shared across tensors/ops to mean "the same free
