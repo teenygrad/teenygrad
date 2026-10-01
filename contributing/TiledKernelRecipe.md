@@ -107,7 +107,7 @@ Rules the macro enforces:
 | key | required | meaning |
 |---|---|---|
 | `extent = N` | yes | The `{NAME}: i32` **parameter** the axis's total extent is read from. Propagation is name matching: two axes anywhere declaring the same `extent_param` are the same free variable. |
-| `block = BLOCK_X` | no | The `const {NAME}: i32` giving the tile size. Omitted means an untiled axis — one CTA per index. |
+| `block = BLOCK_X` | no | The `const {NAME}: i32` giving the tile size, **or a decimal integer literal** for an axis the kernel steps one element at a time and so has no `BLOCK_*` const for. Omitted means an untiled axis — one CTA per index, and no binding, so nothing propagates for it. |
 | `name = "C"` | no | The axis's identity for `GridSpec` matching, and the suffix of the index the prelude binds (`tile_c`). Defaults to `extent`'s spelling, so **omit it unless they genuinely differ**. |
 | `dim = X\|Y\|Z` | no | Which hardware grid dimension the axis reads. Defaults to `X`. |
 | `reduce` | no | Bare flag marking the axis this tensor reduces over. At most one per tensor, since `reduction_axis` is a single index. |
@@ -173,6 +173,39 @@ four families differ in where the out-of-range lanes land: masked off
 (constant), mirrored (reflection), clamped (replication) or wrapped
 (circular). That changes which elements are read, not how many, so `block`
 remains a correct upper bound on the footprint.
+
+## A reduced axis, and why it needs no new field
+
+A rank-reducing kernel's input has an axis the output does not: `reduce_sum` is
+`[n_outer, n_inner] → [n_outer]`. Bind the outer axis on both sides, mark the
+inner one `reduce`, and bind nothing to it:
+
+```rust
+#[tile(block = 1, extent = n_outer)]
+#[tile(extent = n_inner, reduce)]
+x_ptr: In<T::Pointer<D>>,
+#[tile(block = 1, extent = n_outer)]
+y_ptr: Out<T::Pointer<D>>,
+```
+
+A 4-row output tile then resolves the input to `[Some(4), None]` — four whole
+input rows. An axis with no binding keeps its full extent, which for a reduced
+axis is the truth rather than a fallback: one output row needs its whole input
+row. `teenygrad-1nr.16` recorded this as inexpressible; it is not.
+
+Two things not to do:
+
+- **Do not bind the reduction's block const.** `BLOCK_INNER` is the load width
+  covering the whole row under a mask, not a tiling of the axis. Binding it
+  claims the axis is chunked when it is read in one piece. Same for GEMM's
+  `BLOCK_K`, whose real role is the loop's chunk and belongs in `#[tile_loop]`.
+- **Do not expect the `ConstLookup` to fill it.** `resolve_inputs` only visits
+  an axis that has a binding, so a reduced axis stays `None` however complete
+  the const table is. A consumer reads `None` as "full extent".
+
+`block = 1` records the kernel's own granularity when there is no const to name
+— one row per program. It is documentation: the block used in resolution comes
+from the propagated output tile, so a multi-row tile still resolves correctly.
 
 ## A windowed axis the kernel does not block
 

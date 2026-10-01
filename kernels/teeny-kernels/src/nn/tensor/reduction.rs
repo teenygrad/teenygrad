@@ -24,7 +24,7 @@
 #![allow(non_snake_case)]
 
 use teeny_core::dtype::{Float, Num};
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
     *,
@@ -117,10 +117,28 @@ macro_rules! impl_reduce_float_runtime_op {
 
 /// Forward: y[row] = sum(x[row, :])
 // ANCHOR: reduce_sum_forward
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -157,10 +175,28 @@ impl_reduce_num_runtime_op!(ReduceSumForward);
 // ── ReduceMean ────────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = mean(x[row, :])
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -197,10 +233,28 @@ impl_reduce_float_runtime_op!(ReduceMeanForward);
 // ── ReduceMax ─────────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = max(x[row, :])
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_max_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -241,10 +295,28 @@ impl_reduce_num_runtime_op!(ReduceMaxForward);
 // ── ReduceMin ─────────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = min(x[row, :])
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_min_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -284,10 +356,28 @@ impl_reduce_num_runtime_op!(ReduceMinForward);
 // ── ReduceL1 ──────────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = sum(|x[row, :]|)
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -322,10 +412,28 @@ impl_reduce_num_runtime_op!(ReduceL1Forward);
 // ── ReduceL2 ──────────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = sqrt(sum(x[row, :]^2))
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -361,10 +469,28 @@ impl_reduce_float_runtime_op!(ReduceL2Forward);
 // ── ReduceSumSquare ───────────────────────────────────────────────────────────
 
 /// Forward: y[row] = sum(x[row, :]^2)
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -399,10 +525,28 @@ impl_reduce_num_runtime_op!(ReduceSumSquareForward);
 // ── ReduceLogSum ──────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = log(sum(x[row, :]))  (numerically unsafe; use ReduceLogSumExp for stable)
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -438,10 +582,28 @@ impl_reduce_float_runtime_op!(ReduceLogSumForward);
 // ── ReduceLogSumExp ───────────────────────────────────────────────────────────
 
 /// Forward: y[row] = log(sum(exp(x[row, :]))) — numerically stable via max subtraction
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -498,10 +660,28 @@ impl_reduce_float_runtime_op!(ReduceLogSumExpForward);
 /// Forward: y[row] = prod(x[row, :])
 /// Note: implemented as exp(sum(log(x))) — only valid for positive x.
 /// For general use this is a placeholder.
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -540,9 +720,24 @@ impl_reduce_float_runtime_op!(ReduceProdForward);
 
 /// Forward: y = cumsum(x, axis=0) over a 1-D block
 /// Each CTA handles one complete row (n_inner elements).
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-*preserving* but sequentially dependent: every output
+// element depends on all preceding ones along the scan axis, so the inner axis
+// cannot be tiled -- and it is untiled on both sides here, which is what the
+// spec says by binding neither. The kernel loads the whole row, scans it and
+// stores the whole row.
+//
+// So this is declarable rather than the recorded route-3 reason the rung
+// expected. Note what the spec does not carry: "untiled" says the axis is not
+// tiled, not *why*. The reason is the prefix dependency, and it lives here.
+//
+// No `reduce` flag -- nothing is reduced; the output has the axis.
 pub fn cum_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner)]
     y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
@@ -609,9 +804,24 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumSumForw
 // ── CumProd ───────────────────────────────────────────────────────────────────
 
 /// Forward: y = cumprod(x, axis=0) over a 1-D block
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-*preserving* but sequentially dependent: every output
+// element depends on all preceding ones along the scan axis, so the inner axis
+// cannot be tiled -- and it is untiled on both sides here, which is what the
+// spec says by binding neither. The kernel loads the whole row, scans it and
+// stores the whole row.
+//
+// So this is declarable rather than the recorded route-3 reason the rung
+// expected. Note what the spec does not carry: "untiled" says the axis is not
+// tiled, not *why*. The reason is the prefix dependency, and it lives here.
+//
+// No `reduce` flag -- nothing is reduced; the output has the axis.
 pub fn cum_prod_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner)]
     y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
@@ -683,10 +893,28 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdFor
 // For a [N, C, H, W] input: n_outer = N * C, n_inner = H * W.
 
 /// Forward: y[row] = mean(x[row, :])  (same as ReduceMean)
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -723,10 +951,28 @@ impl_reduce_float_runtime_op!(GlobalAvgPoolForward);
 // ── GlobalMaxPool ─────────────────────────────────────────────────────────────
 
 /// Forward: y[row] = max(x[row, :])  (same as ReduceMax)
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.9. Rank-reducing: x is [n_outer, n_inner], y is [n_outer].
+// The reduced axis has no counterpart in the output, and that resolves
+// correctly without any new vocabulary -- an axis with no binding keeps its
+// full extent, which here is the truth rather than a fallback: one output row
+// needs its whole input row. Seeding a 4-row output tile gives x a tile of
+// 4 x n_inner.
+//
+// `BLOCK_INNER` is deliberately NOT bound to the inner axis. It is the load
+// width that covers the whole row under a mask, not a tiling of it; binding it
+// would claim the axis is chunked when it is read in one piece. Same reasoning
+// as GEMM's BLOCK_K (teenygrad-1tl.10).
+//
+// `block = 1` on the outer axis records the kernel's own granularity -- one
+// row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
+// name. It is documentation: `resolve_inputs` takes the block from the
+// propagated output tile, so a multi-row tile still resolves correctly.
 pub fn global_max_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
+    #[tile(block = 1, extent = n_outer)]
+    #[tile(extent = n_inner, reduce)]
     x_ptr: In<T::Pointer<D>>,
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where

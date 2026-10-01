@@ -874,6 +874,149 @@ mod tests {
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
     }
 
+    /// A rank-changing reduction resolves with the existing vocabulary
+    /// (teenygrad-1tl.9, settling teenygrad-1nr.16).
+    ///
+    /// `teenygrad-1nr.16` recorded that `TensorTileSpec` "cannot express a
+    /// rank-changing input/output pair", and asked whether the type needed a
+    /// way to relate an input axis to *no* output axis. It does not. The
+    /// reduced axis simply has no binding, and an axis with no binding keeps
+    /// its full extent -- which here is the truth, not a degenerate fallback:
+    /// one output row needs its whole input row.
+    ///
+    /// So a 4-row output tile gives the rank-2 input a tile of `4 x n_inner`,
+    /// and the full-reduction case (`n_outer == 1`) correctly comes back as
+    /// the whole tensor. That is the cost model learning a full reduction
+    /// cannot be tiled on its inner axis, which is useful rather than
+    /// worthless.
+    ///
+    /// Note `n_inner` stays `None` even though the lookup supplies it --
+    /// `resolve_inputs` only visits bound axes, as with GEMM's K. A consumer
+    /// reads `None` as "full extent".
+    #[test]
+    fn test_rank_changing_reductions_resolve_without_a_new_spec_field() {
+        use crate::nn::tensor::reduction::{CumSumForward, ReduceSumForward};
+
+        let spec = ReduceSumForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a rank-changing spec is self-consistent");
+
+        let x = spec.inputs[0];
+        assert_eq!(x.rank, 2, "x is [n_outer, n_inner]");
+        assert_eq!(
+            x.axes
+                .iter()
+                .map(|a| (a.dims, a.extent_param, a.block_const))
+                .collect::<Vec<_>>(),
+            vec![(&[0usize][..], "n_outer", "1")],
+            "only the outer axis is bound; BLOCK_INNER is a load width, not a tiling"
+        );
+        assert_eq!(x.untiled_dims, &["n_inner"]);
+        assert_eq!(
+            x.reduction_axis,
+            Some(1),
+            "the inner axis is the reduced one"
+        );
+
+        let y = spec.outputs[0];
+        assert_eq!(y.rank, 1, "y is [n_outer] -- the rank change");
+        assert_eq!(y.reduction_axis, None);
+
+        let consts = Table::new(&[("n_inner", 1024), ("n_outer", 256)]);
+        let inputs = resolve_inputs(&spec, &tile(&[Some(4)]), &consts)
+            .expect("a rank-1 output tile resolves a rank-2 input");
+        assert_eq!(
+            inputs[0],
+            vec![Some(4), None],
+            "4 output rows need 4 whole input rows"
+        );
+
+        // The full-reduction case: one output row, so the whole tensor.
+        let inputs = resolve_inputs(&spec, &tile(&[Some(1)]), &consts).expect("full reduction");
+        assert_eq!(inputs[0], vec![Some(1), None]);
+
+        // A scan is rank-preserving and its inner axis is untiled on both
+        // sides -- the prefix dependency means it cannot be tiled, and binding
+        // neither side is how the spec says so. Declarable, not route 3.
+        let spec = CumSumForward::<f32>::tile_spec();
+        spec.validate().expect("the scan spec is self-consistent");
+        assert_eq!(spec.inputs[0].rank, 2);
+        assert_eq!(
+            spec.outputs[0].rank, 2,
+            "rank-preserving, unlike the reductions"
+        );
+        assert_eq!(spec.outputs[0].untiled_dims, &["n_inner"]);
+        assert!(
+            spec.inputs[0].reduction_axis.is_none(),
+            "a scan reduces nothing -- the output keeps the axis"
+        );
+        let inputs = resolve_inputs(&spec, &tile(&[Some(4), None]), &consts).expect("scan");
+        assert_eq!(inputs[0], vec![Some(4), None]);
+    }
+
+    /// Every kernel in the reduction family declares the same shape
+    /// (teenygrad-1tl.9).
+    ///
+    /// All fourteen are structurally identical -- one `BLOCK_INNER`,
+    /// `n_inner`/`n_outer`, one program per row -- so a spec that is right for
+    /// one is right for all. The two scans differ only in output rank.
+    #[test]
+    fn test_the_whole_reduction_family_declares_one_shape() {
+        use crate::nn::tensor::reduction::*;
+
+        macro_rules! reducing {
+            ($($t:ty => $n:literal),* $(,)?) => {{
+                let mut v: Vec<(&str, KernelTileSpec)> = Vec::new();
+                $( v.push(($n, <$t>::tile_spec())); )*
+                v
+            }};
+        }
+
+        let specs = reducing! {
+            ReduceSumForward<f32> => "reduce_sum",
+            ReduceMeanForward<f32> => "reduce_mean",
+            ReduceMaxForward<f32> => "reduce_max",
+            ReduceMinForward<f32> => "reduce_min",
+            ReduceProdForward<f32> => "reduce_prod",
+            ReduceL1Forward<f32> => "reduce_l1",
+            ReduceL2Forward<f32> => "reduce_l2",
+            ReduceLogSumForward<f32> => "reduce_log_sum",
+            ReduceLogSumExpForward<f32> => "reduce_log_sum_exp",
+            ReduceSumSquareForward<f32> => "reduce_sum_square",
+            GlobalAvgPoolForward<f32> => "global_avg_pool",
+            GlobalMaxPoolForward<f32> => "global_max_pool",
+        };
+        assert_eq!(specs.len(), 12, "ten reduce_* plus the two global pools");
+
+        for (name, spec) in specs {
+            spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(spec.inputs[0].rank, 2, "{name}");
+            assert_eq!(spec.outputs[0].rank, 1, "{name}: rank-reducing");
+            assert_eq!(
+                spec.inputs[0].reduction_axis,
+                Some(1),
+                "{name}: the inner axis is reduced"
+            );
+            assert_eq!(spec.inputs[0].untiled_dims, &["n_inner"], "{name}");
+            let consts = Table::new(&[("n_inner", 1024), ("n_outer", 256)]);
+            let inputs = resolve_inputs(&spec, &tile(&[Some(8)]), &consts)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(inputs[0], vec![Some(8), None], "{name}");
+        }
+
+        // The global pools are reductions despite the name: they store to a
+        // per-row offset exactly as reduce_sum does.
+        for (name, spec) in [
+            ("global_avg_pool", GlobalAvgPoolForward::<f32>::tile_spec()),
+            ("global_max_pool", GlobalMaxPoolForward::<f32>::tile_spec()),
+        ] {
+            assert_eq!(
+                spec.outputs[0].rank, 1,
+                "{name}: a reduction, not a pool window"
+            );
+        }
+    }
+
     /// Flash attention declares its loop and carries, and nothing else
     /// (teenygrad-1tl.11).
     ///
