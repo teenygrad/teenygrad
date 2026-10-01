@@ -460,6 +460,12 @@ fn parse_ident_array(nv: &MetaNameValue) -> Result<Vec<Ident>, syn::Error> {
 /// mattering, outermost to innermost. Declaration order cannot serve both,
 /// because an axis's `dims` entry comes from its position
 /// (teenygrad-1tl.5).
+///
+/// The list is *the grid axes*, so a subset is meaningful: an axis the body
+/// covers with a loop rather than the grid is simply left out.
+/// `batch_norm_normalize_forward` runs one program per channel and walks `N`
+/// in a `while` loop, so its grid is `[C]` while its output is `[N, C]`
+/// (teenygrad-1tl.8).
 fn parse_tile_grid_order(attrs: &[syn::Attribute]) -> Result<Option<Vec<Ident>>, syn::Error> {
     let Some(attr) = attrs.iter().find(|a| a.path().is_ident("tile_grid")) else {
         return Ok(None);
@@ -2006,18 +2012,28 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                 };
                                 picked.push(found);
                             }
-                            if picked.len() != axes.len() {
-                                return syn::Error::new_spanned(
-                                    &input.sig.ident,
-                                    format!(
-                                        "`#[tile_grid(order = ..)]` lists {} axes but the \
-                                         output declares {} -- every grid axis must appear",
-                                        picked.len(),
-                                        axes.len()
-                                    ),
-                                )
-                                .to_compile_error()
-                                .into();
+                            // A subset is meaningful, not an error: the list is
+                            // *the grid axes*, and an axis the body covers with
+                            // a loop is not one. `batch_norm_normalize_forward`
+                            // runs one program per channel and walks N with a
+                            // `while` loop, so its grid is `[C]` even though
+                            // its output is `[N, C]` (teenygrad-1tl.8).
+                            //
+                            // A repeat is still a bug -- it would duplicate a
+                            // grid axis -- and so is naming an axis the output
+                            // does not have, checked above.
+                            let mut seen: Vec<String> = Vec::new();
+                            for want in order {
+                                let w = want.to_string();
+                                if seen.contains(&w) {
+                                    return syn::Error::new_spanned(
+                                        want,
+                                        format!("`#[tile_grid(order = ..)]` names `{w}` twice"),
+                                    )
+                                    .to_compile_error()
+                                    .into();
+                                }
+                                seen.push(w);
                             }
                             picked
                         }

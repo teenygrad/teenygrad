@@ -295,14 +295,35 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 // so N really is grid-driven, as was done for
 // `batch_norm_2d_nchw_forward_inference` and `nchw_bias_add_forward`; declaring
 // it before then would have to claim something untrue about the grid.
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.8. The second half of BatchNorm: `batch_norm_stats_forward`
+// above reduces N to per-channel statistics, this one streams N back out
+// applying them. So N is *not* reduced here, and it carries no `reduce` flag.
+//
+// It carries no `#[tile_loop]` either, though it does have a `while` loop.
+// That loop accumulates nothing -- each `BLOCK_N` chunk is loaded, scaled and
+// stored independently -- and `#[tile_loop]` describes accumulation loops
+// only, as the macro enforces. An independent walk is a serialised *grid*
+// axis, and the spec says so by leaving N untiled: one program covers the
+// whole column, so its tile is the full N extent by one channel.
+// One program per channel (`c = program_id(Axis::X)`), with N walked by the
+// `while` loop below. So the grid is `[C]` alone, even though the output is
+// `[N, C]` -- without this the generated `grid_spec()` would claim N as a grid
+// axis it never covers.
+#[tile_grid(order = [C])]
 pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(extent = N)]
+    #[tile(extent = C)]
     x_ptr: In<T::Pointer<D>>,
+    #[tile(extent = N)]
+    #[tile(extent = C)]
     y_ptr: Out<T::Pointer<D>>,
-    weight_ptr: In<T::Pointer<D>>,
-    bias_ptr: In<T::Pointer<D>>,
-    mean_ptr: In<T::Pointer<D>>,
-    rstd_ptr: In<T::Pointer<D>>,
+    // Per-channel scalars, broadcast across the N tile -- rank 1, indexed by
+    // `c` alone, as `batch_norm_stats_forward` declares its own outputs.
+    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] mean_ptr: In<T::Pointer<D>>,
+    #[tile(extent = C)] rstd_ptr: In<T::Pointer<D>>,
     N: i32,
     C: i32,
 ) where
