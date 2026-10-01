@@ -241,6 +241,23 @@ pub enum Option<T> {
 
 use Option::*;
 
+// `Option<T>` is `Copy`/`Clone` when `T` is, exactly as in real `core`.
+//
+// This prelude defines its own `#[lang = "Option"]` shim and carried `Copy`
+// impls for `*const T`/`*mut T` only, so `Option<T>: Copy` never resolved for
+// any other `T`. That is what made `Tile`'s `mask: Option<T::BoolTensor>`
+// field non-`Copy` and forced `Tile` to be move-only -- recorded as a teenyc
+// limitation in `tile.rs` and as constraint C2 of teenygrad-1nr.18.3's design
+// analysis. It was neither a teenyc bug nor about trait selection: the impl
+// simply was not here (teenygrad-y8aa).
+impl<T: Copy> Clone for Option<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: Copy> Copy for Option<T> {}
+
 pub const trait Into<T>: Sized {
     /// Converts this type into the (usually inferred) input type.
     fn into(self) -> T;
