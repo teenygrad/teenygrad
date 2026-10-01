@@ -874,6 +874,70 @@ mod tests {
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
     }
 
+    /// BatchNorm's normalize half declares a grid of `[C]`, not `[N, C]`
+    /// (teenygrad-1tl.8).
+    ///
+    /// One program per channel walks the whole N column in a `while` loop. Two
+    /// things follow, and both are easy to get wrong.
+    ///
+    /// Its grid is `[C]` alone. `grid_spec()` is otherwise built from the one
+    /// `Out` parameter's axes, which here would claim N as a grid axis the
+    /// kernel never covers -- `batch_norm_stats_forward` only escapes that by
+    /// having two outputs, which suppresses `grid_spec()` entirely.
+    ///
+    /// And it declares no loop. The `while` loop accumulates nothing, so it is
+    /// not a `TileLoopSpec`: `#[tile_loop]` describes accumulation loops, and
+    /// the macro rejects one without a carry.
+    #[test]
+    fn test_batchnorm_normalize_declares_a_channel_grid_and_no_loop() {
+        use crate::nn::norm::batchnorm::BatchNormNormalizeForward;
+
+        let spec = BatchNormNormalizeForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        assert!(
+            spec.loop_spec.is_none(),
+            "the N walk carries nothing, so it is not an accumulation loop"
+        );
+        assert!(
+            spec.outputs.iter().all(|o| o.reduction_axis.is_none()),
+            "normalize applies the statistics, it does not reduce"
+        );
+
+        let y = spec.outputs[0];
+        assert_eq!(y.param, "y_ptr");
+        assert_eq!(y.rank, 2);
+        assert_eq!(
+            y.untiled_dims,
+            &["N", "C"],
+            "one program covers a whole column, so neither dim is tiled"
+        );
+
+        // The per-channel operands are rank 1, as `batch_norm_stats_forward`
+        // declares its own outputs.
+        let per_channel: Vec<&str> = spec
+            .inputs
+            .iter()
+            .filter(|i| i.rank == 1)
+            .map(|i| i.param)
+            .collect();
+        assert_eq!(
+            per_channel,
+            vec!["weight_ptr", "bias_ptr", "mean_ptr", "rstd_ptr"]
+        );
+
+        // The grid is the point: C only.
+        let grid = BatchNormNormalizeForward::<f32>::grid_spec();
+        let axes: Vec<(&str, Option<&str>)> =
+            grid.axes.iter().map(|a| (a.name, a.block_const)).collect();
+        assert_eq!(
+            axes,
+            vec![("C", None)],
+            "one program per channel, and N is not a grid axis at all"
+        );
+    }
+
     /// A transpose's permuted axes resolve by name alone (teenygrad-1tl.5).
     ///
     /// `transpose_2d_forward` is the first kernel in the tree with *two*
