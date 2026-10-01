@@ -54,6 +54,30 @@ use teeny_triton::triton::{
 /// `k_row` loop below — the recurrence itself (`m_new`/`exp_diff`/`p`/... )
 /// stays exactly as written in the loop body, unchanged.
 #[tiled_kernel]
+// teenygrad-1tl.11. The one kernel whose output is produced by a loop carrying
+// accumulator state: `acc`/`m_i`/`l_i` are body-local `[HEAD_DIM]` tensors
+// updated in place across the `for k_row` loop, never crossing a pointer
+// parameter. That is what `TileLoopSpec`/`TileCarryBinding` exist for.
+//
+// The pointers stay untagged, and that is forced rather than chosen. Every one
+// of these tensors has `BH` as dim 0 -- q/o are `[BH, N_CTX_Q, HEAD_DIM]`, k/v
+// `[BH, N_CTX_K, HEAD_DIM]`, l `[BH, N_CTX_Q]` -- and `BH` is the *grid* extent
+// of `Axis::Y`, supplied in the launch config and never a kernel parameter;
+// the body only ever needs `pid_bh`. `#[tile(extent = ..)]` names a parameter,
+// and dims come from attribute position, so dim 0 cannot be skipped. Adding a
+// `bh: i32` the body never reads would change a device kernel's ABI to carry
+// metadata. So `tile_spec()` here is `loop_spec` and nothing else, which is
+// also the shape the pre-revival design had.
+//
+// What this does *not* mean, absorbed from teenygrad-1nr.12: flash attention is
+// not thereby schedulable. There is no `Op` variant or `TritonLowering` arm, so
+// nothing reaches `TileGraph::from_dag` (teenygrad-1nr.32); the carries never
+// become a `TileEdge`, so the `EdgeId`-keyed cost model cannot see them
+// (teenygrad-1nr.31); and with `for k_row in 0..n_ctx_k` walking one row at a
+// time there is no block-size const for a search to choose. This feeds cost
+// accuracy, not a search.
+#[tile_loop(trip_count = [n_ctx_k])]
+#[tile_carry(acc = [HEAD_DIM], m_i = [HEAD_DIM], l_i = [HEAD_DIM])]
 pub fn flash_attention2_forward<T: Triton, D: Float, const HEAD_DIM: i32>(
     q_ptr: In<T::Pointer<D>>,
     k_ptr: In<T::Pointer<D>>,

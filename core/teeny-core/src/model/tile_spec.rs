@@ -468,6 +468,27 @@ impl KernelTileSpec {
     /// Returns the first [`Error::InvalidTileSpec`] found, naming the
     /// tensor it came from.
     pub fn validate(&self) -> Result<()> {
+        // A *loop-only* spec is the one legitimate exception: no tensors at
+        // all, just `loop_spec`. `flash_attention2_forward` is the case --
+        // every tensor it touches has `BH` as dim 0, and `BH` is the grid
+        // extent of `Axis::Y` rather than a kernel parameter, so no axis can
+        // be named truthfully and the kernel declares its accumulation loop
+        // alone (teenygrad-1tl.11).
+        //
+        // Such a spec is deliberately *not* propagate-ready, and nothing here
+        // pretends otherwise: `resolve_inputs` rejects it with this same
+        // message, which is the right answer because there is no output tile
+        // to resolve against. What this exception buys is that the loop and
+        // its carried shapes are queryable at all; the alternative was an
+        // unused `bh: i32` argument on a device kernel, added purely to carry
+        // metadata.
+        //
+        // The invariant still holds for every spec that describes a tensor: if
+        // there are inputs, there must be an output.
+        let loop_only = self.inputs.is_empty() && self.outputs.is_empty();
+        if loop_only && self.loop_spec.is_some() {
+            return self.validate_loop_spec();
+        }
         if self.outputs.is_empty() {
             return Err(Error::InvalidTileSpec {
                 param: "<kernel>".to_string(),
@@ -480,21 +501,30 @@ impl KernelTileSpec {
             tensor.validate()?;
         }
 
-        if let Some(loop_spec) = self.loop_spec {
-            for carry in loop_spec.carries {
-                if carry.name.is_empty() || carry.shape_consts.is_empty() {
-                    return Err(Error::InvalidTileSpec {
-                        param: "<loop_spec>".to_string(),
-                        problem: format!(
-                            "carry `{}` has an empty name or no shape consts",
-                            carry.name
-                        ),
-                    }
-                    .into());
+        self.validate_loop_spec()
+    }
+
+    /// Checks the declared accumulation loop, if any: every carry needs a
+    /// name and a shape.
+    ///
+    /// Split out so a loop-only spec can be checked on its own — see
+    /// [`Self::validate`]'s exception for one.
+    fn validate_loop_spec(&self) -> Result<()> {
+        let Some(loop_spec) = self.loop_spec else {
+            return Ok(());
+        };
+        for carry in loop_spec.carries {
+            if carry.name.is_empty() || carry.shape_consts.is_empty() {
+                return Err(Error::InvalidTileSpec {
+                    param: "<loop_spec>".to_string(),
+                    problem: format!(
+                        "carry `{}` has an empty name or no shape consts",
+                        carry.name
+                    ),
                 }
+                .into());
             }
         }
-
         Ok(())
     }
 }
@@ -652,6 +682,48 @@ mod tests {
         };
         let msg = alloc::format!("{}", SPEC.validate().expect_err("no outputs"));
         assert!(msg.contains("outputs[0]"), "{msg}");
+    }
+
+    /// A *loop-only* spec is the one exception: no tensors, just a loop.
+    ///
+    /// `flash_attention2_forward` declares one, because every tensor it
+    /// touches has `BH` as dim 0 and `BH` is a grid extent rather than a
+    /// kernel parameter (teenygrad-1tl.11). Note the contrast with
+    /// `test_kernel_spec_with_no_outputs_is_rejected` directly above: the same
+    /// empty tensors *without* a loop are still rejected, so the exception is
+    /// exactly "declares a loop and nothing else", not "outputs are optional".
+    #[test]
+    fn test_loop_only_spec_is_accepted_but_a_bad_carry_in_one_is_not() {
+        const CARRIES: &[TileCarryBinding] = &[TileCarryBinding {
+            name: "acc",
+            shape_consts: &["HEAD_DIM"],
+        }];
+        const SPEC: KernelTileSpec = KernelTileSpec {
+            inputs: &[],
+            outputs: &[],
+            loop_spec: Some(TileLoopSpec {
+                carries: CARRIES,
+                trip_count_factors: &["n_ctx_k"],
+            }),
+        };
+        SPEC.validate()
+            .expect("a loop-only spec is self-consistent");
+
+        // The loop itself is still checked, not waved through.
+        const BAD_CARRIES: &[TileCarryBinding] = &[TileCarryBinding {
+            name: "acc",
+            shape_consts: &[],
+        }];
+        const BAD: KernelTileSpec = KernelTileSpec {
+            inputs: &[],
+            outputs: &[],
+            loop_spec: Some(TileLoopSpec {
+                carries: BAD_CARRIES,
+                trip_count_factors: &["n_ctx_k"],
+            }),
+        };
+        let msg = alloc::format!("{}", BAD.validate().expect_err("empty shape_consts"));
+        assert!(msg.contains("no shape consts"), "{msg}");
     }
 
     #[test]

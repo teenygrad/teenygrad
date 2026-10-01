@@ -1762,6 +1762,30 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                         }
                                     });
                                 }
+                                // A window on an unblocked axis is a binding
+                                // with the literal block 1, exactly as on the
+                                // raw-pointer path below. teenygrad-1tl.7 added
+                                // it there and missed this copy, so the same
+                                // attribute silently meant different things
+                                // depending on whether a kernel took
+                                // `In<Tile<..>>` or a tagged pointer. No
+                                // route-1 kernel declares a window today --
+                                // they are the flat elementwise family -- so
+                                // nothing was mis-specified, but the asymmetry
+                                // was a trap.
+                                None if axis.window.is_some() => {
+                                    let extent_s = axis.extent.to_string();
+                                    let window = window_tokens(axis);
+                                    bindings.push(quote! {
+                                        ::teeny_core::model::TileAxisBinding {
+                                            dims: &[#i],
+                                            block_const: "1",
+                                            extent_param: #extent_s,
+                                            window: #window,
+                                            divide_by: ::core::option::Option::None,
+                                        }
+                                    });
+                                }
                                 None => untiled.push(
                                     axis.name
                                         .as_ref()
@@ -2133,6 +2157,43 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 None => quote! {},
             };
             (tile_spec, grid_spec)
+        } else if tile_loop.is_some() {
+            // A kernel that declares a loop but tags no parameter still gets a
+            // `tile_spec()`, carrying the loop and nothing else.
+            //
+            // `flash_attention2_forward` is the case: every one of its tensors
+            // has `BH` as dim 0, and `BH` is the *grid* extent of `Axis::Y`,
+            // never a kernel parameter -- the body only ever needs `pid_bh`.
+            // `#[tile(extent = ..)]` names a parameter, so no axis of any of
+            // its tensors can be named truthfully, and inventing a `bh: i32`
+            // argument the body never reads would change a device kernel's ABI
+            // to carry metadata. So its pointers stay untagged, which is the
+            // shape the pre-revival design had too (teenygrad-1tl.11).
+            //
+            // Without this arm the loop attributes were silently ignored: they
+            // parsed, compiled, and produced nothing, because `loop_spec` rides
+            // inside `tile_spec()` and `tile_spec()` was only generated when a
+            // parameter was tagged.
+            //
+            // `resolve_inputs` rejects a spec with no outputs, which is the
+            // right answer rather than a problem: there is no output tile to
+            // resolve against, and this kernel is not reachable from the graph
+            // at all yet (no `Op` variant, teenygrad-1nr.32).
+            (
+                quote! {
+                    /// Declarative tile metadata for a kernel that declares an
+                    /// accumulation loop but tags no parameter: `loop_spec`
+                    /// only (teenygrad-1tl.11).
+                    pub fn tile_spec() -> ::teeny_core::model::KernelTileSpec {
+                        ::teeny_core::model::KernelTileSpec {
+                            inputs: &[],
+                            outputs: &[],
+                            loop_spec: #loop_spec_tokens,
+                        }
+                    }
+                },
+                quote! {},
+            )
         } else {
             (quote! {}, quote! {})
         };
