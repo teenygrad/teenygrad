@@ -874,6 +874,62 @@ mod tests {
         assert_eq!(spec.outputs.len(), 1, "inference writes only y");
     }
 
+    /// Flash attention declares its loop and carries, and nothing else
+    /// (teenygrad-1tl.11).
+    ///
+    /// The one kernel whose output is produced by a loop carrying accumulator
+    /// state. `acc`/`m_i`/`l_i` are body-local `[HEAD_DIM]` tensors updated
+    /// across `for k_row in 0..n_ctx_k`, never crossing a pointer parameter,
+    /// which is what `TileLoopSpec`/`TileCarryBinding` are for.
+    ///
+    /// Its pointers are untagged because every tensor has `BH` as dim 0 and
+    /// `BH` is the grid extent of `Axis::Y`, never a kernel parameter -- see
+    /// the comment on the kernel. So the spec is `loop_spec` only, and
+    /// `resolve_inputs` rejects it, which is the correct answer: there is no
+    /// output tile to resolve against.
+    #[test]
+    fn test_flash_attention_declares_its_loop_carries_and_nothing_else() {
+        use crate::nn::attention::flash_attn2::FlashAttention2Forward;
+
+        let spec = FlashAttention2Forward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a loop-only spec must still be self-consistent");
+
+        assert!(
+            spec.inputs.is_empty(),
+            "no tensor axis can be named: BH is a grid extent"
+        );
+        assert!(spec.outputs.is_empty());
+
+        let l = spec.loop_spec.expect("the k_row loop is declared");
+        assert_eq!(
+            l.trip_count_factors,
+            &["n_ctx_k"],
+            "one key row per iteration -- no block-size const to choose"
+        );
+        let carries: Vec<(&str, &[&str])> =
+            l.carries.iter().map(|c| (c.name, c.shape_consts)).collect();
+        assert_eq!(
+            carries,
+            vec![
+                ("acc", &["HEAD_DIM"][..]),
+                ("m_i", &["HEAD_DIM"][..]),
+                ("l_i", &["HEAD_DIM"][..]),
+            ],
+            "online-softmax state, all one shape because Triton requires \
+             every scf.for iter-arg to match"
+        );
+
+        // Resolution has nothing to work with, and says so rather than
+        // inventing an axis.
+        let err = resolve_inputs(&spec, &tile(&[Some(1)]), &NoConsts)
+            .expect_err("a spec with no outputs cannot be resolved");
+        assert!(
+            format!("{err}").contains("declares no outputs"),
+            "unexpected error: {err}"
+        );
+    }
+
     /// The matmul family's operands take *different* tiles, and K is left
     /// unresolved by design (teenygrad-1tl.10).
     ///
