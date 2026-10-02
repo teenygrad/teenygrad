@@ -431,6 +431,17 @@ struct TileLoopArgs {
     /// multiplication of the list produces. Generation needs the expression;
     /// the spec keeps the names (teenygrad-y8aa).
     count: Option<syn::Expr>,
+    /// The loop's own axes, outermost to innermost, from
+    /// `axes = [name = extent, ..]`.
+    ///
+    /// Present, these do two jobs: the product of the extents *is* the trip
+    /// count (so `count` is not needed), and each name is bound inside the
+    /// loop by the generated decode. conv2d writes that decode by hand as
+    /// `kw = idx % KW; kh = idx / KW % KH; c_in_local = idx / (KW * KH)`,
+    /// which is the same innermost-first arithmetic the flat `program_id`
+    /// decode already generates -- Option D of teenygrad-1nr.18.3's analysis,
+    /// placeable now that the loop itself is generated.
+    axes: Vec<(Ident, syn::Expr)>,
     /// `true` when the bare `generate` flag is present: the macro emits the
     /// carry initialisation, the loop around the author's body, and the store
     /// after it.
@@ -630,24 +641,69 @@ fn generated_loop(
         .collect();
     let (in_ident, in_dtype, _) = &tile_in_params[0];
     let (out_ident, _, _) = &tile_out_params[0];
-    let count = l
-        .count
-        .as_ref()
-        .expect("checked in parse_tile_loop_attrs: generate requires count");
+    // `axes` supplies the count as the product of its extents, so a kernel
+    // declaring axes needs no separate `count`. Parenthesised per factor: an
+    // extent is an arbitrary expression and conv2d's is `(C_IN / G)`.
+    let count: TokenStream2 = if l.axes.is_empty() {
+        let c = l
+            .count
+            .as_ref()
+            .expect("checked in parse_tile_loop_attrs: generate requires axes or count");
+        quote! { #c }
+    } else {
+        // Folded, not `#(..)*`-joined: quote's repetition takes no `*`
+        // separator, so an unseparated join would emit `(C_IN / G) (KH) (KW)`
+        // and parse as function calls.
+        l.axes
+            .iter()
+            .map(|(_, e)| quote! { (#e) })
+            .reduce(|acc, f| quote! { #acc * #f })
+            .expect("axes is non-empty, checked when parsed")
+    };
+
+    // Option D: decode the flat loop index into one binding per declared axis,
+    // innermost-first, exactly as the flat `program_id` decode above does for
+    // the grid. conv2d writes this by hand today.
+    let mut decode: Vec<syn::Stmt> = Vec::new();
+    if !l.axes.is_empty() {
+        let rem = format_ident!("__tile_loop_rem");
+        decode.push(
+            syn::parse2(quote! { let mut #rem = __tile_loop_idx; })
+                .expect("generated loop remainder is valid Rust"),
+        );
+        for (pos, (name, extent)) in l.axes.iter().enumerate().rev() {
+            if pos == 0 {
+                // The outermost axis takes whatever is left, so no final
+                // division is emitted -- same as the grid decode.
+                decode.push(
+                    syn::parse2(quote! { let #name = #rem; })
+                        .expect("generated outermost loop index is valid Rust"),
+                );
+            } else {
+                decode.push(
+                    syn::parse2(quote! { let #name = #rem % (#extent); })
+                        .expect("generated loop index is valid Rust"),
+                );
+                decode.push(
+                    syn::parse2(quote! { #rem = #rem / (#extent); })
+                        .expect("generated loop remainder update is valid Rust"),
+                );
+            }
+        }
+    }
 
     let init: syn::Stmt = syn::parse2(quote! {
         let mut #carry = #hw_ident::zeros::<#in_dtype>(&[#(#dims),*]);
     })
     .expect("generated carry initialisation is valid Rust");
 
-    // The author's body, verbatim, as the loop body. The index is named
-    // `__tile_loop_idx` and is deliberately not bound to anything the author
-    // writes: decoding it into per-axis indices is Option D and sequences
-    // after this.
+    // The author's body, verbatim, as the loop body, preceded by the decode so
+    // the axis names are in scope for it.
     let body_stmts: Vec<syn::Stmt> = input.block.stmts.clone();
     let loop_stmt: syn::Stmt = syn::parse2(quote! {
         for __tile_loop_idx in 0..(#count) {
             let _ = __tile_loop_idx;
+            #(#decode)*
             #(#body_stmts)*
         }
     })
@@ -665,6 +721,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
     let mut trip_count: Option<Vec<Ident>> = None;
     let mut carries: Vec<(Ident, Vec<String>)> = Vec::new();
     let mut count: Option<syn::Expr> = None;
+    let mut loop_axes: Vec<(Ident, syn::Expr)> = Vec::new();
     let mut generate = false;
 
     for attr in attrs {
@@ -697,6 +754,48 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                 .map(|i| i.to_string())
                 .unwrap_or_default();
             if is_loop {
+                if key == "axes" {
+                    if !loop_axes.is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &nv.path,
+                            "`axes` declared more than once",
+                        ));
+                    }
+                    let syn::Expr::Array(arr) = &nv.value else {
+                        return Err(syn::Error::new_spanned(
+                            &nv.value,
+                            "`axes` takes a list, e.g. `axes = [c_in = (C_IN / G), kh = KH]`",
+                        ));
+                    };
+                    for e in &arr.elems {
+                        let syn::Expr::Assign(a) = e else {
+                            return Err(syn::Error::new_spanned(
+                                e,
+                                "each `axes` entry is `name = extent`, outermost to innermost",
+                            ));
+                        };
+                        let syn::Expr::Path(np) = &*a.left else {
+                            return Err(syn::Error::new_spanned(
+                                &a.left,
+                                "an axis's name is a single identifier",
+                            ));
+                        };
+                        let name = np.path.get_ident().cloned().ok_or_else(|| {
+                            syn::Error::new_spanned(
+                                &a.left,
+                                "an axis's name is a single identifier",
+                            )
+                        })?;
+                        loop_axes.push((name, (*a.right).clone()));
+                    }
+                    if loop_axes.is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &nv.value,
+                            "`axes` needs at least one entry",
+                        ));
+                    }
+                    continue;
+                }
                 if key == "count" {
                     if count.is_some() {
                         return Err(syn::Error::new_spanned(
@@ -712,7 +811,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                         &nv.path,
                         format!(
                             "unknown `#[tile_loop(...)]` key `{key}` (expected `trip_count`, \
-                             `count`, or the bare flag `generate`)"
+                             `axes`, `count`, or the bare flag `generate`)"
                         ),
                     ));
                 }
@@ -773,19 +872,20 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
         (Some(trip_count), false) => {
             // `generate` needs an evaluable count: `trip_count`'s names cannot
             // produce one, by its own contract (teenygrad-y8aa).
-            if generate && count.is_none() {
+            if generate && count.is_none() && loop_axes.is_empty() {
                 return Err(syn::Error::new_spanned(
                     attrs
                         .iter()
                         .find(|a| a.path().is_ident("tile_loop"))
                         .expect("trip_count is Some, so a #[tile_loop] was seen"),
-                    "`#[tile_loop(generate)]` needs `count = <expr>` as well: `trip_count` is a                      list of names and is documented as not being a formula, so it cannot be                      evaluated -- conv2d's factors are [C_IN, G, KH, KW] but its count is                      (C_IN / G) * KH * KW",
+                    "`#[tile_loop(generate)]` needs either `axes = [name = extent, ..]` or `count = <expr>`: `trip_count` is a list of names and is documented as not being a formula, so it cannot be evaluated -- conv2d's factors are [C_IN, G, KH, KW] but its count is (C_IN / G) * KH * KW. `axes` is preferred: its extents multiply to the count and their names are bound by the generated decode.",
                 ));
             }
             Ok(Some(TileLoopArgs {
                 trip_count,
                 carries,
                 count,
+                axes: loop_axes,
                 generate,
             }))
         }
