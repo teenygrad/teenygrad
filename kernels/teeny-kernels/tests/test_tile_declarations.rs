@@ -50,8 +50,8 @@ use syn::{Item, ItemFn, PatType, Type};
 struct Undeclared {
     kernel: String,
     file: PathBuf,
-    /// Names of the `Tile`-typed parameters carrying neither `#[tile(...)]` nor
-    /// `#[tile_loop_scalar(...)]`.
+    /// Names of the `Tile`-typed parameters carrying none of `#[tile(...)]`,
+    /// `#[tile_loop_scalar(...)]` or `#[tile_loop_tile(...)]`.
     params: Vec<String>,
 }
 
@@ -179,9 +179,11 @@ fn test_every_tile_param_forward_kernel_declares_its_axes() {
                 // and requiring `#[tile(block = .., extent = ..)]` of it would mean
                 // writing something false (teenygrad-y8aa).
                 .filter(|pt| {
-                    !pt.attrs
-                        .iter()
-                        .any(|a| a.path().is_ident("tile") || a.path().is_ident("tile_loop_scalar"))
+                    !pt.attrs.iter().any(|a| {
+                        a.path().is_ident("tile")
+                            || a.path().is_ident("tile_loop_scalar")
+                            || a.path().is_ident("tile_loop_tile")
+                    })
                 })
                 .map(|pt| param_name(pt))
                 .collect();

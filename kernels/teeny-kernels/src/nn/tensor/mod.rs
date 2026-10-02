@@ -314,7 +314,7 @@ mod tests {
             .find("for __tile_loop_idx")
             .expect("the loop is generated");
         let load = src
-            .find("arange(0, 1) + ((kh) * (KW) + (kw))")
+            .find("arange(0, 1) + ((kw) + (kh) * (KW))")
             .unwrap_or_else(|| {
                 panic!("the scalar's offset is the row-major fold of its index list: {src}")
             });
@@ -346,6 +346,136 @@ mod tests {
         let target = teeny_runtime::reference_target();
         let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
             .expect("a per-iteration scalar operand must compile");
+        assert!(!compiled.is_empty(), "compile produced no artifact");
+    }
+
+    /// Probe for a windowed loop-indexed operand -- the second half of
+    /// constraint C1, and the whole of what teenygrad-1nr.18.2 re-scoped into
+    /// teenygrad-y8aa.
+    ///
+    /// Shaped like conv2d's `x`: two plain axes, one *scalar* windowed axis and
+    /// one *blocked* windowed axis, which is every case the conv and pool family
+    /// has. conv2d writes it by hand as
+    ///
+    /// ```text
+    /// let ih       = oh * STRIDE_H + kh - PAD_H;
+    /// let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+    /// let ih_t     = ow_range * 0 + ih;
+    /// let mask     = ow_mask & ih_t.ge(0) & ih_t.lt(H) & iw_range.ge(0) & iw_range.lt(W);
+    /// T::load(x_ptr.add_offsets(iw_range + ((b * C_IN + c_in) * H * W + ih * W)), Some(mask), ..)
+    /// ```
+    ///
+    /// Coordinates are expressions, not names: a windowed coordinate mixes a
+    /// grid index, a loop index and two consts, all of which are in scope where
+    /// the generated read sits. Taking the expression keeps the macro out of
+    /// inferring which loop axis pairs with which window -- ambiguous the moment
+    /// two axes share a kernel const, as a square kernel would.
+    #[tiled_kernel]
+    #[tile_loop(trip_count = [KH, KW], axes = [kh = KH, kw = KW], generate)]
+    #[tile_carry(acc = [BLOCK_N])]
+    pub fn windowed_operand_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+        #[tile_loop_tile(
+            index = [
+                tile_c = C,
+                (tile_oh * STRIDE_H + kh - PAD_H) = H,
+                (__tile_range * STRIDE_W + kw - PAD_W) = W
+            ],
+            bounds = [1, 2]
+        )]
+        x: In<Tile<T, D>>,
+        #[tile(name = "C", extent = C)]
+        #[tile(name = "OH", extent = OH)]
+        #[tile(block = BLOCK_N, extent = OW)]
+        y: Out<Tile<T, D>>,
+        C: i32,
+        H: i32,
+        W: i32,
+        OH: i32,
+        OW: i32,
+        KH: i32,
+        KW: i32,
+        STRIDE_H: i32,
+        STRIDE_W: i32,
+        PAD_H: i32,
+        PAD_W: i32,
+    ) where
+        T::I32Tensor: types::Tensor<i32, 1>,
+        T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+        T::BoolTensor: core::ops::BitAnd<Output = T::BoolTensor>,
+        T::Tensor<D>: core::ops::Add<T::Tensor<D>, Output = T::Tensor<D>>,
+        T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+    {
+        // `x` is this iteration's windowed tile, already masked.
+        acc = acc + x;
+    }
+
+    /// The windowed read is generated inside the loop, with the window
+    /// arithmetic, the boundary mask and the row-major offset conv2d writes by
+    /// hand (teenygrad-y8aa).
+    #[test]
+    fn test_a_windowed_loop_operand_matches_conv2ds_hand_written_read() {
+        let raw = WindowedOperandProbeForward::<f32>::new(128).source;
+        let src: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+
+        let loop_at = src
+            .find("for __tile_loop_idx")
+            .expect("the loop is generated");
+
+        // Row-major offset over [C, H, W] with the windowed coordinates
+        // substituted. Innermost coordinate first, so it reads
+        // `iw + (ih + c * H) * W` -- the same value as conv2d's
+        // `iw_range + ((b * C_IN + c_in) * H * W + ih * W)`, and in the same
+        // order, because only `Tensor + i32` has an impl.
+        let off = src
+            .find(
+                "((__tile_range * STRIDE_W + kw - PAD_W)) + \
+                 (((tile_oh * STRIDE_H + kh - PAD_H)) + (tile_c) * (H)) * (W)",
+            )
+            .unwrap_or_else(|| panic!("row-major offset over the windowed coords: {src}"));
+        assert!(loop_at < off, "the read must be inside the loop");
+
+        // Both windowed axes are bounds-checked, and the scalar one is splatted
+        // through `__tile_range * 0 + ..` -- which conv2d documents as load
+        // bearing, not stylistic: a scalar `if`/`continue` there trips a
+        // compiler phi-node bug.
+        assert!(
+            src.contains("(__tile_range * 0 + ((tile_oh * STRIDE_H + kh - PAD_H)))"),
+            "the scalar windowed coord is splatted: {src}"
+        );
+        assert!(
+            src.contains(".ge(0)") && src.contains(".lt(H)"),
+            "H is bounds-checked: {src}"
+        );
+        assert!(src.contains(".lt(W)"), "W is bounds-checked: {src}");
+
+        // The output tile's own mask is still folded in, as conv2d folds
+        // `ow_mask`.
+        assert!(
+            src.contains("in_bounds &"),
+            "the output tile's mask is part of the read mask: {src}"
+        );
+
+        // A plain axis indexed by a grid index gets no bounds check: it is in
+        // bounds by construction, and conv2d masks only H and W.
+        assert!(
+            !src.contains(".lt(C)"),
+            "a plain axis must not be bounds-checked: {src}"
+        );
+
+        // And the prelude did not load it up front.
+        assert!(
+            !src[..loop_at].contains("x.add_offsets"),
+            "a loop-indexed operand must not also be loaded by the prelude"
+        );
+    }
+
+    /// The windowed-operand probe compiles with the real teenyc.
+    #[test]
+    fn test_the_windowed_operand_probe_compiles() {
+        let kernel = WindowedOperandProbeForward::<f32>::new(128);
+        let target = teeny_runtime::reference_target();
+        let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
+            .expect("a per-iteration windowed operand must compile");
         assert!(!compiled.is_empty(), "compile produced no artifact");
     }
 
