@@ -603,6 +603,7 @@ fn generated_loop(
     hw_ident: &Ident,
     tile_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
     tile_out_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    loop_scalars: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>)],
     input: &ItemFn,
 ) -> Result<(Vec<syn::Stmt>, syn::Stmt, syn::Stmt), syn::Error> {
     let span = input.sig.ident.span();
@@ -699,11 +700,54 @@ fn generated_loop(
 
     // The author's body, verbatim, as the loop body, preceded by the decode so
     // the axis names are in scope for it.
+    // Per-iteration scalar operands, loaded inside the loop and broadcast to the
+    // carry's shape. The broadcast target is the carry rather than a declared
+    // shape because that is what makes the product well-typed: the scalar
+    // multiplies a tile that is accumulated into the carry, so they agree by
+    // construction (teenygrad-y8aa).
+    let mut scalar_loads: Vec<syn::Stmt> = Vec::new();
+    for (name, dtype, axes) in loop_scalars {
+        // Row-major: fold (idx, extent) pairs as `acc * extent + idx`, starting
+        // from the outermost index. The outermost extent never enters the
+        // offset -- it is declared to document the layout and is skipped here,
+        // the same way the prelude's `stride_of` returns None for the innermost
+        // axis.
+        let mut offset = {
+            let (first_idx, _) = &axes[0];
+            quote! { #first_idx }
+        };
+        for (idx, extent) in axes.iter().skip(1) {
+            offset = quote! { (#offset) * (#extent) + (#idx) };
+        }
+        let load_stmt: syn::Stmt = syn::parse2(quote! {
+            let #name = {
+                let __tile_scalar_off = #hw_ident::arange(0, 1) + (#offset);
+                #hw_ident::broadcast_to(
+                    #hw_ident::load(
+                        #name.add_offsets(__tile_scalar_off),
+                        None,
+                        None,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    ),
+                    &[#(#dims),*],
+                )
+            };
+        })
+        .expect("generated scalar operand load is valid Rust");
+        let _ = dtype;
+        scalar_loads.push(load_stmt);
+    }
+
     let body_stmts: Vec<syn::Stmt> = input.block.stmts.clone();
     let loop_stmt: syn::Stmt = syn::parse2(quote! {
         for __tile_loop_idx in 0..(#count) {
             let _ = __tile_loop_idx;
             #(#decode)*
+            #(#scalar_loads)*
             #(#body_stmts)*
         }
     })
@@ -897,7 +941,74 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
 /// attribute macro registered anywhere, so it must not reach the
 /// regenerated device/host signatures this macro emits.
 fn strip_tile_attr(pt: &mut PatType) {
-    pt.attrs.retain(|a| !a.path().is_ident("tile"));
+    pt.attrs
+        .retain(|a| !a.path().is_ident("tile") && !a.path().is_ident("tile_loop_scalar"));
+}
+
+/// Reads a parameter's `#[tile_loop_scalar(index = [name = extent, ..])]`.
+///
+/// Declares an operand read as ONE element per loop iteration at a
+/// loop-dependent flat index, then broadcast -- conv2d's weight, whose whole
+/// per-iteration handling is
+///
+/// ```text
+/// let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
+/// let w_off = T::arange(0, 1) + w_idx;
+/// T::broadcast_to(T::load(w_ptr.add_offsets(w_off), ..), &[BLOCK_OW])
+/// ```
+///
+/// The entries are `(index, extent)` pairs, outermost first, describing the
+/// operand's layout: `[c_out = C_OUT, c_in_local = (C_IN / G), kh = KH,
+/// kw = KW]` for a weight laid out `[C_OUT, C_IN/G, KH, KW]`. The offset is
+/// then the row-major dot product, which is the same stride derivation the
+/// prelude already does for a tile parameter.
+///
+/// An index may name anything in scope inside the loop, which is why this works
+/// at all: `c_out` comes from the grid decode and `c_in_local`/`kh`/`kw` from
+/// the loop decode, and by the time the generated load runs both are bound
+/// (teenygrad-y8aa).
+fn parse_tile_loop_scalar(pt: &PatType) -> Result<Option<Vec<(syn::Expr, syn::Expr)>>, syn::Error> {
+    let Some(attr) = pt
+        .attrs
+        .iter()
+        .find(|a| a.path().is_ident("tile_loop_scalar"))
+    else {
+        return Ok(None);
+    };
+    let inner = attr.parse_args_with(
+        syn::punctuated::Punctuated::<MetaNameValue, Token![,]>::parse_terminated,
+    )?;
+    let mut axes: Vec<(syn::Expr, syn::Expr)> = Vec::new();
+    for nv in &inner {
+        if !nv.path.is_ident("index") {
+            return Err(syn::Error::new_spanned(
+                &nv.path,
+                "unknown `#[tile_loop_scalar(...)]` key (expected `index`)",
+            ));
+        }
+        let Expr::Array(arr) = &nv.value else {
+            return Err(syn::Error::new_spanned(
+                &nv.value,
+                "`index` takes a list, e.g. `index = [c_out = C_OUT, kh = KH, kw = KW]`",
+            ));
+        };
+        for e in &arr.elems {
+            let Expr::Assign(a) = e else {
+                return Err(syn::Error::new_spanned(
+                    e,
+                    "each `index` entry is `index_expr = extent_expr`, outermost first",
+                ));
+            };
+            axes.push(((*a.left).clone(), (*a.right).clone()));
+        }
+    }
+    if axes.is_empty() {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "`#[tile_loop_scalar(index = [..])]` needs at least one entry",
+        ));
+    }
+    Ok(Some(axes))
 }
 
 // ── Macro implementation ──────────────────────────────────────────────────────
@@ -1272,6 +1383,35 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // teenygrad-1nr.18.1: a `Tile` parameter carries one `#[tile(...)]` per
     // real axis, outermost first. One axis is the single-flat-axis case the
     // auto-prelude has always handled; N is the generalization.
+    // teenygrad-y8aa: a `#[tile_loop_scalar]` operand is read once per
+    // iteration at a loop-dependent index, so it must NOT get the prelude's
+    // load-once-up-front treatment. It is collected separately and loaded by
+    // the generated loop instead -- which is constraint C1 for the scalar case.
+    let loop_scalars: Vec<(&Ident, Type, Vec<(syn::Expr, syn::Expr)>)> = {
+        let mut out = Vec::new();
+        for pt in fn_inputs.iter() {
+            let axes = match parse_tile_loop_scalar(pt) {
+                Ok(Some(a)) => a,
+                Ok(None) => continue,
+                Err(e) => return e.to_compile_error().into(),
+            };
+            let Some(dtype) = in_tile_dtype(&pt.ty, &hw_ident) else {
+                return syn::Error::new_spanned(
+                    &pt.ty,
+                    "`#[tile_loop_scalar]` applies to an `In<Tile<..>>` parameter: it replaces \
+                     the prelude's load with a per-iteration one, and only a tile parameter has \
+                     a prelude load to replace (teenygrad-y8aa)",
+                )
+                .to_compile_error()
+                .into();
+            };
+            let Pat::Ident(pi) = &*pt.pat else { continue };
+            out.push((&pi.ident, dtype, axes));
+        }
+        out
+    };
+    let is_loop_scalar = |id: &Ident| loop_scalars.iter().any(|(n, _, _)| *n == id);
+
     let tile_in_params: Vec<(&Ident, Type, &[TileAttrArgs])> = fn_inputs
         .iter()
         .zip(tile_attrs.iter())
@@ -1280,6 +1420,9 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let Pat::Ident(pi) = &*pt.pat else {
                 return None;
             };
+            if is_loop_scalar(&pi.ident) {
+                return None;
+            }
             Some((&pi.ident, dtype, attrs.as_slice()))
         })
         .collect();
@@ -1985,11 +2128,17 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // the loop ends. C3 holds by construction -- the loop is the wrapper.
         match &tile_loop {
             Some(l) if l.generate => {
-                let (init_stmts, loop_stmt, store_stmt) =
-                    match generated_loop(l, &hw_ident, &tile_in_params, &tile_out_params, &input) {
-                        Ok(parts) => parts,
-                        Err(e) => return e.to_compile_error().into(),
-                    };
+                let (init_stmts, loop_stmt, store_stmt) = match generated_loop(
+                    l,
+                    &hw_ident,
+                    &tile_in_params,
+                    &tile_out_params,
+                    &loop_scalars,
+                    &input,
+                ) {
+                    Ok(parts) => parts,
+                    Err(e) => return e.to_compile_error().into(),
+                };
                 stmts.extend(init_stmts);
                 stmts.push(loop_stmt);
                 stmts.push(store_stmt);
