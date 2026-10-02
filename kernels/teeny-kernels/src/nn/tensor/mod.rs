@@ -446,13 +446,26 @@ mod tests {
             .unwrap_or_else(|| panic!("row-major offset over the windowed coords: {src}"));
         assert!(loop_at < off, "the read must be inside the loop");
 
-        // Both windowed axes are bounds-checked, and the scalar one is splatted
-        // through `__tile_range * 0 + ..` -- which conv2d documents as load
-        // bearing, not stylistic: a scalar `if`/`continue` there trips a
-        // compiler phi-node bug.
+        // Each checked coordinate is bound once, then tested -- conv2d binds
+        // `ih` and `iw_range` for the same reason.
+        //
+        // The scalar one is splatted through `__tile_range * 0 + ..`, which
+        // conv2d documents as load bearing rather than stylistic: a scalar
+        // `if`/`continue` there trips a compiler phi-node bug. The *vector*
+        // one is not splatted, because it is already a tensor -- splatting it
+        // would cost a multiply and an add per check for nothing, and conv2d
+        // splats only its scalar.
         assert!(
-            src.contains("(__tile_range * 0 + ((tile_oh * STRIDE_H + kh - PAD_H)))"),
-            "the scalar windowed coord is splatted: {src}"
+            src.contains("__tile_coord_1 = __tile_range * 0 + ((tile_oh * STRIDE_H + kh - PAD_H))"),
+            "the scalar windowed coord is bound and splatted: {src}"
+        );
+        assert!(
+            src.contains("__tile_coord_2 = (__tile_range * STRIDE_W + kw - PAD_W)"),
+            "the vector windowed coord is bound and NOT splatted: {src}"
+        );
+        assert!(
+            src.contains("__tile_coord_1.ge(0) & __tile_coord_1.lt(H)"),
+            "the bound coordinate is what gets tested, not a re-spelled copy: {src}"
         );
         assert!(
             src.contains(".ge(0)") && src.contains(".lt(H)"),
