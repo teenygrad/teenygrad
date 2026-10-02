@@ -260,6 +260,95 @@ mod tests {
         assert!(!compiled.is_empty(), "compile produced no artifact");
     }
 
+    /// Probe for a scalar loop-indexed operand -- the first half of constraint
+    /// C1 (teenygrad-y8aa).
+    ///
+    /// Shaped like conv2d's weight, whose whole per-iteration handling is
+    ///
+    /// ```text
+    /// let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
+    /// let w_off = T::arange(0, 1) + w_idx;
+    /// T::broadcast_to(T::load(w_ptr.add_offsets(w_off), ..), &[BLOCK_OW])
+    /// ```
+    ///
+    /// `w` is an `In<Tile<..>>` but is deliberately NOT loaded by the prelude:
+    /// its address depends on the loop index, which is exactly what the
+    /// load-once-up-front prelude cannot express. The generated loop loads it
+    /// per iteration instead.
+    ///
+    /// Note the index list mixes origins -- `kh` and `kw` come from the loop
+    /// decode, and a grid-derived index would sit alongside them. Both are in
+    /// scope by the time the generated load runs, which is why one list works.
+    #[tiled_kernel]
+    #[tile_loop(trip_count = [KH, KW], axes = [kh = KH, kw = KW], generate)]
+    #[tile_carry(acc = [BLOCK_N])]
+    pub fn scalar_operand_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+        #[tile(block = BLOCK_N, extent = n_elements)] x: In<Tile<T, D>>,
+        #[tile_loop_scalar(index = [kh = KH, kw = KW])] w: In<Tile<T, D>>,
+        #[tile(block = BLOCK_N, extent = n_elements)] y: Out<Tile<T, D>>,
+        n_elements: i32,
+        KH: i32,
+        KW: i32,
+    ) where
+        T::I32Tensor: types::Tensor<i32, 1>,
+        T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+        T::Tensor<D>: core::ops::Add<T::Tensor<D>, Output = T::Tensor<D>>,
+        T::Tensor<D>: core::ops::Mul<T::Tensor<D>, Output = T::Tensor<D>>,
+        T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+    {
+        // `w` is the broadcast scalar for this iteration; `x.tensor` is loaded
+        // once by the prelude, since its address does not depend on the loop.
+        acc = acc + x.tensor * w;
+    }
+
+    /// The scalar operand is loaded inside the loop, at a row-major offset, and
+    /// broadcast to the carry's shape (teenygrad-y8aa).
+    #[test]
+    fn test_a_scalar_loop_operand_is_loaded_per_iteration() {
+        // The emitted source is pretty-printed and line-wrapped, so compare on
+        // whitespace-collapsed text rather than literal substrings.
+        let raw = ScalarOperandProbeForward::<f32>::new(128).source;
+        let src: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+
+        let loop_at = src
+            .find("for __tile_loop_idx")
+            .expect("the loop is generated");
+        let load = src
+            .find("arange(0, 1) + ((kh) * (KW) + (kw))")
+            .unwrap_or_else(|| {
+                panic!("the scalar's offset is the row-major fold of its index list: {src}")
+            });
+        assert!(
+            loop_at < load,
+            "a loop-indexed operand must be loaded INSIDE the loop, not by the \
+             prelude: that is the whole of constraint C1"
+        );
+
+        // Broadcast to the carry's shape, so the product with the data tile is
+        // well-typed by construction.
+        assert!(
+            src.contains("broadcast_to"),
+            "the scalar is broadcast: {src}"
+        );
+
+        // And the prelude did not also load it up front.
+        let prelude = &src[..loop_at];
+        assert!(
+            !prelude.contains("w.add_offsets"),
+            "the prelude must skip a `#[tile_loop_scalar]` parameter: {prelude}"
+        );
+    }
+
+    /// The scalar-operand probe compiles with the real teenyc.
+    #[test]
+    fn test_the_scalar_operand_probe_compiles() {
+        let kernel = ScalarOperandProbeForward::<f32>::new(128);
+        let target = teeny_runtime::reference_target();
+        let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
+            .expect("a per-iteration scalar operand must compile");
+        assert!(!compiled.is_empty(), "compile produced no artifact");
+    }
+
     /// Two declared axes give a fixed-rank spec with one binding per
     /// *blocked* axis -- the untiled one is named in `untiled_dims`, the
     /// same shape the raw-pointer path produces. Contrast the single-axis
