@@ -908,10 +908,16 @@ mod tests {
                 .iter()
                 .map(|a| (a.dims, a.extent_param, a.block_const))
                 .collect::<Vec<_>>(),
-            vec![(&[0usize][..], "n_outer", "1")],
+            vec![
+                (&[0usize][..], "n_outer", "1"),
+                (&[1usize][..], "n_inner", "BLOCK_INNER"),
+            ],
             "only the outer axis is bound; BLOCK_INNER is a load width, not a tiling"
         );
-        assert_eq!(x.untiled_dims, &["n_inner"]);
+        assert!(
+            x.untiled_dims.is_empty(),
+            "the reduced axis is a binding now, so it has left untiled_dims"
+        );
         assert_eq!(
             x.reduction_axis,
             Some(1),
@@ -927,13 +933,15 @@ mod tests {
             .expect("a rank-1 output tile resolves a rank-2 input");
         assert_eq!(
             inputs[0],
-            vec![Some(4), None],
-            "4 output rows need 4 whole input rows"
+            vec![Some(4), Some(1024)],
+            "4 output rows need 4 whole input rows -- `Some(1024)` rather than \
+             `None` because route 1 binds the reduced axis, so resolution visits \
+             it and the const fallback gives its full extent (teenygrad-29qp)"
         );
 
         // The full-reduction case: one output row, so the whole tensor.
         let inputs = resolve_inputs(&spec, &tile(&[Some(1)]), &consts).expect("full reduction");
-        assert_eq!(inputs[0], vec![Some(1), None]);
+        assert_eq!(inputs[0], vec![Some(1), Some(1024)]);
 
         // A scan is rank-preserving and its inner axis is untiled on both
         // sides -- the prefix dependency means it cannot be tiled, and binding
@@ -997,11 +1005,20 @@ mod tests {
                 Some(1),
                 "{name}: the inner axis is reduced"
             );
-            assert_eq!(spec.inputs[0].untiled_dims, &["n_inner"], "{name}");
+            assert!(
+                spec.inputs[0].untiled_dims.is_empty(),
+                "{name}: the reduced axis is bound under route 1"
+            );
             let consts = Table::new(&[("n_inner", 1024), ("n_outer", 256)]);
             let inputs = resolve_inputs(&spec, &tile(&[Some(8)]), &consts)
                 .unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(inputs[0], vec![Some(8), None], "{name}");
+            // `Some(1024)`, not `None`: with the reduced axis bound under
+            // route 1, `resolve_inputs` VISITS it and the const fallback
+            // supplies its full extent. Both mean the whole axis, but the
+            // explicit form is what a consumer now sees -- the inverse of
+            // GEMM's K, which stays unbound and therefore unvisited
+            // (teenygrad-29qp).
+            assert_eq!(inputs[0], vec![Some(8), Some(1024)], "{name}");
         }
 
         // The global pools are reductions despite the name: they store to a

@@ -1028,6 +1028,24 @@ save(f"{d}/expected_reduce_sum_square.bin", (x_red ** 2).sum(dim=-1))
 save(f"{d}/expected_global_avg_pool.bin",   x_red.mean(dim=-1))
 save(f"{d}/expected_global_max_pool.bin",   x_red.max(dim=-1).values)
 
+# PARTIAL INNER TILE (teenygrad-29qp). Every case above uses INNER_R == 64 ==
+# BLOCK_INNER, so no lane of the loaded block is ever masked and the fill value
+# for masked lanes is never exercised. That matters: a reduction reads its axis
+# at the block width and masks to the extent, so with a partial tile the masked
+# lanes still take part unless the fill is the reduction's identity -- zero for
+# a sum, -inf for a max, +inf for a min, one for a product.
+#
+# 40 is deliberately not a divisor of 64, so 24 of the 64 lanes are masked.
+OUTER_P, INNER_P = 8, 40
+g_part = torch.Generator().manual_seed(4242)
+x_part = torch.empty(OUTER_P, INNER_P).uniform_(0.5, 2.0, generator=g_part)
+save(f"{d}/x_partial.bin", x_part)
+save(f"{d}/expected_partial_reduce_sum.bin", x_part.sum(dim=-1))
+save(f"{d}/expected_partial_reduce_max.bin", x_part.max(dim=-1).values)
+save(f"{d}/expected_partial_reduce_min.bin", x_part.min(dim=-1).values)
+save(f"{d}/expected_partial_reduce_prod.bin", x_part.prod(dim=-1))
+save(f"{d}/expected_partial_reduce_log_sum_exp.bin", torch.logsumexp(x_part, dim=-1))
+
 # Cumulative ops: output same shape as input
 save(f"{d}/expected_cum_sum.bin",  torch.cumsum(x_red, dim=-1))
 save(f"{d}/expected_cum_prod.bin", torch.cumprod(x_red, dim=-1))

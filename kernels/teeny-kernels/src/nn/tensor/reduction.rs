@@ -136,9 +136,9 @@ macro_rules! impl_reduce_float_runtime_op {
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -146,26 +146,16 @@ pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    // The reduced axis's range, its mask and the row offset are all generated
+    // (teenygrad-29qp); this is the reduction itself and the store.
+    T::store(
+        y.tensor,
+        T::sum(x.tensor, Some(0), true),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let sum = T::sum(x, Some(0), true); // [1] or scalar
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), sum, None, &[], None, None);
 }
 
 // ANCHOR_END: reduce_sum_forward
@@ -194,9 +184,9 @@ impl_reduce_num_runtime_op!(ReduceSumForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -204,28 +194,15 @@ pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    T::store(
+        y.tensor,
+        T::sum(x.tensor, Some(0), true)
+            / T::cast::<i32, D>(T::full::<i32>(&[1], n_inner), None, false),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let sum = T::sum(x, Some(0), true);
-    let n_f = T::cast::<i32, D>(T::full::<i32>(&[1], n_inner), None, false);
-    let mean = sum / n_f;
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), mean, None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(ReduceMeanForward);
@@ -252,9 +229,9 @@ impl_reduce_float_runtime_op!(ReduceMeanForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_max_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = neg_inf)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -262,32 +239,14 @@ pub fn reduce_max_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    // Load with a very small fill value for masked lanes
-    let neg_inf = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32),
+    T::store(
+        y.tensor,
+        T::max(x.tensor, Some(0), true),
         None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(neg_inf),
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let val = T::max(x, Some(0), true);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_num_runtime_op!(ReduceMaxForward);
@@ -314,9 +273,9 @@ impl_reduce_num_runtime_op!(ReduceMaxForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_min_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = pos_inf)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -324,31 +283,14 @@ pub fn reduce_min_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let pos_inf = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_INNER], 3.4028235e38_f32),
+    T::store(
+        y.tensor,
+        T::min(x.tensor, Some(0), true),
         None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(pos_inf),
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let val = T::min(x, Some(0), true);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_num_runtime_op!(ReduceMinForward);
@@ -375,9 +317,9 @@ impl_reduce_num_runtime_op!(ReduceMinForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -385,26 +327,14 @@ pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    T::store(
+        y.tensor,
+        T::sum(T::abs(x.tensor), Some(0), true),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let val = T::sum(T::abs(x), Some(0), true);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_num_runtime_op!(ReduceL1Forward);
@@ -431,9 +361,9 @@ impl_reduce_num_runtime_op!(ReduceL1Forward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -441,27 +371,14 @@ pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    T::store(
+        y.tensor,
+        T::sqrt(T::sum(x.tensor * x.tensor, Some(0), true)),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let sum_sq = T::sum(x * x, Some(0), true);
-    let val = T::sqrt(sum_sq);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(ReduceL2Forward);
@@ -488,9 +405,9 @@ impl_reduce_float_runtime_op!(ReduceL2Forward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -498,26 +415,14 @@ pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    T::store(
+        y.tensor,
+        T::sum(x.tensor * x.tensor, Some(0), true),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let val = T::sum(x * x, Some(0), true);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_num_runtime_op!(ReduceSumSquareForward);
@@ -544,9 +449,9 @@ impl_reduce_num_runtime_op!(ReduceSumSquareForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -554,27 +459,14 @@ pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    T::store(
+        y.tensor,
+        T::log(T::sum(x.tensor, Some(0), true)),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let sum = T::sum(x, Some(0), true);
-    let val = T::log(sum);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(ReduceLogSumForward);
@@ -601,9 +493,9 @@ impl_reduce_float_runtime_op!(ReduceLogSumForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = neg_inf)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -611,46 +503,17 @@ pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let neg_inf = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32),
-        None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(neg_inf),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    // Numerically stable: log(sum(exp(x))) = m + log(sum(exp(x - m)))
-    // where m = max(x)
-    let m = T::max(x, Some(0), true); // [1]
-    let fill = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], 0.0_f32), None, false);
-    let x_adj = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let sum_exp = T::sum(T::exp(x_adj - m), Some(0), true);
-    let val = m + T::log(sum_exp);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
+    // One load, read twice -- possible since `Tile` became `Copy`
+    // (teenygrad-y8aa). The hand-written form loaded the row twice, the second
+    // time with a 0.0 fill, which made a masked lane contribute `exp(0 - m)`
+    // to the sum rather than nothing. With a single `-inf`-filled load a masked
+    // lane gives `exp(-inf - m) == 0`, which is what the reduction wants. The
+    // difference is invisible to the existing tests, whose `n_inner` equals
+    // `BLOCK_INNER` -- see the partial-tile test added for exactly this
+    // (teenygrad-29qp).
+    let m = T::max(x.tensor, Some(0), true);
+    let sum_exp = T::sum(T::exp(x.tensor - m), Some(0), true);
+    T::store(y.tensor, m + T::log(sum_exp), None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(ReduceLogSumExpForward);
@@ -679,9 +542,9 @@ impl_reduce_float_runtime_op!(ReduceLogSumExpForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = one)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -689,29 +552,14 @@ pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    // Fill with 1.0 for masked-off lanes so they don't affect the product.
-    let one_fill = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], 1.0_f32), None, false);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(one_fill),
+    T::store(
+        y.tensor,
+        T::exp(T::sum(T::log(x.tensor), Some(0), true)),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    // exp(sum(log(x))) approximates product for positive x.
-    let val = T::exp(T::sum(T::log(x), Some(0), true));
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(ReduceProdForward);
@@ -912,9 +760,9 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdFor
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -922,28 +770,15 @@ pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(T::zeros::<D>(&[BLOCK_INNER])),
+    T::store(
+        y.tensor,
+        T::sum(x.tensor, Some(0), true)
+            / T::cast::<i32, D>(T::full::<i32>(&[1], n_inner), None, false),
+        None,
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let sum = T::sum(x, Some(0), true);
-    let n_f = T::cast::<i32, D>(T::full::<i32>(&[1], n_inner), None, false);
-    let mean = sum / n_f;
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), mean, None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(GlobalAvgPoolForward);
@@ -970,9 +805,9 @@ impl_reduce_float_runtime_op!(GlobalAvgPoolForward);
 // propagated output tile, so a multi-row tile still resolves correctly.
 pub fn global_max_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = neg_inf)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -980,31 +815,14 @@ pub fn global_max_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    if row >= n_outer {
-        return;
-    }
-    let col_offsets = T::arange(0, BLOCK_INNER);
-    let offsets = col_offsets + row * n_inner;
-    let mask = col_offsets.lt(n_inner);
-    let neg_inf = T::cast::<f32, D>(
-        T::full::<f32>(&[BLOCK_INNER], -3.4028235e38_f32),
+    T::store(
+        y.tensor,
+        T::max(x.tensor, Some(0), true),
         None,
-        false,
-    );
-    let x = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(neg_inf),
         &[],
         None,
         None,
-        None,
-        false,
     );
-    let val = T::max(x, Some(0), true);
-    let row_offsets = T::arange(0, 1) + row;
-    T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }
 
 impl_reduce_float_runtime_op!(GlobalMaxPoolForward);

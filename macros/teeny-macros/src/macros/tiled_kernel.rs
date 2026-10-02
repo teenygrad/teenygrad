@@ -139,6 +139,17 @@ struct TileAttrArgs {
     /// pad -- giving `(block - 1) * 1 + 1 = block`, the tile's own width
     /// (teenygrad-1tl.5).
     window: Option<(String, Option<String>, String, Ident)>,
+    /// Fill value for masked lanes of a reduced axis's load, from
+    /// `fill = zeros|neg_inf|pos_inf|one`; `None` means zeros.
+    ///
+    /// Load-bearing, not cosmetic. A reduced axis is read at its block width
+    /// and masked to its extent, so when the extent does not fill the block the
+    /// masked lanes still take part in the reduction. Zeros are right for a sum
+    /// and wrong for everything else: `reduce_max` fills negative infinity,
+    /// `reduce_min` positive infinity, and `reduce_prod` one -- each written by
+    /// hand today. Note the reduction tests use `n_inner == BLOCK_INNER`, so a
+    /// wrong fill is invisible to them (teenygrad-29qp).
+    fill: Option<Ident>,
     /// `true` when this axis is the one the tensor is reduced over, declared
     /// as a bare `#[tile(extent = N, reduce)]` (teenygrad-1tl.8).
     ///
@@ -208,6 +219,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
     let parsed =
         Punctuated::<syn::Meta, Token![,]>::parse_terminated.parse2(meta_list.tokens.clone())?;
     let mut block = None;
+    let mut fill: Option<Ident> = None;
     let mut extent = None;
     let mut name = None;
     let mut dim = None;
@@ -356,6 +368,18 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
             ));
         };
         match key.as_str() {
+            "fill" => {
+                if !matches!(
+                    id.to_string().as_str(),
+                    "zeros" | "neg_inf" | "pos_inf" | "one"
+                ) {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "`fill` is one of `zeros`, `neg_inf`, `pos_inf`, `one`",
+                    ));
+                }
+                fill = Some(id);
+            }
             "block" => block = Some(id.to_string()),
             "extent" => extent = Some(id),
             "dim" => {
@@ -386,6 +410,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         name,
         dim,
         window,
+        fill,
         reduce,
     })
 }
@@ -847,6 +872,31 @@ fn generated_loop(
     .expect("generated store is valid Rust");
 
     Ok((vec![init], loop_stmt, store_stmt))
+}
+
+/// `true` when this axis is reduced AND the output has no counterpart to it --
+/// which is what "rank-reducing" means, and the only case needing a range of
+/// its own.
+///
+/// softmax and log_softmax also mark a reduced axis, but theirs IS in the
+/// output: they are rank-preserving, so it keeps using the kernel's own range
+/// and nothing about their generated code changes (teenygrad-29qp).
+fn is_rank_reducing(axis: &TileAttrArgs, out_axes: &[TileAttrArgs]) -> bool {
+    axis.reduce && !out_axes.iter().any(|a| a.extent == axis.extent)
+}
+
+/// Binding name for a reduced axis's range, e.g. `__tile_reduce_n_inner`.
+///
+/// Named after the extent rather than a slot so that two inputs reducing the
+/// same axis share one range, and so the generated source reads legibly next to
+/// the hand-written form it replaces (teenygrad-29qp).
+fn reduced_range_ident(extent: &Ident) -> Ident {
+    format_ident!("__tile_reduce_{}", extent.to_string().to_lowercase())
+}
+
+/// Binding name for a reduced axis's boundary mask.
+fn reduced_mask_ident(extent: &Ident) -> Ident {
+    format_ident!("__tile_reduce_mask_{}", extent.to_string().to_lowercase())
 }
 
 fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs>, syn::Error> {
@@ -1831,6 +1881,15 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // (teenygrad-y8aa).
         for (ident, _, other) in prelude_in_params.iter().chain(tile_out_params.iter()) {
             for axis in other.iter() {
+                // A REDUCED axis has no output counterpart by construction --
+                // that is what reduction means -- and must be read in full
+                // rather than broadcast, so neither of the two options this
+                // check offers is right for it. `#[tile(.., reduce)]` already
+                // says which axis it is, and the prelude gives it a range of
+                // its own below (teenygrad-29qp).
+                if axis.reduce {
+                    continue;
+                }
                 let known = first
                     .iter()
                     .any(|a| a.extent == axis.extent && a.block == axis.block && a.dim == axis.dim);
@@ -1920,6 +1979,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 .into();
             }
             vec![TileAttrArgs {
+                fill: None,
                 block: Some(block_size.ident.to_string()),
                 extent: format_ident!("n_elements"),
                 name: None,
@@ -2032,7 +2092,17 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // form is churn avoidance, not a correctness requirement; fold the
         // two paths together whenever re-recording those snapshots is
         // worth it.
-        let mut stmts: Vec<syn::Stmt> = if axes.len() == 1 {
+        // A reduced axis forces the general decode even when the output has a
+        // single axis. The single-axis path binds `offsets` and never
+        // `__tile_range`, which `param_offsets` needs for an input that
+        // declares MORE axes than the output -- and a rank-reducing kernel is
+        // the first case where that happens: reduce_sum's output is
+        // `[n_outer]` while its input is `[n_outer, n_inner]`
+        // (teenygrad-29qp).
+        let any_reduced = prelude_in_params
+            .iter()
+            .any(|(_, _, ax)| ax.iter().any(|a| is_rank_reducing(a, tile_out_params[0].2)));
+        let mut stmts: Vec<syn::Stmt> = if axes.len() == 1 && !any_reduced {
             let dim_ident = axes[0].dim.clone().unwrap_or_else(|| format_ident!("X"));
             let extent_ident = &axes[0].extent;
             syn::parse2::<syn::Block>(quote! {{
@@ -2261,7 +2331,16 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let mut scalar_terms: Vec<TokenStream2> = Vec::new();
             for (i, axis) in param_axes.iter().enumerate() {
                 let stride = stride_within(i);
-                if axis.block.is_some() {
+                if is_rank_reducing(axis, tile_out_params[0].2) {
+                    // Its own range, not one of the kernel's: the output has no
+                    // counterpart to this axis, so there is no `__tile_range`
+                    // for it (teenygrad-29qp).
+                    let rng = reduced_range_ident(&axis.extent);
+                    blocked_terms.push(match stride {
+                        Some(stride) => quote! { #rng * (#stride) },
+                        None => quote! { #rng },
+                    });
+                } else if axis.block.is_some() {
                     let slot = blocked_positions
                         .iter()
                         .position(|&k| axes[k].block == axis.block)
@@ -2306,6 +2385,52 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         };
 
+        // A reduced axis gets a range of its own: `arange(0, BLOCK)` masked to
+        // its extent, with NO `+ pid * BLOCK`. It is read in full by every
+        // program rather than tiled across them, which is exactly what
+        // reduce_sum writes by hand as `arange(0, BLOCK_INNER)` with
+        // `.lt(n_inner)` (teenygrad-29qp).
+        //
+        // Keyed by extent name so two inputs reducing the same axis share one
+        // binding, and emitted before the loads that use it.
+        let mut reduced_seen: Vec<String> = Vec::new();
+        for (_, _, param_axes) in &prelude_in_params {
+            for axis in param_axes
+                .iter()
+                .filter(|a| is_rank_reducing(a, tile_out_params[0].2))
+            {
+                let key = axis.extent.to_string();
+                if reduced_seen.contains(&key) {
+                    continue;
+                }
+                reduced_seen.push(key.clone());
+                let rng = reduced_range_ident(&axis.extent);
+                let msk = reduced_mask_ident(&axis.extent);
+                let extent = &axis.extent;
+                let Some(block) = axis.block.as_ref() else {
+                    return syn::Error::new_spanned(
+                        &axis.extent,
+                        "a reduced axis on a `Tile` parameter needs `block = ..`: the prelude \
+                         generates its read, and the block is the width it loads. Route 2 can \
+                         leave it off because the body writes its own load (teenygrad-29qp)",
+                    )
+                    .to_compile_error()
+                    .into();
+                };
+                let block: TokenStream2 = block
+                    .parse()
+                    .expect("a block is an identifier or an integer literal");
+                stmts.push(
+                    syn::parse2(quote! { let #rng = #hw_ident::arange(0, #block); })
+                        .expect("generated reduced-axis range is valid Rust"),
+                );
+                stmts.push(
+                    syn::parse2(quote! { let #msk = #rng.lt(#extent); })
+                        .expect("generated reduced-axis mask is valid Rust"),
+                );
+            }
+        }
+
         for (ident, dtype, param_axes) in &prelude_in_params {
             let (offsets_expr, broadcast) = param_offsets(param_axes);
             // A broadcast operand has nothing to mask: it is one element,
@@ -2316,16 +2441,68 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             // prelude is spliced into the kernel body, which is re-emitted
             // as device source and compiled by teenyc without a reachable
             // `::core`.
+            // A reduced axis's mask joins the output tile's: the lanes that
+            // are live are those in bounds on BOTH.
+            let reduced_masks: Vec<TokenStream2> = param_axes
+                .iter()
+                .filter(|a| is_rank_reducing(a, tile_out_params[0].2))
+                .map(|a| {
+                    let m = reduced_mask_ident(&a.extent);
+                    quote! { #m }
+                })
+                .collect();
             let load_mask = if broadcast {
                 quote! { None }
-            } else {
+            } else if reduced_masks.is_empty() {
                 quote! { Some(in_bounds) }
+            } else {
+                // `in_bounds` is the output's, and for a rank-reducing kernel
+                // the output has no counterpart to this axis, so the reduced
+                // mask is what actually bounds the read.
+                let folded = reduced_masks
+                    .into_iter()
+                    .reduce(|a, b| quote! { #a & #b })
+                    .expect("non-empty, just checked");
+                quote! { Some(#folded) }
+            };
+            // The fill for masked lanes, from the reduced axis's `fill = ..`.
+            // Zeros unless stated, which is what every unreduced load used
+            // before and is right for a sum; max/min/prod need otherwise and
+            // say so (teenygrad-29qp).
+            let fill_tokens = {
+                let reduced_fill = param_axes
+                    .iter()
+                    .find(|a| is_rank_reducing(a, tile_out_params[0].2))
+                    .map(|a| (a.fill.as_ref().map(|f| f.to_string()), a.block.clone()));
+                match reduced_fill {
+                    None => quote! { None },
+                    Some((kind, block)) => {
+                        let block: TokenStream2 = block
+                            .as_deref()
+                            .unwrap_or("1")
+                            .parse()
+                            .expect("a block is an identifier or an integer literal");
+                        let lit = match kind.as_deref() {
+                            Some("neg_inf") => quote! { -3.4028235e38_f32 },
+                            Some("pos_inf") => quote! { 3.4028235e38_f32 },
+                            Some("one") => quote! { 1.0_f32 },
+                            _ => quote! { 0.0_f32 },
+                        };
+                        quote! {
+                            Some(#hw_ident::cast::<f32, #dtype>(
+                                #hw_ident::full::<f32>(&[#block], #lit),
+                                None,
+                                false,
+                            ))
+                        }
+                    }
+                }
             };
             let loaded = quote! {
                 #hw_ident::load(
                     #ident.add_offsets(#offsets_expr),
                     #load_mask,
-                    None,
+                    #fill_tokens,
                     &[],
                     None,
                     None,
