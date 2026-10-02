@@ -18,7 +18,7 @@
 
 use core::ops::BitAnd;
 
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -45,7 +45,21 @@ use teeny_triton::triton::{
 /// Grid: pid = ((b * OH + oh) * num_n_tiles + n_tile) * num_ow_tiles + ow_tile
 ///
 /// Inference-only; no backward pass.
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.12. Tiles output channels as well as spatial columns, so its
+// carry is 2-D -- `[BLOCK_N, BLOCK_OW]` -- and its output declares TWO blocked
+// axes, C_OUT by BLOCK_N and OW by BLOCK_OW.
+//
+// Its grid is not its output's dim order. The body decodes
+// `(b, oh, n_tile, ow_tile)` outermost to innermost, while the output's dims run
+// [B, C_OUT, OH, OW], so the order is stated rather than inferred -- the second
+// real user of that attribute after `transpose_2d_forward`.
+//
+// Metadata only: the batchnorm affine and SiLU sit between the loop and the
+// store -- see the note on `conv2d_bn_silu_forward`.
+#[tile_loop(trip_count = [C_IN, KH, KW])]
+#[tile_carry(acc = [BLOCK_N, BLOCK_OW])]
+#[tile_grid(order = [B, OH, C_OUT, OW])]
 pub fn conv2d_bn_silu_tiled_forward<
     T: Triton,
     const KH: i32,
@@ -57,10 +71,22 @@ pub fn conv2d_bn_silu_tiled_forward<
     const BLOCK_OW: i32,
     const BLOCK_N: i32,
 >(
+    #[tile(name = "B", extent = B)]
+    #[tile(extent = C_IN)]
+    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+    )]
     x_ptr: In<T::Pointer<f32>>,
     w_ptr: In<T::Pointer<f32>>,
     bn_scale_ptr: In<T::Pointer<f32>>,
     bn_shift_ptr: In<T::Pointer<f32>>,
+    #[tile(name = "B", extent = B)]
+    #[tile(block = BLOCK_N, extent = C_OUT)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     y_ptr: Out<T::Pointer<f32>>,
     B: i32,
     C_IN: i32,

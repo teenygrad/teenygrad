@@ -18,7 +18,7 @@
 
 use core::ops::BitAnd;
 
-use teeny_macros::kernel;
+use teeny_macros::{kernel, tiled_kernel};
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison, Tensor},
     *,
@@ -37,7 +37,18 @@ use teeny_triton::triton::{
 /// Grid: `pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile`
 ///
 /// Inference-only; no backward pass.
-#[kernel]
+#[tiled_kernel]
+// teenygrad-1tl.12. Same shape as `conv2d_bias_forward`: the same `pid` decode,
+// the same accumulation loop, the same windowed input. It differs only in its
+// epilogue -- batchnorm's affine then SiLU, instead of a bias add.
+//
+// Metadata only, no `#[tile_loop(generate)]`. The generated form emits the store
+// immediately after the loop, and every kernel in this file has work *between*
+// the two: `bn_scale * acc + bn_shift`, then SiLU. An epilogue hook is a
+// separate piece of work; until it exists these declare their loop rather than
+// have it written for them, exactly as `conv2d_bias_forward` and the norms do.
+#[tile_loop(trip_count = [C_IN, G, KH, KW])]
+#[tile_carry(acc = [BLOCK_OW])]
 pub fn conv2d_bn_silu_forward<
     T: Triton,
     const KH: i32,
@@ -49,10 +60,24 @@ pub fn conv2d_bn_silu_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C_IN)]
+    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
+    #[tile(
+        block = BLOCK_OW,
+        extent = W,
+        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+    )]
     x_ptr: In<T::Pointer<f32>>,
+    // Weights and the two per-channel batchnorm operands stay untagged, as
+    // `conv2d_bias_forward` leaves its own: none is sliced by the output tile.
     w_ptr: In<T::Pointer<f32>>,
     bn_scale_ptr: In<T::Pointer<f32>>,
     bn_shift_ptr: In<T::Pointer<f32>>,
+    #[tile(name = "B", extent = _B)]
+    #[tile(extent = C_OUT)]
+    #[tile(extent = OH)]
+    #[tile(block = BLOCK_OW, extent = OW)]
     y_ptr: Out<T::Pointer<f32>>,
     _B: i32,
     C_IN: i32,
