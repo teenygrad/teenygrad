@@ -176,6 +176,90 @@ mod tests {
         assert_eq!(carries, vec![("acc", &["BLOCK_N"][..])]);
     }
 
+    /// Probe for the generated loop-index decode -- Option D of
+    /// teenygrad-1nr.18.3's analysis (teenygrad-y8aa).
+    ///
+    /// Three loop axes, shaped like conv2d's `(C_IN/G, KH, KW)`, so the
+    /// generated arithmetic can be compared against the decode conv2d writes by
+    /// hand:
+    ///
+    /// ```text
+    /// kw = idx % KW;  kh = idx / KW % KH;  c_in_local = idx / (KW * KH)
+    /// ```
+    ///
+    /// The extents are deliberately expressions, not bare consts: conv2d's
+    /// outermost extent is `(C_IN / G)`, which is why an axis takes an
+    /// expression and why the product of the extents can stand in for `count`.
+    #[tiled_kernel]
+    #[tile_loop(
+        trip_count = [C_IN, G, KH, KW],
+        axes = [c_in_local = (C_IN / G), kh = KH, kw = KW],
+        generate
+    )]
+    #[tile_carry(acc = [BLOCK_N])]
+    #[allow(unused_variables)]
+    pub fn loop_decode_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+        #[tile(block = BLOCK_N, extent = n_elements)] x: In<Tile<T, D>>,
+        #[tile(block = BLOCK_N, extent = n_elements)] y: Out<Tile<T, D>>,
+        n_elements: i32,
+        C_IN: i32,
+        G: i32,
+        KH: i32,
+        KW: i32,
+    ) where
+        T::I32Tensor: types::Tensor<i32, 1>,
+        T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+        T::Tensor<D>: core::ops::Add<T::Tensor<D>, Output = T::Tensor<D>>,
+        T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+    {
+        // `c_in_local`, `kh` and `kw` are in scope here, bound by the generated
+        // decode. Using them for addressing is constraint C1 and is not built
+        // yet, so this body only has to prove they exist and are typed.
+        acc = acc + x.tensor;
+    }
+
+    /// The generated decode is the same innermost-first arithmetic conv2d writes
+    /// by hand (teenygrad-y8aa, Option D).
+    #[test]
+    fn test_the_generated_loop_decode_matches_conv2ds_hand_written_one() {
+        let src = LoopDecodeProbeForward::<f32>::new(128).source;
+
+        // Innermost first: kw takes the modulo, then kh, and the outermost
+        // takes what is left with no trailing division -- as the flat
+        // program_id decode does.
+        assert!(
+            src.contains("let kw = __tile_loop_rem % (KW)"),
+            "kw is the innermost axis: {src}"
+        );
+        assert!(
+            src.contains("let kh = __tile_loop_rem % (KH)"),
+            "kh is next: {src}"
+        );
+        assert!(
+            src.contains("let c_in_local = __tile_loop_rem ;")
+                || src.contains("let c_in_local = __tile_loop_rem;"),
+            "the outermost axis takes the remainder, undivided: {src}"
+        );
+
+        // The count is the product of the extents, so no separate `count` was
+        // needed -- and the parenthesised `(C_IN / G)` survives, which is the
+        // reason an extent is an expression.
+        assert!(
+            src.contains("(C_IN / G)"),
+            "an axis extent may be an expression: {src}"
+        );
+    }
+
+    /// The decode probe compiles with the real teenyc, loop axes and all.
+    #[test]
+    fn test_the_loop_decode_probe_compiles() {
+        let kernel = LoopDecodeProbeForward::<f32>::new(128);
+        let target = teeny_runtime::reference_target();
+        let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
+            .expect("a generated loop with a decoded index must compile");
+        assert!(!compiled.is_empty(), "compile produced no artifact");
+    }
+
     /// Two declared axes give a fixed-rank spec with one binding per
     /// *blocked* axis -- the untiled one is named in `untiled_dims`, the
     /// same shape the raw-pointer path produces. Contrast the single-axis
