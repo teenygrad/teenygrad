@@ -49,7 +49,16 @@ use teeny_triton::triton::{
 // `trip_count` is a list of names, not a formula: the real count is
 // `(C_IN / G) * KH * KW`, mixing a runtime param with three consts, and no
 // consumer evaluates it yet.
-#[tile_loop(trip_count = [C_IN, G, KH, KW])]
+// teenygrad-1nr.18.4: the loop is generated now. `axes` names its own axes,
+// whose extents multiply to the trip count `(C_IN / G) * KH * KW` and whose
+// names the generated decode binds -- replacing the four lines of modulo and
+// division this body used to open with. `trip_count` stays as the spec's factor
+// list, which is a list of names and not a formula.
+#[tile_loop(
+    trip_count = [C_IN, G, KH, KW],
+    axes = [c_in_local = (C_IN / G), kh = KH, kw = KW],
+    generate
+)]
 #[tile_carry(acc = [BLOCK_OW])]
 pub fn conv2d_forward<
     T: Triton,
@@ -77,6 +86,14 @@ pub fn conv2d_forward<
     // `(block - 1) * STRIDE + K` input elements: forward and exact. Padding
     // shifts the window's origin, not its size, so it is absent from that
     // extent -- an interior tile touches no padding at all.
+    // `#[tile(..)]` says what `x` IS -- teenygrad-1tl.7's windowed axes,
+    // unchanged -- and `#[tile_loop_tile(..)]` says how to read it per
+    // iteration. Different jobs, so both.
+    //
+    // The C_IN coordinate is written out rather than named because the
+    // generated read runs before this body, so there is no loop-invariant
+    // prologue to hold a `c_in_start`. `(c_out / (C_OUT / G)) * (C_IN / G)` is
+    // what that local used to be.
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_IN)]
     #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
@@ -85,13 +102,29 @@ pub fn conv2d_forward<
         extent = W,
         window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
     )]
-    x_ptr: In<T::Pointer<D>>,
-    w_ptr: In<T::Pointer<D>>,
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            ((tile_c_out / (C_OUT / G)) * (C_IN / G) + c_in_local) = C_IN,
+            (tile_oh * STRIDE_H + kh - PAD_H) = H,
+            (__tile_range * STRIDE_W + kw - PAD_W) = W
+        ],
+        bounds = [2, 3]
+    )]
+    x: In<Tile<T, D>>,
+    // Weight layout [C_OUT, C_IN/G, KH, KW]: one element per iteration,
+    // broadcast. It carries no `#[tile(..)]` because its second extent is
+    // `C_IN / G`, which `extent = <ident>` cannot name -- so it stays out of
+    // the spec, as it did when it was an untagged raw pointer.
+    #[tile_loop_scalar(
+        index = [tile_c_out = C_OUT, c_in_local = (C_IN / G), kh = KH, kw = KW]
+    )]
+    w: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_OUT)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    y_ptr: Out<T::Pointer<D>>,
+    y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -105,90 +138,16 @@ pub fn conv2d_forward<
     T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    // Decode flat pid → (b, c_out, oh, ow_tile).
-    let ow_tile = pid % num_ow_tiles;
-    let bco = pid / num_ow_tiles;
-    let oh = bco % OH;
-    let bc = bco / OH;
-    let c_out = bc % C_OUT;
-    let b = bc / C_OUT;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let out_bc_base = (b * C_OUT + c_out) * OH * OW;
-
-    // Group index for this output channel and its input-channel window.
-    let c_in_per_group = C_IN / G;
-    let g_idx = c_out / (C_OUT / G);
-    let c_in_start = g_idx * c_in_per_group;
-
-    let mut acc = T::zeros::<D>(&[BLOCK_OW]);
-
-    // Flat loop over (C_IN/G) * KH * KW combinations for this group.
-    let loop_bound = c_in_per_group * KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let kh_cin = idx / KW;
-        let kh = kh_cin % KH;
-        let c_in_local = kh_cin / KH; // index within the group
-        let c_in = c_in_start + c_in_local; // absolute input channel
-
-        // Compute padded input coordinates; OOB height rows contribute zero via mask.
-        let ih = oh * STRIDE_H + kh - PAD_H;
-        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
-
-        // `ow_range * 0` is the only way to splat scalar ih into an I32Tensor.
-        // A scalar `if`/`continue` here triggers a compiler phi-node bug.
-        #[allow(clippy::erasing_op)]
-        let ih_t = ow_range * 0 + ih;
-        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
-        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-        let load_mask = ow_mask & h_in_bounds & w_in_bounds;
-
-        let x_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
-        let x_tile = T::load(
-            x_ptr.add_offsets(x_offsets),
-            Some(load_mask),
-            Some(T::zeros::<D>(&[BLOCK_OW])),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-
-        // Weight layout [C_OUT, C_IN/G, KH, KW]: load scalar and broadcast.
-        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
-        let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(
-            w_ptr.add_offsets(w_off),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
-
-        acc = acc + x_tile * w_tile;
-    }
-
-    let out_offsets = ow_range + (out_bc_base + oh * OW);
-    T::store(
-        y_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    // One iteration. Everything else is generated: the grid decode and the
+    // output tile's address by the prelude, and the carry's initialisation,
+    // the loop, its index decode, both operand reads and the final store by
+    // `#[tile_loop(generate)]` (teenygrad-1nr.18.4, completing teenygrad-y8aa).
+    //
+    // What used to be here: a `pid` decode into (b, c_out, oh, ow_tile), the
+    // group arithmetic, `acc`'s zeros, a `for idx` loop with its own four-line
+    // index decode, the windowed coordinate and mask arithmetic for `x`, the
+    // scalar index and broadcast for `w`, and the trailing store.
+    acc = acc + x * w;
 }
 
 /// 2-D convolution backward pass — gradient with respect to input (`dx`).

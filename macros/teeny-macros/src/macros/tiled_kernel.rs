@@ -763,11 +763,35 @@ fn generated_loop(
         // conv2d does it -- its own comment records that a scalar `if`/
         // `continue` there trips a compiler phi-node bug, so the splat is load
         // bearing rather than stylistic.
+        // Each checked coordinate is bound once and then tested, rather than
+        // written twice into `.ge(0)` and `.lt(extent)`. conv2d binds `ih` and
+        // `iw_range` for the same reason -- recomputing a windowed coordinate
+        // per comparison is real work in an inner loop.
+        //
+        // The splat is applied only to a *scalar* coordinate. A coordinate is
+        // already a tensor exactly when it is built from the blocked axis's
+        // range, so that is what is tested for: `__tile_range` is the only
+        // vector the prelude puts in scope. Splatting one that is already a
+        // tensor is harmless but costs a multiply and an add per check, and
+        // conv2d splats only its scalar `ih`.
+        let mut coord_binds: Vec<syn::Stmt> = Vec::new();
         let mut checks: Vec<TokenStream2> = Vec::new();
         for &i in bounds {
             let (coord, extent) = &axes[i];
-            let splat = quote! { (#range_ident * 0 + (#coord)) };
-            checks.push(quote! { #splat.ge(0) & #splat.lt(#extent) });
+            let bind = format_ident!("__tile_coord_{}", i);
+            let is_vector = quote! { #coord }
+                .to_string()
+                .contains(&range_ident.to_string());
+            let value = if is_vector {
+                quote! { #coord }
+            } else {
+                quote! { #range_ident * 0 + (#coord) }
+            };
+            coord_binds.push(
+                syn::parse2(quote! { let #bind = #value; })
+                    .expect("generated coordinate binding is valid Rust"),
+            );
+            checks.push(quote! { #bind.ge(0) & #bind.lt(#extent) });
         }
         let mask = checks
             .into_iter()
@@ -775,6 +799,7 @@ fn generated_loop(
 
         let load_stmt: syn::Stmt = syn::parse2(quote! {
             let #name = {
+                #(#coord_binds)*
                 let __tile_read_mask = #mask;
                 #hw_ident::load(
                     #name.add_offsets(#offset),
@@ -2430,6 +2455,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let extent_str = blocked.extent.to_string();
             let in_param_strs: Vec<String> = tile_in_params
                 .iter()
+                .filter(|(_, _, attrs)| !attrs.is_empty())
                 .map(|(id, _, _)| id.to_string())
                 .collect();
             let out_param_strs: Vec<String> = tile_out_params
@@ -2518,8 +2544,17 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         })
                     };
                 let specs: Result<(Vec<TokenStream2>, Vec<TokenStream2>), syn::Error> = (|| {
+                    // Only *declared* inputs reach the spec. A parameter with no
+                    // `#[tile(..)]` has no axes, so it would come back rank 0 --
+                    // describing nothing. That is conv2d's `w`, whose extents
+                    // include `C_IN / G` and so cannot be named by
+                    // `extent = <ident>` at all; it is read via
+                    // `#[tile_loop_scalar]` and stays out of the spec, exactly
+                    // as it did when it was an untagged raw pointer
+                    // (teenygrad-1nr.18.4).
                     let ins = tile_in_params
                         .iter()
+                        .filter(|(_, _, attrs)| !attrs.is_empty())
                         .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
                         .collect::<Result<Vec<_>, _>>()?;
                     let outs = tile_out_params
@@ -2600,24 +2635,63 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 };
                 tile_spec_tokens
             };
-            // teenygrad-1nr.19: the flat/single-axis case always has exactly
-            // one grid axis (the whole flattened tensor), regardless of the
-            // real tensor's rank -- unlike `tile_spec()` above, no runtime
-            // `rank` argument is needed here.
+            // One grid axis per declared axis of the output, in declaration
+            // order -- the order the prelude's flat decode produces.
+            //
+            // This was hardcoded to a single axis, with the note that "the
+            // flat/single-axis case always has exactly one grid axis (the whole
+            // flattened tensor)". True of teenygrad-1nr.19, when a `Tile`
+            // parameter could declare only one axis; not true since .18.1
+            // generalized the prelude to N, and wrong for the first multi-axis
+            // route-1 kernel to ask -- conv2d, whose grid is
+            // (B, C_OUT, OH, OW) and which reported just OW
+            // (teenygrad-1nr.18.4).
+            //
+            // Nothing caught it because no multi-axis route-1 kernel asserted
+            // its grid: `multi_axis_probe_forward` checks only `tile_spec()`.
+            let grid_axes: Vec<TokenStream2> = tile_out_params[0]
+                .2
+                .iter()
+                .map(|axis| {
+                    let name = axis
+                        .name
+                        .as_ref()
+                        .map(syn::LitStr::value)
+                        .unwrap_or_else(|| axis.extent.to_string());
+                    let extent_s = axis.extent.to_string();
+                    let dim_variant = match axis.dim.as_ref().map(ToString::to_string).as_deref() {
+                        Some("Y") => quote! { ::teeny_core::model::GridDim::Y },
+                        Some("Z") => quote! { ::teeny_core::model::GridDim::Z },
+                        _ => quote! { ::teeny_core::model::GridDim::X },
+                    };
+                    match &axis.block {
+                        Some(b) => quote! {
+                            ::teeny_core::model::GridAxisBinding {
+                                name: #name,
+                                extent_factors: &[#extent_s, #b],
+                                dim: #dim_variant,
+                                block_const: ::core::option::Option::Some(#b),
+                            }
+                        },
+                        None => quote! {
+                            ::teeny_core::model::GridAxisBinding {
+                                name: #name,
+                                extent_factors: &[#extent_s],
+                                dim: #dim_variant,
+                                block_const: ::core::option::Option::None,
+                            }
+                        },
+                    }
+                })
+                .collect();
             let grid_spec = quote! {
                 /// Declarative launch-grid metadata derived from the same
-                /// `#[tile(block=..,extent=..)]` attribute as `tile_spec()`
-                /// (teenygrad-1nr.19).
+                /// `#[tile(block=..,extent=..)]` attributes as `tile_spec()`
+                /// (teenygrad-1nr.19, generalized to N axes in
+                /// teenygrad-1nr.18.4).
                 pub fn grid_spec() -> ::teeny_core::model::GridSpec {
                     ::teeny_core::model::GridSpec {
-                        axes: &[
-                            ::teeny_core::model::GridAxisBinding {
-                                name: #extent_str,
-                                extent_factors: &[#extent_str, #block_str],
-                                dim: ::teeny_core::model::GridDim::X,
-                                block_const: ::core::option::Option::Some(#block_str),
-                            },
-                        ],
+                        axes: &[ #(#grid_axes),* ],
                     }
                 }
             };

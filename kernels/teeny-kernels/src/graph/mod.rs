@@ -3081,7 +3081,7 @@ mod conv2d_grid_spec_tests {
 
         assert_eq!(spec.inputs.len(), 1);
         let x = spec.inputs[0];
-        assert_eq!(x.param, "x_ptr");
+        assert_eq!(x.param, "x");
         assert_eq!(x.rank, 4);
         // teenygrad-1nr.18.2: the W axis is now a real binding carrying a
         // window, so it leaves `untiled_dims`. It keeps `extent_param = "W"` --
@@ -3121,7 +3121,7 @@ mod conv2d_grid_spec_tests {
 
         assert_eq!(spec.outputs.len(), 1);
         let y = spec.outputs[0];
-        assert_eq!(y.param, "y_ptr");
+        assert_eq!(y.param, "y");
         assert_eq!(y.rank, 4);
         assert_eq!(y.untiled_dims, &["B", "C_OUT", "OH"]);
         assert_eq!(y.axes.len(), 1);
