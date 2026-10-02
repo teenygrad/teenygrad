@@ -45,14 +45,32 @@ use super::types::{self as ty};
 /// device/host ABI when used as an `In`/`Out`/`InOut`-wrapped entry
 /// parameter.
 ///
-/// Deliberately no `Clone`/`Copy` impl: `teenyc`'s no_core device
-/// environment doesn't resolve `Option<T::BoolTensor>: Copy` even though
-/// `T::BoolTensor: Copy` holds (teenyc-3af.1's own test fixture defines its
-/// `Tile` with no derives either, move-only). Read `.tensor`/`.mask` once
-/// each and move them onward rather than reusing `tile` itself.
+/// `Copy`, via the hand-written impls below rather than a derive: `derive`
+/// itself does not resolve in the no_core device source, which is why this
+/// file must stay free of it.
+///
+/// This type was move-only until teenygrad-y8aa, on the understanding that
+/// `teenyc`'s no_core environment could not resolve
+/// `Option<T::BoolTensor>: Copy` even though `T::BoolTensor: Copy` holds.
+/// The observation was right and the diagnosis was not: real `core` has
+/// `impl<T: Copy> Copy for Option<T>` and this project's own device prelude
+/// (`llvm/core.rs`) did not, carrying impls for `*const T`/`*mut T` alone.
+/// Nothing about teenyc's trait selection was involved, and no compiler change
+/// was needed -- see that file. Constraint C2 of teenygrad-1nr.18.3's design
+/// analysis cites the old understanding and should be read with this.
 pub struct Tile<T: Triton, D: ty::Dtype> {
     /// The tile's data.
     pub tensor: T::Tensor<D>,
     /// Boundary mask; `None` when every lane is known in-bounds.
     pub mask: Option<T::BoolTensor>,
 }
+
+// Written out rather than derived: `derive` does not resolve in the no_core
+// device source (teenygrad-y8aa).
+impl<T: Triton, D: ty::Dtype> Clone for Tile<T, D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: Triton, D: ty::Dtype> Copy for Tile<T, D> {}
