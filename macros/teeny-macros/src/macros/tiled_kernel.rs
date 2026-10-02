@@ -1633,6 +1633,21 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             || loop_tiles.iter().any(|(n, _, _, _)| *n == id)
     };
 
+    // Two lists, because the exclusion is narrower than it first looks.
+    //
+    // A loop-indexed operand must not get the prelude's load-once-up-front
+    // treatment -- that is constraint C1, and the whole point of
+    // `#[tile_loop_scalar]`/`#[tile_loop_tile]`. But it is still a real input
+    // with real axes, and conv2d's `x` carries `#[tile(.. window(..))]` for the
+    // spec (teenygrad-1tl.7) *alongside* its read declaration. Those are
+    // different jobs: one says what the operand is, the other says how to read
+    // it.
+    //
+    // So `tile_in_params` keeps every input -- it feeds the generated
+    // `tile_spec()`'s input list and `has_explicit_tile_attr` -- and only
+    // `prelude_in_params` drops the loop-indexed ones. Collapsing the two would
+    // silently delete a loop-indexed operand from its kernel's spec, which is
+    // exactly what 1tl.7 spent the effort to put there (teenygrad-y8aa).
     let tile_in_params: Vec<(&Ident, Type, &[TileAttrArgs])> = fn_inputs
         .iter()
         .zip(tile_attrs.iter())
@@ -1641,11 +1656,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let Pat::Ident(pi) = &*pt.pat else {
                 return None;
             };
-            if is_loop_scalar(&pi.ident) {
-                return None;
-            }
             Some((&pi.ident, dtype, attrs.as_slice()))
         })
+        .collect();
+    let prelude_in_params: Vec<(&Ident, Type, &[TileAttrArgs])> = tile_in_params
+        .iter()
+        .filter(|(id, _, _)| !is_loop_scalar(id))
+        .cloned()
         .collect();
     let tile_out_params: Vec<(&Ident, Type, &[TileAttrArgs])> = fn_inputs
         .iter()
@@ -1734,7 +1751,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // otherwise fall back to the pre-existing hardcoded `BLOCK_SIZE`/
     // `n_elements` convention, unchanged. `tile_spec()` (below) is only
     // generated in the explicit case.
-    let all_tile_param_attrs: Vec<&[TileAttrArgs]> = tile_in_params
+    let all_tile_param_attrs: Vec<&[TileAttrArgs]> = prelude_in_params
         .iter()
         .chain(tile_out_params.iter())
         .map(|(_, _, a)| *a)
@@ -1782,7 +1799,12 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             .into();
         };
         let first: &[TileAttrArgs] = first;
-        for (ident, _, other) in tile_in_params.iter().chain(tile_out_params.iter()) {
+        // Loop-indexed operands are excluded: the prelude does not place them,
+        // so an axis of theirs that matches no output axis is not its problem.
+        // conv2d's `x` declares H against the output's OH, related by a window
+        // -- which this very check calls out as not-the-prelude's-business
+        // (teenygrad-y8aa).
+        for (ident, _, other) in prelude_in_params.iter().chain(tile_out_params.iter()) {
             for axis in other.iter() {
                 let known = first
                     .iter()
@@ -2259,7 +2281,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         };
 
-        for (ident, dtype, param_axes) in &tile_in_params {
+        for (ident, dtype, param_axes) in &prelude_in_params {
             let (offsets_expr, broadcast) = param_offsets(param_axes);
             // A broadcast operand has nothing to mask: it is one element,
             // and which lanes of the block are live is the *output's*
@@ -2352,7 +2374,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 let (init_stmts, loop_stmt, store_stmt) = match generated_loop(
                     l,
                     &hw_ident,
-                    &tile_in_params,
+                    &prelude_in_params,
                     &tile_out_params,
                     &loop_scalars,
                     &loop_tiles,

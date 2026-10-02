@@ -374,6 +374,18 @@ mod tests {
     #[tile_loop(trip_count = [KH, KW], axes = [kh = KH, kw = KW], generate)]
     #[tile_carry(acc = [BLOCK_N])]
     pub fn windowed_operand_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+        // BOTH declarations, which is conv2d's shape: `#[tile(..)]` says what
+        // the operand *is* -- and is what teenygrad-1tl.7 put there, windows
+        // included -- while `#[tile_loop_tile(..)]` says how to *read* it.
+        // Different jobs, so the spec keeps the operand and only the prelude
+        // skips it.
+        #[tile(name = "C", extent = C)]
+        #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
+        #[tile(
+            block = BLOCK_N,
+            extent = W,
+            window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+        )]
         #[tile_loop_tile(
             index = [
                 tile_c = C,
@@ -466,6 +478,52 @@ mod tests {
         assert!(
             !src[..loop_at].contains("x.add_offsets"),
             "a loop-indexed operand must not also be loaded by the prelude"
+        );
+    }
+
+    /// A loop-indexed operand stays in the spec while the prelude skips it
+    /// (teenygrad-y8aa).
+    ///
+    /// The two declarations answer different questions, and collapsing them
+    /// would silently delete the operand from its kernel's spec -- which for
+    /// conv2d is exactly the windowed axes teenygrad-1tl.7 spent the effort to
+    /// put there.
+    #[test]
+    fn test_a_loop_indexed_operand_is_still_in_the_spec() {
+        let spec = WindowedOperandProbeForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let x = spec
+            .inputs
+            .iter()
+            .find(|i| i.param == "x")
+            .expect("a loop-indexed operand must still appear among the spec's inputs");
+        assert_eq!(x.rank, 3, "its declared axes are intact");
+
+        // And its windows survived, which is the part that matters: the spec
+        // says the input region is larger than the output tile.
+        let windowed: Vec<(&str, &str)> = x
+            .axes
+            .iter()
+            .filter(|a| a.window.is_some())
+            .map(|a| (a.extent_param, a.block_const))
+            .collect();
+        assert_eq!(
+            windowed,
+            vec![("H", "1"), ("W", "BLOCK_N")],
+            "both windowed axes survive, H with the fixed block of 1"
+        );
+
+        // Meanwhile the prelude did not load it -- the other half of the split.
+        let raw = WindowedOperandProbeForward::<f32>::new(128).source;
+        let src: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        let loop_at = src
+            .find("for __tile_loop_idx")
+            .expect("the loop is generated");
+        assert!(
+            !src[..loop_at].contains("x.add_offsets"),
+            "the prelude must still skip it"
         );
     }
 
