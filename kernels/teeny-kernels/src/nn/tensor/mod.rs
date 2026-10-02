@@ -66,6 +66,65 @@ mod tests {
         T::store(y.tensor, x.tensor, x.mask, &[], None, None);
     }
 
+    /// Feasibility probe for the shape teenygrad-y8aa will generate: a carry
+    /// initialised before a loop, threaded through it by assignment, and stored
+    /// once afterwards.
+    ///
+    /// This is the *inline* reading of Option C from teenygrad-1nr.18.3's
+    /// design analysis -- the wrapper owns the loop and the author's body is
+    /// spliced in as the loop body -- rather than the literal reading, where
+    /// the iteration is its own function taking and returning the carry. The
+    /// literal reading was measured and does not work, for two stacked reasons:
+    ///
+    /// 1. `#[tiled_kernel]` emits only the kernel function into the device
+    ///    source, so a helper in the same module is not there at all --
+    ///    `error[E0425]: cannot find function ... in this scope`, from the
+    ///    generated source rather than from rustc on the host.
+    /// 2. Even once emitted, `teenyc-3af.4` applies: an ordinary generic
+    ///    function whose signature involves a tensor type is treated as an
+    ///    intrinsic stub and its body skipped, producing a dangling `tt.call`
+    ///    that ICEs at MLIR verification. That fix exists on teenyc's
+    ///    `feat/tile-layout-struct-support` and is not in the installed
+    ///    compiler.
+    ///
+    /// The inline shape needs neither: it is what every hand-written
+    /// accumulating kernel in the tree already compiles to, `conv2d_forward`
+    /// included. This probe pins that down so the choice is not re-litigated.
+    #[tiled_kernel]
+    pub fn carry_loop_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+        #[tile(block = BLOCK_N, extent = n_elements)] x: In<Tile<T, D>>,
+        #[tile(block = BLOCK_N, extent = n_elements)] y: Out<Tile<T, D>>,
+        n_elements: i32,
+        trips: i32,
+    ) where
+        T::I32Tensor: types::Tensor<i32, 1>,
+        T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+        T::Tensor<D>: core::ops::Add<T::Tensor<D>, Output = T::Tensor<D>>,
+        T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+    {
+        // Everything between the carry's initialisation and the store is what
+        // y8aa would generate; the one statement inside the loop is what a
+        // kernel author would be left writing.
+        let mut acc = T::zeros::<D>(&[BLOCK_N]);
+        let mut i: i32 = 0;
+        while i < trips {
+            acc = acc + x.tensor;
+            i += 1;
+        }
+        T::store(y.tensor, acc, x.mask, &[], None, None);
+    }
+
+    /// Compiles the probe with the real teenyc, which is the point: a
+    /// type-check alone never reaches `codegen_function` (teenygrad-y8aa).
+    #[test]
+    fn test_carry_threaded_through_a_loop_compiles() {
+        let kernel = CarryLoopProbeForward::<f32>::new(128);
+        let target = teeny_runtime::reference_target();
+        let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
+            .expect("a carry threaded through a loop must compile");
+        assert!(!compiled.is_empty(), "compile produced no artifact");
+    }
+
     /// Two declared axes give a fixed-rank spec with one binding per
     /// *blocked* axis -- the untiled one is named in `untiled_dims`, the
     /// same shape the raw-pointer path produces. Contrast the single-axis
