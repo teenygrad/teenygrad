@@ -604,6 +604,7 @@ fn generated_loop(
     tile_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
     tile_out_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
     loop_scalars: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>)],
+    loop_tiles: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>, Vec<usize>)],
     input: &ItemFn,
 ) -> Result<(Vec<syn::Stmt>, syn::Stmt, syn::Stmt), syn::Error> {
     let span = input.sig.ident.span();
@@ -618,15 +619,12 @@ fn generated_loop(
             ),
         ));
     }
-    if tile_in_params.len() != 1 || tile_out_params.len() != 1 {
+    if tile_out_params.len() != 1 {
         return Err(syn::Error::new(
             span,
             format!(
-                "`#[tile_loop(generate)]` supports exactly one `In<Tile<..>>` and one \
-                 `Out<Tile<..>>` for now, found {} and {}: the generated store takes its mask \
-                 from the input and its destination from the output, and neither is unambiguous \
-                 otherwise (teenygrad-y8aa)",
-                tile_in_params.len(),
+                "`#[tile_loop(generate)]` supports exactly one `Out<Tile<..>>` for now, found \
+                 {}: the generated store needs one unambiguous destination (teenygrad-y8aa)",
                 tile_out_params.len()
             ),
         ));
@@ -640,8 +638,7 @@ fn generated_loop(
                 .expect("a carry shape entry is an identifier or an integer literal")
         })
         .collect();
-    let (in_ident, in_dtype, _) = &tile_in_params[0];
-    let (out_ident, _, _) = &tile_out_params[0];
+    let (out_ident, out_dtype, _) = &tile_out_params[0];
     // `axes` supplies the count as the product of its extents, so a kernel
     // declaring axes needs no separate `count`. Parenthesised per factor: an
     // extent is an arbitrary expression and conv2d's is `(C_IN / G)`.
@@ -694,7 +691,7 @@ fn generated_loop(
     }
 
     let init: syn::Stmt = syn::parse2(quote! {
-        let mut #carry = #hw_ident::zeros::<#in_dtype>(&[#(#dims),*]);
+        let mut #carry = #hw_ident::zeros::<#out_dtype>(&[#(#dims),*]);
     })
     .expect("generated carry initialisation is valid Rust");
 
@@ -707,18 +704,7 @@ fn generated_loop(
     // construction (teenygrad-y8aa).
     let mut scalar_loads: Vec<syn::Stmt> = Vec::new();
     for (name, dtype, axes) in loop_scalars {
-        // Row-major: fold (idx, extent) pairs as `acc * extent + idx`, starting
-        // from the outermost index. The outermost extent never enters the
-        // offset -- it is declared to document the layout and is skipped here,
-        // the same way the prelude's `stride_of` returns None for the innermost
-        // axis.
-        let mut offset = {
-            let (first_idx, _) = &axes[0];
-            quote! { #first_idx }
-        };
-        for (idx, extent) in axes.iter().skip(1) {
-            offset = quote! { (#offset) * (#extent) + (#idx) };
-        }
+        let offset = row_major_offset(axes);
         let load_stmt: syn::Stmt = syn::parse2(quote! {
             let #name = {
                 let __tile_scalar_off = #hw_ident::arange(0, 1) + (#offset);
@@ -742,6 +728,70 @@ fn generated_loop(
         scalar_loads.push(load_stmt);
     }
 
+    // Per-iteration tile operands: a whole tile read at loop-dependent
+    // coordinates, with a boundary mask. The vector counterpart of the scalar
+    // loads above, and the second half of constraint C1 (teenygrad-y8aa).
+    // The prelude binds the blocked axis's range as `__tile_range` and the
+    // output tile's own mask as `in_bounds`; the generated read needs both. The
+    // multi-blocked-axis prelude names its ranges `__tile_range_<slot>`
+    // instead, so a windowed read is restricted to one blocked axis until a
+    // kernel needs otherwise (teenygrad-y8aa).
+    let range_ident = format_ident!("__tile_range");
+    let mask_ident = format_ident!("in_bounds");
+    if !loop_tiles.is_empty() {
+        let blocked = tile_out_params[0]
+            .2
+            .iter()
+            .filter(|a| a.block.is_some())
+            .count();
+        if blocked != 1 {
+            return Err(syn::Error::new(
+                span,
+                format!(
+                    "`#[tile_loop_tile]` needs exactly one blocked axis on the output, found \
+                     {blocked}: the windowed coordinate's base is that axis's range, and the \
+                     multi-axis prelude names its ranges per slot (teenygrad-y8aa)"
+                ),
+            ));
+        }
+    }
+    for (name, dtype, axes, bounds) in loop_tiles {
+        let offset = row_major_offset(axes);
+
+        // Bounds checks on the windowed coordinates. A scalar coordinate has to
+        // be splatted into a tensor first, and `range * 0 + scalar` is how
+        // conv2d does it -- its own comment records that a scalar `if`/
+        // `continue` there trips a compiler phi-node bug, so the splat is load
+        // bearing rather than stylistic.
+        let mut checks: Vec<TokenStream2> = Vec::new();
+        for &i in bounds {
+            let (coord, extent) = &axes[i];
+            let splat = quote! { (#range_ident * 0 + (#coord)) };
+            checks.push(quote! { #splat.ge(0) & #splat.lt(#extent) });
+        }
+        let mask = checks
+            .into_iter()
+            .fold(quote! { #mask_ident }, |acc, c| quote! { #acc & (#c) });
+
+        let load_stmt: syn::Stmt = syn::parse2(quote! {
+            let #name = {
+                let __tile_read_mask = #mask;
+                #hw_ident::load(
+                    #name.add_offsets(#offset),
+                    Some(__tile_read_mask),
+                    Some(#hw_ident::zeros::<#dtype>(&[#(#dims),*])),
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                )
+            };
+        })
+        .expect("generated tile operand load is valid Rust");
+        scalar_loads.push(load_stmt);
+    }
+
     let body_stmts: Vec<syn::Stmt> = input.block.stmts.clone();
     let loop_stmt: syn::Stmt = syn::parse2(quote! {
         for __tile_loop_idx in 0..(#count) {
@@ -754,7 +804,20 @@ fn generated_loop(
     .expect("generated loop is valid Rust");
 
     let store_stmt: syn::Stmt = syn::parse2(quote! {
-        #hw_ident::store(#out_ident.tensor, #carry, #in_ident.mask, &[], None, None);
+        #hw_ident::store(
+            #out_ident.tensor,
+            #carry,
+            // Bare `Some`, not `::core::option::Option::Some`: the no_core
+            // device source has no `core::option` path -- `Option` is the
+            // prelude's own `#[lang = "Option"]` shim, used unqualified.
+            // Generated *body* code is spliced into that source, unlike the
+            // generated spec methods, which are host items and do use full
+            // paths.
+            Some(in_bounds),
+            &[],
+            None,
+            None,
+        );
     })
     .expect("generated store is valid Rust");
 
@@ -941,8 +1004,141 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
 /// attribute macro registered anywhere, so it must not reach the
 /// regenerated device/host signatures this macro emits.
 fn strip_tile_attr(pt: &mut PatType) {
-    pt.attrs
-        .retain(|a| !a.path().is_ident("tile") && !a.path().is_ident("tile_loop_scalar"));
+    pt.attrs.retain(|a| {
+        !a.path().is_ident("tile")
+            && !a.path().is_ident("tile_loop_scalar")
+            && !a.path().is_ident("tile_loop_tile")
+    });
+}
+
+/// Row-major flat offset from `(index, extent)` pairs, outermost first.
+///
+/// `acc * extent + index`, folded from the outermost index. The outermost
+/// extent never enters the result -- it is declared to document the layout --
+/// which is the same reason the prelude's `stride_of` is `None` for the
+/// innermost axis. conv2d writes this by hand as
+/// `(b * C_IN + c_in) * H * W + ih * W` plus the innermost coordinate
+/// (teenygrad-y8aa).
+fn row_major_offset(axes: &[(syn::Expr, syn::Expr)]) -> TokenStream2 {
+    let mut offset = {
+        let (first_idx, _) = &axes[0];
+        quote! { #first_idx }
+    };
+    for (idx, extent) in axes.iter().skip(1) {
+        // Index first: `i + acc * e`, not `acc * e + i`. Same value, but the
+        // innermost coordinate of a windowed read is a *tensor* while the outer
+        // fold is scalar, and only `Tensor + i32` has an impl -- `i32 + Tensor`
+        // does not. conv2d writes it the same way round for the same reason:
+        // `iw_range + ((b * C_IN + c_in) * H * W + ih * W)`.
+        offset = quote! { (#idx) + (#offset) * (#extent) };
+    }
+    offset
+}
+
+/// Reads a parameter's `#[tile_loop_tile(index = [..], bounds = [..])]`.
+///
+/// The vector sibling of [`parse_tile_loop_scalar`]: a whole tile read per
+/// iteration at loop-dependent coordinates, with a boundary mask, rather than
+/// one broadcast element. conv2d's `x`:
+///
+/// ```text
+/// let ih       = oh * STRIDE_H + kh - PAD_H;
+/// let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+/// let mask     = ow_mask & ih_t.ge(0) & ih_t.lt(H) & iw_range.ge(0) & iw_range.lt(W);
+/// T::load(x_ptr.add_offsets(iw_range + ((b * C_IN + c_in) * H * W + ih * W)), Some(mask), ..)
+/// ```
+///
+/// Coordinates are full expressions rather than names, deliberately. A windowed
+/// coordinate is `base * stride + tap - pad`, mixing a grid index, a loop index
+/// and two consts, and every one of those is already in scope where the
+/// generated read sits -- so taking the expression keeps the macro out of the
+/// business of inferring which loop axis pairs with which window, which would
+/// be ambiguous the moment two axes shared a kernel const.
+///
+/// `bounds` lists the positions whose coordinate needs a `ge(0) & lt(extent)`
+/// check -- the windowed ones. A plain axis indexed by a grid index is in bounds
+/// by construction and is left out, exactly as conv2d masks only H and W.
+fn parse_tile_loop_tile(
+    pt: &PatType,
+) -> Result<Option<(Vec<(syn::Expr, syn::Expr)>, Vec<usize>)>, syn::Error> {
+    let Some(attr) = pt
+        .attrs
+        .iter()
+        .find(|a| a.path().is_ident("tile_loop_tile"))
+    else {
+        return Ok(None);
+    };
+    let inner = attr.parse_args_with(
+        syn::punctuated::Punctuated::<MetaNameValue, Token![,]>::parse_terminated,
+    )?;
+    let mut axes: Vec<(syn::Expr, syn::Expr)> = Vec::new();
+    let mut bounds: Vec<usize> = Vec::new();
+    for nv in &inner {
+        let key = nv
+            .path
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        let Expr::Array(arr) = &nv.value else {
+            return Err(syn::Error::new_spanned(
+                &nv.value,
+                "`#[tile_loop_tile(...)]` values are lists",
+            ));
+        };
+        match key.as_str() {
+            "index" => {
+                for e in &arr.elems {
+                    let Expr::Assign(a) = e else {
+                        return Err(syn::Error::new_spanned(
+                            e,
+                            "each `index` entry is `coord_expr = extent_expr`, outermost first",
+                        ));
+                    };
+                    axes.push(((*a.left).clone(), (*a.right).clone()));
+                }
+            }
+            "bounds" => {
+                for e in &arr.elems {
+                    let Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(i),
+                        ..
+                    }) = e
+                    else {
+                        return Err(syn::Error::new_spanned(
+                            e,
+                            "each `bounds` entry is the integer position of an axis in `index`",
+                        ));
+                    };
+                    bounds.push(i.base10_parse()?);
+                }
+            }
+            other => {
+                return Err(syn::Error::new_spanned(
+                    &nv.path,
+                    format!(
+                        "unknown `#[tile_loop_tile(...)]` key `{other}` (expected `index` or \
+                         `bounds`)"
+                    ),
+                ));
+            }
+        }
+    }
+    if axes.is_empty() {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "`#[tile_loop_tile(index = [..])]` needs at least one axis",
+        ));
+    }
+    if let Some(&bad) = bounds.iter().find(|&&b| b >= axes.len()) {
+        return Err(syn::Error::new_spanned(
+            attr,
+            format!(
+                "`bounds` names position {bad}, but `index` declares {} axes",
+                axes.len()
+            ),
+        ));
+    }
+    Ok(Some((axes, bounds)))
 }
 
 /// Reads a parameter's `#[tile_loop_scalar(index = [name = extent, ..])]`.
@@ -1410,7 +1606,32 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         }
         out
     };
-    let is_loop_scalar = |id: &Ident| loop_scalars.iter().any(|(n, _, _)| *n == id);
+    let loop_tiles: Vec<(&Ident, Type, Vec<(syn::Expr, syn::Expr)>, Vec<usize>)> = {
+        let mut out = Vec::new();
+        for pt in fn_inputs.iter() {
+            let (axes, bounds) = match parse_tile_loop_tile(pt) {
+                Ok(Some(a)) => a,
+                Ok(None) => continue,
+                Err(e) => return e.to_compile_error().into(),
+            };
+            let Some(dtype) = in_tile_dtype(&pt.ty, &hw_ident) else {
+                return syn::Error::new_spanned(
+                    &pt.ty,
+                    "`#[tile_loop_tile]` applies to an `In<Tile<..>>` parameter: it replaces the \
+                     prelude's load with a per-iteration one (teenygrad-y8aa)",
+                )
+                .to_compile_error()
+                .into();
+            };
+            let Pat::Ident(pi) = &*pt.pat else { continue };
+            out.push((&pi.ident, dtype, axes, bounds));
+        }
+        out
+    };
+    let is_loop_scalar = |id: &Ident| {
+        loop_scalars.iter().any(|(n, _, _)| *n == id)
+            || loop_tiles.iter().any(|(n, _, _, _)| *n == id)
+    };
 
     let tile_in_params: Vec<(&Ident, Type, &[TileAttrArgs])> = fn_inputs
         .iter()
@@ -2134,6 +2355,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     &tile_in_params,
                     &tile_out_params,
                     &loop_scalars,
+                    &loop_tiles,
                     &input,
                 ) {
                     Ok(parts) => parts,
