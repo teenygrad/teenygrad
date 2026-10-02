@@ -290,3 +290,157 @@ fn test_the_backfilled_kernels_generate_validating_specs() {
         ElemwiseExpForward<f32>,
     );
 }
+
+/// The epic's closing audit: every in-scope forward kernel is in one of three
+/// buckets, and none is unaccounted for (teenygrad-1tl.12).
+///
+/// The buckets are route 1 (a full `In<Tile<..>>` conversion), route 2
+/// (metadata on tagged raw pointers), and a recorded reason it has no spec.
+/// Loss kernels are out of scope: the epic covers inference kernels for now,
+/// recorded on `teenygrad-1tl`.
+///
+/// This is a test rather than a one-off count so the answer cannot rot. Writing
+/// it as a script first was instructive -- it misclassified three kernels in
+/// three different ways before it was right. A `#[tiled_kernel(backward = ..)]`
+/// carries arguments, so an exact-bracket match misses it; a multi-line
+/// `#[tile_loop(..)]` puts bare `generate` on its own line, which breaks a naive
+/// backward walk; and two of the recorded reasons *quote* `#[tiled_kernel]` in
+/// prose, so matching the raw text of the preceding block counts a comment as a
+/// declaration. Hence: attributes are read from the syntax tree, and reasons
+/// only from doc comments.
+#[test]
+fn test_the_closing_audit_leaves_no_forward_kernel_unaccounted_for() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let src = Path::new(manifest).join("src");
+    let mut files = Vec::new();
+    rust_sources(&src, &mut files);
+
+    let mut route1 = Vec::new();
+    let mut route2 = Vec::new();
+    let mut reasoned = Vec::new();
+    let mut unaccounted = Vec::new();
+    let mut losses = Vec::new();
+
+    for file in &files {
+        let text = std::fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
+        let parsed = syn::parse_file(&text)
+            .unwrap_or_else(|e| panic!("failed to parse {}: {e}", file.display()));
+
+        let in_loss = file.components().any(|c| c.as_os_str() == "loss");
+
+        // Declared kernels, from the syntax tree.
+        let mut declared = Vec::new();
+        tiled_kernels(&parsed.items, &mut declared);
+        for f in &declared {
+            let name = f.sig.ident.to_string();
+            if !name.ends_with("_forward") {
+                continue;
+            }
+            let any_tile_param = f.sig.inputs.iter().any(|arg| match arg {
+                syn::FnArg::Typed(pt) => is_tile_param(&pt.ty),
+                _ => false,
+            });
+            if any_tile_param {
+                route1.push(name);
+            } else {
+                route2.push(name);
+            }
+        }
+
+        // Undeclared forwards: a recorded reason, or unaccounted. The reason is
+        // read from doc comments only -- never from the text of the block, since
+        // two reasons quote the attribute they are explaining.
+        for item in &parsed.items {
+            let syn::Item::Fn(f) = item else { continue };
+            let name = f.sig.ident.to_string();
+            if !name.ends_with("_forward") {
+                continue;
+            }
+            if f.attrs.iter().any(|a| a.path().is_ident("tiled_kernel")) {
+                continue;
+            }
+            if in_loss {
+                losses.push(name);
+                continue;
+            }
+            // Read from the file's text, not the syntax tree: the recorded
+            // reasons are `//` comments, which `syn` does not keep. Only `//`
+            // lines are taken -- two of the reasons quote `#[tiled_kernel]` in
+            // prose, so scanning the whole preceding block would read a comment
+            // as a declaration.
+            let comments = leading_line_comments(&text, &name);
+            let has_reason = [
+                "teenygrad-1tl",
+                "teenygrad-12l6",
+                "deliberately",
+                "undeclared",
+            ]
+            .iter()
+            .any(|needle| comments.contains(needle));
+            if has_reason {
+                reasoned.push(name);
+            } else {
+                unaccounted.push(format!("{name} ({})", file.display()));
+            }
+        }
+    }
+
+    assert!(
+        unaccounted.is_empty(),
+        "every in-scope forward kernel must be declared or carry a recorded \
+         reason; these are neither:\n  {}",
+        unaccounted.join("\n  ")
+    );
+
+    // The epic's opening table, restated. Guard rails rather than exact counts:
+    // a new kernel should not have to touch this test, but a collapse in either
+    // bucket should be noticed.
+    assert!(
+        route1.len() + route2.len() >= 125,
+        "declared forwards fell to {} (route 1 {}, route 2 {})",
+        route1.len() + route2.len(),
+        route1.len(),
+        route2.len()
+    );
+    assert!(
+        !route1.is_empty() && !route2.is_empty(),
+        "both routes should still be in use: route 1 {}, route 2 {}",
+        route1.len(),
+        route2.len()
+    );
+    assert!(
+        losses.len() >= 9,
+        "the nine undeclared loss kernels are excluded by scope, found {}",
+        losses.len()
+    );
+}
+
+/// The `//` comment lines immediately above `pub fn {name}<` in `text`.
+///
+/// Walks back over comments and attributes and stops at the first line that is
+/// neither -- a blank line, a closing brace, or another item. Returns only the
+/// comment lines, so an attribute quoted inside prose is not mistaken for the
+/// attribute itself.
+fn leading_line_comments(text: &str, name: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let needle = format!("pub fn {name}<");
+    let Some(at) = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with(&needle))
+    else {
+        return String::new();
+    };
+    let mut out = Vec::new();
+    for l in lines[..at].iter().rev() {
+        let t = l.trim_start();
+        if t.starts_with("//") {
+            out.push(t);
+        } else if t.starts_with('#') || t.starts_with(')') || t.contains('=') {
+            continue;
+        } else {
+            break;
+        }
+    }
+    out.join("\n")
+}

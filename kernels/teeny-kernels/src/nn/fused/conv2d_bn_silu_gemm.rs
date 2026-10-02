@@ -57,6 +57,26 @@ use teeny_triton::triton::{
 ///             + pid_in_group  (same L2-locality grouping as Triton's matmul tutorial)
 ///
 /// Inference-only; no backward pass.
+// teenygrad-1tl.12: deliberately undeclared, with the reason here.
+//
+// This is an implicit-GEMM convolution, and its operands are addressed in that
+// view rather than as the NCHW tensors they are. `M` is `OH * OW per batch` --
+// one flattened spatial axis, not two -- and the output is written as
+// `[B * C_OUT, y_row_stride]`, where `y_row_stride` is an allocation width
+// chosen for TMA alignment and is larger than `M`. So neither operand's real
+// axes line up one-to-one with a `#[tile(extent = ..)]` list.
+//
+// `TileAxisBinding::dims` does support a flattened binding -- several real dims
+// under one block const -- but the macro emits exactly one dim per declared
+// axis, so there is no syntax for it. That is the gap to lift if this kernel is
+// ever wanted in the spec; it is the same gap `batch_norm_stats_forward`'s
+// BLOCK_HW would need.
+//
+// It would also need `#[tile_grid(swizzled)]`, since it groups `pid` by GROUP_M
+// exactly as `matmul_forward` does, and that is not a mixed-radix decode.
+//
+// Not blocking anything: see this rung's own note on whether a hand-fused
+// kernel survives `propagate` at all.
 #[kernel]
 pub fn conv2d_bn_silu_gemm_forward<
     T: Triton,

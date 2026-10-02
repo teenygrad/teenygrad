@@ -3132,6 +3132,87 @@ mod conv2d_grid_spec_tests {
         assert_eq!(y.axes[0].divide_by, None);
     }
 
+    /// The fused composites declare their axes, and the tiled one needs two
+    /// blocked axes plus a stated grid order (teenygrad-1tl.12).
+    ///
+    /// A fused kernel's spec is the composition of its parts' -- conv's window,
+    /// batchnorm's per-channel affine, silu's identity -- which is why this rung
+    /// came last. All three are metadata-only: the batchnorm affine and SiLU sit
+    /// *between* the loop and the store, and `#[tile_loop(generate)]` emits the
+    /// store immediately after the loop, so none can use it until an epilogue
+    /// hook exists.
+    #[test]
+    fn test_the_fused_composites_declare_their_axes() {
+        use crate::nn::fused::{
+            conv2d_bn_silu::Conv2dBnSiluForward, conv2d_bn_silu_tiled::Conv2dBnSiluTiledForward,
+        };
+
+        // The plain fusion is conv2d_forward's spec with a different epilogue,
+        // so it declares the same axes: both spatial axes windowed, H at the
+        // fixed block of 1.
+        let spec = Conv2dBnSiluForward::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+        let x = spec.inputs[0];
+        assert_eq!(
+            x.axes
+                .iter()
+                .map(|a| (a.extent_param, a.block_const, a.window.is_some()))
+                .collect::<Vec<_>>(),
+            vec![("H", "1", true), ("W", "BLOCK_OW", true)]
+        );
+        assert_eq!(x.untiled_dims, &["B", "C_IN"]);
+        let l = spec.loop_spec.expect("its accumulation loop is declared");
+        assert_eq!(l.trip_count_factors, &["C_IN", "G", "KH", "KW"]);
+
+        // The tiled fusion tiles output channels too, so its carry is 2-D and
+        // its output carries two blocked axes -- the first kernel in the tree
+        // where that is true of a real spec rather than a probe.
+        let spec = Conv2dBnSiluTiledForward::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+        let y = spec.outputs[0];
+        assert_eq!(
+            y.axes
+                .iter()
+                .map(|a| (a.dims, a.extent_param, a.block_const))
+                .collect::<Vec<_>>(),
+            vec![
+                (&[1usize][..], "C_OUT", "BLOCK_N"),
+                (&[3usize][..], "OW", "BLOCK_OW"),
+            ],
+            "C_OUT by BLOCK_N and OW by BLOCK_OW"
+        );
+        assert_eq!(y.untiled_dims, &["B", "OH"]);
+        let l = spec.loop_spec.expect("its accumulation loop is declared");
+        assert_eq!(
+            l.carries
+                .iter()
+                .map(|c| (c.name, c.shape_consts))
+                .collect::<Vec<_>>(),
+            vec![("acc", &["BLOCK_N", "BLOCK_OW"][..])],
+            "a 2-D carry"
+        );
+
+        // And its grid is not its output's dim order: the body decodes
+        // (b, oh, n_tile, ow_tile) while the dims run [B, C_OUT, OH, OW].
+        let grid: Vec<(&str, Option<&str>)> = Conv2dBnSiluTiledForward::grid_spec()
+            .axes
+            .iter()
+            .map(|a| (a.name, a.block_const))
+            .collect();
+        assert_eq!(
+            grid,
+            vec![
+                ("B", None),
+                ("OH", None),
+                ("C_OUT", Some("BLOCK_N")),
+                ("OW", Some("BLOCK_OW")),
+            ],
+            "the stated decode order, not the output's dim order"
+        );
+    }
+
     #[test]
     fn test_grid_spec_reflects_the_real_pid_decode_order_and_shape() {
         // conv2d_forward's own body decodes one flat `pid` (all axes on
