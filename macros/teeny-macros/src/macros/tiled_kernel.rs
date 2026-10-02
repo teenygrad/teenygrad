@@ -423,6 +423,22 @@ struct TileLoopArgs {
     /// One entry per carried accumulator: the variable's name in the body, and
     /// the consts giving its shape in dimension order.
     carries: Vec<(Ident, Vec<String>)>,
+    /// The loop's real, *evaluable* trip count, from `count = <expr>`.
+    ///
+    /// Separate from `trip_count` because that is a list of names and is
+    /// documented as not being a formula -- conv2d's factors are
+    /// `[C_IN, G, KH, KW]` but its count is `(C_IN / G) * KH * KW`, which no
+    /// multiplication of the list produces. Generation needs the expression;
+    /// the spec keeps the names (teenygrad-y8aa).
+    count: Option<syn::Expr>,
+    /// `true` when the bare `generate` flag is present: the macro emits the
+    /// carry initialisation, the loop around the author's body, and the store
+    /// after it.
+    ///
+    /// Opt-in so that the nine kernels already declaring a loop keep their
+    /// metadata-only behaviour untouched (teenygrad-1nr.18.3 landed that, and
+    /// it is what the rungs blocked on it needed).
+    generate: bool,
 }
 
 /// Reads a carry's shape out of `key = [A, 1, B]`: each entry is a const name
@@ -557,9 +573,99 @@ fn parse_tile_grid_order(attrs: &[syn::Attribute]) -> Result<Option<TileGridArgs
     Ok(out)
 }
 
+/// Builds the three pieces of a wrapper-generated accumulation loop: the carry
+/// initialisations, the loop itself around the author's body, and the single
+/// store after it (teenygrad-y8aa).
+///
+/// Scoped deliberately to the unambiguous case -- one carry, one `In<Tile>`,
+/// one `Out<Tile>` -- and it errors rather than guessing otherwise. Flash
+/// attention has three carries and two outputs, so pairing carry to output
+/// needs a declaration that does not exist yet; nothing here pretends to know
+/// which carry belongs to which output.
+///
+/// Carries initialise to zeros. A non-zero initial value is real -- flash
+/// attention's `m_i` starts at negative infinity -- and needs syntax of its
+/// own, so such a kernel simply does not pass `generate` yet.
+#[allow(clippy::type_complexity)]
+fn generated_loop(
+    l: &TileLoopArgs,
+    hw_ident: &Ident,
+    tile_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    tile_out_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    input: &ItemFn,
+) -> Result<(Vec<syn::Stmt>, syn::Stmt, syn::Stmt), syn::Error> {
+    let span = input.sig.ident.span();
+    if l.carries.len() != 1 {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "`#[tile_loop(generate)]` supports exactly one carry for now, found {}: pairing \
+                 several carries to several outputs needs a declaration that does not exist yet \
+                 (teenygrad-y8aa)",
+                l.carries.len()
+            ),
+        ));
+    }
+    if tile_in_params.len() != 1 || tile_out_params.len() != 1 {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "`#[tile_loop(generate)]` supports exactly one `In<Tile<..>>` and one \
+                 `Out<Tile<..>>` for now, found {} and {}: the generated store takes its mask \
+                 from the input and its destination from the output, and neither is unambiguous \
+                 otherwise (teenygrad-y8aa)",
+                tile_in_params.len(),
+                tile_out_params.len()
+            ),
+        ));
+    }
+
+    let (carry, shape) = &l.carries[0];
+    let dims: Vec<TokenStream2> = shape
+        .iter()
+        .map(|d| {
+            d.parse()
+                .expect("a carry shape entry is an identifier or an integer literal")
+        })
+        .collect();
+    let (in_ident, in_dtype, _) = &tile_in_params[0];
+    let (out_ident, _, _) = &tile_out_params[0];
+    let count = l
+        .count
+        .as_ref()
+        .expect("checked in parse_tile_loop_attrs: generate requires count");
+
+    let init: syn::Stmt = syn::parse2(quote! {
+        let mut #carry = #hw_ident::zeros::<#in_dtype>(&[#(#dims),*]);
+    })
+    .expect("generated carry initialisation is valid Rust");
+
+    // The author's body, verbatim, as the loop body. The index is named
+    // `__tile_loop_idx` and is deliberately not bound to anything the author
+    // writes: decoding it into per-axis indices is Option D and sequences
+    // after this.
+    let body_stmts: Vec<syn::Stmt> = input.block.stmts.clone();
+    let loop_stmt: syn::Stmt = syn::parse2(quote! {
+        for __tile_loop_idx in 0..(#count) {
+            let _ = __tile_loop_idx;
+            #(#body_stmts)*
+        }
+    })
+    .expect("generated loop is valid Rust");
+
+    let store_stmt: syn::Stmt = syn::parse2(quote! {
+        #hw_ident::store(#out_ident.tensor, #carry, #in_ident.mask, &[], None, None);
+    })
+    .expect("generated store is valid Rust");
+
+    Ok((vec![init], loop_stmt, store_stmt))
+}
+
 fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs>, syn::Error> {
     let mut trip_count: Option<Vec<Ident>> = None;
     let mut carries: Vec<(Ident, Vec<String>)> = Vec::new();
+    let mut count: Option<syn::Expr> = None;
+    let mut generate = false;
 
     for attr in attrs {
         let is_loop = attr.path().is_ident("tile_loop");
@@ -567,8 +673,23 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
         if !is_loop && !is_carry {
             continue;
         }
-        let parsed = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
+        // `syn::Meta`, not `MetaNameValue`, so the bare `generate` flag parses
+        // beside the `key = value` entries (teenygrad-y8aa).
+        let metas = Punctuated::<syn::Meta, Token![,]>::parse_terminated
             .parse2(attr.meta.require_list()?.tokens.clone())?;
+        let mut parsed: Vec<MetaNameValue> = Vec::new();
+        for meta in metas {
+            match meta {
+                syn::Meta::Path(path) if is_loop && path.is_ident("generate") => generate = true,
+                syn::Meta::NameValue(nv) => parsed.push(nv),
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        other,
+                        "expected `key = value`, or the bare flag `generate` on `#[tile_loop]`",
+                    ));
+                }
+            }
+        }
         for nv in &parsed {
             let key = nv
                 .path
@@ -576,10 +697,23 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                 .map(|i| i.to_string())
                 .unwrap_or_default();
             if is_loop {
+                if key == "count" {
+                    if count.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            &nv.path,
+                            "`count` declared more than once",
+                        ));
+                    }
+                    count = Some(nv.value.clone());
+                    continue;
+                }
                 if key != "trip_count" {
                     return Err(syn::Error::new_spanned(
                         &nv.path,
-                        format!("unknown `#[tile_loop(...)]` key `{key}` (expected `trip_count`)"),
+                        format!(
+                            "unknown `#[tile_loop(...)]` key `{key}` (expected `trip_count`, \
+                             `count`, or the bare flag `generate`)"
+                        ),
                     ));
                 }
                 if trip_count.is_some() {
@@ -636,10 +770,25 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
              carries nothing is not an accumulation loop, and teenygrad-1nr.18.3 only describes \
              accumulating loops -- an independent walk belongs in the grid instead",
         )),
-        (Some(trip_count), false) => Ok(Some(TileLoopArgs {
-            trip_count,
-            carries,
-        })),
+        (Some(trip_count), false) => {
+            // `generate` needs an evaluable count: `trip_count`'s names cannot
+            // produce one, by its own contract (teenygrad-y8aa).
+            if generate && count.is_none() {
+                return Err(syn::Error::new_spanned(
+                    attrs
+                        .iter()
+                        .find(|a| a.path().is_ident("tile_loop"))
+                        .expect("trip_count is Some, so a #[tile_loop] was seen"),
+                    "`#[tile_loop(generate)]` needs `count = <expr>` as well: `trip_count` is a                      list of names and is documented as not being a formula, so it cannot be                      evaluated -- conv2d's factors are [C_IN, G, KH, KW] but its count is                      (C_IN / G) * KH * KW",
+                ));
+            }
+            Ok(Some(TileLoopArgs {
+                trip_count,
+                carries,
+                count,
+                generate,
+            }))
+        }
     }
 }
 
@@ -1724,7 +1873,29 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             .expect("generated tile address statement is valid Rust");
             stmts.push(addr_stmt);
         }
-        stmts.extend(input.block.stmts.iter().cloned());
+        // teenygrad-y8aa: with `#[tile_loop(.., generate)]` the wrapper owns
+        // the loop. The author's body IS one iteration, so it is spliced as the
+        // loop body rather than appended, and the macro emits the carry
+        // initialisation before it and the store after.
+        //
+        // That ordering is what retires constraint C4 of teenygrad-1nr.18.3's
+        // analysis: Option A was rejected because wrapping an existing body
+        // traps its trailing store inside the loop, but a generated store is
+        // never in the body to begin with, so no marker is needed to find where
+        // the loop ends. C3 holds by construction -- the loop is the wrapper.
+        match &tile_loop {
+            Some(l) if l.generate => {
+                let (init_stmts, loop_stmt, store_stmt) =
+                    match generated_loop(l, &hw_ident, &tile_in_params, &tile_out_params, &input) {
+                        Ok(parts) => parts,
+                        Err(e) => return e.to_compile_error().into(),
+                    };
+                stmts.extend(init_stmts);
+                stmts.push(loop_stmt);
+                stmts.push(store_stmt);
+            }
+            _ => stmts.extend(input.block.stmts.iter().cloned()),
+        }
         syn::Block {
             brace_token: input.block.brace_token,
             stmts,

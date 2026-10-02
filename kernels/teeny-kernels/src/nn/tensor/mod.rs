@@ -91,6 +91,8 @@ mod tests {
     /// accumulating kernel in the tree already compiles to, `conv2d_forward`
     /// included. This probe pins that down so the choice is not re-litigated.
     #[tiled_kernel]
+    #[tile_loop(trip_count = [trips], count = trips, generate)]
+    #[tile_carry(acc = [BLOCK_N])]
     pub fn carry_loop_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
         #[tile(block = BLOCK_N, extent = n_elements)] x: In<Tile<T, D>>,
         #[tile(block = BLOCK_N, extent = n_elements)] y: Out<Tile<T, D>>,
@@ -102,16 +104,10 @@ mod tests {
         T::Tensor<D>: core::ops::Add<T::Tensor<D>, Output = T::Tensor<D>>,
         T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
     {
-        // Everything between the carry's initialisation and the store is what
-        // y8aa would generate; the one statement inside the loop is what a
-        // kernel author would be left writing.
-        let mut acc = T::zeros::<D>(&[BLOCK_N]);
-        let mut i: i32 = 0;
-        while i < trips {
-            acc = acc + x.tensor;
-            i += 1;
-        }
-        T::store(y.tensor, acc, x.mask, &[], None, None);
+        // One iteration, and nothing else. The carry's initialisation, the
+        // loop around this, and the store after it are all generated
+        // (teenygrad-y8aa).
+        acc = acc + x.tensor;
     }
 
     /// Compiles the probe with the real teenyc, which is the point: a
@@ -123,6 +119,61 @@ mod tests {
         let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
             .expect("a carry threaded through a loop must compile");
         assert!(!compiled.is_empty(), "compile produced no artifact");
+    }
+
+    /// The three generated pieces are present, and in the order that makes the
+    /// loop the wrapper's (teenygrad-y8aa).
+    ///
+    /// Order is the whole contract: the carry is initialised *before* the loop
+    /// and stored *after* it, so the author's body is one iteration and nothing
+    /// else. Getting the store inside the loop is precisely what sank Option A.
+    #[test]
+    fn test_the_generated_loop_initialises_before_and_stores_after() {
+        let src = CarryLoopProbeForward::<f32>::new(128).source;
+
+        let init = src
+            .find("let mut acc")
+            .expect("the carry's initialisation is generated");
+        let loop_at = src
+            .find("for __tile_loop_idx in 0 .. (trips)")
+            .expect("the loop is generated, with the evaluable `count` as its bound");
+        let store = src
+            .find("store(y.tensor, acc,")
+            .expect("the store of the carry is generated");
+
+        assert!(
+            init < loop_at,
+            "the carry must be initialised before the loop"
+        );
+        assert!(loop_at < store, "the carry must be stored after the loop");
+        assert!(
+            !src[..loop_at].contains("store(y.tensor"),
+            "nothing may store before the loop"
+        );
+
+        // The author's one statement is inside the loop, not after it.
+        let body = src
+            .find("acc = acc + x.tensor")
+            .expect("the author's body is spliced into the loop");
+        assert!(
+            loop_at < body && body < store,
+            "the body belongs between the loop header and the store"
+        );
+    }
+
+    /// `generate` does not disturb the metadata teenygrad-1nr.18.3 delivered:
+    /// `trip_count` still reports the declared *names*, not the evaluable
+    /// `count` expression, and the carry still reports its shape.
+    #[test]
+    fn test_generate_leaves_the_declared_loop_spec_intact() {
+        // Rank 1: the probe declares one axis. A route-1 spec is built per
+        // node, so the rank is an argument rather than part of the signature.
+        let spec = CarryLoopProbeForward::<f32>::tile_spec(1);
+        let l = spec.loop_spec.expect("the loop is declared");
+        assert_eq!(l.trip_count_factors, &["trips"]);
+        let carries: Vec<(&str, &[&str])> =
+            l.carries.iter().map(|c| (c.name, c.shape_consts)).collect();
+        assert_eq!(carries, vec![("acc", &["BLOCK_N"][..])]);
     }
 
     /// Two declared axes give a fixed-rank spec with one binding per
