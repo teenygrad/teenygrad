@@ -970,7 +970,7 @@ fn generated_passes(
             );
         }
         if let Some(target) = &pass.store {
-            let (t_ident, _, _) = tile_out_params
+            let (t_ident, _, t_axes) = tile_out_params
                 .iter()
                 .find(|(id, _, _)| **id == *target)
                 .ok_or_else(|| {
@@ -979,9 +979,42 @@ fn generated_passes(
                         format!("`store = {target}` names no `Out` parameter of this kernel"),
                     )
                 })?;
+            // The carry is `[1]`, but the target's address tile has one
+            // dimension per BLOCKED axis -- `[1, 1]` for a statistic indexed by
+            // two gridded axes. Same single element, different type, and
+            // `tt.store` verifies that value and pointer types match. Every
+            // such block is 1 (a statistic is one element per program), so a
+            // broadcast is exact rather than a reinterpretation.
+            //
+            // The alternative, declaring fewer blocked axes on the statistic,
+            // is not available: every output must agree with the first on
+            // extent AND block, and the first is the walked one
+            // (teenygrad-3rk6.2).
+            let t_blocks: Vec<TokenStream2> = t_axes
+                .iter()
+                .filter(|a| a.block.is_some() && !a.walk)
+                .map(|a| {
+                    a.block
+                        .as_deref()
+                        .expect("filtered")
+                        .parse()
+                        .expect("a block is an identifier or an integer literal")
+                })
+                .collect();
+            // `expand_dims`, not `broadcast_to`: broadcasting cannot change
+            // RANK, and the carry is rank 1 against a rank-k address tile.
+            // Every block here is 1, so expanding at the tail repeatedly gives
+            // `[1]` -> `[1, 1]` -> `[1, 1, 1]` with no data movement. The same
+            // rank-against-broadcast distinction teenyc-u9z needed both calls
+            // for (teenygrad-3rk6.2).
+            let mut value = quote! { #carry };
+            for d in 1..t_blocks.len() {
+                let d = d as i32;
+                value = quote! { #hw_ident::expand_dims(#value, #d) };
+            }
             stmts.push(
                 syn::parse2(quote! {
-                    #hw_ident::store(#t_ident.tensor, #carry, None, &[], None, None);
+                    #hw_ident::store(#t_ident.tensor, #value, None, &[], None, None);
                 })
                 .expect("generated pass store is valid Rust"),
             );
@@ -3012,9 +3045,21 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         None => quote! { #rng },
                     });
                 } else if axis.block.is_some() {
+                    // Matched by AXIS, not by block value. Matching on the
+                    // block compared `Some("1") == Some("1")` for a statistic
+                    // blocked at 1 on two gridded axes, so both took slot 0 and
+                    // the offset came out as
+                    // `__tile_range_0 * C + __tile_range_0`. Latent until now:
+                    // every other multi-blocked kernel has distinct block
+                    // names (BLOCK_M against BLOCK_N), which compare unequal by
+                    // luck rather than by design (teenygrad-3rk6.2).
                     let slot = blocked_positions
                         .iter()
-                        .position(|&k| axes[k].block == axis.block)
+                        .position(|&k| {
+                            axes[k].extent == axis.extent
+                                && axes[k].name.as_ref().map(syn::LitStr::value)
+                                    == axis.name.as_ref().map(syn::LitStr::value)
+                        })
                         .unwrap_or(0);
                     // One blocked axis keeps the original binding name, so
                     // adding this feature rewrites no existing snapshot -- the
