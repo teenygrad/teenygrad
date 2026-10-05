@@ -67,15 +67,16 @@ pub fn constant_pad3d_forward<
     #[tile(
         block = BLOCK_OW,
         extent = W,
-        window(stride = 1, pad = PW1, kernel = 1, output = OW)
+        window(stride = 1, pad = PW1, kernel = 1, output = OW),
+        fill = value
     )]
-    input_ptr: In<T::Pointer<D>>,
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(extent = OD)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     Dv: i32,
@@ -92,65 +93,10 @@ pub fn constant_pad3d_forward<
     T::BoolTensor: BitOr<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    let ow_tile = pid % num_ow_tiles;
-    let rest = pid / num_ow_tiles;
-    let oh = rest % OH;
-    let rest2 = rest / OH;
-    let od = rest2 % OD;
-    let bco = rest2 / OD;
-    let c = bco % C;
-    let b = bco / C;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let id = od - PD1;
-    let ih = oh - PH1;
-    let iw_range = ow_range - PW1;
-
-    let value_vec = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], value), None, false);
-
-    // `ow_range * 0` is the only way to splat a scalar into an I32Tensor (no broadcast API).
-    // A compound `if id < 0 || ...` with 4 conditions triggers a compiler phi-node bug
-    // (cond_br: phi local not in ssa_values), so keep the branchless mask approach here.
-    #[allow(clippy::erasing_op)]
-    let id_t = ow_range * 0 + id;
-    #[allow(clippy::erasing_op)]
-    let ih_t = ow_range * 0 + ih;
-    let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
-    let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
-    let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-
-    let in_bc_base = ((b * C + c) * Dv + id) * H * W + ih * W;
-    let out_bc_base = (((b * C + c) * OD + od) * OH + oh) * OW;
-
-    let combined_mask = ow_mask & d_in_bounds & h_in_bounds & w_in_bounds;
-
-    let tile = T::load(
-        input_ptr.add_offsets(iw_range + in_bc_base),
-        Some(combined_mask),
-        Some(value_vec),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let result = T::where_(combined_mask, tile, value_vec);
-
-    let out_offsets = ow_range + out_bc_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    // Generated: every windowed coordinate, the folded bounds mask, the
+    // row-major offset and the `value` fill for out-of-range lanes
+    // (teenygrad-jpdb).
+    T::store(output.tensor, input.tensor, output.mask, &[], None, None);
 }
 
 /// 3-D constant padding backward pass.

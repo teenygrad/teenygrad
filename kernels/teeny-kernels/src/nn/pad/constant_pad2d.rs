@@ -62,14 +62,15 @@ pub fn constant_pad2d_forward<
     #[tile(
         block = BLOCK_OW,
         extent = W,
-        window(stride = 1, pad = PL, kernel = 1, output = OW)
+        window(stride = 1, pad = PL, kernel = 1, output = OW),
+        fill = value
     )]
-    input_ptr: In<T::Pointer<D>>,
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -84,60 +85,15 @@ pub fn constant_pad2d_forward<
     T::BoolTensor: BitOr<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    let ow_tile = pid % num_ow_tiles;
-    let rest = pid / num_ow_tiles;
-    let oh = rest % OH;
-    let bc = rest / OH;
-    let c = bc % C;
-    let b = bc / C;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let ih = oh - PT;
-    let value_vec = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], value), None, false);
-    let out_offsets = ow_range + ((b * C + c) * OH + oh) * OW;
-
-    if ih < 0 || ih >= H {
-        T::store(
-            output_ptr.add_offsets(out_offsets),
-            value_vec,
-            Some(ow_mask),
-            &[],
-            None,
-            None,
-        );
-        return;
-    }
-
-    let iw_range = ow_range - PL;
-    let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-    let combined_mask = ow_mask & w_in_bounds;
-    let in_bc_base = (b * C + c) * H * W + ih * W;
-
-    let tile = T::load(
-        input_ptr.add_offsets(iw_range + in_bc_base),
-        Some(combined_mask),
-        Some(value_vec),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let result = T::where_(combined_mask, tile, value_vec);
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    // The scalar `if ih < 0 || ih >= H { store(value); return }` is gone: the
+    // generated mask folds H's bounds in, splatting the scalar coordinate the
+    // way the 3-D variant already did by hand. That also removes a scalar
+    // branch of exactly the kind `conv2d_forward` records as tripping a
+    // compiler phi-node bug (teenygrad-jpdb).
+    // Generated: every windowed coordinate, the folded bounds mask, the
+    // row-major offset and the `value` fill for out-of-range lanes
+    // (teenygrad-jpdb).
+    T::store(output.tensor, input.tensor, output.mask, &[], None, None);
 }
 
 /// 2-D constant padding backward pass.

@@ -56,13 +56,14 @@ pub fn constant_pad1d_forward<
     #[tile(
         block = BLOCK_OL,
         extent = L,
-        window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL)
+        window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL),
+        fill = value
     )]
-    input_ptr: In<T::Pointer<D>>,
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(block = BLOCK_OL, extent = OL)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     L: i32,
@@ -75,47 +76,18 @@ pub fn constant_pad1d_forward<
     T::BoolTensor: BitOr<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ol_tiles = T::cdiv(OL, BLOCK_OL);
-
-    let ol_tile = pid % num_ol_tiles;
-    let bc = pid / num_ol_tiles;
-    let c = bc % C;
-    let b = bc / C;
-
-    let ol_start = ol_tile * BLOCK_OL;
-    let ol_range = T::arange(0, BLOCK_OL) + ol_start;
-    let ol_mask = ol_range.lt(OL);
-
-    let in_bc_base = (b * C + c) * L;
-    let out_bc_base = (b * C + c) * OL;
-
-    let ip_range = ol_range - PAD_LEFT;
-    let in_bounds = ip_range.ge(0) & ip_range.lt(L);
-    let combined_mask = ol_mask & in_bounds;
-
-    let value_vec = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OL], value), None, false);
-    let tile = T::load(
-        input_ptr.add_offsets(ip_range + in_bc_base),
-        Some(combined_mask),
-        Some(value_vec),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let result = T::where_(ol_mask & in_bounds, tile, value_vec);
-
-    let out_offsets = ol_range + out_bc_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ol_mask),
-        &[],
-        None,
-        None,
-    );
+    // The windowed read -- `ol_range - PAD_LEFT`, its bounds mask and the
+    // row-major offset -- is generated (teenygrad-jpdb). What is left is the
+    // part that is this family's own: out-of-range lanes take `value`.
+    //
+    // The generated load fills zeros, which is harmless here because this
+    // `where_` overwrites every masked lane anyway -- the hand-written version
+    // passed `value` as the load's fill *and* did this, belt and braces.
+    // Nothing left to write: the windowed read, its bounds mask, the row-major
+    // offset AND the `value` fill for out-of-range lanes are all generated
+    // (teenygrad-jpdb). The hand-written form passed `value` as the load's fill
+    // and then re-applied it with a `where_`; one is enough.
+    T::store(output.tensor, input.tensor, output.mask, &[], None, None);
 }
 
 /// 1-D constant padding backward pass.
