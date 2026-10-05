@@ -37,6 +37,15 @@ use teeny_triton::triton::{
 // windowed input's extent never appears in the output, so propagation needs
 // both names (teenygrad-1nr.18.2).
 #[tiled_kernel]
+// teenygrad-3dp5. `init` is the point: a max-pool's accumulator starts at
+// negative infinity, and while the generated carry was hardcoded to `zeros`
+// this kernel could not use `generate` at all. No `finish` -- a max-pool has no
+// epilogue, the carry IS the result.
+#[tile_loop(trip_count = [KL], axes = [kl = KL], generate)]
+#[tile_carry(
+    acc = [BLOCK_OL],
+    init = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32), None, false)
+)]
 pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
@@ -44,16 +53,32 @@ pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, co
     // pieces: it names the block the window resolves against. The real per-tile
     // extent here is the receptive field, which `resolve_inputs` computes from
     // the window; it never reads this axis's own `block_const`.
+    // `fill = neg_inf` states the reduction's identity: the generated read's
+    // default is zeros, which is the identity for a SUM and would beat a
+    // genuinely negative maximum.
+    //
+    // It is NOT observable here, and that is structural rather than a gap in
+    // the fixture. This pool has no padding and declares no `bounds`, so the
+    // read's mask is exactly the output tile's `in_bounds` -- every masked lane
+    // is an out-of-range OUTPUT lane, which the masked store discards. Removing
+    // this line leaves every test passing; I checked.
+    //
+    // It is kept because it is true of the operand, and because the padded
+    // 2-D/3-D pools DO bounds-check input coordinates that belong to stored
+    // output lanes. That is where a zeros fill corrupts the answer, and where
+    // the test for it belongs (teenygrad-3dp5).
     #[tile(
         block = BLOCK_OL,
         extent = L,
-        window(stride = STRIDE, kernel = KL, output = OL)
+        window(stride = STRIDE, kernel = KL, output = OL),
+        fill = neg_inf
     )]
-    input_ptr: In<T::Pointer<D>>,
+    #[tile_loop_tile(index = [tile_b = _B, tile_c = C, (__tile_range * STRIDE + kl) = L])]
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(block = BLOCK_OL, extent = OL)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     L: i32,
@@ -63,53 +88,7 @@ pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, co
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ol_tiles = T::cdiv(OL, BLOCK_OL);
-
-    let ol_tile = pid % num_ol_tiles;
-    let bc = pid / num_ol_tiles;
-    let c = bc % C;
-    let b = bc / C;
-
-    let ol_start = ol_tile * BLOCK_OL;
-    let ol_range = T::arange(0, BLOCK_OL) + ol_start;
-    let ol_mask = ol_range.lt(OL);
-
-    let in_bc_base = (b * C + c) * L;
-    let out_bc_base = (b * C + c) * OL;
-
-    let mut acc = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32), None, false);
-
-    let loop_bound = KL;
-    for kl in 0..loop_bound {
-        let il_range = ol_range * STRIDE + kl;
-        let in_offsets = il_range + in_bc_base;
-        let tile = T::load(
-            input_ptr.add_offsets(in_offsets),
-            Some(ol_mask),
-            Some(T::cast::<f32, D>(
-                T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32),
-                None,
-                false,
-            )),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        acc = T::maximum(acc, tile);
-    }
-
-    let out_offsets = ol_range + out_bc_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ol_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = T::maximum(acc, input);
 }
 
 /// 1-D max-pooling backward pass.

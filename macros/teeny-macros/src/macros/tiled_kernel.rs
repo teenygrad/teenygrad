@@ -501,6 +501,14 @@ struct TileLoopArgs {
     /// for (its C3: the loop belongs to the wrapper). Option C of
     /// teenygrad-3dbg.
     finish: Option<syn::Expr>,
+    /// The carry's initial value, from `init = <expr>`, replacing `zeros`.
+    ///
+    /// A max-pool's accumulator starts at negative infinity, a min's at
+    /// positive. Neither is `zeros`, so while the initialisation was hardcoded
+    /// those kernels could not use `generate` at all -- the identity of the
+    /// reduction is part of the loop, exactly as `fill` is part of a reduced
+    /// axis's load (teenygrad-3dp5).
+    init: Option<syn::Expr>,
 }
 
 /// Reads a carry's shape out of `key = [A, 1, B]`: each entry is a const name
@@ -649,6 +657,34 @@ fn parse_tile_grid_order(attrs: &[syn::Attribute]) -> Result<Option<TileGridArgs
 /// attention's `m_i` starts at negative infinity -- and needs syntax of its
 /// own, so such a kernel simply does not pass `generate` yet.
 #[allow(clippy::type_complexity)]
+/// The literal a `fill` keyword stands for.
+///
+/// Shared by the prelude's reduced/windowed load and the generated loop's
+/// per-iteration read, so a reduction's identity means the same thing wherever
+/// the operand is read (teenygrad-3dp5). `f32` throughout, then cast: the
+/// keywords name mathematical identities, not bit patterns in the operand's
+/// dtype.
+fn fill_keyword_literal(kind: Option<&str>) -> TokenStream2 {
+    match kind {
+        Some("neg_inf") => quote! { -3.4028235e38_f32 },
+        Some("pos_inf") => quote! { 3.4028235e38_f32 },
+        Some("one") => quote! { 1.0_f32 },
+        _ => quote! { 0.0_f32 },
+    }
+}
+
+/// A `fill` keyword as a whole tile of `block` lanes in the operand's dtype.
+fn fill_keyword_tokens(kind: &Ident, hw_ident: &Ident, dtype: &syn::Type, block: &TokenStream2) -> TokenStream2 {
+    let lit = fill_keyword_literal(Some(kind.to_string().as_str()));
+    quote! {
+        #hw_ident::cast::<f32, #dtype>(
+            #hw_ident::full::<f32>(&[#block], #lit),
+            None,
+            false,
+        )
+    }
+}
+
 fn generated_loop(
     l: &TileLoopArgs,
     hw_ident: &Ident,
@@ -741,8 +777,12 @@ fn generated_loop(
         }
     }
 
+    let init_value = match &l.init {
+        Some(e) => quote! { #e },
+        None => quote! { #hw_ident::zeros::<#out_dtype>(&[#(#dims),*]) },
+    };
     let init: syn::Stmt = syn::parse2(quote! {
-        let mut #carry = #hw_ident::zeros::<#out_dtype>(&[#(#dims),*]);
+        let mut #carry = #init_value;
     })
     .expect("generated carry initialisation is valid Rust");
 
@@ -848,6 +888,34 @@ fn generated_loop(
             .into_iter()
             .fold(quote! { #mask_ident }, |acc, c| quote! { #acc & (#c) });
 
+        // The masked lanes' value. Zeros is the identity for a SUM, so it is
+        // right for avgpool and conv2d and wrong for a max-pool, where a
+        // masked lane of 0 beats a genuinely negative maximum. The operand's
+        // own `#[tile(.. fill = <expr>)]` says which, the same key and the same
+        // meaning the prelude's reduced-axis load already gives it -- so a
+        // reduction's identity is declared in one vocabulary wherever it is
+        // read (teenygrad-3dp5).
+        let declared_fill = tile_in_params
+            .iter()
+            .find(|(ident, _, _)| **ident == **name)
+            .and_then(|(_, _, axes)| {
+                axes.iter().find_map(|a| {
+                    a.fill_expr
+                        .as_ref()
+                        .map(|e| quote! { #e })
+                        .or_else(|| {
+                            a.fill.as_ref().map(|k| {
+                                let block = quote! { #(#dims),* };
+                                fill_keyword_tokens(k, hw_ident, dtype, &block)
+                            })
+                        })
+                })
+            });
+        let fill_value = match declared_fill {
+            Some(v) => v,
+            None => quote! { #hw_ident::zeros::<#dtype>(&[#(#dims),*]) },
+        };
+
         let load_stmt: syn::Stmt = syn::parse2(quote! {
             let #name = {
                 #(#coord_binds)*
@@ -855,7 +923,7 @@ fn generated_loop(
                 #hw_ident::load(
                     #name.add_offsets(#offset),
                     Some(__tile_read_mask),
-                    Some(#hw_ident::zeros::<#dtype>(&[#(#dims),*])),
+                    Some(#fill_value),
                     &[],
                     None,
                     None,
@@ -1013,6 +1081,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
     let mut loop_axes: Vec<(Ident, syn::Expr)> = Vec::new();
     let mut generate = false;
     let mut finish: Option<syn::Expr> = None;
+    let mut init: Option<syn::Expr> = None;
 
     for attr in attrs {
         let is_loop = attr.path().is_ident("tile_loop");
@@ -1125,6 +1194,20 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                 // carry. It is the epilogue hook: work that belongs between the
                 // loop and the store, which `generate` otherwise has nowhere to
                 // put (teenygrad-3dbg).
+                // `init` replaces the carry's `zeros` initialisation. A max-pool
+                // starts at negative infinity and a min at positive; neither is
+                // expressible while the init is hardcoded, which is what kept
+                // the three max-pools on route 2 (teenygrad-3dp5).
+                if key == "init" {
+                    if init.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            &nv.path,
+                            "`init` declared more than once",
+                        ));
+                    }
+                    init = Some(nv.value.clone());
+                    continue;
+                }
                 if key == "finish" {
                     if finish.is_some() {
                         return Err(syn::Error::new_spanned(
@@ -1189,7 +1272,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
             // silently ignore: the epilogue is only ever emitted by the
             // generator, so an author writing one on a metadata-only loop has
             // written code that never runs (teenygrad-3dbg).
-            if finish.is_some() && !generate {
+            if (finish.is_some() || init.is_some()) && !generate {
                 return Err(syn::Error::new_spanned(
                     attrs
                         .iter()
@@ -1205,6 +1288,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                 axes: loop_axes,
                 generate,
                 finish,
+                init,
             }))
         }
     }
@@ -2747,12 +2831,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                             .unwrap_or("1")
                             .parse()
                             .expect("a block is an identifier or an integer literal");
-                        let lit = match kind.as_deref() {
-                            Some("neg_inf") => quote! { -3.4028235e38_f32 },
-                            Some("pos_inf") => quote! { 3.4028235e38_f32 },
-                            Some("one") => quote! { 1.0_f32 },
-                            _ => quote! { 0.0_f32 },
-                        };
+                        let lit = fill_keyword_literal(kind.as_deref());
                         quote! {
                             Some(#hw_ident::cast::<f32, #dtype>(
                                 #hw_ident::full::<f32>(&[#block], #lit),
