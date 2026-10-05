@@ -722,6 +722,16 @@ struct TileReducePass {
     finish: Option<syn::Expr>,
     /// An `Out` parameter receiving the finished carry, one element per row.
     store: Option<Ident>,
+    /// The masked lanes' value for THIS pass's read. Defaults to zeros.
+    ///
+    /// Per-pass, not per-operand, because the right fill depends on what the
+    /// pass accumulates. A sum of `x` wants zeros. A sum of `(x - mean)^2`
+    /// wants `mean`, so the masked lanes contribute nothing -- with zeros they
+    /// contribute `mean^2` each, which is a large error whenever the tail is
+    /// masked. The hand-written layer_norm applied a `where_` to the diff for
+    /// exactly this reason; declaring the fill is the same correction one step
+    /// earlier, and costs no select (teenygrad-3rk6.2).
+    fill: Option<syn::Expr>,
 }
 
 /// Parse every `#[tile_reduce_pass(..)]` on the function, in declaration order.
@@ -736,6 +746,7 @@ fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePa
         let mut acc = None;
         let mut finish = None;
         let mut store = None;
+        let mut fill = None;
         for nv in metas {
             let key = nv
                 .path
@@ -757,12 +768,13 @@ fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePa
                 "acc" => acc = Some(nv.value.clone()),
                 "finish" => finish = Some(nv.value.clone()),
                 "store" => store = Some(as_ident(&nv.value)?),
+                "fill" => fill = Some(nv.value.clone()),
                 other => {
                     return Err(syn::Error::new_spanned(
                         &nv.path,
                         format!(
                             "unknown `#[tile_reduce_pass(...)]` key `{other}` (expected `over`, \
-                             `read`, `into`, `acc`, `finish`, `store`)"
+                             `read`, `into`, `acc`, `finish`, `store`, `fill`)"
                         ),
                     ));
                 }
@@ -781,6 +793,7 @@ fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePa
             acc: acc.ok_or_else(|| missing("acc"))?,
             finish,
             store,
+            fill,
         });
     }
     Ok(passes)
@@ -914,6 +927,10 @@ fn generated_passes(
         let col = format_ident!("__tile_pass_col_{}", n);
         let mask = format_ident!("__tile_pass_mask_{}", n);
         let offset = pass_offset(read_axes, &quote! { #col });
+        let pass_fill = match &pass.fill {
+            Some(f) => quote! { #f },
+            None => quote! { #hw_ident::zeros::<#read_dtype>(&[#blk]) },
+        };
 
         stmts.push(
             syn::parse2(quote! {
@@ -933,7 +950,7 @@ fn generated_passes(
                     let #read_ident = #hw_ident::load(
                         #read_ident.add_offsets(#offset),
                         Some(#mask),
-                        Some(#hw_ident::zeros::<#read_dtype>(&[#blk])),
+                        Some(#pass_fill),
                         &[],
                         None,
                         None,
@@ -3412,6 +3429,18 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         let mut untiled: Vec<String> = Vec::new();
                         for (i, axis) in attrs.iter().enumerate() {
                             match &axis.block {
+                                // A WALKED axis is untiled, whatever block it
+                                // carries: the block is the walk STEP, and one
+                                // program covers the whole axis by walking it,
+                                // so it cannot be split across programs. See
+                                // the raw-pointer path below for the full
+                                // reasoning (teenygrad-3rk6.2).
+                                Some(_) if axis.walk => untiled.push(
+                                    axis.name
+                                        .as_ref()
+                                        .map(syn::LitStr::value)
+                                        .unwrap_or_else(|| axis.extent.to_string()),
+                                ),
                                 Some(block) => {
                                     let block_s = block.to_string();
                                     let extent_s = axis.extent.to_string();
@@ -3640,6 +3669,21 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 let mut untiled_name_tokens: Vec<String> = Vec::new();
                 for (i, axis) in axes.iter().enumerate() {
                     match &axis.block {
+                        // A WALKED axis is untiled, whatever block it carries.
+                        // Its block is the walk STEP: one program covers the
+                        // whole axis by walking it, so the axis cannot be split
+                        // across programs and a `TileAxisBinding` would tell
+                        // anduin it can be. Same failure as blocking a scan's
+                        // inner axis (teenygrad-1a1j.1) -- a spec that lies is
+                        // worse than a raw pointer (teenygrad-3rk6.2).
+                        Some(_) if axis.walk => {
+                            let label = axis
+                                .name
+                                .as_ref()
+                                .map(syn::LitStr::value)
+                                .unwrap_or_else(|| axis.extent.to_string());
+                            untiled_name_tokens.push(label);
+                        }
                         Some(block) => {
                             let block_str = block.to_string();
                             let extent_str = axis.extent.to_string();

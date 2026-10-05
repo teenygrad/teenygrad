@@ -172,17 +172,58 @@ pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
 // `cdiv(N, BLOCK_N)`, so its factors are `N` and `BLOCK_N`.
 #[tile_loop(trip_count = [N, BLOCK_N])]
 #[tile_carry(sum = [1], var_sum = [1])]
+// teenygrad-3rk6.2 stage 2: TWO reduction passes, the second reading the
+// first's result. `sum` is rebound by its own `finish` to the mean, so the
+// variance pass simply names it -- passes run in declaration order, which is
+// what makes an inter-pass reference fall out rather than need machinery.
+//
+// `n_inv` and `eps` are inlined into each `finish`: the passes run before any
+// author code, so there is no preamble to bind them in.
+#[tile_reduce_pass(
+    over = N,
+    read = x,
+    into = sum,
+    acc = T::sum(x, None, true),
+    finish = sum * T::cast::<f32, D>(
+        T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false
+    ),
+    store = mean
+)]
+#[tile_reduce_pass(
+    over = N,
+    read = x,
+    into = var_sum,
+    acc = T::sum(
+        (x - T::broadcast_to(sum, &[BLOCK_N])) * (x - T::broadcast_to(sum, &[BLOCK_N])),
+        None,
+        true
+    ),
+    finish = T::rsqrt(
+        var_sum * T::cast::<f32, D>(
+            T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false
+        ) + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)
+    ),
+    // The masked lanes load as the MEAN, so their diff is zero and they
+    // contribute nothing. With the default zeros fill each would contribute
+    // `mean^2`, which with N=128 against BLOCK_N=256 is half the lanes -- the
+    // hand-written body applied a `where_` to the diff for this reason, and
+    // said so in a comment I should have read before converting.
+    fill = T::broadcast_to(sum, &[BLOCK_N]),
+    store = rstd
+)]
 pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(name = "M", extent = _M)]
-    #[tile(extent = N, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(name = "M", extent = _M)]
-    #[tile(extent = N, reduce)]
-    y_ptr: Out<T::Pointer<D>>,
-    #[tile(extent = N)] weight_ptr: In<T::Pointer<D>>,
-    #[tile(extent = N)] bias_ptr: In<T::Pointer<D>>,
-    #[tile(name = "M", extent = _M)] mean_ptr: Out<T::Pointer<D>>,
-    #[tile(name = "M", extent = _M)] rstd_ptr: Out<T::Pointer<D>>,
+    #[tile(name = "M", block = 1, extent = _M)]
+    // `reduce` AND `walk`: reduce is what the axis means (the passes collapse
+    // it to the per-row mean and rstd), walk is how it is read.
+    #[tile(block = BLOCK_N, extent = N, reduce, walk)]
+    x: In<Tile<T, D>>,
+    #[tile(name = "M", block = 1, extent = _M)]
+    #[tile(block = BLOCK_N, extent = N, walk)]
+    y: Out<Tile<T, D>>,
+    #[tile(block = BLOCK_N, extent = N, walk)] weight: In<Tile<T, D>>,
+    #[tile(block = BLOCK_N, extent = N, walk)] bias: In<Tile<T, D>>,
+    #[tile(name = "M", block = 1, extent = _M)] mean: Out<Tile<T, D>>,
+    #[tile(name = "M", block = 1, extent = _M)] rstd: Out<Tile<T, D>>,
     _M: i32,
     N: i32,
     eps: f32,
@@ -191,110 +232,11 @@ pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    let row_start = row * N;
-    let row_idx = T::arange(0, 1) + row;
-
-    let zeros = T::zeros::<D>(&[BLOCK_N]);
-    let zero_1 = T::zeros::<D>(&[1]);
-    let n_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false);
-
-    // ── Pass 1: mean ─────────────────────────────────────────────────────────
-    let mut sum = zero_1;
-    let mut n_start: i32 = 0;
-    while n_start < N {
-        let col_offs = T::arange(0, BLOCK_N) + n_start;
-        let mask = col_offs.lt(N);
-        let x_tile = T::load(
-            x_ptr.add_offsets(col_offs + row_start),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        sum = sum + T::sum(x_tile, None, true);
-        n_start += BLOCK_N;
-    }
-    let mean_1 = sum * n_inv;
-    let mean = T::broadcast_to(mean_1, &[BLOCK_N]);
-
-    // ── Pass 2: variance ─────────────────────────────────────────────────────
-    let mut var_sum = zero_1;
-    n_start = 0;
-    while n_start < N {
-        let col_offs = T::arange(0, BLOCK_N) + n_start;
-        let mask = col_offs.lt(N);
-        let x_tile = T::load(
-            x_ptr.add_offsets(col_offs + row_start),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        // Mask the diff so out-of-bounds positions don't contribute mean^2 to variance.
-        let diff = T::where_::<D>(mask, x_tile - mean, zeros);
-        var_sum = var_sum + T::sum(diff * diff, None, true);
-        n_start += BLOCK_N;
-    }
-    let eps_t = T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false);
-    let rstd_1 = T::rsqrt(var_sum * n_inv + eps_t);
-    let rstd = T::broadcast_to(rstd_1, &[BLOCK_N]);
-
-    T::store(mean_ptr.add_offsets(row_idx), mean_1, None, &[], None, None);
-    T::store(rstd_ptr.add_offsets(row_idx), rstd_1, None, &[], None, None);
-
-    // ── Pass 3: normalise ─────────────────────────────────────────────────────
-    n_start = 0;
-    while n_start < N {
-        let col_offs = T::arange(0, BLOCK_N) + n_start;
-        let mask = col_offs.lt(N);
-        let x_tile = T::load(
-            x_ptr.add_offsets(col_offs + row_start),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let gamma = T::load(
-            weight_ptr.add_offsets(col_offs),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let beta = T::load(
-            bias_ptr.add_offsets(col_offs),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let y_tile = (x_tile - mean) * rstd * gamma + beta;
-        T::store(
-            y_ptr.add_offsets(col_offs + row_start),
-            y_tile,
-            Some(mask),
-            &[],
-            None,
-            None,
-        );
-        n_start += BLOCK_N;
-    }
+    // One iteration of the map pass. `sum` is the mean and `var_sum` the rstd,
+    // each a `[1]` tile after its pass's `finish`.
+    (x - T::broadcast_to(sum, &[BLOCK_N])) * T::broadcast_to(var_sum, &[BLOCK_N])
+        * weight
+        + bias
 }
 
 // ─── Training backward ───────────────────────────────────────────────────────

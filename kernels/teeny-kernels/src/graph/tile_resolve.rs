@@ -833,18 +833,28 @@ mod tests {
         let spec = LayerNormForward::<f32>::tile_spec();
         spec.validate().expect("must validate");
         let x = spec.inputs[0];
-        assert_eq!(x.param, "x_ptr");
+        assert_eq!(x.param, "x");
         assert_eq!(x.rank, 2);
         assert_eq!(
             x.reduction_axis,
             Some(1),
             "N is dim 1 and cannot be tiled: a row's mean needs the whole row"
         );
-        assert_eq!(x.untiled_dims, &["M", "N"]);
+        // N stays UNTILED even though its axis now carries `block = BLOCK_N`:
+        // that block is the walk step a `#[tile_reduce_pass]` advances by, not
+        // a grid tiling. One program walks the whole row, so N cannot be split
+        // across programs, and a `TileAxisBinding` here would tell anduin it
+        // can be -- the same lie blocking a scan's inner axis would tell
+        // (teenygrad-3rk6.2).
+        //
+        // M left `untiled_dims` because it now carries `block = 1`, which is
+        // truthful: one row per program is exactly a block of 1, and it is what
+        // the reduction family already declares.
+        assert_eq!(x.untiled_dims, &["N"]);
         assert_eq!(spec.outputs.len(), 3, "y, mean and rstd");
         assert_eq!(
             spec.outputs.iter().map(|o| o.param).collect::<Vec<_>>(),
-            vec!["y_ptr", "mean_ptr", "rstd_ptr"]
+            vec!["y", "mean", "rstd"]
         );
 
         let l = spec.loop_spec.expect("layernorm walks its row");
@@ -866,6 +876,12 @@ mod tests {
         assert_eq!(l.carries.len(), 1);
         assert_eq!(l.carries[0].name, "sq_sum");
         assert_eq!(l.carries[0].shape_consts, &["1"]);
+        // Pinned because it was WRONG when rms_norm first converted: its walked
+        // axis carries `block = BLOCK_N` and was therefore emitted as a
+        // `TileAxisBinding`, telling anduin N could be split across programs.
+        // Nothing asserted `untiled_dims` for this kernel, so the lie shipped
+        // and only layer_norm's conversion surfaced it (teenygrad-3rk6.2).
+        assert_eq!(spec.inputs[0].untiled_dims, &["N"]);
 
         // The inference variant reduces the same axis with no saved statistics.
         let spec = LayerNormForwardInference::<f32>::tile_spec();
