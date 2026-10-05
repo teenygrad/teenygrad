@@ -52,6 +52,40 @@ const PTX_LAUNCH_THREADS_X: u32 = 128;
 // ASM snapshot tests
 // ---------------------------------------------------------------------------
 
+/// The epilogue lands BETWEEN the loop and the store, which is the whole point
+/// of `finish` (teenygrad-3dbg).
+///
+/// `#[tile_loop(generate)]` emits init, loop, store in that order. An epilogue
+/// placed before the loop would divide the zeroed carry; placed after the store
+/// it would be dead code. Both would still compile, and avgpool's numerics
+/// would catch the first but not the second, so the ORDER is asserted directly.
+#[test]
+fn test_the_epilogue_sits_between_the_loop_and_the_store() {
+    let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(
+        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+    );
+    let raw = kernel.source;
+    let src: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    let loop_at = src
+        .find("for __tile_loop_idx")
+        .expect("the loop is generated");
+    // The divide is the epilogue: `acc / broadcast_to(..)`.
+    let finish_at = src[loop_at..]
+        .find("acc / ")
+        .map(|i| i + loop_at)
+        .expect("the finish expression is generated after the loop");
+    let store_at = src[finish_at..]
+        .find("store")
+        .map(|i| i + finish_at)
+        .expect("the store is generated after the finish");
+
+    assert!(
+        loop_at < finish_at && finish_at < store_at,
+        "expected loop < finish < store, got {loop_at} < {finish_at} < {store_at}"
+    );
+}
+
 #[test]
 fn test_avgpool2d_forward_asm() -> anyhow::Result<()> {
     dotenv().ok();
