@@ -119,6 +119,106 @@ fn test_instance_norm_inference_asm() -> anyhow::Result<()> {
 // CUDA integration tests (requires GPU + fixtures from generate.py)
 // ---------------------------------------------------------------------------
 
+/// `instance_norm_forward` had no numerics test -- only a source snapshot,
+/// while the hardware test below exercises the separate inference kernel.
+///
+/// Third kernel in this family with that gap (teenygrad-3rk6.2 stage 3), after
+/// layer_norm and rms_norm. Both of this family's bugs so far were invisible to
+/// a source snapshot: a masked lane contributing `mean^2` to the variance, and
+/// a spec misreporting a walked axis as tileable. So the test comes first.
+///
+/// `y` is checked against the PyTorch fixture; `mean` and `rstd` against a
+/// per-(sample, channel) loop, since no fixture saves them.
+#[test]
+#[cfg(feature = "hardware")]
+fn test_instance_norm_forward_saves_statistics_and_matches_reference() -> anyhow::Result<()> {
+    dotenv().ok();
+    let device = teeny_runtime::open()?;
+
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "instancenorm/x.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "instancenorm/weight.bin");
+    let bias_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "instancenorm/bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "instancenorm/expected_forward.bin");
+
+    let mut y_host = vec![0.0f32; N * C * L];
+    let mut mean_host = vec![0.0f32; N * C];
+    let mut rstd_host = vec![0.0f32; N * C];
+
+    let mut x_buf = device.buffer::<f32>(N * C * L)?;
+    let mut w_buf = device.buffer::<f32>(C)?;
+    let mut b_buf = device.buffer::<f32>(C)?;
+    let y_buf = device.buffer::<f32>(N * C * L)?;
+    let mean_buf = device.buffer::<f32>(N * C)?;
+    let rstd_buf = device.buffer::<f32>(N * C)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&weight_host)?;
+    b_buf.to_device(&bias_host)?;
+
+    let kernel = teeny_kernels::nn::norm::instancenorm::InstanceNormForward::<f32>::new(BLOCK_L);
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
+        teeny_kernels::nn::norm::instancenorm::InstanceNormForward<f32>,
+    >(&ptx_path)?;
+
+    // Grid: [N * C] -- one CTA per (sample, channel), as the inference kernel.
+    let cfg = teeny_runtime::launch_config_custom(
+        [(N * C) as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            mean_buf.as_device_ptr(),
+            rstd_buf.as_device_ptr(),
+            N as i32,
+            C as i32,
+            L as i32,
+            EPS,
+        ),
+    )?;
+
+    y_buf.to_host(&mut y_host)?;
+    mean_buf.to_host(&mut mean_host)?;
+    rstd_buf.to_host(&mut rstd_host)?;
+
+    for i in 0..N * C * L {
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-4,
+            "instance_norm_forward y mismatch at {i}: gpu={}, expected={}",
+            y_host[i],
+            expected[i]
+        );
+    }
+
+    // The saved statistics, one per (sample, channel). A variance computed
+    // against a mean that never reached the second pass shows up here.
+    for nc in 0..(N * C) {
+        let row = &x_host[nc * L..(nc + 1) * L];
+        let mean = row.iter().sum::<f32>() / L as f32;
+        let var = row.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / L as f32;
+        let rstd = 1.0f32 / (var + EPS).sqrt();
+        assert!(
+            (mean_host[nc] - mean).abs() < 1e-4,
+            "instance_norm_forward mean mismatch at {nc}: gpu={}, expected={mean}",
+            mean_host[nc]
+        );
+        assert!(
+            (rstd_host[nc] - rstd).abs() < 1e-3 * rstd.abs().max(1.0),
+            "instance_norm_forward rstd mismatch at {nc}: gpu={}, expected={rstd}",
+            rstd_host[nc]
+        );
+    }
+    Ok(())
+}
+
 #[test]
 #[cfg(feature = "hardware")]
 fn test_instance_norm_inference() -> anyhow::Result<()> {
