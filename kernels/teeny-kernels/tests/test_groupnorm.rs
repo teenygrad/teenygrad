@@ -112,6 +112,114 @@ fn test_group_norm_inference_asm() -> anyhow::Result<()> {
 // CUDA integration tests (requires GPU + fixtures from generate.py)
 // ---------------------------------------------------------------------------
 
+/// `group_norm_forward` had no numerics test -- only a source snapshot, while
+/// the hardware test below exercises the separate inference kernel. Fourth
+/// kernel in this family with that gap (teenygrad-3rk6.2).
+///
+/// Written and verified against the kernel BEFORE it was restructured, so a
+/// later failure can only be the restructure. `y` comes from the PyTorch
+/// fixture; `mean` and `rstd` are computed per (sample, group) here, since no
+/// fixture saves them.
+#[test]
+#[cfg(feature = "hardware")]
+fn test_group_norm_forward_saves_statistics_and_matches_reference() -> anyhow::Result<()> {
+    dotenv().ok();
+    let device = teeny_runtime::open()?;
+
+    let x_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "groupnorm/x.bin");
+    let weight_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "groupnorm/weight.bin");
+    let bias_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "groupnorm/bias.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "groupnorm/expected_forward.bin");
+
+    let mut y_host = vec![0.0f32; N * C * L];
+    let mut mean_host = vec![0.0f32; N * G];
+    let mut rstd_host = vec![0.0f32; N * G];
+
+    let mut x_buf = device.buffer::<f32>(N * C * L)?;
+    let mut w_buf = device.buffer::<f32>(C)?;
+    let mut b_buf = device.buffer::<f32>(C)?;
+    let y_buf = device.buffer::<f32>(N * C * L)?;
+    let mean_buf = device.buffer::<f32>(N * G)?;
+    let rstd_buf = device.buffer::<f32>(N * G)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&weight_host)?;
+    b_buf.to_device(&bias_host)?;
+
+    let kernel = teeny_kernels::nn::norm::groupnorm::GroupNormForward::<f32>::new(BLOCK_NL);
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
+        teeny_kernels::nn::norm::groupnorm::GroupNormForward<f32>,
+    >(&ptx_path)?;
+
+    // Grid: [N * G] -- one CTA per (sample, group), as the inference kernel.
+    let cfg = teeny_runtime::launch_config_custom(
+        [(N * G) as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            mean_buf.as_device_ptr(),
+            rstd_buf.as_device_ptr(),
+            N as i32,
+            C as i32,
+            L as i32,
+            G as i32,
+            // `group_size`, now an explicit parameter: the walked axis's extent
+            // must name a parameter, so the caller computes it
+            // (teenygrad-3rk6.2).
+            ((C / G) * L) as i32,
+            EPS,
+        ),
+    )?;
+
+    y_buf.to_host(&mut y_host)?;
+    mean_buf.to_host(&mut mean_host)?;
+    rstd_buf.to_host(&mut rstd_host)?;
+
+    for i in 0..N * C * L {
+        assert!(
+            (y_host[i] - expected[i]).abs() < 1e-4,
+            "group_norm_forward y mismatch at {i}: gpu={}, expected={}",
+            y_host[i],
+            expected[i]
+        );
+    }
+
+    // One statistic per (sample, group), over channels_per_group * L elements.
+    let cpg = C / G;
+    for n in 0..N {
+        for g in 0..G {
+            let base = n * C * L + g * cpg * L;
+            let span = &x_host[base..base + cpg * L];
+            let mean = span.iter().sum::<f32>() / span.len() as f32;
+            let var =
+                span.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / span.len() as f32;
+            let rstd = 1.0f32 / (var + EPS).sqrt();
+            let k = n * G + g;
+            assert!(
+                (mean_host[k] - mean).abs() < 1e-4,
+                "group_norm_forward mean mismatch at (n={n}, g={g}): gpu={}, expected={mean}",
+                mean_host[k]
+            );
+            assert!(
+                (rstd_host[k] - rstd).abs() < 1e-3 * rstd.abs().max(1.0),
+                "group_norm_forward rstd mismatch at (n={n}, g={g}): gpu={}, expected={rstd}",
+                rstd_host[k]
+            );
+        }
+    }
+    Ok(())
+}
+
 #[test]
 #[cfg(feature = "hardware")]
 fn test_group_norm_inference() -> anyhow::Result<()> {
