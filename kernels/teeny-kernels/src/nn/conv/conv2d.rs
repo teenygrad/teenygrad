@@ -618,28 +618,26 @@ pub struct Conv2dOp<'a, T: Num> {
     pub backward_dw: Conv2dBackwardDw<T>,
     _marker: core::marker::PhantomData<&'a ()>,
 }
-
-/// 2-D convolution forward pass fused with a per-output-channel bias add.
-///
-/// Identical to [`conv2d_forward`] (same grid, same masked-load accumulation loop —
-/// see its doc comment) with one addition: `acc + bias[c_out]` before the store.
-/// `bias` broadcasts the same "load as a [1] tensor, then broadcast_to" pattern
-/// `conv2d_forward` already uses for weights, applied once after the loop instead
-/// of once per (c_in, kh, kw) tap.
-///
-/// For `Conv2d(has_bias=true)`, this replaces what would otherwise lower to two
-/// separate kernel launches — [`conv2d_forward`] then a standalone NCHW bias-add —
-/// with one. See spinorml-ia5.
-///
-/// Inference-only; no backward pass (training still uses the two-kernel path via
-/// `conv2d_forward` + a separate bias-add, whose backward is a plain per-channel sum
-/// over the output gradient — fusing that isn't this kernel's job).
 #[tiled_kernel]
-// Same `pid` decode, accumulation loop and window structure as
-// `conv2d_forward` above -- this one only adds the bias term -- so it
-// declares the same axes and the same loop (teenygrad-1tl.7).
-#[tile_loop(trip_count = [C_IN, G, KH, KW])]
-#[tile_carry(acc = [BLOCK_OW])]
+// teenygrad-3dbg: the same generated loop as `conv2d_forward`, plus the bias
+// epilogue in `finish`. The bias tile is `[1]`, so it is broadcast to the
+// carry's width -- `arith.addf` does not broadcast implicitly, the same
+// constraint that made `broadcast_to_i32` necessary in teenyc-u9z.
+#[tile_loop(
+    trip_count = [C_IN, G, KH, KW],
+    axes = [c_in_local = (C_IN / G), kh = KH, kw = KW],
+    generate
+)]
+#[tile_carry(
+    acc = [BLOCK_OW],
+    finish = acc + T::broadcast_to(
+        T::load(
+            bias_ptr.add_offsets(T::arange(0, 1) + tile_c_out),
+            None, None, &[], None, None, None, false,
+        ),
+        &[BLOCK_OW]
+    )
+)]
 pub fn conv2d_bias_forward<
     T: Triton,
     D: Num,
@@ -662,17 +660,37 @@ pub fn conv2d_bias_forward<
         extent = W,
         window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
     )]
-    x_ptr: In<T::Pointer<D>>,
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            ((tile_c_out / (C_OUT / G)) * (C_IN / G) + c_in_local) = C_IN,
+            (tile_oh * STRIDE_H + kh - PAD_H) = H,
+            (__tile_range * STRIDE_W + kw - PAD_W) = W
+        ],
+        bounds = [2, 3]
+    )]
+    x: In<Tile<T, D>>,
     // `w_ptr`/`bias_ptr` stay untagged, as `conv2d_forward` leaves `w_ptr`:
     // the weights are not sliced by the output tile, and the bias is indexed
     // by `c_out` alone.
-    w_ptr: In<T::Pointer<D>>,
+    #[tile_loop_scalar(
+        index = [tile_c_out = C_OUT, c_in_local = (C_IN / G), kh = KH, kw = KW]
+    )]
+    w: In<Tile<T, D>>,
+    // Stays untagged, as `conv2d_forward` leaves `w_ptr`. A bias is read ONCE,
+    // before the loop, and indexed by the output's UNBLOCKED C_OUT axis. The
+    // prelude cannot express that: an input axis must match an output axis on
+    // extent AND block, so C_OUT must be unblocked here too -- but a route-1
+    // input derives its tile shape from a blocked axis, so it must have one.
+    // A read-once broadcast operand is therefore its own gap, filed separately;
+    // `finish` being an arbitrary expression is what lets this kernel convert
+    // anyway (teenygrad-3dbg).
     bias_ptr: In<T::Pointer<D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_OUT)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    y_ptr: Out<T::Pointer<D>>,
+    y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -686,98 +704,7 @@ pub fn conv2d_bias_forward<
     T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    let ow_tile = pid % num_ow_tiles;
-    let bco = pid / num_ow_tiles;
-    let oh = bco % OH;
-    let bc = bco / OH;
-    let c_out = bc % C_OUT;
-    let b = bc / C_OUT;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let out_bc_base = (b * C_OUT + c_out) * OH * OW;
-
-    let c_in_per_group = C_IN / G;
-    let g_idx = c_out / (C_OUT / G);
-    let c_in_start = g_idx * c_in_per_group;
-
-    let mut acc = T::zeros::<D>(&[BLOCK_OW]);
-
-    let loop_bound = c_in_per_group * KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let kh_cin = idx / KW;
-        let kh = kh_cin % KH;
-        let c_in_local = kh_cin / KH;
-        let c_in = c_in_start + c_in_local;
-
-        let ih = oh * STRIDE_H + kh - PAD_H;
-        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
-
-        #[allow(clippy::erasing_op)]
-        let ih_t = ow_range * 0 + ih;
-        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
-        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-        let load_mask = ow_mask & h_in_bounds & w_in_bounds;
-
-        let x_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
-        let x_tile = T::load(
-            x_ptr.add_offsets(x_offsets),
-            Some(load_mask),
-            Some(T::zeros::<D>(&[BLOCK_OW])),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-
-        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
-        let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(
-            w_ptr.add_offsets(w_off),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
-
-        acc = acc + x_tile * w_tile;
-    }
-
-    // ── Bias epilog ──────────────────────────────────────────────────────────
-    let bias_off = T::arange(0, 1) + c_out;
-    let bias_1 = T::load(
-        bias_ptr.add_offsets(bias_off),
-        None,
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let bias_tile = T::broadcast_to(bias_1, &[BLOCK_OW]);
-    acc = acc + bias_tile;
-
-    let out_offsets = ow_range + (out_bc_base + oh * OW);
-    T::store(
-        y_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = acc + x * w;
 }
 
 impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for Conv2dBiasForward<D> {
