@@ -311,19 +311,29 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 // `[N, C]` -- without this the generated `grid_spec()` would claim N as a grid
 // axis it never covers.
 #[tile_grid(order = [C])]
+// teenygrad-3rk6.2: a MAP with no reduction pass at all. It walks N and
+// stores; its statistics arrive as inputs rather than being computed here, so
+// there is nothing to reduce. The generated map loop is the whole of it.
+//
+// weight/bias/mean/rstd stay raw pointers: all four are indexed by the gridded
+// C alone, which is teenygrad-3rk6.1's read-once broadcast operand, so they are
+// loaded in the body as conv2d_bias's bias is.
 pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(extent = N)]
-    #[tile(extent = C)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(extent = N)]
-    #[tile(extent = C)]
-    y_ptr: Out<T::Pointer<D>>,
+    // N is WALKED and is the OUTER axis, so each step of the walk advances by
+    // C. Every norm converted before this one walked its innermost axis, where
+    // that stride is 1 (teenygrad-3rk6.2).
+    #[tile(block = BLOCK_N, extent = N, walk)]
+    #[tile(block = 1, extent = C)]
+    x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_N, extent = N, walk)]
+    #[tile(block = 1, extent = C)]
+    y: Out<Tile<T, D>>,
     // Per-channel scalars, broadcast across the N tile -- rank 1, indexed by
     // `c` alone, as `batch_norm_stats_forward` declares its own outputs.
-    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
-    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
-    #[tile(extent = C)] mean_ptr: In<T::Pointer<D>>,
-    #[tile(extent = C)] rstd_ptr: In<T::Pointer<D>>,
+    #[tile(block = 1, extent = C)] weight: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] bias: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] mean: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] rstd: In<Tile<T, D>>,
     N: i32,
     C: i32,
 ) where
@@ -331,93 +341,13 @@ pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let c = T::program_id(Axis::X);
-    let c_idx = T::arange(0, 1) + c;
-
-    // Load per-channel scalars and broadcast to [BLOCK_N].
-    let mean = T::broadcast_to(
-        T::load(
-            mean_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_N],
-    );
-    let rstd = T::broadcast_to(
-        T::load(
-            rstd_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_N],
-    );
-    let gamma = T::broadcast_to(
-        T::load(
-            weight_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_N],
-    );
-    let beta = T::broadcast_to(
-        T::load(
-            bias_ptr.add_offsets(c_idx),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        ),
-        &[BLOCK_N],
-    );
-
-    let zeros = T::zeros::<D>(&[BLOCK_N]);
-    let mut n_start: i32 = 0;
-    while n_start < N {
-        let offsets_n = T::arange(0, BLOCK_N) + n_start;
-        let mask = offsets_n.lt(N);
-        let elem_offsets = offsets_n * C + c;
-
-        let x_tile = T::load(
-            x_ptr.add_offsets(elem_offsets),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let y_tile = gamma * (x_tile - mean) * rstd + beta;
-
-        T::store(
-            y_ptr.add_offsets(elem_offsets),
-            y_tile,
-            Some(mask),
-            &[],
-            None,
-            None,
-        );
-
-        n_start += BLOCK_N;
-    }
+    // One iteration of the map pass. Each statistic is a `[1]` tile from the
+    // prelude, broadcast to the walked block.
+    let mean_b = T::broadcast_to(mean.tensor, &[BLOCK_N]);
+    let rstd_b = T::broadcast_to(rstd.tensor, &[BLOCK_N]);
+    let gamma = T::broadcast_to(weight.tensor, &[BLOCK_N]);
+    let beta = T::broadcast_to(bias.tensor, &[BLOCK_N]);
+    gamma * (x - mean_b) * rstd_b + beta
 }
 
 // ─── Training RuntimeOp implementations ──────────────────────────────────────

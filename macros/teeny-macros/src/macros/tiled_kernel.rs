@@ -806,6 +806,27 @@ fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePa
 /// only `Tensor + i32` has an impl -- the same ordering trap teenygrad-y8aa and
 /// teenygrad-jpdb each hit in their own place.
 fn pass_offset(axes: &[TileAttrArgs], col: &TokenStream2) -> TokenStream2 {
+    let stride_after = |i: usize| -> Option<TokenStream2> {
+        axes[i + 1..]
+            .iter()
+            .map(|a| {
+                let e = &a.extent;
+                quote! { (#e) }
+            })
+            .reduce(|a, b| quote! { #a * #b })
+    };
+    // The WALKED axis has a stride of its own unless it is innermost.
+    // batch_norm_normalize walks N in an `[N, C]` tensor, so each step of the
+    // walk advances by C -- every kernel converted before it walked the
+    // innermost axis, where the stride is 1 and this term vanishes
+    // (teenygrad-3rk6.2).
+    let walked_term = axes
+        .iter()
+        .position(|a| a.walk)
+        .and_then(|i| stride_after(i))
+        .map(|st| quote! { (#col) * (#st) })
+        .unwrap_or_else(|| quote! { #col });
+    let col = &walked_term;
     let mut scalar_terms: Vec<TokenStream2> = Vec::new();
     for (i, axis) in axes.iter().enumerate() {
         if axis.walk {
@@ -817,21 +838,9 @@ fn pass_offset(axes: &[TileAttrArgs], col: &TokenStream2) -> TokenStream2 {
             .map(syn::LitStr::value)
             .unwrap_or_else(|| axis.extent.to_string());
         let idx = format_ident!("tile_{}", label.to_lowercase());
-        let strides: Vec<TokenStream2> = axes[i + 1..]
-            .iter()
-            .map(|a| {
-                let e = &a.extent;
-                quote! { (#e) }
-            })
-            .collect();
-        if strides.is_empty() {
-            scalar_terms.push(quote! { #idx });
-        } else {
-            let prod = strides
-                .into_iter()
-                .reduce(|a, b| quote! { #a * #b })
-                .expect("non-empty");
-            scalar_terms.push(quote! { #idx * #prod });
+        match stride_after(i) {
+            Some(prod) => scalar_terms.push(quote! { #idx * #prod }),
+            None => scalar_terms.push(quote! { #idx }),
         }
     }
     if scalar_terms.is_empty() {
@@ -3368,7 +3377,15 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // A kernel declaring reduction passes takes the multi-pass path: its
         // body is the final MAP pass, not one iteration of a single
         // accumulation loop (teenygrad-3rk6.2).
-        if !reduce_passes.is_empty() {
+        // A walked axis alone is enough: batch_norm_normalize is a MAP with no
+        // reduction pass at all -- it walks N and stores, with its statistics
+        // arriving as inputs. The generated map loop is exactly what it needs
+        // (teenygrad-3rk6.2).
+        let any_walk = tile_in_params
+            .iter()
+            .chain(tile_out_params.iter())
+            .any(|(_, _, axes)| axes.iter().any(|a| a.walk));
+        if !reduce_passes.is_empty() || any_walk {
             match generated_passes(
                 &reduce_passes,
                 &hw_ident,
@@ -3429,7 +3446,25 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
 
     let (tile_spec_method, grid_spec_method): (TokenStream2, TokenStream2) =
         if has_explicit_tile_attr {
-            let spec_axes = all_tile_param_attrs[0];
+            // The param declaring the MOST axes decides whether this kernel
+            // states every axis -- not `all_tile_param_attrs[0]`.
+            //
+            // That list begins with `prelude_in_params`, which excludes walked
+            // operands, so for a multi-pass kernel its first entry became a
+            // per-channel scalar with ONE axis and a fully-declared kernel was
+            // emitted with the rank-parameterised `tile_spec(rank)` meant for
+            // flat kernels. Anchoring to the first OUTPUT instead is also
+            // wrong: a rank-reducing kernel's output has fewer axes than its
+            // input, which would flip all twelve reductions.
+            //
+            // The maximum is right for both: a fully-declared kernel has some
+            // param carrying its whole axis set, and a flat kernel has one axis
+            // everywhere (teenygrad-3rk6.2).
+            let spec_axes = all_tile_param_attrs
+                .iter()
+                .copied()
+                .max_by_key(|a| a.len())
+                .expect("checked above: the list is non-empty");
             let blocked = spec_axes
                 .iter()
                 .find(|a| a.block.is_some())
@@ -3651,6 +3686,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let grid_axes: Vec<TokenStream2> = tile_out_params[0]
                 .2
                 .iter()
+                // A WALKED axis is not a grid axis. One program steps through
+                // the whole axis, so including it would have anduin launch
+                // `cdiv(extent, block)` times too many programs, each walking
+                // the same span and writing the same outputs. The third place
+                // a walked axis had to stop looking like a tiled one, after
+                // `untiled_dims` and `blocked_positions` (teenygrad-3rk6.2).
+                .filter(|axis| !axis.walk)
                 .map(|axis| {
                     let name = axis
                         .name

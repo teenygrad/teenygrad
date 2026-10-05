@@ -882,6 +882,22 @@ mod tests {
         // Nothing asserted `untiled_dims` for this kernel, so the lie shipped
         // and only layer_norm's conversion surfaced it (teenygrad-3rk6.2).
         assert_eq!(spec.inputs[0].untiled_dims, &["N"]);
+        // And the GRID excludes the walked axis. It did not when rms_norm,
+        // layer_norm and instance_norm first converted: `grid_spec` built its
+        // axes from the output's declarations without filtering `walk`, so N
+        // appeared as a grid axis and anduin would have launched
+        // `cdiv(N, BLOCK_N)` times too many programs, each walking the same row
+        // and writing the same outputs. Nothing asserted these grids
+        // (teenygrad-3rk6.2).
+        let grid = RmsNormForward::<f32>::grid_spec();
+        let axes: Vec<(&str, Option<&str>)> =
+            grid.axes.iter().map(|a| (a.name, a.block_const)).collect();
+        assert_eq!(axes, vec![("M", Some("1"))], "one program per row");
+
+        let grid = LayerNormForward::<f32>::grid_spec();
+        let axes: Vec<(&str, Option<&str>)> =
+            grid.axes.iter().map(|a| (a.name, a.block_const)).collect();
+        assert_eq!(axes, vec![("M", Some("1"))], "one program per row");
 
         // The inference variant reduces the same axis with no saved statistics.
         let spec = LayerNormForwardInference::<f32>::tile_spec();
@@ -1245,12 +1261,16 @@ mod tests {
         );
 
         let y = spec.outputs[0];
-        assert_eq!(y.param, "y_ptr");
+        assert_eq!(y.param, "y");
         assert_eq!(y.rank, 2);
         assert_eq!(
             y.untiled_dims,
-            &["N", "C"],
-            "one program covers a whole column, so neither dim is tiled"
+            &["N"],
+            "N is WALKED -- one program covers the whole column by stepping \
+             through it, so it cannot be split across programs however much \
+             `block = BLOCK_N` looks like a tiling. C left `untiled_dims` \
+             because it carries `block = 1`, which is truthful: one channel per \
+             program (teenygrad-3rk6.2)"
         );
 
         // The per-channel operands are rank 1, as `batch_norm_stats_forward`
@@ -1261,10 +1281,13 @@ mod tests {
             .filter(|i| i.rank == 1)
             .map(|i| i.param)
             .collect();
-        assert_eq!(
-            per_channel,
-            vec!["weight_ptr", "bias_ptr", "mean_ptr", "rstd_ptr"]
-        );
+        // Still four, and still in the spec. Converting this kernel by
+        // untagging them -- the workaround conv2d_bias and instance_norm use
+        // for the same operand shape -- would have dropped all four, and four
+        // of six inputs vanishing is a worse trade than the fusability gained.
+        // They stay declared because this kernel has ONE non-walk blocked axis,
+        // so their load is rank 1 (teenygrad-3rk6.1).
+        assert_eq!(per_channel, vec!["weight", "bias", "mean", "rstd"]);
 
         // The grid is the point: C only.
         let grid = BatchNormNormalizeForward::<f32>::grid_spec();
@@ -1272,8 +1295,11 @@ mod tests {
             grid.axes.iter().map(|a| (a.name, a.block_const)).collect();
         assert_eq!(
             axes,
-            vec![("C", None)],
-            "one program per channel, and N is not a grid axis at all"
+            vec![("C", Some("1"))],
+            "one program per channel, and N -- being WALKED -- is not a grid \
+             axis at all. C's block is the literal 1 now rather than absent, \
+             which is the same program count stated explicitly \
+             (teenygrad-3rk6.2)"
         );
     }
 
