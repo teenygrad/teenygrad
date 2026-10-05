@@ -267,6 +267,21 @@ where
     /// broadcasts each blocked axis's range into its own dimension.
     fn expand_dims_i32(x: Self::I32Tensor, axis: i32) -> Self::I32Tensor;
 
+    /// `broadcast_to` over an index tensor.
+    ///
+    /// The `I32Tensor` sibling of [`Triton::broadcast_to`], for the same reason
+    /// `expand_dims_i32` exists: the multi-blocked-axis prelude works in index
+    /// tensors, and `Tensor<D>`/`I32Tensor` are separate associated types with
+    /// no equality bound.
+    ///
+    /// Expanding each blocked axis's range is not enough on its own -- the
+    /// results are differently shaped, `[B0, 1]` against `[1, B1]`, and neither
+    /// the mask conjunction nor the offset sum broadcasts implicitly:
+    /// `'arith.andi' op requires the same type for all operands and results`.
+    /// Each range is broadcast to the full tile shape so they share one type
+    /// (teenyc-u9z).
+    fn broadcast_to_i32(x: Self::I32Tensor, shape: &[i32]) -> Self::I32Tensor;
+
     /// Permute `x`'s dimensions according to `dims`.
     fn permute<D: ty::Dtype>(x: Self::Tensor<D>, dims: &[i32]) -> Self::Tensor<D>;
 

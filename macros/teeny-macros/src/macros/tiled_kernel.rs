@@ -2316,6 +2316,27 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                 expr = quote! { #hw_ident::expand_dims_i32(#expr, #d) };
                             }
                         }
+                        // Then broadcast to the FULL tile shape, so every range
+                        // has one type. Expanding alone leaves them differently
+                        // shaped -- [B0, 1] and [1, B1] -- and neither the mask
+                        // conjunction nor the offset sum broadcasts for us:
+                        // `'arith.andi' op requires the same type for all
+                        // operands and results`. teenygrad-1nr.18.5 built this
+                        // path and its probe only asserted the generated spec,
+                        // so nothing compiled it until a real kernel declared
+                        // two blocked axes (teenyc-u9z's repro).
+                        let full: Vec<TokenStream2> = blocked_positions
+                            .iter()
+                            .map(|&k| {
+                                axes[k]
+                                    .block
+                                    .as_ref()
+                                    .expect("blocked_positions only holds blocked axes")
+                                    .parse()
+                                    .expect("a block is an identifier or an integer literal")
+                            })
+                            .collect();
+                        expr = quote! { #hw_ident::broadcast_to_i32(#expr, &[#(#full),*]) };
                     }
                     // One blocked axis keeps the original binding name, so
                     // adding this feature rewrites no existing snapshot -- the
