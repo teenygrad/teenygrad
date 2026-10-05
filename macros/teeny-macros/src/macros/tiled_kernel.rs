@@ -485,6 +485,22 @@ struct TileLoopArgs {
     /// metadata-only behaviour untouched (teenygrad-1nr.18.3 landed that, and
     /// it is what the rungs blocked on it needed).
     generate: bool,
+    /// The carry's post-loop transform, from `finish = <expr>`: the epilogue.
+    ///
+    /// `generate` emits init, loop, store in that order, which leaves nowhere
+    /// for work BETWEEN the loop and the store. Every pooling and biased
+    /// convolution kernel has such work -- avgpool divides by the window size,
+    /// conv2d_bias adds a broadcast bias -- so without this they cannot use
+    /// `generate` at all. `conv2d_forward` only escaped by genuinely having no
+    /// epilogue.
+    ///
+    /// Spliced as `let <carry> = <expr>;` after the loop, so the expression
+    /// reads the carry by name and shadows it for the store. An expression
+    /// rather than a second spliced body keeps the loop body the only place
+    /// author code appears, which is what teenygrad-1nr.18.3's analysis asked
+    /// for (its C3: the loop belongs to the wrapper). Option C of
+    /// teenygrad-3dbg.
+    finish: Option<syn::Expr>,
 }
 
 /// Reads a carry's shape out of `key = [A, 1, B]`: each entry is a const name
@@ -641,7 +657,7 @@ fn generated_loop(
     loop_scalars: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>)],
     loop_tiles: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>, Vec<usize>)],
     input: &ItemFn,
-) -> Result<(Vec<syn::Stmt>, syn::Stmt, syn::Stmt), syn::Error> {
+) -> Result<(Vec<syn::Stmt>, syn::Stmt, Vec<syn::Stmt>), syn::Error> {
     let span = input.sig.ident.span();
     if l.carries.len() != 1 {
         return Err(syn::Error::new(
@@ -881,7 +897,22 @@ fn generated_loop(
     })
     .expect("generated store is valid Rust");
 
-    Ok((vec![init], loop_stmt, store_stmt))
+    // The epilogue, between the loop and the store. Emitted as a rebinding so
+    // the expression can read the carry by name -- `acc / ksize`, `acc + bias`
+    // -- and shadow it for the store that follows (teenygrad-3dbg).
+    let finish_stmt: Option<syn::Stmt> = l
+        .finish
+        .as_ref()
+        .map(|f| {
+            syn::parse2(quote! { let #carry = #f; })
+        })
+        .transpose()
+        .expect("a parsed expression rebinds validly");
+
+    let mut trailing = Vec::new();
+    trailing.extend(finish_stmt);
+    trailing.push(store_stmt);
+    Ok((vec![init], loop_stmt, trailing))
 }
 
 /// `true` when this axis is reduced AND the output has no counterpart to it --
@@ -981,6 +1012,7 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
     let mut count: Option<syn::Expr> = None;
     let mut loop_axes: Vec<(Ident, syn::Expr)> = Vec::new();
     let mut generate = false;
+    let mut finish: Option<syn::Expr> = None;
 
     for attr in attrs {
         let is_loop = attr.path().is_ident("tile_loop");
@@ -1089,6 +1121,20 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                 }
                 trip_count = Some(names);
             } else {
+                // `finish` is the carry's post-loop transform, not another
+                // carry. It is the epilogue hook: work that belongs between the
+                // loop and the store, which `generate` otherwise has nowhere to
+                // put (teenygrad-3dbg).
+                if key == "finish" {
+                    if finish.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            &nv.path,
+                            "`finish` declared more than once",
+                        ));
+                    }
+                    finish = Some(nv.value.clone());
+                    continue;
+                }
                 let Some(name) = nv.path.get_ident().cloned() else {
                     return Err(syn::Error::new_spanned(
                         &nv.path,
@@ -1139,12 +1185,26 @@ fn parse_tile_loop_attrs(attrs: &[syn::Attribute]) -> Result<Option<TileLoopArgs
                     "`#[tile_loop(generate)]` needs either `axes = [name = extent, ..]` or `count = <expr>`: `trip_count` is a list of names and is documented as not being a formula, so it cannot be evaluated -- conv2d's factors are [C_IN, G, KH, KW] but its count is (C_IN / G) * KH * KW. `axes` is preferred: its extents multiply to the count and their names are bound by the generated decode.",
                 ));
             }
+            // A `finish` with no `generate` is a declaration the macro would
+            // silently ignore: the epilogue is only ever emitted by the
+            // generator, so an author writing one on a metadata-only loop has
+            // written code that never runs (teenygrad-3dbg).
+            if finish.is_some() && !generate {
+                return Err(syn::Error::new_spanned(
+                    attrs
+                        .iter()
+                        .find(|a| a.path().is_ident("tile_carry"))
+                        .expect("carries is non-empty in this arm"),
+                    "`finish` needs `#[tile_loop(generate)]`: without it the macro emits no                      store, so there is no point between the loop and a store for the epilogue                      to occupy, and the expression would be silently dropped",
+                ));
+            }
             Ok(Some(TileLoopArgs {
                 trip_count,
                 carries,
                 count,
                 axes: loop_axes,
                 generate,
+                finish,
             }))
         }
     }
@@ -2785,7 +2845,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // the loop ends. C3 holds by construction -- the loop is the wrapper.
         match &tile_loop {
             Some(l) if l.generate => {
-                let (init_stmts, loop_stmt, store_stmt) = match generated_loop(
+                let (init_stmts, loop_stmt, trailing_stmts) = match generated_loop(
                     l,
                     &hw_ident,
                     &prelude_in_params,
@@ -2799,7 +2859,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 };
                 stmts.extend(init_stmts);
                 stmts.push(loop_stmt);
-                stmts.push(store_stmt);
+                stmts.extend(trailing_stmts);
             }
             _ => stmts.extend(input.block.stmts.iter().cloned()),
         }
