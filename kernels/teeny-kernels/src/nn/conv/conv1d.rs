@@ -36,6 +36,11 @@ use teeny_triton::triton::{
 /// Zero-padding of `PAD` elements is applied on each side of the input.
 /// `OL = (L + 2*PAD - KL) / STRIDE + 1`.
 #[tiled_kernel]
+// teenygrad-3dp5. The same shape as `conv2d_forward` (teenygrad-1nr.18.4) and
+// simpler: no groups, so the C_IN coordinate is the loop axis itself. No
+// epilogue either -- this convolution has no bias, the carry IS the result.
+#[tile_loop(trip_count = [C_IN, KL], axes = [c_in = C_IN, kl = KL], generate)]
+#[tile_carry(acc = [BLOCK_OL])]
 pub fn conv1d_forward<
     T: Triton,
     D: Num,
@@ -58,12 +63,26 @@ pub fn conv1d_forward<
         extent = L,
         window(stride = STRIDE, pad = PAD, kernel = KL, output = OL)
     )]
-    x_ptr: In<T::Pointer<D>>,
-    w_ptr: In<T::Pointer<D>>,
+    // `#[tile(..)]` above says what `x` IS -- its windowed axes -- and this
+    // says how to read it per iteration. `bounds` names the padded axes, whose
+    // coordinates go negative at a tile's edge (teenygrad-3dp5).
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            c_in = C_IN,
+            (__tile_range * STRIDE + kl - PAD) = L
+        ],
+        bounds = [2]
+    )]
+    x: In<Tile<T, D>>,
+    // One element per iteration, broadcast. The row-major fold the body wrote
+    // by hand is what this declaration generates.
+    #[tile_loop_scalar(index = [tile_c_out = C_OUT, c_in = C_IN, kl = KL])]
+    w: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_OUT)]
     #[tile(block = BLOCK_OL, extent = OL)]
-    y_ptr: Out<T::Pointer<D>>,
+    y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -75,69 +94,7 @@ pub fn conv1d_forward<
     T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ol_tiles = T::cdiv(OL, BLOCK_OL);
-
-    let ol_tile = pid % num_ol_tiles;
-    let bc = pid / num_ol_tiles;
-    let c_out = bc % C_OUT;
-    let b = bc / C_OUT;
-
-    let ol_start = ol_tile * BLOCK_OL;
-    let ol_range = T::arange(0, BLOCK_OL) + ol_start;
-    let ol_mask = ol_range.lt(OL);
-
-    let out_bc_base = (b * C_OUT + c_out) * OL;
-
-    let mut acc = T::zeros::<D>(&[BLOCK_OL]);
-
-    let loop_bound = C_IN * KL;
-    for idx in 0..loop_bound {
-        let kl = idx % KL;
-        let c_in = idx / KL;
-
-        let il_range = ol_range * STRIDE + kl - PAD;
-        let in_bounds = il_range.ge(0) & il_range.lt(L);
-        let load_mask = ol_mask & in_bounds;
-
-        let x_offsets = il_range + (b * C_IN + c_in) * L;
-        let x_tile = T::load(
-            x_ptr.add_offsets(x_offsets),
-            Some(load_mask),
-            Some(T::zeros::<D>(&[BLOCK_OL])),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-
-        let w_idx = (c_out * C_IN + c_in) * KL + kl;
-        let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(
-            w_ptr.add_offsets(w_off),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let w_tile = T::broadcast_to(w_1, &[BLOCK_OL]);
-
-        acc = acc + x_tile * w_tile;
-    }
-
-    let out_offsets = ol_range + out_bc_base;
-    T::store(
-        y_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ol_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = acc + x * w;
 }
 
 /// 1-D convolution backward pass — gradient with respect to input (`dx`).

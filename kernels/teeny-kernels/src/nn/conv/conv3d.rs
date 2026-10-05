@@ -40,7 +40,15 @@ use teeny_triton::triton::{
 // blocked, so D and H carry the literal block 1 -- this body's `pid` decode
 // yields one scalar `od` and one scalar `oh` per program, and each reads a
 // full `KD`/`KH` window of its own input axis (teenygrad-1tl.7).
-#[tile_loop(trip_count = [C_IN, KD, KH, KW])]
+// teenygrad-3dp5: the loop is generated now. `axes` names its own axes, whose
+// extents multiply to the trip count and whose names the generated decode
+// binds, replacing this body's four lines of modulo and division. No epilogue
+// -- this convolution has no bias, the carry IS the result.
+#[tile_loop(
+    trip_count = [C_IN, KD, KH, KW],
+    axes = [c_in = C_IN, kd = KD, kh = KH, kw = KW],
+    generate
+)]
 #[tile_carry(acc = [BLOCK_OW])]
 pub fn conv3d_forward<
     T: Triton,
@@ -71,14 +79,32 @@ pub fn conv3d_forward<
         extent = W,
         window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
     )]
-    x_ptr: In<T::Pointer<D>>,
-    w_ptr: In<T::Pointer<D>>,
+    // `#[tile(..)]` above says what `x` IS -- its windowed axes -- and this
+    // says how to read it per iteration. `bounds` names the padded axes, whose
+    // coordinates go negative at a tile's edge (teenygrad-3dp5).
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            c_in = C_IN,
+            (tile_od * STRIDE_D + kd - PAD_D) = Dv,
+            (tile_oh * STRIDE_H + kh - PAD_H) = H,
+            (__tile_range * STRIDE_W + kw - PAD_W) = W
+        ],
+        bounds = [2, 3, 4]
+    )]
+    x: In<Tile<T, D>>,
+    // One element per iteration, broadcast. The row-major fold the body wrote
+    // by hand is what this declaration generates.
+    #[tile_loop_scalar(
+        index = [tile_c_out = C_OUT, c_in = C_IN, kd = KD, kh = KH, kw = KW]
+    )]
+    w: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_OUT)]
     #[tile(extent = OD)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    y_ptr: Out<T::Pointer<D>>,
+    y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -94,90 +120,7 @@ pub fn conv3d_forward<
     T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    // Decode flat pid → (b, c_out, od, oh, ow_tile).
-    let ow_tile = pid % num_ow_tiles;
-    let rest = pid / num_ow_tiles;
-    let oh = rest % OH;
-    let rest2 = rest / OH;
-    let od = rest2 % OD;
-    let bco = rest2 / OD;
-    let c_out = bco % C_OUT;
-    let b = bco / C_OUT;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let out_base = ((b * C_OUT + c_out) * OD * OH * OW) + od * OH * OW + oh * OW;
-
-    let mut acc = T::zeros::<D>(&[BLOCK_OW]);
-
-    let loop_bound = C_IN * KD * KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let tmp = idx / KW;
-        let kh = tmp % KH;
-        let tmp2 = tmp / KH;
-        let kd = tmp2 % KD;
-        let c_in = tmp2 / KD;
-
-        // Compute padded input coordinates; OOB depth/height rows contribute zero via mask.
-        let id = od * STRIDE_D + kd - PAD_D;
-        let ih = oh * STRIDE_H + kh - PAD_H;
-        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
-
-        // `ow_range * 0` is the only way to splat scalar id/ih into an I32Tensor.
-        // Scalar `if`/`continue` inside a loop triggers a compiler phi-node bug.
-        #[allow(clippy::erasing_op)]
-        let id_t = ow_range * 0 + id;
-        #[allow(clippy::erasing_op)]
-        let ih_t = ow_range * 0 + ih;
-        let d_in_bounds = id_t.ge(0) & id_t.lt(Dv);
-        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
-        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-        let load_mask = ow_mask & d_in_bounds & h_in_bounds & w_in_bounds;
-
-        let x_offsets = iw_range + ((b * C_IN + c_in) * Dv * H * W + id * H * W + ih * W);
-        let x_tile = T::load(
-            x_ptr.add_offsets(x_offsets),
-            Some(load_mask),
-            Some(T::zeros::<D>(&[BLOCK_OW])),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-
-        let w_idx = (((c_out * C_IN + c_in) * KD + kd) * KH + kh) * KW + kw;
-        let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(
-            w_ptr.add_offsets(w_off),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
-
-        acc = acc + x_tile * w_tile;
-    }
-
-    let out_offsets = ow_range + out_base;
-    T::store(
-        y_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = acc + x * w;
 }
 
 /// 3-D convolution backward pass — gradient with respect to input (`dx`).
