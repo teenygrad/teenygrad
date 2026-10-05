@@ -160,6 +160,10 @@ struct TileAttrArgs {
     /// available for tiling, rather than leaving it to be inferred from the
     /// absence of a block.
     reduce: bool,
+    /// `true` when the axis carries the bare `walk` flag: it is neither gridded
+    /// nor loaded whole, but walked in blocks by a `#[tile_reduce_pass]` and
+    /// again by the map pass (teenygrad-3rk6.2).
+    walk: bool,
 }
 
 /// The `TileWindow` an axis declares, or `None` when it is read contiguously.
@@ -227,15 +231,21 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
     let mut name = None;
     let mut dim = None;
     let mut reduce = false;
+    let mut walk = false;
     let mut window = None;
     let mut nvs: Vec<MetaNameValue> = Vec::new();
     for meta in parsed {
         match meta {
             syn::Meta::Path(path) if path.is_ident("reduce") => reduce = true,
+            // `walk`: the grid does not cover this axis and no single load
+            // covers it either -- a `#[tile_reduce_pass]` walks it in blocks,
+            // and the map pass walks it again. Distinct from `reduce`, which
+            // loads the whole axis into one tile (teenygrad-3rk6.2).
+            syn::Meta::Path(path) if path.is_ident("walk") => walk = true,
             syn::Meta::Path(path) => {
                 return Err(syn::Error::new_spanned(
                     &path,
-                    "unknown `#[tile(...)]` flag (expected `reduce`)",
+                    "unknown `#[tile(...)]` flag (expected `reduce` or `walk`)",
                 ));
             }
             syn::Meta::NameValue(nv) => nvs.push(nv),
@@ -421,6 +431,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         window,
         fill,
         fill_expr,
+        walk,
         reduce,
     })
 }
@@ -685,11 +696,349 @@ fn fill_keyword_tokens(kind: &Ident, hw_ident: &Ident, dtype: &syn::Type, block:
     }
 }
 
+/// One declared reduction pass, from `#[tile_reduce_pass(..)]`.
+///
+/// A multi-pass kernel walks the SAME axis several times: a norm sums the row,
+/// derives a statistic, then walks the row again to apply it. The final walk is
+/// a MAP -- it stores per tile -- and is the author's body; every walk before it
+/// is a reduction described by one of these (teenygrad-3rk6.2).
+///
+/// Only the map pass has to be route 1, because `FusionCore` splices into a body
+/// that loads, computes and ends in a trailing store. The reduction passes only
+/// have to run, which is why they can be declarations rather than spliced code.
+struct TileReducePass {
+    /// The axis walked in blocks, e.g. `N`. Runtime, so the walk is a `while`
+    /// rather than the fixed `axes`/`count` form `generate` uses.
+    over: syn::Expr,
+    /// The `Tile` operand this pass reads.
+    read: Ident,
+    /// The carry this pass accumulates into.
+    into: Ident,
+    /// Added to the carry each iteration. May name `read`.
+    acc: syn::Expr,
+    /// Computed after the walk, rebinding the carry. May name `into`, and may
+    /// name any earlier pass's carry -- passes run in declaration order, so
+    /// layer_norm's variance pass can read its mean pass's result.
+    finish: Option<syn::Expr>,
+    /// An `Out` parameter receiving the finished carry, one element per row.
+    store: Option<Ident>,
+}
+
+/// Parse every `#[tile_reduce_pass(..)]` on the function, in declaration order.
+fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePass>, syn::Error> {
+    let mut passes = Vec::new();
+    for attr in attrs.iter().filter(|a| a.path().is_ident("tile_reduce_pass")) {
+        let metas = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
+            .parse2(attr.meta.require_list()?.tokens.clone())?;
+        let mut over = None;
+        let mut read = None;
+        let mut into = None;
+        let mut acc = None;
+        let mut finish = None;
+        let mut store = None;
+        for nv in metas {
+            let key = nv
+                .path
+                .get_ident()
+                .map(|i| i.to_string())
+                .unwrap_or_default();
+            let as_ident = |e: &syn::Expr| -> Result<Ident, syn::Error> {
+                match e {
+                    syn::Expr::Path(pp) if pp.path.get_ident().is_some() => {
+                        Ok(pp.path.get_ident().cloned().expect("checked"))
+                    }
+                    other => Err(syn::Error::new_spanned(other, "expected a single identifier")),
+                }
+            };
+            match key.as_str() {
+                "over" => over = Some(nv.value.clone()),
+                "read" => read = Some(as_ident(&nv.value)?),
+                "into" => into = Some(as_ident(&nv.value)?),
+                "acc" => acc = Some(nv.value.clone()),
+                "finish" => finish = Some(nv.value.clone()),
+                "store" => store = Some(as_ident(&nv.value)?),
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        &nv.path,
+                        format!(
+                            "unknown `#[tile_reduce_pass(...)]` key `{other}` (expected `over`, \
+                             `read`, `into`, `acc`, `finish`, `store`)"
+                        ),
+                    ));
+                }
+            }
+        }
+        let missing = |what: &str| {
+            syn::Error::new_spanned(
+                attr,
+                format!("`#[tile_reduce_pass(...)]` requires `{what} = ..`"),
+            )
+        };
+        passes.push(TileReducePass {
+            over: over.ok_or_else(|| missing("over"))?,
+            read: read.ok_or_else(|| missing("read"))?,
+            into: into.ok_or_else(|| missing("into"))?,
+            acc: acc.ok_or_else(|| missing("acc"))?,
+            finish,
+            store,
+        });
+    }
+    Ok(passes)
+}
+
+/// Row-major offset of an operand's current block, with `col` supplying the
+/// walked axis's own coordinate.
+///
+/// `col` comes FIRST in the sum because it is the only tensor-valued term and
+/// only `Tensor + i32` has an impl -- the same ordering trap teenygrad-y8aa and
+/// teenygrad-jpdb each hit in their own place.
+fn pass_offset(axes: &[TileAttrArgs], col: &TokenStream2) -> TokenStream2 {
+    let mut scalar_terms: Vec<TokenStream2> = Vec::new();
+    for (i, axis) in axes.iter().enumerate() {
+        if axis.walk {
+            continue;
+        }
+        let label = axis
+            .name
+            .as_ref()
+            .map(syn::LitStr::value)
+            .unwrap_or_else(|| axis.extent.to_string());
+        let idx = format_ident!("tile_{}", label.to_lowercase());
+        let strides: Vec<TokenStream2> = axes[i + 1..]
+            .iter()
+            .map(|a| {
+                let e = &a.extent;
+                quote! { (#e) }
+            })
+            .collect();
+        if strides.is_empty() {
+            scalar_terms.push(quote! { #idx });
+        } else {
+            let prod = strides
+                .into_iter()
+                .reduce(|a, b| quote! { #a * #b })
+                .expect("non-empty");
+            scalar_terms.push(quote! { #idx * #prod });
+        }
+    }
+    if scalar_terms.is_empty() {
+        quote! { #col }
+    } else {
+        quote! { #col + (#(#scalar_terms)+*) }
+    }
+}
+
+/// Emit a multi-pass kernel: one walk per declared `#[tile_reduce_pass]`, then
+/// the author's body as the final MAP pass (teenygrad-3rk6.2).
+///
+/// The map pass is what `FusionCore` needs to be route 1: it loads its operands,
+/// runs the author's statements, and ends in a generated trailing store. The
+/// reduction passes only have to run, so they are declarations.
+#[allow(clippy::too_many_arguments)]
+fn generated_passes(
+    passes: &[TileReducePass],
+    hw_ident: &Ident,
+    tile_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    tile_out_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    input: &ItemFn,
+) -> Result<Vec<syn::Stmt>, syn::Error> {
+    let span = input.sig.ident.span();
+    fn walked(axes: &[TileAttrArgs]) -> Option<&TileAttrArgs> {
+        axes.iter().find(|a| a.walk)
+    }
+
+    // The map pass walks the OUTPUT's walked axis: that is the axis the kernel
+    // writes, so it is the one the trailing store must cover.
+    let (out_ident, out_dtype, out_axes) = tile_out_params
+        .iter()
+        .find(|(_, _, axes)| walked(axes).is_some())
+        .ok_or_else(|| {
+            syn::Error::new(
+                span,
+                "`#[tile_reduce_pass]` needs an `Out` parameter with a `walk` axis: that axis \
+                 is what the generated map pass walks and stores, and without it there is no \
+                 final pass to splice the body into",
+            )
+        })?;
+    let out_walk = walked(out_axes).expect("checked");
+    let out_block: TokenStream2 = out_walk
+        .block
+        .as_deref()
+        .ok_or_else(|| {
+            syn::Error::new(
+                span,
+                "a `walk` axis needs `block = ..`: the walk advances one block per step",
+            )
+        })?
+        .parse()
+        .expect("a block is an identifier or an integer literal");
+    let out_extent = &out_walk.extent;
+
+    let mut stmts: Vec<syn::Stmt> = Vec::new();
+
+    // ── the reduction passes ────────────────────────────────────────────────
+    for (n, pass) in passes.iter().enumerate() {
+        let (read_ident, read_dtype, read_axes) = tile_in_params
+            .iter()
+            .find(|(id, _, _)| **id == pass.read)
+            .ok_or_else(|| {
+                syn::Error::new_spanned(
+                    &pass.read,
+                    format!(
+                        "`read = {}` names no `Tile` input of this kernel",
+                        pass.read
+                    ),
+                )
+            })?;
+        let read_walk = walked(read_axes).ok_or_else(|| {
+            syn::Error::new_spanned(
+                &pass.read,
+                format!(
+                    "`{}` is read by a pass but declares no `walk` axis, so there is nothing \
+                     for the pass to walk",
+                    pass.read
+                ),
+            )
+        })?;
+        let blk: TokenStream2 = read_walk
+            .block
+            .as_deref()
+            .unwrap_or("1")
+            .parse()
+            .expect("a block is an identifier or an integer literal");
+        let extent = &read_walk.extent;
+        let over = &pass.over;
+        let carry = &pass.into;
+        let acc = &pass.acc;
+        let walk_var = format_ident!("__tile_pass_{}", n);
+        let col = format_ident!("__tile_pass_col_{}", n);
+        let mask = format_ident!("__tile_pass_mask_{}", n);
+        let offset = pass_offset(read_axes, &quote! { #col });
+
+        stmts.push(
+            syn::parse2(quote! {
+                let mut #carry = #hw_ident::zeros::<#read_dtype>(&[1]);
+            })
+            .expect("generated pass carry is valid Rust"),
+        );
+        stmts.push(
+            syn::parse2(quote! { let mut #walk_var: i32 = 0; })
+                .expect("generated walk variable is valid Rust"),
+        );
+        stmts.push(
+            syn::parse2(quote! {
+                while #walk_var < (#over) {
+                    let #col = #hw_ident::arange(0, #blk) + #walk_var;
+                    let #mask = #col.lt(#extent);
+                    let #read_ident = #hw_ident::load(
+                        #read_ident.add_offsets(#offset),
+                        Some(#mask),
+                        Some(#hw_ident::zeros::<#read_dtype>(&[#blk])),
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    );
+                    #carry = #carry + (#acc);
+                    #walk_var += #blk;
+                }
+            })
+            .expect("generated pass walk is valid Rust"),
+        );
+        if let Some(fin) = &pass.finish {
+            stmts.push(
+                syn::parse2(quote! { let #carry = #fin; })
+                    .expect("generated pass finish is valid Rust"),
+            );
+        }
+        if let Some(target) = &pass.store {
+            let (t_ident, _, _) = tile_out_params
+                .iter()
+                .find(|(id, _, _)| **id == *target)
+                .ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        target,
+                        format!("`store = {target}` names no `Out` parameter of this kernel"),
+                    )
+                })?;
+            stmts.push(
+                syn::parse2(quote! {
+                    #hw_ident::store(#t_ident.tensor, #carry, None, &[], None, None);
+                })
+                .expect("generated pass store is valid Rust"),
+            );
+        }
+    }
+
+    // ── the map pass: the author's body ─────────────────────────────────────
+    let map_var = format_ident!("__tile_map_n");
+    let map_col = format_ident!("__tile_map_col");
+    let map_mask = format_ident!("__tile_map_mask");
+    let mut map_loads: Vec<syn::Stmt> = Vec::new();
+    for (id, dtype, axes) in tile_in_params.iter() {
+        let Some(w) = walked(axes) else { continue };
+        let blk: TokenStream2 = w
+            .block
+            .as_deref()
+            .unwrap_or("1")
+            .parse()
+            .expect("a block is an identifier or an integer literal");
+        let extent = &w.extent;
+        let offset = pass_offset(axes, &quote! { #map_col });
+        map_loads.push(
+            syn::parse2(quote! {
+                let #id = #hw_ident::load(
+                    #id.add_offsets(#offset),
+                    Some(#map_mask),
+                    Some(#hw_ident::zeros::<#dtype>(&[#blk])),
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
+            })
+            .expect("generated map load is valid Rust"),
+        );
+        let _ = extent;
+    }
+    let body = &input.block;
+    let out_offset = pass_offset(out_axes, &quote! { #map_col });
+    stmts.push(
+        syn::parse2(quote! { let mut #map_var: i32 = 0; })
+            .expect("generated map variable is valid Rust"),
+    );
+    stmts.push(
+        syn::parse2(quote! {
+            while #map_var < (#out_extent) {
+                let #map_col = #hw_ident::arange(0, #out_block) + #map_var;
+                let #map_mask = #map_col.lt(#out_extent);
+                #(#map_loads)*
+                // The author's body is one iteration of the map, and its
+                // trailing EXPRESSION is the value to store -- the analogue of
+                // `generate` storing the declared carry.
+                let __tile_map_value = #body;
+                #hw_ident::store(
+                    #out_ident.add_offsets(#out_offset),
+                    __tile_map_value,
+                    Some(#map_mask),
+                    &[],
+                    None,
+                    None,
+                );
+                #map_var += #out_block;
+            }
+        })
+        .expect("generated map walk is valid Rust"),
+    );
+    let _ = out_dtype;
+    Ok(stmts)
+}
+
 fn generated_loop(
     l: &TileLoopArgs,
     hw_ident: &Ident,
-    // The inputs the PRELUDE loads: loop-indexed operands are absent, by design.
-    prelude_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
     // Every declared input, loop-indexed ones included. The generated
     // per-iteration read needs this list and not the one above: a loop-indexed
     // operand is exactly what it loads, so looking its `fill` up in
@@ -1521,6 +1870,10 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         Ok(l) => l,
         Err(e) => return e.to_compile_error().into(),
     };
+    let reduce_passes = match parse_tile_reduce_passes(&input.attrs) {
+        Ok(ps) => ps,
+        Err(e) => return e.to_compile_error().into(),
+    };
     let grid_order = match parse_tile_grid_order(&input.attrs) {
         Ok(o) => o,
         Err(e) => return e.to_compile_error().into(),
@@ -1562,6 +1915,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             !a.path().is_ident("tile_loop")
                 && !a.path().is_ident("tile_carry")
                 && !a.path().is_ident("tile_grid")
+                && !a.path().is_ident("tile_reduce_pass")
         })
         .collect();
     let attrs = &attrs;
@@ -1964,6 +2318,11 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let prelude_in_params: Vec<(&Ident, Type, &[TileAttrArgs])> = tile_in_params
         .iter()
         .filter(|(id, _, _)| !is_loop_scalar(id))
+        // An operand with a WALKED axis is read inside each pass and again in
+        // the map pass, so a single prelude load cannot serve it -- which is
+        // precisely why a multi-pass kernel could not be route 1 before
+        // (teenygrad-3rk6.2).
+        .filter(|(_, _, axes)| !axes.iter().any(|a| a.walk))
         .cloned()
         .collect();
     let tile_out_params: Vec<(&Ident, Type, &[TileAttrArgs])> = fn_inputs
@@ -2234,6 +2593,8 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 // The implicit flat convention reduces nothing: it maps one
                 // element to one element.
                 reduce: false,
+                // Nor is it walked: one program covers its whole tile.
+                walk: false,
             }]
         };
 
@@ -2282,7 +2643,11 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         let blocked_positions: Vec<usize> = axes
             .iter()
             .enumerate()
-            .filter(|(_, a)| a.block.is_some())
+            // A WALKED axis carries `block = ..` as its walk STEP, not as a
+            // grid tiling: the grid does not cover it and the prelude emits no
+            // range for it, because a pass walks it instead
+            // (teenygrad-3rk6.2).
+            .filter(|(_, a)| a.block.is_some() && !a.walk)
             .map(|(i, _)| i)
             .collect();
         let blocked_at = *blocked_positions
@@ -2905,6 +3270,15 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             stmts.push(load_stmt);
         }
         for (ident, dtype, param_axes) in &tile_out_params {
+            // A WALKED output has no single address tile: the map pass computes
+            // its addresses one block at a time, so the parameter stays a raw
+            // pointer for `generated_passes` to offset itself. A rank-reduced
+            // output beside it (a norm's `mean`/`rrms`) is NOT walked and does
+            // get its tile, which is what lets a pass store straight into
+            // `.tensor` (teenygrad-3rk6.2).
+            if param_axes.iter().any(|a| a.walk) {
+                continue;
+            }
             let (offsets_expr, _) = param_offsets(param_axes);
             // `.add_offsets()` returns `HW::Tensor<HW::Pointer<D>>` (a tensor
             // of write addresses), not `HW::Tensor<D>` (a tensor of `D`
@@ -2929,12 +3303,26 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         // traps its trailing store inside the loop, but a generated store is
         // never in the body to begin with, so no marker is needed to find where
         // the loop ends. C3 holds by construction -- the loop is the wrapper.
+        // A kernel declaring reduction passes takes the multi-pass path: its
+        // body is the final MAP pass, not one iteration of a single
+        // accumulation loop (teenygrad-3rk6.2).
+        if !reduce_passes.is_empty() {
+            match generated_passes(
+                &reduce_passes,
+                &hw_ident,
+                &tile_in_params,
+                &tile_out_params,
+                &input,
+            ) {
+                Ok(pass_stmts) => stmts.extend(pass_stmts),
+                Err(e) => return e.to_compile_error().into(),
+            }
+        } else {
         match &tile_loop {
             Some(l) if l.generate => {
                 let (init_stmts, loop_stmt, trailing_stmts) = match generated_loop(
                     l,
                     &hw_ident,
-                    &prelude_in_params,
                     &tile_in_params,
                     &tile_out_params,
                     &loop_scalars,
@@ -2949,6 +3337,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 stmts.extend(trailing_stmts);
             }
             _ => stmts.extend(input.block.stmts.iter().cloned()),
+        }
         }
         syn::Block {
             brace_token: input.block.brace_token,
