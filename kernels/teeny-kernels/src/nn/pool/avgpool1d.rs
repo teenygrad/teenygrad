@@ -38,6 +38,17 @@ use teeny_triton::triton::{
 // windowed input's extent never appears in the output, so propagation needs
 // both names (teenygrad-1nr.18.2).
 #[tiled_kernel]
+// teenygrad-3dp5, the same shape as `avgpool2d_forward`: the loop is generated
+// and `finish` carries the divide by the window size that used to sit between
+// the loop and the store (teenygrad-3dbg).
+#[tile_loop(trip_count = [KL], axes = [kl = KL], generate)]
+#[tile_carry(
+    acc = [BLOCK_OL],
+    finish = acc / T::broadcast_to(
+        T::cast::<i32, D>(T::full::<i32>(&[1], KL), None, false),
+        &[BLOCK_OL]
+    )
+)]
 pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
@@ -50,11 +61,22 @@ pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, co
         extent = L,
         window(stride = STRIDE, kernel = KL, output = OL)
     )]
-    input_ptr: In<T::Pointer<D>>,
+    // `#[tile(..)]` says what `input` IS; this says how to read it per
+    // iteration. No `bounds`: a pool has no padding, so every windowed
+    // coordinate of an in-range output tile is in range, and the prelude's own
+    // `in_bounds` covers the blocked tail (teenygrad-3dp5).
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            tile_c = C,
+            (__tile_range * STRIDE + kl) = L
+        ]
+    )]
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(block = BLOCK_OL, extent = OL)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     L: i32,
@@ -64,54 +86,7 @@ pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, co
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ol_tiles = T::cdiv(OL, BLOCK_OL);
-
-    let ol_tile = pid % num_ol_tiles;
-    let bc = pid / num_ol_tiles;
-    let c = bc % C;
-    let b = bc / C;
-
-    let ol_start = ol_tile * BLOCK_OL;
-    let ol_range = T::arange(0, BLOCK_OL) + ol_start;
-    let ol_mask = ol_range.lt(OL);
-
-    let in_bc_base = (b * C + c) * L;
-    let out_bc_base = (b * C + c) * OL;
-
-    let mut acc = T::zeros::<D>(&[BLOCK_OL]);
-
-    let loop_bound = KL;
-    for kl in 0..loop_bound {
-        let il_range = ol_range * STRIDE + kl;
-        let in_offsets = il_range + in_bc_base;
-        let tile = T::load(
-            input_ptr.add_offsets(in_offsets),
-            Some(ol_mask),
-            Some(T::zeros::<D>(&[BLOCK_OL])),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        acc = acc + tile;
-    }
-
-    let ksize_1 = T::full::<i32>(&[1], KL);
-    let ksize_f_1 = T::cast::<i32, D>(ksize_1, None, false);
-    let ksize = T::broadcast_to(ksize_f_1, &[BLOCK_OL]);
-    let result = acc / ksize;
-
-    let out_offsets = ol_range + out_bc_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ol_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = acc + input;
 }
 
 /// 1-D average-pooling backward pass.
