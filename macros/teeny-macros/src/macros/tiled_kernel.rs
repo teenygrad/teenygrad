@@ -1073,6 +1073,15 @@ fn generated_passes(
             while #map_var < (#out_extent) {
                 let #map_col = #hw_ident::arange(0, #out_block) + #map_var;
                 let #map_mask = #map_col.lt(#out_extent);
+                // The walked axis's coordinate for this block, and the mask
+                // that bounds it, under documented names the body may use. A
+                // body needing a COMPUTED gather cannot be served by the
+                // generated row-major loads: group_norm's gamma is indexed by
+                // `tile_walk / L + tile_g * (C / G)`, a divide the declarations
+                // cannot express. Exposing the coordinate is how such a body
+                // stays writable without a marker in it (teenygrad-3rk6.2).
+                let tile_walk = #map_col;
+                let tile_walk_mask = #map_mask;
                 #(#map_loads)*
                 // The author's body is one iteration of the map, and its
                 // trailing EXPRESSION is the value to store -- the analogue of
