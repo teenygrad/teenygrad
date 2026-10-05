@@ -150,6 +150,8 @@ struct TileAttrArgs {
     /// hand today. Note the reduction tests use `n_inner == BLOCK_INNER`, so a
     /// wrong fill is invisible to them (teenygrad-29qp).
     fill: Option<Ident>,
+    /// An arbitrary fill expression, when `fill` is not one of the keywords.
+    fill_expr: Option<Expr>,
     /// `true` when this axis is the one the tensor is reduced over, declared
     /// as a bare `#[tile(extent = N, reduce)]` (teenygrad-1tl.8).
     ///
@@ -220,6 +222,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         Punctuated::<syn::Meta, Token![,]>::parse_terminated.parse2(meta_list.tokens.clone())?;
     let mut block = None;
     let mut fill: Option<Ident> = None;
+    let mut fill_expr: Option<Expr> = None;
     let mut extent = None;
     let mut name = None;
     let mut dim = None;
@@ -344,6 +347,24 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         // (teenygrad-1tl.9). It is documentation either way -- `resolve_inputs`
         // takes an axis's block from the propagated output tile, never from
         // this name -- so a larger tile is still resolved correctly.
+        // `fill` takes one of four keywords OR an arbitrary expression. The
+        // keywords cover a reduction's identity; an expression covers a runtime
+        // one -- `constant_pad`'s masked lanes take its `value` parameter, which
+        // no keyword can name (teenygrad-jpdb).
+        if key == "fill" {
+            if let Expr::Path(pp) = &nv.value
+                && let Some(id) = pp.path.get_ident()
+                && matches!(
+                    id.to_string().as_str(),
+                    "zeros" | "neg_inf" | "pos_inf" | "one"
+                )
+            {
+                fill = Some(id.clone());
+                continue;
+            }
+            fill_expr = Some(nv.value.clone());
+            continue;
+        }
         if key == "block" {
             if let Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Int(i),
@@ -368,18 +389,6 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
             ));
         };
         match key.as_str() {
-            "fill" => {
-                if !matches!(
-                    id.to_string().as_str(),
-                    "zeros" | "neg_inf" | "pos_inf" | "one"
-                ) {
-                    return Err(syn::Error::new_spanned(
-                        &nv.value,
-                        "`fill` is one of `zeros`, `neg_inf`, `pos_inf`, `one`",
-                    ));
-                }
-                fill = Some(id);
-            }
             "block" => block = Some(id.to_string()),
             "extent" => extent = Some(id),
             "dim" => {
@@ -411,6 +420,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         dim,
         window,
         fill,
+        fill_expr,
         reduce,
     })
 }
@@ -883,6 +893,72 @@ fn generated_loop(
 /// and nothing about their generated code changes (teenygrad-29qp).
 fn is_rank_reducing(axis: &TileAttrArgs, out_axes: &[TileAttrArgs]) -> bool {
     axis.reduce && !out_axes.iter().any(|a| a.extent == axis.extent)
+}
+
+/// The binding holding the base index for a windowed axis: the range or index
+/// of the OUTPUT axis the window names.
+///
+/// A pad's `L` axis windows `output = OL`, and the output's `OL` is the blocked
+/// axis, so the base is the blocked range. An unblocked windowed axis -- a 2-D
+/// pad's `H` against `OH` -- takes that axis's scalar grid index instead
+/// (teenygrad-jpdb).
+fn window_base(
+    out_name: &Ident,
+    out_axes: &[TileAttrArgs],
+    blocked_positions: &[usize],
+) -> Option<TokenStream2> {
+    let pos = out_axes.iter().position(|a| {
+        a.name
+            .as_ref()
+            .map(syn::LitStr::value)
+            .unwrap_or_else(|| a.extent.to_string())
+            == out_name.to_string()
+            || a.extent == *out_name
+    })?;
+    let axis = &out_axes[pos];
+    if axis.block.is_some() {
+        let slot = blocked_positions.iter().position(|&k| k == pos).unwrap_or(0);
+        let rng = if blocked_positions.len() == 1 {
+            format_ident!("__tile_range")
+        } else {
+            format_ident!("__tile_range_{}", slot)
+        };
+        Some(quote! { #rng })
+    } else {
+        let label = axis
+            .name
+            .as_ref()
+            .map(syn::LitStr::value)
+            .unwrap_or_else(|| axis.extent.to_string());
+        let idx = format_ident!("tile_{}", label.to_lowercase());
+        Some(quote! { #idx })
+    }
+}
+
+/// A windowed axis's input coordinate: `base * stride - pad`.
+///
+/// No tap term, because without a loop there is no tap to vary -- a pad has
+/// `kernel = 1`, so the single tap is zero. That is the whole difference from
+/// the in-loop windowed read `#[tile_loop_tile]` generates, which adds the loop
+/// index (teenygrad-jpdb).
+fn window_coord(base: &TokenStream2, stride: &str, pad: Option<&str>) -> TokenStream2 {
+    let stride: TokenStream2 = stride
+        .parse()
+        .expect("a window stride is an identifier or an integer literal");
+    let scaled = if stride.to_string() == "1" {
+        quote! { #base }
+    } else {
+        quote! { (#base) * (#stride) }
+    };
+    match pad {
+        None => scaled,
+        Some(p) => {
+            let p: TokenStream2 = p
+                .parse()
+                .expect("a window pad is an identifier or an integer literal");
+            quote! { (#scaled) - (#p) }
+        }
+    }
 }
 
 /// Binding name for a reduced axis's range, e.g. `__tile_reduce_n_inner`.
@@ -1890,6 +1966,24 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 if axis.reduce {
                     continue;
                 }
+                // A WINDOWED axis names the output axis it resolves against, so
+                // it is placeable even though its own extent appears on no
+                // output: a pad's input axis is `L` against the output's `OL`,
+                // related by `stride = 1, kernel = 1` and the leading pad. The
+                // prelude generates the shifted coordinate below
+                // (teenygrad-jpdb).
+                if let Some((_, _, _, out_name)) = &axis.window
+                    && first.iter().any(|a| {
+                        a.name
+                            .as_ref()
+                            .map(syn::LitStr::value)
+                            .unwrap_or_else(|| a.extent.to_string())
+                            == out_name.to_string()
+                            || a.extent == *out_name
+                    })
+                {
+                    continue;
+                }
                 let known = first
                     .iter()
                     .any(|a| a.extent == axis.extent && a.block == axis.block && a.dim == axis.dim);
@@ -1980,6 +2074,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
             vec![TileAttrArgs {
                 fill: None,
+                fill_expr: None,
                 block: Some(block_size.ident.to_string()),
                 extent: format_ident!("n_elements"),
                 name: None,
@@ -2331,7 +2426,29 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let mut scalar_terms: Vec<TokenStream2> = Vec::new();
             for (i, axis) in param_axes.iter().enumerate() {
                 let stride = stride_within(i);
-                if is_rank_reducing(axis, tile_out_params[0].2) {
+                if let Some((stride, pad, _, out_name)) = &axis.window {
+                    // The shifted coordinate, not the plain range: a pad reads
+                    // `ol_range - PAD_LEFT` where an unwindowed axis would read
+                    // `ol_range` (teenygrad-jpdb).
+                    let base = window_base(out_name, tile_out_params[0].2, &blocked_positions)
+                        .unwrap_or_else(|| quote! { 0 });
+                    let coord = window_coord(&base, stride, pad.as_deref());
+                    let term = match stride_within(i) {
+                        Some(st) => quote! { (#coord) * (#st) },
+                        None => quote! { #coord },
+                    };
+                    // A windowed axis is only tensor-valued when its base is
+                    // the blocked RANGE. A 2-D pad's H windows the output's
+                    // unblocked OH, so its coordinate is the scalar
+                    // `tile_oh - PT` and belongs with the scalar terms --
+                    // `blocked + scalars` is summed in that order because only
+                    // `Tensor + i32` has an impl (teenygrad-jpdb).
+                    if base.to_string().contains("__tile_range") {
+                        blocked_terms.push(term);
+                    } else {
+                        scalar_terms.push(term);
+                    }
+                } else if is_rank_reducing(axis, tile_out_params[0].2) {
                     // Its own range, not one of the kernel's: the output has no
                     // counterpart to this axis, so there is no `__tile_range`
                     // for it (teenygrad-29qp).
@@ -2451,8 +2568,45 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     quote! { #m }
                 })
                 .collect();
+            // A windowed axis is bounds-checked against its OWN extent: the
+            // shifted coordinate can fall outside the input, which is exactly
+            // what padding means. A scalar coordinate is splatted first, as
+            // `#[tile_loop_tile]` does and for the same recorded reason.
+            let mut window_binds: Vec<syn::Stmt> = Vec::new();
+            let mut window_checks: Vec<TokenStream2> = Vec::new();
+            for (wi, axis) in param_axes.iter().enumerate() {
+                let Some((stride, pad, _, out_name)) = &axis.window else {
+                    continue;
+                };
+                let base = window_base(out_name, tile_out_params[0].2, &blocked_positions)
+                    .unwrap_or_else(|| quote! { 0 });
+                let coord = window_coord(&base, stride, pad.as_deref());
+                let is_vector = base.to_string().contains("__tile_range");
+                let bind = format_ident!("__tile_win_{}_{}", ident, wi);
+                let rng = if blocked_positions.len() == 1 {
+                    format_ident!("__tile_range")
+                } else {
+                    format_ident!("__tile_range_0")
+                };
+                let value = if is_vector {
+                    quote! { #coord }
+                } else {
+                    quote! { #rng * 0 + (#coord) }
+                };
+                let extent = &axis.extent;
+                window_binds.push(
+                    syn::parse2(quote! { let #bind = #value; })
+                        .expect("generated window coordinate is valid Rust"),
+                );
+                window_checks.push(quote! { #bind.ge(0) & #bind.lt(#extent) });
+            }
             let load_mask = if broadcast {
                 quote! { None }
+            } else if !window_checks.is_empty() {
+                let folded = window_checks
+                    .into_iter()
+                    .fold(quote! { in_bounds }, |a, c| quote! { #a & (#c) });
+                quote! { Some(#folded) }
             } else if reduced_masks.is_empty() {
                 quote! { Some(in_bounds) }
             } else {
@@ -2470,13 +2624,43 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             // before and is right for a sum; max/min/prod need otherwise and
             // say so (teenygrad-29qp).
             let fill_tokens = {
-                let reduced_fill = param_axes
+                // Any axis may declare a fill, not only a reduced one: a pad's
+                // masked lanes take its `value`, and that axis is windowed
+                // rather than reduced (teenygrad-jpdb).
+                let declared = param_axes
                     .iter()
-                    .find(|a| is_rank_reducing(a, tile_out_params[0].2))
-                    .map(|a| (a.fill.as_ref().map(|f| f.to_string()), a.block.clone()));
-                match reduced_fill {
+                    .find(|a| a.fill.is_some() || a.fill_expr.is_some())
+                    .map(|a| {
+                        (
+                            a.fill.as_ref().map(|f| f.to_string()),
+                            a.fill_expr.clone(),
+                            // The fill is a tile of the BLOCKED width, which for
+                            // a windowed axis is the kernel's block rather than
+                            // this axis's own.
+                            a.block.clone().or_else(|| {
+                                blocked_positions
+                                    .first()
+                                    .and_then(|&i| axes[i].block.clone())
+                            }),
+                        )
+                    });
+                match declared {
                     None => quote! { None },
-                    Some((kind, block)) => {
+                    Some((_, Some(expr), block)) => {
+                        let block: TokenStream2 = block
+                            .as_deref()
+                            .unwrap_or("1")
+                            .parse()
+                            .expect("a block is an identifier or an integer literal");
+                        quote! {
+                            Some(#hw_ident::cast::<f32, #dtype>(
+                                #hw_ident::full::<f32>(&[#block], #expr),
+                                None,
+                                false,
+                            ))
+                        }
+                    }
+                    Some((kind, None, block)) => {
                         let block: TokenStream2 = block
                             .as_deref()
                             .unwrap_or("1")
@@ -2498,6 +2682,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     }
                 }
             };
+            stmts.extend(window_binds);
             let loaded = quote! {
                 #hw_ident::load(
                     #ident.add_offsets(#offsets_expr),
@@ -2535,7 +2720,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     quote! { None },
                 )
             } else {
-                (loaded, quote! { Some(in_bounds) })
+                // The tile's mask is the mask its data was LOADED with, not
+                // the output's alone. They differ exactly when an axis is
+                // windowed: the load is bounded by the window too, and a body
+                // that asks `tile.mask` is asking which of these lanes are
+                // real. constant_pad's `where_` needs precisely that
+                // (teenygrad-jpdb).
+                (loaded, load_mask.clone())
             };
             let load_stmt: syn::Stmt = syn::parse2(quote! {
                 let #ident = Tile::<#hw_ident, #dtype> {
