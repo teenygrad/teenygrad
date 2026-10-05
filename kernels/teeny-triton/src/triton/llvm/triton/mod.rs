@@ -140,6 +140,12 @@ impl Triton for LlvmTriton {
 
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
+    fn broadcast_to_i32(_x: Self::I32Tensor, _shape: &[i32]) -> Self::I32Tensor {
+        tensor::LlvmTensor(0 as *mut i32)
+    }
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
     fn expand_dims<D: ty::Dtype>(_x: Self::Tensor<D>, _axis: i32) -> Self::Tensor<D> {
         tensor::LlvmTensor(0 as *mut D)
     }

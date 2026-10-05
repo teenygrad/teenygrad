@@ -589,6 +589,34 @@ mod tests {
         T::store(y.tensor, x.tensor, x.mask, &[], None, None);
     }
 
+    /// The two-blocked-axis probe compiles with the real teenyc.
+    ///
+    /// teenygrad-1nr.18.5 built this prelude path and asserted only the spec it
+    /// generates, so nothing ever COMPILED it. Two bugs lived there until a
+    /// real kernel tried:
+    ///
+    /// - `expand_dims_i32` had no lowering, so the call was emitted as a
+    ///   bodyless `tt.call` and failed MLIR verification (teenyc-u9z).
+    /// - each range was expanded but not broadcast, leaving them `[B_M, 1]`
+    ///   against `[1, B_N]`; neither the mask conjunction nor the offset sum
+    ///   broadcasts implicitly, so `arith.andi` rejected the operand types.
+    ///
+    /// Asserting the spec is not enough for a codegen path. This test is the
+    /// one that would have caught both.
+    #[test]
+    fn test_the_two_blocked_axes_probe_compiles() {
+        // `find_teenyc` prefers `TEENYC_PATH` and otherwise falls back to the
+        // installed rustup toolchain, so without this the test silently
+        // compiles against whatever teenyc is installed rather than the one
+        // this tree is built against.
+        dotenv::dotenv().ok();
+        let kernel = TwoBlockedAxesProbeForward::<f32>::new(32, 32);
+        let target = teeny_runtime::reference_target();
+        let compiled = teeny_runtime::compile_kernel(&kernel, &target, true, false)
+            .expect("a genuinely 2-D tile must compile");
+        assert!(!compiled.is_empty(), "compile produced no artifact");
+    }
+
     /// Both axes are blocked, so both become `TileAxisBinding`s -- the shape a
     /// GEMM needs, and what `teenygrad-1tl.10` is waiting on.
     #[test]
