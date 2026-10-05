@@ -78,6 +78,84 @@ macro_rules! source_test {
 // ── Macro: GPU forward for row-reduction kernels ───────────────────────────────
 // Signature: (x_ptr, y_ptr, n_inner, n_outer)
 
+/// A reduction over a PARTIAL inner tile: `n_inner` of 40 against a
+/// `BLOCK_INNER` of 64, so 24 lanes of every loaded block are masked
+/// (teenygrad-29qp).
+///
+/// Nothing else here exercises that. Every other case uses `INNER == 64 ==
+/// BLOCK_INNER`, so no lane is ever masked and the FILL VALUE for masked lanes
+/// is never read. The fill is not cosmetic: a reduction loads its axis at the
+/// block width and masks to the extent, so a masked lane still takes part
+/// unless the fill is the reduction's identity -- zero for a sum, negative
+/// infinity for a max, positive infinity for a min, one for a product.
+///
+/// This matters now that the prelude generates the load (teenygrad-29qp): the
+/// fill comes from `#[tile(.., reduce, fill = ..)]` rather than from a
+/// hand-written `T::load`, and a wrong declaration would be invisible to every
+/// other test in this file.
+macro_rules! gpu_reduce_partial_test {
+    ($test_name:ident, $kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
+        #[cfg(feature = "hardware")]
+        #[test]
+        fn $test_name() -> anyhow::Result<()> {
+            dotenv().ok();
+            let device = teeny_runtime::open()?;
+            let x = load_fixture(env!("CARGO_MANIFEST_DIR"), "reduction/x_partial.bin");
+            let expected = load_fixture(
+                env!("CARGO_MANIFEST_DIR"),
+                concat!("reduction/expected_partial_", $fixture_op, ".bin"),
+            );
+            let n_total = x.len();
+            let n_outer = expected.len();
+            let n_inner = n_total / n_outer;
+            assert!(
+                (n_inner as i32) < BLOCK_INNER,
+                "this test is pointless unless the tile is partial: n_inner={n_inner}, \
+                 BLOCK_INNER={BLOCK_INNER}"
+            );
+            let mut x_buf = device.buffer::<f32>(n_total)?;
+            let y_buf = device.buffer::<f32>(n_outer)?;
+            let mut y_out = vec![0.0f32; n_outer];
+            x_buf.to_device(&x)?;
+            let kernel = <$kernel_ty>::new(BLOCK_INNER);
+            let target = teeny_runtime::default_target(&device)?;
+            let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+            let program = teeny_runtime::load_program::<$kernel_ty>(&ptx_path)?;
+            let cfg = teeny_runtime::launch_config_with_grid(n_outer, &program);
+            device.launch(
+                &program,
+                &cfg,
+                (
+                    x_buf.as_device_ptr(),
+                    y_buf.as_device_ptr(),
+                    n_inner as i32,
+                    n_outer as i32,
+                ),
+            )?;
+            y_buf.to_host(&mut y_out)?;
+            for i in 0..n_outer {
+                // Scaled by magnitude, not absolute. `reduce_prod` computes
+                // `exp(sum(log))` over 40 terms in [0.5, 2.0], so its result is
+                // ~800 and f32 rounding puts it ~1e-3 from torch's -- a relative
+                // error of 1.6e-6, which an absolute 1e-4 rejects. Same
+                // treatment the batchnorm fixtures needed for their
+                // 512-term reductions.
+                let tol = TOL * expected[i].abs().max(1.0);
+                assert!(
+                    (y_out[i] - expected[i]).abs() < tol,
+                    "{} partial-tile mismatch at row={i}: gpu={} expected={} \
+                     (n_inner={n_inner} of BLOCK_INNER={BLOCK_INNER} -- a wrong masked-lane \
+                     fill looks exactly like this)",
+                    $op_name,
+                    y_out[i],
+                    expected[i]
+                );
+            }
+            Ok(())
+        }
+    };
+}
+
 macro_rules! gpu_reduce_test {
     ($test_name:ident, $kernel_ty:ty, $fixture_op:literal, $op_name:literal) => {
         #[cfg(feature = "hardware")]
@@ -411,3 +489,35 @@ fn test_cum_prod() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+// The five reductions whose identity is not zero, plus a sum as the control.
+gpu_reduce_partial_test!(
+    test_partial_reduce_sum,
+    teeny_kernels::nn::tensor::reduction::ReduceSumForward<f32>,
+    "reduce_sum",
+    "reduce_sum"
+);
+gpu_reduce_partial_test!(
+    test_partial_reduce_max,
+    teeny_kernels::nn::tensor::reduction::ReduceMaxForward<f32>,
+    "reduce_max",
+    "reduce_max"
+);
+gpu_reduce_partial_test!(
+    test_partial_reduce_min,
+    teeny_kernels::nn::tensor::reduction::ReduceMinForward<f32>,
+    "reduce_min",
+    "reduce_min"
+);
+gpu_reduce_partial_test!(
+    test_partial_reduce_prod,
+    teeny_kernels::nn::tensor::reduction::ReduceProdForward<f32>,
+    "reduce_prod",
+    "reduce_prod"
+);
+gpu_reduce_partial_test!(
+    test_partial_reduce_log_sum_exp,
+    teeny_kernels::nn::tensor::reduction::ReduceLogSumExpForward<f32>,
+    "reduce_log_sum_exp",
+    "reduce_log_sum_exp"
+);
