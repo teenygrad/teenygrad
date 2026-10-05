@@ -31,6 +31,18 @@ use teeny_triton::triton::{
 /// `OD = (D - KD) / STRIDE_D + 1`, `OH = (H - KH) / STRIDE_H + 1`,
 /// `OW = (W - KW) / STRIDE_W + 1`.
 #[tiled_kernel]
+// teenygrad-3dp5. `init` carries the negative-infinity accumulator; `axes`
+// names the loop's own axes, replacing this body's three lines of modulo and
+// division. No epilogue -- a max-pool's carry IS its result.
+#[tile_loop(
+    trip_count = [KD, KH, KW],
+    axes = [kd = KD, kh = KH, kw = KW],
+    generate
+)]
+#[tile_carry(
+    acc = [BLOCK_OW],
+    init = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)
+)]
 // All three spatial axes are read through a sliding window. Only `OW` is
 // blocked, so D and H carry the literal block 1 -- this body's `pid` decode
 // yields one scalar `od` and one scalar `oh` per program, and each reads a
@@ -61,13 +73,27 @@ pub fn maxpool3d_forward<
         extent = W,
         window(stride = STRIDE_W, kernel = KW, output = OW)
     )]
-    input_ptr: In<T::Pointer<D>>,
+    // No `bounds` and no `fill`: this pool does not pad, so every windowed
+    // coordinate of an in-range output tile is in range and the only masked
+    // lanes are out-of-range OUTPUT lanes, which the masked store discards.
+    // The padded 2-D variant is where the fill is load-bearing
+    // (teenygrad-3dp5).
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            tile_c = C,
+            (tile_od * STRIDE_D + kd) = Dv,
+            (tile_oh * STRIDE_H + kh) = H,
+            (__tile_range * STRIDE_W + kw) = W
+        ]
+    )]
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(extent = OD)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     Dv: i32,
@@ -81,64 +107,7 @@ pub fn maxpool3d_forward<
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    let ow_tile = pid % num_ow_tiles;
-    let rest = pid / num_ow_tiles;
-    let oh = rest % OH;
-    let rest2 = rest / OH;
-    let od = rest2 % OD;
-    let bco = rest2 / OD;
-    let c = bco % C;
-    let b = bco / C;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let in_bc_base = (b * C + c) * Dv * H * W;
-    let out_base = ((b * C + c) * OD * OH * OW) + od * OH * OW + oh * OW;
-
-    let mut acc = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false);
-
-    let loop_bound = KD * KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let tmp = idx / KW;
-        let kh = tmp % KH;
-        let kd = tmp / KH;
-
-        let id = od * STRIDE_D + kd;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
-        let in_offsets = iw_range + (in_bc_base + id * H * W + ih * W);
-        let tile = T::load(
-            input_ptr.add_offsets(in_offsets),
-            Some(ow_mask),
-            Some(T::cast::<f32, D>(
-                T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32),
-                None,
-                false,
-            )),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        acc = T::maximum(acc, tile);
-    }
-
-    let out_offsets = ow_range + out_base;
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = T::maximum(acc, input);
 }
 
 /// 3-D max-pooling backward pass.

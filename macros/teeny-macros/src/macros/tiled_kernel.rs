@@ -688,7 +688,14 @@ fn fill_keyword_tokens(kind: &Ident, hw_ident: &Ident, dtype: &syn::Type, block:
 fn generated_loop(
     l: &TileLoopArgs,
     hw_ident: &Ident,
-    tile_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    // The inputs the PRELUDE loads: loop-indexed operands are absent, by design.
+    prelude_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
+    // Every declared input, loop-indexed ones included. The generated
+    // per-iteration read needs this list and not the one above: a loop-indexed
+    // operand is exactly what it loads, so looking its `fill` up in
+    // `prelude_in_params` finds nothing and silently falls back to zeros
+    // (teenygrad-3dp5).
+    spec_in_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
     tile_out_params: &[(&Ident, syn::Type, &[TileAttrArgs])],
     loop_scalars: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>)],
     loop_tiles: &[(&Ident, syn::Type, Vec<(syn::Expr, syn::Expr)>, Vec<usize>)],
@@ -895,7 +902,7 @@ fn generated_loop(
         // meaning the prelude's reduced-axis load already gives it -- so a
         // reduction's identity is declared in one vocabulary wherever it is
         // read (teenygrad-3dp5).
-        let declared_fill = tile_in_params
+        let declared_fill = spec_in_params
             .iter()
             .find(|(ident, _, _)| **ident == **name)
             .and_then(|(_, _, axes)| {
@@ -2928,6 +2935,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     l,
                     &hw_ident,
                     &prelude_in_params,
+                    &tile_in_params,
                     &tile_out_params,
                     &loop_scalars,
                     &loop_tiles,

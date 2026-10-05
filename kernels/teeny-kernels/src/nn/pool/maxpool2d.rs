@@ -31,6 +31,20 @@ use teeny_triton::triton::{
 ///
 /// `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`, `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
 #[tiled_kernel]
+// teenygrad-3dp5. The H window is MASKED now, not clamped. The hand-written
+// body opened with two `while` loops that walked `kh` past the top edge and
+// `kh_hi` back from the bottom, making the trip count `(kh_hi - kh) * KW` --
+// a runtime value that differs per `oh`, and so divergent across a warp.
+//
+// For a MAXIMUM the two are equivalent: a row skipped by clamping and a row
+// read under a mask and filled with negative infinity both fail to win. So the
+// loop becomes the constant `KH * KW` and the edges are handled by `bounds`
+// plus `fill = neg_inf`, which is the same shape conv2d_forward already uses.
+#[tile_loop(trip_count = [KH, KW], axes = [kh = KH, kw = KW], generate)]
+#[tile_carry(
+    acc = [BLOCK_OW],
+    init = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)
+)]
 pub fn maxpool2d_forward<
     T: Triton,
     D: Num,
@@ -58,14 +72,30 @@ pub fn maxpool2d_forward<
     #[tile(
         block = BLOCK_OW,
         extent = W,
-        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
+        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW),
+        fill = neg_inf
     )]
-    input_ptr: In<T::Pointer<D>>,
+    // `bounds = [2, 3]`: BOTH spatial coordinates can fall outside the input,
+    // and unlike maxpool1d those lanes belong to STORED output lanes -- a
+    // padded window's edge rows and columns. `fill = neg_inf` is what keeps
+    // them from winning the maximum, and
+    // `test_maxpool2d_padded_forward_fills_with_negative_infinity` fails if it
+    // is removed (teenygrad-3dp5).
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            tile_c = C,
+            (tile_oh * STRIDE_H + kh - PAD_H) = H,
+            (__tile_range * STRIDE_W + kw - PAD_W) = W
+        ],
+        bounds = [2, 3]
+    )]
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -77,85 +107,7 @@ pub fn maxpool2d_forward<
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    let ow_tile = pid % num_ow_tiles;
-    let bco = pid / num_ow_tiles;
-    let oh = bco % OH;
-    let bc = bco / OH;
-    let c = bc % C;
-    let b = bc / C;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let in_bc_base = (b * C + c) * H * W;
-    let out_bc_base = (b * C + c) * OH * OW;
-
-    let mut acc = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false);
-
-    // The Triton MLIR frontend only generates correct scf.while (with body) for
-    // single-variable, single-condition loops with no nested control flow.
-    // A nested `for kw` inside `while kh` creates extra basic blocks that break
-    // the outer loop's structural conversion — the body gets dropped silently.
-    //
-    // Solution: flatten (kh, kw) into a single linear loop `iter < n_valid_kh * KW`,
-    // recover kh/kw per-iteration via div/rem (KW is a compile-time constant).
-    //
-    // Phase 1: skip-loop — advance kh until ih = oh*STRIDE_H + kh - PAD_H >= 0.
-    let mut kh: i32 = 0;
-    let mut ih: i32 = oh * STRIDE_H - PAD_H;
-    while ih < 0 {
-        kh += 1;
-        ih += 1; // each kh step advances ih by exactly 1
-    }
-    // Phase 2: clamp kh_hi = min(kh + (H - ih), KH) via countdown.
-    let mut kh_hi: i32 = kh + (H - ih);
-    while kh_hi > KH {
-        kh_hi -= 1;
-    }
-    // Phase 3: flat loop over all (kh, kw) pairs — matches BN kernel structure
-    // (single variable `iter`, single condition, vector body, no nested loops).
-    // If kh_hi <= kh (no valid rows), total_iters <= 0 → loop runs 0 times.
-    let total_iters = (kh_hi - kh) * KW;
-    let ih_lo = ih;
-    let mut iter: i32 = 0;
-    while iter < total_iters {
-        let kw_idx = iter % KW;
-        let ih_local = ih_lo + iter / KW;
-        let iw_range = ow_range * STRIDE_W + kw_idx - PAD_W;
-        let iw_valid = iw_range.ge(0) & iw_range.lt(W);
-        let valid_mask = ow_mask & iw_valid;
-        let in_offsets = iw_range + (in_bc_base + ih_local * W);
-        let tile = T::load(
-            input_ptr.add_offsets(in_offsets),
-            Some(valid_mask),
-            Some(T::cast::<f32, D>(
-                T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32),
-                None,
-                false,
-            )),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        acc = T::maximum(acc, tile);
-        iter += 1;
-    }
-
-    let out_offsets = ow_range + (out_bc_base + oh * OW);
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        acc,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = T::maximum(acc, input);
 }
 
 /// 2-D max-pooling backward pass with optional symmetric padding.
