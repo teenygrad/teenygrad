@@ -39,15 +39,39 @@ use teeny_triton::triton::{
 #[tiled_kernel]
 #[tile_loop(trip_count = [N, BLOCK_N])]
 #[tile_carry(sq_sum = [1])]
+// teenygrad-3rk6.2: the first multi-pass kernel. One declared reduction pass
+// walks the row summing squares; the body below is the MAP pass, which the
+// macro walks again and whose trailing expression it stores.
+//
+// `n_inv` and `eps` are inlined into `finish` rather than bound in a preamble:
+// the passes run before any author code, so there is no preamble to bind them
+// in. That is the cost of the design and it is confined to one expression.
+#[tile_reduce_pass(
+    over = N,
+    read = x,
+    into = sq_sum,
+    acc = T::sum(x * x, None, true),
+    finish = T::rsqrt(
+        sq_sum * T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false)
+            + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false)
+    ),
+    store = rrms
+)]
 pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(name = "M", extent = _M)]
-    #[tile(extent = N, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(name = "M", extent = _M)]
-    #[tile(extent = N, reduce)]
-    y_ptr: Out<T::Pointer<D>>,
-    #[tile(extent = N)] weight_ptr: In<T::Pointer<D>>,
-    #[tile(name = "M", extent = _M)] rrms_ptr: Out<T::Pointer<D>>,
+    #[tile(name = "M", block = 1, extent = _M)]
+    // `reduce` AND `walk`: they say different things. `reduce` is what the axis
+    // MEANS -- the pass collapses it to the per-row statistic `rrms`, and the
+    // spec's `reduction_axis` must keep saying so for propagation. `walk` is
+    // HOW it is read: in blocks by a pass, rather than whole into one tile.
+    // Same split as `#[tile(.. window(..))]` saying what an axis is while
+    // `#[tile_loop_tile]` says how to read it (teenygrad-3rk6.2).
+    #[tile(block = BLOCK_N, extent = N, reduce, walk)]
+    x: In<Tile<T, D>>,
+    #[tile(name = "M", block = 1, extent = _M)]
+    #[tile(block = BLOCK_N, extent = N, walk)]
+    y: Out<Tile<T, D>>,
+    #[tile(block = BLOCK_N, extent = N, walk)] weight: In<Tile<T, D>>,
+    #[tile(name = "M", block = 1, extent = _M)] rrms: Out<Tile<T, D>>,
     _M: i32,
     N: i32,
     eps: f32,
@@ -56,75 +80,9 @@ pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let row = T::program_id(Axis::X);
-    let row_start = row * N;
-    let row_idx = T::arange(0, 1) + row;
-
-    let zeros = T::zeros::<D>(&[BLOCK_N]);
-    let zero_1 = T::zeros::<D>(&[1]);
-    let n_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false);
-
-    // ── Pass 1: accumulate Σ x² ──────────────────────────────────────────────
-    let mut sq_sum = zero_1;
-    let mut n_start: i32 = 0;
-    while n_start < N {
-        let col_offs = T::arange(0, BLOCK_N) + n_start;
-        let mask = col_offs.lt(N);
-        let x_tile = T::load(
-            x_ptr.add_offsets(col_offs + row_start),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        sq_sum = sq_sum + T::sum(x_tile * x_tile, None, true);
-        n_start += BLOCK_N;
-    }
-    let eps_t = T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false);
-    let rrms_1 = T::rsqrt(sq_sum * n_inv + eps_t);
-    let rrms = T::broadcast_to(rrms_1, &[BLOCK_N]);
-
-    T::store(rrms_ptr.add_offsets(row_idx), rrms_1, None, &[], None, None);
-
-    // ── Pass 2: normalise ─────────────────────────────────────────────────────
-    n_start = 0;
-    while n_start < N {
-        let col_offs = T::arange(0, BLOCK_N) + n_start;
-        let mask = col_offs.lt(N);
-        let x_tile = T::load(
-            x_ptr.add_offsets(col_offs + row_start),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let gamma = T::load(
-            weight_ptr.add_offsets(col_offs),
-            Some(mask),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let y_tile = x_tile * rrms * gamma;
-        T::store(
-            y_ptr.add_offsets(col_offs + row_start),
-            y_tile,
-            Some(mask),
-            &[],
-            None,
-            None,
-        );
-        n_start += BLOCK_N;
-    }
+    // One iteration of the map pass. `sq_sum` is the finished statistic, a
+    // `[1]` tile, broadcast to the block.
+    x * T::broadcast_to(sq_sum, &[BLOCK_N]) * weight
 }
 
 // ─── Backward ────────────────────────────────────────────────────────────────
