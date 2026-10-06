@@ -29,6 +29,28 @@ use teeny_triton::triton::{
 ///
 /// **Constraints**: no padding; `OH = (H - KH) / STRIDE_H + 1`, `OW = (W - KW) / STRIDE_W + 1`.
 #[tiled_kernel]
+// teenygrad-3dp5. The loop-invariant `p_vec`/`inv_p_vec`/`eps_vec` are inlined
+// rather than bound in a prologue: the author's body IS the loop body, so there
+// is nowhere before it for a binding to live. They are `T::full` of a constant,
+// so inlining costs nothing the compiler will not hoist -- and it means these
+// three kernels needed no new macro feature after all.
+//
+// `init` carries the f32 accumulator: this kernel reduces in f32 while its
+// output is D, so the generated `zeros::<D>` default would be the wrong dtype.
+// `finish` carries the p-norm root, and casts back.
+#[tile_loop(trip_count = [KH, KW], axes = [kh = KH, kw = KW], generate)]
+#[tile_carry(
+    acc = [BLOCK_OW],
+    init = T::zeros::<f32>(&[BLOCK_OW]),
+    finish = T::cast::<f32, D>(
+        T::exp(
+            T::log(T::maximum(acc, T::full::<f32>(&[BLOCK_OW], 1e-12_f32)))
+                * T::full::<f32>(&[BLOCK_OW], 1.0_f32 / p)
+        ),
+        None,
+        false
+    )
+)]
 pub fn lppool2d_forward<
     T: Triton,
     D: Float,
@@ -56,12 +78,26 @@ pub fn lppool2d_forward<
         extent = W,
         window(stride = STRIDE_W, kernel = KW, output = OW)
     )]
-    input_ptr: In<T::Pointer<D>>,
+    // No `bounds`: an lp-pool does not pad, so every windowed coordinate of an
+    // in-range output tile is in range and the only masked lanes are
+    // out-of-range OUTPUT lanes, which the masked store discards. The generated
+    // read's default zeros fill matches the hand-written one exactly: a masked
+    // lane becomes `max(|0|, eps)` and contributes `eps^p`, as before
+    // (teenygrad-3dp5).
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            tile_c = C,
+            (tile_oh * STRIDE_H + kh) = H,
+            (__tile_range * STRIDE_W + kw) = W
+        ]
+    )]
+    input: In<Tile<T, D>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    output_ptr: Out<T::Pointer<D>>,
+    output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     H: i32,
@@ -74,66 +110,16 @@ pub fn lppool2d_forward<
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    let ow_tile = pid % num_ow_tiles;
-    let bco = pid / num_ow_tiles;
-    let oh = bco % OH;
-    let bc = bco / OH;
-    let c = bc % C;
-    let b = bc / C;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let in_bc_base = (b * C + c) * H * W;
-    let out_bc_base = (b * C + c) * OH * OW;
-
-    let p_vec = T::full::<f32>(&[BLOCK_OW], p);
-    let inv_p_vec = T::full::<f32>(&[BLOCK_OW], 1.0_f32 / p);
-    let eps_vec = T::full::<f32>(&[BLOCK_OW], 1e-12_f32);
-
-    let mut acc = T::zeros::<f32>(&[BLOCK_OW]);
-
-    let loop_bound = KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let kh = idx / KW;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
-        let in_offsets = iw_range + (in_bc_base + ih * W);
-        let tile = T::load(
-            input_ptr.add_offsets(in_offsets),
-            Some(ow_mask),
-            Some(T::zeros::<D>(&[BLOCK_OW])),
-            &[],
-            None,
-            None,
-            None,
-            false,
+    // One iteration: |x|^p, accumulated. The epsilon floor keeps `log` finite
+    // for a zero lane, exactly as the hand-written body did.
+    acc = acc
+        + T::exp(
+            T::full::<f32>(&[BLOCK_OW], p)
+                * T::log(T::maximum(
+                    T::abs(T::cast::<D, f32>(input, None, false)),
+                    T::full::<f32>(&[BLOCK_OW], 1e-12_f32),
+                )),
         );
-        let tile_f32 = T::cast::<D, f32>(tile, None, false);
-        let abs_tile = T::abs(tile_f32);
-        let safe_abs = T::maximum(abs_tile, eps_vec);
-        let pow_tile = T::exp(p_vec * T::log(safe_abs));
-        acc = acc + pow_tile;
-    }
-
-    let safe_acc = T::maximum(acc, eps_vec);
-    let result_f32 = T::exp(T::log(safe_acc) * inv_p_vec);
-    let result = T::cast::<f32, D>(result_f32, None, false);
-
-    let out_offsets = ow_range + (out_bc_base + oh * OW);
-    T::store(
-        output_ptr.add_offsets(out_offsets),
-        result,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
 }
 
 /// 2-D Lp-norm pooling backward pass.
