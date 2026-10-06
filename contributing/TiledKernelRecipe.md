@@ -111,6 +111,7 @@ Rules the macro enforces:
 | `name = "C"` | no | The axis's identity for `GridSpec` matching, and the suffix of the index the prelude binds (`tile_c`). Defaults to `extent`'s spelling, so **omit it unless they genuinely differ**. |
 | `dim = X\|Y\|Z` | no | Which hardware grid dimension the axis reads. Defaults to `X`. |
 | `reduce` | no | Bare flag marking the axis this tensor reduces over. At most one per tensor, since `reduction_axis` is a single index. |
+| `span = N` | no | The axis covers `N` real tensor dims, flattened row-major — `batch_norm_2d_nchw_forward_inference`'s `HW` is `span = 2` over an NCHW tensor. Metadata only: the body still addresses one axis, but the spec's rank is the real rank and the binding's `dims` cover all `N`. Without it a kernel's flattened view has a lower rank than its graph edge, `resolve_inputs` rejects the edge's tile, and the node is a hard boundary. Not combinable with `window` or `reduce`, nor on a single-axis kernel (whose `tile_spec(rank)` already spans every dim). |
 | `window(stride = S, pad = P, kernel = K, output = O)` | no | The axis is read through a strided sliding window. `stride`, `pad` and `kernel` each take a const generic's name **or a decimal integer literal**; `output` always names a runtime parameter. `pad` is optional — most pools have no padding const. `output` names the **output** variable the window resolves against, leaving `extent` free to stay truthful about the input's own extent. |
 
 Anything else is a compile error naming these keys.

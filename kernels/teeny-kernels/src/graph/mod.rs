@@ -67,7 +67,10 @@ use crate::nn::{
         linear::{LinearBackward, LinearForward},
     },
     norm::{
-        batchnorm::{BatchNorm2dNchwInferenceRuntimeOp, BatchNormForwardInference},
+        batchnorm::{
+            BatchNorm2dNchwForwardInference, BatchNorm2dNchwInferenceRuntimeOp,
+            BatchNormForwardInference,
+        },
         groupnorm::GroupNormForwardInference,
         instancenorm::InstanceNormForwardInference,
         layernorm::{LayerNormForwardInference, LayerNormForwardInferenceRuntimeOp},
@@ -1197,7 +1200,13 @@ impl TritonLowering {
                         kernel_source: ks,
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
-                        tile_spec: None,
+                        // Derived from the kernel's own `#[tile(...)]`, and
+                        // dtype-independent like conv2d's. Rank 4 since `HW`
+                        // declares `span = 2`, so it resolves against the rank-4
+                        // edge a conv hands it. It was `None` until then, which
+                        // made every conv -> bn -> act chain a hard boundary
+                        // here (teenygrad-1nr.18.6).
+                        tile_spec: Some(BatchNorm2dNchwForwardInference::<f32>::tile_spec()),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3249,5 +3258,64 @@ mod conv2d_grid_spec_tests {
         };
         let spec = Conv2dForward::<f32>::grid_spec();
         assert_eq!(spec.axes[3], expected_ow_axis);
+    }
+
+    /// conv2d -> BatchNorm2d -> SiLU, lowered: no node is a hard boundary
+    /// (teenygrad-1nr.18.6).
+    ///
+    /// BatchNorm2d used to lower with `tile_spec: None`, because its kernel's
+    /// rank-3 `[B, C, HW]` view could not resolve against the rank-4 edge.
+    /// Built from real `nn` layers so the shapes are the ones a model produces.
+    #[test]
+    fn test_conv_batchnorm_silu_lowers_with_a_spec_on_every_kernel() {
+        use teeny_core::{
+            graph::{DtypeRepr, SymTensor},
+            model::LoweringMode,
+            nn::{Layer, activation::sigmoid::Silu, batchnorm::BatchNorm2d, conv2d::Conv2d},
+            sequential,
+        };
+
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(10), Some(3), Some(32), Some(32)]);
+        let model = sequential![
+            Conv2d::<f32, _, _, 4>::new(3, 8, (3, 3), (1, 1), (1, 1), false),
+            BatchNorm2d::<f32, _, _, 4>::new(8),
+            Silu::<f32, _, 4>::new()
+        ];
+        let _output = Layer::call(&model, input);
+        let graph = graph.borrow().clone();
+
+        let (dag, _, _) = TritonLowering::default()
+            .lower_with_mapping(&graph, LoweringMode::Inference)
+            .expect("triton lowering should succeed");
+
+        for i in 0..dag.len() {
+            let op = &dag.node(i).value;
+            if op.is_input() {
+                continue;
+            }
+            let spec = op
+                .tile_spec()
+                .unwrap_or_else(|| panic!("`{}` lowered with no tile spec", op.name()));
+            assert_eq!(
+                spec.outputs[0].rank,
+                op.output_shape().len(),
+                "`{}`'s spec must have its edge's rank, or resolution rejects it",
+                op.name()
+            );
+        }
+
+        let bn = (0..dag.len())
+            .map(|i| &dag.node(i).value)
+            .find(|op| op.name() == "batch_norm_2d_nchw_forward_inference")
+            .expect("BatchNorm2d lowers to the NCHW inference kernel");
+        let spec = bn.tile_spec().expect("checked above");
+        let inputs = crate::graph::tile_resolve::resolve_inputs(
+            &spec,
+            &vec![Some(1), Some(1), Some(1), Some(128)],
+            &crate::graph::tile_resolve::NoConsts,
+        )
+        .expect("a rank-4 tile resolves through BatchNorm2d now");
+        assert_eq!(inputs[0], vec![None, None, Some(1), Some(128)]);
     }
 }

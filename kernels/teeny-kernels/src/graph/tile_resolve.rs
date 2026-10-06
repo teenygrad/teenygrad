@@ -1721,4 +1721,48 @@ mod tests {
             );
         }
     }
+
+    /// BatchNorm2d's real spec resolves against the rank-4 tile a conv hands it
+    /// (teenygrad-1nr.18.6).
+    ///
+    /// The kernel walks `H * W` as one `BLOCK_HW` axis, and before `span` the
+    /// spec said so literally: rank 3, `[B, C, HW]`. A rank-4 output tile was
+    /// then rejected outright, so the lowering carried no spec and the node was
+    /// a hard boundary. With `span = 2` the same body declares a rank-4 spec
+    /// whose one binding covers dims `[2, 3]` -- the flattened binding this
+    /// module has always resolved, at last reachable from a real kernel.
+    #[test]
+    fn test_batchnorm2d_resolves_a_rank_4_tile_through_its_spanned_axis() {
+        use crate::nn::norm::batchnorm::BatchNorm2dNchwForwardInference;
+
+        let spec = BatchNorm2dNchwForwardInference::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let y = spec.outputs[0];
+        assert_eq!(
+            y.rank, 4,
+            "the real NCHW rank, not the kernel's 3-axis view"
+        );
+        assert_eq!(y.axes.len(), 1);
+        assert_eq!(y.axes[0].dims, &[2, 3], "BLOCK_HW spans H and W");
+        assert_eq!(y.axes[0].extent_param, "HW");
+        assert_eq!(y.untiled_dims, &["B", "C"]);
+
+        // x first, then the four per-channel operands, each rank 1 on C.
+        assert_eq!(spec.inputs.len(), 5);
+        assert_eq!(spec.inputs[0].rank, 4);
+        for param in &spec.inputs[1..] {
+            assert_eq!(param.rank, 1, "`{}` sits on C alone", param.param);
+        }
+
+        // A flattened tile, innermost carrying the block, resolves x to the
+        // same tile; the per-channel operands are untiled, so full extent.
+        let out = tile(&[Some(1), Some(1), Some(1), Some(128)]);
+        let inputs = resolve_inputs(&spec, &out, &NoConsts).expect("rank 4 now resolves");
+        assert_eq!(inputs[0], tile(&[None, None, Some(1), Some(128)]));
+        for param in &inputs[1..] {
+            assert_eq!(param, &tile(&[None]));
+        }
+    }
 }

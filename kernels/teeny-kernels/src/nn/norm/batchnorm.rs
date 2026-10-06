@@ -543,15 +543,21 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
 /// subset of the output's axes, which is broadcasting: the prelude loads the
 /// single element this CTA needs and widens it across the block, so they have
 /// the same shape as `x` and the body just does arithmetic.
+///
+/// `HW` declares `span = 2`: the body walks `H * W` as one flattened axis, but
+/// the tensor really is rank 4, and so is the graph edge reaching it from a
+/// conv. The spec is therefore rank 4 with one `BLOCK_HW` binding over dims
+/// `[2, 3]`, which is what lets propagation cross this kernel instead of
+/// stopping at it (teenygrad-1nr.18.6).
 #[tiled_kernel]
 pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
     #[tile(extent = B, dim = Y)]
     #[tile(extent = C)]
-    #[tile(block = BLOCK_HW, extent = HW)]
+    #[tile(block = BLOCK_HW, extent = HW, span = 2)]
     x: In<Tile<T, D>>,
     #[tile(extent = B, dim = Y)]
     #[tile(extent = C)]
-    #[tile(block = BLOCK_HW, extent = HW)]
+    #[tile(block = BLOCK_HW, extent = HW, span = 2)]
     y: Out<Tile<T, D>>,
     #[tile(extent = C)] weight: In<Tile<T, D>>,
     #[tile(extent = C)] bias: In<Tile<T, D>>,

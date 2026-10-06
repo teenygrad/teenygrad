@@ -164,6 +164,39 @@ struct TileAttrArgs {
     /// nor loaded whole, but walked in blocks by a `#[tile_reduce_pass]` and
     /// again by the map pass (teenygrad-3rk6.2).
     walk: bool,
+    /// How many REAL tensor dims this one declared axis covers, from
+    /// `span = N`; 1 when absent.
+    ///
+    /// A kernel may address several real dims as one flattened row-major axis:
+    /// `batch_norm_2d_nchw_forward_inference` walks an NCHW tensor as
+    /// `[B, C, HW]`, one `BLOCK_HW` over `H * W`. Its graph edge is still rank
+    /// 4, and `resolve_inputs` rejects a rank-4 tile against a rank-3 spec --
+    /// which left the lowering no choice but `tile_spec: None`, a hard
+    /// boundary in every conv -> bn -> act chain (teenygrad-1nr.18.6).
+    ///
+    /// `TileAxisBinding::dims` has always supported a flattened binding; only
+    /// the syntax was missing. Metadata only: the prelude still addresses the
+    /// axis by its one declared extent, so nothing about the generated body
+    /// changes. Only the spec's rank and each binding's `dims` move.
+    span: usize,
+}
+
+/// The real tensor dims each declared axis covers, in declaration order, and
+/// the tensor's real rank (the sum of every axis's `span`).
+///
+/// Without a `span` anywhere this is `[[0], [1], ..]` and the axis count --
+/// exactly the one-dim-per-axis numbering the spec used before `span` existed.
+fn real_dims(attrs: &[TileAttrArgs]) -> (Vec<Vec<usize>>, usize) {
+    let mut next = 0;
+    let dims = attrs
+        .iter()
+        .map(|a| {
+            let d: Vec<usize> = (next..next + a.span).collect();
+            next += a.span;
+            d
+        })
+        .collect();
+    (dims, next)
 }
 
 /// The `TileWindow` an axis declares, or `None` when it is read contiguously.
@@ -197,11 +230,15 @@ fn window_tokens(axis: &TileAttrArgs) -> TokenStream2 {
 /// Rejects more than one: `TensorTileSpec::reduction_axis` is a single index, and
 /// a tensor reduced over two axes at once is not expressible (teenygrad-1tl.8).
 fn reduction_axis_of(attrs: &[TileAttrArgs]) -> Result<Option<usize>, syn::Error> {
+    // A REAL dim index, not a declaration position: once an earlier axis spans
+    // several dims the two differ. A reduced axis is single-dim, checked when
+    // it is parsed, so its first dim is its only one.
+    let (dims, _) = real_dims(attrs);
     let marked: Vec<usize> = attrs
         .iter()
         .enumerate()
         .filter(|(_, a)| a.reduce)
-        .map(|(i, _)| i)
+        .map(|(i, _)| dims[i][0])
         .collect();
     match marked.as_slice() {
         [] => Ok(None),
@@ -233,6 +270,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
     let mut reduce = false;
     let mut walk = false;
     let mut window = None;
+    let mut span: usize = 1;
     let mut nvs: Vec<MetaNameValue> = Vec::new();
     for meta in parsed {
         match meta {
@@ -375,6 +413,28 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
             fill_expr = Some(nv.value.clone());
             continue;
         }
+        if key == "span" {
+            let Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(i),
+                ..
+            }) = &nv.value
+            else {
+                return Err(syn::Error::new_spanned(
+                    &nv.value,
+                    "`#[tile(span = ..)]` must be a decimal integer literal: the number of real \
+                     tensor dims this axis flattens",
+                ));
+            };
+            let n: usize = i.base10_parse()?;
+            if n == 0 {
+                return Err(syn::Error::new_spanned(
+                    &nv.value,
+                    "`#[tile(span = 0)]` covers no dims; an axis spans at least one",
+                ));
+            }
+            span = n;
+            continue;
+        }
         if key == "block" {
             if let Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Int(i),
@@ -415,7 +475,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
                     &nv.path,
                     format!(
                         "unknown `#[tile(...)]` key `{other}` (expected `block`, `extent`, \
-                         `name`, or `dim`)"
+                         `name`, `dim`, `span` or `fill`)"
                     ),
                 ));
             }
@@ -423,6 +483,24 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
     }
     let extent = extent
         .ok_or_else(|| syn::Error::new_spanned(attr, "`#[tile(...)]` requires `extent = ..`"))?;
+    // A window relates ONE input dim to ONE output dim by a stride and a
+    // kernel, and a reduced axis is recorded as ONE `reduction_axis` index.
+    // Neither has a meaning over a flattened run of dims, so rather than pick
+    // one the combination is refused.
+    if span > 1 && window.is_some() {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "`span` cannot be combined with `window(...)`: a window relates one input dim to one \
+             output dim, and has no meaning over a flattened run of dims",
+        ));
+    }
+    if span > 1 && reduce {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "`span` cannot be combined with `reduce`: `reduction_axis` holds a single dim index, \
+             so a reduction over several flattened dims is not expressible",
+        ));
+    }
     Ok(TileAttrArgs {
         block,
         extent,
@@ -433,6 +511,7 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
         fill_expr,
         walk,
         reduce,
+        span,
     })
 }
 
@@ -2735,6 +2814,9 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 reduce: false,
                 // Nor is it walked: one program covers its whole tile.
                 walk: false,
+                // One flat axis over the whole tensor: `tile_spec(rank)` already
+                // spans every dim, so there is nothing for `span` to add.
+                span: 1,
             }]
         };
 
@@ -3598,7 +3680,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 // subset; only the spec was wrong.
                 let tensor_spec =
                     |param: &str, attrs: &[TileAttrArgs]| -> Result<TokenStream2, syn::Error> {
-                        let rank = attrs.len();
+                        let (axis_dims, rank) = real_dims(attrs);
                         let reduction = match reduction_axis_of(attrs)? {
                             Some(i) => quote! { ::core::option::Option::Some(#i) },
                             None => quote! { ::core::option::Option::None },
@@ -3606,6 +3688,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                         let mut bindings: Vec<TokenStream2> = Vec::new();
                         let mut untiled: Vec<String> = Vec::new();
                         for (i, axis) in attrs.iter().enumerate() {
+                            let d = &axis_dims[i];
                             match &axis.block {
                                 // A WALKED axis is untiled, whatever block it
                                 // carries: the block is the walk STEP, and one
@@ -3625,7 +3708,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                     let window = window_tokens(axis);
                                     bindings.push(quote! {
                                         ::teeny_core::model::TileAxisBinding {
-                                            dims: &[#i],
+                                            dims: &[ #(#d),* ],
                                             block_const: #block_s,
                                             extent_param: #extent_s,
                                             window: #window,
@@ -3649,7 +3732,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                     let window = window_tokens(axis);
                                     bindings.push(quote! {
                                         ::teeny_core::model::TileAxisBinding {
-                                            dims: &[#i],
+                                            dims: &[ #(#d),* ],
                                             block_const: "1",
                                             extent_param: #extent_s,
                                             window: #window,
@@ -3719,6 +3802,18 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 };
                 tile_spec_tokens
             } else {
+                // The flat form's one binding already spans EVERY dim, at a rank
+                // the graph node supplies, so a declared span would contradict it
+                // rather than refine it.
+                if blocked.span > 1 {
+                    return syn::Error::new_spanned(
+                        &blocked.extent,
+                        "`span` needs a kernel declaring several axes: a single-axis kernel's \
+                         `tile_spec(rank)` already flattens every dim of the tensor",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
                 let window = window_tokens(blocked);
                 let tile_spec_tokens = quote! {
                     /// Declarative tile-shape metadata derived from this kernel's
@@ -3849,10 +3944,11 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let mut grid_output: Option<(&Ident, &[TileAttrArgs])> = None;
             for (ident, kind, axes) in &structured_params {
                 let param_str = ident.to_string();
-                let rank = axes.len();
+                let (axis_dims, rank) = real_dims(axes);
                 let mut tiled_axis_tokens: Vec<TokenStream2> = Vec::new();
                 let mut untiled_name_tokens: Vec<String> = Vec::new();
                 for (i, axis) in axes.iter().enumerate() {
+                    let d = &axis_dims[i];
                     match &axis.block {
                         // A WALKED axis is untiled, whatever block it carries.
                         // Its block is the walk STEP: one program covers the
@@ -3875,7 +3971,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                             let window = window_tokens(axis);
                             tiled_axis_tokens.push(quote! {
                                 ::teeny_core::model::TileAxisBinding {
-                                    dims: &[#i],
+                                    dims: &[ #(#d),* ],
                                     block_const: #block_str,
                                     extent_param: #extent_str,
                                     window: #window,
@@ -3910,7 +4006,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                             let window = window_tokens(axis);
                             tiled_axis_tokens.push(quote! {
                                 ::teeny_core::model::TileAxisBinding {
-                                    dims: &[#i],
+                                    dims: &[ #(#d),* ],
                                     block_const: "1",
                                     extent_param: #extent_str,
                                     window: #window,
