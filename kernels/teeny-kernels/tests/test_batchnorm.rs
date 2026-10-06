@@ -187,6 +187,31 @@ fn test_batch_norm_inference() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `merge` keeps both statistics on ONE pass over `x` (teenygrad-3dp5).
+///
+/// Dropping the flag gives two walks, which is still numerically correct and so
+/// invisible to every other test here -- it just doubles the traffic of a
+/// memory-bound reduction. A performance property no numerics test can see has
+/// to be asserted directly, so this counts the generated walks.
+#[test]
+fn test_batch_norm_stats_reads_x_once_for_both_statistics() {
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNormStatsForward::<f32>::new(BLOCK_N);
+    let src = kernel.source;
+    let walks = src.matches("while __tile_pass").count();
+    assert_eq!(
+        walks, 1,
+        "expected one walk accumulating both carries, found {walks}"
+    );
+    let at = src.find("while __tile_pass").expect("the walk is generated");
+    let body = &src[at..];
+    let end = body.find("__tile_pass_0 +=").expect("the walk advances");
+    let inner: String = body[..end].split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        inner.contains("sum = sum +") && inner.contains("sum_sq = sum_sq +"),
+        "both carries must accumulate inside the shared walk"
+    );
+}
+
 #[test]
 #[cfg(all(feature = "hardware", feature = "training"))]
 fn test_batch_norm_forward_training() -> anyhow::Result<()> {
@@ -265,6 +290,32 @@ fn test_batch_norm_forward_training() -> anyhow::Result<()> {
     )?;
 
     y_buf.to_host(&mut y_out)?;
+
+    // The STATISTICS, directly. This test checked only `y` before, so
+    // batch_norm_stats_forward's two outputs were covered solely through the
+    // normalize kernel that consumes them -- an error in one could be masked by
+    // the other. The fixtures were already saved; nothing read them
+    // (teenygrad-3dp5).
+    let expected_mean = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_mean.bin");
+    let expected_rstd = load_fixture(env!("CARGO_MANIFEST_DIR"), "batchnorm/expected_rstd.bin");
+    let mut mean_out = vec![0.0f32; C];
+    let mut rstd_out = vec![0.0f32; C];
+    mean_buf.to_host(&mut mean_out)?;
+    rstd_buf.to_host(&mut rstd_out)?;
+    for c in 0..C {
+        assert!(
+            (mean_out[c] - expected_mean[c]).abs() < 1e-4,
+            "batch_norm_stats mean mismatch at channel {c}: gpu={}, expected={}",
+            mean_out[c],
+            expected_mean[c]
+        );
+        assert!(
+            (rstd_out[c] - expected_rstd[c]).abs() < 1e-3 * expected_rstd[c].abs().max(1.0),
+            "batch_norm_stats rstd mismatch at channel {c}: gpu={}, expected={}",
+            rstd_out[c],
+            expected_rstd[c]
+        );
+    }
     for i in 0..N * C {
         assert!(
             (y_out[i] - expected[i]).abs() < TOL,
