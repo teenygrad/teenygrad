@@ -34,7 +34,13 @@ fn test_elu_forward_fusion_core_captures_body_minus_trailing_store() {
     let core = EluForward::<f32>::fusion_core()
         .expect("elu_forward is single-input, single-axis, trailing-store");
     assert_eq!(core.input_ident, "x");
-    assert_eq!(core.output_ident, "y");
+    // `elu`, not `y`: the body's last `let` binds `elu`, and `y` is the OUTPUT
+    // PARAMETER. This expectation was written when the body bound `y` and went
+    // stale at bbfee8bec, the commit that gave #[tiled_kernel] its Tile-typed
+    // entry ABI and renamed the binding. Nothing noticed because the test was
+    // already failing on the unconditional `None` stub, so the rename could not
+    // break it twice (teenygrad-1cli).
+    assert_eq!(core.output_ident, "elu");
     assert!(!core.body_source.contains("store"));
     assert!(core.body_source.contains("where_"));
     // alpha: f32 is elu_forward's one extra scalar param.

@@ -4139,13 +4139,102 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             (quote! {}, quote! {})
         };
 
-    // FusionCore splice-body extraction (teenygrad-3w0.9) identified its
-    // eligible kernels via `#[tile(...)]`'s tile_attrs, which no longer
-    // exist -- see teenygrad-1nr.1. `fusion_core()` is unconditionally
-    // `None` now; nothing computes a `Some(..)` for it any more.
-    let fusion_core_body: TokenStream2 = quote! {
-        pub fn fusion_core() -> ::core::option::Option<::teeny_triton::FusionCore> {
-            ::core::option::Option::None
+    // FusionCore splice-body extraction (teenygrad-3w0.9), revived now that
+    // `#[tile(...)]` exists again (teenygrad-1cli). The old stub's reason --
+    // "tile_attrs no longer exist" -- stopped being true when teenygrad-1nr.18
+    // brought them back.
+    //
+    // A fusion core is the body MINUS its trailing store, so anduin can splice
+    // several nodes into one kernel. Eligibility is narrow on purpose:
+    //
+    //   * exactly one `In<Tile<..>>` and one `Out<Tile<..>>`, so there is one
+    //     input to rename when splicing;
+    //   * ONE declared axis, so every spliced body agrees about the index space;
+    //   * a HAND-WRITTEN trailing `T::store(..)`, which is what gets stripped.
+    //
+    // A `#[tile_loop(generate)]` kernel is deliberately excluded: the macro
+    // writes its store, so "body minus trailing store" would be its whole body,
+    // and what a fusion core means for a generated loop is an open question
+    // (conv2d_forward's entire body is `acc = acc + x * w;`). Returning `None`
+    // for those is the honest answer rather than a guess.
+    let fusion_core_body: TokenStream2 = {
+        let generate = tile_loop.as_ref().is_some_and(|l| l.generate);
+        let single_axis = all_tile_param_attrs.len() >= 2
+            && all_tile_param_attrs.iter().all(|a| a.len() == 1);
+        let one_in_one_out = prelude_in_params.len() == 1 && tile_out_params.len() == 1;
+        let stmts = &input.block.stmts;
+
+        // The trailing statement must be a bare `T::store(..)` call.
+        let trailing_is_store = stmts.last().is_some_and(|st| {
+            let txt = quote! { #st }.to_string();
+            txt.contains("store") && txt.starts_with(&hw_ident.to_string())
+        });
+
+        if generate
+            || !single_axis
+            || !one_in_one_out
+            || !trailing_is_store
+            || !loop_scalars.is_empty()
+            || !loop_tiles.is_empty()
+        {
+            quote! {
+                pub fn fusion_core() -> ::core::option::Option<::teeny_triton::FusionCore> {
+                    ::core::option::Option::None
+                }
+            }
+        } else {
+            let input_ident = prelude_in_params[0].0.to_string();
+            let core_stmts: Vec<&syn::Stmt> = stmts[..stmts.len() - 1].iter().collect();
+            // The value the store would have written: whatever the last `let`
+            // before it bound.
+            let output_ident = core_stmts
+                .iter()
+                .rev()
+                .find_map(|st| match st {
+                    syn::Stmt::Local(local) => match &local.pat {
+                        Pat::Ident(pi) => Some(pi.ident.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let body_source = quote! { #(#core_stmts)* }.to_string();
+
+            // Extra scalars: this kernel's parameters that are neither tiles nor
+            // pointers, and not an axis extent. A caller re-threading this core
+            // into a synthesized kernel needs them in its own signature.
+            let axis_names: Vec<String> = all_tile_param_attrs
+                .iter()
+                .flat_map(|a| a.iter().map(|ax| ax.extent.to_string()))
+                .collect();
+            let extras: Vec<TokenStream2> = fn_inputs
+                .iter()
+                .filter_map(|pt| {
+                    let Pat::Ident(pi) = &*pt.pat else { return None };
+                    let name = pi.ident.to_string();
+                    let ty_tokens = &pt.ty;
+                    let ty = quote! { #ty_tokens }.to_string();
+                    if axis_names.contains(&name) {
+                        return None;
+                    }
+                    if ty.contains("Tile") || ty.contains("Pointer") {
+                        return None;
+                    }
+                    let ty = ty.replace(' ', "");
+                    Some(quote! { (#name, #ty) })
+                })
+                .collect();
+
+            quote! {
+                pub fn fusion_core() -> ::core::option::Option<::teeny_triton::FusionCore> {
+                    ::core::option::Option::Some(::teeny_triton::FusionCore {
+                        input_ident: #input_ident,
+                        output_ident: #output_ident,
+                        body_source: #body_source,
+                        extra_params: &[ #(#extras),* ],
+                    })
+                }
+            }
         }
     };
 
