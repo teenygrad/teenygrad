@@ -1145,3 +1145,28 @@ save(f"{d}/x.bin", x_fused)
 save(f"{d}/expected_forward.bin", F.silu(torch.relu(x_fused)))
 
 print("\nDone — all fixtures generated.")
+
+# ── conv2d_bn_silu (teenygrad-3dp5) ───────────────────────────────────────────
+# This kernel had NO fixtures and no test -- only a `tile_spec()` assertion -- so
+# converting it would have been unverifiable. Appended at the END with its own
+# generator so every section above keeps drawing from the same global stream and
+# the existing .bin files stay byte-identical.
+print("conv2d_bn_silu")
+d = os.path.join(BASE, "conv2d_bn_silu")
+os.makedirs(d, exist_ok=True)
+g_bns = torch.Generator().manual_seed(7331)
+B_BNS, CIN_BNS, COUT_BNS, HW_BNS, K_BNS = 1, 4, 4, 8, 3
+x_bns = torch.empty(B_BNS, CIN_BNS, HW_BNS, HW_BNS).uniform_(-2, 2, generator=g_bns)
+w_bns = torch.empty(COUT_BNS, CIN_BNS, K_BNS, K_BNS).uniform_(-0.5, 0.5, generator=g_bns)
+scale_bns = torch.empty(COUT_BNS).uniform_(0.5, 1.5, generator=g_bns)
+shift_bns = torch.empty(COUT_BNS).uniform_(-0.5, 0.5, generator=g_bns)
+# stride 1, padding 1, groups 1 -> OH = OW = HW. No conv bias: the kernel folds
+# the batch-norm affine in instead, then SiLU.
+conv_bns = F.conv2d(x_bns, w_bns, bias=None, stride=1, padding=1, groups=1)
+bn_bns = scale_bns.view(1, -1, 1, 1) * conv_bns + shift_bns.view(1, -1, 1, 1)
+y_bns = F.silu(bn_bns)
+save(f"{d}/x.bin", x_bns)
+save(f"{d}/w.bin", w_bns)
+save(f"{d}/bn_scale.bin", scale_bns)
+save(f"{d}/bn_shift.bin", shift_bns)
+save(f"{d}/expected_forward.bin", y_bns)

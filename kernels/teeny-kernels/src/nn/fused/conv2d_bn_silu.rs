@@ -38,17 +38,33 @@ use teeny_triton::triton::{
 ///
 /// Inference-only; no backward pass.
 #[tiled_kernel]
-// teenygrad-1tl.12. Same shape as `conv2d_bias_forward`: the same `pid` decode,
-// the same accumulation loop, the same windowed input. It differs only in its
-// epilogue -- batchnorm's affine then SiLU, instead of a bias add.
-//
-// Metadata only, no `#[tile_loop(generate)]`. The generated form emits the store
-// immediately after the loop, and every kernel in this file has work *between*
-// the two: `bn_scale * acc + bn_shift`, then SiLU. An epilogue hook is a
-// separate piece of work; until it exists these declare their loop rather than
-// have it written for them, exactly as `conv2d_bias_forward` and the norms do.
-#[tile_loop(trip_count = [C_IN, G, KH, KW])]
-#[tile_carry(acc = [BLOCK_OW])]
+// teenygrad-3dp5: the loop is generated now, and `finish` carries the epilogue
+// the comment here used to say this kernel was waiting for -- the batch-norm
+// affine and then SiLU, both pure expressions over the carry.
+#[tile_loop(
+    trip_count = [C_IN, G, KH, KW],
+    axes = [c_in_local = (C_IN / G), kh = KH, kw = KW],
+    generate
+)]
+#[tile_carry(
+    acc = [BLOCK_OW],
+    finish = {
+        let bn_off = T::arange(0, 1) + tile_c_out;
+        let scale = T::broadcast_to(
+            T::load(bn_scale_ptr.add_offsets(bn_off), None, None, &[], None, None, None, false),
+            &[BLOCK_OW],
+        );
+        let shift = T::broadcast_to(
+            T::load(bn_shift_ptr.add_offsets(bn_off), None, None, &[], None, None, None, false),
+            &[BLOCK_OW],
+        );
+        let bn_out = scale * acc + shift;
+        // SiLU: y = x * sigmoid(x) = x / (1 + exp(-x)).
+        let one = T::full(&[BLOCK_OW], 1.0_f32);
+        let neg1 = T::full(&[BLOCK_OW], -1.0_f32);
+        bn_out * (one / (one + T::exp(neg1 * bn_out)))
+    }
+)]
 pub fn conv2d_bn_silu_forward<
     T: Triton,
     const KH: i32,
@@ -68,17 +84,31 @@ pub fn conv2d_bn_silu_forward<
         extent = W,
         window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
     )]
-    x_ptr: In<T::Pointer<f32>>,
+    // `#[tile(..)]` above says what `x` IS; this says how to read it per
+    // iteration, as conv2d_forward does. `bounds` names the padded spatial axes.
+    #[tile_loop_tile(
+        index = [
+            tile_b = _B,
+            ((tile_c_out / (C_OUT / G)) * (C_IN / G) + c_in_local) = C_IN,
+            (tile_oh * STRIDE_H + kh - PAD_H) = H,
+            (__tile_range * STRIDE_W + kw - PAD_W) = W
+        ],
+        bounds = [2, 3]
+    )]
+    x: In<Tile<T, f32>>,
     // Weights and the two per-channel batchnorm operands stay untagged, as
     // `conv2d_bias_forward` leaves its own: none is sliced by the output tile.
-    w_ptr: In<T::Pointer<f32>>,
+    #[tile_loop_scalar(
+        index = [tile_c_out = C_OUT, c_in_local = (C_IN / G), kh = KH, kw = KW]
+    )]
+    w: In<Tile<T, f32>>,
     bn_scale_ptr: In<T::Pointer<f32>>,
     bn_shift_ptr: In<T::Pointer<f32>>,
     #[tile(name = "B", extent = _B)]
     #[tile(extent = C_OUT)]
     #[tile(extent = OH)]
     #[tile(block = BLOCK_OW, extent = OW)]
-    y_ptr: Out<T::Pointer<f32>>,
+    y: Out<Tile<T, f32>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -92,117 +122,7 @@ pub fn conv2d_bn_silu_forward<
     T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
-
-    // Decode flat pid → (b, c_out, oh, ow_tile).
-    let ow_tile = pid % num_ow_tiles;
-    let bco = pid / num_ow_tiles;
-    let oh = bco % OH;
-    let bc = bco / OH;
-    let c_out = bc % C_OUT;
-    let b = bc / C_OUT;
-
-    let ow_start = ow_tile * BLOCK_OW;
-    let ow_range = T::arange(0, BLOCK_OW) + ow_start;
-    let ow_mask = ow_range.lt(OW);
-
-    let out_bc_base = (b * C_OUT + c_out) * OH * OW;
-
-    let c_in_per_group = C_IN / G;
-    let g_idx = c_out / (C_OUT / G);
-    let c_in_start = g_idx * c_in_per_group;
-
-    // ── Conv accumulation (same as conv2d_forward) ────────────────────────────
-    let mut acc = T::zeros::<f32>(&[BLOCK_OW]);
-
-    let loop_bound = c_in_per_group * KH * KW;
-    for idx in 0..loop_bound {
-        let kw = idx % KW;
-        let kh_cin = idx / KW;
-        let kh = kh_cin % KH;
-        let c_in_local = kh_cin / KH;
-        let c_in = c_in_start + c_in_local;
-
-        let ih = oh * STRIDE_H + kh - PAD_H;
-        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
-
-        #[allow(clippy::erasing_op)]
-        let ih_t = ow_range * 0 + ih;
-        let h_in_bounds = ih_t.ge(0) & ih_t.lt(H);
-        let w_in_bounds = iw_range.ge(0) & iw_range.lt(W);
-        let load_mask = ow_mask & h_in_bounds & w_in_bounds;
-
-        let x_offsets = iw_range + ((b * C_IN + c_in) * H * W + ih * W);
-        let x_tile = T::load(
-            x_ptr.add_offsets(x_offsets),
-            Some(load_mask),
-            Some(T::zeros::<f32>(&[BLOCK_OW])),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-
-        // Weight layout [C_OUT, C_IN/G, KH, KW]: load scalar and broadcast.
-        let w_idx = ((c_out * c_in_per_group + c_in_local) * KH + kh) * KW + kw;
-        let w_off = T::arange(0, 1) + w_idx;
-        let w_1 = T::load(
-            w_ptr.add_offsets(w_off),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let w_tile = T::broadcast_to(w_1, &[BLOCK_OW]);
-
-        acc = acc + x_tile * w_tile;
-    }
-
-    // ── BatchNorm epilog: acc = bn_scale[c_out] * acc + bn_shift[c_out] ───────
-    let bn_off = T::arange(0, 1) + c_out;
-    let scale_1 = T::load(
-        bn_scale_ptr.add_offsets(bn_off),
-        None,
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let scale = T::broadcast_to(scale_1, &[BLOCK_OW]);
-    let shift_1 = T::load(
-        bn_shift_ptr.add_offsets(bn_off),
-        None,
-        None,
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let shift = T::broadcast_to(shift_1, &[BLOCK_OW]);
-    let bn_out = scale * acc + shift;
-
-    // ── SiLU epilog: y = x * sigmoid(x) = x / (1 + exp(-x)) ─────────────────
-    let one = T::full(&[BLOCK_OW], 1.0_f32);
-    let neg1 = T::full(&[BLOCK_OW], -1.0_f32);
-    let y = bn_out * (one / (one + T::exp(neg1 * bn_out)));
-
-    let out_offsets = ow_range + (out_bc_base + oh * OW);
-    T::store(
-        y_ptr.add_offsets(out_offsets),
-        y,
-        Some(ow_mask),
-        &[],
-        None,
-        None,
-    );
+    acc = acc + x * w;
 }
 
 // ── RuntimeOp ────────────────────────────────────────────────────────────────
