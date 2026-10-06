@@ -671,4 +671,63 @@ mod tests {
         spec.validate()
             .expect("a derived spec must be self-consistent");
     }
+
+    /// Metadata-only probe for `#[tile(span = N)]` on the raw-pointer route
+    /// (teenygrad-1nr.18.6).
+    ///
+    /// `batch_norm_2d_nchw_forward_inference` is the real user, but it is route
+    /// 1 and its spanned axis is innermost, so the dims after it never move.
+    /// This places the spanned axis in the MIDDLE, followed by a reduced one,
+    /// so both the later binding's dims and `reduction_axis` have to shift by
+    /// the extra dim -- the arithmetic a declaration-position index gets wrong.
+    #[tiled_kernel]
+    pub fn span_probe_forward<T: Triton, D: Num, const BLOCK_HW: i32>(
+        #[tile(extent = B)]
+        #[tile(block = BLOCK_HW, extent = HW, span = 2)]
+        #[tile(extent = C, reduce)]
+        x_ptr: In<T::Pointer<D>>,
+        #[tile(extent = B)]
+        #[tile(block = BLOCK_HW, extent = HW, span = 2)]
+        y_ptr: Out<T::Pointer<D>>,
+        B: i32,
+        HW: i32,
+        C: i32,
+    ) {
+        // Metadata only: nothing compiles this body, it exists to carry a
+        // signature for `tile_spec()`/`grid_spec()` to be derived from.
+        let _ = (x_ptr, y_ptr, B, HW, C);
+    }
+
+    #[test]
+    fn test_a_spanned_axis_shifts_every_later_dim() {
+        let spec = SpanProbeForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let x = spec.inputs[0];
+        assert_eq!(x.rank, 4, "B, then HW over two real dims, then C");
+        assert_eq!(x.axes.len(), 1, "only HW is blocked");
+        assert_eq!(x.axes[0].dims, &[1, 2], "HW spans dims 1 and 2");
+        assert_eq!(x.axes[0].block_const, "BLOCK_HW");
+        assert_eq!(
+            x.reduction_axis,
+            Some(3),
+            "C is the third declared axis but the fourth real dim"
+        );
+        assert_eq!(x.untiled_dims, &["B", "C"]);
+
+        let y = spec.outputs[0];
+        assert_eq!(y.rank, 3);
+        assert_eq!(y.axes[0].dims, &[1, 2]);
+        assert_eq!(y.untiled_dims, &["B"]);
+
+        // The spanned axis is still ONE grid axis: the body addresses it as
+        // one flattened range, and `span` is metadata only.
+        let grid: Vec<&str> = SpanProbeForward::<f32>::grid_spec()
+            .axes
+            .iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(grid, ["B", "HW"]);
+    }
 }
