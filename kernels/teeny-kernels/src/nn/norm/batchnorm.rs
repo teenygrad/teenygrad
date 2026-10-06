@@ -176,12 +176,42 @@ pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
 #[tiled_kernel]
 #[tile_loop(trip_count = [N, BLOCK_N])]
 #[tile_carry(acc_sum = [BLOCK_N], acc_sum_sq = [BLOCK_N])]
+// teenygrad-3dp5: TWO carries over ONE walk. `merge` shares the leading pass's
+// read, so `x` is read once for both the sum and the sum of squares -- two
+// separate passes would double the traffic of a memory-bound reduction.
+//
+// And there is no map pass: this kernel writes one statistic per channel and has
+// no per-element output, so the body is simply what runs after the walk.
+#[tile_reduce_pass(
+    over = N,
+    read = x,
+    into = sum,
+    acc = T::sum(x, None, true),
+    finish = sum * T::cast::<f32, D>(
+        T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false
+    ),
+    store = mean
+)]
+#[tile_reduce_pass(
+    over = N,
+    read = x,
+    into = sum_sq,
+    acc = T::sum(x * x, None, true),
+    // E[x^2] - E[x]^2, so this carry holds the VARIANCE once finished. `sum` is
+    // already the mean here: finishes run after the shared walk in declaration
+    // order.
+    finish = sum_sq * T::cast::<f32, D>(
+        T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false
+    ) - sum * sum,
+    merge
+)]
 pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(extent = N, reduce)]
-    #[tile(extent = C)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(extent = C)] mean_ptr: Out<T::Pointer<D>>,
-    #[tile(extent = C)] rstd_ptr: Out<T::Pointer<D>>,
+    // N is walked and OUTER, so each step advances by C.
+    #[tile(block = BLOCK_N, extent = N, reduce, walk)]
+    #[tile(block = 1, extent = C)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] mean: Out<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] rstd: Out<Tile<T, D>>,
     running_mean_ptr: InOut<T::Pointer<D>>,
     running_var_ptr: InOut<T::Pointer<D>>,
     N: i32,
@@ -193,51 +223,12 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let c = T::program_id(Axis::X);
-
-    // Accumulate sum(x) and sum(x²) over all N elements for this channel.
-    // Triton idiom: accumulate BLOCK_N-wide tiles inside the loop, reduce once
-    // outside — tt.reduce inside a loop body is not supported by Triton's lowering.
-    let zeros_blk = T::zeros::<D>(&[BLOCK_N]);
-    let mut acc_sum = zeros_blk;
-    let mut acc_sum_sq = zeros_blk;
-    let mut n_start: i32 = 0;
-
-    while n_start < N {
-        let offsets_n = T::arange(0, BLOCK_N) + n_start;
-        let mask = offsets_n.lt(N);
-        let elem_offsets = offsets_n * C + c;
-
-        let x_tile = T::load(
-            x_ptr.add_offsets(elem_offsets),
-            Some(mask),
-            Some(zeros_blk),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        acc_sum = acc_sum + x_tile;
-        acc_sum_sq = acc_sum_sq + x_tile * x_tile;
-
-        n_start += BLOCK_N;
-    }
-
-    // Single reduce outside the loop — shape [BLOCK_N] → [1].
-    let sum = T::sum(acc_sum, None, true);
-    let sum_sq = T::sum(acc_sum_sq, None, true);
-
-    // Derive mean, biased variance, and rstd (all shape [1]).
-    let n_inv = T::cast::<f32, D>(T::full::<f32>(&[1], 1.0f32 / (N as f32)), None, false);
-    let mean_1 = sum * n_inv;
-    let var_1 = sum_sq * n_inv - mean_1 * mean_1;
-    let rstd_1 = T::rsqrt(var_1 + T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false));
-
-    // Save for the normalisation and backward kernels.
-    let c_idx = T::arange(0, 1) + c;
-    T::store(mean_ptr.add_offsets(c_idx), mean_1, None, &[], None, None);
-    T::store(rstd_ptr.add_offsets(c_idx), rstd_1, None, &[], None, None);
+    // Runs after the walk. `sum` is the mean and `sum_sq` the variance; the mean
+    // is already stored by its pass, so what is left is rstd and the running
+    // statistics.
+    let c_idx = T::arange(0, 1) + tile_c;
+    let eps_t = T::cast::<f32, D>(T::full::<f32>(&[1], eps), None, false);
+    T::store(rstd.tensor, T::rsqrt(sum_sq + eps_t), None, &[], None, None);
 
     // Exponential moving average: running = (1 - m) * running + m * batch.
     let m = T::cast::<f32, D>(T::full::<f32>(&[1], momentum), None, false);
@@ -262,10 +253,9 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
         None,
         false,
     );
-
     T::store(
         running_mean_ptr.add_offsets(c_idx),
-        one_m * running_mean_old + m * mean_1,
+        one_m * running_mean_old + m * sum,
         None,
         &[],
         None,
@@ -273,7 +263,7 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     );
     T::store(
         running_var_ptr.add_offsets(c_idx),
-        one_m * running_var_old + m * var_1,
+        one_m * running_var_old + m * sum_sq,
         None,
         &[],
         None,

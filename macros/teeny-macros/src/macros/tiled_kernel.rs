@@ -722,6 +722,14 @@ struct TileReducePass {
     finish: Option<syn::Expr>,
     /// An `Out` parameter receiving the finished carry, one element per row.
     store: Option<Ident>,
+    /// `true` when this pass accumulates inside the PREVIOUS pass's walk
+    /// rather than opening its own.
+    ///
+    /// batch_norm_stats needs the sum and the sum of squares from one read of
+    /// `x`: two separate passes would read it twice, doubling the traffic of a
+    /// memory-bound reduction. The carries stay separate; only the walk is
+    /// shared (teenygrad-3dp5).
+    merge: bool,
     /// The masked lanes' value for THIS pass's read. Defaults to zeros.
     ///
     /// Per-pass, not per-operand, because the right fill depends on what the
@@ -738,8 +746,22 @@ struct TileReducePass {
 fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePass>, syn::Error> {
     let mut passes = Vec::new();
     for attr in attrs.iter().filter(|a| a.path().is_ident("tile_reduce_pass")) {
-        let metas = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
+        let raw = Punctuated::<syn::Meta, Token![,]>::parse_terminated
             .parse2(attr.meta.require_list()?.tokens.clone())?;
+        let mut metas: Vec<MetaNameValue> = Vec::new();
+        let mut merge_flag = false;
+        for m in raw {
+            match m {
+                syn::Meta::Path(path) if path.is_ident("merge") => merge_flag = true,
+                syn::Meta::NameValue(nv) => metas.push(nv),
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        other,
+                        "expected `key = value`, or the bare flag `merge`",
+                    ));
+                }
+            }
+        }
         let mut over = None;
         let mut read = None;
         let mut into = None;
@@ -794,6 +816,7 @@ fn parse_tile_reduce_passes(attrs: &[syn::Attribute]) -> Result<Vec<TileReducePa
             finish,
             store,
             fill,
+            merge: merge_flag,
         });
     }
     Ok(passes)
@@ -871,54 +894,83 @@ fn generated_passes(
 
     // The map pass walks the OUTPUT's walked axis: that is the axis the kernel
     // writes, so it is the one the trailing store must cover.
-    let (out_ident, out_dtype, out_axes) = tile_out_params
+    // A kernel with NO walked output is REDUCE-ONLY: batch_norm_stats writes
+    // one statistic per channel and has no per-element output at all, so there
+    // is no map pass and the body is simply what runs after the walks
+    // (teenygrad-3dp5).
+    let map_out = tile_out_params
         .iter()
-        .find(|(_, _, axes)| walked(axes).is_some())
-        .ok_or_else(|| {
-            syn::Error::new(
-                span,
-                "`#[tile_reduce_pass]` needs an `Out` parameter with a `walk` axis: that axis \
-                 is what the generated map pass walks and stores, and without it there is no \
-                 final pass to splice the body into",
-            )
-        })?;
-    let out_walk = walked(out_axes).expect("checked");
-    let out_block: TokenStream2 = out_walk
-        .block
-        .as_deref()
-        .ok_or_else(|| {
-            syn::Error::new(
-                span,
-                "a `walk` axis needs `block = ..`: the walk advances one block per step",
-            )
-        })?
-        .parse()
-        .expect("a block is an identifier or an integer literal");
-    let out_extent = &out_walk.extent;
-
+        .find(|(_, _, axes)| walked(axes).is_some());
     let mut stmts: Vec<syn::Stmt> = Vec::new();
 
-    // ── the reduction passes ────────────────────────────────────────────────
-    for (n, pass) in passes.iter().enumerate() {
+    // ── the reduction passes, grouped by walk ───────────────────────────────
+    // Consecutive passes marked `merge` accumulate inside the first one's walk.
+    // The carries stay separate; only the read is shared, which is what keeps
+    // batch_norm_stats to one pass over `x` for both its sum and its sum of
+    // squares (teenygrad-3dp5).
+    let mut groups: Vec<Vec<&TileReducePass>> = Vec::new();
+    for pass in passes {
+        if pass.merge && !groups.is_empty() {
+            groups.last_mut().expect("non-empty").push(pass);
+        } else {
+            if pass.merge {
+                return Err(syn::Error::new(
+                    span,
+                    "the first `#[tile_reduce_pass]` cannot be `merge`: there is no earlier \
+                     walk for it to join",
+                ));
+            }
+            groups.push(vec![pass]);
+        }
+    }
+
+    for (n, group) in groups.iter().enumerate() {
+        let lead = group[0];
+        // Every pass in a group shares the lead's read, so they must agree about
+        // what is read and over what.
+        for other in &group[1..] {
+            if other.read != lead.read {
+                return Err(syn::Error::new_spanned(
+                    &other.read,
+                    format!(
+                        "a `merge` pass shares the previous walk's read, so `read` must be \
+                         `{}`, not `{}`",
+                        lead.read, other.read
+                    ),
+                ));
+            }
+            let (o, l) = (&other.over, &lead.over);
+            if quote! { #o }.to_string() != quote! { #l }.to_string() {
+                return Err(syn::Error::new_spanned(
+                    &other.over,
+                    "a `merge` pass shares the previous walk, so `over` must match it",
+                ));
+            }
+            if other.fill.is_some() {
+                return Err(syn::Error::new_spanned(
+                    other.fill.as_ref().expect("checked"),
+                    "a `merge` pass shares the previous walk's single read, so only the \
+                     leading pass may declare `fill`",
+                ));
+            }
+        }
+
         let (read_ident, read_dtype, read_axes) = tile_in_params
             .iter()
-            .find(|(id, _, _)| **id == pass.read)
+            .find(|(id, _, _)| **id == lead.read)
             .ok_or_else(|| {
                 syn::Error::new_spanned(
-                    &pass.read,
-                    format!(
-                        "`read = {}` names no `Tile` input of this kernel",
-                        pass.read
-                    ),
+                    &lead.read,
+                    format!("`read = {}` names no `Tile` input of this kernel", lead.read),
                 )
             })?;
         let read_walk = walked(read_axes).ok_or_else(|| {
             syn::Error::new_spanned(
-                &pass.read,
+                &lead.read,
                 format!(
                     "`{}` is read by a pass but declares no `walk` axis, so there is nothing \
                      for the pass to walk",
-                    pass.read
+                    lead.read
                 ),
             )
         })?;
@@ -929,28 +981,37 @@ fn generated_passes(
             .parse()
             .expect("a block is an identifier or an integer literal");
         let extent = &read_walk.extent;
-        let over = &pass.over;
-        let carry = &pass.into;
-        let acc = &pass.acc;
+        let over = &lead.over;
         let walk_var = format_ident!("__tile_pass_{}", n);
         let col = format_ident!("__tile_pass_col_{}", n);
         let mask = format_ident!("__tile_pass_mask_{}", n);
         let offset = pass_offset(read_axes, &quote! { #col });
-        let pass_fill = match &pass.fill {
+        let pass_fill = match &lead.fill {
             Some(f) => quote! { #f },
             None => quote! { #hw_ident::zeros::<#read_dtype>(&[#blk]) },
         };
 
-        stmts.push(
-            syn::parse2(quote! {
-                let mut #carry = #hw_ident::zeros::<#read_dtype>(&[1]);
-            })
-            .expect("generated pass carry is valid Rust"),
-        );
+        for pass in group {
+            let carry = &pass.into;
+            stmts.push(
+                syn::parse2(quote! {
+                    let mut #carry = #hw_ident::zeros::<#read_dtype>(&[1]);
+                })
+                .expect("generated pass carry is valid Rust"),
+            );
+        }
         stmts.push(
             syn::parse2(quote! { let mut #walk_var: i32 = 0; })
                 .expect("generated walk variable is valid Rust"),
         );
+        let accs: Vec<TokenStream2> = group
+            .iter()
+            .map(|pass| {
+                let carry = &pass.into;
+                let acc = &pass.acc;
+                quote! { #carry = #carry + (#acc); }
+            })
+            .collect();
         stmts.push(
             syn::parse2(quote! {
                 while #walk_var < (#over) {
@@ -966,71 +1027,83 @@ fn generated_passes(
                         None,
                         false,
                     );
-                    #carry = #carry + (#acc);
+                    #(#accs)*
                     #walk_var += #blk;
                 }
             })
             .expect("generated pass walk is valid Rust"),
         );
-        if let Some(fin) = &pass.finish {
-            stmts.push(
-                syn::parse2(quote! { let #carry = #fin; })
-                    .expect("generated pass finish is valid Rust"),
-            );
-        }
-        if let Some(target) = &pass.store {
-            let (t_ident, _, t_axes) = tile_out_params
-                .iter()
-                .find(|(id, _, _)| **id == *target)
-                .ok_or_else(|| {
-                    syn::Error::new_spanned(
-                        target,
-                        format!("`store = {target}` names no `Out` parameter of this kernel"),
-                    )
-                })?;
-            // The carry is `[1]`, but the target's address tile has one
-            // dimension per BLOCKED axis -- `[1, 1]` for a statistic indexed by
-            // two gridded axes. Same single element, different type, and
-            // `tt.store` verifies that value and pointer types match. Every
-            // such block is 1 (a statistic is one element per program), so a
-            // broadcast is exact rather than a reinterpretation.
-            //
-            // The alternative, declaring fewer blocked axes on the statistic,
-            // is not available: every output must agree with the first on
-            // extent AND block, and the first is the walked one
-            // (teenygrad-3rk6.2).
-            let t_blocks: Vec<TokenStream2> = t_axes
-                .iter()
-                .filter(|a| a.block.is_some() && !a.walk)
-                .map(|a| {
-                    a.block
-                        .as_deref()
-                        .expect("filtered")
-                        .parse()
-                        .expect("a block is an identifier or an integer literal")
-                })
-                .collect();
-            // `expand_dims`, not `broadcast_to`: broadcasting cannot change
-            // RANK, and the carry is rank 1 against a rank-k address tile.
-            // Every block here is 1, so expanding at the tail repeatedly gives
-            // `[1]` -> `[1, 1]` -> `[1, 1, 1]` with no data movement. The same
-            // rank-against-broadcast distinction teenyc-u9z needed both calls
-            // for (teenygrad-3rk6.2).
-            let mut value = quote! { #carry };
-            for d in 1..t_blocks.len() {
-                let d = d as i32;
-                value = quote! { #hw_ident::expand_dims(#value, #d) };
+        // Finishes and stores after the shared walk, in declaration order, so a
+        // later pass's `finish` may name an earlier carry.
+        for pass in group {
+            let carry = &pass.into;
+            if let Some(fin) = &pass.finish {
+                stmts.push(
+                    syn::parse2(quote! { let #carry = #fin; })
+                        .expect("generated pass finish is valid Rust"),
+                );
             }
-            stmts.push(
-                syn::parse2(quote! {
-                    #hw_ident::store(#t_ident.tensor, #value, None, &[], None, None);
-                })
-                .expect("generated pass store is valid Rust"),
-            );
+            if let Some(target) = &pass.store {
+                let (t_ident, _, t_axes) = tile_out_params
+                    .iter()
+                    .find(|(id, _, _)| **id == *target)
+                    .ok_or_else(|| {
+                        syn::Error::new_spanned(
+                            target,
+                            format!("`store = {target}` names no `Out` parameter of this kernel"),
+                        )
+                    })?;
+                let t_blocks: Vec<TokenStream2> = t_axes
+                    .iter()
+                    .filter(|a| a.block.is_some() && !a.walk)
+                    .map(|a| {
+                        a.block
+                            .as_deref()
+                            .expect("filtered")
+                            .parse()
+                            .expect("a block is an identifier or an integer literal")
+                    })
+                    .collect();
+                // `expand_dims`, not `broadcast_to`: broadcasting cannot change
+                // RANK, and the carry is rank 1 against a rank-k address tile.
+                // Every block here is 1, so expanding at the tail repeatedly
+                // gives `[1]` -> `[1, 1]` with no data movement.
+                let mut value = quote! { #carry };
+                for d in 1..t_blocks.len() {
+                    let d = d as i32;
+                    value = quote! { #hw_ident::expand_dims(#value, #d) };
+                }
+                stmts.push(
+                    syn::parse2(quote! {
+                        #hw_ident::store(#t_ident.tensor, #value, None, &[], None, None);
+                    })
+                    .expect("generated pass store is valid Rust"),
+                );
+            }
         }
     }
 
     // ── the map pass: the author's body ─────────────────────────────────────
+    let Some((out_ident, _out_dtype, out_axes)) = map_out else {
+        // Reduce-only: the body runs after the walks, with no loop around it and
+        // no generated store. It is still the only place author code is
+        // spliced, so teenygrad-1nr.18.3's C3 holds as before.
+        stmts.extend(input.block.stmts.iter().cloned());
+        return Ok(stmts);
+    };
+    let out_walk = walked(out_axes).expect("found by the search above");
+    let out_block: TokenStream2 = out_walk
+        .block
+        .as_deref()
+        .ok_or_else(|| {
+            syn::Error::new(
+                span,
+                "a `walk` axis needs `block = ..`: the walk advances one block per step",
+            )
+        })?
+        .parse()
+        .expect("a block is an identifier or an integer literal");
+    let out_extent = &out_walk.extent;
     let map_var = format_ident!("__tile_map_n");
     let map_col = format_ident!("__tile_map_col");
     let map_mask = format_ident!("__tile_map_mask");
@@ -1100,7 +1173,6 @@ fn generated_passes(
         })
         .expect("generated map walk is valid Rust"),
     );
-    let _ = out_dtype;
     Ok(stmts)
 }
 
@@ -2784,8 +2856,25 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         let mut stmts: Vec<syn::Stmt> = if axes.len() == 1 && !any_reduced {
             let dim_ident = axes[0].dim.clone().unwrap_or_else(|| format_ident!("X"));
             let extent_ident = &axes[0].extent;
+            // The axis's own index, under the same `tile_<axis>` name the
+            // general decode binds. The shortcut bound only `pid`, so a kernel
+            // whose reference output has ONE axis had no `tile_<axis>` -- and
+            // `pass_offset` emits exactly that name for a non-walked axis, so
+            // batch_norm_stats failed to compile with the macro's own generated
+            // code referring to an unbound `tile_c`. For a single axis the
+            // outermost index IS the program id, as the general path's
+            // outermost case already says (teenygrad-3dp5).
+            let idx_ident0 = {
+                let label = axes[0]
+                    .name
+                    .as_ref()
+                    .map(syn::LitStr::value)
+                    .unwrap_or_else(|| axes[0].extent.to_string());
+                format_ident!("tile_{}", label.to_lowercase())
+            };
             syn::parse2::<syn::Block>(quote! {{
                 let pid = #hw_ident::program_id(Axis::#dim_ident);
+                let #idx_ident0 = pid;
                 let block_start = pid * #block_ident;
                 let offsets = #hw_ident::arange(0, #block_ident) + block_start;
                 let in_bounds = offsets.lt(#extent_ident);
