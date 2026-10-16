@@ -35,75 +35,65 @@
 //! expected panic.
 //!
 //! The output shape is deliberately larger than any real GPU's default CUDA
-//! shared-memory budget (see `B`'s doc comment) so that `Anduin::optimize`'s
+//! shared-memory budget (see the comment on the test's constants) so that `Anduin::optimize`'s
 //! `SubGraphTiling` search must actually tile -- `enumerate_subtiles` has
 //! to find a subtile that fits, not just return the whole tensor untiled --
 //! rather than the search trivially having nothing to do.
 
-#[cfg(feature = "cuda")]
-use dotenv::dotenv;
-#[cfg(feature = "cuda")]
-use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-#[cfg(feature = "cuda")]
-use teeny_core::device::context::DeviceInfo;
-#[cfg(feature = "cuda")]
-use teeny_core::graph::{DtypeRepr, Graph, Op};
-#[cfg(feature = "cuda")]
-use teeny_core::model::LoweringMode;
-#[cfg(feature = "cuda")]
-use teeny_cuda::compiler::graph::CudaGraphCompiler;
-#[cfg(feature = "cuda")]
-use teeny_cuda::compiler::target::Target;
-#[cfg(feature = "cuda")]
-use teeny_cuda::model::TensorRef;
-#[cfg(feature = "cuda")]
-use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
-#[cfg(feature = "cuda")]
-use teeny_test::cuda as testing;
-#[cfg(feature = "cuda")]
-use teeny_test::{load_fixture, teenyc_cache_dir};
+#[test]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
+#[should_panic(expected = "teenygrad-1nr:")]
+fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
+    use dotenv::dotenv;
+    use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
+    use teeny_core::device::context::DeviceInfo;
+    use teeny_core::graph::{DtypeRepr, Graph, Op};
+    use teeny_core::model::LoweringMode;
+    use teeny_cuda::compiler::graph::CudaGraphCompiler;
+    use teeny_cuda::compiler::target::Target;
+    use teeny_cuda::model::TensorRef;
+    use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
+    use teeny_test::cuda as testing;
+    use teeny_test::{load_fixture, teenyc_cache_dir};
 
-/// Batch size. 2 (not 1) so BatchNorm2d's 2-D `[C, B]` grid has a real
-/// second dimension.
-///
-/// Together with `C_OUT`/`HW`, sized to force real tiling in Anduin's
-/// SubGraphTiling search (teenygrad-1nr), not just trivially fit in one
-/// shot. Measured on a real RTX 5070 (`DeviceInfo::hardware_profile`):
-/// SharedMemory capacity is 49152 bytes (48KB,
-/// `cudaDeviceProp.sharedMemPerBlock` -- essentially every CUDA
-/// architecture's default, unchanged since Kepler), Register capacity
-/// (`regs_per_block * 4`) is 262144 bytes. The `[B, C_OUT, HW, HW]` f32
-/// output (and each intermediate) is 1048576 bytes -- 4x the Register
-/// capacity and >21x the SharedMemory capacity -- so no tile in the chain
-/// can fit untiled at either level. Matches `tests/fixtures/generate.py`'s
-/// `anduin_conv2d_bn_silu` section, which the fixtures below come from.
-#[cfg(feature = "cuda")]
-const B: usize = 2;
-#[cfg(feature = "cuda")]
-const C_IN: usize = 3;
-#[cfg(feature = "cuda")]
-const C_OUT: usize = 8;
-/// Input height and width; stride 1 and padding 1 keep the output the same.
-#[cfg(feature = "cuda")]
-const HW: usize = 128;
-#[cfg(feature = "cuda")]
-const K: usize = 3;
-#[cfg(feature = "cuda")]
-const EPS: f64 = 1e-5;
-/// Looser than a pointwise chain's 1e-5: each output accumulates a
-/// `C_IN * K * K` = 27-term dot product before the BN affine.
-#[cfg(feature = "cuda")]
-const TOL: f32 = 1e-4;
+    // B = 2 (not 1) so BatchNorm2d's 2-D `[C, B]` grid has a real second
+    // dimension.
+    //
+    // Together with C_OUT/HW, sized to force real tiling in Anduin's
+    // SubGraphTiling search (teenygrad-1nr), not just trivially fit in one
+    // shot. Measured on a real RTX 5070 (`DeviceInfo::hardware_profile`):
+    // SharedMemory capacity is 49152 bytes (48KB,
+    // `cudaDeviceProp.sharedMemPerBlock` -- essentially every CUDA
+    // architecture's default, unchanged since Kepler), Register capacity
+    // (`regs_per_block * 4`) is 262144 bytes. The `[B, C_OUT, HW, HW]` f32
+    // output (and each intermediate) is 1048576 bytes -- 4x the Register
+    // capacity and >21x the SharedMemory capacity -- so no tile in the chain
+    // can fit untiled at either level. Matches `tests/fixtures/generate.py`'s
+    // `anduin_conv2d_bn_silu` section, which the fixtures below come from.
+    const B: usize = 2;
+    const C_IN: usize = 3;
+    const C_OUT: usize = 8;
+    // Input height and width; stride 1 and padding 1 keep the output the same.
+    const HW: usize = 128;
+    const K: usize = 3;
+    // Looser than a pointwise chain's 1e-5: each output accumulates a
+    // `C_IN * K * K` = 27-term dot product before the BN affine.
+    const TOL: f32 = 1e-4;
 
-/// `input -> conv2d (3x3, stride 1, pad 1, no bias) -> batchnorm2d -> silu`.
-/// Returns the graph plus the conv and batchnorm node ids, whose params the
-/// test uploads.
-#[cfg(feature = "cuda")]
-fn build_conv2d_bn_silu_graph() -> (Graph, usize, usize) {
-    let in_shape = vec![Some(B), Some(C_IN), Some(HW), Some(HW)];
+    dotenv().ok();
+    let env = testing::setup_cuda_env().expect("cuda env setup should not fail here");
+    let target = Target::new(env.capability);
+
+    // ── Build graph: input -> conv2d (3x3, stride 1, pad 1, no bias) ─────────
+    //    -> batchnorm2d -> silu
     let out_shape = vec![Some(B), Some(C_OUT), Some(HW), Some(HW)];
     let mut graph = Graph::new();
-    let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, in_shape);
+    let input = graph.add_node(
+        Op::Input,
+        vec![],
+        DtypeRepr::F32,
+        vec![Some(B), Some(C_IN), Some(HW), Some(HW)],
+    );
     let conv = graph.add_node(
         Op::Conv2d {
             in_channels: C_IN,
@@ -124,7 +114,7 @@ fn build_conv2d_bn_silu_graph() -> (Graph, usize, usize) {
     let bn = graph.add_node(
         Op::BatchNorm2d {
             num_features: C_OUT,
-            eps: EPS,
+            eps: 1e-5,
             momentum: 0.1,
             affine: true,
             track_running_stats: true,
@@ -134,17 +124,6 @@ fn build_conv2d_bn_silu_graph() -> (Graph, usize, usize) {
         out_shape.clone(),
     );
     graph.add_node(Op::Silu, vec![bn], DtypeRepr::F32, out_shape);
-    (graph, conv, bn)
-}
-
-#[test]
-#[cfg(feature = "cuda")]
-#[should_panic(expected = "teenygrad-1nr:")]
-fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
-    dotenv().ok();
-    let env = testing::setup_cuda_env().expect("cuda env setup should not fail here");
-    let target = Target::new(env.capability);
-    let (graph, conv, bn) = build_conv2d_bn_silu_graph();
 
     // ── Lower, compile and run the unoptimized graph for real ───────────────
     let lowering = TritonLowering::new();
