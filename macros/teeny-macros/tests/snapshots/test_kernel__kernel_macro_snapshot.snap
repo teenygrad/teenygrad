@@ -1,5 +1,0 @@
----
-source: tests/test_kernel.rs
-expression: output.to_string()
----
-100
