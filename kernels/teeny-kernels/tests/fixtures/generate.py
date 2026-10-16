@@ -1116,36 +1116,6 @@ x_r = x_2d.clone().requires_grad_(True)
 F.log_softmax(x_r, dim=-1).sum().backward()
 save(f"{d}/expected_log_softmax_backward.bin", x_r.grad.detach())
 
-# ── fused_pointwise (relu -> silu) ───────────────────────────────────────────────
-# Appended at the end of the script, not inlined next to relu/silu's own
-# fixtures above: every fixture before this one is drawn from one shared
-# `torch.manual_seed(42)` RNG stream, so inserting a new draw earlier would
-# shift every later fixture's random values too. Kept last so this addition
-# can't perturb anything that already exists.
-print("fused_pointwise")
-d = os.path.join(BASE, "fused_pointwise")
-os.makedirs(d, exist_ok=True)
-#
-# N_FUSED is sized to force real tiling in Anduin's SubGraphTiling search
-# (teenygrad-1nr), not just trivially fit in one shot. Measured on a real
-# RTX 5070 (`DeviceInfo::hardware_profile`): SharedMemory capacity is
-# 49152 bytes (48KB, `cudaDeviceProp.sharedMemPerBlock` -- essentially
-# every CUDA architecture's default, unchanged since Kepler), Register
-# capacity (`regs_per_block * 4`) is 262144 bytes. 262144 f32 elements is
-# 1048576 bytes -- 4x the Register capacity and >21x the SharedMemory
-# capacity -- so the whole relu/silu output tile cannot fit untiled at
-# either level; enumerate_subtiles must actually search for a smaller
-# subtile instead of trivially returning the full shape as its own best
-# candidate. (An earlier, smaller N_FUSED of 65536 -- 262144 bytes --
-# coincidentally equaled the Register capacity exactly, an ambiguous
-# boundary; this is comfortably clear of both.)
-N_FUSED = 262144
-x_fused = torch.empty(N_FUSED).uniform_(-5, 5)
-save(f"{d}/x.bin", x_fused)
-save(f"{d}/expected_forward.bin", F.silu(torch.relu(x_fused)))
-
-print("\nDone — all fixtures generated.")
-
 # ── conv2d_bn_silu (teenygrad-3dp5) ───────────────────────────────────────────
 # This kernel had NO fixtures and no test -- only a `tile_spec()` assertion -- so
 # converting it would have been unverifiable. Appended at the END with its own
@@ -1170,3 +1140,44 @@ save(f"{d}/w.bin", w_bns)
 save(f"{d}/bn_scale.bin", scale_bns)
 save(f"{d}/bn_shift.bin", shift_bns)
 save(f"{d}/expected_forward.bin", y_bns)
+
+# ── anduin_conv2d_bn_silu (teenygrad-1nr) ─────────────────────────────────────
+# input -> conv2d -> batchnorm2d -> silu as an unfused graph, for
+# `tests/test_anduin_scheduler.rs`. Unlike conv2d_bn_silu above (one fused kernel
+# with the BN affine pre-folded into scale/shift), this goes through a real
+# BatchNorm2d node, so it carries the raw weight/bias/running_mean/running_var.
+# Own generator, so the global stream every section above draws from is
+# untouched.
+#
+# Sized to force real tiling in Anduin's SubGraphTiling search: the
+# [2, 8, 128, 128] f32 output (and each intermediate) is 1048576 bytes -- 4x
+# an RTX 5070's Register capacity (`regs_per_block * 4` = 262144 bytes) and
+# >21x its SharedMemory capacity (`sharedMemPerBlock` = 49152 bytes) -- so
+# enumerate_subtiles must actually search for a smaller subtile. B = 2 (not 1)
+# so BatchNorm2d's 2-D [C, B] grid has a real second dimension.
+print("anduin_conv2d_bn_silu")
+d = os.path.join(BASE, "anduin_conv2d_bn_silu")
+os.makedirs(d, exist_ok=True)
+g_acbs = torch.Generator().manual_seed(1913)
+B_ACBS, CIN_ACBS, COUT_ACBS, HW_ACBS, K_ACBS = 2, 3, 8, 128, 3
+EPS_ACBS = 1e-5
+x_acbs = torch.empty(B_ACBS, CIN_ACBS, HW_ACBS, HW_ACBS).uniform_(-2, 2, generator=g_acbs)
+w_acbs = torch.empty(COUT_ACBS, CIN_ACBS, K_ACBS, K_ACBS).uniform_(-0.5, 0.5, generator=g_acbs)
+weight_acbs = torch.empty(COUT_ACBS).uniform_(0.5, 1.5, generator=g_acbs)
+bias_acbs = torch.empty(COUT_ACBS).uniform_(-0.5, 0.5, generator=g_acbs)
+mean_acbs = torch.empty(COUT_ACBS).uniform_(-0.5, 0.5, generator=g_acbs)
+var_acbs = torch.empty(COUT_ACBS).uniform_(0.5, 2.0, generator=g_acbs)
+# stride 1, padding 1, groups 1, no conv bias -> OH = OW = HW.
+conv_acbs = F.conv2d(x_acbs, w_acbs, bias=None, stride=1, padding=1, groups=1)
+bn_acbs = F.batch_norm(
+    conv_acbs, mean_acbs, var_acbs, weight_acbs, bias_acbs, training=False, eps=EPS_ACBS
+)
+save(f"{d}/x.bin", x_acbs)
+save(f"{d}/w.bin", w_acbs)
+save(f"{d}/bn_weight.bin", weight_acbs)
+save(f"{d}/bn_bias.bin", bias_acbs)
+save(f"{d}/bn_running_mean.bin", mean_acbs)
+save(f"{d}/bn_running_var.bin", var_acbs)
+save(f"{d}/expected_forward.bin", F.silu(bn_acbs))
+
+print("\nDone — all fixtures generated.")

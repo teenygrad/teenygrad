@@ -463,11 +463,12 @@ mod tests {
 
     #[test]
     fn test_relu_then_silu_schedule_covers_relu_and_silu_for_codegen() {
-        // input -> relu -> silu — the same graph as
-        // `tests/test_fused_pointwise.rs` (the DagCodegen acceptance test).
-        // `N` matches that test's `N_FUSED`. The integration test drives
-        // `Anduin::optimize` end-to-end on real CUDA hardware; here we lock
-        // in the schedule half: relu (node 1) and silu (node 2) are the
+        // input -> relu -> silu — the simplest pointwise chain. `N` is sized
+        // like `tests/test_anduin_scheduler.rs`'s conv2d -> batchnorm2d ->
+        // silu output (1048576 bytes, too big for one tile at Register or
+        // SharedMemory). That integration test drives `Anduin::optimize`
+        // end-to-end on real CUDA hardware; here we lock in the schedule
+        // half for a pure pointwise chain: relu (node 1) and silu (node 2) are the
         // two `compute_tile` bodies `DagCodegen` must splice into one
         // fused kernel once teenygrad-1nr.19–24 land.
         const N: usize = 262144;
@@ -494,8 +495,8 @@ mod tests {
                 .iter()
                 .any(|&(nodes, _)| nodes.contains(&NodeId(1)) && nodes.contains(&NodeId(2))),
             "expected relu+silu (nodes 1 and 2) to appear together in a \
-             virtual node — the 2-node group `tests/test_fused_pointwise.rs` \
-             drives DagCodegen against, got: {virtual_nodes:?}"
+             virtual node — the 2-node group DagCodegen must fuse, got: \
+             {virtual_nodes:?}"
         );
 
         let compute_tiles: Vec<NodeId> = traces[0]

@@ -1,0 +1,226 @@
+/*
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+//! `input -> conv2d -> batchnorm2d -> silu`, built as a real [`Graph`],
+//! lowered through the real [`TritonLowering`], compiled and run as a real
+//! [`CudaModel`](teeny_cuda::model::CudaModel) -- not individually
+//! hand-picked kernels launched by hand -- and checked against a
+//! PyTorch-computed `F.silu(F.batch_norm(F.conv2d(x, w), ...))` fixture
+//! (`tests/fixtures/anduin_conv2d_bn_silu/`, `generate.py`).
+//!
+//! Then, on a second lowering of that same graph, applies `Anduin`'s real
+//! `GraphOptimizer::optimize` (using a [`HardwareProfile`] queried straight
+//! off the real device via [`DeviceInfo::hardware_profile`], not a
+//! hand-calibrated test profile) and expects it to panic in one of its
+//! `teenygrad-1nr` stubs: `Anduin::schedule` is still a `todo!()`, and once
+//! it lands `optimize` replays its winning schedule through `codegen`'s
+//! `DagCodegen`, whose every method is a `todo!()` too (teenygrad-1nr.1 --
+//! `#[tiled_kernel]`'s `Tile<D>`-composition rework hasn't landed yet). See
+//! `codegen`'s and this crate's `anduin` module doc comments. The numeric
+//! checks run on the unoptimized lowering *before* `optimize`, so a real
+//! regression there still fails loudly instead of being masked by the
+//! expected panic.
+//!
+//! The output shape is deliberately larger than any real GPU's default CUDA
+//! shared-memory budget (see `B`'s doc comment) so that `Anduin::optimize`'s
+//! `SubGraphTiling` search must actually tile -- `enumerate_subtiles` has
+//! to find a subtile that fits, not just return the whole tensor untiled --
+//! rather than the search trivially having nothing to do.
+
+#[cfg(feature = "cuda")]
+use dotenv::dotenv;
+#[cfg(feature = "cuda")]
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
+#[cfg(feature = "cuda")]
+use teeny_core::device::context::DeviceInfo;
+#[cfg(feature = "cuda")]
+use teeny_core::graph::{DtypeRepr, Graph, Op};
+#[cfg(feature = "cuda")]
+use teeny_core::model::LoweringMode;
+#[cfg(feature = "cuda")]
+use teeny_cuda::compiler::graph::CudaGraphCompiler;
+#[cfg(feature = "cuda")]
+use teeny_cuda::compiler::target::Target;
+#[cfg(feature = "cuda")]
+use teeny_cuda::model::TensorRef;
+#[cfg(feature = "cuda")]
+use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
+#[cfg(feature = "cuda")]
+use teeny_test::cuda as testing;
+#[cfg(feature = "cuda")]
+use teeny_test::{load_fixture, teenyc_cache_dir};
+
+/// Batch size. 2 (not 1) so BatchNorm2d's 2-D `[C, B]` grid has a real
+/// second dimension.
+///
+/// Together with `C_OUT`/`HW`, sized to force real tiling in Anduin's
+/// SubGraphTiling search (teenygrad-1nr), not just trivially fit in one
+/// shot. Measured on a real RTX 5070 (`DeviceInfo::hardware_profile`):
+/// SharedMemory capacity is 49152 bytes (48KB,
+/// `cudaDeviceProp.sharedMemPerBlock` -- essentially every CUDA
+/// architecture's default, unchanged since Kepler), Register capacity
+/// (`regs_per_block * 4`) is 262144 bytes. The `[B, C_OUT, HW, HW]` f32
+/// output (and each intermediate) is 1048576 bytes -- 4x the Register
+/// capacity and >21x the SharedMemory capacity -- so no tile in the chain
+/// can fit untiled at either level. Matches `tests/fixtures/generate.py`'s
+/// `anduin_conv2d_bn_silu` section, which the fixtures below come from.
+#[cfg(feature = "cuda")]
+const B: usize = 2;
+#[cfg(feature = "cuda")]
+const C_IN: usize = 3;
+#[cfg(feature = "cuda")]
+const C_OUT: usize = 8;
+/// Input height and width; stride 1 and padding 1 keep the output the same.
+#[cfg(feature = "cuda")]
+const HW: usize = 128;
+#[cfg(feature = "cuda")]
+const K: usize = 3;
+#[cfg(feature = "cuda")]
+const EPS: f64 = 1e-5;
+/// Looser than a pointwise chain's 1e-5: each output accumulates a
+/// `C_IN * K * K` = 27-term dot product before the BN affine.
+#[cfg(feature = "cuda")]
+const TOL: f32 = 1e-4;
+
+/// `input -> conv2d (3x3, stride 1, pad 1, no bias) -> batchnorm2d -> silu`.
+/// Returns the graph plus the conv and batchnorm node ids, whose params the
+/// test uploads.
+#[cfg(feature = "cuda")]
+fn build_conv2d_bn_silu_graph() -> (Graph, usize, usize) {
+    let in_shape = vec![Some(B), Some(C_IN), Some(HW), Some(HW)];
+    let out_shape = vec![Some(B), Some(C_OUT), Some(HW), Some(HW)];
+    let mut graph = Graph::new();
+    let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, in_shape);
+    let conv = graph.add_node(
+        Op::Conv2d {
+            in_channels: C_IN,
+            out_channels: C_OUT,
+            kernel_h: K,
+            kernel_w: K,
+            stride_h: 1,
+            stride_w: 1,
+            padding_h: 1,
+            padding_w: 1,
+            groups: 1,
+            has_bias: false,
+        },
+        vec![input],
+        DtypeRepr::F32,
+        out_shape.clone(),
+    );
+    let bn = graph.add_node(
+        Op::BatchNorm2d {
+            num_features: C_OUT,
+            eps: EPS,
+            momentum: 0.1,
+            affine: true,
+            track_running_stats: true,
+        },
+        vec![conv],
+        DtypeRepr::F32,
+        out_shape.clone(),
+    );
+    graph.add_node(Op::Silu, vec![bn], DtypeRepr::F32, out_shape);
+    (graph, conv, bn)
+}
+
+#[test]
+#[cfg(feature = "cuda")]
+#[should_panic(expected = "teenygrad-1nr:")]
+fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
+    dotenv().ok();
+    let env = testing::setup_cuda_env().expect("cuda env setup should not fail here");
+    let target = Target::new(env.capability);
+    let (graph, conv, bn) = build_conv2d_bn_silu_graph();
+
+    // ── Lower, compile and run the unoptimized graph for real ───────────────
+    let lowering = TritonLowering::new();
+    let (op_dag, graph_to_dag, lowered_graph) = lowering
+        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .expect("lowering should not fail here");
+    let (conv_idx, bn_idx) = (graph_to_dag[conv], graph_to_dag[bn]);
+
+    let compiler = LlvmCompiler::new(
+        teeny_compiler::compiler::find_teenyc().expect("teenyc should be found"),
+        teenyc_cache_dir(),
+    )
+    .expect("compiler construction should not fail here");
+    let graph_compiler = CudaGraphCompiler::new(compiler);
+    let model = graph_compiler
+        .compile_lowered(
+            op_dag,
+            graph_to_dag,
+            &lowered_graph,
+            &lowering,
+            &target,
+            false,
+        )
+        .expect("compile should not fail here");
+    let mut loaded = model
+        .load(&env.device, B)
+        .expect("load should not fail here");
+
+    let fixture = |name: &str| {
+        load_fixture(
+            env!("CARGO_MANIFEST_DIR"),
+            &format!("anduin_conv2d_bn_silu/{name}.bin"),
+        )
+    };
+    let x_host = fixture("x");
+    let expected = fixture("expected_forward");
+    let n_out = B * C_OUT * HW * HW;
+    assert_eq!(x_host.len(), B * C_IN * HW * HW);
+    assert_eq!(expected.len(), n_out);
+
+    // Conv2dForward's one slot is its weight; BatchNorm2d's slots are
+    // `weight, bias, running_mean, running_var` (its `param_names`).
+    loaded
+        .load_param_f32(conv_idx, 0, &fixture("w"))
+        .expect("conv weight upload should not fail");
+    for (slot, name) in ["bn_weight", "bn_bias", "bn_running_mean", "bn_running_var"]
+        .into_iter()
+        .enumerate()
+    {
+        loaded
+            .load_param_f32(bn_idx, slot, &fixture(name))
+            .unwrap_or_else(|e| panic!("{name} upload should not fail: {e}"));
+    }
+
+    let x_tensor = TensorRef::from_host_f32(&x_host, vec![B, C_IN, HW, HW])
+        .expect("tensor upload should not fail");
+    let output = loaded
+        .forward(&env.device, B, &[x_tensor])
+        .expect("forward should not fail here");
+    let y_host = output.to_host_f32().expect("readback should not fail");
+    output.free().expect("free should not fail");
+
+    assert_eq!(y_host.len(), n_out);
+    for i in 0..n_out {
+        assert!(
+            (y_host[i] - expected[i]).abs() < TOL,
+            "conv2d->batchnorm2d->silu mismatch at {i}: got={}, expected={}",
+            y_host[i],
+            expected[i]
+        );
+    }
+
+    // ── Schedule the same graph with Anduin ─────────────────────────────────
+    let (op_dag, graph_to_dag, _) = lowering
+        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .expect("lowering should not fail here");
+    let hardware = env.device.info().hardware_profile();
+    let _ = Anduin.optimize(op_dag, graph_to_dag, &hardware);
+}

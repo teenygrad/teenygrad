@@ -92,8 +92,8 @@
 //! through the chain as SSA values — no explicit staging buffer between
 //! ops. `store_tiles` finishes with `store(y.tensor, result, y.mask, …)`.
 //!
-//! **Acceptance test:** `tests/test_fused_pointwise.rs` — `input -> relu ->
-//! silu`, lowered and scheduled on real CUDA hardware.
+//! **Acceptance test:** `tests/test_anduin_scheduler.rs` — `input -> conv2d
+//! -> batchnorm2d -> silu`, lowered and scheduled on real CUDA hardware.
 
 use teeny_core::device::hardware::MemoryLevelKind;
 use teeny_core::model::ExecutableOp;
