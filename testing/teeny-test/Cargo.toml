@@ -25,4 +25,5 @@ teeny-core.workspace = true
 teeny-cuda = { workspace = true, optional = true }
 teeny-riscv = { workspace = true, optional = true }
 anyhow.workspace = true
+derive_builder.workspace = true
 thiserror.workspace = true

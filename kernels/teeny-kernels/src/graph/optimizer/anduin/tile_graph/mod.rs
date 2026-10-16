@@ -179,11 +179,10 @@ impl TileGraph {
 #[cfg(test)]
 mod tests {
     use teeny_core::{
-        graph::{DtypeRepr, Graph, Shape, SymTensor},
+        graph::{DtypeRepr, Graph, Shape},
         model::LoweringMode,
-        nn::{Layer, activation::sigmoid::Silu, batchnorm::BatchNorm2d, conv2d::Conv2d},
-        sequential,
     };
+    use teeny_test::graph::Conv2dBnSiluBuilder;
 
     use crate::graph::TritonLowering;
 
@@ -193,11 +192,12 @@ mod tests {
     /// Traces `Conv2d(3->8, 3x3, pad=1) -> BatchNorm2d(8) -> SiLU` over a
     /// `[10, 3, 32, 32]` input.
     ///
-    /// Built from real `nn` layers and recorded through [`SymTensor`] rather
-    /// than from hand-written `Op`s, so the traced graph -- including each
-    /// node's inferred output shape -- is the one a caller actually gets
-    /// from a model. A change in how these layers record themselves then
-    /// shows up here, instead of being papered over by hardwired shapes.
+    /// Built by [`teeny_test::graph::Conv2dBnSilu`], which traces real `nn`
+    /// layers through `SymTensor` rather than hand-written `Op`s, so the
+    /// traced graph -- including each node's inferred output shape -- is the
+    /// one a caller actually gets from a model. A change in how these layers
+    /// record themselves then shows up here, instead of being papered over
+    /// by hardwired shapes.
     ///
     /// Same-padding keeps the 32x32 spatial dims, so only the channel count
     /// changes (3 -> 8). The returned shapes are the input shape and the
@@ -206,15 +206,17 @@ mod tests {
         let in_shape: Shape = vec![Some(10), Some(3), Some(32), Some(32)];
         let out_shape: Shape = vec![Some(10), Some(8), Some(32), Some(32)];
 
-        let (input, graph) = SymTensor::input(DtypeRepr::F32, in_shape.clone());
-        let model = sequential![
-            Conv2d::<f32, _, _, 4>::new(3, 8, (3, 3), (1, 1), (1, 1), false),
-            BatchNorm2d::<f32, _, _, 4>::new(8),
-            Silu::<f32, _, 4>::new()
-        ];
-        let _output = Layer::call(&model, input);
-
-        let graph = graph.borrow().clone();
+        let graph = Conv2dBnSiluBuilder::default()
+            .batch(10)
+            .in_channels(3)
+            .out_channels(8)
+            .height(32)
+            .width(32)
+            .build()
+            .expect("every required field is set")
+            .graph()
+            .expect("graph construction should not fail here")
+            .graph;
         (graph, in_shape, out_shape)
     }
 

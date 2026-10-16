@@ -43,7 +43,8 @@
 //! `Tile<D>` functions (teenygrad-1nr.1) first. So `optimize` reaches
 //! `DagCodegen` and panics there instead of at a blanket `todo!()` up
 //! front — the pipeline is wired end-to-end, but the last stage is a
-//! deliberate stub. See `TILE_GRAPH_SCHEDULING_PLAN.md` and teenygrad-1nr.
+//! deliberate stub. See Phase 3 of `TILE_SCHEDULING_PIPELINE_PLAN.md` and
+//! teenygrad-1nr.
 
 mod codegen;
 mod grid;
@@ -143,6 +144,7 @@ mod tests {
     use teeny_core::graph::{DtypeRepr, Graph, Op};
     use teeny_core::model::{LoweringMode, RuntimeOp};
 
+    use teeny_test::graph::Conv2dBnSiluBuilder;
     use teeny_test::hardware_profile::{nvidia_rtx5070, orin_nano};
 
     #[test]
@@ -240,41 +242,17 @@ mod tests {
         //             -- teenygrad-1nr.17. B=2 makes this visible; at B=1
         //             BatchNorm2d's grid.y would trivially collapse to 1,
         //             indistinguishable from "no second dimension."
-        let mut graph = Graph::new();
-        let shape = vec![Some(2), Some(3), Some(32), Some(32)];
-        let out_shape = vec![Some(2), Some(8), Some(32), Some(32)];
-
-        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape);
-        let conv = graph.add_node(
-            Op::Conv2d {
-                in_channels: 3,
-                out_channels: 8,
-                kernel_h: 3,
-                kernel_w: 3,
-                stride_h: 1,
-                stride_w: 1,
-                padding_h: 1,
-                padding_w: 1,
-                groups: 1,
-                has_bias: false,
-            },
-            vec![input],
-            DtypeRepr::F32,
-            out_shape.clone(),
-        );
-        let bn = graph.add_node(
-            Op::BatchNorm2d {
-                num_features: 8,
-                eps: 1e-5,
-                momentum: 0.1,
-                affine: true,
-                track_running_stats: true,
-            },
-            vec![conv],
-            DtypeRepr::F32,
-            out_shape.clone(),
-        );
-        graph.add_node(Op::Silu, vec![bn], DtypeRepr::F32, out_shape);
+        let graph = Conv2dBnSiluBuilder::default()
+            .batch(2)
+            .in_channels(3)
+            .out_channels(8)
+            .height(32)
+            .width(32)
+            .build()
+            .expect("every required field is set")
+            .graph()
+            .expect("graph construction should not fail here")
+            .graph;
 
         let profile = orin_nano();
         let lowering = TritonLowering::default();

@@ -47,13 +47,13 @@ fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
     use dotenv::dotenv;
     use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
     use teeny_core::device::context::DeviceInfo;
-    use teeny_core::graph::{DtypeRepr, Graph, Op};
     use teeny_core::model::LoweringMode;
     use teeny_cuda::compiler::graph::CudaGraphCompiler;
     use teeny_cuda::compiler::target::Target;
     use teeny_cuda::model::TensorRef;
     use teeny_kernels::graph::{Anduin, GraphOptimizer, TritonLowering};
     use teeny_test::cuda as testing;
+    use teeny_test::graph::Conv2dBnSiluBuilder;
     use teeny_test::{load_fixture, teenyc_cache_dir};
 
     // B = 2 (not 1) so BatchNorm2d's 2-D `[C, B]` grid has a real second
@@ -73,64 +73,36 @@ fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
     const B: usize = 2;
     const C_IN: usize = 3;
     const C_OUT: usize = 8;
-    // Input height and width; stride 1 and padding 1 keep the output the same.
+    // Input height and width; the builder's default 3x3 kernel, stride 1 and
+    // padding 1 keep the output the same.
     const HW: usize = 128;
-    const K: usize = 3;
     // Looser than a pointwise chain's 1e-5: each output accumulates a
-    // `C_IN * K * K` = 27-term dot product before the BN affine.
+    // `C_IN * 3 * 3` = 27-term dot product before the BN affine.
     const TOL: f32 = 1e-4;
 
     dotenv().ok();
     let env = testing::setup_cuda_env().expect("cuda env setup should not fail here");
     let target = Target::new(env.capability);
 
-    // ── Build graph: input -> conv2d (3x3, stride 1, pad 1, no bias) ─────────
-    //    -> batchnorm2d -> silu
-    let out_shape = vec![Some(B), Some(C_OUT), Some(HW), Some(HW)];
-    let mut graph = Graph::new();
-    let input = graph.add_node(
-        Op::Input,
-        vec![],
-        DtypeRepr::F32,
-        vec![Some(B), Some(C_IN), Some(HW), Some(HW)],
-    );
-    let conv = graph.add_node(
-        Op::Conv2d {
-            in_channels: C_IN,
-            out_channels: C_OUT,
-            kernel_h: K,
-            kernel_w: K,
-            stride_h: 1,
-            stride_w: 1,
-            padding_h: 1,
-            padding_w: 1,
-            groups: 1,
-            has_bias: false,
-        },
-        vec![input],
-        DtypeRepr::F32,
-        out_shape.clone(),
-    );
-    let bn = graph.add_node(
-        Op::BatchNorm2d {
-            num_features: C_OUT,
-            eps: 1e-5,
-            momentum: 0.1,
-            affine: true,
-            track_running_stats: true,
-        },
-        vec![conv],
-        DtypeRepr::F32,
-        out_shape.clone(),
-    );
-    graph.add_node(Op::Silu, vec![bn], DtypeRepr::F32, out_shape);
+    // ── Build graph: input -> conv2d -> batchnorm2d -> silu ─────────────────
+    let block = Conv2dBnSiluBuilder::default()
+        .batch(B)
+        .in_channels(C_IN)
+        .out_channels(C_OUT)
+        .height(HW)
+        .width(HW)
+        .build()
+        .expect("every required field is set")
+        .graph()
+        .expect("graph construction should not fail here");
+    let graph = &block.graph;
 
     // ── Lower, compile and run the unoptimized graph for real ───────────────
     let lowering = TritonLowering::new();
     let (op_dag, graph_to_dag, lowered_graph) = lowering
-        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .lower_with_mapping(graph, LoweringMode::Inference)
         .expect("lowering should not fail here");
-    let (conv_idx, bn_idx) = (graph_to_dag[conv], graph_to_dag[bn]);
+    let (conv_idx, bn_idx) = (graph_to_dag[block.conv], graph_to_dag[block.bn]);
 
     let compiler = LlvmCompiler::new(
         teeny_compiler::compiler::find_teenyc().expect("teenyc should be found"),
@@ -198,7 +170,7 @@ fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
 
     // ── Schedule the same graph with Anduin ─────────────────────────────────
     let (op_dag, graph_to_dag, _) = lowering
-        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .lower_with_mapping(graph, LoweringMode::Inference)
         .expect("lowering should not fail here");
     let hardware = env.device.info().hardware_profile();
     let _ = Anduin.optimize(op_dag, graph_to_dag, &hardware);

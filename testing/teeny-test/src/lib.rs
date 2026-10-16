@@ -20,6 +20,7 @@
 //!
 //! - [`ExecKernel`], [`load_fixture`], [`load_fixture_i32`], [`teenyc_cache_dir`],
 //!   [`read_compiled_asm`] are driver-agnostic and always available.
+//! - [`graph`] holds ready-made graphs (e.g. [`graph::Conv2dBnSilu`]) that several tests share.
 //! - [`cuda`] (feature `cuda`) wraps `teeny-cuda`'s device/program types for test setup.
 //! - [`riscv`] (feature `riscv`) wraps `teeny-riscv`'s host-tool discovery; its [`riscv::qemu`]
 //!   submodule (feature `qemu`, additionally) can actually execute a compiled kernel under
@@ -39,6 +40,10 @@ pub use fixtures::{load_fixture, load_fixture_i32};
 /// cost-model tests that have no open device to query one from. Backend-agnostic, so it is
 /// not gated behind the `cuda`/`riscv` features.
 pub mod hardware_profile;
+
+/// Ready-made graphs (e.g. [`graph::Conv2dBnSilu`]) that several tests drive through
+/// lowering, scheduling or a real device. Backend-agnostic.
+pub mod graph;
 
 #[cfg(feature = "cuda")]
 pub mod cuda;
