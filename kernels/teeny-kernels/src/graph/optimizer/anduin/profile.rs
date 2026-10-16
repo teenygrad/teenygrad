@@ -23,8 +23,7 @@
 //! from — actually allocating, loading, computing, and storing tiles on (or
 //! in simulation of) a device and timing the result. That real profiler
 //! doesn't exist yet: it needs `TileConfig`/`Propagate`, which are still
-//! blocked on the open `ExecutableOp` fidelity decision (see
-//! `TILE_GRAPH_SCHEDULING_PLAN.md`).
+//! blocked on the open `ExecutableOp` fidelity decision.
 //!
 //! [`SimpleProfiler`] is a stand-in that only needs what [`TileGraph`]
 //! already has today: it estimates cost from [`TileGraph::mem_traffic`]'s
