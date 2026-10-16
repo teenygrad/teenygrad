@@ -43,8 +43,7 @@
 //! `Tile<D>` functions (teenygrad-1nr.1) first. So `optimize` reaches
 //! `DagCodegen` and panics there instead of at a blanket `todo!()` up
 //! front — the pipeline is wired end-to-end, but the last stage is a
-//! deliberate stub. See Phase 3 of `TILE_SCHEDULING_PIPELINE_PLAN.md` and
-//! teenygrad-1nr.
+//! deliberate stub. See `TILE_GRAPH_SCHEDULING_PLAN.md` and teenygrad-1nr.
 
 mod codegen;
 mod grid;
