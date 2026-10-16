@@ -92,7 +92,7 @@
 //! through the chain as SSA values — no explicit staging buffer between
 //! ops. `store_tiles` finishes with `store(y.tensor, result, y.mask, …)`.
 //!
-//! **Acceptance test:** `tests/test_anduin_scheduler.rs` — `input -> conv2d
+//! **Acceptance test:** `tests/test_anduin_optimizer.rs` — `input -> conv2d
 //! -> batchnorm2d -> silu`, lowered and scheduled on real CUDA hardware.
 
 use teeny_core::device::hardware::MemoryLevelKind;
@@ -251,6 +251,11 @@ mod tests {
 
     #[test]
     fn test_codegen_pointwise_virtual_node() {
+        // input -> relu -> silu
+        //
+        // Checks that `AnduinCodegen` turns the schedule's trace of a fused
+        // pointwise group into kernel source. The expected source is a
+        // placeholder until codegen is implemented (teenygrad-1nr.19–24).
         let mut graph = Graph::new();
         let shape = vec![Some(2048), Some(4096)];
 
@@ -258,10 +263,9 @@ mod tests {
         let relu = graph.add_node(Op::Relu, vec![input], DtypeRepr::F32, shape.clone());
         let _silu = graph.add_node(Op::Silu, vec![relu], DtypeRepr::F32, shape.clone());
 
-        // Anchor the "won't fit on a single SM" claim above against a real
-        // two-level hardware profile: the full [2048, 4096] F32 tile is
-        // bigger than shared memory but comfortably smaller than device
-        // memory.
+        // The full [2048, 4096] F32 tile is bigger than shared memory but
+        // comfortably smaller than device memory, so the schedule has to
+        // tile it.
         let profile = orin_nano();
 
         let lowering = TritonLowering::default();

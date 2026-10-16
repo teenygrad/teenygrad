@@ -71,7 +71,7 @@ pub fn orin_nano() -> HardwareProfile {
 
 /// Hand-calibrated [`HardwareProfile`] for an RTX 5070-class GPU (Blackwell,
 /// sm_120), matching the values documented in
-/// `teeny-kernels`'s `tests/test_anduin_scheduler.rs` (`sharedMemPerBlock` =
+/// `teeny-kernels`'s `tests/test_anduin_optimizer.rs` (`sharedMemPerBlock` =
 /// 49152, `regs_per_block * 4` = 262144). Four declared memory levels like
 /// `teeny_cuda::device::CudaDeviceInfo::hardware_profile`, so
 /// `Anduin::schedule` exercises the same hierarchy the integration test

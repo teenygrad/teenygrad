@@ -132,10 +132,9 @@ mod tests {
 
     #[test]
     fn test_an_amd_wave64_floor_is_double_cudas() {
-        // Same occupancy multiplier (4), a wider SIMT group -- the floor
-        // portably derives from simt_width rather than being a hardcoded
-        // 128, exactly the reason ExecutionProfile stores no minimum
-        // itself (see this module's own doc comment).
+        // Same occupancy multiplier (4), a 64-wide SIMT group: the floor
+        // scales with simt_width (4 * 64 = 256) instead of being a fixed
+        // 128, so gcd(16, 48) = 16 is clamped up to 256.
         let execution = ExecutionProfile {
             simt_width: 64,
             max_threads_per_group: 1024,

@@ -43,7 +43,7 @@
 #[test]
 #[cfg(all(feature = "cuda", feature = "hardware"))]
 #[should_panic(expected = "teenygrad-1nr:")]
-fn test_conv2d_batchnorm_silu_matches_pytorch_then_reaches_anduin_stub() {
+fn test_fused_conv2d_bn_silu() {
     use dotenv::dotenv;
     use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
     use teeny_core::device::context::DeviceInfo;

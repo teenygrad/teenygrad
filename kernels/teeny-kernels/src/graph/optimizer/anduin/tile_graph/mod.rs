@@ -189,19 +189,10 @@ mod tests {
     use super::TileGraph;
     use super::node::{Edge, EdgeId, NodeId, NodeKind};
 
-    /// Traces `Conv2d(3->8, 3x3, pad=1) -> BatchNorm2d(8) -> SiLU` over a
-    /// `[10, 3, 32, 32]` input.
-    ///
-    /// Built by [`teeny_test::graph::Conv2dBnSilu`], which traces real `nn`
-    /// layers through `SymTensor` rather than hand-written `Op`s, so the
-    /// traced graph -- including each node's inferred output shape -- is the
-    /// one a caller actually gets from a model. A change in how these layers
-    /// record themselves then shows up here, instead of being papered over
-    /// by hardwired shapes.
-    ///
-    /// Same-padding keeps the 32x32 spatial dims, so only the channel count
-    /// changes (3 -> 8). The returned shapes are the input shape and the
-    /// output shape shared by all three ops.
+    /// `Conv2d(3->8, 3x3, pad=1) -> BatchNorm2d(8) -> SiLU` over a
+    /// `[10, 3, 32, 32]` input, plus the input shape and the output shape
+    /// shared by all three ops (same-padding keeps 32x32, so only the
+    /// channel count changes).
     fn conv2d_bn_silu_graph() -> (Graph, Shape, Shape) {
         let in_shape: Shape = vec![Some(10), Some(3), Some(32), Some(32)];
         let out_shape: Shape = vec![Some(10), Some(8), Some(32), Some(32)];
@@ -234,6 +225,12 @@ mod tests {
 
     #[test]
     fn test_conv2d_batchnorm_silu_to_tile_graph() {
+        // input -> conv2d -> batchnorm2d -> silu
+        //
+        // Checks that `TileGraph::from_dag` converts a lowered conv block
+        // faithfully: the input becomes a Placeholder, each kernel an
+        // IRNode, and a trailing Output is added; node names, edges, shapes
+        // and dtypes all carry over from the lowered DAG.
         let (graph, in_shape, out_shape) = conv2d_bn_silu_graph();
         assert_eq!(
             graph.nodes.len(),
@@ -261,12 +258,9 @@ mod tests {
             ]
         );
 
-        // Every tile node but the trailing `Output` takes its name straight
-        // from its lowered kernel's `ExecutableOp::name()` -- compared
-        // against the DAG itself rather than against literals, so renaming
-        // a kernel can't quietly stop being checked here. Today those four
-        // names are `input`, `conv2d_forward`,
-        // `batch_norm_2d_nchw_forward_inference` and `silu_forward`.
+        // Every tile node but the trailing `Output` takes its name from its
+        // lowered kernel's `ExecutableOp::name()`. Compared against the DAG
+        // rather than literals, so renaming a kernel doesn't break this.
         let names: Vec<&str> = tile_graph.nodes.iter().map(|node| node.name()).collect();
         let dag_names: Vec<&str> = (0..dag.len()).map(|i| dag.node(i).value.name()).collect();
         assert_eq!(names[..dag.len()], dag_names[..]);

@@ -157,6 +157,9 @@ mod tests {
         //          \____________________________/     \__/
         //                  fused node               pointwise
         //
+        // Checks the end-to-end `optimize` result: a pointwise chain fuses
+        // into the reduction that consumes it, while the pointwise op after
+        // the reduction stays a separate node.
         let mut graph = Graph::new();
         let shape = vec![Some(2048), Some(4096)];
         let reduced_shape = vec![Some(2048)];
@@ -175,10 +178,9 @@ mod tests {
         );
         graph.add_node(Op::Relu, vec![reduce_sum], DtypeRepr::F32, reduced_shape);
 
-        // Anchor the "won't fit on a single SM" claim above against a real
-        // two-level hardware profile: the full [2048, 4096] F32 tile is
-        // bigger than shared memory but comfortably smaller than device
-        // memory.
+        // The full [2048, 4096] F32 tile is bigger than shared memory but
+        // comfortably smaller than device memory, so the schedule has to
+        // tile it.
         let profile = orin_nano();
 
         let lowering = TritonLowering::default();
@@ -217,30 +219,17 @@ mod tests {
     #[test]
     fn test_conv2d_batchnorm_silu_schedule_fuses_the_three_compute_nodes_apart_from_input() {
         // input -> conv2d -> batchnorm2d -> silu
-        //          \___________________________/
-        //             Conv2d/Silu still have no declared KernelTileSpec
-        //             (only Relu/MatMul/BatchNorm2d do -- see
-        //             `graph::mod`'s "Tile-shape metadata" section);
-        //             BatchNorm2d gained a hand-authored
-        //             BATCHNORM2D_TILE_SPEC in teenygrad-1nr.8 -- since
-        //             deleted with the other hand-authored specs, and now
-        //             derived from the kernel's own `#[tile(...)]`
-        //             (teenygrad-1tl.8) -- after this test was first written.
-        //             Asserts the group still fuses the same way with a
-        //             mixed spec/no-spec node set -- `schedule_graph`/
-        //             `sub_graph_tiling` don't actually require every
-        //             node to have a tile_spec to make a real fusion
-        //             decision, since mem_footprint/mem_traffic fall back
-        //             to full-shape estimates for any node propagate
-        //             can't refine.
         //
-        //             B=2 (not 1): also asserts, on this same fused
-        //             group, that the three real ops' own RuntimeOp::grid()
-        //             implementations don't agree -- BatchNorm2d's grid is
-        //             genuinely 2-D ([C, B]), Conv2d's/Silu's are flat 1-D
-        //             -- teenygrad-1nr.17. B=2 makes this visible; at B=1
-        //             BatchNorm2d's grid.y would trivially collapse to 1,
-        //             indistinguishable from "no second dimension."
+        // Checks that Anduin schedules the classic conv block as one fused
+        // kernel: conv2d, batchnorm2d and silu (nodes [1, 2, 3]) land in a
+        // single SharedMemory-level virtual node, separate from the input.
+        //
+        // It also pins down the launch grid that fused kernel needs
+        // (teenygrad-1nr.17). The three ops' own grids disagree --
+        // batchnorm2d's is 2-D, conv2d's and silu's are 1-D -- and the
+        // correct one for the group is conv2d's, the same grid the
+        // hand-fused `Conv2dBnSiluForward` launches with. B = 2 so
+        // batchnorm2d's second grid dimension is actually visible.
         let graph = Conv2dBnSiluBuilder::default()
             .batch(2)
             .in_channels(3)
@@ -268,11 +257,9 @@ mod tests {
 
         let virtual_nodes = virtual_nodes(&traces[0].events);
 
-        // Real fusion decision made purely from mem_footprint/mem_traffic,
-        // with no tile_spec on any of the three ops: at SharedMemory, conv
-        // + batchnorm + silu land in one virtual node (nodes [1, 2, 3]),
-        // separate from input (node [0]) -- i.e. this would become one
-        // fused kernel plus a separate load of the input.
+        // At SharedMemory, conv + batchnorm + silu land in one virtual
+        // node (nodes [1, 2, 3]), separate from input (node [0]) -- i.e.
+        // one fused kernel plus a separate load of the input.
         assert!(
             virtual_nodes
                 .iter()
@@ -294,9 +281,10 @@ mod tests {
         // compatible grid. Pull each node's real RuntimeOp straight off
         // the lowered Dag (not a stub) and compare their actual
         // production grid() implementations: BatchNorm2dNchwInferenceRuntimeOp
-        // (nn/norm/batchnorm.rs) is genuinely 2-D ([C, B, 1] -- channel on
-        // Axis::X, batch on Axis::Y); Conv2dForward (nn/conv/conv2d.rs)
-        // and SiluForward (nn/activation/sigmoid.rs) are both flat 1-D.
+        // (nn/norm/batchnorm.rs) is genuinely 2-D ([C * cdiv(HW, BLOCK_HW),
+        // B, 1] -- channel and HW tile on Axis::X, batch on Axis::Y);
+        // Conv2dForward (nn/conv/conv2d.rs) and SiluForward
+        // (nn/activation/silu.rs) are both flat 1-D.
         // There is no (grid_x, grid_y, grid_z) a kernel covering all
         // three nodes could actually be launched with.
         let concrete_shape = [2usize, 8, 32, 32];
@@ -329,7 +317,7 @@ mod tests {
         );
         assert!(
             bn_grid[1] > 1,
-            "batchnorm2d's own grid is genuinely 2-D ([C, B, 1]): {bn_grid:?}"
+            "batchnorm2d's own grid is genuinely 2-D ([C * HW-tiles, B, 1]): {bn_grid:?}"
         );
 
         // The correct grid for the fused group is knowable, even though
@@ -345,7 +333,7 @@ mod tests {
         // work with zero extra grid structure, exactly matching the
         // conv+BN+SiLU epilogue fusion already hand-written in this
         // codebase's own `Conv2dBnSiluForward` (nn/fused/conv2d_bn_silu.rs
-        // -- "Grid: pid = ((b*C_OUT+c_out)*OH+oh)*num_ow_tiles+ow_tile").
+        // -- "Grid: pid = ((b * C_OUT + c_out) * OH + oh) * num_ow_tiles + ow_tile").
         // block_ow=16 matches the same constant the real Conv2d node
         // above was constructed with (graph/mod.rs's `Op::Conv2d` arm).
         let correct_fused_grid =
@@ -359,7 +347,7 @@ mod tests {
         assert_ne!(
             correct_fused_grid, bn_grid,
             "the correct fused grid must NOT be batchnorm2d's own standalone \
-             grid -- that 2-D [C, B] decomposition is just an artifact of how \
+             grid -- that 2-D [C * HW-tiles, B] decomposition is just an artifact of how \
              BatchNorm2d happens to be scheduled when run standalone, not a \
              real requirement of the fused computation: {correct_fused_grid:?}"
         );
@@ -369,17 +357,11 @@ mod tests {
     fn test_relu_reduce_sum_relu_schedule_fuses_relu_reduce_sum_relu_apart_from_input() {
         // input -> relu -> reduce_sum -> relu
         //
-        // Both `Relu`s now carry a real, working `KernelTileSpec`
-        // (`ReluForward::tile_spec(rank)`, derived by `#[tiled_kernel]` and
-        // matching each node's real rank -- previously `RELU_TILE_SPEC` only
-        // ever matched an already-1-D node, never a realistic ND tensor like
-        // this [2048, 4096] shape, so it was silently inert here). With a
-        // real spec on both ends of the chain, `sub_graph_tiling` now
-        // finds real SharedMemory-level structure instead of falling
-        // straight through to one flat Register-level group the way it
-        // used to: relu -> reduce_sum -> relu (nodes [1, 2, 3]) fuse
-        // together, separate from input (node 0, which has no child
-        // covering it and computes directly at the top Register frame).
+        // Checks that Anduin schedules a reduction sandwiched between two
+        // pointwise ops as one fused kernel: relu, reduce_sum and relu
+        // (nodes [1, 2, 3]) land in a single SharedMemory-level virtual
+        // node. The input (node 0) gets no virtual node of its own -- it is
+        // still computed, but directly at the top (Register) frame.
         let mut graph = Graph::new();
         let shape = vec![Some(2048), Some(4096)];
         let reduced_shape = vec![Some(2048)];
@@ -440,14 +422,15 @@ mod tests {
 
     #[test]
     fn test_relu_then_silu_schedule_covers_relu_and_silu_for_codegen() {
-        // input -> relu -> silu — the simplest pointwise chain. `N` is sized
-        // like `tests/test_anduin_scheduler.rs`'s conv2d -> batchnorm2d ->
-        // silu output (1048576 bytes, too big for one tile at Register or
-        // SharedMemory). That integration test drives `Anduin::optimize`
-        // end-to-end on real CUDA hardware; here we lock in the schedule
-        // half for a pure pointwise chain: relu (node 1) and silu (node 2) are the
-        // two `compute_tile` bodies `DagCodegen` must splice into one
-        // fused kernel once teenygrad-1nr.19–24 land.
+        // input -> relu -> silu
+        //
+        // Checks that Anduin schedules the simplest pointwise chain as one
+        // fused group: relu (node 1) and silu (node 2) share a virtual node
+        // and appear as consecutive compute_tile events -- the two bodies
+        // `DagCodegen` must splice into one kernel (teenygrad-1nr.19–24).
+        // `N` makes the tensor 1048576 bytes, too big for one tile at
+        // Register or SharedMemory level on an RTX 5070, so the schedule
+        // has to tile it.
         const N: usize = 262144;
         let mut graph = Graph::new();
         let shape = vec![Some(1), Some(N)];

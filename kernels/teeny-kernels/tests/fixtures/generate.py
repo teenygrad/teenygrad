@@ -1143,7 +1143,7 @@ save(f"{d}/expected_forward.bin", y_bns)
 
 # ── anduin_conv2d_bn_silu (teenygrad-1nr) ─────────────────────────────────────
 # input -> conv2d -> batchnorm2d -> silu as an unfused graph, for
-# `tests/test_anduin_scheduler.rs`. Unlike conv2d_bn_silu above (one fused kernel
+# `tests/test_anduin_optimizer.rs`. Unlike conv2d_bn_silu above (one fused kernel
 # with the BN affine pre-folded into scale/shift), this goes through a real
 # BatchNorm2d node, so it carries the raw weight/bias/running_mean/running_var.
 # Own generator, so the global stream every section above draws from is
