@@ -1,0 +1,166 @@
+\section{What the macro generates (route 1)}
+\label{sec:prelude}
+
+The metadata in \S\ref{sec:spec} is only trustworthy if it describes the code that
+actually runs. This section is that code, taken from the source snapshots in
+\code{kernels/teeny-kernels/tests/snapshots/} and reformatted.
+
+\subsection{The prelude}
+
+For the output's axes, outermost first, the prelude emits the following:
+\begin{enumerate}
+\item \textbf{A mixed-radix grid decode.} One \code{program_id} per hardware dim is
+  decoded innermost-first. A blocked axis counts \code{cdiv(extent, block)} programs
+  and an unblocked one counts \code{extent}. The outermost axis takes the remainder.
+  Each axis gets an index \code{tile_<name>}. For a blocked axis that is the
+  \emph{tile} index, not an element offset.
+\item \textbf{A range per blocked axis.} The range is \code{arange(0, B) + tile_x * B},
+  named \code{__tile_range}, or \code{__tile_range_<slot>} broadcast to the full
+  K-D tile shape when several axes are blocked.
+\item \textbf{A mask.} \code{in_bounds} is the conjunction of
+  \code{range.lt(extent)} over the blocked axes.
+\item \textbf{Row-major offsets.} Strides are derived from the declared extents.
+  The blocked range is a tensor term and every unblocked index a scalar term, summed
+  \emph{tensor first}, because only \code{Tensor + i32} has an impl.
+\item \textbf{Per input,} a \emph{loaded} \code{Tile { tensor, mask }}:
+  \begin{itemize}
+  \item A \textbf{broadcast} operand (a subset of the output's axes) loads its one
+    element and \code{broadcast_to}s the tile shape, with no mask.
+  \item A \textbf{reduced} axis gets its own \code{arange(0, BLOCK)} masked to its
+    extent, with no \code{+ pid * BLOCK}. Every program reads it in full.
+  \item A \textbf{windowed} axis reads the shifted coordinate
+    \code{base * stride - pad}, bounds-checked against its own extent.
+  \end{itemize}
+\item \textbf{Per output,} an \emph{addressed} \code{Tile}, whose \code{.tensor} is the
+  pointer tensor \code{y.add_offsets(offsets)}. The body stores through it.
+\end{enumerate}
+
+\subsection{conv2d\_forward, fully expanded}
+
+The whole author-written body of \code{conv2d_forward} is one line,
+\code{acc = acc + x * w;}. Everything below is generated. This is from
+\code{test_conv2d__conv2d_forward_source_cuda.snap}, with the \code{where} clause
+and entry point elided:
+
+\begin{lstlisting}
+// -- prelude: decode (b, c_out, oh, ow_tile), innermost first
+let mut __tile_rem_x = T::program_id(Axis::X);
+let tile_ow    = __tile_rem_x % T::cdiv(OW, BLOCK_OW); __tile_rem_x /= T::cdiv(OW, BLOCK_OW);
+let tile_oh    = __tile_rem_x % OH;                    __tile_rem_x /= OH;
+let tile_c_out = __tile_rem_x % C_OUT;                 __tile_rem_x /= C_OUT;
+let tile_b     = __tile_rem_x;
+let __tile_range = T::arange(0, BLOCK_OW) + tile_ow * BLOCK_OW;
+let in_bounds    = __tile_range.lt(OW);
+let offsets = __tile_range + tile_b * (C_OUT * OH * OW) + tile_c_out * (OH * OW) + tile_oh * OW;
+let y = Tile::<T, T::Pointer<D>> { tensor: y.add_offsets(offsets), mask: Some(in_bounds) };
+// x and w are loop-indexed: no prelude load.
+
+// -- #[tile_loop(generate)] + #[tile_carry(acc = [BLOCK_OW])]
+let mut acc = T::zeros::<D>(&[BLOCK_OW]);
+for __tile_loop_idx in 0..((C_IN / G) * KH * KW) {
+    // decode the loop axes [c_in_local = C_IN/G, kh = KH, kw = KW], innermost first
+    let mut r = __tile_loop_idx;
+    let kw = r % KW; r = r / KW;
+    let kh = r % KH; r = r / KH;
+    let c_in_local = r;
+    // #[tile_loop_scalar]: one weight element, broadcast to the carry
+    let w = T::broadcast_to(T::load(w.add_offsets(T::arange(0, 1)
+              + (kw + (kh + (c_in_local + tile_c_out * (C_IN / G)) * KH) * KW)), ..), &[BLOCK_OW]);
+    // #[tile_loop_tile]: a windowed row of x, masked on H and W (bounds = [2, 3])
+    let x = {
+        let ih = __tile_range * 0 + (tile_oh * STRIDE_H + kh - PAD_H);  // scalar, splatted
+        let iw = __tile_range * STRIDE_W + kw - PAD_W;                   // tensor
+        let m  = in_bounds & (ih.ge(0) & ih.lt(H)) & (iw.ge(0) & iw.lt(W));
+        T::load(x.add_offsets(iw + (ih + (((tile_c_out / (C_OUT / G)) * (C_IN / G)
+                + c_in_local) + tile_b * C_IN) * H) * W), Some(m), Some(T::zeros(&[BLOCK_OW])), ..)
+    };
+    acc = acc + x * w;                       // <- the author's body
+}
+T::store(y.tensor, acc, Some(in_bounds), ..);  // generated store
+\end{lstlisting}
+
+Three facts in this expansion matter for scheduling:
+\begin{itemize}
+\item \textbf{One program computes a $1\times1\times1\times\text{BLOCK\_OW}$ strip.} Only
+  \code{OW} is blocked, and \code{B}, \code{C_OUT}, \code{OH} are one-per-program.
+  Changing the program's tile along any other axis means changing the declaration
+  and therefore the body. No consumer can just ``choose'' it.
+\item \textbf{The reduction is walked one element at a time.} The loop steps through
+  every \code{(c_in, kh, kw)}. There is no reduction chunk (Welder's \code{rstep}) to
+  tune.
+\item \textbf{The per-iteration read of \code{x} spans
+  $(\text{BLOCK\_OW}-1)\cdot \text{STRIDE\_W}+1$ columns,} and across the \code{kw}
+  iterations
+  $(\text{BLOCK\_OW}-1)\cdot\text{STRIDE\_W}+\text{KW}$ columns: exactly the window
+  the spec declares.
+\end{itemize}
+
+\subsection{Reduce passes and the map pass}
+
+\code{#[tile_reduce_pass]} turns a multi-pass kernel into declarations plus one
+author-written map pass:
+\begin{itemize}
+\item Each pass group emits a \code{while} over its \code{walk} axis in
+  \code{block}-sized steps. A walk axis that is not innermost advances by the product
+  of the extents inside it.
+\item The group loads \code{read} once per step and adds each pass's \code{acc} into
+  its scalar carry. A \code{merge} pass joins the previous walk, so one read feeds
+  several carries.
+\item After the walk come the \code{finish}es and \code{store}s, in declaration
+  order. A later \code{finish} may therefore name an earlier carry.
+\item Then comes either the \textbf{map pass} or a \textbf{reduce-only} tail. The map
+  pass is a second walk over the \emph{output's} walked axis: it loads every walked
+  input, evaluates the author's body as an expression, and stores it. In a
+  reduce-only kernel the body simply runs after the walks. That is
+  \code{batch_norm_stats_forward}.
+\end{itemize}
+
+\code{batch_norm_stats_forward}'s generated body
+(\code{test_batchnorm__batch_norm_stats_source_cuda.snap}):
+
+\begin{lstlisting}
+let pid = T::program_id(Axis::X); let tile_c = pid;             // single-axis prelude, grid [C]
+let offsets = T::arange(0, 1) + pid * 1; let in_bounds = offsets.lt(C);
+let mean = Tile { tensor: mean.add_offsets(offsets), mask: Some(in_bounds) };
+let rstd = Tile { tensor: rstd.add_offsets(offsets), mask: Some(in_bounds) };
+let mut sum = T::zeros::<D>(&[1]); let mut sum_sq = T::zeros::<D>(&[1]);
+let mut n0: i32 = 0;
+while n0 < N {                                       // ONE walk for both passes (merge)
+    let col = T::arange(0, BLOCK_N) + n0; let m = col.lt(N);
+    let x = T::load(x.add_offsets(col * C + tile_c), Some(m), Some(T::zeros(&[BLOCK_N])), ..);
+    sum    = sum    + T::sum(x, None, true);
+    sum_sq = sum_sq + T::sum(x * x, None, true);
+    n0 += BLOCK_N;
+}
+let sum = sum * (1/N);                 T::store(mean.tensor, sum, ..);   // pass 1 finish + store
+let sum_sq = sum_sq * (1/N) - sum * sum;                                 // pass 2 finish: variance
+// ... the author's body: rstd = rsqrt(var + eps), running-stat EMA updates
+\end{lstlisting}
+
+The \code{x} axis \code{N} is declared \code{reduce, walk}. Note the offset
+\code{col * C + tile_c}: \code{N} is the \emph{outer} axis of an \code{[N, C]} tensor,
+so each walk step advances by \code{C}. This kernel views its input as 2-D
+\code{[N, C]}, which matters in \S\ref{sec:bn-train}.
+
+\subsection{Epilogues: \texttt{finish}}
+
+\code{finish} is the slot between the loop and the store, and it is how the fused
+\code{conv2d_bn_silu_forward} is written. The kernel is the conv2d declaration
+verbatim, plus:
+
+\begin{lstlisting}
+#[tile_carry(
+    acc = [BLOCK_OW],
+    finish = {
+        let bn_off = T::arange(0, 1) + tile_c_out;           // per-channel, from the grid decode
+        let scale = T::broadcast_to(T::load(bn_scale_ptr.add_offsets(bn_off), ..), &[BLOCK_OW]);
+        let shift = T::broadcast_to(T::load(bn_shift_ptr.add_offsets(bn_off), ..), &[BLOCK_OW]);
+        let bn_out = scale * acc + shift;                       // BatchNorm (prefolded)
+        let one = T::full(&[BLOCK_OW], 1.0_f32); let neg1 = T::full(&[BLOCK_OW], -1.0_f32);
+        bn_out * (one / (one + T::exp(neg1 * bn_out)))          // SiLU
+    }
+)]
+\end{lstlisting}
+
+\S\ref{sec:welder} argues that this \code{finish} slot is exactly where a Welder-style
+register-level connection lands in this DSL.

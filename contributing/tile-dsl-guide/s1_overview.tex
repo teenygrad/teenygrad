@@ -1,0 +1,106 @@
+\section{What the DSL is, and what changed since 22 September}
+
+The tile DSL is the set of attributes that \code{#[tiled_kernel]} reads off a kernel's
+signature: \code{#[tile(...)]} on parameters, and \code{#[tile_loop]},
+\code{#[tile_carry]}, \code{#[tile_reduce_pass]} and \code{#[tile_grid]} on the
+function. A single declaration does two different jobs, and almost every subtlety
+in this document comes from keeping those two jobs consistent.
+
+\begin{description}[leftmargin=1.2em]
+\item[It generates code.] For a kernel whose parameters are \code{In<Tile<T, D>>} /
+  \code{Out<Tile<T, D>>} (``route~1''), the macro writes the grid decode, the index
+  ranges, the boundary masks, the loads and the output addresses. It can also write
+  the accumulation loop, its index decode, the per-iteration operand reads, the
+  epilogue and the store (\code{#[tile_loop(generate)]}), or a multi-pass reduction
+  followed by a map pass (\code{#[tile_reduce_pass]}). The author writes one
+  iteration.
+\item[It describes the kernel.] From the same attributes the macro emits
+  \code{tile_spec()} (a \code{KernelTileSpec}), \code{grid_spec()} (a
+  \code{GridSpec}) and \code{fusion_core()} (an \code{Option<FusionCore>}). These
+  are pure data for the scheduler. They answer the question Welder's
+  \textsc{Propagate} asks of every node: \emph{if this node's output is tiled this
+  way, what tile does each input need?}
+\end{description}
+
+A raw-pointer kernel (\code{In<T::Pointer<D>>}, ``route~2'') may also carry
+\code{#[tile(...)]}. For it the attributes are metadata only: the body stays
+hand-indexed, and only \code{tile_spec()}/\code{grid_spec()} are generated.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw=boxline,fill=bg,rounded corners=2pt,align=center,font=\small,inner sep=5pt},
+  prod/.style={draw=attr!60,fill=attr!6,rounded corners=2pt,align=center,font=\small,inner sep=5pt,text width=3.4cm},
+  >={Stealth[length=2mm]}]
+\node[box,text width=4.2cm] (decl) {\textbf{one kernel signature}\\[2pt]
+  \texttt{\#[tile(..)]} per axis\\ \texttt{\#[tile\_loop]}, \texttt{\#[tile\_carry]}\\
+  \texttt{\#[tile\_reduce\_pass]}, \texttt{\#[tile\_grid]}};
+\node[prod,right=1.6cm of decl,yshift=1.55cm] (pre) {\textbf{device body}\\ prelude, loop, passes,\\ epilogue, store};
+\node[prod,right=1.6cm of decl,yshift=0.15cm] (ts) {\textbf{\texttt{tile\_spec()}}\\ axes, windows, loop};
+\node[prod,right=1.6cm of decl,yshift=-1.05cm] (gs) {\textbf{\texttt{grid\_spec()}}\\ grid axes, decode order};
+\node[prod,right=1.6cm of decl,yshift=-2.25cm] (fc) {\textbf{\texttt{fusion\_core()}}\\ splice-ready body};
+\draw[->] (decl.east) -- (pre.west) node[midway,above,sloped,font=\scriptsize]{route 1 only};
+\draw[->] (decl.east) -- (ts.west);
+\draw[->] (decl.east) -- (gs.west);
+\draw[->] (decl.east) -- (fc.west);
+\node[font=\scriptsize,align=left,right=0.3cm of ts,text width=3.6cm,text=cm] {consumed by \texttt{resolve\_inputs}\\ (reverse inference, \S\ref{sec:inference})};
+\node[font=\scriptsize,align=left,right=0.3cm of gs,text width=3.6cm,text=cm] {rider check for a fused grid (\issue{teenygrad-1nr.17})};
+\node[font=\scriptsize,align=left,right=0.3cm of fc,text width=3.6cm,text=cm] {splicing by anduin; \code{None} for generated loops};
+\end{tikzpicture}
+\caption{One declaration, four products. Because they come from the same tokens, the
+code and the metadata cannot drift apart, which is why hand-authored specs are now
+forbidden (\S\ref{sec:gotchas}).}
+\label{fig:products}
+\end{figure}
+
+\subsection{What changed since the 22 September guide}
+
+The previous guide was a field-by-field tour of \code{KernelTileSpec} with a handful
+of hand-authored specs and three ``proposed'' features. Most of that has been
+overtaken:
+
+{\small
+\begin{xltabular}{\linewidth}{>{\raggedright\arraybackslash}p{4.3cm}X}
+\toprule
+\textbf{Then} & \textbf{Now} \\
+\midrule
+\endhead
+Seven hand-authored \code{const} specs (\code{MATMUL_TILE_SPEC}, \code{CONV1D_TILE_SPEC}, \ldots) at the lowering site. &
+All deleted. Every spec is derived by the macro from the kernel's own signature
+(\issue{teenygrad-1tl}, about 129 forward kernels converted). \\
+\code{TileWindow} declared but not consumed. &
+\code{resolve_inputs} computes the receptive field $(b-1)\cdot s+k$. A window carries
+\code{output_extent_param} naming the output axis it resolves against, and \code{pad}
+is optional (\issue{1nr.18.2}, \issue{1tl.7}). \\
+Untiled windowed axes (conv's H) silently dropped. &
+They become bindings with the literal block \code{"1"}. \\
+\code{TileLoopSpec} proposed. &
+Emitted from \code{#[tile_loop]}/\code{#[tile_carry]}. With \code{generate}, the
+\emph{macro writes the loop}; \code{init}/\code{finish} give the carry's identity and
+the epilogue (\issue{y8aa}, \issue{3dbg}, \issue{3dp5}). \\
+Prelude: one flat axis. &
+N axes, several blocked axes, broadcast subsets, reduced axes, windowed axes,
+\code{fill} values (\issue{1nr.18.1}, \issue{.18.5}, \issue{29qp}, \issue{jpdb}). \\
+Row reductions hand-written. &
+\code{#[tile_reduce_pass]} with \code{walk} and \code{merge}: declared walks followed by
+a generated map pass (\issue{3rk6.2}); the norms are converted. \\
+--- &
+\code{GridSpec} and \code{#[tile_grid(order|swizzled)]}. \\
+\code{FusionCore} a permanent \code{None} stub. &
+Revived for single-axis, one-in/one-out, hand-stored kernels (\issue{1cli}, PR \#102). \\
+BatchNorm2d lowered with \code{tile_spec: None}. &
+\code{#[tile(span = N)]}. BatchNorm2d's spec is rank~4 and attached in the lowering
+(\issue{1nr.18.6}, PR \#103). \\
+\bottomrule
+\end{xltabular}
+}
+
+\begin{note}[Scope]
+The scheduler side (anduin) has been reset to scaffolding: \code{TileGraph::from_dag}
+works, but \code{schedule_graph}, \code{Anduin::schedule}, \code{Trace::trace_graph}
+and \code{SimpleProfiler::profile} are \code{todo!()}. The only reverse-inference code
+that runs today is the per-node \code{resolve_inputs}
+(\code{kernels/teeny-kernels/src/graph/tile_resolve.rs}). The graph-level walk in
+\S\ref{sec:inference} and all of \S\ref{sec:welder} describe what that code
+\emph{would} do, and say so where it matters.
+\end{note}

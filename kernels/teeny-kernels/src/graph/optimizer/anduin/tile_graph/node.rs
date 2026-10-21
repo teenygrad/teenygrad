@@ -16,7 +16,10 @@
 
 use std::hash::Hash;
 
-use teeny_core::graph::{DtypeRepr, Shape};
+use teeny_core::{
+    device::hardware::MemoryLevel,
+    graph::{DtypeRepr, Shape},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
@@ -24,12 +27,20 @@ pub struct NodeId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EdgeId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Edge {
+    pub id: EdgeId,
     pub src_node_id: NodeId,
     pub src_edge_id: EdgeId,
     pub dst_node_id: NodeId,
     pub dst_edge_id: EdgeId,
+    pub memory_level: Option<MemoryLevel>,
+}
+
+impl Edge {
+    pub fn set_connect(&mut self, memory_level: MemoryLevel) {
+        self.memory_level = Some(memory_level);
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,9 +50,10 @@ pub enum NodeKind {
     IRNode,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct Node {
     pub id: NodeId,
+    pub dag_node_idx: usize,
     pub kind: NodeKind,
     pub name: String,
     pub in_edges: Vec<Edge>,

@@ -67,6 +67,8 @@ pub enum MemoryLevelKind {
 /// cost model can tell "unknown" apart from "zero".
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MemoryLevel {
+    /// Level number, starting from 0 for the slowest level.
+    pub level: u32,
     /// What kind of memory this level is.
     pub kind: MemoryLevelKind,
     /// Capacity of this level, in bytes (e.g. per-SM shared-memory budget,
@@ -200,12 +202,14 @@ mod tests {
             compute_units: 48,
             memory_levels: vec![
                 MemoryLevel {
+                    level: 1,
                     kind: MemoryLevelKind::SharedMemory,
                     capacity: 49_152,
                     bandwidth: None,
                     latency: None,
                 },
                 MemoryLevel {
+                    level: 0,
                     kind: MemoryLevelKind::DeviceMemory,
                     capacity: 12 * 1024 * 1024 * 1024,
                     bandwidth: Some(672.0e9),

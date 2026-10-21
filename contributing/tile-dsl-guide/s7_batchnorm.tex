@@ -1,0 +1,165 @@
+\section{Worked kernels: batch norm}
+\label{sec:bn}
+
+Batch norm is four forward kernels in \code{kernels/teeny-kernels/src/nn/norm/batchnorm.rs},
+and which one runs depends on the op and the mode:
+
+{\small
+\begin{xltabular}{\linewidth}{>{\raggedright\arraybackslash}p{2.7cm}>{\raggedright\arraybackslash}p{4.6cm}>{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Op, mode} & \textbf{Kernel(s)} & \textbf{Spec in the lowered DAG} \\
+\midrule
+\endhead
+BN2d, inference & \code{batch_norm_2d_nchw_forward_inference} & Yes, rank 4 via \code{span} (PR \#103). \\
+BN2d, training & the same inference kernel & Yes, but the kernel normalises with \emph{running} statistics (\issue{teenygrad-fq0l}). \\
+BN1d/3d, inference & \code{batch_norm_forward_inference} (\code{#[kernel]}) & No. The kernel declares nothing, and \code{make_float_kernel!} sets \code{tile_spec: None}. \\
+BN1d/3d, training & \code{batch_norm_stats_forward} $\to$ \code{batch_norm_normalize_forward} & No. Both kernels derive specs, but the lowering attaches \code{None} (\issue{teenygrad-1nr.18.7}). \\
+\bottomrule
+\end{xltabular}
+}
+
+\subsection{Inference, NCHW: a broadcast map over a spanned axis}
+
+\begin{lstlisting}
+#[tiled_kernel]
+pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
+    #[tile(extent = B, dim = Y)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_HW, extent = HW, span = 2)]
+    x: In<Tile<T, D>>,
+    #[tile(extent = B, dim = Y)]
+    #[tile(extent = C)]
+    #[tile(block = BLOCK_HW, extent = HW, span = 2)]
+    y: Out<Tile<T, D>>,
+    #[tile(extent = C)] weight: In<Tile<T, D>>,          // broadcast operands: a subset of
+    #[tile(extent = C)] bias: In<Tile<T, D>>,            // the output's axes
+    #[tile(extent = C)] running_mean: In<Tile<T, D>>,
+    #[tile(extent = C)] running_var: In<Tile<T, D>>,
+    B: i32, C: i32, HW: i32, eps: f32,
+) {
+    let rstd = T::rsqrt(running_var.tensor + T::cast(T::full(&[BLOCK_HW], eps), ..));
+    let y_tile = weight.tensor * (x.tensor - running_mean.tensor) * rstd + bias.tensor;
+    T::store(y.tensor, y_tile, x.mask, &[], None, None);
+}
+\end{lstlisting}
+
+\begin{itemize}
+\item \textbf{The prelude.} \code{B} is decoded from \code{program_id(Y)}, and
+  \code{C} and \code{HW} from \code{program_id(X)}. \code{HW} is the one blocked
+  range, and \code{x}'s offsets are \code{__tile_range + tile_c * HW + tile_b * (C * HW)}.
+\item \textbf{The four per-channel operands} declare only \code{C}, which makes them
+  broadcast operands. Each loads one element at \code{arange(0, 1) + tile_c} and
+  \code{broadcast_to}s \code{[BLOCK_HW]}. The body is plain arithmetic on equal-shaped
+  tiles.
+\item \textbf{The spec.} \code{x}/\code{y} are rank~4 with
+  \code{untiled_dims: ["B", "C"]} and one binding \code{{dims: [2, 3], block:
+  "BLOCK_HW", extent: "HW"}}. The four operands are rank~1 with no binding and
+  \code{untiled_dims: ["C"]}.
+\item \textbf{The grid.} \code{[B (Y), C, HW (BLOCK_HW)]}.
+\end{itemize}
+
+\textbf{Resolution.} An output tile \code{[1, 1, 1, 128]} gives \code{resolved =
+{HW: 1*128}}, so \code{x = [None, None, 1, 128]}. Every per-channel operand is
+\code{[None]}: \emph{all} \code{C} channels, though a program reads exactly one. This
+is the conv2d problem again. \code{C} is grid-decoded, one per program, but carries
+no block, so nothing seeds it.
+
+\subsection{Training, step 1: \texttt{batch\_norm\_stats\_forward} (reduce-only)}
+
+\begin{lstlisting}
+#[tiled_kernel]
+#[tile_loop(trip_count = [N, BLOCK_N])]
+#[tile_carry(acc_sum = [BLOCK_N], acc_sum_sq = [BLOCK_N])]    // see the gotcha below
+#[tile_reduce_pass(over = N, read = x, into = sum,
+    acc = T::sum(x, None, true), finish = sum * (1/N), store = mean)]
+#[tile_reduce_pass(over = N, read = x, into = sum_sq,
+    acc = T::sum(x * x, None, true), finish = sum_sq * (1/N) - sum * sum, merge)]
+pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(block = BLOCK_N, extent = N, reduce, walk)]     // [N, C]: N outer, walked, reduced
+    #[tile(block = 1, extent = C)]
+    x: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] mean: Out<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] rstd: Out<Tile<T, D>>,
+    running_mean_ptr: InOut<T::Pointer<D>>,                // untagged: not in the spec
+    running_var_ptr: InOut<T::Pointer<D>>,
+    N: i32, C: i32, eps: f32, momentum: f32,
+) { /* rstd = rsqrt(var + eps); EMA update of the running stats */ }
+\end{lstlisting}
+
+\textbf{The spec.} \code{x} is rank~2. \code{N} is \code{walk}, so it has no binding
+and goes to \code{untiled_dims: ["N"]}. \code{C} gets a binding with
+\code{block_const "1"}, and \code{reduction_axis} is \code{Some(0)}. \code{mean} and
+\code{rstd} are rank~1, each with a \code{C} binding of block \code{"1"}. The grid is
+\code{[C]}.
+
+\textbf{Resolution.} A \code{mean} tile \code{[k]} gives \code{resolved = {C: k}},
+so \code{x = [None, k]}: $k$ channels of \emph{every} row. That is exactly right. A
+statistic needs its whole reduction domain, and ``\code{None} = full extent'' is here
+the truth rather than a fallback. Two operands are invisible to any cost model,
+because \code{running_mean_ptr}/\code{running_var_ptr} are untagged.
+
+\begin{note}[Gotcha: the declared carries are not the real ones]
+\code{#[tile_carry(acc_sum = [BLOCK_N], acc_sum_sq = [BLOCK_N])]} predates the
+conversion to \code{#[tile_reduce_pass]}. The generated body accumulates into
+\emph{scalar} carries named \code{sum} and \code{sum_sq} (\code{zeros(&[1])}), and no
+variable called \code{acc_sum} exists. The \code{loop_spec} this kernel reports is
+therefore stale metadata. Nothing consumes \code{loop_spec} yet, which is why
+nothing failed.
+\end{note}
+
+\subsection{Training, step 2: \texttt{batch\_norm\_normalize\_forward} (map pass)}
+
+\begin{lstlisting}
+#[tiled_kernel]
+#[tile_grid(order = [C])]                                   // one program per channel; N is walked
+pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
+    #[tile(block = BLOCK_N, extent = N, walk)] #[tile(block = 1, extent = C)] x: In<Tile<T, D>>,
+    #[tile(block = BLOCK_N, extent = N, walk)] #[tile(block = 1, extent = C)] y: Out<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] weight: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] bias: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] mean: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] rstd: In<Tile<T, D>>,
+    N: i32, C: i32,
+) {
+    let mean_b = T::broadcast_to(mean.tensor, &[BLOCK_N]);   // ... rstd_b, gamma, beta likewise
+    gamma * (x - mean_b) * rstd_b + beta                       // one iteration of the map
+}
+\end{lstlisting}
+
+There is no reduce pass. A \code{walk} axis on its own selects the multi-pass path,
+whose map loop is the whole kernel. The prelude loads the four statistics once, as
+\code{[1]} tiles at \code{tile_c}. The map loop walks \code{N} in \code{BLOCK_N}
+steps with stride \code{C}, loads \code{x}, evaluates the body, and stores.
+
+\textbf{Resolution.} A \code{y} tile \code{[?, k]} gives \code{{C: k}}, so
+\code{x = [None, k]} and every statistic is \code{[k]}. Compare the NCHW inference
+kernel: there the same ``one channel per program'' relationship is declared
+\emph{without} a block, and the operands come back at full \code{C}. Two spellings
+of one fact propagate differently. This is the strongest argument for the rule
+proposed in \S\ref{sec:conv-overestimate}: a gridded axis is a block of 1, whether
+or not the author wrote \code{block = 1}.
+
+\subsection{Why NCHW training BN does not fit today's vocabulary}
+\label{sec:bn-train}
+
+The stats kernel's input is a 2-D \code{[N, C]} view. That is a real BatchNorm1d
+tensor, and also what BatchNorm2d/3d look like in a channels-last layout, where
+\code{B, H, W} are adjacent and flatten into one \code{N}. In NCHW the reduction for
+a channel runs over \code{B} \emph{and} \code{H, W}, two runs of dims separated by
+\code{C}. None of the three ways of saying that is available:
+
+\begin{itemize}
+\item \textbf{\code{reduce} on two axes:} \code{reduction_axis} is one index, and the
+  macro rejects a second \code{reduce}.
+\item \textbf{\code{span} over the reduced dims:} \code{span} cannot combine with
+  \code{reduce}, and \code{B} and \code{HW} are not adjacent anyway.
+\item \textbf{\code{walk} over both:} the pass generator walks the first \code{walk}
+  axis it finds.
+\end{itemize}
+
+The cheapest unlock is to let \code{reduction_axis} become a list. With that, an NCHW
+stats kernel could declare \code{B} and \code{HW} both \code{reduce} (\code{HW} with
+\code{span = 2}), and \code{resolve_inputs} would need no change, because reduced dims
+are unbound and resolve to full extent regardless. A layout-transposed
+(channels-last) path is the alternative. Either one is a prerequisite for
+\issue{teenygrad-fq0l}.

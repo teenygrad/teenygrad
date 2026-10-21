@@ -51,6 +51,7 @@ mod profile;
 mod schedule;
 mod tile_graph;
 mod trace;
+mod util;
 
 pub use codegen::{AnduinCodegen, ExecuteDevice};
 pub use grid::common_thread_block_size;
@@ -146,6 +147,20 @@ mod tests {
     use teeny_test::graph::Conv2dBnSiluBuilder;
     use teeny_test::hardware_profile::{nvidia_rtx5070, orin_nano};
 
+    /// The [`TraceEvent::VirtualNode`] events in `events`, in order --
+    /// pulled out for assertions instead of matching the whole trace, since
+    /// `Allocate`/`LoadTiles`/`ComputeTile`/`StoreTiles` around them carry
+    /// footprint numbers not relevant to "did this group of nodes fuse."
+    fn virtual_nodes(events: &[TraceEvent]) -> Vec<(&[NodeId], MemoryLevelKind)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                TraceEvent::VirtualNode { nodes, level } => Some((nodes.as_slice(), *level)),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn test_two_pointwise_then_reduction_then_pointwise_preserves_chain() {
         // input -> relu -> sigmoid -> reduce_sum -> relu
@@ -200,20 +215,6 @@ mod tests {
             "Expected 2 elements in the optimizer output, got {}",
             elements.len()
         );
-    }
-
-    /// The [`TraceEvent::VirtualNode`] events in `events`, in order --
-    /// pulled out for assertions instead of matching the whole trace, since
-    /// `Allocate`/`LoadTiles`/`ComputeTile`/`StoreTiles` around them carry
-    /// footprint numbers not relevant to "did this group of nodes fuse."
-    fn virtual_nodes(events: &[TraceEvent]) -> Vec<(&[NodeId], MemoryLevelKind)> {
-        events
-            .iter()
-            .filter_map(|event| match event {
-                TraceEvent::VirtualNode { nodes, level } => Some((nodes.as_slice(), *level)),
-                _ => None,
-            })
-            .collect()
     }
 
     #[test]

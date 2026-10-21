@@ -1,0 +1,61 @@
+\section{Where things live}
+
+{\small
+\begin{xltabular}{\linewidth}{>{\raggedright\arraybackslash}p{7.4cm}X}
+\toprule
+\textbf{Path} & \textbf{What} \\
+\midrule
+\endhead
+\code{macros/teeny-macros/src/macros/tiled_kernel.rs} & All attribute parsing, the prelude, \code{generated_loop}, \code{generated_passes}, and the \code{tile_spec}/\code{grid_spec}/\code{fusion_core} emitters. \\
+\code{core/teeny-core/src/model/tile_spec.rs} & \code{KernelTileSpec} and friends, plus \code{validate()}. \\
+\code{core/teeny-core/src/model/grid_spec.rs} & \code{GridSpec}, \code{GridAxisBinding}, \code{GridDim}. \\
+\code{kernels/teeny-triton/src/triton/tile.rs} & \code{Tile { tensor, mask }}. \\
+\code{kernels/teeny-triton/src/fusion_core.rs} & \code{FusionCore}. \\
+\code{kernels/teeny-kernels/src/graph/tile_resolve.rs} & \code{resolve_inputs}, \code{ConstLookup}, and the resolution tests per kernel family. \\
+\code{kernels/teeny-kernels/src/graph/mod.rs} & \code{TritonLowering}: which kernel, which block, which spec per op. Also the spec/grid tests for conv2d and the fused kernels. \\
+\code{kernels/teeny-kernels/src/graph/optimizer/anduin/} & \code{TileGraph::from_dag}; the scheduler scaffolding (\code{todo!()}). \\
+\code{kernels/teeny-kernels/src/nn/conv/conv2d.rs} & \code{conv2d_forward}, \code{conv2d_bias_forward} (\code{finish} = bias), backward kernels. \\
+\code{kernels/teeny-kernels/src/nn/norm/batchnorm.rs} & The four BN forward kernels (\S\ref{sec:bn}). \\
+\code{kernels/teeny-kernels/src/nn/fused/} & \code{conv2d_bn_silu{,_tiled,_gemm}}, \code{prefold_bn_affine}. Microbenchmarks only, not lowered. \\
+\code{kernels/teeny-kernels/tests/snapshots/} & Expanded kernel source, the ground truth for \S\ref{sec:prelude}. \\
+\code{kernels/teeny-kernels/tests/test_tile_declarations.rs} & Source-parsing guard against undeclared \code{Tile} kernels. \\
+\code{contributing/TiledKernelRecipe.md} & The conversion recipe (partly stale, \S\ref{sec:gotchas}). \\
+\code{TILE_SCHEDULING_PIPELINE_PLAN.md} & The Roller $\to$ Welder $\to$ Rammer implementation plan. \\
+\code{../Welder/ANALYSIS.md}, \code{../Welder/SHAPES.md} & Paper-to-code map of the reference implementation, and a traced conv$\to$SiLU$\to$BN through its propagation. \\
+\bottomrule
+\end{xltabular}
+}
+
+\section{References}
+
+\subsection*{Papers}
+\begin{itemize}
+\item Y. Shi, Z. Yang, J. Xue, L. Ma, Y. Xia, Z. Miao, Y. Guo, F. Yang, L. Zhou.
+  \emph{Welder: Scheduling Deep Learning Memory Access via Tile-graph.} 17th USENIX Symposium on Operating Systems Design and Implementation (OSDI '23).
+  (\code{osdi23-shi.pdf})
+\item H. Zhu et al. \emph{ROLLER: Fast and Efficient Tensor Compilation for Deep
+  Learning.} OSDI '22. (Tile expansion, used by \textsc{EnumerateSubtiles}.)
+\end{itemize}
+
+\subsection*{Issues referenced}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+\issue{teenygrad-1nr} & Welder-style TileGraph scheduler (epic). \\
+\issue{1nr.15} & \code{divide_by} per instance (GroupNorm \code{C / G}). \\
+\issue{1nr.17} & A fused node's grid when native grids differ (rider check). \\
+\issue{1nr.18}, \issue{.18.1--.18.5} & The Tile ABI: N-D, windowed, looped, multi-blocked. \\
+\issue{1nr.18.6} & \code{span}; BatchNorm2d stops being a hard boundary (PR \#103). \\
+\issue{1nr.18.7} & The BatchNorm1d/3d training nodes carry their specs. \\
+\issue{1nr.30} & Propagate consumes \code{TileWindow} with real const values. \\
+\issue{1tl}, \issue{1tl.4--.12} & Declaring every forward kernel's axes. \\
+\issue{y8aa}, \issue{3dbg}, \issue{3dp5} & The generated loop, \code{finish}, \code{init}. \\
+\issue{29qp}, \issue{jpdb} & Reduced and windowed reads in the prelude. \\
+\issue{3rk6.2} & \code{#[tile_reduce_pass]}, \code{walk}, the map pass. \\
+\issue{1cli} & \code{FusionCore} revived (PR \#102). \\
+\issue{teenygrad-fq0l} & BatchNorm2d training uses running statistics. \\
+\issue{teenygrad-15k} & asin/acos/atan fail on RISC-V. \\
+\bottomrule
+\end{tabularx}
+\end{center}

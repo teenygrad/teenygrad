@@ -17,6 +17,7 @@
 use std::boxed::Box;
 
 use teeny_core::{
+    device::hardware::MemoryLevel,
     graph::{DtypeRepr, Shape},
     model::ExecutableOp,
     utils::dag::Dag,
@@ -32,7 +33,7 @@ pub mod node;
 
 #[derive(Debug, Default)]
 pub struct TileGraph {
-    nodes: Vec<Node>,
+    pub nodes: Vec<Node>,
 }
 
 impl TileGraph {
@@ -52,7 +53,7 @@ impl TileGraph {
             let op = &dag_node.value;
 
             let tile_id = if op.is_input() {
-                tile_graph.add_placeholder(op.name())
+                tile_graph.add_placeholder(dag_idx, op.name())
             } else {
                 let inputs: Vec<(NodeId, EdgeId)> = dag_node
                     .parents
@@ -66,7 +67,7 @@ impl TileGraph {
                     })
                     .collect();
                 tile_graph
-                    .add_ir_node(op.name(), &inputs)
+                    .add_ir_node(dag_idx, op.name(), &inputs)
                     .unwrap_or_else(|e| panic!("failed to add dag node {dag_idx}: {e}"))
             };
 
@@ -77,7 +78,7 @@ impl TileGraph {
 
             if dag_node.children.is_empty() {
                 let output_id = tile_graph
-                    .add_output((tile_id, EdgeId(0)))
+                    .add_output(dag_idx, (tile_id, EdgeId(0)))
                     .unwrap_or_else(|e| panic!("failed to add output for dag node {dag_idx}: {e}"));
                 tile_graph.set_port_metadata(output_id, vec![shape], vec![dtype]);
             }
@@ -98,11 +99,12 @@ impl TileGraph {
             .ok_or_else(|| Error::NodeNotFound(node_id.0).into())
     }
 
-    pub fn add_placeholder(&mut self, name: &str) -> NodeId {
+    pub fn add_placeholder(&mut self, dag_node_idx: usize, name: &str) -> NodeId {
         let node_id = NodeId(self.nodes.len());
 
         let node = Node {
             id: node_id,
+            dag_node_idx,
             kind: NodeKind::Placeholder,
             name: name.to_string(),
             in_edges: vec![],
@@ -115,11 +117,16 @@ impl TileGraph {
         node_id
     }
 
-    pub fn add_output(&mut self, producer: (NodeId, EdgeId)) -> Result<NodeId> {
+    pub fn add_output(
+        &mut self,
+        dag_node_idx: usize,
+        producer: (NodeId, EdgeId),
+    ) -> Result<NodeId> {
         let node_id = NodeId(self.nodes.len());
 
         let node = Node {
             id: node_id,
+            dag_node_idx,
             kind: NodeKind::Output,
             name: "output".to_string(),
             in_edges: Vec::with_capacity(1),
@@ -133,11 +140,17 @@ impl TileGraph {
         Ok(node_id)
     }
 
-    pub fn add_ir_node(&mut self, name: &str, inputs: &[(NodeId, EdgeId)]) -> Result<NodeId> {
+    pub fn add_ir_node(
+        &mut self,
+        dag_node_idx: usize,
+        name: &str,
+        inputs: &[(NodeId, EdgeId)],
+    ) -> Result<NodeId> {
         let dst_node_id = NodeId(self.nodes.len());
 
         let node = Node {
             id: dst_node_id,
+            dag_node_idx,
             kind: NodeKind::IRNode,
             name: name.to_string(),
             in_edges: Vec::with_capacity(inputs.len()),
@@ -166,6 +179,7 @@ impl TileGraph {
                 src_edge_id: *src_edge_id,
                 dst_node_id: dst,
                 dst_edge_id: EdgeId(dst_edge_id),
+                memory_level: None,
             };
 
             self.node_mut(dst)?.in_edges.push(edge);
@@ -220,6 +234,7 @@ mod tests {
             src_edge_id: EdgeId(0),
             dst_node_id: NodeId(dst),
             dst_edge_id: EdgeId(0),
+            memory_level: None,
         }
     }
 

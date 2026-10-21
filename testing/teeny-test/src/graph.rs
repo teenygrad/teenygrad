@@ -17,17 +17,19 @@
 //! Ready-made [`Graph`]s that more than one test drives through lowering,
 //! scheduling or a real device.
 //!
-//! Built through `teeny-core`'s `nn` layers (`SymTensor` + [`Layer::call`]),
-//! the same way a real model traces itself, so every node's output shape is
-//! inferred by its op rather than restated by hand. Only structural knobs
-//! have defaults; the sizes are each test's own, since they usually have to
-//! match that test's fixtures.
+//! Where `teeny-core` has an `nn` layer for every op, a graph is built
+//! through those layers (`SymTensor` + [`Layer::call`]), the same way a real
+//! model traces itself, so every node's output shape is inferred by its op
+//! rather than restated by hand. [`DecomposedSoftmax`] has no such layers to
+//! trace through, so it adds its nodes directly. Only structural knobs have
+//! defaults; the sizes are each test's own, since they usually have to match
+//! that test's fixtures.
 
 use std::rc::Rc;
 
 use anyhow::{Result, anyhow};
 use derive_builder::Builder;
-use teeny_core::graph::{DtypeRepr, Graph, SymTensor};
+use teeny_core::graph::{DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::nn::Layer;
 use teeny_core::nn::activation::sigmoid::Silu;
 use teeny_core::nn::batchnorm::BatchNorm2d;
@@ -151,9 +153,102 @@ impl Conv2dBnSilu {
     }
 }
 
+/// `softmax(x)` along the last axis of a `[rows, cols]` f32 input, built from
+/// primitive ops instead of one `Softmax` node:
+///
+/// ```text
+/// x -> max -> sub(x, max) -> exp -> sum -> div(exp, sum)
+/// ```
+///
+/// `max` and `sum` keep their reduced axis (`[rows, 1]`), and `sub`/`div`
+/// broadcast it back over the columns. This is the graph a tile-graph
+/// scheduler has to fuse to recover a single softmax kernel.
+///
+/// ```ignore
+/// let softmax = DecomposedSoftmaxBuilder::default()
+///     .rows(64)
+///     .cols(1024)
+///     .build()?
+///     .graph();
+/// // softmax.graph, plus softmax.max / softmax.sum / ... to find each node
+/// ```
+#[derive(Debug, Clone, Builder)]
+pub struct DecomposedSoftmax {
+    /// Rows: the axis softmax is computed independently along.
+    pub rows: usize,
+    /// Columns: the axis softmax normalises over.
+    pub cols: usize,
+}
+
+/// A [`DecomposedSoftmax`] graph plus the id of each of its nodes.
+#[derive(Debug, Clone)]
+pub struct DecomposedSoftmaxGraph {
+    /// The graph.
+    pub graph: Graph,
+    /// The `Input` node, `x`.
+    pub input: usize,
+    /// The `ReduceMax` node: each row's max.
+    pub max: usize,
+    /// The `Sub` node: `x - max`.
+    pub sub: usize,
+    /// The `Exp` node.
+    pub exp: usize,
+    /// The `ReduceSum` node: each row's sum of `exp`.
+    pub sum: usize,
+    /// The `Div` node: `exp / sum` -- the graph's output.
+    pub div: usize,
+}
+
+impl DecomposedSoftmax {
+    /// Builds this softmax into a fresh [`Graph`].
+    ///
+    /// Shapes are given explicitly: `Op::infer_output_shape` has no reduce
+    /// axes to go on, so it would give `max` and `sum` the input's full
+    /// shape rather than `[rows, 1]`.
+    pub fn graph(&self) -> DecomposedSoftmaxGraph {
+        let shape = vec![Some(self.rows), Some(self.cols)];
+        let reduced_shape = vec![Some(self.rows), Some(1)];
+        let reduce = |graph: &mut Graph, op: Op, input: usize| {
+            graph.add_node(op, vec![input], DtypeRepr::F32, reduced_shape.clone())
+        };
+
+        let mut graph = Graph::new();
+        let input = graph.add_node(Op::Input, vec![], DtypeRepr::F32, shape.clone());
+        let max = reduce(
+            &mut graph,
+            Op::ReduceMax {
+                keepdims: true,
+                noop_with_empty_axes: false,
+            },
+            input,
+        );
+        let sub = graph.add_node(Op::Sub, vec![input, max], DtypeRepr::F32, shape.clone());
+        let exp = graph.add_node(Op::Exp, vec![sub], DtypeRepr::F32, shape.clone());
+        let sum = reduce(
+            &mut graph,
+            Op::ReduceSum {
+                keepdims: true,
+                noop_with_empty_axes: false,
+            },
+            exp,
+        );
+        let div = graph.add_node(Op::Div, vec![exp, sum], DtypeRepr::F32, shape);
+
+        DecomposedSoftmaxGraph {
+            graph,
+            input,
+            max,
+            sub,
+            exp,
+            sum,
+            div,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Conv2dBnSiluBuilder;
+    use super::{Conv2dBnSiluBuilder, DecomposedSoftmaxBuilder};
     use teeny_core::graph::Op;
 
     #[test]
@@ -211,5 +306,46 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(err.to_string().contains("width"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_decomposed_softmax_graph_wires_max_sub_exp_sum_div() {
+        let softmax = DecomposedSoftmaxBuilder::default()
+            .rows(64)
+            .cols(1024)
+            .build()
+            .expect("every required field is set")
+            .graph();
+
+        let nodes = &softmax.graph.nodes;
+        assert_eq!(nodes.len(), 6);
+        assert!(matches!(nodes[softmax.input].op, Op::Input));
+        assert!(matches!(
+            nodes[softmax.max].op,
+            Op::ReduceMax { keepdims: true, .. }
+        ));
+        assert!(matches!(nodes[softmax.sub].op, Op::Sub));
+        assert!(matches!(nodes[softmax.exp].op, Op::Exp));
+        assert!(matches!(
+            nodes[softmax.sum].op,
+            Op::ReduceSum { keepdims: true, .. }
+        ));
+        assert!(matches!(nodes[softmax.div].op, Op::Div));
+
+        // `x` and `exp` each feed a reduction and the op that consumes it.
+        assert_eq!(nodes[softmax.max].inputs, vec![softmax.input]);
+        assert_eq!(nodes[softmax.sub].inputs, vec![softmax.input, softmax.max]);
+        assert_eq!(nodes[softmax.exp].inputs, vec![softmax.sub]);
+        assert_eq!(nodes[softmax.sum].inputs, vec![softmax.exp]);
+        assert_eq!(nodes[softmax.div].inputs, vec![softmax.exp, softmax.sum]);
+
+        let full = vec![Some(64), Some(1024)];
+        let reduced = vec![Some(64), Some(1)];
+        for id in [softmax.input, softmax.sub, softmax.exp, softmax.div] {
+            assert_eq!(nodes[id].shape, full, "node {id}");
+        }
+        for id in [softmax.max, softmax.sum] {
+            assert_eq!(nodes[id].shape, reduced, "node {id}");
+        }
     }
 }
