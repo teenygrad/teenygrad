@@ -46,6 +46,7 @@ teeny-cuda = { workspace = true, optional = true }
 # `cuda`, which would otherwise silently win even when only this crate's `riscv` feature (and not
 # `cuda`) is enabled.
 teeny-runtime = { path = "../../runtime/teeny-runtime", version = "0.2.1", optional = true, default-features = false }
+union-find.workspace = true
 
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }

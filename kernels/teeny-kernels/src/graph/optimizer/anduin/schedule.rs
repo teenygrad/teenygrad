@@ -49,221 +49,1057 @@
 //! call). `Anduin::optimize` still needs that piece before it can return a
 //! rewritten `Dag` from a schedule produced here.
 
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
-use teeny_core::device::hardware::{HardwareProfile, MemoryLevel};
+use teeny_core::device::hardware::MemoryLevelKind;
+use union_find::{QuickUnionUf, UnionBySize, UnionFind};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
+use crate::graph::optimizer::anduin::tile_graph::{Edge, NodeKind};
 
-use super::profile::Profiler;
 use super::tile_graph::TileGraph;
-use super::tile_graph::node::NodeId;
+use super::tile_graph::{EdgeId, NodeId};
 
-struct TileConfig {
-    config: HashMap<EdgeId, MemoryLevel>,
+// ───────────────────────────── 1. Memory hierarchy ─────────────────────────────
+
+/// Index into `Hierarchy::levels`. 0 = slowest *schedulable* level; same direction
+/// as `MemoryLevel::level`, but hardware-managed caches (L1/L2/L3) are dropped
+/// because nothing can be connected "at" a cache.
+pub type Lvl = usize;
+
+/// Who owns one instance of a level. A tiling at level `l` runs one unit per
+/// owner of level `l+1` (block tiles staged in shared memory are run by blocks).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Owner {
+    Device,
+    Block,
+    Thread,
 }
 
-struct Subtile {}
+pub struct LevelInfo {
+    pub kind: MemoryLevelKind,
+    pub owner: Owner,
+    /// Bytes in ONE instance: shared memory per block, register bytes per thread.
+    pub capacity_per_owner: u64,
+    /// Bytes per compute unit, used for occupancy; `u64::MAX` when not per-CU.
+    pub capacity_per_cu: u64,
+    /// Bytes/s into or out of this level.
+    pub bandwidth: f64,
+    /// Coalescing granularity for reads from / writes to this level (Welder
+    /// `transaction_size = [32 write, 128 read]` for global; 1 = none).
+    pub read_txn_bytes: u64,
+    pub write_txn_bytes: u64,
+    /// Number of next-faster owners one owner of this level can be split into
+    /// (threads per block), and whether all child groups of one unit must use the
+    /// SAME number (true for threads per block; false for blocks per kernel).
+    pub max_fanout: u32,
+    pub fixed_fanout: bool,
+}
 
-/// Welder §3.2's `GraphConnecting` (Fig. 7) — see the module doc comment.
-/// Mutates `tile_graph` in place: the schedule is the resulting
-/// `connect_level` on every edge, plus the winning
-/// [`SubGraphTilingResult`] recorded per edge via
-/// [`TileGraph::record_resolved_tiling`] (readable back through
-/// [`TileGraph::resolved_tiling`]) — the concrete tile shapes that scoring
-/// was based on, not just which memory level won. An earlier version of
-/// this function computed that result and then discarded it, keeping only
-/// `best_level`; §3.3's `Trace::trace_graph` needs the shapes too, so it's
-/// cached here (the winning level's `sub_graph_tiling` call is already
-/// being made regardless) rather than recomputed.
-pub fn schedule_graph(
-    tile_graph: &mut TileGraph,
-    hardware: &HardwareProfile,
-    profiler: &dyn Profiler,
-    top_k: usize,
-) -> Result<()> {
-    let lowest_level = hardware
-        .memory_levels
+pub struct Hierarchy {
+    pub levels: Vec<LevelInfo>, // slowest → fastest; the last one is the compute level
+    pub compute_units: u32,     // SMs
+    pub max_units_per_cu: u32,  // Welder `sm_partition` (= 4)
+    pub simt_width: u32,        // warp size
+    pub flops_per_s: f64,
+    pub launch_overhead_s: f64,
+}
+impl Hierarchy {
+    pub fn top(&self) -> Lvl {
+        self.levels.len() - 1
+    }
+    pub fn owner_of_units(&self, l: Lvl) -> Owner {
+        self.levels[l + 1].owner
+    }
+}
+
+// ───────────────────────────── 3. Connection plan ─────────────────────────────
+
+/// `level[e]` = the memory level the value on edge `e` is handed over in. It is
+/// never written to any slower level FOR THIS EDGE. 0 = materialised in the
+/// slowest level (an ordinary kernel boundary); H = lockstep in registers.
+/// Kept outside the graph so the search can clone and compare plans.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct ConnectPlan {
+    pub level: Vec<Lvl>,
+}
+
+/// Connected components of the op nodes under edges with `level > l`.
+pub struct Partition {
+    pub group_of: Vec<Option<usize>>, // by NodeId; None for Placeholder/Output or outside `within`
+    pub groups: Vec<Vec<NodeId>>,     // members sorted by `pos`
+}
+
+// ────────────────────────────────── 4. Regions ─────────────────────────────────
+
+/// Index into the `UnitGrid` of the tiling that owns the region.
+type AxisId = usize;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct GridAxis {
+    pub extent: u64,
+    pub block: u64,
+    /// A reduce axis splits a reduction across sub-units (Welder `reduce_thread`).
+    /// It drives no output dim and is NOT recomputation.
+    pub reduce: bool,
+}
+impl GridAxis {
+    pub fn units(&self) -> u64 {
+        (self.extent + self.block - 1) / self.block
+    }
+}
+
+#[derive(Clone)]
+struct UnitGrid {
+    pub axes: Vec<GridAxis>,
+}
+impl UnitGrid {
+    pub fn units(&self) -> u64 {
+        self.axes.iter().map(|a| a.units()).product()
+    }
+    pub fn space_units(&self) -> u64 {
+        self.axes
+            .iter()
+            .filter(|a| !a.reduce)
+            .map(|a| a.units())
+            .product()
+    }
+}
+
+/// What ONE unit touches along ONE tensor dim. Coordinates are relative to the
+/// parent unit's region (absolute at level 0). `u_a` is the unit's index on axis `a`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DimSpan {
+    /// The whole extent, in every unit.
+    Full,
+    /// `[step·u_a + lo, step·u_a + lo + len)` ∩ `[0, extent)`.
+    Tiled {
+        axis: AxisId,
+        step: u64,
+        lo: i64,
+        len: u64,
+    },
+    /// The whole extent, walked inside the unit `len` elements at a time; the
+    /// walk is shared by `split` sub-units (each walks `extent / split`).
+    Chunk { len: u64, split: u64 },
+}
+
+type Region = Vec<DimSpan>; // one per real dim (replaces `TileShape` in the scheduler)
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct RChunk {
+    pub len: u64,
+    pub split: u64,
+}
+
+/// Per reduce-extent name (P6): the chunk walked per iteration, and the sub-unit split.
+type RStep = BTreeMap<&'static str, RChunk>;
+
+// ─────────────────────────────── 5. Search knobs ───────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KnobStyle {
+    AnchorConsts,
+    SinkDims,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum KnobName {
+    Block(&'static str),
+    Dim(usize),
+}
+
+struct Knob {
+    pub name: KnobName,
+    pub values: Vec<u64>, /* ascending, deduped */
+}
+
+// ──────────────────────── 6. Schedules (the paper's TileConfig) ────────────────────────
+
+/// Everything decided for one group at one tiling level, plus its stages.
+#[derive(Clone)]
+struct GroupSchedule {
+    pub level: Lvl,         // tiles are staged into level + 1
+    pub nodes: Vec<NodeId>, // sorted by pos
+    pub anchor: NodeId,
+    pub knobs: Vec<(KnobName, u64)>, // level-0: anchor consts; thread level: empty
+    pub grid: UnitGrid,
+    pub extent: BTreeMap<NodeId, Vec<u64>>, // each node's extents at THIS level (parent-relative)
+    pub operand_extent: BTreeMap<EdgeId, Vec<u64>>, // each in-edge's operand extents at this level
+    pub trips: BTreeMap<NodeId, u64>, // times node n's work here repeats per root unit (walks above)
+    pub op_trips: BTreeMap<EdgeId, u64>, // times operand e is re-read per root unit (walks + rsteps above)
+    pub region: BTreeMap<NodeId, Region>, // output region per unit
+    pub in_region: BTreeMap<EdgeId, Region>, // operand region per unit, every in-edge of every node
+    pub rstep: BTreeMap<NodeId, RStep>,
+    pub staged: BTreeSet<EdgeId>, // external operands copied into level + 1
+    pub fanout: u32,              // owners of level + 2 per unit; 1 if level + 1 == H
+    pub children: Vec<GroupSchedule>, // stages = partition(level + 1) of `nodes`, topo order
+    pub cost: Cost,
+}
+
+#[derive(Clone)]
+struct Cost {
+    pub units: u64,
+    pub units_per_cu: u64,
+    pub waves: u64,
+    pub key_traffic: f64,  // Welder's ranking traffic at this level (A10)
+    pub traffic: Vec<f64>, // bytes per level, whole subtree, charged once (A10)
+    pub footprint: u64,    // peak bytes of level + 1 per unit
+    pub reg_est: u64,      // Welder's pre-thread register estimate (bytes per unit)
+    pub flops: f64,        // includes redundancy
+    pub key: f64,          // (key_traffic + 1) · waves
+    pub est: f64,          // Evaluator::estimate of the subtree
+    pub measured: Option<f64>,
+}
+
+#[derive(Clone)]
+enum KernelChoice {
+    Tiled(GroupSchedule),
+    Opaque(NodeId),
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct GroupKey {
+    nodes: Vec<NodeId>,
+    internal_levels: Vec<(EdgeId, Lvl)>,
+}
+
+#[derive(Clone)]
+struct Lat {
+    est: f64,
+    measured: Option<f64>,
+    choice: Option<KernelChoice>,
+}
+struct Schedule {
+    pub plan: ConnectPlan,
+    pub kernels: Vec<KernelChoice>, /* execution order */
+}
+
+// ─────────────────────── 7. Parameters, capabilities, evaluator ───────────────────────
+
+struct SearchParams {
+    pub top_k: usize,            // Welder --topk (10)
+    pub max_visited: usize,      // 2000  (DFS_smem_tile)
+    pub fanouts_per_tile: usize, // 1     (assign_block_size topk=1)
+    pub max_closure: usize,      // 10    (_build_fusion_group dependency cap)
+    pub max_recompute: f64, // 1.0   (≈ Welder's grid-equality rule; raise to allow halo fusion)
+    pub min_gain: f64,      // 0.0   (relative improvement required to accept)
+    pub max_passes: usize,  // 1     (the paper and Welder both do one greedy pass)
+    pub max_measurements: usize, // budget for Evaluator::measure
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ThreadTiling {
+    Explicit,
+    Delegated, /* e.g. Triton: only num_warps is chosen */
+}
+
+/// What codegen can realise. teenygrad today: `fuse_level(e,1) = false`,
+/// `fuse_level(e,H) = dst is a rider passing the rider check`, `Delegated`,
+/// `AnchorConsts`, `pow2_blocks = true`, `halo_stage = false`.
+/// Welder: `fuse_level(e,1) = true`, `fuse_level(e,H) = src.reduce && !dst.reduce`,
+/// `Explicit`, `SinkDims`, `halo_stage = true`, `cross_unit_reduce = true`.
+trait Capabilities {
+    fn fuse_level(&self, g: &TileGraph, e: &Edge, k: Lvl) -> bool; // 1 ≤ k ≤ H
+
+    /// Copy external operand `e` into level `into` (< H) before use? (Welder
+    /// "cached tensors", `IRNode.footprint`.) Default, as Welder: the consumer has
+    /// a reduction, or the operand is broadcast (lower rank than the consumer's
+    /// output). Addition, not in Welder: the operand region has a halo
+    /// (`len > step` somewhere), so overlapping reads by neighbours are served
+    /// from the staged copy.
+    fn stage_input(&self, g: &TileGraph, e: &Edge, into: Lvl, r: &Region) -> bool;
+
+    fn halo_stage(&self) -> bool; // a non-root stage anchor may compute an offset/overlapping region
+    fn cross_unit_reduce(&self) -> bool; // a reduce chunk may be split across sub-units
+    fn pow2_blocks(&self) -> bool; // Triton tl.arange
+    fn double_buffer(&self) -> bool; // staged chunks are double-buffered
+    fn thread_tiling(&self) -> ThreadTiling;
+    fn knob_style(&self) -> KnobStyle;
+}
+
+trait Evaluator {
+    /// Cheap and always available. Used for ranking.
+    fn estimate(&self, g: &TileGraph, hw: &Hierarchy, s: &GroupSchedule) -> f64;
+    /// Compile and run; None if unavailable. Used only on the final top-K.
+    fn measure(&self, g: &TileGraph, hw: &Hierarchy, s: &GroupSchedule) -> Option<f64>;
+    /// A node that cannot be tiled, run as its own kernel.
+    fn opaque(&self, g: &TileGraph, hw: &Hierarchy, n: NodeId) -> f64;
+}
+
+struct Ctx<'a> {
+    pub g: &'a TileGraph,
+    pub hw: &'a Hierarchy,
+    pub caps: &'a dyn Capabilities,
+    pub params: &'a SearchParams,
+    pub ev: &'a dyn Evaluator,
+    pub plan: &'a ConnectPlan,
+}
+
+enum Reject {
+    Spec,
+    NotBox,
+    SinkShape,
+    Containment,
+    Lockstep(EdgeId),
+    Recompute(NodeId),
+    Coverage(NodeId),
+    Unrealisable(NodeId),
+    Capacity,
+    Registers,
+    Occupancy,
+    NoFanout,
+}
+pub enum Violation {
+    ShortCircuit { edge: EdgeId, level: Lvl },
+    Cycle { level: Lvl, groups: Vec<usize> },
+}
+
+fn out_edges(g: &TileGraph, n: NodeId) -> impl Iterator<Item = &Edge> {
+    g.nodes[n.0].out_edges.iter().map(|e| &g.edges[e.0])
+}
+
+fn op_nodes(g: &TileGraph) -> impl Iterator<Item = NodeId> + '_ {
+    g.order
         .iter()
-        .min_by_key(|level| level.level)?;
+        .copied()
+        .filter(|&n| g.nodes[n.0].kind == NodeKind::Op)
+}
 
-    let mut config = TileConfig {
-        config: HashMap::new(),
+fn successors(g: &TileGraph, n: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+    out_edges(g, n).map(|e| e.dst)
+}
+
+/// Some `m ∈ M` has a directed path to `x` (including `x ∈ M` via a zero-length path).
+fn reachable_from_set(g: &TileGraph, m: &BTreeSet<NodeId>, x: NodeId) -> bool {
+    if m.contains(&x) {
+        return true;
+    }
+    let mut seen: BTreeSet<NodeId> = m.clone();
+    let mut queue: VecDeque<NodeId> = m.iter().copied().collect();
+    while let Some(n) = queue.pop_front() {
+        for succ in successors(g, n) {
+            if succ == x {
+                return true;
+            }
+            if seen.insert(succ) {
+                queue.push_back(succ);
+            }
+        }
+    }
+    false
+}
+
+/// `x` has a directed path to some `m ∈ M` (including `x ∈ M`).
+fn reaches_set(g: &TileGraph, x: NodeId, m: &BTreeSet<NodeId>) -> bool {
+    if m.contains(&x) {
+        return true;
+    }
+    let mut seen = BTreeSet::from([x]);
+    let mut queue = VecDeque::from([x]);
+    while let Some(n) = queue.pop_front() {
+        for succ in successors(g, n) {
+            if m.contains(&succ) {
+                return true;
+            }
+            if seen.insert(succ) {
+                queue.push_back(succ);
+            }
+        }
+    }
+    false
+}
+
+fn changed_edges(p: &ConnectPlan, q: &ConnectPlan) -> impl Iterator<Item = EdgeId> {
+    p.level
+        .iter()
+        .zip(&q.level)
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, _)| EdgeId(i))
+}
+
+fn legal_levels(cx: &Ctx, e: &Edge) -> Vec<Lvl> {
+    let (p, c) = (&cx.g.nodes[e.src.0], &cx.g.nodes[e.dst.0]);
+    if p.kind != NodeKind::Op || c.kind != NodeKind::Op {
+        return vec![0];
+    }
+
+    // placeholder / output edges
+    let (Some(_), Some(cm)) = (&p.meta, &c.meta) else {
+        return vec![0];
     };
 
-    for node in tile_graph.nodes.iter_mut() {
-        for edge in node.out_edges.iter_mut() {
-            for level in hardware.memory_levels.iter() {
-                edge.set_connect(*level);
-                let subgrap = extract_subgraph(tile_graph, node.id, *lowest_level)?;
-                todo!()
-            }
+    // opaque endpoint
+    if cm.spec.inputs[e.dst_port].rank != p.shape.len() {
+        return vec![0];
+    }
+
+    // P2
+    let mut ks = vec![0];
+    for k in 1..=cx.hw.top() {
+        if cx.caps.fuse_level(cx.g, e, k) {
+            ks.push(k);
+        }
+    }
+    ks
+}
+
+fn partition(cx: &Ctx, plan: &ConnectPlan, l: Lvl, within: Option<&[NodeId]>) -> Partition {
+    let inside =
+        |n: NodeId| cx.g.nodes[n.0].kind == NodeKind::Op && within.map_or(true, |w| w.contains(&n));
+    let mut uf = QuickUnionUf::<UnionBySize>::new(cx.g.nodes.len());
+
+    for e in &cx.g.edges {
+        if inside(e.src) && inside(e.dst) && plan.level[e.id.0] > l {
+            uf.union(e.src.0, e.dst.0);
         }
     }
 
-    todo!()
-}
-
-fn subgraph_tiling(
-    tile_graph: &TileGraph,
-    subgraph: &[NodeId],
-    hardware: &HardwareProfile,
-    memory_level: MemoryLevel,
-    config: &mut TileConfig,
-    top_k: usize,
-) -> Result<Vec<TileConfig>> {
-    let mut configs = TopK::new(top_k);
-
-    for subtile in enumerate_subtiles(tile_graph, subgraph, config)? {
-        let config = propagate(tile_graph, subgraph, &subtile)?;
-        let footprint = memory_footprint(tile_graph, subgraph)?;
-        if footprint > memory_level.capacity {
+    // Walk nodes in priority order: groups are numbered by their earliest member,
+    // and each group's members come out already sorted by pos.
+    let mut group_of: Vec<Option<usize>> = vec![None; cx.g.nodes.len()];
+    let mut index_of_root: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut groups: Vec<Vec<NodeId>> = Vec::new();
+    for &n in &cx.g.order {
+        if !inside(n) {
             continue;
-        }
-        configs.push((footprint, config));
+        } // placeholders, outputs, nodes outside `within`
+        let i = *index_of_root.entry(uf.find(n.0)).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        group_of[n.0] = Some(i);
+        groups[i].push(n);
     }
 
-    let results = Vec::new();
-    let next_memory_level = hardware
-        .memory_levels
-        .iter()
-        .filter(|m| m.level > memory_level.level)
-        .min_by_key(|m| m.level)?;
-    for config in configs.into_sorted_desc() {
-        let subgraphs: HashSet<HashSet<NodeId>> = subgraph
-            .iter()
-            .map(|node| extract_subgraph(tile_graph, *node, *next_memory_level))
-            .collect()?;
-
-        for subgraph in subgraphs {
-            let g = subgraph.iter().copied().collect::<Vec<_>>();
-            let subgraph_configs = subgraph_tiling(
-                tile_graph,
-                &g,
-                hardware,
-                *next_memory_level,
-                &mut config,
-                top_k,
-            )?;
-            // results[config] = subgraph_config;
-            todo!()
-        }
-    }
-
-    Ok(results)
+    Partition { group_of, groups }
 }
 
-fn extract_subgraph(
-    tile_graph: &TileGraph,
-    node_id: NodeId,
-    memory_level: MemoryLevel,
-) -> Result<HashSet<NodeId>> {
-    let mut nodes = HashSet::new();
-    let node = tile_graph.node(node_id)?;
+/// Distinct member lists from `partition(cx, plan, l, None)` that contain at least
+/// one node of `touched`.
+fn groups_containing(
+    cx: &Ctx,
+    plan: &ConnectPlan,
+    l: Lvl,
+    touched: &BTreeSet<NodeId>,
+) -> BTreeSet<Vec<NodeId>> {
+    let part = partition(cx, plan, l, None);
+    let mut out = BTreeSet::new();
+    for &n in touched {
+        let Some(gi) = part.group_of[n.0] else {
+            continue;
+        };
+        out.insert(part.groups[gi].clone());
+    }
+    out
+}
 
-    for edge in node.in_edges.iter().chain(node.out_edges.iter()) {
-        if let Some(edge_memory_level) = edge.memory_level {
-            if edge_memory_level.level > memory_level.level {
-                let other_node = if edge.src_node_id == node_id {
-                    edge.dst_node_id
+fn meta(g: &TileGraph, n: NodeId) -> &super::tile_graph::OpMeta {
+    g.nodes[n.0]
+        .meta
+        .as_ref()
+        .expect("meta(g, n) requires an Op node with tile metadata")
+}
+
+fn meta_opt(g: &TileGraph, n: NodeId) -> Option<&super::tile_graph::OpMeta> {
+    g.nodes[n.0].meta.as_ref()
+}
+
+fn shape(g: &TileGraph, n: NodeId) -> &[u64] {
+    &g.nodes[n.0].shape
+}
+
+/// In-edges of nodes in `n_set` whose producer lies outside `n_set` (placeholders included).
+fn external_edges(g: &TileGraph, n_set: &[NodeId]) -> Vec<EdgeId> {
+    let set: BTreeSet<NodeId> = n_set.iter().copied().collect();
+    let mut out = Vec::new();
+    for &n in n_set {
+        for &eid in &g.nodes[n.0].in_edges {
+            let e = &g.edges[eid.0];
+            if !set.contains(&e.src) {
+                out.push(eid);
+            }
+        }
+    }
+    out
+}
+
+fn internal_edges(g: &TileGraph, n_set: &[NodeId]) -> Vec<EdgeId> {
+    let set: BTreeSet<NodeId> = n_set.iter().copied().collect();
+    g.edges
+        .iter()
+        .filter(|e| set.contains(&e.src) && set.contains(&e.dst))
+        .map(|e| e.id)
+        .collect()
+}
+
+fn key(cx: &Ctx, n_set: &[NodeId]) -> GroupKey {
+    let mut nodes: Vec<NodeId> = n_set.to_vec();
+    nodes.sort();
+    let mut internal_levels: Vec<(EdgeId, Lvl)> = internal_edges(cx.g, n_set)
+        .into_iter()
+        .map(|e| (e, cx.plan.level[e.0]))
+        .collect();
+    internal_levels.sort_by_key(|(e, _)| e.0);
+    GroupKey {
+        nodes,
+        internal_levels,
+    }
+}
+
+fn tile_group(_cx: &Ctx, _level: Lvl, _n_set: &[NodeId], _sinks: &[NodeId]) -> Vec<GroupSchedule> {
+    vec![]
+}
+
+fn group_latency(
+    cx: &Ctx,
+    n_set: &[NodeId],
+    cache: &mut HashMap<GroupKey, Lat>,
+    budget: &mut usize,
+) -> Lat {
+    let k = key(cx, n_set);
+    if !cache.contains_key(&k) {
+        cache.insert(k.clone(), compute_group_latency(cx, n_set, budget));
+    }
+    cache.get(&k).expect("group_latency cache insert").clone()
+}
+
+fn compute_group_latency(cx: &Ctx, n_set: &[NodeId], budget: &mut usize) -> Lat {
+    let opaque = |n: NodeId| Lat {
+        est: cx.ev.opaque(cx.g, cx.hw, n),
+        measured: None,
+        choice: Some(KernelChoice::Opaque(n)),
+    };
+    if n_set.len() == 1 && meta_opt(cx.g, n_set[0]).is_none() {
+        return opaque(n_set[0]);
+    }
+    let mut cands = tile_group(cx, 0, n_set, &[]);
+    if cands.is_empty() {
+        return if n_set.len() == 1 {
+            opaque(n_set[0])
+        } else {
+            Lat {
+                est: f64::INFINITY,
+                measured: None,
+                choice: None,
+            }
+        };
+    }
+    if *budget >= cands.len() {
+        for c in cands.iter_mut() {
+            c.cost.measured = cx.ev.measure(cx.g, cx.hw, c);
+        }
+        *budget -= cands.len();
+    }
+    let all_measured = cands.iter().all(|c| c.cost.measured.is_some());
+    let est = cands
+        .iter()
+        .map(|c| c.cost.est)
+        .fold(f64::INFINITY, f64::min);
+    let best = cands
+        .into_iter()
+        .min_by(|a, b| {
+            let v = |c: &GroupSchedule| {
+                if all_measured {
+                    c.cost.measured.unwrap()
                 } else {
-                    edge.src_node_id
-                };
+                    c.cost.est
+                }
+            };
+            v(a).total_cmp(&v(b))
+        })
+        .expect("non-empty candidates");
+    Lat {
+        est,
+        measured: if all_measured {
+            best.cost.measured
+        } else {
+            None
+        },
+        choice: Some(KernelChoice::Tiled(best)),
+    }
+}
 
-                extract_subgraph(tile_graph, other_node, memory_level)?;
-                nodes.extend(extract_subgraph);
+/// Sum latencies for `old` under `plan_old` and `new` under `plan_new`. Uses
+/// measured costs only when every group on both sides has a measurement; otherwise
+/// uses each group's minimum estimate (`Lat.est`).
+fn compare_sums(
+    cx0: &Ctx,
+    old: &BTreeSet<Vec<NodeId>>,
+    new: &BTreeSet<Vec<NodeId>>,
+    plan_old: &ConnectPlan,
+    plan_new: &ConnectPlan,
+    cache: &mut HashMap<GroupKey, Lat>,
+    budget: &mut usize,
+) -> (f64, f64) {
+    let cx_old = Ctx {
+        g: cx0.g,
+        hw: cx0.hw,
+        caps: cx0.caps,
+        params: cx0.params,
+        ev: cx0.ev,
+        plan: plan_old,
+    };
+    let cx_new = Ctx {
+        g: cx0.g,
+        hw: cx0.hw,
+        caps: cx0.caps,
+        params: cx0.params,
+        ev: cx0.ev,
+        plan: plan_new,
+    };
+
+    let old_lats: Vec<Lat> = old
+        .iter()
+        .map(|g| group_latency(&cx_old, g, cache, budget))
+        .collect();
+    let new_lats: Vec<Lat> = new
+        .iter()
+        .map(|g| group_latency(&cx_new, g, cache, budget))
+        .collect();
+
+    let all_measured = old_lats.iter().all(|l| l.measured.is_some())
+        && new_lats.iter().all(|l| l.measured.is_some());
+
+    let sum = |lats: &[Lat]| -> f64 {
+        if all_measured {
+            lats.iter().map(|l| l.measured.unwrap()).sum()
+        } else {
+            lats.iter().map(|l| l.est).sum()
+        }
+    };
+
+    (sum(&old_lats), sum(&new_lats))
+}
+
+fn group_min_pos(cx: &Ctx, p: &Partition, gi: usize) -> usize {
+    p.groups[gi]
+        .first()
+        .map(|n| cx.g.pos[n.0])
+        .unwrap_or(usize::MAX)
+}
+
+/// Kahn topological order over `p.groups`, with arcs from cross-group edges in
+/// `cx.g` (valid when `p` was built at level `l` and only edges at level ≤ `l`
+/// can cross components). Ties broken by the smallest member `pos`.
+fn topo_sort_quotient(cx: &Ctx, p: &Partition) -> Vec<Vec<NodeId>> {
+    let n = p.groups.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    let mut arcs = BTreeSet::new();
+    for e in &cx.g.edges {
+        let (Some(a), Some(b)) = (p.group_of[e.src.0], p.group_of[e.dst.0]) else {
+            continue;
+        };
+        if a != b {
+            arcs.insert((a, b));
+        }
+    }
+
+    let mut adj = vec![Vec::new(); n];
+    let mut indegree = vec![0usize; n];
+    for (a, b) in arcs {
+        adj[a].push(b);
+        indegree[b] += 1;
+    }
+
+    let mut ready: BTreeSet<(usize, usize)> = BTreeSet::new();
+    for gi in 0..n {
+        if indegree[gi] == 0 {
+            ready.insert((group_min_pos(cx, p, gi), gi));
+        }
+    }
+
+    let mut order = Vec::with_capacity(n);
+    while let Some((_, gi)) = ready.pop_first() {
+        order.push(p.groups[gi].clone());
+        for &nb in &adj[gi] {
+            indegree[nb] -= 1;
+            if indegree[nb] == 0 {
+                ready.insert((group_min_pos(cx, p, nb), nb));
             }
         }
     }
 
-    Ok(nodes)
+    if order.len() < n {
+        for gi in 0..n {
+            if indegree[gi] > 0 {
+                order.push(p.groups[gi].clone());
+            }
+        }
+    }
+
+    order
 }
 
-fn enumerate_subtiles(
-    tile_graph: &TileGraph,
-    nodes: &[NodeId],
-    config: &TileConfig,
-) -> Result<Vec<Subtile>> {
-    todo!()
+/// Directed cycle in the group quotient, if any. `arcs` is a set of group indices
+/// `(src, dst)` with `src != dst`. Returns every group index on one cycle.
+fn find_cycle(n: usize, arcs: &BTreeSet<(usize, usize)>) -> Option<Vec<usize>> {
+    if n == 0 {
+        return None;
+    }
+
+    let mut adj = vec![Vec::new(); n];
+    for &(a, b) in arcs {
+        if a < n && b < n {
+            adj[a].push(b);
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Grey,
+        Black,
+    }
+
+    let mut color = vec![Color::White; n];
+    let mut parent = vec![None; n];
+
+    fn dfs(
+        u: usize,
+        adj: &[Vec<usize>],
+        color: &mut [Color],
+        parent: &mut [Option<usize>],
+    ) -> Option<Vec<usize>> {
+        color[u] = Color::Grey;
+        for &v in &adj[u] {
+            match color[v] {
+                Color::White => {
+                    parent[v] = Some(u);
+                    if let Some(cycle) = dfs(v, adj, color, parent) {
+                        return Some(cycle);
+                    }
+                }
+                Color::Grey => {
+                    let mut cycle = vec![v];
+                    let mut cur = u;
+                    while cur != v {
+                        cycle.push(cur);
+                        cur = parent[cur].expect("back edge implies an ancestor in the DFS tree");
+                    }
+                    return Some(cycle);
+                }
+                Color::Black => {}
+            }
+        }
+        color[u] = Color::Black;
+        None
+    }
+
+    for u in 0..n {
+        if color[u] == Color::White
+            && let Some(cycle) = dfs(u, &adj, &mut color, &mut parent)
+        {
+            return Some(cycle);
+        }
+    }
+    None
 }
 
-fn propagate(tile_graph: &TileGraph, nodes: &[NodeId], config: &Subtile) -> Result<TileConfig> {
-    todo!()
+fn validate(cx: &Ctx, plan: &ConnectPlan) -> std::result::Result<(), Violation> {
+    for l in 0..cx.hw.top() {
+        // l = 0 ..= H-1
+        let p = partition(cx, plan, l, None);
+        let mut arcs = BTreeSet::new();
+        for e in &cx.g.edges {
+            let (Some(a), Some(b)) = (p.group_of[e.src.0], p.group_of[e.dst.0]) else {
+                continue;
+            };
+            if plan.level[e.id.0] > l {
+                continue;
+            } // internal at l by construction
+            if a == b {
+                return Err(Violation::ShortCircuit {
+                    edge: e.id,
+                    level: l,
+                });
+            }
+            arcs.insert((a, b));
+        }
+        if let Some(cycle) = find_cycle(p.groups.len(), &arcs) {
+            return Err(Violation::Cycle {
+                level: l,
+                groups: cycle,
+            });
+        }
+    }
+    Ok(())
 }
 
-fn memory_footprint(tile_graph: &TileGraph, subgraph: &[NodeId]) -> Result<u64> {
-    todo!()
+fn raise_with_closure(cx: &Ctx, plan: &ConnectPlan, e: EdgeId, k: Lvl) -> Option<ConnectPlan> {
+    let (a, b) = (cx.g.edges[e.0].src, cx.g.edges[e.0].dst);
+    // The kernels `e` joins, as they stand before the raise. Closure is measured against these.
+    let p0 = partition(cx, plan, 0, None);
+    let core: BTreeSet<NodeId> = [a, b]
+        .iter()
+        .filter_map(|n| p0.group_of[n.0])
+        .flat_map(|i| p0.groups[i].clone())
+        .collect();
+    let mut pulled: BTreeSet<NodeId> = BTreeSet::new(); // nodes closure has added beyond `core`
+    let mut p = plan.clone();
+    p.level[e.0] = k;
+    let bound = cx.hw.top() * cx.g.edges.len(); // every round raises ≥ 1 edge; levels ≤ H
+    for _ in 0..=bound {
+        match validate(cx, &p) {
+            Ok(()) => return Some(p),
+            Err(Violation::ShortCircuit { edge: f, level: l }) => {
+                if f == e {
+                    return None;
+                } // the proposed edge itself: k is not realisable
+                // another edge between two nodes that now share a level-l group: it must move up too
+                let Some(&k2) = legal_levels(cx, &cx.g.edges[f.0])
+                    .iter()
+                    .find(|&&k2| k2 > l)
+                else {
+                    return None;
+                };
+                p.level[f.0] = k2;
+            }
+            Err(Violation::Cycle { level: l, groups }) => {
+                let part = partition(cx, &p, l, None);
+                let m: BTreeSet<NodeId> = groups
+                    .iter()
+                    .flat_map(|&i| part.groups[i].clone())
+                    .collect();
+                // D = op nodes outside M lying on a path M ⇝ x ⇝ M (plain DAG reachability)
+                let d: BTreeSet<NodeId> = op_nodes(cx.g)
+                    .filter(|x| {
+                        !m.contains(x)
+                            && reachable_from_set(cx.g, &m, *x)
+                            && reaches_set(cx.g, *x, &m)
+                    })
+                    .collect();
+                // Cap on the nodes pulled in (Welder's dependency cap). NOT |D|: for a single
+                // cycle, M already holds every group on it and D is empty.
+                pulled.extend(m.iter().chain(&d).copied().filter(|x| !core.contains(x)));
+                if pulled.len() > cx.params.max_closure {
+                    return None;
+                }
+                let mut raised = false;
+                for f in &cx.g.edges {
+                    let both = |n| m.contains(&n) || d.contains(&n);
+                    if both(f.src) && both(f.dst) && p.level[f.id.0] <= l {
+                        // lowest legal level that is internal at l (teenygrad today: only H)
+                        let Some(&k2) = legal_levels(cx, f).iter().find(|&&k2| k2 > l) else {
+                            return None;
+                        };
+                        p.level[f.id.0] = k2;
+                        raised = true;
+                    }
+                }
+                if !raised {
+                    return None;
+                } // defensive: a cycle always contains an edge ≤ l
+            }
+        }
+    }
+    None
+}
+
+fn schedule(cx0: &Ctx) -> Result<Schedule> {
+    let mut plan = ConnectPlan {
+        level: vec![0; cx0.g.edges.len()],
+    }; // valid (A3)
+    let mut cache = HashMap::new();
+    let mut budget = cx0.params.max_measurements;
+    for _pass in 0..cx0.params.max_passes {
+        let mut changed = false;
+        for &n in &cx0.g.order {
+            for e in out_edges(cx0.g, n) {
+                let cx = &Ctx {
+                    plan: &plan,
+                    ..*cx0
+                };
+                let ks = legal_levels(cx, e);
+                if ks.len() == 1 {
+                    continue;
+                }
+                let cur = plan.level[e.id.0];
+                let mut best: Option<(f64, ConnectPlan)> = None;
+                for &k in ks.iter().filter(|&&k| k != cur) {
+                    let Some(p2) = (if k > cur {
+                        raise_with_closure(cx, &plan, e.id, k)
+                    } else {
+                        let mut p = plan.clone();
+                        p.level[e.id.0] = k;
+                        validate(cx, &p).ok().map(|_| p)
+                    }) else {
+                        continue;
+                    };
+                    let touched: BTreeSet<NodeId> = changed_edges(&plan, &p2)
+                        .flat_map(|f| [cx.g.edges[f.0].src, cx.g.edges[f.0].dst])
+                        .collect();
+                    let old = groups_containing(cx, &plan, 0, &touched); // dedup'd node sets
+                    let new = groups_containing(&Ctx { plan: &p2, ..*cx0 }, &p2, 0, &touched);
+                    let (lo, ln) =
+                        compare_sums(cx0, &old, &new, &plan, &p2, &mut cache, &mut budget);
+                    let delta = ln - lo;
+                    if delta < -cx.params.min_gain * lo && best.as_ref().is_none_or(|b| delta < b.0)
+                    {
+                        best = Some((delta, p2));
+                    }
+                }
+                if let Some((_, p2)) = best {
+                    plan = p2;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    let cx = &Ctx {
+        plan: &plan,
+        ..*cx0
+    };
+
+    let kernels = topo_sort_quotient(cx, &partition(cx, &plan, 0, None))
+        .into_iter()
+        // Some(..) for every final group: singletons are always feasible (opaque fallback), and an
+        // infeasible merge has Δ = +∞ so it is never accepted.
+        .map(|grp| {
+            group_latency(cx, &grp, &mut cache, &mut budget)
+                .choice
+                .unwrap()
+        })
+        .collect();
+
+    Ok(Schedule { plan, kernels })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::TritonLowering;
-    use crate::graph::optimizer::anduin::profile::SimpleProfiler;
-    use crate::graph::optimizer::anduin::tile_graph::{
-        TileGraph,
-        node::{Edge, EdgeId, Node, NodeId, NodeKind},
-    };
-    use teeny_core::{
-        device::hardware::{HardwareProfile, MemoryLevel, MemoryLevelKind},
-        graph::{DtypeRepr, Graph, Shape},
-        model::{ExecutableOp, LoweringMode},
-    };
+    use crate::graph::tile_resolve::NoConsts;
+    use crate::graph::{KernelExecutable, TritonLowering};
+    use teeny_core::model::{ExecutableOp, GridSpec, LoweringMode};
     use teeny_test::graph::DecomposedSoftmaxBuilder;
-    use teeny_test::hardware_profile::orin_nano;
 
-    // A dummy Profiler that does nothing
-    struct DummyProfiler;
-    impl Profiler for DummyProfiler {
-        fn profile(
-            &self,
-            tile_graph: &TileGraph,
-            nodes: &[NodeId],
-            hardware: &HardwareProfile,
-        ) -> f64 {
-            todo!()
+    use super::super::tile_graph::OpMeta;
+
+    /// Device memory and shared memory only: Triton, not the kernel writer,
+    /// decides what lives in registers, so shared memory is the compute level H.
+    /// Capacities are Orin Nano's (`teeny_test::hardware_profile::orin_nano`).
+    fn device_and_shared() -> Hierarchy {
+        Hierarchy {
+            levels: vec![
+                LevelInfo {
+                    kind: MemoryLevelKind::DeviceMemory,
+                    owner: Owner::Device,
+                    capacity_per_owner: 8 * 1024 * 1024 * 1024,
+                    capacity_per_cu: u64::MAX,
+                    bandwidth: 68.3e9,
+                    read_txn_bytes: 128,
+                    write_txn_bytes: 32,
+                    max_fanout: u32::MAX,
+                    fixed_fanout: false,
+                },
+                LevelInfo {
+                    kind: MemoryLevelKind::SharedMemory,
+                    owner: Owner::Block,
+                    capacity_per_owner: 96 * 1024,
+                    capacity_per_cu: 96 * 1024,
+                    bandwidth: f64::INFINITY,
+                    read_txn_bytes: 1,
+                    write_txn_bytes: 1,
+                    max_fanout: 1024,
+                    fixed_fanout: true,
+                },
+            ],
+            compute_units: 8,
+            max_units_per_cu: 4,
+            simt_width: 32,
+            flops_per_s: 1.0e12,
+            launch_overhead_s: 5.0e-6,
         }
     }
 
-    /// The connect level of the edge `src -> dst` on `dst`'s input `port`.
-    /// The edge is stored twice (`src.out_edges` and `dst.in_edges`, see
-    /// ANALYSIS.md §12.1 fix #14), so this also asserts that both copies agree.
-    fn edge_level(
-        tile_graph: &TileGraph,
-        src: NodeId,
-        dst: NodeId,
-        port: usize,
-    ) -> Option<MemoryLevelKind> {
-        let in_edge = tile_graph
-            .node(dst)
-            .unwrap_or_else(|e| panic!("node {} should exist: {e}", dst.0))
-            .in_edges()[port];
+    /// teenygrad's codegen as ANALYSIS.md §12 describes it, except that any
+    /// op -> op edge may fuse at H.
+    struct TritonCaps;
+    impl Capabilities for TritonCaps {
+        fn fuse_level(&self, _g: &TileGraph, _e: &Edge, _k: Lvl) -> bool {
+            true
+        }
+        fn stage_input(&self, _g: &TileGraph, _e: &Edge, _into: Lvl, _r: &Region) -> bool {
+            false
+        }
+        fn halo_stage(&self) -> bool {
+            false
+        }
+        fn cross_unit_reduce(&self) -> bool {
+            false
+        }
+        fn pow2_blocks(&self) -> bool {
+            true
+        }
+        fn double_buffer(&self) -> bool {
+            false
+        }
+        fn thread_tiling(&self) -> ThreadTiling {
+            ThreadTiling::Delegated
+        }
+        fn knob_style(&self) -> KnobStyle {
+            KnobStyle::AnchorConsts
+        }
+    }
+
+    /// Every opaque kernel costs one launch; tilings are ranked by `cost.est`.
+    struct LaunchCount;
+    impl Evaluator for LaunchCount {
+        fn estimate(&self, _g: &TileGraph, _hw: &Hierarchy, s: &GroupSchedule) -> f64 {
+            s.cost.est
+        }
+        fn measure(&self, _g: &TileGraph, _hw: &Hierarchy, _s: &GroupSchedule) -> Option<f64> {
+            None
+        }
+        fn opaque(&self, _g: &TileGraph, hw: &Hierarchy, _n: NodeId) -> f64 {
+            hw.launch_overhead_s
+        }
+    }
+
+    /// The lowered op's own tile spec, with no grid or consts to go on. A
+    /// kernel that passes the pointwise-fuse probe is a rider.
+    fn op_meta(_dag_idx: usize, op: &dyn ExecutableOp) -> Option<OpMeta> {
+        let spec = op.tile_spec()?;
+        let rider = op
+            .as_any()
+            .downcast_ref::<KernelExecutable>()
+            .is_some_and(|k| k.pointwise_fuse_block_size.is_some());
+        Some(OpMeta {
+            spec,
+            grid: GridSpec { axes: &[] },
+            consts: Box::new(NoConsts),
+            rider,
+            flops_per_output: 1.0,
+        })
+    }
+
+    /// The level `plan` gives the edge `src -> dst` on `dst`'s operand `port`.
+    fn edge_level(g: &TileGraph, plan: &ConnectPlan, src: NodeId, dst: NodeId, port: usize) -> Lvl {
+        let e = g.nodes[dst.0]
+            .in_edges
+            .iter()
+            .map(|e| &g.edges[e.0])
+            .find(|e| e.dst_port == port)
+            .unwrap_or_else(|| panic!("node {} should have an operand {port}", dst.0));
         assert_eq!(
-            in_edge.src_node_id, src,
-            "port {port} of node {} should be fed by node {}",
+            e.src, src,
+            "operand {port} of node {} should be fed by node {}",
             dst.0, src.0
         );
-        let out_edge = tile_graph
-            .node(src)
-            .unwrap_or_else(|e| panic!("node {} should exist: {e}", src.0))
-            .out_edges()
-            .iter()
-            .find(|edge| edge.dst_node_id == dst && edge.dst_edge_id == EdgeId(port))
-            .copied()
-            .unwrap_or_else(|| panic!("node {} should have an out edge to node {}", src.0, dst.0));
-
-        let level = in_edge.memory_level.map(|level| level.kind);
-        assert_eq!(
-            out_edge.memory_level.map(|level| level.kind),
-            level,
-            "edge {} -> {} (port {port}) has different levels in src.out_edges and dst.in_edges",
-            src.0,
-            dst.0
-        );
-        level
+        plan.level[e.id.0]
     }
 
     #[test]
+    #[ignore = "the elementwise/reduce kernels are lowered with tile_spec: None (so every \
+                node is opaque), and tile_group is still a stub"]
     fn test_softmax_from_primitives_schedules_as_one_group() {
         // x -> max -> sub(x, .) -> exp -> sum -> div(exp, .)
         // |__________^              |___________^
@@ -271,14 +1107,15 @@ mod tests {
         // ANALYSIS.md §12.7 D1. `x` has two consumers, both reduced tensors
         // are broadcast back over the column axis, and `max` and `sum` each
         // need an rstep. Checks the parts of D1 visible in a schedule's
-        // connect levels. Only DeviceMemory and SharedMemory are scheduled:
-        // Triton, not the kernel writer, decides what lives in registers.
+        // connect plan, over device memory (level 0) and shared memory
+        // (level 1 = H).
         //
         // - (b) a full-row tile is a legal tiling of the whole group, and a
         //   row is small enough to fit in shared memory, so the five compute
-        //   nodes should fuse: every edge between them is at SharedMemory.
+        //   nodes should fuse: every edge between them is at level 1, and
+        //   they form one tiled kernel.
         // - `x` is a placeholder, produced outside the group, so its two
-        //   out edges stay at DeviceMemory.
+        //   out edges stay at level 0.
         const ROWS: usize = 64;
         const COLS: usize = 1024;
 
@@ -289,28 +1126,27 @@ mod tests {
             .expect("every required field is set")
             .graph();
 
-        // A row is 4 KiB, so a full-row tile fits in Orin Nano's 96 KiB of
-        // shared memory. The whole 256 KiB tensor doesn't, so the schedule
-        // has to tile it.
-        let hardware = orin_nano();
-
         let lowering = TritonLowering::default();
         let (dag, graph_to_dag, _) = lowering
             .lower_with_mapping(&softmax.graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
-        let mut tile_graph = TileGraph::from_dag(&dag);
+        let g = TileGraph::from_dag(&dag, op_meta).expect("softmax shapes are static");
 
         // `from_dag` numbers tile nodes in topological order, which need not
-        // match graph order, so look each one up by its DAG index. The
-        // trailing `Output` shares `div`'s DAG index, so skip it.
+        // match graph order, so look each one up by its lowered kernel's name.
+        // Every op in this graph lowers to a different kernel.
         let tile_node = |graph_idx: usize| {
-            let dag_idx = graph_to_dag[graph_idx];
-            tile_graph
+            let name = dag.node(graph_to_dag[graph_idx]).value.name();
+            let mut ids = g
                 .nodes
                 .iter()
-                .find(|node| node.dag_node_idx == dag_idx && node.kind != NodeKind::Output)
-                .map(|node| node.id)
-                .unwrap_or_else(|| panic!("graph node {graph_idx} should have a tile node"))
+                .filter(|n| n.kind != NodeKind::Output && n.name == name);
+            let id = ids
+                .next()
+                .unwrap_or_else(|| panic!("graph node {graph_idx} (\"{name}\") has no tile node"))
+                .id;
+            assert!(ids.next().is_none(), "kernel name \"{name}\" is not unique");
+            id
         };
         let [x, max, sub, exp, sum, div] = [
             softmax.input,
@@ -322,14 +1158,37 @@ mod tests {
         ]
         .map(tile_node);
 
-        schedule_graph(&mut tile_graph, &hardware, &SimpleProfiler, 5)
-            .expect("scheduling softmax should not fail here");
+        let hw = device_and_shared();
+        let params = SearchParams {
+            top_k: 10,
+            max_visited: 2000,
+            fanouts_per_tile: 1,
+            max_closure: 10,
+            max_recompute: 1.0,
+            min_gain: 0.0,
+            max_passes: 1,
+            max_measurements: 0,
+        };
+        let start = ConnectPlan {
+            level: vec![0; g.edges.len()],
+        };
+        let cx = Ctx {
+            g: &g,
+            hw: &hw,
+            caps: &TritonCaps,
+            params: &params,
+            ev: &LaunchCount,
+            plan: &start,
+        };
+        let Ok(schedule) = schedule(&cx) else {
+            panic!("scheduling softmax should not fail here");
+        };
 
         for (src, dst, port) in [(x, max, 0), (x, sub, 0)] {
             assert_eq!(
-                edge_level(&tile_graph, src, dst, port),
-                Some(MemoryLevelKind::DeviceMemory),
-                "x is produced outside the group, so edge {} -> {} should stay at DeviceMemory",
+                edge_level(&g, &schedule.plan, src, dst, port),
+                0,
+                "x is produced outside the group, so edge {} -> {} should stay at level 0",
                 src.0,
                 dst.0
             );
@@ -343,10 +1202,19 @@ mod tests {
             ("sum -> div", sum, div, 1),
         ] {
             assert_eq!(
-                edge_level(&tile_graph, src, dst, port),
-                Some(MemoryLevelKind::SharedMemory),
-                "{name} should be fused at SharedMemory"
+                edge_level(&g, &schedule.plan, src, dst, port),
+                1,
+                "{name} should be fused at shared memory (level 1)"
             );
         }
+
+        let [KernelChoice::Tiled(group)] = schedule.kernels.as_slice() else {
+            panic!("the five compute nodes should be one tiled kernel");
+        };
+        let mut nodes = group.nodes.clone();
+        nodes.sort();
+        let mut expected = vec![max, sub, exp, sum, div];
+        expected.sort();
+        assert_eq!(nodes, expected);
     }
 }

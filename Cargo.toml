@@ -104,4 +104,5 @@ ordered-float = "5.3.0"
 dotenv = "0.15.0"
 parquet = { version = "54", features = ["arrow"] }
 arrow-array = "54"
+union-find = "0.4.4"
 

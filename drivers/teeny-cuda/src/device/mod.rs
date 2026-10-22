@@ -221,24 +221,28 @@ impl DeviceInfo for CudaDeviceInfo {
             compute_units: u32::try_from(self.multi_processor_count).unwrap_or(0),
             memory_levels: vec![
                 MemoryLevel {
+                    level: 3,
                     kind: MemoryLevelKind::Register,
                     capacity: u64::from(u32::try_from(self.regs_per_block).unwrap_or(0)) * 4,
                     bandwidth: None,
                     latency: None,
                 },
                 MemoryLevel {
+                    level: 2,
                     kind: MemoryLevelKind::SharedMemory,
                     capacity: self.shared_mem_per_block as u64,
                     bandwidth: None,
                     latency: None,
                 },
                 MemoryLevel {
+                    level: 1,
                     kind: MemoryLevelKind::L2Cache,
                     capacity: u64::from(u32::try_from(self.l2_cache_size).unwrap_or(0)),
                     bandwidth: None,
                     latency: None,
                 },
                 MemoryLevel {
+                    level: 0,
                     kind: MemoryLevelKind::DeviceMemory,
                     capacity: self.total_global_mem as u64,
                     bandwidth: None,

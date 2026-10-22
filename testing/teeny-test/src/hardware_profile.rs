@@ -37,6 +37,7 @@ pub fn orin_nano() -> HardwareProfile {
         compute_units: 8,
         memory_levels: vec![
             MemoryLevel {
+                level: 1,
                 kind: MemoryLevelKind::SharedMemory,
                 // Conservative usable shared memory per kernel is ~96 KiB/SM on Orin Nano (some reserved by CUDA/L1)
                 capacity: 96 * 1024,
@@ -44,6 +45,7 @@ pub fn orin_nano() -> HardwareProfile {
                 latency: None,
             },
             MemoryLevel {
+                level: 0,
                 kind: MemoryLevelKind::DeviceMemory,
                 capacity: 8 * 1024 * 1024 * 1024,
                 // LPDDR5, real-world sustained bandwidth is lower, but theoretical up to ~102.4 GB/s
@@ -82,24 +84,28 @@ pub fn nvidia_rtx5070() -> HardwareProfile {
         compute_units: 48,
         memory_levels: vec![
             MemoryLevel {
+                level: 3,
                 kind: MemoryLevelKind::Register,
                 capacity: 262_144,
                 bandwidth: None,
                 latency: None,
             },
             MemoryLevel {
+                level: 2,
                 kind: MemoryLevelKind::SharedMemory,
                 capacity: 49_152,
                 bandwidth: None,
                 latency: None,
             },
             MemoryLevel {
+                level: 1,
                 kind: MemoryLevelKind::L2Cache,
                 capacity: 64 * 1024 * 1024,
                 bandwidth: None,
                 latency: None,
             },
             MemoryLevel {
+                level: 0,
                 kind: MemoryLevelKind::DeviceMemory,
                 capacity: 12 * 1024 * 1024 * 1024,
                 bandwidth: None,

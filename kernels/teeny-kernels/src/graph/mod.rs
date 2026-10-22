@@ -26,7 +26,7 @@ pub mod tile_resolve;
 
 pub use optimizer::{
     Anduin, AnduinCodegen, EdgeId, ExecuteDevice, GraphOptimizer, NodeId, Profiler, SimpleProfiler,
-    TileGraph, Trace, TraceEvent, common_thread_block_size, schedule_graph,
+    TileGraph, Trace, TraceEvent, common_thread_block_size,
 };
 
 use crate::nn::{

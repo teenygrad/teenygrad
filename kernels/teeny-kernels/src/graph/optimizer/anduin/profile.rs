@@ -126,6 +126,7 @@ mod tests {
             name: "test-device".to_string(),
             compute_units: 1,
             memory_levels: vec![MemoryLevel {
+                level: 0,
                 kind,
                 capacity: u64::MAX,
                 bandwidth: Some(bandwidth),

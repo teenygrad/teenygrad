@@ -56,7 +56,6 @@ mod util;
 pub use codegen::{AnduinCodegen, ExecuteDevice};
 pub use grid::common_thread_block_size;
 pub use profile::{Profiler, SimpleProfiler};
-pub use schedule::schedule_graph;
 pub use tile_graph::{EdgeId, NodeId, TileGraph};
 pub use trace::{Trace, TraceEvent};
 
