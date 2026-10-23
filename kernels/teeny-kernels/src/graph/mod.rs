@@ -159,17 +159,17 @@ use crate::nn::norm::batchnorm::{
 /// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_num_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (name, ks, body, probe_bs, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+        let (name, ks, body, probe_bs, consts, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
@@ -180,6 +180,7 @@ macro_rules! make_num_kernel {
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
             grid_spec: None,
+            consts,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -191,17 +192,17 @@ macro_rules! make_num_kernel {
     }};
     // Variant with explicit backward kernel type (for ops that have backward support)
     ($K:ident ($($arg:expr),*), $Bwd:ident ($($barg:expr),*), $node:expr) => {{
-        let (name, ks, body, probe_bs, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+        let (name, ks, body, probe_bs, consts, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I8  => { let k = $K::<i8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a supported Num dtype for {}", other, stringify!($K))),
         };
         #[cfg(feature = "training")]
@@ -226,6 +227,7 @@ macro_rules! make_num_kernel {
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
             grid_spec: None,
+            consts,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -241,9 +243,9 @@ macro_rules! make_num_kernel {
 /// Usage: `make_float_kernel!(KernelType(arg1, arg2, ...), node)`
 macro_rules! make_float_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
-        let (name, ks, body, probe_bs, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+        let (name, ks, body, probe_bs, consts, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         Box::new(KernelExecutable {
@@ -254,6 +256,7 @@ macro_rules! make_float_kernel {
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
             grid_spec: None,
+            consts,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -265,9 +268,9 @@ macro_rules! make_float_kernel {
     }};
     // Variant with explicit float backward kernel
     ($K:ident ($($arg:expr),*), $Bwd:ident ($($barg:expr),*), $node:expr) => {{
-        let (name, ks, body, probe_bs, rop) = match $node.dtype {
-            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+        let (name, ks, body, probe_bs, consts, rop) = match $node.dtype {
+            DtypeRepr::F32 => { let k = $K::<f32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
+            DtypeRepr::F64 => { let k = $K::<f64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let consts = k.const_values(); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, consts, r) }
             other => return Err(anyhow::anyhow!("{:?} is not a Float dtype for {}", other, stringify!($K))),
         };
         #[cfg(feature = "training")]
@@ -284,6 +287,7 @@ macro_rules! make_float_kernel {
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
             grid_spec: None,
+            consts,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -331,6 +335,7 @@ fn exec_from(
         pointwise_fuse_block_size: inst.pointwise_fuse_block_size,
         tile_spec,
         grid_spec,
+        consts: inst.consts,
         shape,
         dtype,
         #[cfg(feature = "training")]
@@ -490,6 +495,7 @@ fn row_broadcast_exec(
     node: &GraphNode,
     name: String,
     kernel_source: String,
+    consts: Vec<(&'static str, usize)>,
     tile_spec: KernelTileSpec,
     grid_spec: GridSpec,
     runtime_op: Arc<dyn RuntimeOp>,
@@ -508,6 +514,7 @@ fn row_broadcast_exec(
         kernel_body: String::new(),
         pointwise_fuse_block_size: None,
         grid_spec: spec.map(|_| grid_spec),
+        consts,
         tile_spec: spec,
         shape: node.shape.clone(),
         dtype: node.dtype,
@@ -556,6 +563,11 @@ pub struct KernelExecutable {
     /// alongside `tile_spec` from the same `#[tiled_kernel]`-derived kernel.
     /// `None` wherever `tile_spec` is.
     pub grid_spec: Option<GridSpec>,
+    /// The kernel's `const` generics by name (`KH`, `STRIDE_H`, ...), as
+    /// this op instantiated them (`const_values()`, generated by the kernel
+    /// macros). A tile spec names its window consts this way (P3). Empty
+    /// for an op whose kernel the lowering doesn't hold directly.
+    pub consts: Vec<(&'static str, usize)>,
     /// Backward kernel source. Empty if this op has no backward.
     #[cfg(feature = "training")]
     pub backward_kernel_source: String,
@@ -607,6 +619,13 @@ impl ExecutableOp for KernelExecutable {
 
     fn pointwise_fuse_block_size(&self) -> Option<i32> {
         self.pointwise_fuse_block_size
+    }
+
+    fn const_value(&self, name: &str) -> Option<usize> {
+        self.consts
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|&(_, v)| v)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -983,6 +1002,7 @@ impl TritonLowering {
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
                     grid_spec: None,
+                    consts: Vec::new(),
                     shape: vec![Some(2 * c)],
                     dtype: node.dtype,
                     backward_kernel_source: String::new(),
@@ -1041,6 +1061,7 @@ impl TritonLowering {
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
                     grid_spec: None,
+                    consts: Vec::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     backward_kernel_source: norm_bwd_src,
@@ -1076,7 +1097,12 @@ impl TritonLowering {
                     ..
                 } = &node.op
             {
-                let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                let (name, ks, consts, rop): (
+                    String,
+                    String,
+                    Vec<(&'static str, usize)>,
+                    Arc<dyn RuntimeOp>,
+                ) = match node.dtype {
                     DtypeRepr::F32 => {
                         let k = Conv2dBiasForward::<f32>::new(
                             *kernel_h as i32,
@@ -1090,8 +1116,9 @@ impl TritonLowering {
                         );
                         let nm = k.name.to_string();
                         let src = k.source.clone();
+                        let consts = k.const_values();
                         let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-                        (nm, src, rop)
+                        (nm, src, consts, rop)
                     }
                     DtypeRepr::F64 => {
                         let k = Conv2dBiasForward::<f64>::new(
@@ -1106,8 +1133,9 @@ impl TritonLowering {
                         );
                         let nm = k.name.to_string();
                         let src = k.source.clone();
+                        let consts = k.const_values();
                         let rop: Arc<dyn RuntimeOp> = Arc::new(k);
-                        (nm, src, rop)
+                        (nm, src, consts, rop)
                     }
                     other => {
                         return Err(anyhow::anyhow!(
@@ -1126,6 +1154,7 @@ impl TritonLowering {
                     // like conv2d_forward's below.
                     tile_spec: Some(Conv2dBiasForward::<f32>::tile_spec()),
                     grid_spec: Some(Conv2dBiasForward::<f32>::grid_spec()),
+                    consts,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1157,63 +1186,67 @@ impl TritonLowering {
             } = &node.op
             {
                 const BIAS_BLOCK_HW: i32 = 128;
-                let (conv_name, conv_ks, conv_rop): (String, String, Arc<dyn RuntimeOp>) =
-                    match node.dtype {
-                        DtypeRepr::F32 => {
-                            let k = Conv2dForward::<f32>::new(
-                                *kernel_h as i32,
-                                *kernel_w as i32,
-                                *stride_h as i32,
-                                *stride_w as i32,
-                                *padding_h as i32,
-                                *padding_w as i32,
-                                *groups as i32,
-                                16,
-                            );
-                            let src = k.source.clone();
-                            let rop: Arc<dyn RuntimeOp> = Arc::new(Conv2dForward::<f32>::new(
-                                *kernel_h as i32,
-                                *kernel_w as i32,
-                                *stride_h as i32,
-                                *stride_w as i32,
-                                *padding_h as i32,
-                                *padding_w as i32,
-                                *groups as i32,
-                                16,
-                            ));
-                            (k.name.to_string(), src, rop)
-                        }
-                        DtypeRepr::F64 => {
-                            let k = Conv2dForward::<f64>::new(
-                                *kernel_h as i32,
-                                *kernel_w as i32,
-                                *stride_h as i32,
-                                *stride_w as i32,
-                                *padding_h as i32,
-                                *padding_w as i32,
-                                *groups as i32,
-                                16,
-                            );
-                            let src = k.source.clone();
-                            let rop: Arc<dyn RuntimeOp> = Arc::new(Conv2dForward::<f64>::new(
-                                *kernel_h as i32,
-                                *kernel_w as i32,
-                                *stride_h as i32,
-                                *stride_w as i32,
-                                *padding_h as i32,
-                                *padding_w as i32,
-                                *groups as i32,
-                                16,
-                            ));
-                            (k.name.to_string(), src, rop)
-                        }
-                        other => {
-                            return Err(anyhow::anyhow!(
-                                "{:?} is not supported for Conv2dForward",
-                                other
-                            ));
-                        }
-                    };
+                let (conv_name, conv_ks, conv_consts, conv_rop): (
+                    String,
+                    String,
+                    Vec<(&'static str, usize)>,
+                    Arc<dyn RuntimeOp>,
+                ) = match node.dtype {
+                    DtypeRepr::F32 => {
+                        let k = Conv2dForward::<f32>::new(
+                            *kernel_h as i32,
+                            *kernel_w as i32,
+                            *stride_h as i32,
+                            *stride_w as i32,
+                            *padding_h as i32,
+                            *padding_w as i32,
+                            *groups as i32,
+                            16,
+                        );
+                        let src = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(Conv2dForward::<f32>::new(
+                            *kernel_h as i32,
+                            *kernel_w as i32,
+                            *stride_h as i32,
+                            *stride_w as i32,
+                            *padding_h as i32,
+                            *padding_w as i32,
+                            *groups as i32,
+                            16,
+                        ));
+                        (k.name.to_string(), src, k.const_values(), rop)
+                    }
+                    DtypeRepr::F64 => {
+                        let k = Conv2dForward::<f64>::new(
+                            *kernel_h as i32,
+                            *kernel_w as i32,
+                            *stride_h as i32,
+                            *stride_w as i32,
+                            *padding_h as i32,
+                            *padding_w as i32,
+                            *groups as i32,
+                            16,
+                        );
+                        let src = k.source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(Conv2dForward::<f64>::new(
+                            *kernel_h as i32,
+                            *kernel_w as i32,
+                            *stride_h as i32,
+                            *stride_w as i32,
+                            *padding_h as i32,
+                            *padding_w as i32,
+                            *groups as i32,
+                            16,
+                        ));
+                        (k.name.to_string(), src, k.const_values(), rop)
+                    }
+                    other => {
+                        return Err(anyhow::anyhow!(
+                            "{:?} is not supported for Conv2dForward",
+                            other
+                        ));
+                    }
+                };
 
                 #[cfg(feature = "training")]
                 let conv_bwd_ks = match node.dtype {
@@ -1254,6 +1287,7 @@ impl TritonLowering {
                     pointwise_fuse_block_size: None,
                     tile_spec: Some(Conv2dForward::<f32>::tile_spec()),
                     grid_spec: Some(Conv2dForward::<f32>::grid_spec()),
+                    consts: conv_consts,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1311,6 +1345,7 @@ impl TritonLowering {
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
                     grid_spec: None,
+                    consts: Vec::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1335,6 +1370,7 @@ impl TritonLowering {
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
                     grid_spec: None,
+                    consts: Vec::new(),
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
@@ -1362,7 +1398,12 @@ impl TritonLowering {
                 Op::BatchNorm2d { eps, .. } => {
                     let eps_f32 = *eps as f32;
                     const BN2D_BLOCK_HW: i32 = 128;
-                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
+                    let (name, ks, consts, rop): (
+                        String,
+                        String,
+                        Vec<(&'static str, usize)>,
+                        Arc<dyn RuntimeOp>,
+                    ) = match node.dtype {
                         DtypeRepr::F32 => {
                             let r = BatchNorm2dNchwInferenceRuntimeOp::<f32>::new(
                                 BN2D_BLOCK_HW,
@@ -1371,6 +1412,7 @@ impl TritonLowering {
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
+                                r.const_values(),
                                 Arc::new(r),
                             )
                         }
@@ -1382,6 +1424,7 @@ impl TritonLowering {
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
+                                r.const_values(),
                                 Arc::new(r),
                             )
                         }
@@ -1412,6 +1455,7 @@ impl TritonLowering {
                         // here (teenygrad-1nr.18.6).
                         tile_spec: Some(BatchNorm2dNchwForwardInference::<f32>::tile_spec()),
                         grid_spec: Some(BatchNorm2dNchwForwardInference::<f32>::grid_spec()),
+                        consts,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1458,6 +1502,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2212,6 +2257,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2340,6 +2386,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2391,6 +2438,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2603,13 +2651,18 @@ impl TritonLowering {
                         ElemwiseSubForward::<f32>::grid_spec(),
                     ),
                     BinaryShape::Rows => {
-                        let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype
-                        {
+                        let (name, ks, consts, rop): (
+                            String,
+                            String,
+                            Vec<(&'static str, usize)>,
+                            Arc<dyn RuntimeOp>,
+                        ) = match node.dtype {
                             DtypeRepr::F32 => {
                                 let r = SubRowBroadcastRuntimeOp::<f32>::new(ROW_BROADCAST_BLOCK_C);
                                 (
                                     r.kernel.name.to_string(),
                                     r.kernel.source.clone(),
+                                    r.kernel.const_values(),
                                     Arc::new(r),
                                 )
                             }
@@ -2618,6 +2671,7 @@ impl TritonLowering {
                                 (
                                     r.kernel.name.to_string(),
                                     r.kernel.source.clone(),
+                                    r.kernel.const_values(),
                                     Arc::new(r),
                                 )
                             }
@@ -2632,6 +2686,7 @@ impl TritonLowering {
                             node,
                             name,
                             ks,
+                            consts,
                             ElemwiseSubRowBroadcastForward::<f32>::tile_spec(),
                             ElemwiseSubRowBroadcastForward::<f32>::grid_spec(),
                             rop,
@@ -2651,13 +2706,18 @@ impl TritonLowering {
                         ElemwiseDivForward::<f32>::grid_spec(),
                     ),
                     BinaryShape::Rows => {
-                        let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype
-                        {
+                        let (name, ks, consts, rop): (
+                            String,
+                            String,
+                            Vec<(&'static str, usize)>,
+                            Arc<dyn RuntimeOp>,
+                        ) = match node.dtype {
                             DtypeRepr::F32 => {
                                 let r = DivRowBroadcastRuntimeOp::<f32>::new(ROW_BROADCAST_BLOCK_C);
                                 (
                                     r.kernel.name.to_string(),
                                     r.kernel.source.clone(),
+                                    r.kernel.const_values(),
                                     Arc::new(r),
                                 )
                             }
@@ -2666,6 +2726,7 @@ impl TritonLowering {
                                 (
                                     r.kernel.name.to_string(),
                                     r.kernel.source.clone(),
+                                    r.kernel.const_values(),
                                     Arc::new(r),
                                 )
                             }
@@ -2680,6 +2741,7 @@ impl TritonLowering {
                             node,
                             name,
                             ks,
+                            consts,
                             ElemwiseDivRowBroadcastForward::<f32>::tile_spec(),
                             ElemwiseDivRowBroadcastForward::<f32>::grid_spec(),
                             rop,
@@ -2812,6 +2874,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2920,6 +2983,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2946,6 +3010,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2972,6 +3037,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3009,6 +3075,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3047,6 +3114,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3101,6 +3169,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3205,6 +3274,7 @@ impl TritonLowering {
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
                         grid_spec: None,
+                        consts: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3534,6 +3604,7 @@ impl TritonLowering {
                             pointwise_fuse_block_size: None,
                             tile_spec: None,
                             grid_spec: None,
+                            consts: Vec::new(),
                             #[cfg(feature = "training")]
                             backward_entry_point,
                         })
@@ -3882,6 +3953,52 @@ mod conv2d_grid_spec_tests {
         });
         let rop = conv.runtime_op().expect("conv2d has a RuntimeOp");
         assert_eq!(grid, rop.grid(&out));
+    }
+
+    #[test]
+    fn test_const_values_name_each_const_generic_with_its_value() {
+        // teenygrad-a19a: generated from the kernel's own const generics, so
+        // the names are exactly the ones its `window(..)` fields use.
+        let k = Conv2dForward::<f32>::new(3, 5, 2, 1, 1, 0, 1, 16);
+        assert_eq!(
+            k.const_values(),
+            [
+                ("KH", 3),
+                ("KW", 5),
+                ("STRIDE_H", 2),
+                ("STRIDE_W", 1),
+                ("PAD_H", 1),
+                ("PAD_W", 0),
+                ("G", 1),
+                ("BLOCK_OW", 16),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lowered_conv2d_answers_for_the_consts_its_window_names() {
+        let dag = lowered_conv_block();
+        let conv = lowered_op(&dag, "conv2d_forward");
+        let spec = conv.tile_spec().expect("conv2d lowers with its tile spec");
+        let mut asked = 0;
+        for b in spec.inputs[0].axes {
+            let Some(w) = b.window else { continue };
+            for name in [w.stride_const, w.kernel_size_const]
+                .into_iter()
+                .chain(w.pad_const)
+            {
+                asked += 1;
+                let v = conv.const_value(name);
+                // The block is a 3x3, stride-1, pad-1 conv.
+                let want = if name.starts_with('K') { 3 } else { 1 };
+                assert_eq!(v, Some(want), "conv2d's `{name}`");
+            }
+        }
+        assert_eq!(
+            asked, 6,
+            "H and W each name a stride, a pad and a kernel size"
+        );
+        assert_eq!(conv.const_value("NOT_A_CONST"), None);
     }
 
     #[test]

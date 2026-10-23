@@ -120,6 +120,16 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         .map(|cp| format_ident!("{}", cp.ident.to_string().to_lowercase()))
         .collect();
 
+    // `(name, value as i64)` per const param, for the generated `const_values()`.
+    let const_value_entries: Vec<TokenStream2> = const_params
+        .iter()
+        .zip(const_field_idents.iter())
+        .map(|(cp, field)| {
+            let name = cp.ident.to_string();
+            quote! { (#name, self.#field as i64) }
+        })
+        .collect();
+
     // 3b. Collect non-hw, non-const type params for the struct definition/usage.
     //     Const params are excluded: they become runtime fields instead.
     let struct_gen_params: Vec<&GenericParam> = input
@@ -574,6 +584,19 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
 
+            /// This kernel's `const` generics by their own names (`KH`,
+            /// `STRIDE_H`, ...), with the values it was instantiated with. A
+            /// value that is negative is left out. A tile spec names its
+            /// window consts this way, so the scheduler can resolve them
+            /// (ANALYSIS.md §12.2 P3).
+            pub fn const_values(&self) -> ::std::vec::Vec<(&'static str, usize)> {
+                let __all: ::std::vec::Vec<(&'static str, i64)> = vec![ #(#const_value_entries),* ];
+                __all
+                    .into_iter()
+                    .filter_map(|(__n, __v)| usize::try_from(__v).ok().map(|__v| (__n, __v)))
+                    .collect()
+            }
+
             /// Pointwise-fuse probe. Delegates to the
             /// [`::teeny_triton::PointwiseFuseProbeExt`] blanket when this
             /// kernel is `n_elements`-tiled unary elementwise; otherwise `None`.
@@ -696,6 +719,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     #repr => {
                         let __f = #fwd_new;
                         let __probe_bs = __f.pointwise_fuse_probe().map(|p| p.block_size);
+                        let __consts = __f.const_values();
                         let __body = __f.kernel_source.clone();
                         teeny_core::model::KernelInstance {
                             name: __f.name.to_string(),
@@ -703,6 +727,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                             kernel_body: __body,
                             runtime_op: ::std::sync::Arc::new(__f),
                             pointwise_fuse_block_size: __probe_bs,
+                            consts: __consts,
                             backward: #backward_expr,
                         }
                     }

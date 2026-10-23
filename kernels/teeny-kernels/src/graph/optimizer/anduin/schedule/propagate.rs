@@ -24,11 +24,11 @@ use super::{Ctx, Reject, internal_edges, meta};
 use crate::graph::optimizer::anduin::tile_graph::{EdgeId, NodeId, OpMeta};
 
 /// A window const's value: a decimal literal stands for itself, anything else
-/// is asked of the node's `consts` (as `tile_resolve::window_const`).
+/// is asked of the node (`OpMeta::const_value`, as `tile_resolve::window_const`).
 fn konst(name: &str, m: &OpMeta) -> Option<u64> {
     match name.parse::<u64>() {
         Ok(v) => Some(v),
-        Err(_) => m.consts.get(name).map(|v| v as u64),
+        Err(_) => m.const_value(name).map(|v| v as u64),
     }
 }
 

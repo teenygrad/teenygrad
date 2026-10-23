@@ -977,9 +977,9 @@ mod tests {
         }
     }
 
-    /// The lowered op's own tile and grid specs, with no consts to go on.
-    fn op_meta(_dag_idx: usize, op: Box<dyn ExecutableOp>) -> Option<OpMeta> {
-        OpMeta::new(op, Box::new(NoConsts), 1.0)
+    /// The production callback: the lowered op's own specs and consts.
+    fn op_meta(dag_idx: usize, op: Box<dyn ExecutableOp>) -> Option<OpMeta> {
+        OpMeta::lowered(dag_idx, op)
     }
 
     /// The level `plan` gives the edge `src -> dst` on `dst`'s operand `port`.

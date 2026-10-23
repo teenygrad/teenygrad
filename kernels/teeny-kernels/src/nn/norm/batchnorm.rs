@@ -610,6 +610,10 @@ impl<D: Float + Send + Sync + 'static> BatchNorm2dNchwInferenceRuntimeOp<D> {
     pub fn kernel_name(&self) -> &str {
         self.fwd.name
     }
+    /// The forward kernel's `const` generics by name, with their values.
+    pub fn const_values(&self) -> Vec<(&'static str, usize)> {
+        self.fwd.const_values()
+    }
 
     #[cfg(feature = "training")]
     pub fn backward_source(&self) -> String {

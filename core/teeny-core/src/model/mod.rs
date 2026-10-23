@@ -56,6 +56,9 @@ pub struct KernelInstance {
     /// `Some(BLOCK_SIZE)` when this kernel passes the pointwise-fuse probe
     /// (unary In/Out + `n_elements` CTA map); otherwise `None`.
     pub pointwise_fuse_block_size: Option<i32>,
+    /// The kernel's `const` generics by name, with their values (the
+    /// kernel's `const_values()`).
+    pub consts: Vec<(&'static str, usize)>,
     /// Backward kernel, present only when the kernel declares one.
     pub backward: Option<KernelInstanceBackward>,
 }
@@ -380,6 +383,14 @@ pub trait ExecutableOp {
     /// probe (unary In/Out + `n_elements` CTA map), so it can be spliced
     /// into another kernel's program. `None` by default.
     fn pointwise_fuse_block_size(&self) -> Option<i32> {
+        None
+    }
+
+    /// The value of the kernel `const` generic called `name` (`KH`,
+    /// `STRIDE_H`, ...), as this op instantiated it. A tile spec names its
+    /// window consts this way. `None` by default, and for a name the kernel
+    /// doesn't have.
+    fn const_value(&self, _name: &str) -> Option<usize> {
         None
     }
 

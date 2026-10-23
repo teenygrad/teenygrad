@@ -346,3 +346,30 @@ pub(super) fn softmax(rows: u64, cols: u64) -> Softmax {
         div,
     }
 }
+
+/// A lone 3x3 conv2d over [2, 3, 32, 32] -> 8 channels at `stride` and
+/// padding 1, lowered by `TritonLowering`, as a tile graph and its node.
+pub(super) fn lowered_conv(stride: usize) -> (TileGraph, NodeId) {
+    use teeny_core::{
+        graph::SymTensor,
+        model::LoweringMode,
+        nn::{Layer, conv2d::Conv2d},
+    };
+
+    let (input, graph) =
+        SymTensor::input(DtypeRepr::F32, vec![Some(2), Some(3), Some(32), Some(32)]);
+    let conv = Conv2d::<f32, _, _, 4>::new(3, 8, (3, 3), (stride, stride), (1, 1), false);
+    let _output = Layer::call(&conv, input);
+    let graph = graph.borrow().clone();
+    let (dag, _, _) = crate::graph::TritonLowering::default()
+        .lower_with_mapping(&graph, LoweringMode::Inference)
+        .expect("lowering should not fail here");
+    let g = TileGraph::from_dag(dag, OpMeta::lowered).expect("conv shapes are static");
+    let conv = g
+        .nodes
+        .iter()
+        .find(|n| n.name == "conv2d_forward")
+        .expect("the graph lowers a conv2d")
+        .id;
+    (g, conv)
+}

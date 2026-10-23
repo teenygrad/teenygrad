@@ -389,7 +389,8 @@ mod tests {
     use super::super::seed::KnobName;
     use super::super::span::DimSpan;
     use super::super::testing::{
-        Builder, Softmax, bind, device_and_shared, flat, kernel, looping, softmax, tensor,
+        Builder, Softmax, bind, device_and_shared, flat, kernel, looping, lowered_conv, softmax,
+        tensor,
     };
     use super::super::{Capabilities, ConnectPlan, SearchParams, TeenygradCaps};
     use super::*;
@@ -507,6 +508,37 @@ mod tests {
         assert_eq!(anchor(&whole(&s)), s.div);
         assert_eq!(anchor(&[s.max, s.sub, s.exp]), s.sub);
         assert_eq!(anchor(&[s.exp, s.sum]), s.sum, "no node follows sum");
+    }
+
+    #[test]
+    fn test_p3_a_lowered_conv2d_reads_a_halo_not_the_whole_input_row() {
+        // teenygrad-a19a: the lowered conv2d answers for STRIDE_W, PAD_W and
+        // KW, so its windowed W axis propagates as a tile with a halo rather
+        // than `Full`. (H stays `Full`: conv2d's OH is not bound yet, P4,
+        // teenygrad-3f4z.) The search itself picks BLOCK_OW = OW, a whole row,
+        // so this evaluates a narrower θ directly.
+        for stride in [1u64, 2] {
+            let (g, conv) = lowered_conv(stride as usize);
+            let n_set = [conv];
+            with_group(&g, &n_set, &TeenygradCaps, 10, |cx| {
+                let sr = search(cx, &n_set);
+                let names: Vec<KnobName> = sr.knobs.iter().map(|k| k.name).collect();
+                assert_eq!(names, vec![KnobName::Block("BLOCK_OW")]);
+                let v = 8;
+                let s = eval_tiling(cx, &sr, &[v]).expect("an 8-wide conv tile is legal");
+                let x = &s.in_region[&g.nodes[conv.0].in_edges[0]];
+                let DimSpan::Tiled { step, lo, len, .. } = x[3] else {
+                    panic!("stride {stride}: W should be tiled, got {:?}", x[3]);
+                };
+                // Unit u reads columns [8·s·u - 1, 8·s·u - 1 + 7·s + 3).
+                assert_eq!(
+                    (step, lo, len),
+                    (v * stride, -1, (v - 1) * stride + 3),
+                    "stride {stride}"
+                );
+                assert_eq!(x[2], DimSpan::Full, "OH is unbound, so H is whole");
+            });
+        }
     }
 
     #[test]

@@ -23,7 +23,7 @@ use teeny_core::{
 };
 
 use crate::errors::{Error, Result};
-use crate::graph::tile_resolve::ConstLookup;
+use crate::graph::tile_resolve::{ConstLookup, NoConsts};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct NodeId(pub usize);
@@ -62,9 +62,9 @@ pub struct Node {
 /// derived from the spec); only what the op can't say about itself is stored
 /// beside it.
 pub struct OpMeta {
-    op: Box<dyn ExecutableOp>, // the lowered op this node was built from
-    pub consts: Box<dyn ConstLookup>, // this node's values (P3)
-    pub flops_per_output: f64, // includes the op's own reduction work per output element
+    op: Box<dyn ExecutableOp>,        // the lowered op this node was built from
+    pub consts: Box<dyn ConstLookup>, // values the op can't give itself (P3); see `const_value`
+    pub flops_per_output: f64,        // includes the op's own reduction work per output element
 }
 
 impl OpMeta {
@@ -85,6 +85,15 @@ impl OpMeta {
         })
     }
 
+    /// The [`TileGraph::from_dag`] callback for a DAG `TritonLowering`
+    /// produced: every lowered kernel gives its own specs and consts, so the
+    /// op is all it needs. `None` (opaque) for an op without both specs. The
+    /// flop count is a placeholder of 1 per output element until ops report
+    /// their own.
+    pub fn lowered(_dag_idx: usize, op: Box<dyn ExecutableOp>) -> Option<Self> {
+        Self::new(op, Box::new(NoConsts), 1.0)
+    }
+
     pub fn op(&self) -> &dyn ExecutableOp {
         self.op.as_ref()
     }
@@ -93,6 +102,14 @@ impl OpMeta {
         self.op
             .tile_spec()
             .expect("OpMeta::new only accepts an op with a tile spec")
+    }
+
+    /// The value of the const `name` a spec mentions (P3): the op's own,
+    /// from its kernel's const generics, else `consts`. The op answers for
+    /// every lowered kernel; `consts` is for an op that can't (a hand-built
+    /// one in a test).
+    pub fn const_value(&self, name: &str) -> Option<usize> {
+        self.op.const_value(name).or_else(|| self.consts.get(name))
     }
 
     pub fn grid(&self) -> GridSpec {
@@ -178,7 +195,8 @@ impl TileGraph {
             dag_to_tile[dag_idx] = Some(id);
 
             if dag_node.children.is_empty() {
-                let output = graph.add_node(NodeKind::Output, "output".to_string(), shape, dtype, None);
+                let output =
+                    graph.add_node(NodeKind::Output, "output".to_string(), shape, dtype, None);
                 graph.connect(id, output, 0);
             }
         }
