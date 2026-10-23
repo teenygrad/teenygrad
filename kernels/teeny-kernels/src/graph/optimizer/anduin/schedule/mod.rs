@@ -26,11 +26,15 @@
 //!
 //! ## Status
 //!
-//! A1-A4, A14 and A15 are implemented. A5-A13 (anchor choice, region
-//! propagation, legality checks, cost and the tile search) are not:
-//! [`tile_group`] is a stub that returns no candidates, so every multi-node
-//! group is infeasible and [`schedule`] never fuses. Every node runs as its
-//! own opaque kernel.
+//! A1-A12, A14 and A15 are implemented for a hierarchy whose tiling stages
+//! straight into the compute level (`l + 1 == H`), which device and shared
+//! memory always is. Over a deeper hierarchy [`tile_group`] needs A13's
+//! children, which are not implemented, so it reports no candidates there and
+//! every multi-node group stays infeasible.
+//!
+//! Two preconditions of §12.2 are unmet in `teeny-core`, and the search falls
+//! back conservatively: no binding is walked (P8), and no reduce dim has an
+//! rstep (P6), so both are read whole.
 //!
 //! ## Scope: scheduling only
 //!
@@ -45,11 +49,24 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use teeny_core::device::hardware::MemoryLevelKind;
 use union_find::{QuickUnionUf, UnionBySize, UnionFind};
 
-use crate::errors::{Error, Result};
+use crate::errors::Result;
 use crate::graph::optimizer::anduin::tile_graph::{Edge, NodeKind};
 
 use super::tile_graph::TileGraph;
 use super::tile_graph::{EdgeId, NodeId};
+
+mod cost;
+mod legality;
+mod propagate;
+mod seed;
+mod span;
+#[cfg(test)]
+mod testing;
+mod tiling;
+
+use seed::{KnobName, KnobStyle, UnitGrid};
+use span::{RStep, Region};
+use tiling::tile_group;
 
 // ───────────────────────────── 1. Memory hierarchy ─────────────────────────────
 
@@ -121,90 +138,6 @@ pub struct Partition {
     pub groups: Vec<Vec<NodeId>>,     // members sorted by `pos`
 }
 
-// ────────────────────────────────── 4. Regions ─────────────────────────────────
-
-/// Index into the `UnitGrid` of the tiling that owns the region.
-type AxisId = usize;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct GridAxis {
-    pub extent: u64,
-    pub block: u64,
-    /// A reduce axis splits a reduction across sub-units (Welder `reduce_thread`).
-    /// It drives no output dim and is NOT recomputation.
-    pub reduce: bool,
-}
-impl GridAxis {
-    pub fn units(&self) -> u64 {
-        (self.extent + self.block - 1) / self.block
-    }
-}
-
-#[derive(Clone)]
-struct UnitGrid {
-    pub axes: Vec<GridAxis>,
-}
-impl UnitGrid {
-    pub fn units(&self) -> u64 {
-        self.axes.iter().map(|a| a.units()).product()
-    }
-    pub fn space_units(&self) -> u64 {
-        self.axes
-            .iter()
-            .filter(|a| !a.reduce)
-            .map(|a| a.units())
-            .product()
-    }
-}
-
-/// What ONE unit touches along ONE tensor dim. Coordinates are relative to the
-/// parent unit's region (absolute at level 0). `u_a` is the unit's index on axis `a`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum DimSpan {
-    /// The whole extent, in every unit.
-    Full,
-    /// `[step·u_a + lo, step·u_a + lo + len)` ∩ `[0, extent)`.
-    Tiled {
-        axis: AxisId,
-        step: u64,
-        lo: i64,
-        len: u64,
-    },
-    /// The whole extent, walked inside the unit `len` elements at a time; the
-    /// walk is shared by `split` sub-units (each walks `extent / split`).
-    Chunk { len: u64, split: u64 },
-}
-
-type Region = Vec<DimSpan>; // one per real dim (replaces `TileShape` in the scheduler)
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct RChunk {
-    pub len: u64,
-    pub split: u64,
-}
-
-/// Per reduce-extent name (P6): the chunk walked per iteration, and the sub-unit split.
-type RStep = BTreeMap<&'static str, RChunk>;
-
-// ─────────────────────────────── 5. Search knobs ───────────────────────────────
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum KnobStyle {
-    AnchorConsts,
-    SinkDims,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum KnobName {
-    Block(&'static str),
-    Dim(usize),
-}
-
-struct Knob {
-    pub name: KnobName,
-    pub values: Vec<u64>, /* ascending, deduped */
-}
-
 // ──────────────────────── 6. Schedules (the paper's TileConfig) ────────────────────────
 
 /// Everything decided for one group at one tiling level, plus its stages.
@@ -228,7 +161,7 @@ struct GroupSchedule {
     pub cost: Cost,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Cost {
     pub units: u64,
     pub units_per_cu: u64,
@@ -310,6 +243,39 @@ trait Capabilities {
     fn knob_style(&self) -> KnobStyle;
 }
 
+/// teenygrad's codegen today: a kernel can only splice a rider (an op passing
+/// the pointwise-fuse probe) after its own body, so an edge fuses only into a
+/// rider. It schedules device and shared memory only, so tilings always stage
+/// into the compute level and `stage_input` is never asked.
+struct TeenygradCaps;
+
+impl Capabilities for TeenygradCaps {
+    fn fuse_level(&self, g: &TileGraph, e: &Edge, _k: Lvl) -> bool {
+        meta_opt(g, e.dst).is_some_and(|m| m.rider())
+    }
+    fn stage_input(&self, _g: &TileGraph, _e: &Edge, _into: Lvl, _r: &Region) -> bool {
+        true
+    }
+    fn halo_stage(&self) -> bool {
+        false
+    }
+    fn cross_unit_reduce(&self) -> bool {
+        false
+    }
+    fn pow2_blocks(&self) -> bool {
+        true
+    }
+    fn double_buffer(&self) -> bool {
+        false
+    }
+    fn thread_tiling(&self) -> ThreadTiling {
+        ThreadTiling::Delegated
+    }
+    fn knob_style(&self) -> KnobStyle {
+        KnobStyle::AnchorConsts
+    }
+}
+
 trait Evaluator {
     /// Cheap and always available. Used for ranking.
     fn estimate(&self, g: &TileGraph, hw: &Hierarchy, s: &GroupSchedule) -> f64;
@@ -328,6 +294,7 @@ struct Ctx<'a> {
     pub plan: &'a ConnectPlan,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum Reject {
     Spec,
     NotBox,
@@ -423,8 +390,13 @@ fn legal_levels(cx: &Ctx, e: &Edge) -> Vec<Lvl> {
         return vec![0];
     };
 
-    // P2
-    if cm.spec().inputs[e.dst_port].rank != p.shape.len() {
+    // P2. A port the spec doesn't declare (P5 unmet) cannot be fused either.
+    if cm
+        .spec()
+        .inputs
+        .get(e.dst_port)
+        .is_none_or(|t| t.rank != p.shape.len())
+    {
         return vec![0];
     }
 
@@ -538,15 +510,6 @@ fn key(cx: &Ctx, n_set: &[NodeId]) -> GroupKey {
         nodes,
         internal_levels,
     }
-}
-
-fn tile_group(
-    _cx: &Ctx,
-    _level: Lvl,
-    _n_set: &[NodeId],
-    _parents: &[&GroupSchedule],
-) -> Vec<GroupSchedule> {
-    vec![]
 }
 
 fn group_latency(
@@ -972,6 +935,8 @@ fn schedule(cx0: &Ctx) -> Result<Schedule> {
 
 #[cfg(test)]
 mod tests {
+    use super::cost::AnalyticEvaluator;
+    use super::testing::{Builder, device_and_shared, flat, softmax};
     use super::*;
     use crate::graph::TritonLowering;
     use crate::graph::tile_resolve::NoConsts;
@@ -980,43 +945,6 @@ mod tests {
     use teeny_test::graph::DecomposedSoftmaxBuilder;
 
     use super::super::tile_graph::{Node, OpMeta};
-
-    /// Device memory and shared memory only: Triton, not the kernel writer,
-    /// decides what lives in registers, so shared memory is the compute level H.
-    /// Capacities are Orin Nano's (`teeny_test::hardware_profile::orin_nano`).
-    fn device_and_shared() -> Hierarchy {
-        Hierarchy {
-            levels: vec![
-                LevelInfo {
-                    kind: MemoryLevelKind::DeviceMemory,
-                    owner: Owner::Device,
-                    capacity_per_owner: 8 * 1024 * 1024 * 1024,
-                    capacity_per_cu: u64::MAX,
-                    bandwidth: 68.3e9,
-                    read_txn_bytes: 128,
-                    write_txn_bytes: 32,
-                    max_fanout: u32::MAX,
-                    fixed_fanout: false,
-                },
-                LevelInfo {
-                    kind: MemoryLevelKind::SharedMemory,
-                    owner: Owner::Block,
-                    capacity_per_owner: 96 * 1024,
-                    capacity_per_cu: 96 * 1024,
-                    bandwidth: f64::INFINITY,
-                    read_txn_bytes: 1,
-                    write_txn_bytes: 1,
-                    max_fanout: 1024,
-                    fixed_fanout: true,
-                },
-            ],
-            compute_units: 8,
-            max_units_per_cu: 4,
-            simt_width: 32,
-            flops_per_s: 1.0e12,
-            launch_overhead_s: 5.0e-6,
-        }
-    }
 
     /// teenygrad's codegen as ANALYSIS.md §12 describes it, except that any
     /// op -> op edge may fuse at H.
@@ -1048,20 +976,6 @@ mod tests {
         }
     }
 
-    /// Every opaque kernel costs one launch; tilings are ranked by `cost.est`.
-    struct LaunchCount;
-    impl Evaluator for LaunchCount {
-        fn estimate(&self, _g: &TileGraph, _hw: &Hierarchy, s: &GroupSchedule) -> f64 {
-            s.cost.est
-        }
-        fn measure(&self, _g: &TileGraph, _hw: &Hierarchy, _s: &GroupSchedule) -> Option<f64> {
-            None
-        }
-        fn opaque(&self, _g: &TileGraph, hw: &Hierarchy, _n: NodeId) -> f64 {
-            hw.launch_overhead_s
-        }
-    }
-
     /// The lowered op's own tile and grid specs, with no consts to go on.
     fn op_meta(_dag_idx: usize, op: Box<dyn ExecutableOp>) -> Option<OpMeta> {
         OpMeta::new(op, Box::new(NoConsts), 1.0)
@@ -1084,8 +998,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the elementwise/reduce kernels are lowered with tile_spec: None (so every \
-                node is opaque), and tile_group is still a stub"]
+    #[ignore = "the lowering gives the softmax kernels no tile specs, Sub/Div lower to a flat \
+                kernel that cannot broadcast [rows, 1], and the keepdims reductions' specs are \
+                rank 1 (teenygrad-z8yd step 13)"]
     fn test_softmax_from_primitives_schedules_as_one_group() {
         // x -> max -> sub(x, .) -> exp -> sum -> div(exp, .)
         // |__________^              |___________^
@@ -1168,7 +1083,7 @@ mod tests {
             hw: &hw,
             caps: &TritonCaps,
             params: &params,
-            ev: &LaunchCount,
+            ev: &AnalyticEvaluator,
             plan: &start,
         };
         let Ok(schedule) = schedule(&cx) else {
@@ -1332,7 +1247,7 @@ mod tests {
             hw: &hw,
             caps: &TritonCaps,
             params: &params,
-            ev: &LaunchCount,
+            ev: &AnalyticEvaluator,
             plan,
         })
     }
@@ -1469,21 +1384,26 @@ mod tests {
     }
 
     #[test]
-    fn test_c10_degenerate_graphs_schedule_as_opaque_kernels_in_a_fixed_order() {
+    fn test_c10_degenerate_graphs_schedule_in_a_fixed_order() {
         // Two disconnected chains, a graph of opaque nodes only, and a single
-        // node. None of them can fuse while `tile_group` returns no
-        // candidates, so each should come out as one opaque kernel per node,
-        // in priority order, and the same way every time.
+        // node. Every node should land in exactly one kernel, no kernel should
+        // join the two chains, opaque nodes should stay opaque, and the
+        // schedule should come out the same way every time.
         let cases = [
-            ("disconnected", op_graph(4, &[], &[(0, 1, 0), (2, 3, 0)])),
+            (
+                "disconnected",
+                op_graph(4, &[], &[(0, 1, 0), (2, 3, 0)]),
+                vec![nodes(&[0, 1]), nodes(&[2, 3])],
+            ),
             (
                 "all opaque",
                 op_graph(3, &[0, 1, 2], &[(0, 1, 0), (1, 2, 0)]),
+                vec![nodes(&[0]), nodes(&[1]), nodes(&[2])],
             ),
-            ("single node", op_graph(1, &[], &[])),
+            ("single node", op_graph(1, &[], &[]), vec![nodes(&[0])]),
         ];
 
-        for (name, g) in &cases {
+        for (name, g, expected) in &cases {
             let run = || {
                 let start = ConnectPlan {
                     level: vec![0; g.edges.len()],
@@ -1493,37 +1413,29 @@ mod tests {
                     Err(e) => panic!("{name}: scheduling should not fail: {e}"),
                 })
             };
+            let kernels = |s: &Schedule| -> Vec<Vec<NodeId>> {
+                s.kernels
+                    .iter()
+                    .map(|k| match k {
+                        KernelChoice::Opaque(n) => vec![*n],
+                        KernelChoice::Tiled(t) => t.nodes.clone(),
+                    })
+                    .collect()
+            };
             let first = run();
-            assert!(
-                first.plan.level.iter().all(|&l| l == 0),
-                "{name}: nothing should fuse, got {:?}",
-                first.plan.level
-            );
-            let kernels: Vec<NodeId> = first
-                .kernels
-                .iter()
-                .map(|k| match k {
-                    KernelChoice::Opaque(n) => *n,
-                    KernelChoice::Tiled(_) => panic!("{name}: no group can be tiled yet"),
-                })
-                .collect();
-            assert_eq!(
-                kernels, g.order,
-                "{name}: one opaque kernel per node, in order"
-            );
+            assert_eq!(&kernels(&first), expected, "{name}: kernels, in order");
+            for k in &first.kernels {
+                if let KernelChoice::Tiled(t) = k {
+                    assert!(
+                        t.nodes.iter().all(|n| g.nodes[n.0].meta.is_some()),
+                        "{name}: an opaque node was tiled"
+                    );
+                }
+            }
 
-            let again: Vec<NodeId> = run()
-                .kernels
-                .iter()
-                .filter_map(|k| match k {
-                    KernelChoice::Opaque(n) => Some(*n),
-                    KernelChoice::Tiled(_) => None,
-                })
-                .collect();
-            assert_eq!(
-                again, kernels,
-                "{name}: the schedule should be deterministic"
-            );
+            let again = run();
+            assert_eq!(again.plan.level, first.plan.level, "{name}: same plan");
+            assert_eq!(kernels(&again), kernels(&first), "{name}: same kernels");
         }
     }
 
@@ -1555,5 +1467,216 @@ mod tests {
                 "{name}: a cap of 1 is too small"
             );
         }
+    }
+
+    // ─────────────────────── Tiling: §12.7 D1, D2, S5 and W7 ───────────────────────
+
+    /// The schedule of `g` with `caps`, over device and shared memory.
+    fn schedule_with(g: &TileGraph, caps: &dyn Capabilities) -> Schedule {
+        let hw = device_and_shared();
+        let params = search_params(10);
+        let start = ConnectPlan {
+            level: vec![0; g.edges.len()],
+        };
+        let cx = Ctx {
+            g,
+            hw: &hw,
+            caps,
+            params: &params,
+            ev: &AnalyticEvaluator,
+            plan: &start,
+        };
+        match schedule(&cx) {
+            Ok(s) => s,
+            Err(e) => panic!("scheduling should not fail here: {e}"),
+        }
+    }
+
+    fn sorted(mut v: Vec<NodeId>) -> Vec<NodeId> {
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn test_d1_hand_specced_softmax_schedules_as_one_group() {
+        // ANALYSIS.md §12.7 D1, with the specs the softmax kernels are meant
+        // to have (see `testing::softmax`), as the real-lowering test above
+        // will once the lowering carries them. Each greedy merge on the way
+        // ({max, sub}, then exp, then sum, then div by closure) must itself be
+        // legal and cheaper, or the last one is never reached.
+        let s = softmax(64, 1024);
+        let g = &s.g;
+
+        let schedule = schedule_with(g, &TritonCaps);
+
+        for (src, dst, port) in [(s.x, s.max, 0), (s.x, s.sub, 0)] {
+            assert_eq!(edge_level(g, &schedule.plan, src, dst, port), 0);
+        }
+        for (name, src, dst, port) in [
+            ("max -> sub", s.max, s.sub, 1),
+            ("sub -> exp", s.sub, s.exp, 0),
+            ("exp -> sum", s.exp, s.sum, 0),
+            ("exp -> div", s.exp, s.div, 0),
+            ("sum -> div", s.sum, s.div, 1),
+        ] {
+            assert_eq!(
+                edge_level(g, &schedule.plan, src, dst, port),
+                1,
+                "{name} should be fused at shared memory (level 1)"
+            );
+        }
+        let [KernelChoice::Tiled(group)] = schedule.kernels.as_slice() else {
+            panic!("the five compute nodes should be one tiled kernel");
+        };
+        assert_eq!(
+            sorted(group.nodes.clone()),
+            sorted(vec![s.max, s.sub, s.exp, s.sum, s.div])
+        );
+        assert_eq!(group.anchor, s.div);
+    }
+
+    #[test]
+    fn test_teenygrad_caps_fuse_only_into_riders() {
+        // Of softmax's internal edges only sub -> exp ends at a rider, so
+        // under teenygrad's own capabilities that is the one fusion.
+        let s = softmax(64, 1024);
+
+        let schedule = schedule_with(&s.g, &TeenygradCaps);
+
+        let kernels: Vec<Vec<NodeId>> = schedule
+            .kernels
+            .iter()
+            .map(|k| match k {
+                KernelChoice::Tiled(t) => t.nodes.clone(),
+                KernelChoice::Opaque(n) => vec![*n],
+            })
+            .collect();
+        assert_eq!(
+            kernels,
+            vec![vec![s.max], vec![s.sub, s.exp], vec![s.sum], vec![s.div]]
+        );
+    }
+
+    #[test]
+    fn test_d2_layernorm_keeps_its_statistics_as_outputs() {
+        // x -> mean -> d = sub(x, mean) -> sq = mul(d, d) -> var -> y = div(d, var),
+        // with mean and var also model outputs. Neither is a pure sink (each
+        // has a consumer in the group), so there is no sink-shape conflict,
+        // and a whole-row tile writes each of them in full.
+        use super::testing::{row_broadcast, row_reduce, row_tile};
+        let (rows, cols) = (64, 1024);
+        let mut b = Builder::default();
+        let x = b.input("x", &[rows, cols]);
+        let mean = b.op("mean", &[rows, 1], row_reduce(), &[x]);
+        let d = b.op("d", &[rows, cols], row_broadcast(), &[x, mean]);
+        let sq_spec = super::testing::kernel(&[row_tile(), row_tile()], row_tile());
+        let sq = b.op("sq", &[rows, cols], sq_spec, &[d, d]);
+        let var = b.op("var", &[rows, 1], row_reduce(), &[sq]);
+        let y = b.op("y", &[rows, cols], row_broadcast(), &[d, var]);
+        b.output(mean);
+        b.output(var);
+        let g = b.build();
+
+        let schedule = schedule_with(&g, &TritonCaps);
+
+        let [KernelChoice::Tiled(group)] = schedule.kernels.as_slice() else {
+            panic!(
+                "layernorm should be one tiled kernel, got {} kernels",
+                schedule.kernels.len()
+            );
+        };
+        assert_eq!(
+            sorted(group.nodes.clone()),
+            sorted(vec![mean, d, sq, var, y])
+        );
+        for n in [mean, var] {
+            let stored = g.nodes[n.0]
+                .out_edges
+                .iter()
+                .any(|e| g.nodes[g.edges[e.0].dst.0].kind == NodeKind::Output);
+            assert!(stored, "{} is a model output", g.nodes[n.0].name);
+        }
+    }
+
+    #[test]
+    fn test_s5_a_node_too_big_to_tile_runs_as_an_opaque_kernel() {
+        use super::testing::{bind, kernel, tensor};
+        let mut b = Builder::default();
+        let x = b.input("x", &[4, 1 << 20]);
+        let spec = kernel(
+            &[tensor(
+                2,
+                &[bind(&[0], "1", "R"), bind(&[1], "BLOCK_C", "C")],
+            )],
+            tensor(2, &[bind(&[0], "1", "R")]),
+        );
+        let r = b.op("r", &[4, 1], spec, &[x]);
+        let e = b.op("e", &[4, 1], flat(2, 1), &[r]);
+        let g = b.build();
+
+        let schedule = schedule_with(&g, &TritonCaps);
+
+        assert!(schedule.plan.level.iter().all(|&l| l == 0));
+        assert!(matches!(
+            schedule.kernels.as_slice(),
+            [KernelChoice::Opaque(a), KernelChoice::Tiled(t)] if *a == r && t.nodes == [e]
+        ));
+    }
+
+    #[test]
+    fn test_w7_conv_batchnorm_silu_fuses_batchnorm_and_silu_through_the_real_lowering() {
+        // §12.5 W7 through `TritonLowering`. conv2d has a tile spec but no
+        // grid spec, so it is opaque. batchnorm2d tiles its flattened H·W
+        // axis by BLOCK_HW, and silu is a rider it splices after itself.
+        //
+        // batchnorm2d's spec lists B and C as untiled dims rather than
+        // binding them (P4 unmet), so they propagate as `Full`: each unit's
+        // region spans every (b, c), though the kernel's own grid gives each
+        // CTA one. Traffic is unaffected, but the footprint is B·C times too
+        // big, and the group's grid is not the kernel's.
+        let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
+            .batch(2)
+            .in_channels(3)
+            .out_channels(8)
+            .height(32)
+            .width(32)
+            .build()
+            .expect("every required field is set")
+            .graph()
+            .expect("graph construction should not fail here");
+        let (dag, graph_to_dag, _) = TritonLowering::default()
+            .lower_with_mapping(&block.graph, LoweringMode::Inference)
+            .expect("lowering should not fail here");
+        let names: Vec<String> = graph_to_dag
+            .iter()
+            .map(|&i| dag.node(i).value.name().to_string())
+            .collect();
+        let g = TileGraph::from_dag(dag, op_meta).expect("conv block shapes are static");
+        let node = |graph_idx: usize| {
+            g.nodes
+                .iter()
+                .find(|n| n.kind == NodeKind::Op && n.name == names[graph_idx])
+                .unwrap_or_else(|| panic!("no tile node for \"{}\"", names[graph_idx]))
+                .id
+        };
+        let (conv, bn, silu) = (node(block.conv), node(block.bn), node(block.silu));
+        assert!(g.nodes[conv.0].meta.is_none(), "conv2d has no grid spec");
+
+        let schedule = schedule_with(&g, &TeenygradCaps);
+
+        let [KernelChoice::Opaque(first), KernelChoice::Tiled(fused)] = schedule.kernels.as_slice()
+        else {
+            panic!("expected conv2d alone, then one tiled kernel");
+        };
+        assert_eq!(*first, conv);
+        assert_eq!(fused.nodes, vec![bn, silu]);
+        assert_eq!(fused.anchor, bn);
+        let [(KnobName::Block("BLOCK_HW"), v)] = fused.knobs.as_slice() else {
+            panic!("batchnorm2d's one knob is BLOCK_HW, got {:?}", fused.knobs);
+        };
+        assert!(
+            *v >= 1024 || 1024 % *v == 0 || (*v % 32 == 0 && 32 % (*v / 32) == 0),
+            "BLOCK_HW = {v} should box H·W = 32·32"
+        );
     }
 }
