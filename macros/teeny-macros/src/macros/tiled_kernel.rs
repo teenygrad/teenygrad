@@ -2079,6 +2079,77 @@ fn parse_tile_loop_scalar(pt: &PatType) -> Result<Option<Vec<(syn::Expr, syn::Ex
 
 // ── Macro implementation ──────────────────────────────────────────────────────
 
+/// Whether `tokens` mention the identifier `name` anywhere, groups included.
+fn mentions(tokens: TokenStream2, name: &str) -> bool {
+    tokens.into_iter().any(|t| match t {
+        proc_macro2::TokenTree::Ident(i) => i == name,
+        proc_macro2::TokenTree::Group(g) => mentions(g.stream(), name),
+        _ => false,
+    })
+}
+
+/// The `TileLoopWalk`s of a generated loop (P6, teenygrad-3f4z): the dims of
+/// each `#[tile_loop_tile]` operand that the loop walks one element at a time.
+///
+/// A dim is walked when its read index mentions a loop axis but not the
+/// blocked range, so each iteration reads one scalar index of it; and when
+/// its `#[tile(..)]` axis is neither blocked, windowed, nor over an extent the
+/// output has, so nothing else resolves it. conv2d's C_IN index
+/// `.. + c_in_local` is one; its H index `tile_oh * STRIDE_H + kh - PAD_H` is
+/// windowed, so its KH rows are already the window's, and its W index reads
+/// the blocked range.
+fn loop_walks(
+    l: &TileLoopArgs,
+    loop_tiles: &[(&Ident, Type, Vec<(syn::Expr, syn::Expr)>, Vec<usize>)],
+    tile_in_params: &[(&Ident, Type, &[TileAttrArgs])],
+    tile_out_params: &[(&Ident, Type, &[TileAttrArgs])],
+) -> Vec<TokenStream2> {
+    let out_extents: Vec<String> = tile_out_params
+        .iter()
+        .flat_map(|(_, _, axes)| axes.iter().map(|a| a.extent.to_string()))
+        .collect();
+    let mut walks = Vec::new();
+    for (param, _, index, _) in loop_tiles {
+        let Some((_, _, attrs)) = tile_in_params.iter().find(|(id, _, _)| id == param) else {
+            continue;
+        };
+        // One read index per declared axis; anything else is not a shape
+        // this can map, so it derives nothing (conservative: held whole).
+        if index.len() != attrs.len() {
+            continue;
+        }
+        let (dims, _) = real_dims(attrs);
+        for ((expr, _), (axis, d)) in index.iter().zip(attrs.iter().zip(&dims)) {
+            let toks = quote! { #expr };
+            let walked = l
+                .axes
+                .iter()
+                .any(|(a, _)| mentions(toks.clone(), &a.to_string()))
+                && !mentions(toks.clone(), "__tile_range")
+                && axis.block.is_none()
+                && axis.window.is_none()
+                && !axis.walk
+                && !out_extents.contains(&axis.extent.to_string())
+                && d.len() == 1;
+            if !walked {
+                continue;
+            }
+            let param_s = param.to_string();
+            let extent_s = axis.extent.to_string();
+            let dim = d[0];
+            walks.push(quote! {
+                ::teeny_core::model::TileLoopWalk {
+                    param: #param_s,
+                    dim: #dim,
+                    extent_param: #extent_s,
+                    chunk: "1",
+                }
+            });
+        }
+    }
+    walks
+}
+
 pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let kernel_attrs = match parse_kernel_attrs(attrs) {
         Ok(a) => a,
@@ -2096,30 +2167,6 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let grid_order = match parse_tile_grid_order(&input.attrs) {
         Ok(o) => o,
         Err(e) => return e.to_compile_error().into(),
-    };
-    // `loop_spec` for the generated `tile_spec()`, or `None` when the kernel
-    // declares no accumulation loop (teenygrad-1nr.18.3).
-    let loop_spec_tokens: TokenStream2 = match &tile_loop {
-        None => quote! { ::core::option::Option::None },
-        Some(l) => {
-            let carries = l.carries.iter().map(|(name, shape)| {
-                let name_str = name.to_string();
-                let shape_strs: Vec<String> = shape.clone();
-                quote! {
-                    ::teeny_core::model::TileCarryBinding {
-                        name: #name_str,
-                        shape_consts: &[ #(#shape_strs),* ],
-                    }
-                }
-            });
-            let factors: Vec<String> = l.trip_count.iter().map(Ident::to_string).collect();
-            quote! {
-                ::core::option::Option::Some(::teeny_core::model::TileLoopSpec {
-                    carries: &[ #(#carries),* ],
-                    trip_count_factors: &[ #(#factors),* ],
-                })
-            }
-        }
     };
     let fn_ident = input.sig.ident.clone();
     let fn_name_str = fn_ident.to_string();
@@ -2565,6 +2612,33 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             Some((&pi.ident, dtype, attrs.as_slice()))
         })
         .collect();
+
+    // `loop_spec` for the generated `tile_spec()`, or `None` when the kernel
+    // declares no accumulation loop (teenygrad-1nr.18.3).
+    let loop_spec_tokens: TokenStream2 = match &tile_loop {
+        None => quote! { ::core::option::Option::None },
+        Some(l) => {
+            let carries = l.carries.iter().map(|(name, shape)| {
+                let name_str = name.to_string();
+                let shape_strs: Vec<String> = shape.clone();
+                quote! {
+                    ::teeny_core::model::TileCarryBinding {
+                        name: #name_str,
+                        shape_consts: &[ #(#shape_strs),* ],
+                    }
+                }
+            });
+            let factors: Vec<String> = l.trip_count.iter().map(Ident::to_string).collect();
+            let walks = loop_walks(l, &loop_tiles, &tile_in_params, &tile_out_params);
+            quote! {
+                ::core::option::Option::Some(::teeny_core::model::TileLoopSpec {
+                    carries: &[ #(#carries),* ],
+                    trip_count_factors: &[ #(#factors),* ],
+                    walks: &[ #(#walks),* ],
+                })
+            }
+        }
+    };
 
     // teenygrad-1nr.19: raw-pointer `In`/`Out`/`InOut` parameters (never
     // `Tile`-typed -- those are handled above) carrying one or more

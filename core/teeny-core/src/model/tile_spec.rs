@@ -274,6 +274,31 @@ pub struct TileCarryBinding {
     pub shape_consts: &'static [&'static str],
 }
 
+/// One input dim a kernel's loop walks inside each program, a chunk at a
+/// time (P6, teenygrad-3f4z).
+///
+/// conv2d's loop reads one input channel per iteration, so although each
+/// program reads all of `C_IN` it holds one channel's slice at a time. An
+/// unbound dim of an input that no walk names is held whole, which is right
+/// for a single-block reduction: `reduce_sum` loads its whole row at once.
+/// So a walk is what tells a scheduler's footprint the two apart.
+///
+/// Derived by `#[tiled_kernel]` from the loop's own read
+/// (`#[tile_loop_tile(index = [..])]`), never written by hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileLoopWalk {
+    /// The walked input, as [`TensorTileSpec::param`].
+    pub param: &'static str,
+    /// The real dim of that input the loop walks.
+    pub dim: usize,
+    /// The dim's extent, by the name it is declared with (`"C_IN"`); a
+    /// scheduler keys the walk's chunk by it.
+    pub extent_param: &'static str,
+    /// The elements of the dim one iteration reads: a decimal literal, or
+    /// the name of a const generic whose value it is. conv2d's is `"1"`.
+    pub chunk: &'static str,
+}
+
 /// Loop-carry metadata for a kernel's reduction/accumulation loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileLoopSpec {
@@ -286,8 +311,12 @@ pub struct TileLoopSpec {
     /// runtime param (`C_IN`) combined with three consts, so this names
     /// `["C_IN", "G", "KH", "KW"]` rather than one single param the way a
     /// flash-attention-style fixed-trip-count loop's would be `["n_ctx_k"]`
-    /// alone. No consumer computes the actual trip count from these yet.
+    /// alone. No consumer computes the actual trip count from these: a
+    /// scheduler sizes the loop from [`Self::walks`] instead.
     pub trip_count_factors: &'static [&'static str],
+    /// The input dims the loop walks, one chunk per iteration. Empty for a
+    /// loop whose reads aren't derived (a hand-written loop).
+    pub walks: &'static [TileLoopWalk],
 }
 
 /// Tile-shape metadata for a kernel's full tensor set — the queryable
@@ -601,6 +630,41 @@ impl KernelTileSpec {
                 .into());
             }
         }
+        for walk in loop_spec.walks {
+            let bad = |problem: alloc::string::String| Error::InvalidTileSpec {
+                param: walk.param.to_string(),
+                problem,
+            };
+            let Some(t) = self.inputs.iter().find(|t| t.param == walk.param) else {
+                return Err(bad(format!(
+                    "the loop walks `{}`, which is not an input of the spec",
+                    walk.param
+                ))
+                .into());
+            };
+            if walk.dim >= t.rank {
+                return Err(bad(format!(
+                    "the loop walks dim {}, but the input is rank {}",
+                    walk.dim, t.rank
+                ))
+                .into());
+            }
+            if let Some(a) = t.axes.iter().find(|a| a.dims.contains(&walk.dim)) {
+                return Err(bad(format!(
+                    "the loop walks dim {}, which the binding over `{}` already \
+                     resolves; a dim is either bound or walked",
+                    walk.dim, a.extent_param
+                ))
+                .into());
+            }
+            if walk.chunk.is_empty() || walk.extent_param.is_empty() {
+                return Err(bad(format!(
+                    "the walk of dim {} has an empty chunk or extent name",
+                    walk.dim
+                ))
+                .into());
+            }
+        }
         Ok(())
     }
 }
@@ -780,6 +844,7 @@ mod tests {
             loop_spec: Some(TileLoopSpec {
                 carries: CARRIES,
                 trip_count_factors: &["n_ctx_k"],
+                walks: &[],
             }),
         };
         SPEC.validate()
@@ -796,6 +861,7 @@ mod tests {
             loop_spec: Some(TileLoopSpec {
                 carries: BAD_CARRIES,
                 trip_count_factors: &["n_ctx_k"],
+                walks: &[],
             }),
         };
         let msg = alloc::format!("{}", BAD.validate().expect_err("empty shape_consts"));
@@ -844,6 +910,7 @@ mod tests {
                     shape_consts: &[],
                 }],
                 trip_count_factors: &["N"],
+                walks: &[],
             }),
         };
         let msg = alloc::format!("{}", SPEC.validate().expect_err("empty carry"));
@@ -901,10 +968,50 @@ mod tests {
             loop_spec: Some(TileLoopSpec {
                 carries: &[],
                 trip_count_factors: &[],
+                walks: &[],
             }),
             ..spec(alloc::vec![xy].leak(), xy)
         };
         assert!(!looped.is_broadcast_map());
+    }
+
+    #[test]
+    fn test_a_walk_names_an_unbound_dim_of_an_input() {
+        static XY: [TileAxisBinding; 1] = [axis(&[1], "BLOCK_C")];
+        let x = TensorTileSpec {
+            untiled_dims: &["K"],
+            ..tensor(2, &XY)
+        };
+        let walking = |walk: TileLoopWalk| KernelTileSpec {
+            inputs: alloc::vec![x].leak(),
+            outputs: alloc::vec![tensor(1, &[])].leak(),
+            loop_spec: Some(TileLoopSpec {
+                carries: &[],
+                trip_count_factors: &[],
+                walks: alloc::vec![walk].leak(),
+            }),
+        };
+        let k = TileLoopWalk {
+            param: "x_ptr",
+            dim: 0,
+            extent_param: "K",
+            chunk: "1",
+        };
+        walking(k)
+            .validate()
+            .expect("dim 0 is unbound, so it can be walked");
+
+        let msg = |w| alloc::format!("{}", walking(w).validate().expect_err("bad walk"));
+        assert!(
+            msg(TileLoopWalk {
+                param: "w_ptr",
+                ..k
+            })
+            .contains("not an input")
+        );
+        assert!(msg(TileLoopWalk { dim: 2, ..k }).contains("rank 2"));
+        assert!(msg(TileLoopWalk { dim: 1, ..k }).contains("bound or walked"));
+        assert!(msg(TileLoopWalk { chunk: "", ..k }).contains("empty chunk"));
     }
 
     #[test]

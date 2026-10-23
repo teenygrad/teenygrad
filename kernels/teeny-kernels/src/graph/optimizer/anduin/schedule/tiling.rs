@@ -22,17 +22,20 @@
 //! needs A13's children, so [`tile_group`] reports no candidates there, and
 //! every multi-node group on it stays infeasible.
 //!
-//! There is no rstep metadata yet (P6), so [`initial_rsteps`] assigns none and
-//! [`expand_rsteps`] never grows one: every reduce dim is read whole.
+//! Rsteps (P6) come from each kernel's `TileLoopSpec::walks`: a dim its loop
+//! walks is held one chunk at a time. A walk whose chunk is a literal is fixed
+//! (conv2d reads one input channel per iteration); one whose chunk names a
+//! const is searched, as Welder searches a reduction's step. A reduce dim no
+//! walk names is read whole, which is right for a single-block reduction.
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
-use super::cost::{finish_cost, footprint, occupancy_and_key};
+use super::cost::{contiguous_run, dtype_bytes, finish_cost, footprint, occupancy_and_key};
 use super::legality::{covers, redundancy};
-use super::propagate::propagate_group;
-use super::seed::{Knob, knobs_for, seed, zip_knobs};
-use super::span::{RStep, Region, lens_traffic, sub_lens, walks};
+use super::propagate::{propagate_group, propagate_node};
+use super::seed::{Knob, factors, knobs_for, seed, zip_knobs};
+use super::span::{DimSpan, RChunk, RStep, Region, lens_fp, lens_traffic, sub_lens, walks};
 use super::{Cost, Ctx, GroupSchedule, Lvl, Reject, external_edges, meta, out_edges, shape};
 use crate::graph::optimizer::anduin::tile_graph::{EdgeId, NodeId};
 
@@ -139,19 +142,225 @@ fn extents_at(cx: &Ctx, n_set: &[NodeId], parents: &[&GroupSchedule]) -> Extents
     ext
 }
 
-/// Welder `_assign_reduce_step`. No spec declares a searchable rstep yet (P6),
-/// so no reduce dim is chunked.
-fn initial_rsteps(
-    _cx: &Ctx,
-    _n_set: &[NodeId],
-    _ext: &Extents,
-    _parents: &[&GroupSchedule],
-) -> BTreeMap<NodeId, RStep> {
-    BTreeMap::new()
+/// One walk of node `n`'s loop: the extent name its chunk is keyed by, its
+/// in-edge and dim, and its fixed chunk, or `None` when the chunk names a
+/// const the search sets.
+struct WalkAt {
+    name: &'static str,
+    edge: EdgeId,
+    dim: usize,
+    fixed: Option<u64>,
 }
 
-/// Welder `_expand_reduce_axis`. A no-op until P6: there is no rstep to grow.
-fn expand_rsteps(_cx: &Ctx, _s: &mut GroupSchedule, _parents: &[&GroupSchedule]) {}
+fn walks_of(cx: &Ctx, n: NodeId) -> Vec<WalkAt> {
+    let spec = meta(cx.g, n).spec();
+    let Some(l) = spec.loop_spec else {
+        return vec![];
+    };
+    l.walks
+        .iter()
+        .filter_map(|w| {
+            // P5: spec input p is in-edge port p
+            let p = spec.inputs.iter().position(|t| t.param == w.param)?;
+            let edge = *cx.g.nodes[n.0].in_edges.get(p)?;
+            Some(WalkAt {
+                name: w.extent_param,
+                edge,
+                dim: w.dim,
+                fixed: w.chunk.parse().ok(),
+            })
+        })
+        .collect()
+}
+
+/// A searched chunk's candidates for extent `e`: its factors, or, when `e` is
+/// a prime above 64 and so has no useful factor, the powers of two below it
+/// (Triton masks the tail).
+fn rstep_values(e: u64) -> Vec<u64> {
+    let f = factors(e);
+    if f.len() > 2 || e <= 64 {
+        return f;
+    }
+    std::iter::successors(Some(1u64), |&v| Some(v * 2))
+        .take_while(|&v| v < e)
+        .collect()
+}
+
+/// Node `n`'s operand regions for a one-element output with rstep `rs`, and
+/// the external in-edges among them: what Welder scores an rstep on.
+fn one_element_reads(
+    cx: &Ctx,
+    n_set: &[NodeId],
+    n: NodeId,
+    ext: &Extents,
+    rs: &RStep,
+) -> Vec<(EdgeId, Vec<u64>)> {
+    let one: Region = (0..shape(cx.g, n).len())
+        .map(|axis| DimSpan::Tiled {
+            axis,
+            step: 1,
+            lo: 0,
+            len: 1,
+        })
+        .collect();
+    let Ok(ins) = propagate_node(meta(cx.g, n), &one, rs) else {
+        return vec![];
+    };
+    cx.g.nodes[n.0]
+        .in_edges
+        .iter()
+        .filter(|&&e| !n_set.contains(&cx.g.edges[e.0].src))
+        .filter_map(|&e| {
+            let r = ins.get(cx.g.edges[e.0].dst_port)?;
+            Some((e, lens_fp(r, &ext.operand[&e], 1)))
+        })
+        .collect()
+}
+
+/// Welder `_assign_reduce_step`. A fixed walk gets its own chunk. The searched
+/// ones of each node start at their smallest candidate and step up, one name at
+/// a time, while that strictly improves how well the node's external reads
+/// coalesce: `Σ sim(contiguous run, read transaction)`, `sim(a, b) = 2ab/(a²+b²)`.
+fn initial_rsteps(cx: &Ctx, l: Lvl, n_set: &[NodeId], ext: &Extents) -> BTreeMap<NodeId, RStep> {
+    let mut out = BTreeMap::new();
+    for &n in n_set {
+        let ws = walks_of(cx, n);
+        if ws.is_empty() {
+            continue;
+        }
+        let extent = |w: &WalkAt| ext.operand[&w.edge].get(w.dim).copied().unwrap_or(1);
+        let mut rs = RStep::new();
+        let mut cands: BTreeMap<&'static str, (Vec<u64>, usize)> = BTreeMap::new();
+        for w in &ws {
+            let len = match w.fixed {
+                Some(c) => c.clamp(1, extent(w).max(1)),
+                None => {
+                    let v = rstep_values(extent(w));
+                    let first = v[0];
+                    cands.insert(w.name, (v, 0));
+                    first
+                }
+            };
+            rs.insert(w.name, RChunk { len, split: 1 });
+        }
+        let score = |rs: &RStep| -> f64 {
+            one_element_reads(cx, n_set, n, ext, rs)
+                .iter()
+                .map(|(e, lens)| {
+                    let src = cx.g.edges[e.0].src;
+                    let txn = (cx.hw.levels[l].read_txn_bytes
+                        / dtype_bytes(cx.g.nodes[src.0].dtype))
+                    .max(1) as f64;
+                    let run = contiguous_run(lens, &ext.operand[e]) as f64;
+                    2.0 * run * txn / (run * run + txn * txn)
+                })
+                .sum()
+        };
+        let mut best = score(&rs);
+        loop {
+            let mut step: Option<(&'static str, usize, f64)> = None;
+            for (&name, (v, at)) in &cands {
+                if at + 1 >= v.len() {
+                    continue;
+                }
+                let mut t = rs.clone();
+                t.insert(
+                    name,
+                    RChunk {
+                        len: v[at + 1],
+                        split: 1,
+                    },
+                );
+                let sc = score(&t);
+                if sc > step.map_or(best, |(_, _, b)| b) {
+                    step = Some((name, at + 1, sc));
+                }
+            }
+            let Some((name, at, sc)) = step else { break };
+            let c = cands.get_mut(name).expect("stepped from `cands`");
+            c.1 = at;
+            rs.insert(
+                name,
+                RChunk {
+                    len: c.0[at],
+                    split: 1,
+                },
+            );
+            best = sc;
+        }
+        out.insert(n, rs);
+    }
+    out
+}
+
+/// Welder `_expand_reduce_axis`: grow each node's searched rsteps, in `pos`
+/// order, while the footprint stays within what one unit may hold without
+/// lowering its occupancy, `min(capacity_per_cu / units_per_cu,
+/// capacity_per_owner)` of level `l + 1`. Each step takes the name whose next
+/// multiple most lengthens the external reads' contiguous runs. Traffic is
+/// unchanged: a walked dim is read in full whatever its chunk.
+fn expand_rsteps(cx: &Ctx, s: &mut GroupSchedule, sr: &Search) {
+    let lv = &cx.hw.levels[s.level + 1];
+    let limit = (lv.capacity_per_cu / s.cost.units_per_cu.max(1)).min(lv.capacity_per_owner);
+    let mut nodes = s.nodes.clone();
+    nodes.sort_by_key(|n| cx.g.pos[n.0]);
+    for n in nodes {
+        let searched: Vec<WalkAt> = walks_of(cx, n)
+            .into_iter()
+            .filter(|w| w.fixed.is_none())
+            .collect();
+        loop {
+            let rs = s.rstep.get(&n).cloned().unwrap_or_default();
+            let mut best: Option<(RStep, u64)> = None;
+            for w in &searched {
+                let cur = rs.get(w.name).map_or(1, |c| c.len);
+                let e = sr.ext.operand[&w.edge].get(w.dim).copied().unwrap_or(1);
+                let Some(&next) = rstep_values(e).iter().find(|&&v| v > cur && v % cur == 0) else {
+                    continue;
+                };
+                let mut t = rs.clone();
+                t.insert(
+                    w.name,
+                    RChunk {
+                        len: next,
+                        split: 1,
+                    },
+                );
+                let run: u64 = one_element_reads(cx, &s.nodes, n, &sr.ext, &t)
+                    .iter()
+                    .map(|(e, lens)| contiguous_run(lens, &sr.ext.operand[e]))
+                    .sum();
+                if best.as_ref().is_none_or(|(_, b)| run > *b) {
+                    best = Some((t, run));
+                }
+            }
+            let Some((t, _)) = best else { break };
+            let mut rstep = s.rstep.clone();
+            rstep.insert(n, t);
+            let Ok(pr) = propagate_group(
+                cx,
+                &s.nodes,
+                s.anchor,
+                &sr.sinks,
+                &s.region[&s.anchor],
+                &sr.ext.node,
+                &rstep,
+            ) else {
+                break;
+            };
+            let mut grown = s.clone();
+            grown.region = pr.region;
+            grown.in_region = pr.in_region;
+            grown.rstep = rstep;
+            let fp = footprint(cx, &grown);
+            if fp > limit {
+                break;
+            }
+            grown.cost.footprint = fp;
+            *s = grown;
+        }
+    }
+}
 
 /// A heap entry ordered by `(key, θ)` ascending; wrapped in `Reverse` for
 /// `BinaryHeap`'s max-heap.
@@ -300,7 +509,7 @@ pub(super) fn tile_group(
     }
     let (anchor, sinks) = choose_anchor(cx, l, n_set);
     let ext = extents_at(cx, n_set, parents);
-    let rstep = initial_rsteps(cx, n_set, &ext, parents);
+    let rstep = initial_rsteps(cx, l, n_set, &ext);
     let knobs = knobs_for(cx, l, anchor, &ext.node[&anchor]);
     let sr = Search {
         l,
@@ -370,7 +579,7 @@ pub(super) fn tile_group(
     // Finish candidates in key order until top_k complete schedules exist.
     let mut out = Vec::new();
     for (_, mut s) in cands {
-        expand_rsteps(cx, &mut s, parents);
+        expand_rsteps(cx, &mut s, &sr);
         s.fanout = 1;
         finish_cost(cx, &mut s, parents);
         out.push(s);
@@ -395,6 +604,7 @@ mod tests {
     use super::super::{Capabilities, ConnectPlan, SearchParams, TeenygradCaps};
     use super::*;
     use crate::graph::optimizer::anduin::tile_graph::TileGraph;
+    use teeny_core::model::{KernelTileSpec, TensorTileSpec};
 
     fn params(top_k: usize) -> SearchParams {
         SearchParams {
@@ -446,13 +656,14 @@ mod tests {
         let (anchor, sinks) = choose_anchor(cx, 0, n_set);
         let ext = extents_at(cx, n_set, &[]);
         let knobs = knobs_for(cx, 0, anchor, &ext.node[&anchor]);
+        let rstep = initial_rsteps(cx, 0, n_set, &ext);
         Search {
             l: 0,
             n_set,
             anchor,
             sinks,
             knobs,
-            rstep: BTreeMap::new(),
+            rstep,
             ext,
             parents: &[],
         }
@@ -559,7 +770,112 @@ mod tests {
                     "B: {:?}",
                     x[0]
                 );
-                assert_eq!(x[1], DimSpan::Full, "C_IN is reduced");
+                // C_IN is walked a channel per iteration (P6), so one is held.
+                assert_eq!(x[1], DimSpan::Chunk { len: 1, split: 1 }, "C_IN");
+                // The unit's working set: one channel's KH-row, halo'd window
+                // of x and its 8 output columns. The real kernel holds less
+                // (one row per iteration, and its carry), but within KH.
+                // Buffers are 32-byte aligned.
+                let window = 3 * ((v - 1) * stride + 3);
+                let aligned = |elems: u64| (elems * 4).next_multiple_of(32);
+                assert_eq!(
+                    s.cost.footprint,
+                    aligned(window) + aligned(v),
+                    "stride {stride}"
+                );
+            });
+        }
+    }
+
+    /// `[M, K] @ [K, N]` whose loop walks K in `BLOCK_K` chunks on both
+    /// operands: a searched rstep (P6).
+    fn matmul(m: u64, k: u64, n: u64) -> (TileGraph, [NodeId; 3]) {
+        use teeny_core::model::{TensorTileSpec, TileLoopSpec, TileLoopWalk};
+        let operand = |param, axes: &[_]| TensorTileSpec {
+            param,
+            untiled_dims: &["K"],
+            ..tensor(2, axes)
+        };
+        let a = operand("a", &[bind(&[0], "BLOCK_M", "M")]);
+        let b = operand("b", &[bind(&[1], "BLOCK_N", "N")]);
+        let c = tensor(2, &[bind(&[0], "BLOCK_M", "M"), bind(&[1], "BLOCK_N", "N")]);
+        let walk = |param, dim| TileLoopWalk {
+            param,
+            dim,
+            extent_param: "K",
+            chunk: "BLOCK_K",
+        };
+        let spec = KernelTileSpec {
+            loop_spec: Some(TileLoopSpec {
+                carries: &[],
+                trip_count_factors: &[],
+                walks: Vec::leak(vec![walk("a", 1), walk("b", 0)]),
+            }),
+            ..kernel(&[a, b], c)
+        };
+        spec.validate()
+            .expect("the matmul fixture is self-consistent");
+        let mut bld = Builder::default();
+        let x = bld.input("a", &[m, k]);
+        let y = bld.input("b", &[k, n]);
+        let mm = bld.op("matmul", &[m, n], spec, &[x, y]);
+        (bld.build(), [x, y, mm])
+    }
+
+    #[test]
+    fn test_p6_a_matmul_walks_k_in_a_searched_rstep() {
+        // ANALYSIS.md §12.4's example: with rstep rk, a unit holds one rk-wide
+        // chunk of each operand's K, and a child tiling re-reads both operands
+        // once per chunk while computing the output once.
+        let (g, [_, _, mm]) = matmul(64, 256, 64);
+        let n_set = [mm];
+        with_group(&g, &n_set, &TeenygradCaps, 10, |cx| {
+            let cands = tile_group(cx, 0, &n_set, &[]);
+            let s = cands.first().expect("a lone matmul tiles");
+            // The initial step coalesces A's rows: 32 floats fill one 128-byte
+            // read transaction. Expansion then doubles it while the unit fits
+            // in its share of shared memory at this occupancy, 96 KiB over 4
+            // units per CU; a 256-wide chunk would not.
+            let rk = s.rstep[&mm]["K"].len;
+            assert_eq!(rk, 128);
+            assert_eq!(s.cost.units_per_cu, 4);
+            assert!(s.cost.footprint <= 96 * 1024 / 4, "{}", s.cost.footprint);
+            let [ea, eb] = [g.nodes[mm.0].in_edges[0], g.nodes[mm.0].in_edges[1]];
+            assert_eq!(s.in_region[&ea][1], DimSpan::Chunk { len: rk, split: 1 });
+            assert_eq!(s.in_region[&eb][0], DimSpan::Chunk { len: rk, split: 1 });
+
+            let ext = extents_at(cx, &n_set, &[s]);
+            assert_eq!(ext.op_trips[&ea], 256 / rk, "A is re-read per K chunk");
+            assert_eq!(ext.op_trips[&eb], 256 / rk, "so is B");
+            assert_eq!(ext.trips[&mm], 1, "the output is computed once");
+            assert_eq!(ext.operand[&ea][1], rk, "a child sees one chunk of K");
+        });
+    }
+
+    #[test]
+    fn test_p6_a_single_block_reduction_still_holds_its_whole_row() {
+        // A reduction with no walk loads its row in one block, so its reduced
+        // dim stays `Full` and no rstep is assigned: requirement 2.
+        let x = TensorTileSpec {
+            reduction_axis: Some(1),
+            untiled_dims: &["C"],
+            ..tensor(2, &[bind(&[0], "1", "R")])
+        };
+        let y = tensor(1, &[bind(&[0], "1", "R")]);
+        for spec in [kernel(&[x], y), looping(kernel(&[x], y))] {
+            let mut bld = Builder::default();
+            let input = bld.input("x", &[16, 512]);
+            let sum = bld.op("sum", &[16], spec, &[input]);
+            let g = bld.build();
+            let n_set = [sum];
+            with_group(&g, &n_set, &TeenygradCaps, 10, |cx| {
+                let cands = tile_group(cx, 0, &n_set, &[]);
+                let s = cands.first().expect("a lone reduction tiles");
+                assert!(s.rstep.is_empty(), "{:?}", s.rstep);
+                let x = &s.in_region[&g.nodes[sum.0].in_edges[0]];
+                assert_eq!(x[1], DimSpan::Full, "the whole row is resident");
+                // The footprint holds a 512-float row per output element.
+                assert!(s.cost.footprint >= 512 * 4, "{}", s.cost.footprint);
             });
         }
     }

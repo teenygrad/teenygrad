@@ -28,7 +28,7 @@ mod tile_spec;
 
 pub use grid_spec::{GridAxisBinding, GridDim, GridSpec};
 pub use tile_spec::{
-    KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileWindow,
+    KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileLoopWalk, TileWindow,
 };
 
 /// A node index within a compiled model's DAG.

@@ -124,6 +124,7 @@ pub(super) fn looping(spec: KernelTileSpec) -> KernelTileSpec {
         loop_spec: Some(TileLoopSpec {
             carries: &[],
             trip_count_factors: &[],
+            walks: &[],
         }),
         ..spec
     }

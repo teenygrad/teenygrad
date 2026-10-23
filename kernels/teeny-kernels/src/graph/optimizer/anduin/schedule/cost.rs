@@ -47,7 +47,7 @@ fn dtype(cx: &Ctx, n: NodeId) -> DtypeRepr {
 }
 
 /// Welder `coalesced_factor`: the contiguous run length of a sub-box in the full box.
-fn contiguous_run(lens: &[u64], ext: &[u64]) -> u64 {
+pub(super) fn contiguous_run(lens: &[u64], ext: &[u64]) -> u64 {
     let mut run = 1;
     for d in (0..lens.len()).rev() {
         run *= lens[d];

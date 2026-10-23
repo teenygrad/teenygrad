@@ -3683,7 +3683,7 @@ mod conv2d_grid_spec_tests {
 
     use super::*;
 
-    use teeny_core::model::TileAxisBinding;
+    use teeny_core::model::{TileAxisBinding, TileLoopWalk};
     use teeny_core::model::{GridAxisBinding, GridDim};
 
     #[test]
@@ -3705,6 +3705,23 @@ mod conv2d_grid_spec_tests {
             &["C_IN", "G", "KH", "KW"],
             "the factors of (C_IN / G) * KH * KW"
         );
+        // P6 (teenygrad-3f4z): the loop reads one input channel per
+        // iteration (`.. + c_in_local`), so C_IN is walked, not held whole. H
+        // and W are not walks: H's KH rows are its window's, and W reads the
+        // blocked range.
+        assert_eq!(
+            loop_spec.walks,
+            &[TileLoopWalk {
+                param: "x",
+                dim: 1,
+                extent_param: "C_IN",
+                chunk: "1",
+            }]
+        );
+        // A pool's loop walks only windowed dims, so it reports no walk.
+        let pool = crate::nn::pool::maxpool2d::Maxpool2dForward::<f32>::tile_spec();
+        pool.validate().expect("maxpool2d's derived spec validates");
+        assert_eq!(pool.loop_spec.map(|l| l.walks), Some(&[][..]));
 
         assert_eq!(spec.inputs.len(), 1);
         let x = spec.inputs[0];

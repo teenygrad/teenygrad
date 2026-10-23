@@ -85,7 +85,7 @@ pub(super) fn style(cx: &Ctx, l: Lvl) -> KnobStyle {
 }
 
 /// Every divisor of `n`, ascending.
-fn factors(n: u64) -> Vec<u64> {
+pub(super) fn factors(n: u64) -> Vec<u64> {
     let mut small = Vec::new();
     let mut large = Vec::new();
     let mut i = 1;

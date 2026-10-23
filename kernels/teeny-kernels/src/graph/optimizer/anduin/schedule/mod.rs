@@ -32,9 +32,10 @@
 //! children, which are not implemented, so it reports no candidates there and
 //! every multi-node group stays infeasible.
 //!
-//! Two preconditions of §12.2 are unmet in `teeny-core`, and the search falls
-//! back conservatively: no binding is walked (P8), and no reduce dim has an
-//! rstep (P6), so both are read whole.
+//! Two preconditions of §12.2 are partly unmet in `teeny-core`, and the
+//! search falls back conservatively: no binding is walked (P8), and only a
+//! generated loop's walks give a reduce dim an rstep (P6), so the rest are
+//! read whole.
 //!
 //! ## Scope: scheduling only
 //!
@@ -1005,8 +1006,8 @@ mod tests {
         //
         // ANALYSIS.md §12.7 D1 through the real `TritonLowering`. `x` has two
         // consumers, and both reduced tensors are broadcast back over the
-        // column axis by the row-broadcast Sub/Div kernels. There are no
-        // rsteps yet (P6), so `max` and `sum` read whole rows. Checks the
+        // column axis by the row-broadcast Sub/Div kernels. `max` and `sum`
+        // are single-block reductions, so they read whole rows. Checks the
         // parts of D1 visible in a schedule's connect plan, over device
         // memory (level 0) and shared memory (level 1 = H).
         //
@@ -1770,7 +1771,6 @@ mod tests {
         //
         // batchnorm2d and silu are broadcast maps, so riders, and conv2d (a
         // windowed, looping kernel) is the latest non-rider (teenygrad-8x1t).
-        // Its reduction is still read whole (P6, teenygrad-3f4z).
         let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
             .batch(2)
             .in_channels(3)
@@ -1814,14 +1814,14 @@ mod tests {
         // One (b, c_out, oh) per unit, as conv2d's own grid decodes it (P4,
         // teenygrad-3f4z): 2 · 8 · 32 units, where unbound axes gave 2.
         assert_eq!(fused.cost.units, 2 * 8 * 32);
-        // So a unit holds the input rows one output row reads, not the whole
-        // input: C_IN · KH rows of OW + 2 halo'd columns, 3 · 3 · 34 floats
-        // (1224 B), where unbound axes charged 90112 B. C_IN is still resident
-        // whole, since the reduction is not chunked yet (P6).
-        assert!(
-            fused.cost.footprint <= 3 * 3 * 34 * 4 + 64,
-            "footprint {} B is more than one output row's receptive field",
-            fused.cost.footprint
-        );
+        // conv2d's loop reads one input channel per iteration, so C_IN is
+        // held a channel at a time (P6).
+        let x = &fused.in_region[&g.nodes[conv.0].in_edges[0]];
+        assert_eq!(x[1], span::DimSpan::Chunk { len: 1, split: 1 }, "C_IN");
+        // So a unit holds one channel's KH input rows of the 32-wide row
+        // (BLOCK_OW = OW, so W is whole), and the output row the group
+        // computes in place: 3 · 32 + 32 floats. Unbound axes charged 90112 B;
+        // with them bound and C_IN whole it was 1280 B.
+        assert_eq!(fused.cost.footprint, (3 * 32 + 32) * 4);
     }
 }

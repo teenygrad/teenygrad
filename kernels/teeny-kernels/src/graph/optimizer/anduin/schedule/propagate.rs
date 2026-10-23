@@ -57,7 +57,9 @@ fn window_span(s: DimSpan, stride: u64, pad: u64, k: u64) -> DimSpan {
 
 /// The region of every input of `m`'s spec, given its output region `out`
 /// (`resolve_inputs` with regions). An input dim no output name or rstep
-/// resolves stays `Full`, as does a window whose consts are unknown (P3).
+/// resolves stays `Full`, as does a window whose consts are unknown (P3). A
+/// dim the kernel's loop walks (`TileLoopSpec::walks`) is a `Chunk` of its
+/// rstep.
 pub(super) fn propagate_node(
     m: &OpMeta,
     out: &Region,
@@ -116,6 +118,24 @@ pub(super) fn propagate_node(
                     split: c.split,
                 };
             } // otherwise: unresolved ⇒ stays Full (conservative, as resolve_one)
+        }
+        // P6: a dim the kernel's loop walks is held a chunk at a time. Only
+        // with an rstep for it; a walk is never also bound (validate).
+        let walks = spec.loop_spec.iter().flat_map(|l| l.walks);
+        for w in walks.filter(|w| w.param == t.param) {
+            let Some(c) = rstep.get(w.extent_param) else {
+                continue;
+            };
+            match r.get_mut(w.dim) {
+                Some(d @ DimSpan::Full) => {
+                    *d = DimSpan::Chunk {
+                        len: c.len,
+                        split: c.split,
+                    }
+                }
+                Some(_) => {}
+                None => return Err(Reject::Spec),
+            }
         }
         res.push(r);
     }
