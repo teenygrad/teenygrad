@@ -28,7 +28,8 @@ mod tile_spec;
 
 pub use grid_spec::{GridAxisBinding, GridDim, GridSpec};
 pub use tile_spec::{
-    KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileLoopWalk, TileWindow,
+    KernelTileSpec, TensorTileSpec, TileAxisBinding, TileCarryBinding, TileLoopSpec, TileLoopWalk,
+    TileWindow,
 };
 
 /// A node index within a compiled model's DAG.
@@ -339,6 +340,16 @@ pub trait RuntimeOp: Send + Sync {
     }
 }
 
+/// An operand a lowered kernel reads that is not a graph edge: a weight the
+/// op holds, such as conv2d's `[C_OUT, C_IN/G, KH, KW]` (P5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParameterOperand {
+    /// Its index among the kernel's inputs: its spec is `tile_spec().inputs[port]`.
+    pub port: usize,
+    /// Its static shape.
+    pub shape: Vec<usize>,
+}
+
 /// An op that has been lowered to a compilable kernel representation.
 ///
 /// Holds enough information for a caller (who has access to `teeny-compiler`)
@@ -392,6 +403,14 @@ pub trait ExecutableOp {
     /// doesn't have.
     fn const_value(&self, _name: &str) -> Option<usize> {
         None
+    }
+
+    /// The operands this op's kernel reads that are not edges of the graph:
+    /// the weights it holds (conv2d's `w`). Each sits at its port among the
+    /// kernel's inputs, so a scheduler can cost it like an edge (P5). Empty by
+    /// default.
+    fn parameters(&self) -> &[ParameterOperand] {
+        &[]
     }
 
     /// Downcast support for backend-specific executable types.

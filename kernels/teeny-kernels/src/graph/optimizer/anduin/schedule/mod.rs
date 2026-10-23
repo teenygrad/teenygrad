@@ -1820,8 +1820,9 @@ mod tests {
         assert_eq!(x[1], span::DimSpan::Chunk { len: 1, split: 1 }, "C_IN");
         // So a unit holds one channel's KH input rows of the 32-wide row
         // (BLOCK_OW = OW, so W is whole), and the output row the group
-        // computes in place: 3 · 32 + 32 floats. Unbound axes charged 90112 B;
+        // computes in place: 3 · 32 + 32 floats, plus one weight element
+        // (P5), padded to the 32-byte alignment. Unbound axes charged 90112 B;
         // with them bound and C_IN whole it was 1280 B.
-        assert_eq!(fused.cost.footprint, (3 * 32 + 32) * 4);
+        assert_eq!(fused.cost.footprint, (3 * 32 + 32) * 4 + 32);
     }
 }

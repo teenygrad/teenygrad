@@ -181,6 +181,32 @@ impl TileGraph {
             let dtype = op.output_dtype();
             let name = op.name().to_string();
 
+            // A parameter operand (conv2d's weight) is not a DAG edge, so it
+            // gets a placeholder of its own on its port (P5): then it is read,
+            // staged and costed like any external input. Created before the
+            // op, as `priority_order` needs producers first.
+            if let Some(p) = op
+                .parameters()
+                .iter()
+                .find(|p| p.port < dag_node.parents.len())
+            {
+                return Err(Error::InvalidArgument(format!(
+                    "dag node {dag_idx} (\"{name}\") declares a parameter operand on port {}, \
+                     which its DAG input {} already occupies; parameters follow the edge inputs",
+                    p.port, p.port
+                ))
+                .into());
+            }
+            let params: Vec<(usize, NodeId)> = op
+                .parameters()
+                .iter()
+                .map(|p| {
+                    let shape = p.shape.iter().map(|&d| d as u64).collect();
+                    let pname = format!("{name}.param{}", p.port);
+                    let src = graph.add_node(NodeKind::Placeholder, pname, shape, dtype, None);
+                    (p.port, src)
+                })
+                .collect();
             let (kind, meta) = if op.is_input() {
                 (NodeKind::Placeholder, None)
             } else {
@@ -190,6 +216,9 @@ impl TileGraph {
             for (port, &parent) in dag_node.parents.iter().enumerate() {
                 let src =
                     dag_to_tile[parent].expect("a parent precedes its child in topological order");
+                graph.connect(src, id, port);
+            }
+            for (port, src) in params {
                 graph.connect(src, id, port);
             }
             dag_to_tile[dag_idx] = Some(id);
@@ -324,15 +353,16 @@ mod tests {
     use super::{NodeKind, TileGraph};
     use teeny_core::{
         graph::{DtypeRepr, Shape},
-        model::ExecutableOp,
+        model::{ExecutableOp, ParameterOperand},
         utils::dag::Dag,
     };
 
-    /// Just enough of an `ExecutableOp` for `from_dag`: a name, a shape, and
-    /// whether it is an input.
+    /// Just enough of an `ExecutableOp` for `from_dag`: a name, a shape,
+    /// whether it is an input, and its parameter operands.
     struct FakeOp {
         name: &'static str,
         shape: Shape,
+        params: Vec<ParameterOperand>,
     }
 
     impl ExecutableOp for FakeOp {
@@ -354,13 +384,28 @@ mod tests {
         fn output_dtype(&self) -> DtypeRepr {
             DtypeRepr::F32
         }
+        fn parameters(&self) -> &[ParameterOperand] {
+            &self.params
+        }
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
     }
 
     fn op(name: &'static str, shape: Shape) -> Box<dyn ExecutableOp> {
-        Box::new(FakeOp { name, shape })
+        with_params(name, shape, vec![])
+    }
+
+    fn with_params(
+        name: &'static str,
+        shape: Shape,
+        params: Vec<ParameterOperand>,
+    ) -> Box<dyn ExecutableOp> {
+        Box::new(FakeOp {
+            name,
+            shape,
+            params,
+        })
     }
 
     #[test]
@@ -424,5 +469,57 @@ mod tests {
             .err()
             .expect("dim 0 is dynamic");
         assert!(err.to_string().contains("dynamic dim"), "{err}");
+    }
+
+    #[test]
+    fn test_from_dag_gives_a_parameter_operand_a_placeholder_on_its_port() {
+        // conv2d's shape of things: x is the DAG edge on port 0, and the
+        // weight, which the op holds, is read on port 1 (P5).
+        let weight = ParameterOperand {
+            port: 1,
+            shape: vec![8, 3, 3, 3],
+        };
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let x = dag.add_node(op("input", vec![Some(2), Some(3), Some(32), Some(32)]));
+        let conv = dag.add_node(with_params(
+            "conv",
+            vec![Some(2), Some(8), Some(32), Some(32)],
+            vec![weight.clone()],
+        ));
+        dag.add_edge(x, conv);
+
+        let g = TileGraph::from_dag(dag, |_, _| None).expect("every shape is static");
+        let id_of = |name: &str| g.nodes.iter().find(|n| n.name == name).unwrap().id;
+        let w = id_of("conv.param1");
+        assert_eq!(g.nodes[w.0].kind, NodeKind::Placeholder);
+        assert_eq!(g.nodes[w.0].shape, vec![8, 3, 3, 3]);
+        let conv_in: Vec<_> = g.nodes[id_of("conv").0]
+            .in_edges
+            .iter()
+            .map(|e| (g.edges[e.0].src, g.edges[e.0].dst_port))
+            .collect();
+        assert_eq!(
+            conv_in,
+            vec![(id_of("input"), 0), (w, 1)],
+            "the DAG edge first, then the parameter on its own port"
+        );
+        assert!(
+            g.pos[w.0] < g.pos[id_of("conv").0],
+            "a producer precedes its consumer"
+        );
+
+        // A parameter can't take a port a DAG edge already has.
+        let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
+        let x = dag.add_node(op("input", vec![Some(4)]));
+        let bad = dag.add_node(with_params(
+            "bad",
+            vec![Some(4)],
+            vec![ParameterOperand { port: 0, ..weight }],
+        ));
+        dag.add_edge(x, bad);
+        let err = TileGraph::from_dag(dag, |_, _| None)
+            .err()
+            .expect("port 0 is x's");
+        assert!(err.to_string().contains("port 0"), "{err}");
     }
 }

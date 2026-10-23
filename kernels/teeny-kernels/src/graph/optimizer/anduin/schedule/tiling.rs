@@ -772,15 +772,43 @@ mod tests {
                 );
                 // C_IN is walked a channel per iteration (P6), so one is held.
                 assert_eq!(x[1], DimSpan::Chunk { len: 1, split: 1 }, "C_IN");
+                // The weight is a parameter operand, on port 1 (P5,
+                // teenygrad-27hr): one output channel's [C_IN, KH, KW] slice,
+                // walked one element per iteration.
+                let w_edge = g.nodes[conv.0].in_edges[1];
+                assert_eq!(g.edges[w_edge.0].dst_port, 1);
+                let w = &s.in_region[&w_edge];
+                let one = DimSpan::Chunk { len: 1, split: 1 };
+                assert!(
+                    matches!(
+                        w[0],
+                        DimSpan::Tiled {
+                            step: 1,
+                            lo: 0,
+                            len: 1,
+                            ..
+                        }
+                    ),
+                    "C_OUT: {:?}",
+                    w[0]
+                );
+                assert_eq!(w[1..], [one, one, one], "C_IN, KH and KW are walked");
+                let w_ext = &s.operand_extent[&w_edge];
+                assert_eq!(w_ext, &[8, 3, 3, 3]);
+                assert_eq!(
+                    super::super::span::lens_traffic(w, w_ext),
+                    [1, 3, 3, 3],
+                    "a unit reads its output channel's whole slice"
+                );
                 // The unit's working set: one channel's KH-row, halo'd window
-                // of x and its 8 output columns. The real kernel holds less
-                // (one row per iteration, and its carry), but within KH.
-                // Buffers are 32-byte aligned.
+                // of x, one weight element and its 8 output columns. The real
+                // kernel holds less (one row per iteration, and its carry), but
+                // within KH. Buffers are 32-byte aligned.
                 let window = 3 * ((v - 1) * stride + 3);
                 let aligned = |elems: u64| (elems * 4).next_multiple_of(32);
                 assert_eq!(
                     s.cost.footprint,
-                    aligned(window) + aligned(v),
+                    aligned(window) + aligned(1) + aligned(v),
                     "stride {stride}"
                 );
             });

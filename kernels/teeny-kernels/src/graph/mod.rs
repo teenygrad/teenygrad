@@ -17,7 +17,9 @@
 use std::sync::Arc;
 use teeny_core::{
     graph::{DtypeRepr, Graph, GraphNode, Op, Shape},
-    model::{ExecutableOp, GridSpec, KernelTileSpec, Lowering, LoweringMode, RuntimeOp},
+    model::{
+        ExecutableOp, GridSpec, KernelTileSpec, Lowering, LoweringMode, ParameterOperand, RuntimeOp,
+    },
     utils::dag::Dag,
 };
 
@@ -181,6 +183,7 @@ macro_rules! make_num_kernel {
             tile_spec: None,
             grid_spec: None,
             consts,
+            parameters: Vec::new(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -228,6 +231,7 @@ macro_rules! make_num_kernel {
             tile_spec: None,
             grid_spec: None,
             consts,
+            parameters: Vec::new(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -257,6 +261,7 @@ macro_rules! make_float_kernel {
             tile_spec: None,
             grid_spec: None,
             consts,
+            parameters: Vec::new(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -288,6 +293,7 @@ macro_rules! make_float_kernel {
             tile_spec: None,
             grid_spec: None,
             consts,
+            parameters: Vec::new(),
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -336,6 +342,7 @@ fn exec_from(
         tile_spec,
         grid_spec,
         consts: inst.consts,
+        parameters: Vec::new(),
         shape,
         dtype,
         #[cfg(feature = "training")]
@@ -491,6 +498,31 @@ fn binary_shape(graph: &Graph, node: &GraphNode) -> Result<BinaryShape> {
 /// row axis alone, so its rank-2 `[R, 1]` edge needs the trailing size-1 dim
 /// inserted. Over more rows the kernel flattens them, which its spec cannot
 /// say, so it carries none.
+/// conv2d's weight `[C_OUT, C_IN/G, KH, KW]`, which its kernel reads at
+/// input port 1 though the graph has no edge for it (P5).
+fn conv2d_weight(op: &Op) -> Vec<ParameterOperand> {
+    let Op::Conv2d {
+        in_channels,
+        out_channels,
+        kernel_h,
+        kernel_w,
+        groups,
+        ..
+    } = op
+    else {
+        return Vec::new();
+    };
+    vec![ParameterOperand {
+        port: 1,
+        shape: vec![
+            *out_channels,
+            in_channels / (*groups).max(1),
+            *kernel_h,
+            *kernel_w,
+        ],
+    }]
+}
+
 fn row_broadcast_exec(
     node: &GraphNode,
     name: String,
@@ -515,6 +547,7 @@ fn row_broadcast_exec(
         pointwise_fuse_block_size: None,
         grid_spec: spec.map(|_| grid_spec),
         consts,
+        parameters: Vec::new(),
         tile_spec: spec,
         shape: node.shape.clone(),
         dtype: node.dtype,
@@ -568,6 +601,9 @@ pub struct KernelExecutable {
     /// macros). A tile spec names its window consts this way (P3). Empty
     /// for an op whose kernel the lowering doesn't hold directly.
     pub consts: Vec<(&'static str, usize)>,
+    /// The operands its kernel reads that are not graph edges, such as
+    /// conv2d's weight (P5). Empty when every operand is an edge.
+    pub parameters: Vec<ParameterOperand>,
     /// Backward kernel source. Empty if this op has no backward.
     #[cfg(feature = "training")]
     pub backward_kernel_source: String,
@@ -626,6 +662,10 @@ impl ExecutableOp for KernelExecutable {
             .iter()
             .find(|(n, _)| *n == name)
             .map(|&(_, v)| v)
+    }
+
+    fn parameters(&self) -> &[ParameterOperand] {
+        &self.parameters
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -1003,6 +1043,7 @@ impl TritonLowering {
                     tile_spec: None,
                     grid_spec: None,
                     consts: Vec::new(),
+                    parameters: Vec::new(),
                     shape: vec![Some(2 * c)],
                     dtype: node.dtype,
                     backward_kernel_source: String::new(),
@@ -1062,6 +1103,7 @@ impl TritonLowering {
                     tile_spec: None,
                     grid_spec: None,
                     consts: Vec::new(),
+                    parameters: Vec::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     backward_kernel_source: norm_bwd_src,
@@ -1155,6 +1197,7 @@ impl TritonLowering {
                     tile_spec: Some(Conv2dBiasForward::<f32>::tile_spec()),
                     grid_spec: Some(Conv2dBiasForward::<f32>::grid_spec()),
                     consts,
+                    parameters: conv2d_weight(&node.op),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1288,6 +1331,7 @@ impl TritonLowering {
                     tile_spec: Some(Conv2dForward::<f32>::tile_spec()),
                     grid_spec: Some(Conv2dForward::<f32>::grid_spec()),
                     consts: conv_consts,
+                    parameters: conv2d_weight(&node.op),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1346,6 +1390,7 @@ impl TritonLowering {
                     tile_spec: None,
                     grid_spec: None,
                     consts: Vec::new(),
+                    parameters: Vec::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1371,6 +1416,7 @@ impl TritonLowering {
                     tile_spec: None,
                     grid_spec: None,
                     consts: Vec::new(),
+                    parameters: Vec::new(),
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
@@ -1456,6 +1502,7 @@ impl TritonLowering {
                         tile_spec: Some(BatchNorm2dNchwForwardInference::<f32>::tile_spec()),
                         grid_spec: Some(BatchNorm2dNchwForwardInference::<f32>::grid_spec()),
                         consts,
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1503,6 +1550,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1578,6 +1626,7 @@ impl TritonLowering {
                     // (teenygrad-2pvx).
                     exec.tile_spec = Some(Conv2dForward::<f32>::tile_spec());
                     exec.grid_spec = Some(Conv2dForward::<f32>::grid_spec());
+                    exec.parameters = conv2d_weight(&node.op);
                     exec
                 }
                 Op::Conv3d {
@@ -2258,6 +2307,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2387,6 +2437,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2439,6 +2490,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2875,6 +2927,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2984,6 +3037,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3011,6 +3065,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3038,6 +3093,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3076,6 +3132,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3115,6 +3172,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3170,6 +3228,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3275,6 +3334,7 @@ impl TritonLowering {
                         tile_spec: None,
                         grid_spec: None,
                         consts: Vec::new(),
+                        parameters: Vec::new(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -3605,6 +3665,7 @@ impl TritonLowering {
                             tile_spec: None,
                             grid_spec: None,
                             consts: Vec::new(),
+                            parameters: Vec::new(),
                             #[cfg(feature = "training")]
                             backward_entry_point,
                         })
@@ -3683,8 +3744,8 @@ mod conv2d_grid_spec_tests {
 
     use super::*;
 
-    use teeny_core::model::{TileAxisBinding, TileLoopWalk};
     use teeny_core::model::{GridAxisBinding, GridDim};
+    use teeny_core::model::{TileAxisBinding, TileLoopWalk};
 
     #[test]
     fn test_tile_spec_matches_the_real_tagged_signature() {
@@ -3709,21 +3770,43 @@ mod conv2d_grid_spec_tests {
         // iteration (`.. + c_in_local`), so C_IN is walked, not held whole. H
         // and W are not walks: H's KH rows are its window's, and W reads the
         // blocked range.
+        // The weight is read one element per iteration, so each of its
+        // loop-indexed dims is walked too (P5, teenygrad-27hr).
+        let walk = |param, dim, extent_param| TileLoopWalk {
+            param,
+            dim,
+            extent_param,
+            chunk: "1",
+        };
         assert_eq!(
             loop_spec.walks,
-            &[TileLoopWalk {
-                param: "x",
-                dim: 1,
-                extent_param: "C_IN",
-                chunk: "1",
-            }]
+            &[
+                walk("w", 1, "C_IN/G"),
+                walk("w", 2, "KH"),
+                walk("w", 3, "KW"),
+                walk("x", 1, "C_IN"),
+            ]
         );
         // A pool's loop walks only windowed dims, so it reports no walk.
         let pool = crate::nn::pool::maxpool2d::Maxpool2dForward::<f32>::tile_spec();
         pool.validate().expect("maxpool2d's derived spec validates");
         assert_eq!(pool.loop_spec.map(|l| l.walks), Some(&[][..]));
 
-        assert_eq!(spec.inputs.len(), 1);
+        // x, then the weight: spec input p is in-edge port p.
+        assert_eq!(spec.inputs.len(), 2);
+        let w = spec.inputs[1];
+        assert_eq!((w.param, w.rank), ("w", 4), "[C_OUT, C_IN/G, KH, KW]");
+        // Derived from its `#[tile_loop_scalar]` index: `tile_c_out` is the
+        // program's output channel, so C_OUT is bound at block 1 like the
+        // output's; the loop walks the rest.
+        assert_eq!(
+            w.axes
+                .iter()
+                .map(|a| (a.dims, a.extent_param, a.block_const))
+                .collect::<Vec<_>>(),
+            vec![(&[0usize][..], "C_OUT", "1")]
+        );
+        assert_eq!(w.untiled_dims, &["C_IN/G", "KH", "KW"]);
         let x = spec.inputs[0];
         assert_eq!(x.param, "x");
         assert_eq!(x.rank, 4);
@@ -3744,7 +3827,11 @@ mod conv2d_grid_spec_tests {
         // a scheduler to take the whole batch per unit.
         assert_eq!(x.axes.len(), 3);
         assert_eq!(
-            (x.axes[0].dims, x.axes[0].extent_param, x.axes[0].block_const),
+            (
+                x.axes[0].dims,
+                x.axes[0].extent_param,
+                x.axes[0].block_const
+            ),
             (&[0usize][..], "_B", "1")
         );
         assert_eq!(x.axes[0].window, None);
@@ -3792,7 +3879,11 @@ mod conv2d_grid_spec_tests {
                 (&[3usize][..], "OW", "BLOCK_OW"),
             ]
         );
-        assert!(y.axes.iter().all(|a| a.window.is_none() && a.divide_by.is_none()));
+        assert!(
+            y.axes
+                .iter()
+                .all(|a| a.window.is_none() && a.divide_by.is_none())
+        );
     }
 
     /// The fused composites declare their axes, and the tiled one needs two
@@ -3822,7 +3913,11 @@ mod conv2d_grid_spec_tests {
                 .iter()
                 .map(|a| (a.extent_param, a.block_const, a.window.is_some()))
                 .collect::<Vec<_>>(),
-            vec![("_B", "1", false), ("H", "1", true), ("W", "BLOCK_OW", true)]
+            vec![
+                ("_B", "1", false),
+                ("H", "1", true),
+                ("W", "BLOCK_OW", true)
+            ]
         );
         assert_eq!(x.untiled_dims, &["C_IN"]);
         let l = spec.loop_spec.expect("its accumulation loop is declared");

@@ -2088,6 +2088,87 @@ fn mentions(tokens: TokenStream2, name: &str) -> bool {
     })
 }
 
+/// Whether `expr` is exactly one of the loop's own axes, as `kh` is in a
+/// `#[tile_loop_scalar]` index.
+fn loop_axis_named(l: &TileLoopArgs, expr: &syn::Expr) -> bool {
+    let Expr::Path(p) = expr else { return false };
+    p.path
+        .get_ident()
+        .is_some_and(|i| l.axes.iter().any(|(a, _)| a == i))
+}
+
+/// An extent's name in a spec: an identifier as written, an expression
+/// compacted, so `(C_IN / G)` becomes `C_IN/G`.
+fn extent_label(extent: &syn::Expr) -> String {
+    let s: String = quote! { #extent }
+        .to_string()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    match s.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
+        Some(inner) => inner.to_string(),
+        None => s,
+    }
+}
+
+/// The spec of a `#[tile_loop_scalar]` operand, from its read index
+/// (P5, teenygrad-27hr). A dim indexed by an output axis's program index
+/// (`tile_c_out`) is a block-1 binding over that axis's extent, as the
+/// output's own is (P4). Every other dim is unbound, named by its extent: a
+/// dim indexed by a loop axis is walked (`loop_walks`), and anything else is
+/// conservatively held whole.
+fn scalar_spec(
+    param: &Ident,
+    index: &[(syn::Expr, syn::Expr)],
+    out: &[TileAttrArgs],
+) -> TokenStream2 {
+    let param_s = param.to_string();
+    let rank = index.len();
+    let mut bindings = Vec::new();
+    let mut untiled = Vec::new();
+    for (dim, (expr, extent)) in index.iter().enumerate() {
+        let program_axis = match expr {
+            Expr::Path(p) => p.path.get_ident().and_then(|i| {
+                out.iter()
+                    .filter(|a| a.block.is_none() && !a.walk && !a.reduce)
+                    .find(|a| {
+                        let label = a
+                            .name
+                            .as_ref()
+                            .map(syn::LitStr::value)
+                            .unwrap_or_else(|| a.extent.to_string());
+                        *i == format!("tile_{}", label.to_lowercase())
+                    })
+            }),
+            _ => None,
+        };
+        match program_axis {
+            Some(a) => {
+                let extent_s = a.extent.to_string();
+                bindings.push(quote! {
+                    ::teeny_core::model::TileAxisBinding {
+                        dims: &[#dim],
+                        block_const: "1",
+                        extent_param: #extent_s,
+                        window: ::core::option::Option::None,
+                        divide_by: ::core::option::Option::None,
+                    }
+                });
+            }
+            None => untiled.push(extent_label(extent)),
+        }
+    }
+    quote! {
+        ::teeny_core::model::TensorTileSpec {
+            param: #param_s,
+            rank: #rank,
+            axes: &[ #(#bindings),* ],
+            reduction_axis: ::core::option::Option::None,
+            untiled_dims: &[ #(#untiled),* ],
+        }
+    }
+}
+
 /// The `TileLoopWalk`s of a generated loop (P6, teenygrad-3f4z): the dims of
 /// each `#[tile_loop_tile]` operand that the loop walks one element at a time.
 ///
@@ -2101,6 +2182,7 @@ fn mentions(tokens: TokenStream2, name: &str) -> bool {
 fn loop_walks(
     l: &TileLoopArgs,
     loop_tiles: &[(&Ident, Type, Vec<(syn::Expr, syn::Expr)>, Vec<usize>)],
+    loop_scalars: &[(&Ident, Type, Vec<(syn::Expr, syn::Expr)>)],
     tile_in_params: &[(&Ident, Type, &[TileAttrArgs])],
     tile_out_params: &[(&Ident, Type, &[TileAttrArgs])],
 ) -> Vec<TokenStream2> {
@@ -2109,6 +2191,32 @@ fn loop_walks(
         .flat_map(|(_, _, axes)| axes.iter().map(|a| a.extent.to_string()))
         .collect();
     let mut walks = Vec::new();
+    // A `#[tile_loop_scalar]` operand reads one element per iteration, so
+    // every dim its index takes from a loop axis is walked a chunk of 1 (P5,
+    // teenygrad-27hr). It has a spec only on the multi-axis path: the flat
+    // `tile_spec(rank)` gives every input the same axes, which can't describe
+    // it, so a walk naming it there would name no input.
+    let multi_axis = tile_in_params
+        .iter()
+        .chain(tile_out_params)
+        .any(|(_, _, axes)| axes.len() > 1);
+    for (param, _, index) in loop_scalars.iter().filter(|_| multi_axis) {
+        for (dim, (expr, extent)) in index.iter().enumerate() {
+            if !loop_axis_named(l, expr) {
+                continue;
+            }
+            let param_s = param.to_string();
+            let extent_s = extent_label(extent);
+            walks.push(quote! {
+                ::teeny_core::model::TileLoopWalk {
+                    param: #param_s,
+                    dim: #dim,
+                    extent_param: #extent_s,
+                    chunk: "1",
+                }
+            });
+        }
+    }
     for (param, _, index, _) in loop_tiles {
         let Some((_, _, attrs)) = tile_in_params.iter().find(|(id, _, _)| id == param) else {
             continue;
@@ -2629,7 +2737,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 }
             });
             let factors: Vec<String> = l.trip_count.iter().map(Ident::to_string).collect();
-            let walks = loop_walks(l, &loop_tiles, &tile_in_params, &tile_out_params);
+            let walks = loop_walks(
+                l,
+                &loop_tiles,
+                &loop_scalars,
+                &tile_in_params,
+                &tile_out_params,
+            );
             quote! {
                 ::core::option::Option::Some(::teeny_core::model::TileLoopSpec {
                     carries: &[ #(#carries),* ],
@@ -3876,16 +3990,22 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 let specs: Result<(Vec<TokenStream2>, Vec<TokenStream2>), syn::Error> = (|| {
                     // Only *declared* inputs reach the spec. A parameter with no
                     // `#[tile(..)]` has no axes, so it would come back rank 0 --
-                    // describing nothing. That is conv2d's `w`, whose extents
-                    // include `C_IN / G` and so cannot be named by
-                    // `extent = <ident>` at all; it is read via
-                    // `#[tile_loop_scalar]` and stays out of the spec, exactly
-                    // as it did when it was an untagged raw pointer
-                    // (teenygrad-1nr.18.4).
+                    // describing nothing. The exception is a
+                    // `#[tile_loop_scalar]` operand, conv2d's `w`: its read
+                    // index declares its shape, so its spec is derived from
+                    // that (P5, teenygrad-27hr). Its extents include `C_IN / G`,
+                    // which `extent = <ident>` cannot name, which is why it was
+                    // left out before. Inputs stay in declaration order, so
+                    // spec input p is still in-edge port p.
                     let ins = tile_in_params
                         .iter()
-                        .filter(|(_, _, attrs)| !attrs.is_empty())
-                        .map(|(id, _, attrs)| tensor_spec(&id.to_string(), attrs))
+                        .filter_map(|(id, _, attrs)| {
+                            if !attrs.is_empty() {
+                                return Some(tensor_spec(&id.to_string(), attrs));
+                            }
+                            let (_, _, index) = loop_scalars.iter().find(|(n, _, _)| n == id)?;
+                            Some(Ok(scalar_spec(id, index, tile_out_params[0].2)))
+                        })
                         .collect::<Result<Vec<_>, _>>()?;
                     let outs = tile_out_params
                         .iter()
