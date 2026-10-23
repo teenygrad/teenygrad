@@ -1122,8 +1122,10 @@ impl TritonLowering {
                     kernel_source: ks,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
-                    tile_spec: None,
-                    grid_spec: None,
+                    // Derived from conv2d_bias_forward's own `#[tile(...)]`,
+                    // like conv2d_forward's below.
+                    tile_spec: Some(Conv2dBiasForward::<f32>::tile_spec()),
+                    grid_spec: Some(Conv2dBiasForward::<f32>::grid_spec()),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1250,8 +1252,8 @@ impl TritonLowering {
                     kernel_source: conv_ks,
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
-                    tile_spec: None,
-                    grid_spec: None,
+                    tile_spec: Some(Conv2dForward::<f32>::tile_spec()),
+                    grid_spec: Some(Conv2dForward::<f32>::grid_spec()),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1523,13 +1525,14 @@ impl TritonLowering {
                         node
                     );
                     // Derived by `#[tiled_kernel]` from conv2d_forward's
-                    // own `#[tile(...)]`-tagged x_ptr/y_ptr
-                    // (teenygrad-1nr.19), and dtype-independent like
-                    // ReluForward::tile_spec above. The accumulation loop
-                    // is not attribute-derivable, so this carries no
-                    // `loop_spec`: teenygrad-1tl.11 decides whether the
-                    // macro grows one rather than restating it by hand.
+                    // own `#[tile(...)]`-tagged x and y (teenygrad-1nr.19),
+                    // and dtype-independent like ReluForward::tile_spec
+                    // above. The grid spec follows the body's pid decode
+                    // `(b, c_out, oh, ow_tile)`; without it the op has no
+                    // `OpMeta` and Anduin can only run it opaque
+                    // (teenygrad-2pvx).
                     exec.tile_spec = Some(Conv2dForward::<f32>::tile_spec());
+                    exec.grid_spec = Some(Conv2dForward::<f32>::grid_spec());
                     exec
                 }
                 Op::Conv3d {
@@ -3802,6 +3805,83 @@ mod conv2d_grid_spec_tests {
         };
         let spec = Conv2dForward::<f32>::grid_spec();
         assert_eq!(spec.axes[3], expected_ow_axis);
+    }
+
+    /// The launch grid a [`GridSpec`] describes, given the value of every
+    /// name its axes mention: per hardware dim, the product of each axis's
+    /// unit count (`cdiv(extent, block)`, or `extent` for an untiled axis).
+    fn spec_grid(spec: &GridSpec, value: impl Fn(&str) -> usize) -> [u32; 3] {
+        let mut grid = [1u32; 3];
+        for axis in spec.axes {
+            let extent = value(axis.extent_factors[0]);
+            let units = axis
+                .block_const
+                .map_or(extent, |b| extent.div_ceil(value(b)));
+            let dim = match axis.dim {
+                GridDim::X => 0,
+                GridDim::Y => 1,
+                GridDim::Z => 2,
+            };
+            grid[dim] *= units as u32;
+        }
+        grid
+    }
+
+    /// The conv -> BatchNorm2d -> SiLU block of
+    /// [`test_conv_batchnorm_silu_lowers_with_a_spec_on_every_kernel`],
+    /// lowered, at B = 2 so a batch axis is visible in every grid.
+    fn lowered_conv_block() -> Dag<Box<dyn ExecutableOp>> {
+        use teeny_core::{
+            graph::{DtypeRepr, SymTensor},
+            model::LoweringMode,
+            nn::{Layer, activation::sigmoid::Silu, batchnorm::BatchNorm2d, conv2d::Conv2d},
+            sequential,
+        };
+
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(2), Some(3), Some(32), Some(32)]);
+        let model = sequential![
+            Conv2d::<f32, _, _, 4>::new(3, 8, (3, 3), (1, 1), (1, 1), false),
+            BatchNorm2d::<f32, _, _, 4>::new(8),
+            Silu::<f32, _, 4>::new()
+        ];
+        let _output = Layer::call(&model, input);
+        let graph = graph.borrow().clone();
+        TritonLowering::default()
+            .lower_with_mapping(&graph, LoweringMode::Inference)
+            .expect("triton lowering should succeed")
+            .0
+    }
+
+    fn lowered_op<'a>(dag: &'a Dag<Box<dyn ExecutableOp>>, name: &str) -> &'a dyn ExecutableOp {
+        (0..dag.len())
+            .map(|i| dag.node(i).value.as_ref())
+            .find(|op| op.name() == name)
+            .unwrap_or_else(|| panic!("the conv block lowers a `{name}`"))
+    }
+
+    #[test]
+    fn test_lowered_conv2d_grid_spec_matches_its_launch_grid() {
+        // teenygrad-2pvx: the lowering attaches conv2d's derived grid spec,
+        // and it describes the grid the RuntimeOp actually launches.
+        let dag = lowered_conv_block();
+        let conv = lowered_op(&dag, "conv2d_forward");
+        let spec = conv
+            .grid_spec()
+            .expect("conv2d lowers with its derived grid spec");
+        assert_eq!(spec, Conv2dForward::<f32>::grid_spec());
+
+        let out = [2usize, 8, 32, 32];
+        let grid = spec_grid(&spec, |name| match name {
+            "_B" => out[0],
+            "C_OUT" => out[1],
+            "OH" => out[2],
+            "OW" => out[3],
+            "BLOCK_OW" => 16, // the lowering's block
+            other => panic!("conv2d's grid spec names an unexpected `{other}`"),
+        });
+        let rop = conv.runtime_op().expect("conv2d has a RuntimeOp");
+        assert_eq!(grid, rop.grid(&out));
     }
 
     /// conv2d -> BatchNorm2d -> SiLU, lowered: no node is a hard boundary

@@ -1623,9 +1623,10 @@ mod tests {
 
     #[test]
     fn test_w7_conv_batchnorm_silu_fuses_batchnorm_and_silu_through_the_real_lowering() {
-        // §12.5 W7 through `TritonLowering`. conv2d has a tile spec but no
-        // grid spec, so it is opaque. batchnorm2d tiles its flattened H·W
-        // axis by BLOCK_HW, and silu is a rider it splices after itself.
+        // §12.5 W7 through `TritonLowering`. conv2d tiles on its own: the
+        // edge into batchnorm2d does not fuse, since `TeenygradCaps` fuses
+        // only into a rider. batchnorm2d tiles its flattened H·W axis by
+        // BLOCK_HW, and silu is a rider it splices after itself.
         //
         // batchnorm2d's spec lists B and C as untiled dims rather than
         // binding them (P4 unmet), so they propagate as `Full`: each unit's
@@ -1658,15 +1659,21 @@ mod tests {
                 .id
         };
         let (conv, bn, silu) = (node(block.conv), node(block.bn), node(block.silu));
-        assert!(g.nodes[conv.0].meta.is_none(), "conv2d has no grid spec");
+        assert!(
+            g.nodes[conv.0].meta.is_some(),
+            "conv2d lowers with both specs"
+        );
 
         let schedule = schedule_with(&g, &TeenygradCaps);
 
-        let [KernelChoice::Opaque(first), KernelChoice::Tiled(fused)] = schedule.kernels.as_slice()
+        let [KernelChoice::Tiled(first), KernelChoice::Tiled(fused)] = schedule.kernels.as_slice()
         else {
             panic!("expected conv2d alone, then one tiled kernel");
         };
-        assert_eq!(*first, conv);
+        assert_eq!(
+            (first.nodes.as_slice(), first.anchor),
+            ([conv].as_slice(), conv)
+        );
         assert_eq!(fused.nodes, vec![bn, silu]);
         assert_eq!(fused.anchor, bn);
         let [(KnobName::Block("BLOCK_HW"), v)] = fused.knobs.as_slice() else {
@@ -1676,5 +1683,67 @@ mod tests {
             *v >= 1024 || 1024 % *v == 0 || (*v % 32 == 0 && 32 % (*v / 32) == 0),
             "BLOCK_HW = {v} should box H·W = 32·32"
         );
+    }
+
+    #[test]
+    #[ignore = "conv2d cannot fuse into batchnorm2d under TeenygradCaps, and the fused tiling \
+                is not realisable until P3, P4 and P6 are met (teenygrad-1l7i)"]
+    fn test_conv2d_batchnorm_silu_schedules_as_one_tiled_kernel() {
+        // input -> conv2d -> batchnorm2d -> silu through `TritonLowering`,
+        // scheduled with the production capabilities. The target is the
+        // hand-fused `Conv2dBnSiluForward`: conv2d, batchnorm2d and silu in
+        // one tiled kernel anchored at conv2d, the only node whose spec ties
+        // the group to conv2d's own grid; the input stays apart.
+        let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
+            .batch(2)
+            .in_channels(3)
+            .out_channels(8)
+            .height(32)
+            .width(32)
+            .build()
+            .expect("every required field is set")
+            .graph()
+            .expect("graph construction should not fail here");
+        let (dag, graph_to_dag, _) = TritonLowering::default()
+            .lower_with_mapping(&block.graph, LoweringMode::Inference)
+            .expect("lowering should not fail here");
+        let names: Vec<String> = graph_to_dag
+            .iter()
+            .map(|&i| dag.node(i).value.name().to_string())
+            .collect();
+        let g = TileGraph::from_dag(dag, op_meta).expect("conv block shapes are static");
+        let node = |graph_idx: usize| {
+            g.nodes
+                .iter()
+                .find(|n| n.kind == NodeKind::Op && n.name == names[graph_idx])
+                .unwrap_or_else(|| panic!("no tile node for \"{}\"", names[graph_idx]))
+                .id
+        };
+        let (conv, bn, silu) = (node(block.conv), node(block.bn), node(block.silu));
+
+        let schedule = schedule_with(&g, &TeenygradCaps);
+
+        let [KernelChoice::Tiled(fused)] = schedule.kernels.as_slice() else {
+            panic!(
+                "expected one tiled kernel for conv2d, batchnorm2d and silu, got {:?}",
+                schedule
+                    .kernels
+                    .iter()
+                    .map(|k| match k {
+                        KernelChoice::Opaque(n) => format!("Opaque({})", g.nodes[n.0].name),
+                        KernelChoice::Tiled(t) => format!(
+                            "Tiled({:?}, anchor {})",
+                            t.nodes
+                                .iter()
+                                .map(|n| &g.nodes[n.0].name)
+                                .collect::<Vec<_>>(),
+                            g.nodes[t.anchor.0].name
+                        ),
+                    })
+                    .collect::<Vec<_>>()
+            );
+        };
+        assert_eq!(fused.nodes, vec![conv, bn, silu]);
+        assert_eq!(fused.anchor, conv);
     }
 }
