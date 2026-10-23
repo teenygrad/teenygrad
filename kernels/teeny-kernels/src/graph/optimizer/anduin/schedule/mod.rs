@@ -1761,22 +1761,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_conv2d_batchnorm_silu_schedules_as_one_tiled_kernel() {
-        // input -> conv2d -> batchnorm2d -> silu through `TritonLowering`,
-        // scheduled with the production capabilities. The target is the
-        // hand-fused `Conv2dBnSiluForward`: conv2d, batchnorm2d and silu in
-        // one tiled kernel anchored at conv2d, the only node whose spec ties
-        // the group to conv2d's own grid; the input stays apart.
-        //
-        // batchnorm2d and silu are broadcast maps, so riders, and conv2d (a
-        // windowed, looping kernel) is the latest non-rider (teenygrad-8x1t).
+    /// input [2, 3, 32, width] -> conv2d (3x3, 8 channels, stride 1, pad 1)
+    /// -> batchnorm2d -> silu, through `TritonLowering`, as a tile graph and
+    /// its conv, bn and silu nodes.
+    fn conv_block(width: usize) -> (TileGraph, [NodeId; 3]) {
         let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
             .batch(2)
             .in_channels(3)
             .out_channels(8)
             .height(32)
-            .width(32)
+            .width(width)
             .build()
             .expect("every required field is set")
             .graph()
@@ -1796,33 +1790,119 @@ mod tests {
                 .unwrap_or_else(|| panic!("no tile node for \"{}\"", names[graph_idx]))
                 .id
         };
-        let (conv, bn, silu) = (node(block.conv), node(block.bn), node(block.silu));
+        let ids = [node(block.conv), node(block.bn), node(block.silu)];
+        (g, ids)
+    }
 
-        let schedule = schedule_with(&g, &TeenygradCaps);
-
+    /// The conv block's one tiled kernel {conv, bn, silu}, anchored at conv2d,
+    /// with BLOCK_OW's value; panics with the schedule if it is anything else.
+    fn conv_block_kernel(g: &TileGraph, [conv, bn, silu]: [NodeId; 3]) -> (GroupSchedule, u64) {
+        let schedule = schedule_with(g, &TeenygradCaps);
         let [KernelChoice::Tiled(fused)] = schedule.kernels.as_slice() else {
             panic!(
                 "expected one tiled kernel for conv2d, batchnorm2d and silu, got {:?}",
-                describe(&g, &schedule)
+                describe(g, &schedule)
             );
         };
         assert_eq!(fused.nodes, vec![conv, bn, silu]);
         assert_eq!(fused.anchor, conv);
-        let [(KnobName::Block("BLOCK_OW"), _)] = fused.knobs.as_slice() else {
+        let [(KnobName::Block("BLOCK_OW"), v)] = fused.knobs.as_slice() else {
             panic!("conv2d's one knob is BLOCK_OW, got {:?}", fused.knobs);
         };
-        // One (b, c_out, oh) per unit, as conv2d's own grid decodes it (P4,
-        // teenygrad-3f4z): 2 · 8 · 32 units, where unbound axes gave 2.
-        assert_eq!(fused.cost.units, 2 * 8 * 32);
+        (fused.clone(), *v)
+    }
+
+    /// What teenygrad-1l7i asks of the conv block's tiling, at any width:
+    /// conv2d's grid, a halo'd H read, no tensor whole on B or C, and a
+    /// footprint shared memory holds.
+    fn check_conv_block_tiling(g: &TileGraph, conv: NodeId, f: &GroupSchedule, v: u64) {
+        use span::DimSpan::{Full, Tiled};
+        let ow = g.nodes[conv.0].shape[3];
+        // conv2d's own grid: one (b, c_out, oh) and BLOCK_OW columns per unit.
+        assert_eq!(f.cost.units, 2 * 8 * 32 * ow.div_ceil(v), "BLOCK_OW = {v}");
+        // One output row reads KH = 3 input rows, from oh - 1 (pad 1).
+        let x = &f.in_region[&g.nodes[conv.0].in_edges[0]];
+        assert!(
+            matches!(
+                x[2],
+                Tiled {
+                    step: 1,
+                    lo: -1,
+                    len: 3,
+                    ..
+                }
+            ),
+            "H: {:?}",
+            x[2]
+        );
+        // No tensor is held whole over its batch or channel dims.
+        let regions = f
+            .nodes
+            .iter()
+            .map(|n| (g.nodes[n.0].name.clone(), &f.region[n]))
+            .chain(f.in_region.iter().map(|(e, r)| {
+                let src = &g.nodes[g.edges[e.0].src.0].name;
+                (format!("{src} (operand)"), r)
+            }));
+        for (name, r) in regions {
+            let lead = &r[..r.len().min(2)];
+            assert!(!lead.contains(&Full), "{name} is whole on B or C: {r:?}");
+        }
+        let shared = device_and_shared().levels[1].capacity_per_owner;
+        assert!(
+            f.cost.footprint <= shared,
+            "{} B > {shared} B",
+            f.cost.footprint
+        );
+    }
+
+    #[test]
+    fn test_conv2d_batchnorm_silu_schedules_as_one_tiled_kernel() {
+        // input -> conv2d -> batchnorm2d -> silu through `TritonLowering`,
+        // scheduled with the production capabilities. The target is the
+        // hand-fused `Conv2dBnSiluForward`: conv2d, batchnorm2d and silu in
+        // one tiled kernel anchored at conv2d, the only node whose spec ties
+        // the group to conv2d's own grid; the input stays apart.
+        //
+        // batchnorm2d and silu are broadcast maps, so riders, and conv2d (a
+        // windowed, looping kernel) is the latest non-rider (teenygrad-8x1t).
+        let (g, ids) = conv_block(32);
+        let (fused, v) = conv_block_kernel(&g, ids);
+        let conv = ids[0];
+        // A whole 32-column row fits, so the search takes it: no W halo is
+        // left inside the image.
+        assert_eq!(v, 32);
+        check_conv_block_tiling(&g, conv, &fused, v);
         // conv2d's loop reads one input channel per iteration, so C_IN is
         // held a channel at a time (P6).
         let x = &fused.in_region[&g.nodes[conv.0].in_edges[0]];
         assert_eq!(x[1], span::DimSpan::Chunk { len: 1, split: 1 }, "C_IN");
-        // So a unit holds one channel's KH input rows of the 32-wide row
-        // (BLOCK_OW = OW, so W is whole), and the output row the group
-        // computes in place: 3 · 32 + 32 floats, plus one weight element
-        // (P5), padded to the 32-byte alignment. Unbound axes charged 90112 B;
-        // with them bound and C_IN whole it was 1280 B.
+        assert_eq!(x[3], span::DimSpan::Full, "the whole row");
+        // So a unit holds one channel's KH input rows of the 32-wide row,
+        // and the output row the group computes in place: 3 · 32 + 32
+        // floats, plus one weight element (P5), padded to the 32-byte
+        // alignment. Unbound axes charged 90112 B; with them bound and C_IN
+        // whole it was 1280 B.
         assert_eq!(fused.cost.footprint, (3 * 32 + 32) * 4 + 32);
+    }
+
+    #[test]
+    fn test_a_wide_conv_block_tiles_its_rows_with_a_halo() {
+        // An 8192-column row is more than one unit may hold, so the search
+        // tiles W too, and each unit's input columns overlap its neighbours'
+        // by the 3x3 kernel's halo: one column each side.
+        let (g, ids) = conv_block(8192);
+        let (fused, v) = conv_block_kernel(&g, ids);
+        assert!(v < 8192, "BLOCK_OW = {v}");
+        check_conv_block_tiling(&g, ids[0], &fused, v);
+        let x = &fused.in_region[&g.nodes[ids[0].0].in_edges[0]];
+        assert!(
+            matches!(
+                x[3],
+                span::DimSpan::Tiled { step, lo: -1, len, .. } if step == v && len == v + 2
+            ),
+            "W: {:?}",
+            x[3]
+        );
     }
 }

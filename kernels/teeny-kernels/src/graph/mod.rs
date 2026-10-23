@@ -1441,7 +1441,9 @@ impl TritonLowering {
                 Op::BatchNorm1d { .. } | Op::BatchNorm3d { .. } => {
                     make_float_kernel!(BatchNormForwardInference(64), node)
                 }
-                Op::BatchNorm2d { eps, .. } => {
+                Op::BatchNorm2d {
+                    eps, num_features, ..
+                } => {
                     let eps_f32 = *eps as f32;
                     const BN2D_BLOCK_HW: i32 = 128;
                     let (name, ks, consts, rop): (
@@ -1502,7 +1504,14 @@ impl TritonLowering {
                         tile_spec: Some(BatchNorm2dNchwForwardInference::<f32>::tile_spec()),
                         grid_spec: Some(BatchNorm2dNchwForwardInference::<f32>::grid_spec()),
                         consts,
-                        parameters: Vec::new(),
+                        // weight, bias, running_mean and running_var: the
+                        // op's own [C] vectors on ports 1-4 (P5).
+                        parameters: (1..=4)
+                            .map(|port| ParameterOperand {
+                                port,
+                                shape: vec![*num_features],
+                            })
+                            .collect(),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
