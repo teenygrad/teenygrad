@@ -660,12 +660,20 @@ mod tests {
 
         for tensor in [x, y] {
             assert_eq!(tensor.rank, 2, "declared by the signature, not per node");
-            assert_eq!(tensor.untiled_dims, &["H"]);
-            assert_eq!(tensor.axes.len(), 1, "only W carries `block = ..`");
-            assert_eq!(tensor.axes[0].dims, &[1], "W is the innermost dim");
-            assert_eq!(tensor.axes[0].block_const, "BLOCK_W");
-            assert_eq!(tensor.axes[0].extent_param, "W");
-            assert_eq!(tensor.axes[0].window, None);
+            // H is unblocked, but the prelude gives each program one row, so
+            // it is bound at block 1 rather than left untiled (P4,
+            // teenygrad-3f4z).
+            assert!(tensor.untiled_dims.is_empty(), "{:?}", tensor.untiled_dims);
+            assert_eq!(tensor.axes.len(), 2, "H at block 1, W at BLOCK_W");
+            let [h, w] = [tensor.axes[0], tensor.axes[1]];
+            assert_eq!(
+                (h.dims, h.extent_param, h.block_const),
+                (&[0usize][..], "H", "1")
+            );
+            assert_eq!(w.dims, &[1], "W is the innermost dim");
+            assert_eq!(w.block_const, "BLOCK_W");
+            assert_eq!(w.extent_param, "W");
+            assert!(h.window.is_none() && w.window.is_none());
         }
 
         spec.validate()

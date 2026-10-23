@@ -3688,6 +3688,22 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 // `N` blocked, so a scheduler would size its tile along an
                 // axis that is not there. The prelude already honoured the
                 // subset; only the spec was wrong.
+                // P4 (teenygrad-3f4z): the prelude decodes every unblocked,
+                // unwalked output axis as one program per index, and the
+                // grid spec says so. The tile spec must say it too, or a
+                // scheduler takes such an axis as whole per unit -- conv2d's
+                // B, C_OUT and OH. So an axis over one of these extents is a
+                // block-1 binding, derived here rather than written as
+                // `block = 1`, which would add a dim to the prelude's tile.
+                let grid_unit_extents: Vec<String> = tile_out_params
+                    .first()
+                    .map(|(_, _, axes)| {
+                        axes.iter()
+                            .filter(|a| a.block.is_none() && !a.walk && !a.reduce)
+                            .map(|a| a.extent.to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 let tensor_spec =
                     |param: &str, attrs: &[TileAttrArgs]| -> Result<TokenStream2, syn::Error> {
                         let (axis_dims, rank) = real_dims(attrs);
@@ -3746,6 +3762,21 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                                             block_const: "1",
                                             extent_param: #extent_s,
                                             window: #window,
+                                            divide_by: ::core::option::Option::None,
+                                        }
+                                    });
+                                }
+                                None if !axis.walk
+                                    && !axis.reduce
+                                    && grid_unit_extents.contains(&axis.extent.to_string()) =>
+                                {
+                                    let extent_s = axis.extent.to_string();
+                                    bindings.push(quote! {
+                                        ::teeny_core::model::TileAxisBinding {
+                                            dims: &[ #(#d),* ],
+                                            block_const: "1",
+                                            extent_param: #extent_s,
+                                            window: ::core::option::Option::None,
                                             divide_by: ::core::option::Option::None,
                                         }
                                     });
@@ -3952,6 +3983,11 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
             let mut input_tensor_specs: Vec<TokenStream2> = Vec::new();
             let mut output_tensor_specs: Vec<TokenStream2> = Vec::new();
             let mut grid_output: Option<(&Ident, &[TileAttrArgs])> = None;
+            // No P4 derivation here, unlike the `Tile` path: the body writes
+            // its own `pid` decode, so an unblocked axis may be loaded whole
+            // rather than given one program per index -- cum_sum_forward
+            // reads its whole `n_inner` row (teenygrad-3f4z). Such an axis
+            // stays untiled, which is conservative.
             for (ident, kind, axes) in &structured_params {
                 let param_str = ident.to_string();
                 let (axis_dims, rank) = real_dims(axes);

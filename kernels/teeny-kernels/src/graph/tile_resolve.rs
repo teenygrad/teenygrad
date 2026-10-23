@@ -710,22 +710,25 @@ mod tests {
         );
     }
 
-    /// A broadcast operand resolves to its own full extent, not to the output's
-    /// block (teenygrad-1tl.4).
+    /// A broadcast operand resolves along only the axis it has, never along
+    /// the output's others (teenygrad-1tl.4).
     ///
     /// `channel_bias_add_forward` is the worked example: `x` and `y` are
     /// `[N, C]` with `N` block-tiled, while `bias` is `(C,)` and declares only
-    /// the `C` axis. So `bias` receives no block on any axis and must come back
-    /// at full extent -- correct and conservative, and now *declared* that way
-    /// rather than achieved by omission.
+    /// the `C` axis.
     ///
-    /// Before this rung the generated spec gave every tensor the first
+    /// Before teenygrad-1tl.4 the generated spec gave every tensor the first
     /// parameter's axis list, so `bias` claimed rank 2 with `N` blocked -- an
     /// axis it does not have. A scheduler reading that would size its tile
     /// along a nonexistent dimension. The assertions on `rank` below are what
     /// catch a regression to that.
+    ///
+    /// `C` is unblocked, but the generated prelude gives each program one
+    /// channel, so it is a binding at block 1 (P4, teenygrad-3f4z). The bias
+    /// therefore resolves to the one element its program reads, where it used
+    /// to come back at full extent.
     #[test]
-    fn test_a_broadcast_operand_resolves_to_its_own_full_extent() {
+    fn test_a_broadcast_operand_resolves_along_only_the_axis_it_has() {
         use crate::nn::tensor::channel_bias_add::ChannelBiasAddForward;
 
         let spec = ChannelBiasAddForward::<f32>::tile_spec();
@@ -739,27 +742,29 @@ mod tests {
             bias.rank, 1,
             "the bias is (C,), so its spec must not claim the N axis it lacks"
         );
-        assert!(
-            bias.axes.is_empty(),
-            "a broadcast operand receives no block: it declares only the axis \
-             it shares, and that axis is untiled"
+        assert_eq!(
+            bias.axes
+                .iter()
+                .map(|a| (a.dims, a.extent_param, a.block_const))
+                .collect::<Vec<_>>(),
+            vec![(&[0usize][..], "C", "1")],
+            "the bias binds only its own C, one channel per program"
         );
-        assert_eq!(bias.untiled_dims, &["C"]);
+        assert!(bias.untiled_dims.is_empty());
 
-        // Resolving an output tile gives the activation a block on N and leaves
-        // the bias entirely unresolved -- i.e. at its full extent.
-        let inputs = resolve_inputs(&spec, &tile(&[Some(8), Some(4)]), &NoConsts)
+        // The kernel's own tile: BLOCK_N = 8 rows of one channel.
+        let inputs = resolve_inputs(&spec, &tile(&[Some(8), Some(1)]), &NoConsts)
             .expect("resolution should succeed");
         assert_eq!(inputs.len(), 2);
         assert_eq!(
             inputs[0],
-            tile(&[Some(8), None]),
-            "x takes the output's N block; its C dim has no binding so stays unresolved"
+            tile(&[Some(8), Some(1)]),
+            "x takes the output's tile"
         );
         assert_eq!(
             inputs[1],
-            tile(&[None]),
-            "bias comes back rank 1 and unresolved -- its whole (C,) vector"
+            tile(&[Some(1)]),
+            "bias comes back rank 1 -- the one channel its program reads"
         );
     }
 
@@ -1411,8 +1416,22 @@ mod tests {
         ] {
             spec.validate().unwrap_or_else(|e| panic!("{name}: {e}"));
             let x = spec.inputs[0];
-            assert_eq!(x.axes.len(), 1, "{name}: one spatial axis");
-            let axis = x.axes[0];
+            // A `Tile`-path pad's B and C are bindings at block 1 (P4): the
+            // generated prelude gives each program one of each. A raw-pointer
+            // pad writes its own decode, so they stay untiled there.
+            let unwindowed: Vec<(&str, &str)> = x
+                .axes
+                .iter()
+                .filter(|a| a.window.is_none())
+                .map(|a| (a.extent_param, a.block_const))
+                .collect();
+            assert!(
+                unwindowed.is_empty() || unwindowed == [("_B", "1"), ("C", "1")],
+                "{name}: batch and channel, one per program, or untiled: {unwindowed:?}"
+            );
+            let windowed: Vec<_> = x.axes.iter().filter(|a| a.window.is_some()).collect();
+            assert_eq!(windowed.len(), 1, "{name}: one spatial axis");
+            let axis = *windowed[0];
             assert_eq!(axis.extent_param, "L", "{name}: truthful about its extent");
             assert_eq!(axis.block_const, "BLOCK_OL", "{name}");
             let w = axis.window.expect("padding declares a window");
@@ -1441,6 +1460,7 @@ mod tests {
         let axes: Vec<(&str, &str, &str)> = spec.inputs[0]
             .axes
             .iter()
+            .filter(|a| a.window.is_some())
             .map(|a| {
                 (
                     a.extent_param,
@@ -1459,6 +1479,7 @@ mod tests {
         let axes: Vec<(&str, &str)> = spec.inputs[0]
             .axes
             .iter()
+            .filter(|a| a.window.is_some())
             .map(|a| (a.extent_param, a.block_const))
             .collect();
         assert_eq!(
@@ -1653,7 +1674,9 @@ mod tests {
             assert_eq!(hw.pad_const, pad_h, "{name}: only maxpool2d has padding");
 
             let consts = Table::new(&[("STRIDE_W", 2), ("KW", 3), ("STRIDE_H", 2), ("KH", 3)]);
-            let out = tile(&[Some(2), Some(4), Some(5), Some(8)]);
+            // The kernel's own output tile: one (b, c, oh) per program and
+            // BLOCK_OW = 8 columns.
+            let out = tile(&[Some(1), Some(1), Some(1), Some(8)]);
             let inputs =
                 resolve_inputs(&spec, &out, &consts).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(
@@ -1661,15 +1684,13 @@ mod tests {
                 Some(17),
                 "{name}: W resolves, (8 - 1) * 2 + 3"
             );
-            // H's window is declared but still unresolvable: it resolves
-            // against `OH`, and the *output* leaves OH untiled, so no block
-            // ever propagates for it. It stays at full extent rather than
-            // feeding `H` through the receptive field and claiming the kernel
-            // reads past the tensor. Giving it a block means rewriting the
-            // `pid` decode (teenygrad-1nr.18.4).
+            // H resolves now that the output binds OH at block 1 (P4,
+            // teenygrad-3f4z): one output row reads a kernel's height of
+            // input rows. Before, OH was unbound, so H stayed at full extent.
             assert_eq!(
-                inputs[0][2], None,
-                "{name}: H unresolved, so full extent -- not an over-read"
+                inputs[0][2],
+                Some(3),
+                "{name}: H resolves, (1 - 1) * 2 + 3 -- one row's receptive field"
             );
         }
 

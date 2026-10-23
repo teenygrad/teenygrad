@@ -511,12 +511,12 @@ mod tests {
     }
 
     #[test]
-    fn test_p3_a_lowered_conv2d_reads_a_halo_not_the_whole_input_row() {
-        // teenygrad-a19a: the lowered conv2d answers for STRIDE_W, PAD_W and
-        // KW, so its windowed W axis propagates as a tile with a halo rather
-        // than `Full`. (H stays `Full`: conv2d's OH is not bound yet, P4,
-        // teenygrad-3f4z.) The search itself picks BLOCK_OW = OW, a whole row,
-        // so this evaluates a narrower θ directly.
+    fn test_p3_p4_a_lowered_conv2d_reads_a_halo_not_the_whole_input() {
+        // teenygrad-a19a: the lowered conv2d answers for its window consts,
+        // so both windowed axes propagate as tiles with a halo rather than
+        // `Full`; H needs OH bound too, at block 1 (P4, teenygrad-3f4z). The
+        // search itself picks BLOCK_OW = OW, a whole row, so this evaluates a
+        // narrower θ directly.
         for stride in [1u64, 2] {
             let (g, conv) = lowered_conv(stride as usize);
             let n_set = [conv];
@@ -536,7 +536,30 @@ mod tests {
                     (v * stride, -1, (v - 1) * stride + 3),
                     "stride {stride}"
                 );
-                assert_eq!(x[2], DimSpan::Full, "OH is unbound, so H is whole");
+                // One output row reads KH = 3 input rows from oh·s - 1.
+                assert!(
+                    matches!(
+                        x[2],
+                        DimSpan::Tiled { step, lo: -1, len: 3, .. } if step == stride
+                    ),
+                    "stride {stride}: H is one row's receptive field, got {:?}",
+                    x[2]
+                );
+                // One image per unit; C_IN is reduced, so whole until P6.
+                assert!(
+                    matches!(
+                        x[0],
+                        DimSpan::Tiled {
+                            step: 1,
+                            lo: 0,
+                            len: 1,
+                            ..
+                        }
+                    ),
+                    "B: {:?}",
+                    x[0]
+                );
+                assert_eq!(x[1], DimSpan::Full, "C_IN is reduced");
             });
         }
     }

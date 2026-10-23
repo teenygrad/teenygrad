@@ -1770,9 +1770,7 @@ mod tests {
         //
         // batchnorm2d and silu are broadcast maps, so riders, and conv2d (a
         // windowed, looping kernel) is the latest non-rider (teenygrad-8x1t).
-        // The tiling itself is still coarse: conv2d's own B, C_OUT and OH are
-        // unbound (P4), its window consts unknown (P3) and its reduction read
-        // whole (P6); teenygrad-1l7i tracks checking it once those land.
+        // Its reduction is still read whole (P6, teenygrad-3f4z).
         let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
             .batch(2)
             .in_channels(3)
@@ -1813,5 +1811,17 @@ mod tests {
         let [(KnobName::Block("BLOCK_OW"), _)] = fused.knobs.as_slice() else {
             panic!("conv2d's one knob is BLOCK_OW, got {:?}", fused.knobs);
         };
+        // One (b, c_out, oh) per unit, as conv2d's own grid decodes it (P4,
+        // teenygrad-3f4z): 2 · 8 · 32 units, where unbound axes gave 2.
+        assert_eq!(fused.cost.units, 2 * 8 * 32);
+        // So a unit holds the input rows one output row reads, not the whole
+        // input: C_IN · KH rows of OW + 2 halo'd columns, 3 · 3 · 34 floats
+        // (1224 B), where unbound axes charged 90112 B. C_IN is still resident
+        // whole, since the reduction is not chunked yet (P6).
+        assert!(
+            fused.cost.footprint <= 3 * 3 * 34 * 4 + 64,
+            "footprint {} B is more than one output row's receptive field",
+            fused.cost.footprint
+        );
     }
 }

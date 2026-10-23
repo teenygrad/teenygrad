@@ -3721,9 +3721,18 @@ mod conv2d_grid_spec_tests {
         // Each still reads a full sliding window of its own input axis, which
         // is what the spec has to say for the input tile to come out larger
         // than the output tile.
-        assert_eq!(x.axes.len(), 2);
+        //
+        // B is a binding too, at block 1 (P4, teenygrad-3f4z): the prelude
+        // gives each program one `b`, and the spec says so rather than leaving
+        // a scheduler to take the whole batch per unit.
+        assert_eq!(x.axes.len(), 3);
+        assert_eq!(
+            (x.axes[0].dims, x.axes[0].extent_param, x.axes[0].block_const),
+            (&[0usize][..], "_B", "1")
+        );
+        assert_eq!(x.axes[0].window, None);
 
-        let [h, w_axis] = [x.axes[0], x.axes[1]];
+        let [h, w_axis] = [x.axes[1], x.axes[2]];
         assert_eq!(h.dims, &[2]);
         assert_eq!(h.extent_param, "H");
         assert_eq!(h.block_const, "1");
@@ -3743,20 +3752,30 @@ mod conv2d_grid_spec_tests {
             (w.stride_const, w.pad_const, w.kernel_size_const),
             ("STRIDE_W", Some("PAD_W"), "KW")
         );
-        // Only the genuinely untiled dims remain: H has left this list.
-        assert_eq!(x.untiled_dims, &["B", "C_IN"]);
+        // Only the reduced dim remains: no output axis decodes it.
+        assert_eq!(x.untiled_dims, &["C_IN"]);
 
         assert_eq!(spec.outputs.len(), 1);
         let y = spec.outputs[0];
         assert_eq!(y.param, "y");
         assert_eq!(y.rank, 4);
-        assert_eq!(y.untiled_dims, &["B", "C_OUT", "OH"]);
-        assert_eq!(y.axes.len(), 1);
-        assert_eq!(y.axes[0].dims, &[3]);
-        assert_eq!(y.axes[0].block_const, "BLOCK_OW");
-        assert_eq!(y.axes[0].extent_param, "OW");
-        assert_eq!(y.axes[0].window, None);
-        assert_eq!(y.axes[0].divide_by, None);
+        // Every output axis is grid-decoded, so every one is bound: the
+        // unblocked three at block 1, one index per program, matching the
+        // grid spec's `(b, c_out, oh, ow_tile)`.
+        assert!(y.untiled_dims.is_empty(), "{:?}", y.untiled_dims);
+        assert_eq!(
+            y.axes
+                .iter()
+                .map(|a| (a.dims, a.extent_param, a.block_const))
+                .collect::<Vec<_>>(),
+            vec![
+                (&[0usize][..], "_B", "1"),
+                (&[1usize][..], "C_OUT", "1"),
+                (&[2usize][..], "OH", "1"),
+                (&[3usize][..], "OW", "BLOCK_OW"),
+            ]
+        );
+        assert!(y.axes.iter().all(|a| a.window.is_none() && a.divide_by.is_none()));
     }
 
     /// The fused composites declare their axes, and the tiled one needs two
@@ -3775,8 +3794,8 @@ mod conv2d_grid_spec_tests {
         };
 
         // The plain fusion is conv2d_forward's spec with a different epilogue,
-        // so it declares the same axes: both spatial axes windowed, H at the
-        // fixed block of 1.
+        // so it declares the same axes: B at block 1 (P4), both spatial axes
+        // windowed, H at the fixed block of 1.
         let spec = Conv2dBnSiluForward::tile_spec();
         spec.validate()
             .expect("a derived spec must be self-consistent");
@@ -3786,9 +3805,9 @@ mod conv2d_grid_spec_tests {
                 .iter()
                 .map(|a| (a.extent_param, a.block_const, a.window.is_some()))
                 .collect::<Vec<_>>(),
-            vec![("H", "1", true), ("W", "BLOCK_OW", true)]
+            vec![("_B", "1", false), ("H", "1", true), ("W", "BLOCK_OW", true)]
         );
-        assert_eq!(x.untiled_dims, &["B", "C_IN"]);
+        assert_eq!(x.untiled_dims, &["C_IN"]);
         let l = spec.loop_spec.expect("its accumulation loop is declared");
         assert_eq!(l.trip_count_factors, &["C_IN", "G", "KH", "KW"]);
 
@@ -3810,6 +3829,8 @@ mod conv2d_grid_spec_tests {
             ],
             "C_OUT by BLOCK_N and OW by BLOCK_OW"
         );
+        // A raw-pointer kernel writes its own decode, so P4 is not derived for
+        // it: B and OH stay untiled (teenygrad-3f4z).
         assert_eq!(y.untiled_dims, &["B", "OH"]);
         let l = spec.loop_spec.expect("its accumulation loop is declared");
         assert_eq!(
