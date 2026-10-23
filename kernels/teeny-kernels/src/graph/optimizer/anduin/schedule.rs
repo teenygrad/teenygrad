@@ -14,40 +14,31 @@
  * limitations under the License.
  */
 
-//! [`schedule_graph`] — Welder §3.2's `GraphConnecting` (Fig. 7), under a
-//! better name: `GraphConnecting` reads like a type, not an action
-//! (teenygrad-1nr.5).
+//! The connection-plan search of ANALYSIS.md §12: Welder §3.2's
+//! `GraphConnecting` (Fig. 7), with the paper's defects fixed.
 //!
-//! For every edge, in topological node order, tries every memory level
-//! declared in a [`HardwareProfile`], tentatively [`TileGraph::set_connect`]s
-//! it there, extracts the resulting fused subgraph
-//! ([`TileGraph::extract_subgraph`]) and scores it with a [`Profiler`], and
-//! leaves the edge connected at whichever level scored lowest (best). The
-//! "schedule" this produces is the resulting `connect_level` left on every
-//! edge, mutated in place.
+//! A [`ConnectPlan`] gives every edge the memory level its value is handed
+//! over in: 0 is an ordinary kernel boundary, and `H = hw.top()` is the
+//! compute level. [`schedule`] walks the edges in priority order (A15),
+//! proposes each of an edge's legal levels (A1), closes a raise over
+//! convexity (A4) so the plan stays valid (A3), and accepts the proposal that
+//! most lowers the summed latency of the level-0 groups it changes (A14).
 //!
-//! ## Deviation from the paper's `Min(d.Profile(configs))`
+//! ## Status
 //!
-//! Welder profiles every one of `SubGraphTiling`'s returned candidate
-//! `TileConfig`s for a level and takes the best. [`Profiler`] here doesn't
-//! (yet) take a [`TileConfig`] — it scores a node set structurally (see its
-//! own doc comment) — so this asks [`TileGraph::sub_graph_tiling`] for only
-//! its single best-ranked candidate (`top_k = 1`) per level, and profiles
-//! the *structural* cost of the extracted subgraph at that level instead.
-//! That signal still responds correctly to which level is being tried
-//! (different levels change both which nodes get extracted and each
-//! boundary edge's own bandwidth lookup), so it's a reasoned, working
-//! stand-in, not a silent gap — teaching `Profiler` to score a specific
-//! `TileConfig` directly is a real follow-up.
+//! A1-A4, A14 and A15 are implemented. A5-A13 (anchor choice, region
+//! propagation, legality checks, cost and the tile search) are not:
+//! [`tile_group`] is a stub that returns no candidates, so every multi-node
+//! group is infeasible and [`schedule`] never fuses. Every node runs as its
+//! own opaque kernel.
 //!
 //! ## Scope: scheduling only
 //!
-//! This does not rewrite the DAG into actually-fused kernels — turning a
+//! This does not rewrite the DAG into actually-fused kernels. Turning a
 //! finished schedule into that is blocked on reworking `#[tiled_kernel]` to
 //! compose `Tile<D>` functions instead of pointer-in/pointer-out kernels
 //! (teenygrad-1nr.1; `pid` decode doesn't currently compose across a fused
-//! call). `Anduin::optimize` still needs that piece before it can return a
-//! rewritten `Dag` from a schedule produced here.
+//! call).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
@@ -294,9 +285,10 @@ enum ThreadTiling {
     Delegated, /* e.g. Triton: only num_warps is chosen */
 }
 
-/// What codegen can realise. teenygrad today: `fuse_level(e,1) = false`,
-/// `fuse_level(e,H) = dst is a rider passing the rider check`, `Delegated`,
-/// `AnchorConsts`, `pow2_blocks = true`, `halo_stage = false`.
+/// What codegen can realise. teenygrad today, which schedules device and
+/// shared memory only (so H = 1): `fuse_level(e, 1) = dst is a rider passing
+/// the rider check`, `Delegated`, `AnchorConsts`, `pow2_blocks = true`,
+/// `halo_stage = false`.
 /// Welder: `fuse_level(e,1) = true`, `fuse_level(e,H) = src.reduce && !dst.reduce`,
 /// `Explicit`, `SinkDims`, `halo_stage = true`, `cross_unit_reduce = true`.
 trait Capabilities {
@@ -421,21 +413,21 @@ fn changed_edges(p: &ConnectPlan, q: &ConnectPlan) -> impl Iterator<Item = EdgeI
 
 fn legal_levels(cx: &Ctx, e: &Edge) -> Vec<Lvl> {
     let (p, c) = (&cx.g.nodes[e.src.0], &cx.g.nodes[e.dst.0]);
+    // placeholder / output edges
     if p.kind != NodeKind::Op || c.kind != NodeKind::Op {
         return vec![0];
     }
 
-    // placeholder / output edges
+    // opaque endpoint
     let (Some(_), Some(cm)) = (&p.meta, &c.meta) else {
         return vec![0];
     };
 
-    // opaque endpoint
+    // P2
     if cm.spec().inputs[e.dst_port].rank != p.shape.len() {
         return vec![0];
     }
 
-    // P2
     let mut ks = vec![0];
     for k in 1..=cx.hw.top() {
         if cx.caps.fuse_level(cx.g, e, k) {
@@ -548,7 +540,12 @@ fn key(cx: &Ctx, n_set: &[NodeId]) -> GroupKey {
     }
 }
 
-fn tile_group(_cx: &Ctx, _level: Lvl, _n_set: &[NodeId], _sinks: &[NodeId]) -> Vec<GroupSchedule> {
+fn tile_group(
+    _cx: &Ctx,
+    _level: Lvl,
+    _n_set: &[NodeId],
+    _parents: &[&GroupSchedule],
+) -> Vec<GroupSchedule> {
     vec![]
 }
 
@@ -976,12 +973,13 @@ fn schedule(cx0: &Ctx) -> Result<Schedule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::tile_resolve::NoConsts;
     use crate::graph::TritonLowering;
-    use teeny_core::model::{ExecutableOp, LoweringMode};
+    use crate::graph::tile_resolve::NoConsts;
+    use teeny_core::graph::{DtypeRepr, Shape};
+    use teeny_core::model::{ExecutableOp, GridSpec, KernelTileSpec, LoweringMode, TensorTileSpec};
     use teeny_test::graph::DecomposedSoftmaxBuilder;
 
-    use super::super::tile_graph::OpMeta;
+    use super::super::tile_graph::{Node, OpMeta};
 
     /// Device memory and shared memory only: Triton, not the kernel writer,
     /// decides what lives in registers, so shared memory is the compute level H.
@@ -1209,5 +1207,353 @@ mod tests {
         let mut expected = vec![max, sub, exp, sum, div];
         expected.sort();
         assert_eq!(nodes, expected);
+    }
+
+    // ─────────────── Connection plan: partition, validate, closure ───────────────
+    //
+    // ANALYSIS.md §12.7 C1-C12, over device and shared memory (H = 1). Not
+    // here:
+    // - C6 and C7 need a level strictly between 0 and H, and there is none.
+    // - C12 needs `tile_group` to return candidates to measure.
+
+    /// A rank-1 operand, as every [`FakeOp`] port declares.
+    const OPERAND: TensorTileSpec = TensorTileSpec {
+        param: "x",
+        rank: 1,
+        axes: &[],
+        reduction_axis: None,
+        untiled_dims: &[],
+    };
+
+    /// Up to three rank-1 operands, so every edge into a [`FakeOp`] passes P2.
+    const FAKE_SPEC: KernelTileSpec = KernelTileSpec {
+        inputs: &[OPERAND, OPERAND, OPERAND],
+        outputs: &[OPERAND],
+        loop_spec: None,
+    };
+
+    /// Just enough of an [`ExecutableOp`] for [`OpMeta::new`]: a rank-1
+    /// output, and a tile and grid spec unless it is opaque.
+    struct FakeOp {
+        shape: Shape,
+        tileable: bool,
+    }
+
+    impl ExecutableOp for FakeOp {
+        fn name(&self) -> &str {
+            "fake"
+        }
+        fn forward_kernel_source(&self) -> &str {
+            ""
+        }
+        fn forward_kernel_entry_point(&self) -> &str {
+            ""
+        }
+        fn output_shape(&self) -> &Shape {
+            &self.shape
+        }
+        fn output_dtype(&self) -> DtypeRepr {
+            DtypeRepr::F32
+        }
+        fn tile_spec(&self) -> Option<KernelTileSpec> {
+            self.tileable.then_some(FAKE_SPEC)
+        }
+        fn grid_spec(&self) -> Option<GridSpec> {
+            self.tileable.then_some(GridSpec { axes: &[] })
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    /// `n` op nodes, numbered in topological order (which `order` then is),
+    /// joined by `edges` as `(src, dst, dst_port)`. Edge `i` gets `EdgeId(i)`.
+    /// The nodes in `opaque` have no meta.
+    fn op_graph(n: usize, opaque: &[usize], edges: &[(usize, usize, usize)]) -> TileGraph {
+        let mut g = TileGraph {
+            nodes: Vec::with_capacity(n),
+            edges: Vec::with_capacity(edges.len()),
+            order: (0..n).map(NodeId).collect(),
+            pos: (0..n).collect(),
+        };
+        for i in 0..n {
+            let op = FakeOp {
+                shape: vec![Some(8)],
+                tileable: !opaque.contains(&i),
+            };
+            g.nodes.push(Node {
+                id: NodeId(i),
+                kind: NodeKind::Op,
+                name: format!("n{i}"),
+                in_edges: vec![],
+                out_edges: vec![],
+                shape: vec![8],
+                dtype: DtypeRepr::F32,
+                meta: OpMeta::new(Box::new(op), Box::new(NoConsts), 1.0),
+            });
+        }
+        for (i, &(src, dst, dst_port)) in edges.iter().enumerate() {
+            g.edges.push(Edge {
+                id: EdgeId(i),
+                src: NodeId(src),
+                dst: NodeId(dst),
+                dst_port,
+            });
+            g.nodes[src].out_edges.push(EdgeId(i));
+            g.nodes[dst].in_edges.push(EdgeId(i));
+        }
+        g
+    }
+
+    fn search_params(max_closure: usize) -> SearchParams {
+        SearchParams {
+            top_k: 10,
+            max_visited: 2000,
+            fanouts_per_tile: 1,
+            max_closure,
+            max_recompute: 1.0,
+            min_gain: 0.0,
+            max_passes: 1,
+            max_measurements: 0,
+        }
+    }
+
+    /// Runs `f` with a context over `g` and `plan`, on device and shared memory.
+    fn with_ctx<R>(
+        g: &TileGraph,
+        max_closure: usize,
+        plan: &ConnectPlan,
+        f: impl FnOnce(&Ctx) -> R,
+    ) -> R {
+        let hw = device_and_shared();
+        let params = search_params(max_closure);
+        f(&Ctx {
+            g,
+            hw: &hw,
+            caps: &TritonCaps,
+            params: &params,
+            ev: &LaunchCount,
+            plan,
+        })
+    }
+
+    /// Raises edge `e` of `plan` to level 1 (H) with A4's closure. On success,
+    /// also checks the properties A4 promises: the plan validates, and every
+    /// edge sits at one of its legal levels.
+    fn raise(g: &TileGraph, max_closure: usize, plan: &[Lvl], e: usize) -> Option<Vec<Lvl>> {
+        let plan = ConnectPlan {
+            level: plan.to_vec(),
+        };
+        with_ctx(g, max_closure, &plan, |cx| {
+            let raised = raise_with_closure(cx, &plan, EdgeId(e), 1)?;
+            assert!(
+                validate(cx, &raised).is_ok(),
+                "A4 returned a plan that fails validation: {:?}",
+                raised.level
+            );
+            for edge in &g.edges {
+                assert!(
+                    legal_levels(cx, edge).contains(&raised.level[edge.id.0]),
+                    "A4 put edge {} at level {}, which is not legal for it",
+                    edge.id.0,
+                    raised.level[edge.id.0]
+                );
+            }
+            Some(raised.level)
+        })
+    }
+
+    /// The level-0 groups of `plan` over `g`.
+    fn groups(g: &TileGraph, plan: &[Lvl]) -> Vec<Vec<NodeId>> {
+        let plan = ConnectPlan {
+            level: plan.to_vec(),
+        };
+        with_ctx(g, 10, &plan, |cx| partition(cx, &plan, 0, None).groups)
+    }
+
+    fn nodes(ids: &[usize]) -> Vec<NodeId> {
+        ids.iter().copied().map(NodeId).collect()
+    }
+
+    #[test]
+    fn test_c1_raising_one_of_two_parallel_edges_raises_both() {
+        // P -> mul(x, x): both ports of node 1 read node 0. Raising port 0
+        // short-circuits port 1, which closure then raises too.
+        let g = op_graph(2, &[], &[(0, 1, 0), (0, 1, 1)]);
+
+        assert_eq!(raise(&g, 10, &[0, 0], 0), Some(vec![1, 1]));
+    }
+
+    #[test]
+    fn test_c2_raising_a_diamond_edge_pulls_in_the_bypass() {
+        // A -> B, A -> C, C -> B. Raising A -> B alone leaves {A, B} and {C}
+        // in a cycle, so closure pulls C in and raises both of its edges.
+        let g = op_graph(3, &[], &[(0, 1, 0), (0, 2, 0), (2, 1, 1)]);
+
+        let raised = raise(&g, 10, &[0, 0, 0], 0).expect("C is one node, within the cap");
+        assert_eq!(raised, vec![1, 1, 1]);
+        assert_eq!(groups(&g, &raised), vec![nodes(&[0, 1, 2])]);
+    }
+
+    #[test]
+    fn test_c3_a_diamond_joining_an_existing_group_closes_the_short_circuit() {
+        // A -> B (edge 0), A -> C (edge 1), C -> B (edge 2), with one side of
+        // the diamond already fused. Raising another edge puts all three
+        // nodes in one group with the last edge still at 0, a short-circuit
+        // (not a cycle) that closure must raise. Checked from both sides.
+        let g = op_graph(3, &[], &[(0, 1, 0), (0, 2, 0), (2, 1, 1)]);
+
+        // {B, C} fused first, then A -> B proposed: A -> C short-circuits.
+        assert_eq!(raise(&g, 10, &[0, 0, 1], 0), Some(vec![1, 1, 1]));
+        // {A, C} fused first, then A -> B proposed: C -> B short-circuits.
+        assert_eq!(raise(&g, 10, &[0, 1, 0], 0), Some(vec![1, 1, 1]));
+    }
+
+    #[test]
+    fn test_c4_a_long_residual_fuses_only_when_the_cap_covers_the_pulled_nodes() {
+        // A -> B -> C -> D -> E plus A -> E (edge 4). Raising A -> E makes one
+        // cycle through every group, so D = ∅ and only the cap on `pulled`
+        // ({B, C, D}) can stop it. A cap on |D| would fuse even at 0.
+        let g = op_graph(
+            5,
+            &[],
+            &[(0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 4, 0), (0, 4, 1)],
+        );
+
+        assert_eq!(raise(&g, 3, &[0; 5], 4), Some(vec![1; 5]));
+        assert_eq!(raise(&g, 2, &[0; 5], 4), None);
+    }
+
+    #[test]
+    fn test_c5_an_opaque_node_on_the_bypass_blocks_the_raise() {
+        // A -> X -> B plus A -> B (edge 2), with X opaque. Closure has to pull
+        // X in, but X's edges only allow level 0, so A -> B never fuses.
+        let g = op_graph(3, &[1], &[(0, 1, 0), (1, 2, 0), (0, 2, 1)]);
+
+        assert_eq!(raise(&g, 10, &[0; 3], 2), None);
+    }
+
+    #[test]
+    fn test_c8_lowering_an_edge_inside_a_group_is_a_short_circuit() {
+        // A -> B (edge 0) lowered to 0 while A -> C -> B stays at H. A and B
+        // still share a group through C, so the lowered edge short-circuits
+        // and A15 rejects the proposal, leaving the plan as it was.
+        let g = op_graph(3, &[], &[(0, 1, 0), (0, 2, 0), (2, 1, 1)]);
+        let lowered = ConnectPlan {
+            level: vec![0, 1, 1],
+        };
+
+        let verdict = with_ctx(&g, 10, &lowered, |cx| validate(cx, &lowered));
+        assert!(
+            matches!(
+                verdict,
+                Err(Violation::ShortCircuit {
+                    edge: EdgeId(0),
+                    level: 0
+                })
+            ),
+            "lowering A -> B inside {{A, B, C}} should short-circuit at level 0"
+        );
+    }
+
+    #[test]
+    fn test_c9_a_three_group_cycle_fuses_only_when_the_cap_covers_both_middles() {
+        // A -> B -> C -> D plus A -> D (edge 3). Raising A -> D makes the
+        // groups {A, D}, {B} and {C} a cycle: M is all four nodes, D = ∅, and
+        // pulled = {B, C}.
+        let g = op_graph(4, &[], &[(0, 1, 0), (1, 2, 0), (2, 3, 0), (0, 3, 1)]);
+
+        let raised = raise(&g, 2, &[0; 4], 3).expect("pulled = {B, C} is within a cap of 2");
+        assert_eq!(groups(&g, &raised), vec![nodes(&[0, 1, 2, 3])]);
+        assert_eq!(raise(&g, 1, &[0; 4], 3), None);
+    }
+
+    #[test]
+    fn test_c10_degenerate_graphs_schedule_as_opaque_kernels_in_a_fixed_order() {
+        // Two disconnected chains, a graph of opaque nodes only, and a single
+        // node. None of them can fuse while `tile_group` returns no
+        // candidates, so each should come out as one opaque kernel per node,
+        // in priority order, and the same way every time.
+        let cases = [
+            ("disconnected", op_graph(4, &[], &[(0, 1, 0), (2, 3, 0)])),
+            (
+                "all opaque",
+                op_graph(3, &[0, 1, 2], &[(0, 1, 0), (1, 2, 0)]),
+            ),
+            ("single node", op_graph(1, &[], &[])),
+        ];
+
+        for (name, g) in &cases {
+            let run = || {
+                let start = ConnectPlan {
+                    level: vec![0; g.edges.len()],
+                };
+                with_ctx(g, 10, &start, |cx| match schedule(cx) {
+                    Ok(s) => s,
+                    Err(e) => panic!("{name}: scheduling should not fail: {e}"),
+                })
+            };
+            let first = run();
+            assert!(
+                first.plan.level.iter().all(|&l| l == 0),
+                "{name}: nothing should fuse, got {:?}",
+                first.plan.level
+            );
+            let kernels: Vec<NodeId> = first
+                .kernels
+                .iter()
+                .map(|k| match k {
+                    KernelChoice::Opaque(n) => *n,
+                    KernelChoice::Tiled(_) => panic!("{name}: no group can be tiled yet"),
+                })
+                .collect();
+            assert_eq!(
+                kernels, g.order,
+                "{name}: one opaque kernel per node, in order"
+            );
+
+            let again: Vec<NodeId> = run()
+                .kernels
+                .iter()
+                .filter_map(|k| match k {
+                    KernelChoice::Opaque(n) => Some(*n),
+                    KernelChoice::Tiled(_) => None,
+                })
+                .collect();
+            assert_eq!(
+                again, kernels,
+                "{name}: the schedule should be deterministic"
+            );
+        }
+    }
+
+    #[test]
+    fn test_c11_parallel_bypasses_fuse_whichever_cycle_is_reported_first() {
+        // A -> B plus the bypasses A -> C -> B and A -> D -> B. Raising A -> B
+        // makes two cycles; `find_cycle` returns one, and the other branch has
+        // to arrive through D. Listing the bypasses in either order changes
+        // which cycle `find_cycle` sees first, but not the result.
+        let c_first = op_graph(
+            4,
+            &[],
+            &[(0, 1, 0), (0, 2, 0), (2, 1, 1), (0, 3, 0), (3, 1, 2)],
+        );
+        let d_first = op_graph(
+            4,
+            &[],
+            &[(0, 1, 0), (0, 3, 0), (3, 1, 2), (0, 2, 0), (2, 1, 1)],
+        );
+
+        for (name, g) in [("C first", &c_first), ("D first", &d_first)] {
+            let raised = raise(g, 2, &[0; 5], 0)
+                .unwrap_or_else(|| panic!("{name}: pulled = {{C, D}} is within a cap of 2"));
+            assert_eq!(raised, vec![1; 5], "{name}");
+            assert_eq!(groups(g, &raised), vec![nodes(&[0, 1, 2, 3])], "{name}");
+            assert_eq!(
+                raise(g, 1, &[0; 5], 0),
+                None,
+                "{name}: a cap of 1 is too small"
+            );
+        }
     }
 }
