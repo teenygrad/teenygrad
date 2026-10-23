@@ -3884,6 +3884,44 @@ mod conv2d_grid_spec_tests {
         assert_eq!(grid, rop.grid(&out));
     }
 
+    #[test]
+    fn test_lowered_batchnorm2d_grid_spec_matches_its_launch_grid() {
+        // teenygrad-yf8f: B and C are one-per-program axes bound at block 1,
+        // so the spec's grid is the kernel's `[C * cdiv(HW, BLOCK_HW), B]`.
+        let dag = lowered_conv_block();
+        let bn = lowered_op(&dag, "batch_norm_2d_nchw_forward_inference");
+        let spec = bn
+            .grid_spec()
+            .expect("batchnorm2d lowers with its grid spec");
+        assert!(
+            spec.axes.iter().all(|a| a.block_const.is_some()),
+            "every grid axis is bound: {spec:?}"
+        );
+
+        let out = [2usize, 8, 32, 32];
+        let grid = spec_grid(&spec, |name| match name {
+            "B" => out[0],
+            "C" => out[1],
+            "HW" => out[2] * out[3],
+            "1" => 1,
+            "BLOCK_HW" => 128, // the lowering's block
+            other => panic!("batchnorm2d's grid spec names an unexpected `{other}`"),
+        });
+        let rop = bn.runtime_op().expect("batchnorm2d has a RuntimeOp");
+        assert_eq!(grid, rop.grid(&out));
+
+        let tile = bn
+            .tile_spec()
+            .expect("batchnorm2d lowers with its tile spec");
+        for (p, t) in tile.inputs.iter().chain(tile.outputs).enumerate() {
+            assert!(
+                t.untiled_dims.is_empty(),
+                "tensor {p} leaves {:?} untiled",
+                t.untiled_dims
+            );
+        }
+    }
+
     /// conv2d -> BatchNorm2d -> SiLU, lowered: no node is a hard boundary
     /// (teenygrad-1nr.18.6).
     ///
@@ -3940,7 +3978,16 @@ mod conv2d_grid_spec_tests {
             &crate::graph::tile_resolve::NoConsts,
         )
         .expect("a rank-4 tile resolves through BatchNorm2d now");
-        assert_eq!(inputs[0], vec![None, None, Some(1), Some(128)]);
+        // B and C are bound at block 1 (teenygrad-yf8f), so one program reads
+        // one (b, c); they used to be untiled and resolve to their whole extent.
+        assert_eq!(inputs[0], vec![Some(1), Some(1), Some(1), Some(128)]);
+        for (p, param) in inputs.iter().enumerate().skip(1) {
+            assert_eq!(
+                param,
+                &vec![Some(1)],
+                "per-channel operand {p} reads one channel"
+            );
+        }
     }
 }
 

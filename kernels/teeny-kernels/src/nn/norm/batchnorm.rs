@@ -551,18 +551,18 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
 /// stopping at it (teenygrad-1nr.18.6).
 #[tiled_kernel]
 pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
-    #[tile(extent = B, dim = Y)]
-    #[tile(extent = C)]
+    #[tile(block = 1, extent = B, dim = Y)]
+    #[tile(block = 1, extent = C)]
     #[tile(block = BLOCK_HW, extent = HW, span = 2)]
     x: In<Tile<T, D>>,
-    #[tile(extent = B, dim = Y)]
-    #[tile(extent = C)]
+    #[tile(block = 1, extent = B, dim = Y)]
+    #[tile(block = 1, extent = C)]
     #[tile(block = BLOCK_HW, extent = HW, span = 2)]
     y: Out<Tile<T, D>>,
-    #[tile(extent = C)] weight: In<Tile<T, D>>,
-    #[tile(extent = C)] bias: In<Tile<T, D>>,
-    #[tile(extent = C)] running_mean: In<Tile<T, D>>,
-    #[tile(extent = C)] running_var: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] weight: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] bias: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] running_mean: In<Tile<T, D>>,
+    #[tile(block = 1, extent = C)] running_var: In<Tile<T, D>>,
     B: i32,
     C: i32,
     HW: i32,
@@ -572,8 +572,10 @@ pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW:
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
+    // The tile is `[1, 1, BLOCK_HW]`: B and C are one-per-program axes of their
+    // own (block 1), so the prelude hands every operand at that rank.
     let rstd = T::rsqrt(
-        running_var.tensor + T::cast::<f32, D>(T::full::<f32>(&[BLOCK_HW], eps), None, false),
+        running_var.tensor + T::cast::<f32, D>(T::full::<f32>(&[1, 1, BLOCK_HW], eps), None, false),
     );
     let y_tile = weight.tensor * (x.tensor - running_mean.tensor) * rstd + bias.tensor;
     T::store(y.tensor, y_tile, x.mask, &[], None, None);

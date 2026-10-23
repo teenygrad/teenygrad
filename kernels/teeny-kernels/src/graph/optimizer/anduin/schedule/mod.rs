@@ -1628,11 +1628,9 @@ mod tests {
         // only into a rider. batchnorm2d tiles its flattened H·W axis by
         // BLOCK_HW, and silu is a rider it splices after itself.
         //
-        // batchnorm2d's spec lists B and C as untiled dims rather than
-        // binding them (P4 unmet), so they propagate as `Full`: each unit's
-        // region spans every (b, c), though the kernel's own grid gives each
-        // CTA one. Traffic is unaffected, but the footprint is B·C times too
-        // big, and the group's grid is not the kernel's.
+        // batchnorm2d binds B and C at block 1 (P4, teenygrad-yf8f), so each
+        // unit is one (b, c) plane chunk, as the kernel's own grid has it, and
+        // each per-channel operand is read one channel at a time.
         let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
             .batch(2)
             .in_channels(3)
@@ -1682,6 +1680,41 @@ mod tests {
         assert!(
             *v >= 1024 || 1024 % *v == 0 || (*v % 32 == 0 && 32 % (*v / 32) == 0),
             "BLOCK_HW = {v} should box H·W = 32·32"
+        );
+
+        let one = |s: &span::DimSpan| {
+            matches!(
+                s,
+                span::DimSpan::Tiled {
+                    step: 1,
+                    len: 1,
+                    ..
+                }
+            )
+        };
+        for n in [bn, silu] {
+            let r = &fused.region[&n];
+            assert!(
+                one(&r[0]) && one(&r[1]),
+                "{} is one (b, c) per unit: {r:?}",
+                g.nodes[n.0].name
+            );
+        }
+        for &e in &g.nodes[bn.0].in_edges[1..] {
+            let r = &fused.in_region[&e];
+            assert!(
+                r.len() == 1 && one(&r[0]),
+                "a per-channel operand reads one channel: {r:?}"
+            );
+        }
+        // One unit per (b, c, H·W chunk), as the kernel's grid has it.
+        assert_eq!(fused.cost.units, 2 * 8 * 1024u64.div_ceil(*v));
+        // Per unit: x's chunk, y's (and silu's) chunk, four channel scalars;
+        // f32 throughout. It used to hold every (b, c), 16 times as much.
+        assert!(
+            fused.cost.footprint <= 4 * (3 * v + 4) + 1024,
+            "footprint {} is more than a (b, c) chunk of BLOCK_HW = {v}",
+            fused.cost.footprint
         );
     }
 

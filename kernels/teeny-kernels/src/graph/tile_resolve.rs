@@ -1744,10 +1744,17 @@ mod tests {
             y.rank, 4,
             "the real NCHW rank, not the kernel's 3-axis view"
         );
-        assert_eq!(y.axes.len(), 1);
-        assert_eq!(y.axes[0].dims, &[2, 3], "BLOCK_HW spans H and W");
-        assert_eq!(y.axes[0].extent_param, "HW");
-        assert_eq!(y.untiled_dims, &["B", "C"]);
+        // B and C are one-per-program axes bound at block 1 (teenygrad-yf8f).
+        assert_eq!(y.axes.len(), 3);
+        for (axis, (dim, name)) in y.axes[..2].iter().zip([(0, "B"), (1, "C")]) {
+            assert_eq!(
+                (axis.dims, axis.block_const, axis.extent_param),
+                (&[dim][..], "1", name)
+            );
+        }
+        assert_eq!(y.axes[2].dims, &[2, 3], "BLOCK_HW spans H and W");
+        assert_eq!(y.axes[2].extent_param, "HW");
+        assert!(y.untiled_dims.is_empty());
 
         // x first, then the four per-channel operands, each rank 1 on C.
         assert_eq!(spec.inputs.len(), 5);
@@ -1757,12 +1764,12 @@ mod tests {
         }
 
         // A flattened tile, innermost carrying the block, resolves x to the
-        // same tile; the per-channel operands are untiled, so full extent.
+        // same tile, and each per-channel operand to the one channel it is on.
         let out = tile(&[Some(1), Some(1), Some(1), Some(128)]);
         let inputs = resolve_inputs(&spec, &out, &NoConsts).expect("rank 4 now resolves");
-        assert_eq!(inputs[0], tile(&[None, None, Some(1), Some(128)]));
+        assert_eq!(inputs[0], out);
         for param in &inputs[1..] {
-            assert_eq!(param, &tile(&[None]));
+            assert_eq!(param, &tile(&[Some(1)]));
         }
     }
 }

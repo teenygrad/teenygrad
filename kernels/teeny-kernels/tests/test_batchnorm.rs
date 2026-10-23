@@ -202,7 +202,9 @@ fn test_batch_norm_stats_reads_x_once_for_both_statistics() {
         walks, 1,
         "expected one walk accumulating both carries, found {walks}"
     );
-    let at = src.find("while __tile_pass").expect("the walk is generated");
+    let at = src
+        .find("while __tile_pass")
+        .expect("the walk is generated");
     let body = &src[at..];
     let end = body.find("__tile_pass_0 +=").expect("the walk advances");
     let inner: String = body[..end].split_whitespace().collect::<Vec<_>>().join(" ");
@@ -684,6 +686,107 @@ fn test_batch_norm_2d_nchw_forward_inference() -> anyhow::Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// The NCHW inference kernel over a plane that is not a multiple of
+/// `BLOCK_HW`, against a CPU reference: every program's tile has a masked
+/// tail. B and C are one-per-program axes of their own (block 1), so the tail
+/// mask is ANDed with theirs, and a wrong combination would show here as a
+/// skipped or clobbered tail element.
+#[test]
+#[cfg(all(feature = "cuda", feature = "hardware"))]
+fn test_batch_norm_2d_nchw_forward_inference_masks_a_ragged_plane() -> anyhow::Result<()> {
+    dotenv().ok();
+    let device = teeny_runtime::open()?;
+
+    const BN_B: usize = 3;
+    const BN_C: usize = 5;
+    const BN_HW: usize = 7 * 9; // < BLOCK_HW: one partial tile per (b, c)
+    const BN_ELEM: usize = BN_B * BN_C * BN_HW;
+    // See test_batch_norm_2d_nchw_forward_inference: the launch block dim
+    // must be 128.
+    const BN_BLOCK_HW: i32 = 128;
+    const BN_EPS: f32 = 1e-5;
+
+    let x_host: Vec<f32> = (0..BN_ELEM)
+        .map(|i| ((i * 37) % 101) as f32 / 10.0 - 5.0)
+        .collect();
+    let weight_host: Vec<f32> = (0..BN_C).map(|c| 0.5 + c as f32 * 0.25).collect();
+    let bias_host: Vec<f32> = (0..BN_C).map(|c| c as f32 - 2.0).collect();
+    let mean_host: Vec<f32> = (0..BN_C).map(|c| (c as f32 - 1.5) * 0.3).collect();
+    let var_host: Vec<f32> = (0..BN_C).map(|c| 0.5 + c as f32).collect();
+
+    let mut x_buf = device.buffer::<f32>(BN_ELEM)?;
+    let mut w_buf = device.buffer::<f32>(BN_C)?;
+    let mut b_buf = device.buffer::<f32>(BN_C)?;
+    let mut rm_buf = device.buffer::<f32>(BN_C)?;
+    let mut rv_buf = device.buffer::<f32>(BN_C)?;
+    // One guard element past the end: a tail store that escaped its mask
+    // would overwrite it.
+    const GUARD: f32 = 12345.0;
+    let mut y_buf = device.buffer::<f32>(BN_ELEM + 1)?;
+
+    x_buf.to_device(&x_host)?;
+    w_buf.to_device(&weight_host)?;
+    b_buf.to_device(&bias_host)?;
+    rm_buf.to_device(&mean_host)?;
+    rv_buf.to_device(&var_host)?;
+    y_buf.to_device(&vec![GUARD; BN_ELEM + 1])?;
+
+    let kernel = teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwForwardInference::<f32>::new(
+        BN_BLOCK_HW,
+    );
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
+        teeny_kernels::nn::norm::batchnorm::BatchNorm2dNchwForwardInference<f32>,
+    >(&ptx_path)?;
+
+    let hw_tiles = BN_HW.div_ceil(BN_BLOCK_HW as usize);
+    let cfg = teeny_runtime::launch_config_custom(
+        [(BN_C * hw_tiles) as u32, BN_B as u32, 1],
+        [BN_BLOCK_HW as u32, 1, 1],
+        [1, 1, 1],
+    );
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
+            w_buf.as_device_ptr(),
+            b_buf.as_device_ptr(),
+            rm_buf.as_device_ptr(),
+            rv_buf.as_device_ptr(),
+            BN_B as i32,
+            BN_C as i32,
+            BN_HW as i32,
+            BN_EPS,
+        ),
+    )?;
+
+    let mut y_out = vec![0.0_f32; BN_ELEM + 1];
+    y_buf.to_host(&mut y_out)?;
+
+    for b in 0..BN_B {
+        for c in 0..BN_C {
+            let rstd = 1.0 / (var_host[c] + BN_EPS).sqrt();
+            for hw in 0..BN_HW {
+                let i = b * BN_C * BN_HW + c * BN_HW + hw;
+                let want = weight_host[c] * (x_host[i] - mean_host[c]) * rstd + bias_host[c];
+                assert!(
+                    (y_out[i] - want).abs() < TOL,
+                    "nchw_forward mismatch at b={b}, c={c}, hw={hw}: gpu={} expected={want}",
+                    y_out[i],
+                );
+            }
+        }
+    }
+    assert_eq!(
+        y_out[BN_ELEM], GUARD,
+        "a store escaped the last tile's mask"
+    );
     Ok(())
 }
 
