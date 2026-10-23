@@ -245,14 +245,7 @@ mod tests {
                 _ => None,
             }
         };
-        b.op_with(
-            "conv",
-            &[len],
-            Some(spec),
-            false,
-            Box::new(lookup),
-            &[input],
-        )
+        b.op_with("conv", &[len], Some(spec), Box::new(lookup), &[input])
     }
 
     fn with_ctx<R>(g: &TileGraph, plan: &[usize], f: impl FnOnce(&Ctx) -> R) -> R {

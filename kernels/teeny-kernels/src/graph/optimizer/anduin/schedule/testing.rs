@@ -20,7 +20,8 @@
 use teeny_core::device::hardware::MemoryLevelKind;
 use teeny_core::graph::{DtypeRepr, Shape};
 use teeny_core::model::{
-    ExecutableOp, GridSpec, KernelTileSpec, TensorTileSpec, TileAxisBinding, TileWindow,
+    ExecutableOp, GridSpec, KernelTileSpec, TensorTileSpec, TileAxisBinding, TileLoopSpec,
+    TileWindow,
 };
 
 use super::{Hierarchy, LevelInfo, Owner};
@@ -116,6 +117,18 @@ pub(super) fn kernel(inputs: &[TensorTileSpec], output: TensorTileSpec) -> Kerne
     }
 }
 
+/// `spec` with an accumulation loop declared: it propagates as `spec` does, but
+/// a looping kernel is never a broadcast map, so it is not a rider.
+pub(super) fn looping(spec: KernelTileSpec) -> KernelTileSpec {
+    KernelTileSpec {
+        loop_spec: Some(TileLoopSpec {
+            carries: &[],
+            trip_count_factors: &[],
+        }),
+        ..spec
+    }
+}
+
 /// An elementwise kernel over every dim of a rank-`rank` tensor, with `n`
 /// operands: the `tile_spec(rank)` the macro emits for a flat kernel.
 pub(super) fn flat(rank: usize, n: usize) -> KernelTileSpec {
@@ -124,12 +137,12 @@ pub(super) fn flat(rank: usize, n: usize) -> KernelTileSpec {
     kernel(&vec![t; n], t)
 }
 
-/// An op with an optional tile spec (no spec = opaque), marked a rider or not.
+/// An op with an optional tile spec (no spec = opaque). Whether it is a rider
+/// follows from its spec, as for a real kernel.
 struct SpecOp {
     name: String,
     shape: Shape,
     spec: Option<KernelTileSpec>,
-    rider: bool,
 }
 
 impl ExecutableOp for SpecOp {
@@ -153,9 +166,6 @@ impl ExecutableOp for SpecOp {
     }
     fn grid_spec(&self) -> Option<GridSpec> {
         self.spec.map(|_| GridSpec { axes: &[] })
-    }
-    fn pointwise_fuse_block_size(&self) -> Option<i32> {
-        self.rider.then_some(1024)
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -223,7 +233,6 @@ impl Builder {
         name: &str,
         shape: &[u64],
         spec: Option<KernelTileSpec>,
-        rider: bool,
         consts: Box<dyn ConstLookup>,
         inputs: &[NodeId],
     ) -> NodeId {
@@ -231,7 +240,6 @@ impl Builder {
             name: name.to_string(),
             shape: shape.iter().map(|&d| Some(d as usize)).collect(),
             spec,
-            rider,
         };
         let meta = OpMeta::new(Box::new(op), consts, 1.0);
         let id = self.push(NodeKind::Op, name, shape, meta);
@@ -248,17 +256,7 @@ impl Builder {
         spec: KernelTileSpec,
         inputs: &[NodeId],
     ) -> NodeId {
-        self.op_with(name, shape, Some(spec), false, Box::new(NoConsts), inputs)
-    }
-
-    pub fn rider(
-        &mut self,
-        name: &str,
-        shape: &[u64],
-        spec: KernelTileSpec,
-        inputs: &[NodeId],
-    ) -> NodeId {
-        self.op_with(name, shape, Some(spec), true, Box::new(NoConsts), inputs)
+        self.op_with(name, shape, Some(spec), Box::new(NoConsts), inputs)
     }
 
     /// Marks `n` a model output, as well as whatever else consumes it.
@@ -290,7 +288,10 @@ impl Builder {
 ///   read over the row axis alone.
 /// - `max` and `sum` produce one row per unit and read the whole row: `C`
 ///   names no output dim, so it stays `Full`.
-/// - `exp` is a flat rider.
+/// - `exp` is flat.
+///
+/// `sub`, `exp` and `div` are broadcast maps, so riders; `max` and `sum` are
+/// not (`KernelTileSpec::is_broadcast_map`).
 pub(super) struct Softmax {
     pub g: TileGraph,
     pub x: NodeId,
@@ -332,7 +333,7 @@ pub(super) fn softmax(rows: u64, cols: u64) -> Softmax {
     let x = b.input("x", &full);
     let max = b.op("max", &reduced, row_reduce(), &[x]);
     let sub = b.op("sub", &full, row_broadcast(), &[x, max]);
-    let exp = b.rider("exp", &full, flat(2, 1), &[sub]);
+    let exp = b.op("exp", &full, flat(2, 1), &[sub]);
     let sum = b.op("sum", &reduced, row_reduce(), &[exp]);
     let div = b.op("div", &full, row_broadcast(), &[exp, sum]);
     Softmax {

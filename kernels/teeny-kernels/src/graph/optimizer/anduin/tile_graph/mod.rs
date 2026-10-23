@@ -58,8 +58,9 @@ pub struct Node {
 }
 
 /// A tileable op: one whose kernel declares both a tile spec and a grid spec.
-/// Its spec, grid and rider flag are read off the op itself; only what the op
-/// can't say about itself is stored beside it.
+/// Its spec, grid and rider flag are read off the op itself (the rider flag
+/// derived from the spec); only what the op can't say about itself is stored
+/// beside it.
 pub struct OpMeta {
     op: Box<dyn ExecutableOp>, // the lowered op this node was built from
     pub consts: Box<dyn ConstLookup>, // this node's values (P3)
@@ -100,10 +101,15 @@ impl OpMeta {
             .expect("OpMeta::new only accepts an op with a grid spec")
     }
 
-    /// The op passes the pointwise-fuse probe, so it may be spliced into
-    /// another program.
+    /// Whether this op can run on another program's decoded coordinates:
+    /// its spec is a broadcast map ([`KernelTileSpec::is_broadcast_map`]),
+    /// derived from the kernel, so elementwise ops, BatchNorm2d inference and
+    /// the row-broadcast Sub/Div are riders and conv2d and the reductions are
+    /// not (teenygrad-8x1t).
+    ///
+    /// [`KernelTileSpec::is_broadcast_map`]: teeny_core::model::KernelTileSpec::is_broadcast_map
     pub fn rider(&self) -> bool {
-        self.op.pointwise_fuse_block_size().is_some()
+        self.spec().is_broadcast_map()
     }
 }
 

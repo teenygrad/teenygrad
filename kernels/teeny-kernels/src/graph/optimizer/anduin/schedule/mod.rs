@@ -243,10 +243,11 @@ trait Capabilities {
     fn knob_style(&self) -> KnobStyle;
 }
 
-/// teenygrad's codegen today: a kernel can only splice a rider (an op passing
-/// the pointwise-fuse probe) after its own body, so an edge fuses only into a
-/// rider. It schedules device and shared memory only, so tilings always stage
-/// into the compute level and `stage_input` is never asked.
+/// teenygrad's codegen model: a kernel can only splice a rider (an op whose
+/// spec is a broadcast map, `OpMeta::rider`) after its own body, so an edge
+/// fuses only into a rider. It schedules device and shared memory only, so
+/// tilings always stage into the compute level and `stage_input` is never
+/// asked.
 struct TeenygradCaps;
 
 impl Capabilities for TeenygradCaps {
@@ -1470,6 +1471,26 @@ mod tests {
     // ─────────────────────── Tiling: §12.7 D1, D2, S5 and W7 ───────────────────────
 
     /// The schedule of `g` with `caps`, over device and shared memory.
+    /// Each kernel of `schedule` by its nodes' names and its anchor, for a
+    /// failure message.
+    fn describe(g: &TileGraph, schedule: &Schedule) -> Vec<String> {
+        schedule
+            .kernels
+            .iter()
+            .map(|k| match k {
+                KernelChoice::Opaque(n) => format!("Opaque({})", g.nodes[n.0].name),
+                KernelChoice::Tiled(t) => format!(
+                    "Tiled({:?}, anchor {})",
+                    t.nodes
+                        .iter()
+                        .map(|n| &g.nodes[n.0].name)
+                        .collect::<Vec<_>>(),
+                    g.nodes[t.anchor.0].name
+                ),
+            })
+            .collect()
+    }
+
     fn schedule_with(g: &TileGraph, caps: &dyn Capabilities) -> Schedule {
         let hw = device_and_shared();
         let params = search_params(10);
@@ -1535,11 +1556,24 @@ mod tests {
 
     #[test]
     fn test_teenygrad_caps_fuse_only_into_riders() {
-        // Of softmax's internal edges only sub -> exp ends at a rider, so
-        // under teenygrad's own capabilities that is the one fusion.
+        // In softmax `sub`, `exp` and `div` are broadcast maps, so riders, and
+        // `max` and `sum` are not. Under teenygrad's own capabilities no edge
+        // into `max` or `sum` fuses: `exp -> sum` stays in device memory, which
+        // leaves {max, sub, exp} and {sum, div} (merging `exp` with `div`
+        // across it would not be convex).
         let s = softmax(64, 1024);
 
         let schedule = schedule_with(&s.g, &TeenygradCaps);
+
+        for e in &s.g.edges {
+            if schedule.plan.level[e.id.0] > 0 {
+                assert!(
+                    meta(&s.g, e.dst).rider(),
+                    "edge into {} fused, but it is not a rider",
+                    s.g.nodes[e.dst.0].name
+                );
+            }
+        }
 
         let kernels: Vec<Vec<NodeId>> = schedule
             .kernels
@@ -1549,10 +1583,7 @@ mod tests {
                 KernelChoice::Opaque(n) => vec![*n],
             })
             .collect();
-        assert_eq!(
-            kernels,
-            vec![vec![s.max], vec![s.sub, s.exp], vec![s.sum], vec![s.div]]
-        );
+        assert_eq!(kernels, vec![vec![s.max, s.sub, s.exp], vec![s.sum, s.div]]);
     }
 
     #[test]
@@ -1622,11 +1653,11 @@ mod tests {
     }
 
     #[test]
-    fn test_w7_conv_batchnorm_silu_fuses_batchnorm_and_silu_through_the_real_lowering() {
-        // §12.5 W7 through `TritonLowering`. conv2d tiles on its own: the
-        // edge into batchnorm2d does not fuse, since `TeenygradCaps` fuses
-        // only into a rider. batchnorm2d tiles its flattened H·W axis by
-        // BLOCK_HW, and silu is a rider it splices after itself.
+    fn test_w7_batchnorm_and_silu_tile_one_channel_plane_per_unit() {
+        // §12.5 W7's {BN, SiLU} group, through `TritonLowering`: batchnorm2d
+        // anchors, tiles its flattened H·W axis by BLOCK_HW, and silu rides
+        // after it. (The whole conv block fuses under the production caps,
+        // anchored at conv2d; see the test after this one.)
         //
         // batchnorm2d binds B and C at block 1 (P4, teenygrad-yf8f), so each
         // unit is one (b, c) plane chunk, as the kernel's own grid has it, and
@@ -1662,16 +1693,27 @@ mod tests {
             "conv2d lowers with both specs"
         );
 
-        let schedule = schedule_with(&g, &TeenygradCaps);
-
-        let [KernelChoice::Tiled(first), KernelChoice::Tiled(fused)] = schedule.kernels.as_slice()
-        else {
-            panic!("expected conv2d alone, then one tiled kernel");
+        // Tile {bn, silu} alone: bn -> silu in shared memory, all else in
+        // device memory.
+        let plan = ConnectPlan {
+            level: g
+                .edges
+                .iter()
+                .map(|e| Lvl::from(e.src == bn && e.dst == silu))
+                .collect(),
         };
-        assert_eq!(
-            (first.nodes.as_slice(), first.anchor),
-            ([conv].as_slice(), conv)
-        );
+        let hw = device_and_shared();
+        let params = search_params(10);
+        let cx = Ctx {
+            g: &g,
+            hw: &hw,
+            caps: &TeenygradCaps,
+            params: &params,
+            ev: &AnalyticEvaluator,
+            plan: &plan,
+        };
+        let cands = tiling::tile_group(&cx, 0, &[bn, silu], &[]);
+        let fused = cands.first().expect("{bn, silu} has a legal tiling");
         assert_eq!(fused.nodes, vec![bn, silu]);
         assert_eq!(fused.anchor, bn);
         let [(KnobName::Block("BLOCK_HW"), v)] = fused.knobs.as_slice() else {
@@ -1719,14 +1761,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "conv2d cannot fuse into batchnorm2d under TeenygradCaps, and the fused tiling \
-                is not realisable until P3, P4 and P6 are met (teenygrad-1l7i)"]
     fn test_conv2d_batchnorm_silu_schedules_as_one_tiled_kernel() {
         // input -> conv2d -> batchnorm2d -> silu through `TritonLowering`,
         // scheduled with the production capabilities. The target is the
         // hand-fused `Conv2dBnSiluForward`: conv2d, batchnorm2d and silu in
         // one tiled kernel anchored at conv2d, the only node whose spec ties
         // the group to conv2d's own grid; the input stays apart.
+        //
+        // batchnorm2d and silu are broadcast maps, so riders, and conv2d (a
+        // windowed, looping kernel) is the latest non-rider (teenygrad-8x1t).
+        // The tiling itself is still coarse: conv2d's own B, C_OUT and OH are
+        // unbound (P4), its window consts unknown (P3) and its reduction read
+        // whole (P6); teenygrad-1l7i tracks checking it once those land.
         let block = teeny_test::graph::Conv2dBnSiluBuilder::default()
             .batch(2)
             .in_channels(3)
@@ -1759,24 +1805,13 @@ mod tests {
         let [KernelChoice::Tiled(fused)] = schedule.kernels.as_slice() else {
             panic!(
                 "expected one tiled kernel for conv2d, batchnorm2d and silu, got {:?}",
-                schedule
-                    .kernels
-                    .iter()
-                    .map(|k| match k {
-                        KernelChoice::Opaque(n) => format!("Opaque({})", g.nodes[n.0].name),
-                        KernelChoice::Tiled(t) => format!(
-                            "Tiled({:?}, anchor {})",
-                            t.nodes
-                                .iter()
-                                .map(|n| &g.nodes[n.0].name)
-                                .collect::<Vec<_>>(),
-                            g.nodes[t.anchor.0].name
-                        ),
-                    })
-                    .collect::<Vec<_>>()
+                describe(&g, &schedule)
             );
         };
         assert_eq!(fused.nodes, vec![conv, bn, silu]);
         assert_eq!(fused.anchor, conv);
+        let [(KnobName::Block("BLOCK_OW"), _)] = fused.knobs.as_slice() else {
+            panic!("conv2d's one knob is BLOCK_OW, got {:?}", fused.knobs);
+        };
     }
 }

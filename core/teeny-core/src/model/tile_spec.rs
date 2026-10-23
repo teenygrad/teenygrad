@@ -486,6 +486,51 @@ impl TensorTileSpec {
 }
 
 impl KernelTileSpec {
+    /// Whether this kernel is a broadcast map: each output element is
+    /// computed from the elements of its inputs at the same coordinates, with
+    /// lower-rank operands broadcast over the dims they don't bind.
+    ///
+    /// That holds when:
+    /// - there is one output, and no loop;
+    /// - no tensor has a reduction axis, a window, a `divide_by` or an
+    ///   untiled dim, so every coordinate the kernel reads is named;
+    /// - some input binds exactly what the output binds (the mapped operand);
+    /// - every input binds only names the output binds, each over the same
+    ///   number of dims and with the same block (the broadcast operands).
+    ///
+    /// Such a kernel can run on any program's decoded coordinates without a
+    /// grid of its own, which is what makes it a rider for the scheduler.
+    /// Derived from the spec alone, so it can't disagree with the kernel.
+    pub fn is_broadcast_map(&self) -> bool {
+        let [output] = self.outputs else {
+            return false;
+        };
+        let plain = |t: &TensorTileSpec| {
+            t.reduction_axis.is_none()
+                && t.untiled_dims.is_empty()
+                && t.axes
+                    .iter()
+                    .all(|a| a.window.is_none() && a.divide_by.is_none())
+        };
+        let bound_by_output = |a: &TileAxisBinding| {
+            output.axes.iter().any(|o| {
+                o.extent_param == a.extent_param
+                    && o.block_const == a.block_const
+                    && o.dims.len() == a.dims.len()
+            })
+        };
+        self.loop_spec.is_none()
+            && plain(output)
+            && self
+                .inputs
+                .iter()
+                .all(|t| plain(t) && t.axes.iter().all(bound_by_output))
+            && self
+                .inputs
+                .iter()
+                .any(|t| t.rank == output.rank && t.axes == output.axes)
+    }
+
     /// Checks every tensor in this spec, and the loop metadata.
     ///
     /// Written to be called from a test that enumerates the registered
@@ -803,6 +848,63 @@ mod tests {
         };
         let msg = alloc::format!("{}", SPEC.validate().expect_err("empty carry"));
         assert!(msg.contains("acc"), "{msg}");
+    }
+
+    #[test]
+    fn test_a_broadcast_map_reads_each_input_at_the_output_coordinates() {
+        static XY: [TileAxisBinding; 2] = [axis(&[0], "1"), axis(&[1], "BLOCK_C")];
+        static ROW: [TileAxisBinding; 1] = [axis(&[0], "1")];
+        static OTHER: [TileAxisBinding; 1] = [axis(&[0], "BLOCK_R")];
+        // `axis` names every binding "N"; give the row binding its own name.
+        static NAMED: [TileAxisBinding; 2] = [
+            TileAxisBinding {
+                extent_param: "R",
+                ..axis(&[0], "1")
+            },
+            axis(&[1], "BLOCK_C"),
+        ];
+        static ROW_R: [TileAxisBinding; 1] = [TileAxisBinding {
+            extent_param: "R",
+            ..axis(&[0], "1")
+        }];
+        let spec = |inputs: &'static [TensorTileSpec], out: TensorTileSpec| KernelTileSpec {
+            inputs,
+            outputs: alloc::vec![out].leak(),
+            loop_spec: None,
+        };
+        let xy = tensor(2, &NAMED);
+
+        // [R, C] op [R]: the row operand is broadcast over C.
+        let row = tensor(1, &ROW_R);
+        assert!(spec(alloc::vec![xy, row].leak(), xy).is_broadcast_map());
+        assert!(spec(alloc::vec![xy].leak(), xy).is_broadcast_map());
+
+        // No input has the output's bindings: a reduction's [R] <- [R, C].
+        assert!(!spec(alloc::vec![xy].leak(), row).is_broadcast_map());
+        // An operand bound with a different block is not read in lockstep.
+        let other = tensor(1, &OTHER);
+        assert!(
+            !spec(alloc::vec![tensor(2, &XY), other].leak(), tensor(2, &XY)).is_broadcast_map()
+        );
+        // Unnamed coordinates, a reduction axis, or a loop disqualify it.
+        let untiled = TensorTileSpec {
+            untiled_dims: &["C"],
+            ..tensor(1, &ROW)
+        };
+        assert!(!spec(alloc::vec![xy, untiled].leak(), xy).is_broadcast_map());
+        let reduced = TensorTileSpec {
+            reduction_axis: Some(1),
+            ..xy
+        };
+        assert!(!spec(alloc::vec![reduced].leak(), xy).is_broadcast_map());
+        let looped = KernelTileSpec {
+            loop_spec: Some(TileLoopSpec {
+                carries: &[],
+                trip_count_factors: &[],
+            }),
+            ..spec(alloc::vec![xy].leak(), xy)
+        };
+        assert!(!looped.is_broadcast_map());
     }
 
     #[test]

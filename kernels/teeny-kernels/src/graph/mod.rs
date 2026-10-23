@@ -4119,6 +4119,46 @@ mod broadcast_lowering_tests {
     }
 
     #[test]
+    fn test_real_kernels_are_broadcast_maps_exactly_when_they_can_ride() {
+        // teenygrad-8x1t: rider-ness is derived from the spec. Elementwise
+        // ops, BatchNorm2d inference and the row-broadcast Sub/Div read each
+        // input at the output's coordinates; conv2d (windowed, looping) and a
+        // reduction do not.
+        use crate::nn::norm::batchnorm::BatchNorm2dNchwForwardInference;
+
+        let maps = [
+            ("silu", SiluForward::<f32>::tile_spec(4)),
+            ("exp", ElemwiseExpForward::<f32>::tile_spec(2)),
+            ("add", ElemwiseAddForward::<f32>::tile_spec(2)),
+            (
+                "batchnorm2d",
+                BatchNorm2dNchwForwardInference::<f32>::tile_spec(),
+            ),
+            (
+                "sub_row_broadcast",
+                ElemwiseSubRowBroadcastForward::<f32>::tile_spec(),
+            ),
+            (
+                "div_row_broadcast",
+                ElemwiseDivRowBroadcastForward::<f32>::tile_spec(),
+            ),
+        ];
+        for (name, spec) in maps {
+            assert!(spec.is_broadcast_map(), "{name} should be a broadcast map");
+        }
+        let not_maps = [
+            ("conv2d", Conv2dForward::<f32>::tile_spec()),
+            ("reduce_sum", ReduceSumForward::<f32>::tile_spec()),
+        ];
+        for (name, spec) in not_maps {
+            assert!(
+                !spec.is_broadcast_map(),
+                "{name} should not be a broadcast map"
+            );
+        }
+    }
+
+    #[test]
     fn test_reduce_block_covers_the_whole_reduced_row() {
         let reduce = |cols: Option<usize>, batch: Option<usize>| {
             let mut g = Graph::new();

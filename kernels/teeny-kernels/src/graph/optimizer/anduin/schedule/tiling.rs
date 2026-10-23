@@ -47,8 +47,15 @@ pub(super) struct Extents {
 
 /// The group's anchor and its pure sinks (the nodes with no consumer in `N`).
 /// At `l + 1 == H` the root stage is all of `N`. When units are blocks and
-/// knobs are the anchor's consts, the anchor is the latest non-rider: the
-/// program the riders are spliced into. Otherwise it is the last sink.
+/// knobs are the anchor's consts, the anchor is the program the riders are
+/// spliced into. Every node after the latest non-rider is a rider, and a rider
+/// runs on the anchor's decoded coordinates, so it must have the anchor's
+/// output shape: softmax's `div` (`[R, C]`) cannot ride on `sum` (`[R, 1]`).
+/// The anchor is therefore the earliest node, from the latest non-rider on,
+/// whose shape every later node of the stage shares: the node that first
+/// produces the stage's final shape. Its own grid is then the most structured
+/// one available (a row-broadcast `sub` rather than the flat `exp` after it).
+/// Otherwise the anchor is the last sink.
 pub(super) fn choose_anchor(cx: &Ctx, l: Lvl, n_set: &[NodeId]) -> (NodeId, Vec<NodeId>) {
     let sinks: Vec<NodeId> = n_set
         .iter()
@@ -67,12 +74,24 @@ pub(super) fn choose_anchor(cx: &Ctx, l: Lvl, n_set: &[NodeId]) -> (NodeId, Vec<
         n_set.to_vec()
     };
     let anchor = match (cx.hw.owner_of_units(l), super::seed::style(cx, l)) {
-        (super::Owner::Block, super::seed::KnobStyle::AnchorConsts) => root_stage
-            .iter()
-            .copied()
-            .filter(|&n| !meta(cx.g, n).rider())
-            .max_by_key(|n| cx.g.pos[n.0])
-            .unwrap_or(last),
+        (super::Owner::Block, super::seed::KnobStyle::AnchorConsts) => {
+            let mut stage = root_stage.clone();
+            stage.sort_by_key(|n| cx.g.pos[n.0]);
+            // With no non-rider, every node is a candidate.
+            let from = stage
+                .iter()
+                .rposition(|&n| !meta(cx.g, n).rider())
+                .unwrap_or(0);
+            let shared = |i: usize| {
+                stage[i + 1..]
+                    .iter()
+                    .all(|&n| shape(cx.g, n) == shape(cx.g, stage[i]))
+            };
+            let at = (from..stage.len())
+                .find(|&i| shared(i))
+                .expect("nothing follows the last node");
+            stage[at]
+        }
         _ => last,
     };
     (anchor, sinks)
@@ -370,7 +389,7 @@ mod tests {
     use super::super::seed::KnobName;
     use super::super::span::DimSpan;
     use super::super::testing::{
-        Builder, Softmax, bind, device_and_shared, flat, kernel, softmax, tensor,
+        Builder, Softmax, bind, device_and_shared, flat, kernel, looping, softmax, tensor,
     };
     use super::super::{Capabilities, ConnectPlan, SearchParams, TeenygradCaps};
     use super::*;
@@ -440,13 +459,14 @@ mod tests {
 
     #[test]
     fn test_the_anchor_is_the_latest_non_rider_and_sinks_have_no_consumer_in_n() {
-        // x -> a -> r1 (rider) -> r2 (rider), a -> s (sink of its own).
+        // x -> a -> r1 (rider) -> r2 (rider), a -> s (sink of its own). `a`
+        // and `s` loop, so neither is a broadcast map.
         let mut b = Builder::default();
         let x = b.input("x", &[8]);
-        let a = b.op("a", &[8], flat(1, 1), &[x]);
-        let r1 = b.rider("r1", &[8], flat(1, 1), &[a]);
-        let s = b.op("s", &[8], flat(1, 1), &[a]);
-        let r2 = b.rider("r2", &[8], flat(1, 1), &[r1]);
+        let a = b.op("a", &[8], looping(flat(1, 1)), &[x]);
+        let r1 = b.op("r1", &[8], flat(1, 1), &[a]);
+        let s = b.op("s", &[8], looping(flat(1, 1)), &[a]);
+        let r2 = b.op("r2", &[8], flat(1, 1), &[r1]);
         let g = b.build();
 
         let (anchor, sinks) = with_group(&g, &[a, r1, r2], &TeenygradCaps, 10, |cx| {
@@ -463,7 +483,30 @@ mod tests {
         let (anchor, _) = with_group(&g, &[r1, r2], &TeenygradCaps, 10, |cx| {
             choose_anchor(cx, 0, &[r1, r2])
         });
-        assert_eq!(anchor, r2, "with only riders, the last sink");
+        assert_eq!(
+            anchor, r1,
+            "with only riders, the earliest of the final shape"
+        );
+    }
+
+    #[test]
+    fn test_a_rider_wider_than_the_latest_non_rider_anchors_instead() {
+        // A rider runs on the anchor's coordinates, so it needs the anchor's
+        // shape. In softmax every node after `sum` ([R, 1]) is a rider, but
+        // `div` is [R, C]: it anchors. Among nodes of the final shape the
+        // earliest anchors, so in {max, sub, exp} it is the row-broadcast
+        // `sub`, not the flat `exp` after it.
+        let s = softmax(64, 1024);
+        let anchor = |n_set: &[NodeId]| {
+            with_group(&s.g, n_set, &TeenygradCaps, 10, |cx| {
+                choose_anchor(cx, 0, n_set)
+            })
+            .0
+        };
+
+        assert_eq!(anchor(&whole(&s)), s.div);
+        assert_eq!(anchor(&[s.max, s.sub, s.exp]), s.sub);
+        assert_eq!(anchor(&[s.exp, s.sum]), s.sum, "no node follows sum");
     }
 
     #[test]
