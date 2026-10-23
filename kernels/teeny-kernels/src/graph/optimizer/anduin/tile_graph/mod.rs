@@ -57,12 +57,54 @@ pub struct Node {
     pub meta: Option<OpMeta>, // None ⇒ opaque: never fused
 }
 
+/// A tileable op: one whose kernel declares both a tile spec and a grid spec.
+/// Its spec, grid and rider flag are read off the op itself; only what the op
+/// can't say about itself is stored beside it.
 pub struct OpMeta {
-    pub spec: KernelTileSpec,
-    pub grid: GridSpec,
+    op: Box<dyn ExecutableOp>, // the lowered op this node was built from
     pub consts: Box<dyn ConstLookup>, // this node's values (P3)
-    pub rider: bool, // fusion_core().is_some(): may be spliced into another program
     pub flops_per_output: f64, // includes the op's own reduction work per output element
+}
+
+impl OpMeta {
+    /// `None` if `op`'s kernel lacks a tile spec or a grid spec, i.e. the node
+    /// is opaque.
+    pub fn new(
+        op: Box<dyn ExecutableOp>,
+        consts: Box<dyn ConstLookup>,
+        flops_per_output: f64,
+    ) -> Option<Self> {
+        if op.tile_spec().is_none() || op.grid_spec().is_none() {
+            return None;
+        }
+        Some(Self {
+            op,
+            consts,
+            flops_per_output,
+        })
+    }
+
+    pub fn op(&self) -> &dyn ExecutableOp {
+        self.op.as_ref()
+    }
+
+    pub fn spec(&self) -> KernelTileSpec {
+        self.op
+            .tile_spec()
+            .expect("OpMeta::new only accepts an op with a tile spec")
+    }
+
+    pub fn grid(&self) -> GridSpec {
+        self.op
+            .grid_spec()
+            .expect("OpMeta::new only accepts an op with a grid spec")
+    }
+
+    /// The op passes the pointwise-fuse probe, so it may be spliced into
+    /// another program.
+    pub fn rider(&self) -> bool {
+        self.op.pointwise_fuse_block_size().is_some()
+    }
 }
 
 pub struct TileGraph {
@@ -81,10 +123,11 @@ impl TileGraph {
     /// parent feeds its operand `p`. `Dag::add_edge` drops duplicate edges, so an
     /// op that reads the same tensor twice (`x * x`) gets a single in-edge.
     ///
-    /// `op_meta(dag_idx, op)` supplies each `Op` node's [`OpMeta`]; `None` makes
-    /// the node opaque (never fused). The DAG's ops expose only their
-    /// `tile_spec()`, so the grid spec, consts, rider flag and flop count have
-    /// to come from the caller.
+    /// Takes ownership of `dag`: each `Op` node's op is handed to
+    /// `op_meta(dag_idx, op)`, which moves it into the node's [`OpMeta`];
+    /// returning `None` makes the node opaque (never fused) and drops the op, as
+    /// does every `Placeholder`. The op supplies its own tile spec, grid spec
+    /// and rider flag, so only the consts and flop count come from the caller.
     ///
     /// # Errors
     ///
@@ -93,8 +136,8 @@ impl TileGraph {
     ///
     /// [`TritonLowering`]: crate::graph::TritonLowering
     pub fn from_dag(
-        dag: &Dag<Box<dyn ExecutableOp>>,
-        mut op_meta: impl FnMut(usize, &dyn ExecutableOp) -> Option<OpMeta>,
+        dag: Dag<Box<dyn ExecutableOp>>,
+        mut op_meta: impl FnMut(usize, Box<dyn ExecutableOp>) -> Option<OpMeta>,
     ) -> Result<Self> {
         let mut graph = TileGraph {
             nodes: Vec::with_capacity(dag.len() + 1),
@@ -103,19 +146,24 @@ impl TileGraph {
             pos: vec![],
         };
         let mut dag_to_tile: Vec<Option<NodeId>> = vec![None; dag.len()];
+        let order = dag.topological_sort();
+        let mut dag_nodes: Vec<_> = dag.into_iter().map(Some).collect();
 
-        for dag_idx in dag.topological_sort() {
-            let dag_node = dag.node(dag_idx);
-            let op = dag_node.value.as_ref();
-            let shape = static_shape(dag_idx, op)?;
+        for dag_idx in order {
+            let dag_node = dag_nodes[dag_idx]
+                .take()
+                .expect("a topological order visits each node once");
+            let op = dag_node.value;
+            let shape = static_shape(dag_idx, op.as_ref())?;
             let dtype = op.output_dtype();
+            let name = op.name().to_string();
 
             let (kind, meta) = if op.is_input() {
                 (NodeKind::Placeholder, None)
             } else {
                 (NodeKind::Op, op_meta(dag_idx, op))
             };
-            let id = graph.add_node(kind, op.name(), shape.clone(), dtype, meta);
+            let id = graph.add_node(kind, name, shape.clone(), dtype, meta);
             for (port, &parent) in dag_node.parents.iter().enumerate() {
                 let src =
                     dag_to_tile[parent].expect("a parent precedes its child in topological order");
@@ -124,7 +172,7 @@ impl TileGraph {
             dag_to_tile[dag_idx] = Some(id);
 
             if dag_node.children.is_empty() {
-                let output = graph.add_node(NodeKind::Output, "output", shape, dtype, None);
+                let output = graph.add_node(NodeKind::Output, "output".to_string(), shape, dtype, None);
                 graph.connect(id, output, 0);
             }
         }
@@ -140,7 +188,7 @@ impl TileGraph {
     fn add_node(
         &mut self,
         kind: NodeKind,
-        name: &str,
+        name: String,
         shape: Vec<u64>,
         dtype: DtypeRepr,
         meta: Option<OpMeta>,
@@ -149,7 +197,7 @@ impl TileGraph {
         self.nodes.push(Node {
             id,
             kind,
-            name: name.to_string(),
+            name,
             in_edges: vec![],
             out_edges: vec![],
             shape,
@@ -306,7 +354,7 @@ mod tests {
         dag.add_edge(a, c);
         dag.add_edge(b, c);
 
-        let g = TileGraph::from_dag(&dag, |_, _| None).expect("every shape is static");
+        let g = TileGraph::from_dag(dag, |_, _| None).expect("every shape is static");
 
         let id_of = |name: &str| g.nodes.iter().find(|n| n.name == name).unwrap().id;
         let kind_of = |name: &str| g.nodes[id_of(name).0].kind;
@@ -348,7 +396,7 @@ mod tests {
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
         dag.add_node(op("input", vec![None, Some(8)]));
 
-        let err = TileGraph::from_dag(&dag, |_, _| None)
+        let err = TileGraph::from_dag(dag, |_, _| None)
             .err()
             .expect("dim 0 is dynamic");
         assert!(err.to_string().contains("dynamic dim"), "{err}");

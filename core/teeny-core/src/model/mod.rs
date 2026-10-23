@@ -369,6 +369,20 @@ pub trait ExecutableOp {
         None
     }
 
+    /// The launch-grid decomposition of this op's kernel (see [`GridSpec`]),
+    /// the grid-side counterpart of [`Self::tile_spec`]. `None` by default,
+    /// and for any kernel that doesn't emit one.
+    fn grid_spec(&self) -> Option<GridSpec> {
+        None
+    }
+
+    /// `Some(BLOCK_SIZE)` when this op's kernel passes the pointwise-fuse
+    /// probe (unary In/Out + `n_elements` CTA map), so it can be spliced
+    /// into another kernel's program. `None` by default.
+    fn pointwise_fuse_block_size(&self) -> Option<i32> {
+        None
+    }
+
     /// Downcast support for backend-specific executable types.
     fn as_any(&self) -> &dyn core::any::Any;
 

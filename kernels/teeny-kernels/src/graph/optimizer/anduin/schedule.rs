@@ -431,7 +431,7 @@ fn legal_levels(cx: &Ctx, e: &Edge) -> Vec<Lvl> {
     };
 
     // opaque endpoint
-    if cm.spec.inputs[e.dst_port].rank != p.shape.len() {
+    if cm.spec().inputs[e.dst_port].rank != p.shape.len() {
         return vec![0];
     }
 
@@ -977,8 +977,8 @@ fn schedule(cx0: &Ctx) -> Result<Schedule> {
 mod tests {
     use super::*;
     use crate::graph::tile_resolve::NoConsts;
-    use crate::graph::{KernelExecutable, TritonLowering};
-    use teeny_core::model::{ExecutableOp, GridSpec, LoweringMode};
+    use crate::graph::TritonLowering;
+    use teeny_core::model::{ExecutableOp, LoweringMode};
     use teeny_test::graph::DecomposedSoftmaxBuilder;
 
     use super::super::tile_graph::OpMeta;
@@ -1064,21 +1064,9 @@ mod tests {
         }
     }
 
-    /// The lowered op's own tile spec, with no grid or consts to go on. A
-    /// kernel that passes the pointwise-fuse probe is a rider.
-    fn op_meta(_dag_idx: usize, op: &dyn ExecutableOp) -> Option<OpMeta> {
-        let spec = op.tile_spec()?;
-        let rider = op
-            .as_any()
-            .downcast_ref::<KernelExecutable>()
-            .is_some_and(|k| k.pointwise_fuse_block_size.is_some());
-        Some(OpMeta {
-            spec,
-            grid: GridSpec { axes: &[] },
-            consts: Box::new(NoConsts),
-            rider,
-            flops_per_output: 1.0,
-        })
+    /// The lowered op's own tile and grid specs, with no consts to go on.
+    fn op_meta(_dag_idx: usize, op: Box<dyn ExecutableOp>) -> Option<OpMeta> {
+        OpMeta::new(op, Box::new(NoConsts), 1.0)
     }
 
     /// The level `plan` gives the edge `src -> dst` on `dst`'s operand `port`.
@@ -1130,13 +1118,18 @@ mod tests {
         let (dag, graph_to_dag, _) = lowering
             .lower_with_mapping(&softmax.graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
-        let g = TileGraph::from_dag(&dag, op_meta).expect("softmax shapes are static");
-
         // `from_dag` numbers tile nodes in topological order, which need not
         // match graph order, so look each one up by its lowered kernel's name.
-        // Every op in this graph lowers to a different kernel.
+        // Every op in this graph lowers to a different kernel. `from_dag`
+        // consumes the DAG, so read the names first.
+        let kernel_names: Vec<String> = graph_to_dag
+            .iter()
+            .map(|&dag_idx| dag.node(dag_idx).value.name().to_string())
+            .collect();
+        let g = TileGraph::from_dag(dag, op_meta).expect("softmax shapes are static");
+
         let tile_node = |graph_idx: usize| {
-            let name = dag.node(graph_to_dag[graph_idx]).value.name();
+            let name = kernel_names[graph_idx].as_str();
             let mut ids = g
                 .nodes
                 .iter()

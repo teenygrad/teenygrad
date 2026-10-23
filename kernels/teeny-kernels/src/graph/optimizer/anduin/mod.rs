@@ -86,16 +86,16 @@ impl GraphOptimizer for Anduin {
         _mapping: Vec<usize>,
         hardware: &HardwareProfile,
     ) -> Result<(Dag<Box<dyn ExecutableOp>>, Vec<usize>)> {
-        let (_tile_graph, traces) = Self::schedule(&dag, hardware)?;
-        Ok(Self::codegen(dag, &traces))
+        let (tile_graph, traces) = Self::schedule(dag, hardware)?;
+        Ok(Self::codegen(tile_graph, &traces))
     }
 }
 
 impl Anduin {
     /// §3.1-§3.3 up to (not including) codegen: builds a [`TileGraph`] from
-    /// `dag`, schedules every edge's memory level and caches the winning
-    /// tile shapes ([`schedule_graph`] — see `schedule`'s module doc
-    /// comment), then replays each edge's resolved tiling into a [`Trace`]
+    /// `dag` (taking ownership of its ops, see [`TileGraph::from_dag`]),
+    /// schedules every edge's memory level and caches the winning tile
+    /// shapes ([`schedule_graph`] — see `schedule`'s module doc comment), then replays each edge's resolved tiling into a [`Trace`]
     /// via [`Trace::trace_graph`]. Returns the scheduled `TileGraph` (for
     /// inspecting `connect_level`/`resolved_tiling`) alongside one `Trace`
     /// per root edge -- each trace's outermost `TraceEvent::VirtualNode`
@@ -111,7 +111,7 @@ impl Anduin {
     /// be the source of more than one outgoing edge whose resolved
     /// subgraphs overlap.
     pub fn schedule(
-        dag: &Dag<Box<dyn ExecutableOp>>,
+        dag: Dag<Box<dyn ExecutableOp>>,
         hardware: &HardwareProfile,
     ) -> Result<(TileGraph, Vec<Trace>)> {
         todo!("teenygrad-1nr: implement Anduin::schedule")
@@ -122,9 +122,10 @@ impl Anduin {
     /// every fused group into one output `Dag`, mirroring
     /// `GraphOptimizer::optimize`'s own `(Dag, Vec<usize>)` return shape.
     /// Hits `DagCodegen`'s `todo!()` stubs as soon as any `trace` has
-    /// events -- see this module's doc comment.
+    /// events -- see this module's doc comment. The ops come from
+    /// `tile_graph`, which took ownership of them in [`Self::schedule`].
     fn codegen(
-        dag: Dag<Box<dyn ExecutableOp>>,
+        tile_graph: TileGraph,
         traces: &[Trace],
     ) -> (Dag<Box<dyn ExecutableOp>>, Vec<usize>) {
         let mut codegen = AnduinCodegen::default();
@@ -248,7 +249,29 @@ mod tests {
             .lower_with_mapping(&graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
 
-        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile).unwrap();
+        // `schedule` consumes the DAG, so read each node's production grid
+        // (checked against the fused group below) off it first.
+        let concrete_shape = [2usize, 8, 32, 32];
+        let conv_grid = dag
+            .node(1)
+            .value
+            .runtime_op()
+            .expect("conv2d should have a real RuntimeOp")
+            .grid(&concrete_shape);
+        let bn_grid = dag
+            .node(2)
+            .value
+            .runtime_op()
+            .expect("batchnorm2d should have a real RuntimeOp")
+            .grid(&concrete_shape);
+        let silu_grid = dag
+            .node(3)
+            .value
+            .runtime_op()
+            .expect("silu should have a real RuntimeOp")
+            .grid(&concrete_shape);
+
+        let (_tile_graph, traces) = Anduin::schedule(dag, &profile).unwrap();
 
         // One root trace covers the whole 4-node graph: input(0)'s single
         // outgoing edge already resolves nodes [0,1,2,3], so the conv->bn
@@ -287,26 +310,6 @@ mod tests {
         // (nn/activation/silu.rs) are both flat 1-D.
         // There is no (grid_x, grid_y, grid_z) a kernel covering all
         // three nodes could actually be launched with.
-        let concrete_shape = [2usize, 8, 32, 32];
-        let conv_grid = dag
-            .node(1)
-            .value
-            .runtime_op()
-            .expect("conv2d should have a real RuntimeOp")
-            .grid(&concrete_shape);
-        let bn_grid = dag
-            .node(2)
-            .value
-            .runtime_op()
-            .expect("batchnorm2d should have a real RuntimeOp")
-            .grid(&concrete_shape);
-        let silu_grid = dag
-            .node(3)
-            .value
-            .runtime_op()
-            .expect("silu should have a real RuntimeOp")
-            .grid(&concrete_shape);
-
         assert_eq!(
             conv_grid[1], 1,
             "conv2d's own grid is flat 1-D: {conv_grid:?}"
@@ -385,7 +388,7 @@ mod tests {
             .lower_with_mapping(&graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
 
-        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile).unwrap();
+        let (_tile_graph, traces) = Anduin::schedule(dag, &profile).unwrap();
 
         assert_eq!(traces.len(), 1);
 
@@ -445,7 +448,7 @@ mod tests {
             .lower_with_mapping(&graph, LoweringMode::Inference)
             .expect("lowering should not fail here");
 
-        let (_tile_graph, traces) = Anduin::schedule(&dag, &profile).unwrap();
+        let (_tile_graph, traces) = Anduin::schedule(dag, &profile).unwrap();
 
         assert_eq!(traces.len(), 1);
 

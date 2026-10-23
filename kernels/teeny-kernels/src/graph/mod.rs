@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use teeny_core::{
     graph::{DtypeRepr, Graph, Op, Shape},
-    model::{ExecutableOp, KernelTileSpec, Lowering, LoweringMode, RuntimeOp},
+    model::{ExecutableOp, GridSpec, KernelTileSpec, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
 };
 
@@ -177,6 +177,7 @@ macro_rules! make_num_kernel {
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
+            grid_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -222,6 +223,7 @@ macro_rules! make_num_kernel {
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
+            grid_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -249,6 +251,7 @@ macro_rules! make_float_kernel {
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
+            grid_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -278,6 +281,7 @@ macro_rules! make_float_kernel {
             kernel_body: body,
             pointwise_fuse_block_size: probe_bs,
             tile_spec: None,
+            grid_spec: None,
             shape: $node.shape.clone(),
             dtype: $node.dtype,
             #[cfg(feature = "training")]
@@ -313,8 +317,10 @@ fn exec_from(
     dtype: DtypeRepr,
     inst: teeny_core::model::KernelInstance,
     tile_spec: teeny_core::model::KernelTileSpec,
+    grid_spec: GridSpec,
 ) -> Box<KernelExecutable> {
     let tile_spec = Some(tile_spec);
+    let grid_spec = Some(grid_spec);
     Box::new(KernelExecutable {
         entry_point: format!("{}_entry_point", inst.name),
         name: inst.name,
@@ -322,6 +328,7 @@ fn exec_from(
         kernel_body: inst.kernel_body,
         pointwise_fuse_block_size: inst.pointwise_fuse_block_size,
         tile_spec,
+        grid_spec,
         shape,
         dtype,
         #[cfg(feature = "training")]
@@ -368,6 +375,10 @@ pub struct KernelExecutable {
     /// coverage is opt-in, hand-authored per op at the `TritonLowering`
     /// construction site, not derived.
     pub tile_spec: Option<KernelTileSpec>,
+    /// The kernel's launch-grid decomposition (see [`GridSpec`]), set
+    /// alongside `tile_spec` from the same `#[tiled_kernel]`-derived kernel.
+    /// `None` wherever `tile_spec` is.
+    pub grid_spec: Option<GridSpec>,
     /// Backward kernel source. Empty if this op has no backward.
     #[cfg(feature = "training")]
     pub backward_kernel_source: String,
@@ -411,6 +422,14 @@ impl ExecutableOp for KernelExecutable {
 
     fn tile_spec(&self) -> Option<KernelTileSpec> {
         self.tile_spec
+    }
+
+    fn grid_spec(&self) -> Option<GridSpec> {
+        self.grid_spec
+    }
+
+    fn pointwise_fuse_block_size(&self) -> Option<i32> {
+        self.pointwise_fuse_block_size
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -786,6 +805,7 @@ impl TritonLowering {
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
+                    grid_spec: None,
                     shape: vec![Some(2 * c)],
                     dtype: node.dtype,
                     backward_kernel_source: String::new(),
@@ -843,6 +863,7 @@ impl TritonLowering {
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
+                    grid_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     backward_kernel_source: norm_bwd_src,
@@ -925,6 +946,7 @@ impl TritonLowering {
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
+                    grid_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1052,6 +1074,7 @@ impl TritonLowering {
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
+                    grid_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1108,6 +1131,7 @@ impl TritonLowering {
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
+                    grid_spec: None,
                     shape: node.shape.clone(),
                     dtype: node.dtype,
                     #[cfg(feature = "training")]
@@ -1131,6 +1155,7 @@ impl TritonLowering {
                     kernel_body: String::new(),
                     pointwise_fuse_block_size: None,
                     tile_spec: None,
+                    grid_spec: None,
                     entry_point: String::new(),
                     shape: node.shape.clone(),
                     dtype: node.dtype,
@@ -1207,6 +1232,7 @@ impl TritonLowering {
                         // made every conv -> bn -> act chain a hard boundary
                         // here (teenygrad-1nr.18.6).
                         tile_spec: Some(BatchNorm2dNchwForwardInference::<f32>::tile_spec()),
+                        grid_spec: Some(BatchNorm2dNchwForwardInference::<f32>::grid_spec()),
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1252,6 +1278,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -1739,120 +1766,140 @@ impl TritonLowering {
                     node.dtype,
                     EluForwardDispatch::dispatch(node.dtype, 1024)?,
                     EluForward::<f32>::tile_spec(node.shape.len()),
+                    EluForward::<f32>::grid_spec(),
                 ),
                 Op::Selu => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SeluForwardDispatch::dispatch(node.dtype, 1024)?,
                     SeluForward::<f32>::tile_spec(node.shape.len()),
+                    SeluForward::<f32>::grid_spec(),
                 ),
                 Op::Celu { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     CeluForwardDispatch::dispatch(node.dtype, 1024)?,
                     CeluForward::<f32>::tile_spec(node.shape.len()),
+                    CeluForward::<f32>::grid_spec(),
                 ),
                 Op::Gelu => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     GeluForwardDispatch::dispatch(node.dtype, 1024)?,
                     GeluForward::<f32>::tile_spec(node.shape.len()),
+                    GeluForward::<f32>::grid_spec(),
                 ),
                 Op::Mish => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     MishForwardDispatch::dispatch(node.dtype, 1024)?,
                     MishForward::<f32>::tile_spec(node.shape.len()),
+                    MishForward::<f32>::grid_spec(),
                 ),
                 Op::Hardtanh { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardtanhForwardDispatch::dispatch(node.dtype, 1024)?,
                     HardtanhForward::<f32>::tile_spec(node.shape.len()),
+                    HardtanhForward::<f32>::grid_spec(),
                 ),
                 Op::Relu6 => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     Relu6ForwardDispatch::dispatch(node.dtype, 1024)?,
                     Relu6Forward::<f32>::tile_spec(node.shape.len()),
+                    Relu6Forward::<f32>::grid_spec(),
                 ),
                 Op::Hardsigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardsigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                     HardsigmoidForward::<f32>::tile_spec(node.shape.len()),
+                    HardsigmoidForward::<f32>::grid_spec(),
                 ),
                 Op::Hardswish => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardswishForwardDispatch::dispatch(node.dtype, 1024)?,
                     HardswishForward::<f32>::tile_spec(node.shape.len()),
+                    HardswishForward::<f32>::grid_spec(),
                 ),
                 Op::Hardshrink { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     HardshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
                     HardshrinkForward::<f32>::tile_spec(node.shape.len()),
+                    HardshrinkForward::<f32>::grid_spec(),
                 ),
                 Op::LeakyRelu { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     LeakyReluForwardDispatch::dispatch(node.dtype, 1024)?,
                     LeakyReluForward::<f32>::tile_spec(node.shape.len()),
+                    LeakyReluForward::<f32>::grid_spec(),
                 ),
                 Op::Threshold { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     ThresholdForwardDispatch::dispatch(node.dtype, 1024)?,
                     ThresholdForward::<f32>::tile_spec(node.shape.len()),
+                    ThresholdForward::<f32>::grid_spec(),
                 ),
                 Op::Softsign => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SoftsignForwardDispatch::dispatch(node.dtype, 1024)?,
                     SoftsignForward::<f32>::tile_spec(node.shape.len()),
+                    SoftsignForward::<f32>::grid_spec(),
                 ),
                 Op::Softshrink { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SoftshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
                     SoftshrinkForward::<f32>::tile_spec(node.shape.len()),
+                    SoftshrinkForward::<f32>::grid_spec(),
                 ),
                 Op::Softplus { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SoftplusForwardDispatch::dispatch(node.dtype, 1024)?,
                     SoftplusForward::<f32>::tile_spec(node.shape.len()),
+                    SoftplusForward::<f32>::grid_spec(),
                 ),
                 Op::Sigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                     SigmoidForward::<f32>::tile_spec(node.shape.len()),
+                    SigmoidForward::<f32>::grid_spec(),
                 ),
                 Op::Silu => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     SiluForwardDispatch::dispatch(node.dtype, 1024)?,
                     SiluForward::<f32>::tile_spec(node.shape.len()),
+                    SiluForward::<f32>::grid_spec(),
                 ),
                 Op::LogSigmoid => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     LogSigmoidForwardDispatch::dispatch(node.dtype, 1024)?,
                     LogSigmoidForward::<f32>::tile_spec(node.shape.len()),
+                    LogSigmoidForward::<f32>::grid_spec(),
                 ),
                 Op::Tanh => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     TanhForwardDispatch::dispatch(node.dtype, 1024)?,
                     TanhForward::<f32>::tile_spec(node.shape.len()),
+                    TanhForward::<f32>::grid_spec(),
                 ),
                 Op::Tanhshrink => exec_from(
                     node.shape.clone(),
                     node.dtype,
                     TanhshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
                     TanhshrinkForward::<f32>::tile_spec(node.shape.len()),
+                    TanhshrinkForward::<f32>::grid_spec(),
                 ),
 
                 // --- Activation (D: Float) ---
@@ -1984,6 +2031,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2111,6 +2159,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2161,6 +2210,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2327,6 +2377,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2380,6 +2431,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2405,6 +2457,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2430,6 +2483,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2466,6 +2520,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2503,6 +2558,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2556,6 +2612,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2659,6 +2716,7 @@ impl TritonLowering {
                         kernel_body: String::new(),
                         pointwise_fuse_block_size: None,
                         tile_spec: None,
+                        grid_spec: None,
                         shape: node.shape.clone(),
                         dtype: node.dtype,
                         #[cfg(feature = "training")]
@@ -2987,6 +3045,7 @@ impl TritonLowering {
                             kernel_body: String::new(),
                             pointwise_fuse_block_size: None,
                             tile_spec: None,
+                            grid_spec: None,
                             #[cfg(feature = "training")]
                             backward_entry_point,
                         })

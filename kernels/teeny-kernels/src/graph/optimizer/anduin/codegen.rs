@@ -273,7 +273,7 @@ mod tests {
             .lower_with_mapping(&graph, LoweringMode::Inference)
             .unwrap();
 
-        let (_, traces) = Anduin::schedule(&dag, &profile).unwrap();
+        let (_, traces) = Anduin::schedule(dag, &profile).unwrap();
         eprintln!("traces: {:?}", traces);
 
         let mut codegen = AnduinCodegen::default();
