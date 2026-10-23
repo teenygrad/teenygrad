@@ -998,18 +998,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the lowering gives the softmax kernels no tile specs, Sub/Div lower to a flat \
-                kernel that cannot broadcast [rows, 1], and the keepdims reductions' specs are \
-                rank 1 (teenygrad-z8yd step 13)"]
     fn test_softmax_from_primitives_schedules_as_one_group() {
         // x -> max -> sub(x, .) -> exp -> sum -> div(exp, .)
         // |__________^              |___________^
         //
-        // ANALYSIS.md §12.7 D1. `x` has two consumers, both reduced tensors
-        // are broadcast back over the column axis, and `max` and `sum` each
-        // need an rstep. Checks the parts of D1 visible in a schedule's
-        // connect plan, over device memory (level 0) and shared memory
-        // (level 1 = H).
+        // ANALYSIS.md §12.7 D1 through the real `TritonLowering`. `x` has two
+        // consumers, and both reduced tensors are broadcast back over the
+        // column axis by the row-broadcast Sub/Div kernels. There are no
+        // rsteps yet (P6), so `max` and `sum` read whole rows. Checks the
+        // parts of D1 visible in a schedule's connect plan, over device
+        // memory (level 0) and shared memory (level 1 = H).
         //
         // - (b) a full-row tile is a legal tiling of the whole group, and a
         //   row is small enough to fit in shared memory, so the five compute
@@ -1499,9 +1497,9 @@ mod tests {
 
     #[test]
     fn test_d1_hand_specced_softmax_schedules_as_one_group() {
-        // ANALYSIS.md §12.7 D1, with the specs the softmax kernels are meant
-        // to have (see `testing::softmax`), as the real-lowering test above
-        // will once the lowering carries them. Each greedy merge on the way
+        // ANALYSIS.md §12.7 D1, with the lowering's specs written out (see
+        // `testing::softmax`), so the anchor and the tiling can be checked
+        // too. Each greedy merge on the way
         // ({max, sub}, then exp, then sum, then div by closure) must itself be
         // legal and cheaper, or the last one is never reached.
         let s = softmax(64, 1024);

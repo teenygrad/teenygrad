@@ -510,14 +510,15 @@ mod tests {
             let names: Vec<KnobName> = sr.knobs.iter().map(|k| k.name).collect();
             assert_eq!(
                 names,
-                vec![KnobName::Block("BLOCK_R"), KnobName::Block("BLOCK_C")]
+                vec![KnobName::Block("BLOCK_C")],
+                "rows are a literal 1"
             );
 
             // Over device and shared memory every fused edge is lockstep, so a
             // column tile narrower than the row fails at exp -> div, before
             // recompute is even checked.
             let exp_div = s.g.nodes[s.div.0].in_edges[0];
-            for theta in [[1, 1], [4, 256], [64, 512]] {
+            for theta in [[1], [256], [512]] {
                 let r = eval_tiling(cx, &sr, &theta);
                 assert!(
                     matches!(r, Err(Reject::Lockstep(e)) if e == exp_div),
@@ -528,6 +529,36 @@ mod tests {
             // maximum, so the search still has somewhere to start.
             assert!(!tile_group(cx, 0, &n_set, &[]).is_empty());
         });
+    }
+
+    #[test]
+    fn test_two_knobs_are_searched_from_the_base_tile_upward() {
+        // A singleton [64, 1024] elementwise op tiled by BLOCK_R and BLOCK_C.
+        let mut b = Builder::default();
+        let x = b.input("x", &[64, 1024]);
+        let t = tensor(2, &[bind(&[0], "BLOCK_R", "R"), bind(&[1], "BLOCK_C", "C")]);
+        let n = b.op("n", &[64, 1024], kernel(&[t], t), &[x]);
+        let g = b.build();
+
+        let cands = with_group(&g, &[n], &TeenygradCaps, 10, |cx| {
+            let n_set = [n];
+            let sr = search(cx, &n_set);
+            assert_eq!(sr.knobs.len(), 2);
+            tile_group(cx, 0, &n_set, &[])
+        });
+        assert_eq!(cands.len(), 10);
+        // One node does the same work per output item at every θ, so the base
+        // tile stays at the minimum and the search grows both knobs from it.
+        let distinct = |i: usize| {
+            cands
+                .iter()
+                .map(|c| c.knobs[i].1)
+                .collect::<std::collections::BTreeSet<u64>>()
+                .len()
+        };
+        assert!(distinct(0) > 1, "BLOCK_R should vary across the candidates");
+        assert!(distinct(1) > 1, "BLOCK_C should vary across the candidates");
+        assert!(cands.iter().all(|c| c.cost.footprint <= 96 * 1024));
     }
 
     #[test]

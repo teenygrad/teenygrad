@@ -282,12 +282,14 @@ impl Builder {
     }
 }
 
-/// ANALYSIS.md §12.7 D1 with the specs the softmax kernels are meant to have:
-/// `x -> max -> sub(x, .) -> exp -> sum -> div(exp, .)` over `[rows, cols]`.
-/// - `sub` and `div` tile rows by `BLOCK_R` and columns by `BLOCK_C`, and
-///   read their `[rows, 1]` second operand over the row axis alone.
-/// - `max` and `sum` produce one row per unit (block literal 1) and read the
-///   whole row: `C` names no output dim, so it stays `Full`.
+/// ANALYSIS.md §12.7 D1 with the specs `TritonLowering` gives the softmax
+/// kernels: `x -> max -> sub(x, .) -> exp -> sum -> div(exp, .)` over
+/// `[rows, cols]`.
+/// - `sub` and `div` are the row-broadcast kernels: one row per unit (block
+///   literal 1), columns by `BLOCK_C`, and their `[rows, 1]` second operand
+///   read over the row axis alone.
+/// - `max` and `sum` produce one row per unit and read the whole row: `C`
+///   names no output dim, so it stays `Full`.
 /// - `exp` is a flat rider.
 pub(super) struct Softmax {
     pub g: TileGraph,
@@ -300,12 +302,12 @@ pub(super) struct Softmax {
 }
 
 pub(super) fn row_tile() -> TensorTileSpec {
-    tensor(2, &[bind(&[0], "BLOCK_R", "R"), bind(&[1], "BLOCK_C", "C")])
+    tensor(2, &[bind(&[0], "1", "R"), bind(&[1], "BLOCK_C", "C")])
 }
 
 /// `[rows, 1]` broadcast over the columns: only the row axis is bound.
 pub(super) fn row_vector() -> TensorTileSpec {
-    tensor(2, &[bind(&[0], "BLOCK_R", "R")])
+    tensor(2, &[bind(&[0], "1", "R")])
 }
 
 /// A keepdims reduction of the last axis, one row per unit.

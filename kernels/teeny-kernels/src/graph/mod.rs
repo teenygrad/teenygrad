@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 use teeny_core::{
-    graph::{DtypeRepr, Graph, Op, Shape},
+    graph::{DtypeRepr, Graph, GraphNode, Op, Shape},
     model::{ExecutableOp, GridSpec, KernelTileSpec, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
 };
@@ -101,13 +101,15 @@ use crate::nn::{
         channel_chunk::ChannelChunkRuntimeOp,
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
         elemwise_binary::{
-            ClipRuntimeOp, ElemwiseDivBackward, ElemwiseDivForward, ElemwiseEqualForward,
-            ElemwiseFmodForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
-            ElemwiseLessEqualForward, ElemwiseLessForward, ElemwiseMaxBackward, ElemwiseMaxForward,
-            ElemwiseMeanBackward, ElemwiseMeanForward, ElemwiseMinBackward, ElemwiseMinForward,
-            ElemwiseMulBackward, ElemwiseMulForward, ElemwisePowBackward, ElemwisePowForward,
-            ElemwiseSubBackward, ElemwiseSubForward, ElemwiseSumBackward, ElemwiseSumForward,
-            ElemwiseWhereBackward, ElemwiseWhereForward,
+            ClipRuntimeOp, DivRowBroadcastRuntimeOp, ElemwiseDivBackward, ElemwiseDivForward,
+            ElemwiseDivRowBroadcastForward, ElemwiseEqualForward, ElemwiseFmodForward,
+            ElemwiseGreaterEqualForward, ElemwiseGreaterForward, ElemwiseLessEqualForward,
+            ElemwiseLessForward, ElemwiseMaxBackward, ElemwiseMaxForward, ElemwiseMeanBackward,
+            ElemwiseMeanForward, ElemwiseMinBackward, ElemwiseMinForward, ElemwiseMulBackward,
+            ElemwiseMulForward, ElemwisePowBackward, ElemwisePowForward, ElemwiseSubBackward,
+            ElemwiseSubForward, ElemwiseSubRowBroadcastForward, ElemwiseSumBackward,
+            ElemwiseSumForward, ElemwiseWhereBackward, ElemwiseWhereForward,
+            SubRowBroadcastRuntimeOp,
         },
         elemwise_unary::{
             ElemwiseAbsBackward, ElemwiseAbsForward, ElemwiseAcosBackward, ElemwiseAcosForward,
@@ -347,6 +349,179 @@ fn exec_from(
     })
 }
 
+/// Gives a flat elementwise kernel its derived tile and grid specs, but only
+/// when every operand has the output's shape. A flat kernel indexes every
+/// operand by the output's flat index, so its spec describes the access only
+/// then; for any other operand it would misdescribe (and the kernel misread)
+/// it, and the node stays without a spec.
+fn flat_spec(
+    mut exec: Box<KernelExecutable>,
+    graph: &Graph,
+    node: &GraphNode,
+    tile_spec: fn(usize) -> KernelTileSpec,
+    grid_spec: GridSpec,
+) -> Box<KernelExecutable> {
+    if node
+        .inputs
+        .iter()
+        .all(|&i| graph.nodes[i].shape == node.shape)
+    {
+        exec.tile_spec = Some(tile_spec(node.shape.len()));
+        exec.grid_spec = Some(grid_spec);
+    }
+    exec
+}
+
+/// Gives a reduction kernel its derived specs when the node is a last-axis
+/// reduction of a rank-2 `[R, C]` input, the shape the kernel declares. Its
+/// output is `[R]` as declared, or `[R, 1]` under keepdims, which is the
+/// declared output with a trailing size-1 dim: same memory, one more rank
+/// for the graph edge (P2). Any other reduction keeps no spec.
+fn reduce_spec(
+    mut exec: Box<KernelExecutable>,
+    graph: &Graph,
+    node: &GraphNode,
+    tile_spec: KernelTileSpec,
+    grid_spec: GridSpec,
+) -> Box<KernelExecutable> {
+    let [input] = node.inputs.as_slice() else {
+        return exec;
+    };
+    let in_shape = &graph.nodes[*input].shape;
+    let ([rows, _], [y]) = (in_shape.as_slice(), tile_spec.outputs) else {
+        return exec;
+    };
+    let output = match node.shape.as_slice() {
+        [r] if r == rows => Some(*y),
+        [r, Some(1)] if r == rows => y.unsqueeze(1),
+        _ => None,
+    };
+    if let Some(output) = output {
+        exec.tile_spec = Some(KernelTileSpec {
+            outputs: Vec::leak(vec![output]),
+            ..tile_spec
+        });
+        exec.grid_spec = Some(grid_spec);
+    }
+    exec
+}
+
+/// `BLOCK_INNER` for a single-block reduction kernel. Its masked load has to
+/// cover the whole reduced row, so a row wider than the default gets the next
+/// power of two. A row wider than `MAX_REDUCE_BLOCK` would need a walking
+/// reduction, which these kernels are not, so it is an error rather than a
+/// reduction over the row's first block. Dims the input and output share as a
+/// leading prefix (a dynamic batch, say) cancel; if what is left is dynamic,
+/// the default stands.
+fn reduce_block(graph: &Graph, node: &GraphNode) -> Result<i32> {
+    const REDUCE_BLOCK: i32 = 1024;
+    const MAX_REDUCE_BLOCK: usize = 1 << 16;
+    let [input] = node.inputs.as_slice() else {
+        return Ok(REDUCE_BLOCK);
+    };
+    let (mut a, mut b) = (graph.nodes[*input].shape.as_slice(), node.shape.as_slice());
+    while let (Some((x, a_rest)), Some((y, b_rest))) = (a.split_first(), b.split_first())
+        && x == y
+    {
+        (a, b) = (a_rest, b_rest);
+    }
+    let numel = |s: &[Option<usize>]| s.iter().try_fold(1usize, |n, d| d.map(|d| n * d));
+    let (Some(n_in), Some(n_out)) = (numel(a), numel(b)) else {
+        return Ok(REDUCE_BLOCK);
+    };
+    let inner = n_in / n_out.max(1);
+    if inner <= REDUCE_BLOCK as usize {
+        return Ok(REDUCE_BLOCK);
+    }
+    let block = inner.next_power_of_two();
+    if block > MAX_REDUCE_BLOCK {
+        return Err(anyhow::anyhow!(
+            "{:?} reduces rows of {inner} elements, but its kernel loads a row in one \
+             block of at most {MAX_REDUCE_BLOCK}; a walking reduction is needed",
+            node.op
+        ));
+    }
+    Ok(block as i32)
+}
+
+/// How a binary elementwise node's operands line up with its output.
+enum BinaryShape {
+    /// Every operand has the output's element count: the flat kernel.
+    Flat,
+    /// `[.., C] op [.., 1]`: the second operand is broadcast over the last dim.
+    Rows,
+}
+
+fn binary_shape(graph: &Graph, node: &GraphNode) -> Result<BinaryShape> {
+    let [a, b] = node.inputs.as_slice() else {
+        return Err(anyhow::anyhow!(
+            "{:?} takes 2 operands, but node has {}",
+            node.op,
+            node.inputs.len()
+        ));
+    };
+    let (a, b) = (&graph.nodes[*a].shape, &graph.nodes[*b].shape);
+    let numel = |s: &Shape| s.iter().try_fold(1usize, |n, d| d.map(|d| n * d));
+    if a == &node.shape && (b == &node.shape || numel(b).is_some_and(|n| Some(n) == numel(a))) {
+        return Ok(BinaryShape::Flat);
+    }
+    if let (Some((Some(1), b_rows)), Some((_, out_rows))) =
+        (b.split_last(), node.shape.split_last())
+        && a == &node.shape
+        && b_rows == out_rows
+    {
+        return Ok(BinaryShape::Rows);
+    }
+    Err(anyhow::anyhow!(
+        "{:?} of shapes {a:?} and {b:?} into {:?} is not lowered: the operands must have \
+         the output's element count, or the second must be the output's shape with its \
+         last dim 1 (broadcast over that dim)",
+        node.op,
+        node.shape
+    ))
+}
+
+/// A row-broadcast kernel (`[.., C] op [.., 1]`), with its spec when the
+/// output is rank 2, the rank the kernel declares. `b` is declared on the
+/// row axis alone, so its rank-2 `[R, 1]` edge needs the trailing size-1 dim
+/// inserted. Over more rows the kernel flattens them, which its spec cannot
+/// say, so it carries none.
+fn row_broadcast_exec(
+    node: &GraphNode,
+    name: String,
+    kernel_source: String,
+    tile_spec: KernelTileSpec,
+    grid_spec: GridSpec,
+    runtime_op: Arc<dyn RuntimeOp>,
+) -> Box<KernelExecutable> {
+    let spec = match (node.shape.len(), tile_spec.inputs) {
+        (2, [a, b]) => b.unsqueeze(1).map(|b| KernelTileSpec {
+            inputs: Vec::leak(vec![*a, b]),
+            ..tile_spec
+        }),
+        _ => None,
+    };
+    Box::new(KernelExecutable {
+        entry_point: format!("{}_entry_point", name),
+        name,
+        kernel_source,
+        kernel_body: String::new(),
+        pointwise_fuse_block_size: None,
+        grid_spec: spec.map(|_| grid_spec),
+        tile_spec: spec,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    })
+}
+
+/// Columns per program for the row-broadcast kernels.
+const ROW_BROADCAST_BLOCK_C: i32 = 1024;
+
 // ---------------------------------------------------------------------------
 // KernelExecutable — compilable unit produced by TritonLowering
 // ---------------------------------------------------------------------------
@@ -371,9 +546,11 @@ pub struct KernelExecutable {
     /// `Some(BLOCK_SIZE)` when this kernel passes the pointwise-fuse probe.
     pub pointwise_fuse_block_size: Option<i32>,
     /// Declarative tile-shape metadata (see [`teeny_core::model::KernelTileSpec`]),
-    /// if this op has been annotated. `None` for the vast majority of ops —
-    /// coverage is opt-in, hand-authored per op at the `TritonLowering`
-    /// construction site, not derived.
+    /// derived by `#[tiled_kernel]` from the kernel's own `#[tile(...)]`
+    /// attributes, and set at the `TritonLowering` construction site only
+    /// where it is true of this node's edges (`flat_spec`, `reduce_spec`).
+    /// `None` for an op whose kernel declares no tile axes, or whose
+    /// operands it would misdescribe.
     pub tile_spec: Option<KernelTileSpec>,
     /// The kernel's launch-grid decomposition (see [`GridSpec`]), set
     /// alongside `tile_spec` from the same `#[tiled_kernel]`-derived kernel.
@@ -2221,76 +2398,184 @@ impl TritonLowering {
                     })
                 }
 
-                Op::Add => {
-                    make_num_kernel!(ElemwiseAddForward(128), ElemwiseAddBackward(128), node)
-                }
+                Op::Add => flat_spec(
+                    make_num_kernel!(ElemwiseAddForward(128), ElemwiseAddBackward(128), node),
+                    graph,
+                    node,
+                    ElemwiseAddForward::<f32>::tile_spec,
+                    ElemwiseAddForward::<f32>::grid_spec(),
+                ),
 
                 // ── ONNX unary element-wise ops ─────────────────────────────
-                Op::Abs => {
-                    make_num_kernel!(ElemwiseAbsForward(1024), ElemwiseAbsBackward(1024), node)
-                }
-                Op::Neg => {
-                    make_num_kernel!(ElemwiseNegForward(1024), ElemwiseNegBackward(1024), node)
-                }
-                Op::Sign => make_num_kernel!(ElemwiseSignForward(1024), node),
-                Op::IsNaN => make_float_kernel!(ElemwiseIsnanForward(1024), node),
-                Op::Ceil => make_float_kernel!(ElemwiseCeilForward(1024), node),
-                Op::Floor => make_float_kernel!(ElemwiseFloorForward(1024), node),
-                Op::Sqrt => {
-                    make_float_kernel!(ElemwiseSqrtForward(1024), ElemwiseSqrtBackward(1024), node)
-                }
-                Op::Reciprocal => make_float_kernel!(
-                    ElemwiseReciprocalForward(1024),
-                    ElemwiseReciprocalBackward(1024),
-                    node
+                Op::Abs => flat_spec(
+                    make_num_kernel!(ElemwiseAbsForward(1024), ElemwiseAbsBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseAbsForward::<f32>::tile_spec,
+                    ElemwiseAbsForward::<f32>::grid_spec(),
                 ),
-                Op::Exp => {
-                    make_float_kernel!(ElemwiseExpForward(1024), ElemwiseExpBackward(1024), node)
-                }
-                Op::Log => {
-                    make_float_kernel!(ElemwiseLogForward(1024), ElemwiseLogBackward(1024), node)
-                }
-                Op::Erf => {
-                    make_float_kernel!(ElemwiseErfForward(1024), ElemwiseErfBackward(1024), node)
-                }
-                Op::Sin => {
-                    make_float_kernel!(ElemwiseSinForward(1024), ElemwiseSinBackward(1024), node)
-                }
-                Op::Cos => {
-                    make_float_kernel!(ElemwiseCosForward(1024), ElemwiseCosBackward(1024), node)
-                }
-                Op::Tan => {
-                    make_float_kernel!(ElemwiseTanForward(1024), ElemwiseTanBackward(1024), node)
-                }
-                Op::Asin => {
-                    make_float_kernel!(ElemwiseAsinForward(1024), ElemwiseAsinBackward(1024), node)
-                }
-                Op::Acos => {
-                    make_float_kernel!(ElemwiseAcosForward(1024), ElemwiseAcosBackward(1024), node)
-                }
-                Op::Atan => {
-                    make_float_kernel!(ElemwiseAtanForward(1024), ElemwiseAtanBackward(1024), node)
-                }
-                Op::Sinh => {
-                    make_float_kernel!(ElemwiseSinhForward(1024), ElemwiseSinhBackward(1024), node)
-                }
-                Op::Cosh => {
-                    make_float_kernel!(ElemwiseCoshForward(1024), ElemwiseCoshBackward(1024), node)
-                }
-                Op::Asinh => make_float_kernel!(
-                    ElemwiseAsinhForward(1024),
-                    ElemwiseAsinhBackward(1024),
-                    node
+                Op::Neg => flat_spec(
+                    make_num_kernel!(ElemwiseNegForward(1024), ElemwiseNegBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseNegForward::<f32>::tile_spec,
+                    ElemwiseNegForward::<f32>::grid_spec(),
                 ),
-                Op::Acosh => make_float_kernel!(
-                    ElemwiseAcoshForward(1024),
-                    ElemwiseAcoshBackward(1024),
-                    node
+                Op::Sign => flat_spec(
+                    make_num_kernel!(ElemwiseSignForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseSignForward::<f32>::tile_spec,
+                    ElemwiseSignForward::<f32>::grid_spec(),
                 ),
-                Op::Atanh => make_float_kernel!(
-                    ElemwiseAtanhForward(1024),
-                    ElemwiseAtanhBackward(1024),
-                    node
+                Op::IsNaN => flat_spec(
+                    make_float_kernel!(ElemwiseIsnanForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseIsnanForward::<f32>::tile_spec,
+                    ElemwiseIsnanForward::<f32>::grid_spec(),
+                ),
+                Op::Ceil => flat_spec(
+                    make_float_kernel!(ElemwiseCeilForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseCeilForward::<f32>::tile_spec,
+                    ElemwiseCeilForward::<f32>::grid_spec(),
+                ),
+                Op::Floor => flat_spec(
+                    make_float_kernel!(ElemwiseFloorForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseFloorForward::<f32>::tile_spec,
+                    ElemwiseFloorForward::<f32>::grid_spec(),
+                ),
+                Op::Sqrt => flat_spec(
+                    make_float_kernel!(ElemwiseSqrtForward(1024), ElemwiseSqrtBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseSqrtForward::<f32>::tile_spec,
+                    ElemwiseSqrtForward::<f32>::grid_spec(),
+                ),
+                Op::Reciprocal => flat_spec(
+                    make_float_kernel!(
+                        ElemwiseReciprocalForward(1024),
+                        ElemwiseReciprocalBackward(1024),
+                        node
+                    ),
+                    graph,
+                    node,
+                    ElemwiseReciprocalForward::<f32>::tile_spec,
+                    ElemwiseReciprocalForward::<f32>::grid_spec(),
+                ),
+                Op::Exp => flat_spec(
+                    make_float_kernel!(ElemwiseExpForward(1024), ElemwiseExpBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseExpForward::<f32>::tile_spec,
+                    ElemwiseExpForward::<f32>::grid_spec(),
+                ),
+                Op::Log => flat_spec(
+                    make_float_kernel!(ElemwiseLogForward(1024), ElemwiseLogBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseLogForward::<f32>::tile_spec,
+                    ElemwiseLogForward::<f32>::grid_spec(),
+                ),
+                Op::Erf => flat_spec(
+                    make_float_kernel!(ElemwiseErfForward(1024), ElemwiseErfBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseErfForward::<f32>::tile_spec,
+                    ElemwiseErfForward::<f32>::grid_spec(),
+                ),
+                Op::Sin => flat_spec(
+                    make_float_kernel!(ElemwiseSinForward(1024), ElemwiseSinBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseSinForward::<f32>::tile_spec,
+                    ElemwiseSinForward::<f32>::grid_spec(),
+                ),
+                Op::Cos => flat_spec(
+                    make_float_kernel!(ElemwiseCosForward(1024), ElemwiseCosBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseCosForward::<f32>::tile_spec,
+                    ElemwiseCosForward::<f32>::grid_spec(),
+                ),
+                Op::Tan => flat_spec(
+                    make_float_kernel!(ElemwiseTanForward(1024), ElemwiseTanBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseTanForward::<f32>::tile_spec,
+                    ElemwiseTanForward::<f32>::grid_spec(),
+                ),
+                Op::Asin => flat_spec(
+                    make_float_kernel!(ElemwiseAsinForward(1024), ElemwiseAsinBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseAsinForward::<f32>::tile_spec,
+                    ElemwiseAsinForward::<f32>::grid_spec(),
+                ),
+                Op::Acos => flat_spec(
+                    make_float_kernel!(ElemwiseAcosForward(1024), ElemwiseAcosBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseAcosForward::<f32>::tile_spec,
+                    ElemwiseAcosForward::<f32>::grid_spec(),
+                ),
+                Op::Atan => flat_spec(
+                    make_float_kernel!(ElemwiseAtanForward(1024), ElemwiseAtanBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseAtanForward::<f32>::tile_spec,
+                    ElemwiseAtanForward::<f32>::grid_spec(),
+                ),
+                Op::Sinh => flat_spec(
+                    make_float_kernel!(ElemwiseSinhForward(1024), ElemwiseSinhBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseSinhForward::<f32>::tile_spec,
+                    ElemwiseSinhForward::<f32>::grid_spec(),
+                ),
+                Op::Cosh => flat_spec(
+                    make_float_kernel!(ElemwiseCoshForward(1024), ElemwiseCoshBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseCoshForward::<f32>::tile_spec,
+                    ElemwiseCoshForward::<f32>::grid_spec(),
+                ),
+                Op::Asinh => flat_spec(
+                    make_float_kernel!(
+                        ElemwiseAsinhForward(1024),
+                        ElemwiseAsinhBackward(1024),
+                        node
+                    ),
+                    graph,
+                    node,
+                    ElemwiseAsinhForward::<f32>::tile_spec,
+                    ElemwiseAsinhForward::<f32>::grid_spec(),
+                ),
+                Op::Acosh => flat_spec(
+                    make_float_kernel!(
+                        ElemwiseAcoshForward(1024),
+                        ElemwiseAcoshBackward(1024),
+                        node
+                    ),
+                    graph,
+                    node,
+                    ElemwiseAcoshForward::<f32>::tile_spec,
+                    ElemwiseAcoshForward::<f32>::grid_spec(),
+                ),
+                Op::Atanh => flat_spec(
+                    make_float_kernel!(
+                        ElemwiseAtanhForward(1024),
+                        ElemwiseAtanhBackward(1024),
+                        node
+                    ),
+                    graph,
+                    node,
+                    ElemwiseAtanhForward::<f32>::tile_spec,
+                    ElemwiseAtanhForward::<f32>::grid_spec(),
                 ),
                 Op::Round => {
                     return Err(anyhow::anyhow!(
@@ -2299,40 +2584,186 @@ impl TritonLowering {
                 }
 
                 // ── ONNX binary element-wise ops ─────────────────────────────
-                Op::Mul => {
-                    make_num_kernel!(ElemwiseMulForward(1024), ElemwiseMulBackward(1024), node)
-                }
-                Op::Sub => {
-                    make_num_kernel!(ElemwiseSubForward(1024), ElemwiseSubBackward(1024), node)
-                }
-                Op::Div => {
-                    make_float_kernel!(ElemwiseDivForward(1024), ElemwiseDivBackward(1024), node)
-                }
-                Op::Pow => {
-                    make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node)
-                }
+                Op::Mul => flat_spec(
+                    make_num_kernel!(ElemwiseMulForward(1024), ElemwiseMulBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseMulForward::<f32>::tile_spec,
+                    ElemwiseMulForward::<f32>::grid_spec(),
+                ),
+                Op::Sub => match binary_shape(graph, node)? {
+                    BinaryShape::Flat => flat_spec(
+                        make_num_kernel!(ElemwiseSubForward(1024), ElemwiseSubBackward(1024), node),
+                        graph,
+                        node,
+                        ElemwiseSubForward::<f32>::tile_spec,
+                        ElemwiseSubForward::<f32>::grid_spec(),
+                    ),
+                    BinaryShape::Rows => {
+                        let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype
+                        {
+                            DtypeRepr::F32 => {
+                                let r = SubRowBroadcastRuntimeOp::<f32>::new(ROW_BROADCAST_BLOCK_C);
+                                (
+                                    r.kernel.name.to_string(),
+                                    r.kernel.source.clone(),
+                                    Arc::new(r),
+                                )
+                            }
+                            DtypeRepr::F64 => {
+                                let r = SubRowBroadcastRuntimeOp::<f64>::new(ROW_BROADCAST_BLOCK_C);
+                                (
+                                    r.kernel.name.to_string(),
+                                    r.kernel.source.clone(),
+                                    Arc::new(r),
+                                )
+                            }
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "{other:?} is not supported by the row-broadcast Sub \
+                                         kernel; only F32 and F64 are"
+                                ));
+                            }
+                        };
+                        row_broadcast_exec(
+                            node,
+                            name,
+                            ks,
+                            ElemwiseSubRowBroadcastForward::<f32>::tile_spec(),
+                            ElemwiseSubRowBroadcastForward::<f32>::grid_spec(),
+                            rop,
+                        )
+                    }
+                },
+                Op::Div => match binary_shape(graph, node)? {
+                    BinaryShape::Flat => flat_spec(
+                        make_float_kernel!(
+                            ElemwiseDivForward(1024),
+                            ElemwiseDivBackward(1024),
+                            node
+                        ),
+                        graph,
+                        node,
+                        ElemwiseDivForward::<f32>::tile_spec,
+                        ElemwiseDivForward::<f32>::grid_spec(),
+                    ),
+                    BinaryShape::Rows => {
+                        let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype
+                        {
+                            DtypeRepr::F32 => {
+                                let r = DivRowBroadcastRuntimeOp::<f32>::new(ROW_BROADCAST_BLOCK_C);
+                                (
+                                    r.kernel.name.to_string(),
+                                    r.kernel.source.clone(),
+                                    Arc::new(r),
+                                )
+                            }
+                            DtypeRepr::F64 => {
+                                let r = DivRowBroadcastRuntimeOp::<f64>::new(ROW_BROADCAST_BLOCK_C);
+                                (
+                                    r.kernel.name.to_string(),
+                                    r.kernel.source.clone(),
+                                    Arc::new(r),
+                                )
+                            }
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "{other:?} is not a Float dtype for the row-broadcast \
+                                         Div kernel"
+                                ));
+                            }
+                        };
+                        row_broadcast_exec(
+                            node,
+                            name,
+                            ks,
+                            ElemwiseDivRowBroadcastForward::<f32>::tile_spec(),
+                            ElemwiseDivRowBroadcastForward::<f32>::grid_spec(),
+                            rop,
+                        )
+                    }
+                },
+                Op::Pow => flat_spec(
+                    make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwisePowForward::<f32>::tile_spec,
+                    ElemwisePowForward::<f32>::grid_spec(),
+                ),
                 Op::Mod { .. } => make_float_kernel!(ElemwiseFmodForward(1024), node),
-                Op::ElemMin => {
-                    make_num_kernel!(ElemwiseMinForward(1024), ElemwiseMinBackward(1024), node)
-                }
-                Op::ElemMax => {
-                    make_num_kernel!(ElemwiseMaxForward(1024), ElemwiseMaxBackward(1024), node)
-                }
-                Op::ElemMean => {
-                    make_float_kernel!(ElemwiseMeanForward(1024), ElemwiseMeanBackward(1024), node)
-                }
-                Op::ElemSum => {
-                    make_num_kernel!(ElemwiseSumForward(1024), ElemwiseSumBackward(1024), node)
-                }
-                Op::Equal => make_num_kernel!(ElemwiseEqualForward(1024), node),
-                Op::Greater => make_num_kernel!(ElemwiseGreaterForward(1024), node),
-                Op::GreaterOrEqual => make_num_kernel!(ElemwiseGreaterEqualForward(1024), node),
-                Op::Less => make_num_kernel!(ElemwiseLessForward(1024), node),
-                Op::LessOrEqual => make_num_kernel!(ElemwiseLessEqualForward(1024), node),
-                Op::Where => make_float_kernel!(
-                    ElemwiseWhereForward(1024),
-                    ElemwiseWhereBackward(1024),
-                    node
+                Op::ElemMin => flat_spec(
+                    make_num_kernel!(ElemwiseMinForward(1024), ElemwiseMinBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseMinForward::<f32>::tile_spec,
+                    ElemwiseMinForward::<f32>::grid_spec(),
+                ),
+                Op::ElemMax => flat_spec(
+                    make_num_kernel!(ElemwiseMaxForward(1024), ElemwiseMaxBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseMaxForward::<f32>::tile_spec,
+                    ElemwiseMaxForward::<f32>::grid_spec(),
+                ),
+                Op::ElemMean => flat_spec(
+                    make_float_kernel!(ElemwiseMeanForward(1024), ElemwiseMeanBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseMeanForward::<f32>::tile_spec,
+                    ElemwiseMeanForward::<f32>::grid_spec(),
+                ),
+                Op::ElemSum => flat_spec(
+                    make_num_kernel!(ElemwiseSumForward(1024), ElemwiseSumBackward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseSumForward::<f32>::tile_spec,
+                    ElemwiseSumForward::<f32>::grid_spec(),
+                ),
+                Op::Equal => flat_spec(
+                    make_num_kernel!(ElemwiseEqualForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseEqualForward::<f32>::tile_spec,
+                    ElemwiseEqualForward::<f32>::grid_spec(),
+                ),
+                Op::Greater => flat_spec(
+                    make_num_kernel!(ElemwiseGreaterForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseGreaterForward::<f32>::tile_spec,
+                    ElemwiseGreaterForward::<f32>::grid_spec(),
+                ),
+                Op::GreaterOrEqual => flat_spec(
+                    make_num_kernel!(ElemwiseGreaterEqualForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseGreaterEqualForward::<f32>::tile_spec,
+                    ElemwiseGreaterEqualForward::<f32>::grid_spec(),
+                ),
+                Op::Less => flat_spec(
+                    make_num_kernel!(ElemwiseLessForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseLessForward::<f32>::tile_spec,
+                    ElemwiseLessForward::<f32>::grid_spec(),
+                ),
+                Op::LessOrEqual => flat_spec(
+                    make_num_kernel!(ElemwiseLessEqualForward(1024), node),
+                    graph,
+                    node,
+                    ElemwiseLessEqualForward::<f32>::tile_spec,
+                    ElemwiseLessEqualForward::<f32>::grid_spec(),
+                ),
+                Op::Where => flat_spec(
+                    make_float_kernel!(
+                        ElemwiseWhereForward(1024),
+                        ElemwiseWhereBackward(1024),
+                        node
+                    ),
+                    graph,
+                    node,
+                    ElemwiseWhereForward::<f32>::tile_spec,
+                    ElemwiseWhereForward::<f32>::grid_spec(),
                 ),
                 Op::Clip => {
                     let (name, ks, bwd_ks, rop): (String, String, String, Arc<dyn RuntimeOp>) =
@@ -2389,18 +2820,72 @@ impl TritonLowering {
                 }
 
                 // ── ONNX reduction ops ────────────────────────────────────────
-                Op::ReduceSum { .. } => make_num_kernel!(ReduceSumForward(1024), node),
-                Op::ReduceMean { .. } => make_float_kernel!(ReduceMeanForward(1024), node),
-                Op::ReduceMax { .. } => make_num_kernel!(ReduceMaxForward(1024), node),
-                Op::ReduceMin { .. } => make_num_kernel!(ReduceMinForward(1024), node),
-                Op::ReduceProd { .. } => make_float_kernel!(ReduceProdForward(1024), node),
-                Op::ReduceL1 { .. } => make_num_kernel!(ReduceL1Forward(1024), node),
-                Op::ReduceL2 { .. } => make_float_kernel!(ReduceL2Forward(1024), node),
-                Op::ReduceLogSum { .. } => make_float_kernel!(ReduceLogSumForward(1024), node),
+                Op::ReduceSum { .. } => reduce_spec(
+                    make_num_kernel!(ReduceSumForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceSumForward::<f32>::tile_spec(),
+                    ReduceSumForward::<f32>::grid_spec(),
+                ),
+                Op::ReduceMean { .. } => reduce_spec(
+                    make_float_kernel!(ReduceMeanForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceMeanForward::<f32>::tile_spec(),
+                    ReduceMeanForward::<f32>::grid_spec(),
+                ),
+                Op::ReduceMax { .. } => reduce_spec(
+                    make_num_kernel!(ReduceMaxForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceMaxForward::<f32>::tile_spec(),
+                    ReduceMaxForward::<f32>::grid_spec(),
+                ),
+                Op::ReduceMin { .. } => reduce_spec(
+                    make_num_kernel!(ReduceMinForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceMinForward::<f32>::tile_spec(),
+                    ReduceMinForward::<f32>::grid_spec(),
+                ),
+                Op::ReduceProd { .. } => reduce_spec(
+                    make_float_kernel!(ReduceProdForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceProdForward::<f32>::tile_spec(),
+                    ReduceProdForward::<f32>::grid_spec(),
+                ),
+                Op::ReduceL1 { .. } => reduce_spec(
+                    make_num_kernel!(ReduceL1Forward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceL1Forward::<f32>::tile_spec(),
+                    ReduceL1Forward::<f32>::grid_spec(),
+                ),
+                Op::ReduceL2 { .. } => reduce_spec(
+                    make_float_kernel!(ReduceL2Forward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceL2Forward::<f32>::tile_spec(),
+                    ReduceL2Forward::<f32>::grid_spec(),
+                ),
+                Op::ReduceLogSum { .. } => reduce_spec(
+                    make_float_kernel!(ReduceLogSumForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceLogSumForward::<f32>::tile_spec(),
+                    ReduceLogSumForward::<f32>::grid_spec(),
+                ),
                 Op::ReduceLogSumExp { .. } => {
-                    make_float_kernel!(ReduceLogSumExpForward(1024), node)
+                    make_float_kernel!(ReduceLogSumExpForward(reduce_block(graph, node)?), node)
                 }
-                Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
+                Op::ReduceSumSquare { .. } => reduce_spec(
+                    make_num_kernel!(ReduceSumSquareForward(reduce_block(graph, node)?), node),
+                    graph,
+                    node,
+                    ReduceSumSquareForward::<f32>::tile_spec(),
+                    ReduceSumSquareForward::<f32>::grid_spec(),
+                ),
                 Op::CumSum { .. } => make_num_kernel!(CumSumForward(1024), node),
                 Op::CumProd { .. } => make_num_kernel!(CumProdForward(1024), node),
                 Op::GlobalAvgPool => make_float_kernel!(GlobalAvgPoolForward(1024), node),
@@ -3376,5 +3861,161 @@ mod conv2d_grid_spec_tests {
         )
         .expect("a rank-4 tile resolves through BatchNorm2d now");
         assert_eq!(inputs[0], vec![None, None, Some(1), Some(128)]);
+    }
+}
+
+#[cfg(test)]
+mod broadcast_lowering_tests {
+    //! teenygrad-z8yd step 13: softmax built from primitives lowers with a
+    //! true spec on every kernel, Sub/Div broadcast a `[rows, 1]` operand with
+    //! the row-broadcast kernels, and any other broadcast is an error rather
+    //! than a flat kernel reading past the operand's end.
+
+    use super::*;
+    use teeny_core::graph::DtypeRepr;
+    use teeny_test::graph::DecomposedSoftmaxBuilder;
+
+    fn lower(graph: &Graph) -> Result<Dag<Box<dyn ExecutableOp>>> {
+        TritonLowering::default()
+            .lower_with_mapping(graph, LoweringMode::Inference)
+            .map(|(dag, _, _)| dag)
+    }
+
+    /// `x op y` over the two given shapes.
+    fn binary(op: Op, a: Shape, b: Shape, out: Shape) -> Graph {
+        let mut g = Graph::new();
+        let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, a);
+        let y = g.add_node(Op::Input, vec![], DtypeRepr::F32, b);
+        g.add_node(op, vec![x, y], DtypeRepr::F32, out);
+        g
+    }
+
+    #[test]
+    fn test_decomposed_softmax_lowers_with_a_spec_matching_every_edge() {
+        let softmax = DecomposedSoftmaxBuilder::default()
+            .rows(64)
+            .cols(1024)
+            .build()
+            .expect("every required field is set")
+            .graph();
+        let (dag, graph_to_dag, _) = TritonLowering::default()
+            .lower_with_mapping(&softmax.graph, LoweringMode::Inference)
+            .expect("softmax lowers");
+
+        for (name, idx, row_broadcast) in [
+            ("max", softmax.max, false),
+            ("sub", softmax.sub, true),
+            ("exp", softmax.exp, false),
+            ("sum", softmax.sum, false),
+            ("div", softmax.div, true),
+        ] {
+            let node = &softmax.graph.nodes[idx];
+            let op = &dag.node(graph_to_dag[idx]).value;
+            let spec = op
+                .tile_spec()
+                .unwrap_or_else(|| panic!("{name} should carry a tile spec"));
+            assert!(op.grid_spec().is_some(), "{name} should carry a grid spec");
+            spec.validate()
+                .unwrap_or_else(|e| panic!("{name}'s spec is inconsistent: {e}"));
+            assert_eq!(
+                spec.outputs[0].rank,
+                node.shape.len(),
+                "{name}'s output rank"
+            );
+            for (p, &input) in node.inputs.iter().enumerate() {
+                assert_eq!(
+                    spec.inputs[p].rank,
+                    softmax.graph.nodes[input].shape.len(),
+                    "{name}'s operand {p} rank"
+                );
+            }
+            assert_eq!(
+                op.name().contains("row_broadcast"),
+                row_broadcast,
+                "{name} lowered to {}",
+                op.name()
+            );
+        }
+    }
+
+    #[test]
+    fn test_sub_and_div_reject_a_broadcast_they_cannot_lower() {
+        for op in [Op::Sub, Op::Div] {
+            // A scalar against a matrix, and a column vector broadcast over rows.
+            for (b, out) in [
+                (vec![Some(1)], vec![Some(4), Some(8)]),
+                (vec![Some(1), Some(8)], vec![Some(4), Some(8)]),
+            ] {
+                let g = binary(op.clone(), vec![Some(4), Some(8)], b.clone(), out);
+                let err = match lower(&g) {
+                    Ok(_) => panic!("{op:?} with operand {b:?} should not lower"),
+                    Err(e) => e.to_string(),
+                };
+                assert!(err.contains("is not lowered"), "unexpected error: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_flat_specs_attach_only_when_every_operand_has_the_output_shape() {
+        // Equal shapes: the flat kernel and its spec.
+        let same = binary(
+            Op::Sub,
+            vec![Some(4), Some(8)],
+            vec![Some(4), Some(8)],
+            vec![Some(4), Some(8)],
+        );
+        let dag = lower(&same).expect("equal shapes lower");
+        assert!(dag.node(2).value.tile_spec().is_some());
+
+        // Same element count, different shape: still correct for the flat
+        // kernel, but its rank-2 spec would misdescribe the [32] operand.
+        let flat = binary(
+            Op::Sub,
+            vec![Some(4), Some(8)],
+            vec![Some(32)],
+            vec![Some(4), Some(8)],
+        );
+        let dag = lower(&flat).expect("an equal element count lowers");
+        assert!(dag.node(2).value.tile_spec().is_none());
+
+        // A row broadcast over more than two dims runs, but its spec is rank 2.
+        let deep = binary(
+            Op::Sub,
+            vec![Some(2), Some(4), Some(8)],
+            vec![Some(2), Some(4), Some(1)],
+            vec![Some(2), Some(4), Some(8)],
+        );
+        let dag = lower(&deep).expect("a rank-3 row broadcast lowers");
+        assert!(dag.node(2).value.name().contains("row_broadcast"));
+        assert!(dag.node(2).value.tile_spec().is_none());
+    }
+
+    #[test]
+    fn test_reduce_block_covers_the_whole_reduced_row() {
+        let reduce = |cols: Option<usize>, batch: Option<usize>| {
+            let mut g = Graph::new();
+            let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![batch, cols]);
+            let op = Op::ReduceSum {
+                keepdims: true,
+                noop_with_empty_axes: false,
+            };
+            let y = g.add_node(op, vec![x], DtypeRepr::F32, vec![batch, Some(1)]);
+            reduce_block(&g, &g.nodes[y])
+        };
+
+        assert_eq!(reduce(Some(100), Some(4)).ok(), Some(1024));
+        assert_eq!(reduce(Some(1500), Some(4)).ok(), Some(2048));
+        assert_eq!(
+            reduce(Some(1500), None).ok(),
+            Some(2048),
+            "a dynamic batch cancels"
+        );
+        assert_eq!(
+            reduce(None, Some(4)).ok(),
+            Some(1024),
+            "a dynamic row keeps the default"
+        );
+        assert!(reduce(Some(1 << 17), Some(4)).is_err());
     }
 }

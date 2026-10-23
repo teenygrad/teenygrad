@@ -1483,3 +1483,164 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ClipRunt
         [n.div_ceil(self.kernel.block_size as usize) as u32, 1, 1]
     }
 }
+
+// ── Row-broadcast Sub / Div ([R, C] op [R, 1]) ────────────────────────────────
+//
+// The flat kernels above index `b` by the output's flat index, so they are
+// only right when `b` has as many elements as `a`. These broadcast a `[R, 1]`
+// `b` over the columns of a `[R, C]` `a`, as decomposed softmax and layernorm
+// need (`x - max(x)`, `exp / sum(exp)`). Each program covers one row and a
+// `BLOCK_C`-wide run of columns. Both axes are bound -- the row at the literal
+// block 1 -- so the spec says each unit covers one row rather than every row.
+//
+// `b` declares the row axis alone, which is a broadcast operand: the prelude
+// loads its one element and widens it across the tile. The graph edge for `b`
+// is `[R, 1]`, rank 2, so the lowering inserts that trailing size-1 dim into
+// this spec (`TensorTileSpec::unsqueeze`).
+
+/// Forward: out[r, c] = a[r, c] - b[r]
+#[tiled_kernel]
+pub fn elemwise_sub_row_broadcast_forward<T: Triton, D: Num, const BLOCK_C: i32>(
+    #[tile(block = 1, extent = R)]
+    #[tile(block = BLOCK_C, extent = C)]
+    a: In<Tile<T, D>>,
+    #[tile(block = 1, extent = R)] b: In<Tile<T, D>>,
+    #[tile(block = 1, extent = R)]
+    #[tile(block = BLOCK_C, extent = C)]
+    out: Out<Tile<T, D>>,
+    R: i32,
+    C: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    T::store(out.tensor, a.tensor - b.tensor, a.mask, &[], None, None);
+}
+
+/// Forward: out[r, c] = a[r, c] / b[r]
+#[tiled_kernel]
+pub fn elemwise_div_row_broadcast_forward<T: Triton, D: Float, const BLOCK_C: i32>(
+    #[tile(block = 1, extent = R)]
+    #[tile(block = BLOCK_C, extent = C)]
+    a: In<Tile<T, D>>,
+    #[tile(block = 1, extent = R)] b: In<Tile<T, D>>,
+    #[tile(block = 1, extent = R)]
+    #[tile(block = BLOCK_C, extent = C)]
+    out: Out<Tile<T, D>>,
+    R: i32,
+    C: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    T::store(out.tensor, a.tensor / b.tensor, a.mask, &[], None, None);
+}
+
+/// `R` and `C` of a row broadcast: every dim but the last is a row.
+fn rows_and_cols(output_shape: &[usize]) -> (usize, usize) {
+    let (&c, rows) = output_shape.split_last().unwrap_or((&1, &[]));
+    (rows.iter().product::<usize>(), c)
+}
+
+macro_rules! impl_row_broadcast_runtime_op {
+    ($Op:ident, $Fwd:ident, $Bound:ident) => {
+        /// RuntimeOp for a row-broadcast kernel: `a`, `b`, `out`, then `R`
+        /// and `C`, on a `[R · cdiv(C, BLOCK_C)]` grid. The prelude decodes
+        /// the program id innermost-first, so the column tile is the inner
+        /// factor.
+        pub struct $Op<D: $Bound + Send + Sync + 'static> {
+            pub kernel: $Fwd<D>,
+            block_c: i32,
+        }
+
+        impl<D: $Bound + Send + Sync + 'static> $Op<D> {
+            pub fn new(block_c: i32) -> Self {
+                Self {
+                    kernel: $Fwd::<D>::new(block_c),
+                    block_c,
+                }
+            }
+        }
+
+        impl<D: $Bound + Send + Sync + 'static> teeny_core::model::RuntimeOp for $Op<D> {
+            fn n_activation_inputs(&self) -> usize {
+                2
+            }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+                vec![]
+            }
+            fn pack_args(
+                &self,
+                inputs: &[(teeny_core::model::RawPtr, &[usize])],
+                _: &[teeny_core::model::RawPtr],
+                output: teeny_core::model::RawPtr,
+                output_shape: &[usize],
+                _: i32,
+                visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+            ) {
+                let (r, c) = rows_and_cols(output_shape);
+                visitor.visit_ptr(inputs[0].0); // a
+                visitor.visit_ptr(inputs[1].0); // b
+                visitor.visit_ptr(output);
+                visitor.visit_i32(r as i32);
+                visitor.visit_i32(c as i32);
+            }
+            fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+                let (r, c) = rows_and_cols(output_shape);
+                [(r * c.div_ceil(self.block_c as usize)) as u32, 1, 1]
+            }
+        }
+    };
+}
+
+impl_row_broadcast_runtime_op!(
+    SubRowBroadcastRuntimeOp,
+    ElemwiseSubRowBroadcastForward,
+    Num
+);
+impl_row_broadcast_runtime_op!(
+    DivRowBroadcastRuntimeOp,
+    ElemwiseDivRowBroadcastForward,
+    Float
+);
+
+#[cfg(test)]
+mod row_broadcast_tests {
+    use super::*;
+
+    /// The row axis is bound at 1 and the columns at `BLOCK_C`, and `b`
+    /// declares the row alone: rank 1 until the lowering unsqueezes it.
+    #[test]
+    fn test_the_row_broadcast_spec_binds_rows_at_one_and_b_on_rows_alone() {
+        let spec = ElemwiseSubRowBroadcastForward::<f32>::tile_spec();
+        spec.validate()
+            .expect("a derived spec must be self-consistent");
+
+        let out = spec.outputs[0];
+        assert_eq!(out.rank, 2);
+        let blocks: Vec<(&[usize], &str)> =
+            out.axes.iter().map(|a| (a.dims, a.block_const)).collect();
+        assert_eq!(blocks, vec![(&[0][..], "1"), (&[1][..], "BLOCK_C")]);
+        assert_eq!(spec.inputs.len(), 2);
+        assert_eq!(spec.inputs[0].rank, 2);
+        assert_eq!(spec.inputs[1].rank, 1);
+        assert_eq!(spec.inputs[1].axes[0].extent_param, "R");
+        assert_eq!(rows_and_cols(&[4, 8, 16]), (32, 16));
+    }
+
+    /// Both kernels compile with the real teenyc: a broadcast operand on a
+    /// two-blocked-axis tile is a prelude path no other kernel takes.
+    #[test]
+    fn test_the_row_broadcast_kernels_compile() {
+        dotenv::dotenv().ok();
+        let target = teeny_runtime::reference_target();
+        let sub = ElemwiseSubRowBroadcastForward::<f32>::new(1024);
+        teeny_runtime::compile_kernel(&sub, &target, true, false)
+            .expect("the row-broadcast sub kernel must compile");
+        let div = ElemwiseDivRowBroadcastForward::<f32>::new(1024);
+        teeny_runtime::compile_kernel(&div, &target, true, false)
+            .expect("the row-broadcast div kernel must compile");
+    }
+}

@@ -373,6 +373,37 @@ impl TileAxisBinding {
 }
 
 impl TensorTileSpec {
+    /// This tensor with a size-1 dim inserted at `dim`, which no binding
+    /// covers; every binding at or after `dim` moves out by one. `None` if
+    /// `dim > rank`.
+    ///
+    /// A size-1 dim changes no element's address, so this describes the same
+    /// access at the rank of a graph edge that keeps a dim the kernel never
+    /// names: a keepdims reduction's `[R, 1]` output, or an `[R, 1]` operand
+    /// broadcast over columns. It derives the spec from the kernel's own
+    /// rather than writing one beside it. The new bindings are leaked, as
+    /// `tile_spec(rank)`'s are, so call it once per lowered node.
+    pub fn unsqueeze(&self, dim: usize) -> Option<TensorTileSpec> {
+        if dim > self.rank {
+            return None;
+        }
+        let shift = |d: usize| if d >= dim { d + 1 } else { d };
+        let axes: alloc::vec::Vec<TileAxisBinding> = self
+            .axes
+            .iter()
+            .map(|a| TileAxisBinding {
+                dims: alloc::vec::Vec::leak(a.dims.iter().map(|&d| shift(d)).collect()),
+                ..*a
+            })
+            .collect();
+        Some(TensorTileSpec {
+            rank: self.rank + 1,
+            axes: alloc::vec::Vec::leak(axes),
+            reduction_axis: self.reduction_axis.map(shift),
+            ..*self
+        })
+    }
+
     /// Checks this tensor's bindings against its own `rank`.
     ///
     /// The invariants are the ones [`TileAxisBinding::dims`] states in
@@ -772,5 +803,29 @@ mod tests {
         };
         let msg = alloc::format!("{}", SPEC.validate().expect_err("empty carry"));
         assert!(msg.contains("acc"), "{msg}");
+    }
+
+    #[test]
+    fn test_unsqueeze_inserts_an_unbound_size_one_dim() {
+        static AXES: [TileAxisBinding; 2] = [axis(&[0], "1"), axis(&[1], "BLOCK_C")];
+        let x = TensorTileSpec {
+            reduction_axis: Some(1),
+            ..tensor(2, &AXES)
+        };
+
+        // [R, C] -> [R, 1, C]: C's binding and the reduction axis move out.
+        let y = x.unsqueeze(1).expect("1 <= rank");
+        assert_eq!(y.rank, 3);
+        assert_eq!(y.axes[0].dims, &[0]);
+        assert_eq!(y.axes[1].dims, &[2]);
+        assert_eq!(y.axes[1].block_const, "BLOCK_C");
+        assert_eq!(y.reduction_axis, Some(2));
+        y.validate()
+            .expect("an unsqueezed spec is still self-consistent");
+
+        // Appending after the last dim moves nothing.
+        let z = x.unsqueeze(2).expect("2 <= rank");
+        assert_eq!((z.rank, z.axes[1].dims), (3, &[1][..]));
+        assert!(x.unsqueeze(3).is_none());
     }
 }
