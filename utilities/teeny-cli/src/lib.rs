@@ -21,8 +21,8 @@
 //!
 //! `--device` selects a backend; everything after that (including
 //! `--options`) is opaque here and handed to that backend's own parser —
-//! today that's `teeny_cuda::compiler::options::Options::parse` for
-//! `--device cuda`. Adding a new backend means adding a match arm in
+//! `teeny_cuda::compiler::options::Options::parse` for `--device cuda` and
+//! `teeny_riscv::compiler::options::Options::parse` for `--device riscv`. Adding a new backend means adding a match arm in
 //! [`aot_compile`], not touching [`AotArgs`].
 
 #![warn(missing_docs)]
@@ -43,7 +43,7 @@ const DEFAULT_CACHE_DIR: &str = "/tmp/teenyc_cache";
 /// struct: `#[command(flatten)] aot: teeny_cli::AotArgs`.
 #[derive(clap::Args, Clone, Debug)]
 pub struct AotArgs {
-    /// Target backend to compile for (e.g. `cuda`).
+    /// Target backend to compile for (e.g. `cuda`, `riscv`).
     #[arg(long)]
     pub device: String,
 
@@ -83,7 +83,7 @@ impl AotArgs {
 /// types across backends. Callers that need the compiled model in-process
 /// (e.g. to immediately `.load()` it onto a live device) should call the
 /// backend's own compile entry point directly instead.
-#[cfg_attr(not(feature = "cuda"), allow(unused_variables))]
+#[cfg_attr(not(any(feature = "cuda", feature = "riscv")), allow(unused_variables))]
 pub fn aot_compile<'a, M, L>(
     model: &M,
     input_dtype: DtypeRepr,
@@ -125,6 +125,32 @@ where
 
             Ok(())
         }
+        #[cfg(feature = "riscv")]
+        "riscv" => {
+            let (input, graph) = SymTensor::input(input_dtype, input_shape);
+            let _ = model.call(input);
+            // Same graph optimization as the cuda arm, so both backends compile the same kernels.
+            use teeny_kernels::graph::{Anduin, GraphOptimizer};
+            let graph = Anduin.optimize(&graph.borrow())?;
+
+            let options = teeny_riscv::compiler::options::Options::parse(
+                args.options.as_deref().unwrap_or(""),
+            )?;
+
+            let cache_dir = args.resolve_cache_dir();
+            std::fs::create_dir_all(&cache_dir)?;
+
+            teeny_riscv::compiler::aot::compile_graph(
+                &graph,
+                lowering,
+                mode,
+                &options,
+                cache_dir.to_string_lossy().as_ref(),
+                args.force,
+            )?;
+
+            Ok(())
+        }
         other => Err(anyhow!(
             "unsupported --device '{other}'; supported backends: {}",
             supported_backends()
@@ -132,13 +158,16 @@ where
     }
 }
 
-fn supported_backends() -> &'static str {
-    #[cfg(feature = "cuda")]
-    {
-        "cuda"
-    }
-    #[cfg(not(feature = "cuda"))]
-    {
-        "(none enabled; rebuild teeny-cli with --features cuda)"
+fn supported_backends() -> String {
+    let backends: &[&str] = &[
+        #[cfg(feature = "cuda")]
+        "cuda",
+        #[cfg(feature = "riscv")]
+        "riscv",
+    ];
+    if backends.is_empty() {
+        "(none enabled; rebuild teeny-cli with --features cuda or --features riscv)".to_string()
+    } else {
+        backends.join(", ")
     }
 }

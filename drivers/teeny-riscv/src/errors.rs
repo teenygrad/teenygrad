@@ -26,6 +26,15 @@ pub enum Error {
     #[error("Unknown RISC-V capability: {0}")]
     UnknownCapability(String),
 
+    /// The `--options` string passed to the AOT compile CLI couldn't be parsed.
+    #[error("invalid RISC-V options '{input}': {reason}")]
+    InvalidOptions {
+        /// The original, unparsed options string.
+        input: String,
+        /// Why parsing failed.
+        reason: String,
+    },
+
     /// Loading a compiled kernel's shared library failed (see [`libloading::Error`]).
     #[error("failed to load kernel library {path:?}: {source}")]
     LoadLibrary {
