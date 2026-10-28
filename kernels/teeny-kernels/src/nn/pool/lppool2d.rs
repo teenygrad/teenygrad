@@ -51,6 +51,14 @@ use teeny_triton::triton::{
         false
     )
 )]
+#[tile_axes(
+    B(extent = _B),
+    C,
+    H(window(stride = STRIDE_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, kernel = KW, output = OW)),
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn lppool2d_forward<
     T: Triton,
     D: Float,
@@ -64,20 +72,10 @@ pub fn lppool2d_forward<
     // blocked axis and this kernel blocks OW alone, so H's window cannot be
     // expressed until teenygrad-1nr.18.5 allows a second blocked axis. H is
     // declared with its own truthful extent and left unresolvable.
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
     // The H axis is windowed with a fixed block of 1: this body's `pid`
     // decode yields one scalar `oh`, and that one output row reads `KH`
     // input rows (teenygrad-1tl.7).
-    #[tile(
-        extent = H,
-        window(stride = STRIDE_H, kernel = KH, output = OH)
-    )]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C, H, W)]
     // No `bounds`: an lp-pool does not pad, so every windowed coordinate of an
     // in-range output tile is in range and the only masked lanes are
     // out-of-range OUTPUT lanes, which the masked store discards. The generated
@@ -93,11 +91,7 @@ pub fn lppool2d_forward<
         ]
     )]
     input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, OH, OW)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     H: i32,

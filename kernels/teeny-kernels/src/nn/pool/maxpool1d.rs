@@ -46,9 +46,13 @@ use teeny_triton::triton::{
     acc = [BLOCK_OL],
     init = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OL], -3.4028235e38_f32), None, false)
 )]
+#[tile_axes(
+    B(extent = _B),
+    C,
+    L(block = BLOCK_OL, window(stride = STRIDE, kernel = KL, output = OL)),
+    OL(block = BLOCK_OL),
+)]
 pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
     // `block = BLOCK_OL` is not a claim that this axis is tiled in BLOCK_OL-sized
     // pieces: it names the block the window resolves against. The real per-tile
     // extent here is the receptive field, which `resolve_inputs` computes from
@@ -67,18 +71,10 @@ pub fn maxpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, co
     // 2-D/3-D pools DO bounds-check input coordinates that belong to stored
     // output lanes. That is where a zeros fill corrupts the answer, and where
     // the test for it belongs (teenygrad-3dp5).
-    #[tile(
-        block = BLOCK_OL,
-        extent = L,
-        window(stride = STRIDE, kernel = KL, output = OL),
-        fill = neg_inf
-    )]
+    #[tile(B, C, L(fill = neg_inf))]
     #[tile_loop_tile(index = [tile_b = _B, tile_c = C, (__tile_range * STRIDE + kl) = L])]
     input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(block = BLOCK_OL, extent = OL)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, OL)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     L: i32,

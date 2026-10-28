@@ -58,6 +58,11 @@
 //! windowed or looped index arithmetic: these attributes describe a
 //! route-2 kernel's hand-written body, they do not write it.
 //!
+//! A multi-axis kernel declares its axes once, in a function-level
+//! `#[tile_axes(...)]`, and each parameter's `#[tile(...)]` lists the axes it
+//! has by name, outermost first. Only a kernel whose every parameter has a
+//! single axis may spell that axis out flat in `#[tile(...)]` instead.
+//!
 //! Optional and additive: a `Tile` parameter with no `#[tile(...)]` falls
 //! back to the pre-existing hardcoded `BLOCK_SIZE`/`n_elements`
 //! convention, unchanged, and no `tile_spec()` is generated for it. That
@@ -89,15 +94,15 @@ use super::common::{
 /// parameter, `Tile`-wrapped or a raw pointer -- describing one axis of
 /// that parameter's tensor (teenygrad-1nr.18/teenygrad-1nr.19).
 ///
-/// A parameter may carry more than one `#[tile(...)]` attribute
-/// (repeatable, like `#[doc = "..."]`): each occurrence is one axis, in
-/// declaration order (outermost first -- matches this codebase's existing
+/// A single-axis parameter may spell its axis out flat, as
+/// `#[tile(block = .., extent = ..)]`. A multi-axis kernel declares its axes
+/// once in a function-level `#[tile_axes(...)]` and each parameter lists the
+/// ones it has by name, `#[tile(B, C, HW)]`; each name becomes one of these,
+/// in list order (outermost first -- matches this codebase's existing
 /// `TensorTileSpec`/hand-authored `KernelTileSpec` convention of dim 0 =
-/// outermost, e.g. NCHW's `B`). Exactly one occurrence on a `Tile`-typed
-/// parameter is the original teenygrad-1nr.18 shape (drives the
-/// auto-prelude too, see [`parse_tile_attrs`]'s caller); more than one, or
-/// any occurrence at all on a raw-pointer parameter, is purely
-/// declarative -- teenygrad-1nr.19 -- and never touches codegen.
+/// outermost, e.g. NCHW's `B`). See [`parse_kernel_tile_attrs`]. On a
+/// raw-pointer parameter the axes are purely declarative -- teenygrad-1nr.19
+/// -- and never touch codegen.
 #[derive(Clone)]
 struct TileAttrArgs {
     /// `Some(block_const)` when this axis is block-tiled (one CTA covers
@@ -254,13 +259,26 @@ fn reduction_axis_of(attrs: &[TileAttrArgs]) -> Result<Option<usize>, syn::Error
     }
 }
 
-/// Parse one `#[tile(...)]` attribute's contents.
+/// Parse one flat `#[tile(...)]` attribute's contents.
 fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error> {
     let meta_list = attr.meta.require_list()?;
+    parse_tile_args(meta_list.tokens.clone(), attr)
+}
+
+/// Parse one axis's `key = value` pairs, flags and `window(...)`, reporting
+/// whole-axis errors at `at`.
+///
+/// Shared by the flat `#[tile(...)]` form and the `#[tile_axes]` form, which
+/// assembles the same vocabulary from an axis declaration plus the flags one
+/// parameter adds to it.
+fn parse_tile_args<S: quote::ToTokens>(
+    tokens: TokenStream2,
+    at: &S,
+) -> Result<TileAttrArgs, syn::Error> {
+    let attr = at;
     // `Meta`, not `MetaNameValue`: an axis may carry bare flags (`reduce`)
     // alongside `key = value` pairs.
-    let parsed =
-        Punctuated::<syn::Meta, Token![,]>::parse_terminated.parse2(meta_list.tokens.clone())?;
+    let parsed = Punctuated::<syn::Meta, Token![,]>::parse_terminated.parse2(tokens)?;
     let mut block = None;
     let mut fill: Option<Ident> = None;
     let mut fill_expr: Option<Expr> = None;
@@ -515,14 +533,242 @@ fn parse_one_tile_attr(attr: &syn::Attribute) -> Result<TileAttrArgs, syn::Error
     })
 }
 
-/// Parse every `#[tile(...)]` attribute on one parameter, in declaration
-/// order.
-fn parse_tile_attrs(pt: &PatType) -> Result<Vec<TileAttrArgs>, syn::Error> {
-    pt.attrs
+/// One axis declared in a kernel's `#[tile_axes(...)]`.
+///
+/// An axis's identity, block, extent, grid dim, span and window are properties
+/// of the axis, not of the parameter naming it: two parameters declaring the
+/// same extent are already the same free variable to propagation. So they are
+/// written once, here, and each parameter's `#[tile(...)]` lists the axes it
+/// has by name -- outermost first, plus the per-use flags `reduce`, `walk` and
+/// `fill`, which really do differ between a kernel's operands.
+struct TileAxisDecl {
+    /// The axis's name, which is also the `name` the spec matches on.
+    ident: Ident,
+    /// The declaration rewritten into the flat `#[tile(...)]` vocabulary:
+    /// `extent` filled in when it was left to default to `ident`, and `name`
+    /// when the two differ.
+    metas: Vec<syn::Meta>,
+}
+
+/// The function-level `#[tile_axes(NAME, NAME(key = value, ..), ..)]`, if the
+/// kernel declares one.
+///
+/// Each entry is validated as a whole axis here, so a bad declaration is
+/// reported where it is written rather than at every parameter using it.
+fn parse_tile_axes(attrs: &[syn::Attribute]) -> Result<Option<Vec<TileAxisDecl>>, syn::Error> {
+    let mut found = attrs.iter().filter(|a| a.path().is_ident("tile_axes"));
+    let Some(attr) = found.next() else {
+        return Ok(None);
+    };
+    if let Some(extra) = found.next() {
+        return Err(syn::Error::new_spanned(
+            extra,
+            "a kernel takes one `#[tile_axes(...)]`; list every axis in it",
+        ));
+    }
+    let entries = Punctuated::<syn::Meta, Token![,]>::parse_terminated
+        .parse2(attr.meta.require_list()?.tokens.clone())?;
+    let mut decls: Vec<TileAxisDecl> = Vec::new();
+    for entry in &entries {
+        let (path, inner) = match entry {
+            syn::Meta::Path(p) => (p, TokenStream2::new()),
+            syn::Meta::List(l) => (&l.path, l.tokens.clone()),
+            syn::Meta::NameValue(nv) => {
+                return Err(syn::Error::new_spanned(
+                    nv,
+                    "a `#[tile_axes(...)]` entry is `NAME` or `NAME(key = value, ..)`, e.g. \
+                     `OW(block = BLOCK_OW)` or `B(extent = _B)`",
+                ));
+            }
+        };
+        let ident = path.require_ident()?.clone();
+        if decls.iter().any(|d| d.ident == ident) {
+            return Err(syn::Error::new_spanned(
+                &ident,
+                format!("axis `{ident}` is declared twice in `#[tile_axes(...)]`"),
+            ));
+        }
+        let mut metas: Vec<syn::Meta> = Punctuated::<syn::Meta, Token![,]>::parse_terminated
+            .parse2(inner)?
+            .into_iter()
+            .collect();
+        let mut extent: Option<Expr> = None;
+        for m in &metas {
+            let key = m
+                .path()
+                .get_ident()
+                .map(Ident::to_string)
+                .unwrap_or_default();
+            match key.as_str() {
+                "block" | "dim" | "span" | "window" => {}
+                "extent" => {
+                    if let syn::Meta::NameValue(nv) = m {
+                        extent = Some(nv.value.clone());
+                    }
+                }
+                "reduce" | "walk" | "fill" => {
+                    return Err(syn::Error::new_spanned(
+                        m,
+                        format!(
+                            "`{key}` describes one parameter's use of an axis, not the axis: \
+                             write it on that parameter, as `#[tile(.., {ident}({key}), ..)]`"
+                        ),
+                    ));
+                }
+                "name" => {
+                    return Err(syn::Error::new_spanned(
+                        m,
+                        format!(
+                            "`{ident}` is already this axis's name; use `extent = ..` if the \
+                             extent parameter is spelled differently"
+                        ),
+                    ));
+                }
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        m,
+                        format!(
+                            "unknown `#[tile_axes(...)]` key `{other}` (expected `block`, \
+                             `extent`, `dim`, `span` or `window(...)`)"
+                        ),
+                    ));
+                }
+            }
+        }
+        match extent {
+            None => metas.insert(0, syn::parse_quote!(extent = #ident)),
+            Some(Expr::Path(p)) if p.path.is_ident(&ident) => {}
+            Some(_) => {
+                let name = syn::LitStr::new(&ident.to_string(), ident.span());
+                metas.insert(0, syn::parse_quote!(name = #name));
+            }
+        }
+        parse_tile_args(quote! { #(#metas),* }, entry)?;
+        decls.push(TileAxisDecl { ident, metas });
+    }
+    Ok(Some(decls))
+}
+
+/// Parse one parameter's `#[tile(...)]`, axes in declaration order.
+///
+/// With `#[tile_axes]` the attribute lists axis names, and `used` records
+/// which declarations were named. Without it, it is the flat single-axis
+/// `#[tile(block = .., extent = ..)]`.
+fn parse_tile_attrs(
+    pt: &PatType,
+    decls: Option<&[TileAxisDecl]>,
+    used: &mut [bool],
+) -> Result<Vec<TileAttrArgs>, syn::Error> {
+    let attrs: Vec<&syn::Attribute> = pt
+        .attrs
         .iter()
         .filter(|a| a.path().is_ident("tile"))
-        .map(parse_one_tile_attr)
+        .collect();
+    if let Some(extra) = attrs.get(1) {
+        return Err(syn::Error::new_spanned(
+            extra,
+            "a parameter takes one `#[tile(...)]`. Declare a multi-axis kernel's axes once in \
+             `#[tile_axes(...)]` on the function, and list each parameter's axes by name, \
+             outermost first: `#[tile(B, C, HW)]`",
+        ));
+    }
+    let Some(attr) = attrs.first() else {
+        return Ok(Vec::new());
+    };
+    let entries = Punctuated::<syn::Meta, Token![,]>::parse_terminated
+        .parse2(attr.meta.require_list()?.tokens.clone())?;
+    // The flat form always has `extent = ..`, so a list with no `key = value`
+    // pair is a list of axis names.
+    let names_axes = !entries.iter().any(|m| matches!(m, syn::Meta::NameValue(_)));
+    let Some(decls) = decls else {
+        if names_axes {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "`#[tile(NAME, ..)]` names axes declared in `#[tile_axes(...)]`, and this kernel \
+                 declares none; add `#[tile_axes(...)]` to the function, or write the single \
+                 axis out as `#[tile(block = .., extent = ..)]`",
+            ));
+        }
+        return Ok(vec![parse_one_tile_attr(attr)?]);
+    };
+    if !names_axes {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "this kernel declares its axes in `#[tile_axes(...)]`, so `#[tile(...)]` lists their \
+             names, outermost first (`#[tile(B, C, HW)]`), rather than `key = value` pairs",
+        ));
+    }
+    entries
+        .iter()
+        .map(|entry| {
+            let (path, flags) = match entry {
+                syn::Meta::List(l) => (&l.path, l.tokens.clone()),
+                _ => (entry.path(), TokenStream2::new()),
+            };
+            let ident = path.require_ident()?;
+            let Some(pos) = decls.iter().position(|d| d.ident == *ident) else {
+                let declared: Vec<String> = decls.iter().map(|d| d.ident.to_string()).collect();
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    format!(
+                        "no axis `{ident}` in this kernel's `#[tile_axes(...)]` (declared: {})",
+                        declared.join(", ")
+                    ),
+                ));
+            };
+            let flags: Vec<syn::Meta> = Punctuated::<syn::Meta, Token![,]>::parse_terminated
+                .parse2(flags)?
+                .into_iter()
+                .collect();
+            if let Some(bad) = flags.iter().find(|m| {
+                !["reduce", "walk", "fill"]
+                    .iter()
+                    .any(|k| m.path().is_ident(k))
+            }) {
+                return Err(syn::Error::new_spanned(
+                    bad,
+                    format!(
+                        "only `reduce`, `walk` and `fill` are given per parameter; anything else \
+                         is a property of the axis, set in `#[tile_axes({ident}(..))]`"
+                    ),
+                ));
+            }
+            used[pos] = true;
+            let metas = decls[pos].metas.iter().chain(&flags);
+            parse_tile_args(quote! { #(#metas),* }, entry)
+        })
         .collect()
+}
+
+/// Every parameter's axes, in parameter order: the kernel's `#[tile_axes]`, if
+/// any, resolved against each parameter's `#[tile(...)]`.
+fn parse_kernel_tile_attrs(
+    fn_attrs: &[syn::Attribute],
+    params: &[&PatType],
+) -> Result<Vec<Vec<TileAttrArgs>>, syn::Error> {
+    let decls = parse_tile_axes(fn_attrs)?;
+    let mut used = vec![false; decls.as_ref().map_or(0, Vec::len)];
+    let attrs = params
+        .iter()
+        .map(|pt| parse_tile_attrs(pt, decls.as_deref(), &mut used))
+        .collect::<Result<Vec<_>, _>>()?;
+    // A declared axis no parameter names is a typo or a leftover, and would
+    // otherwise vanish without a trace.
+    if let Some(unused) = decls
+        .iter()
+        .flatten()
+        .zip(&used)
+        .find_map(|(d, used)| (!used).then_some(&d.ident))
+    {
+        return Err(syn::Error::new_spanned(
+            unused,
+            format!(
+                "axis `{unused}` is declared in `#[tile_axes(...)]` but no parameter's \
+                 `#[tile(...)]` names it"
+            ),
+        ));
+    }
+    Ok(attrs)
 }
 
 /// A kernel's declared accumulation loop (teenygrad-1nr.18.3).
@@ -2279,9 +2525,9 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let fn_ident = input.sig.ident.clone();
     let fn_name_str = fn_ident.to_string();
     let vis = &input.vis;
-    // `#[tile_loop]`/`#[tile_carry]` are host-only metadata, like `#[tile]` on a
-    // parameter: no attribute macro is registered for them anywhere, so they
-    // must not reach the signatures this macro re-emits.
+    // `#[tile_loop]`/`#[tile_carry]`/`#[tile_axes]` are host-only metadata, like
+    // `#[tile]` on a parameter: no attribute macro is registered for them
+    // anywhere, so they must not reach the signatures this macro re-emits.
     let attrs: Vec<&syn::Attribute> = input
         .attrs
         .iter()
@@ -2290,6 +2536,7 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 && !a.path().is_ident("tile_carry")
                 && !a.path().is_ident("tile_grid")
                 && !a.path().is_ident("tile_reduce_pass")
+                && !a.path().is_ident("tile_axes")
         })
         .collect();
     let attrs = &attrs;
@@ -2607,17 +2854,13 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     // pointer, not a loaded value) so the kernel body can call
     // `HW::store(y.tensor, value, y.mask, ...)` without ever calling
     // `.add_offsets` itself.
-    let tile_attrs: Vec<Vec<TileAttrArgs>> = match fn_inputs
-        .iter()
-        .map(|pt| parse_tile_attrs(pt))
-        .collect::<Result<Vec<_>, syn::Error>>()
-    {
+    let tile_attrs = match parse_kernel_tile_attrs(&input.attrs, &fn_inputs) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error().into(),
     };
 
-    // teenygrad-1nr.18.1: a `Tile` parameter carries one `#[tile(...)]` per
-    // real axis, outermost first. One axis is the single-flat-axis case the
+    // teenygrad-1nr.18.1: a `Tile` parameter has one `TileAttrArgs` per real
+    // axis, outermost first. One axis is the single-flat-axis case the
     // auto-prelude has always handled; N is the generalization.
     // teenygrad-y8aa: a `#[tile_loop_scalar]` operand is read once per
     // iteration at a loop-dependent index, so it must NOT get the prelude's
@@ -5029,4 +5272,221 @@ pub fn tiled_kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
     result.extend(TokenStream::from(struct_stream));
     result.extend(TokenStream::from(dispatcher_stream));
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every parameter's parsed axes, as `parse_kernel_tile_attrs` sees them.
+    fn axes_of(f: &ItemFn) -> Result<Vec<Vec<TileAttrArgs>>, syn::Error> {
+        let params: Vec<&PatType> = f
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|a| match a {
+                FnArg::Typed(pt) => Some(pt),
+                FnArg::Receiver(_) => None,
+            })
+            .collect();
+        parse_kernel_tile_attrs(&f.attrs, &params)
+    }
+
+    /// One axis's fields as a string, so the two syntaxes can be compared.
+    fn describe(a: &TileAttrArgs) -> String {
+        format!(
+            "block={:?} extent={} name={:?} dim={:?} window={:?} reduce={} walk={} span={} \
+             fill={:?} fill_expr={:?}",
+            a.block,
+            a.extent,
+            a.name.as_ref().map(syn::LitStr::value),
+            a.dim.as_ref().map(Ident::to_string),
+            a.window
+                .as_ref()
+                .map(|(s, p, k, o)| (s.clone(), p.clone(), k.clone(), o.to_string())),
+            a.reduce,
+            a.walk,
+            a.span,
+            a.fill.as_ref().map(Ident::to_string),
+            a.fill_expr.as_ref().map(|e| quote!(#e).to_string()),
+        )
+    }
+
+    fn describe_all(axes: &[Vec<TileAttrArgs>]) -> Vec<Vec<String>> {
+        axes.iter()
+            .map(|p| p.iter().map(describe).collect())
+            .collect()
+    }
+
+    fn error_of(f: &ItemFn) -> String {
+        match axes_of(f) {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e.to_string(),
+        }
+    }
+
+    #[test]
+    fn tile_axes_matches_the_axes_it_names() {
+        // What each parameter would have had to spell out axis by axis.
+        let flat = [
+            vec![
+                quote!(name = "B", extent = _B),
+                quote!(
+                    extent = H,
+                    window(stride = S, pad = P, kernel = K, output = OH)
+                ),
+                quote!(block = BLOCK_W, extent = W, reduce, fill = neg_inf),
+            ],
+            vec![
+                quote!(name = "B", extent = _B),
+                quote!(extent = OH),
+                quote!(block = BLOCK_W, extent = W, walk),
+            ],
+            vec![quote!(block = BLOCK_HW, extent = HW, span = 2, dim = Y)],
+        ];
+        let expected: Vec<Vec<String>> = flat
+            .iter()
+            .map(|p| {
+                p.iter()
+                    .map(|t| describe(&parse_tile_args(t.clone(), t).unwrap()))
+                    .collect()
+            })
+            .collect();
+
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(
+                B(extent = _B),
+                H(window(stride = S, pad = P, kernel = K, output = OH)),
+                W(block = BLOCK_W),
+                OH,
+                HW(block = BLOCK_HW, span = 2, dim = Y),
+            )]
+            fn k(
+                #[tile(B, H, W(reduce, fill = neg_inf))] x: In<Tile<T, D>>,
+                #[tile(B, OH, W(walk))] y: Out<Tile<T, D>>,
+                #[tile(HW)] z: In<Tile<T, D>>,
+                n: i32,
+            ) {}
+        };
+        let mut got = describe_all(&axes_of(&f).unwrap());
+        assert_eq!(got.pop(), Some(vec![]), "an untagged parameter has no axes");
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn extent_spelled_like_the_name_sets_no_name() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(C(extent = C))]
+            fn k(#[tile(C)] x: In<Tile<T, D>>) {}
+        };
+        assert_eq!(
+            axes_of(&f).unwrap()[0][0]
+                .name
+                .as_ref()
+                .map(syn::LitStr::value),
+            None
+        );
+    }
+
+    #[test]
+    fn flat_single_axis_form_still_parses() {
+        let f: ItemFn = syn::parse_quote! {
+            fn k(#[tile(block = BLOCK_SIZE, extent = n)] x: In<Tile<T, D>>) {}
+        };
+        let axes = axes_of(&f).unwrap();
+        assert_eq!(axes[0].len(), 1);
+        assert_eq!(axes[0][0].extent.to_string(), "n");
+    }
+
+    #[test]
+    fn stacked_flat_attributes_are_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            fn k(#[tile(extent = M)] #[tile(block = B, extent = N)] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("one `#[tile(...)]`"));
+    }
+
+    #[test]
+    fn names_without_tile_axes_are_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            fn k(#[tile(M, N)] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("declares none"));
+    }
+
+    #[test]
+    fn flat_form_beside_tile_axes_is_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M)]
+            fn k(#[tile(M)] x: In<Tile<T, D>>, #[tile(extent = M)] y: Out<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("lists their names"));
+    }
+
+    #[test]
+    fn undeclared_axis_names_what_is_declared() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M, N)]
+            fn k(#[tile(M, K)] x: In<Tile<T, D>>, #[tile(N)] y: Out<Tile<T, D>>) {}
+        };
+        let e = error_of(&f);
+        assert!(
+            e.contains("no axis `K`") && e.contains("declared: M, N"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn unused_axis_is_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M, N)]
+            fn k(#[tile(M)] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("axis `N` is declared"));
+    }
+
+    #[test]
+    fn duplicate_axis_is_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M, M(block = B))]
+            fn k(#[tile(M)] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("declared twice"));
+    }
+
+    #[test]
+    fn per_use_flag_in_a_declaration_is_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M(reduce))]
+            fn k(#[tile(M)] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("one parameter's use"));
+    }
+
+    #[test]
+    fn axis_property_on_a_use_is_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M)]
+            fn k(#[tile(M(block = B))] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("property of the axis"));
+    }
+
+    #[test]
+    fn name_key_in_a_declaration_is_rejected() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M(name = "M"))]
+            fn k(#[tile(M)] x: In<Tile<T, D>>) {}
+        };
+        assert!(error_of(&f).contains("already this axis's name"));
+    }
+
+    #[test]
+    fn a_bad_declaration_is_reported_even_when_unused() {
+        let f: ItemFn = syn::parse_quote! {
+            #[tile_axes(M(window(stride = S)))]
+            fn k() {}
+        };
+        assert!(error_of(&f).contains("`window(...)` needs"));
+    }
 }

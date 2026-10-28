@@ -50,6 +50,17 @@ use teeny_triton::triton::{
     generate
 )]
 #[tile_carry(acc = [BLOCK_OW])]
+#[tile_axes(
+    B(extent = _B),
+    C_IN,
+    Dv(window(stride = STRIDE_D, pad = PAD_D, kernel = KD, output = OD)),
+    H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+    C_OUT,
+    OD,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn conv3d_forward<
     T: Triton,
     D: Num,
@@ -64,21 +75,7 @@ pub fn conv3d_forward<
     const PAD_W: i32,
     const BLOCK_OW: i32,
 >(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_IN)]
-    #[tile(
-        extent = Dv,
-        window(stride = STRIDE_D, pad = PAD_D, kernel = KD, output = OD)
-    )]
-    #[tile(
-        extent = H,
-        window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)
-    )]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C_IN, Dv, H, W)]
     // `#[tile(..)]` above says what `x` IS -- its windowed axes -- and this
     // says how to read it per iteration. `bounds` names the padded axes, whose
     // coordinates go negative at a tile's edge (teenygrad-3dp5).
@@ -99,12 +96,7 @@ pub fn conv3d_forward<
         index = [tile_c_out = C_OUT, c_in = C_IN, kd = KD, kh = KH, kw = KW]
     )]
     w: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_OUT)]
-    #[tile(extent = OD)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    y: Out<Tile<T, D>>,
+    #[tile(B, C_OUT, OD, OH, OW)] y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,

@@ -49,18 +49,18 @@ use teeny_triton::triton::{
         &[BLOCK_OL]
     )
 )]
+#[tile_axes(
+    B(extent = _B),
+    C,
+    L(block = BLOCK_OL, window(stride = STRIDE, kernel = KL, output = OL)),
+    OL(block = BLOCK_OL),
+)]
 pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, const BLOCK_OL: i32>(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
     // `block = BLOCK_OL` is not a claim that this axis is tiled in BLOCK_OL-sized
     // pieces: it names the block the window resolves against. The real per-tile
     // extent here is the receptive field, which `resolve_inputs` computes from
     // the window; it never reads this axis's own `block_const`.
-    #[tile(
-        block = BLOCK_OL,
-        extent = L,
-        window(stride = STRIDE, kernel = KL, output = OL)
-    )]
+    #[tile(B, C, L)]
     // `#[tile(..)]` says what `input` IS; this says how to read it per
     // iteration. No `bounds`: a pool has no padding, so every windowed
     // coordinate of an in-range output tile is in range, and the prelude's own
@@ -73,10 +73,7 @@ pub fn avgpool1d_forward<T: Triton, D: Num, const KL: i32, const STRIDE: i32, co
         ]
     )]
     input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(block = BLOCK_OL, extent = OL)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, OL)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     L: i32,

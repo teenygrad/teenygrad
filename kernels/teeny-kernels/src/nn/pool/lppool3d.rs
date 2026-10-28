@@ -55,6 +55,16 @@ use teeny_triton::triton::{
         false
     )
 )]
+#[tile_axes(
+    B(extent = _B),
+    C,
+    Dv(window(stride = STRIDE_D, kernel = KD, output = OD)),
+    H(window(stride = STRIDE_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, kernel = KW, output = OW)),
+    OD,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn lppool3d_forward<
     T: Triton,
     D: Float,
@@ -66,21 +76,7 @@ pub fn lppool3d_forward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(
-        extent = Dv,
-        window(stride = STRIDE_D, kernel = KD, output = OD)
-    )]
-    #[tile(
-        extent = H,
-        window(stride = STRIDE_H, kernel = KH, output = OH)
-    )]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C, Dv, H, W)]
     // No `bounds`: an lp-pool does not pad, so every windowed coordinate of an
     // in-range output tile is in range and the only masked lanes are
     // out-of-range OUTPUT lanes, which the masked store discards. The generated
@@ -97,12 +93,7 @@ pub fn lppool3d_forward<
         ]
     )]
     input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(extent = OD)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, OD, OH, OW)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     Dv: i32,

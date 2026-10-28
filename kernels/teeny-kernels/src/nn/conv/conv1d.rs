@@ -41,6 +41,13 @@ use teeny_triton::triton::{
 // epilogue either -- this convolution has no bias, the carry IS the result.
 #[tile_loop(trip_count = [C_IN, KL], axes = [c_in = C_IN, kl = KL], generate)]
 #[tile_carry(acc = [BLOCK_OL])]
+#[tile_axes(
+    B(extent = _B),
+    C_IN,
+    L(block = BLOCK_OL, window(stride = STRIDE, pad = PAD, kernel = KL, output = OL)),
+    C_OUT,
+    OL(block = BLOCK_OL),
+)]
 pub fn conv1d_forward<
     T: Triton,
     D: Num,
@@ -56,13 +63,7 @@ pub fn conv1d_forward<
     // and the kernel blocks it, so this one is fully expressible -- unlike the
     // 2-D and 3-D members of the family, whose unblocked spatial axes carry
     // the literal block `1` instead.
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_IN)]
-    #[tile(
-        block = BLOCK_OL,
-        extent = L,
-        window(stride = STRIDE, pad = PAD, kernel = KL, output = OL)
-    )]
+    #[tile(B, C_IN, L)]
     // `#[tile(..)]` above says what `x` IS -- its windowed axes -- and this
     // says how to read it per iteration. `bounds` names the padded axes, whose
     // coordinates go negative at a tile's edge (teenygrad-3dp5).
@@ -77,12 +78,8 @@ pub fn conv1d_forward<
     x: In<Tile<T, D>>,
     // One element per iteration, broadcast. The row-major fold the body wrote
     // by hand is what this declaration generates.
-    #[tile_loop_scalar(index = [tile_c_out = C_OUT, c_in = C_IN, kl = KL])]
-    w: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_OUT)]
-    #[tile(block = BLOCK_OL, extent = OL)]
-    y: Out<Tile<T, D>>,
+    #[tile_loop_scalar(index = [tile_c_out = C_OUT, c_in = C_IN, kl = KL])] w: In<Tile<T, D>>,
+    #[tile(B, C_OUT, OL)] y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,

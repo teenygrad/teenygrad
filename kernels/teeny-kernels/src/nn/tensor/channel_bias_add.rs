@@ -53,14 +53,11 @@ use teeny_triton::triton::{
 /// CTA needs and widens it across the block, so `bias.tensor` has the same
 /// shape as `x.tensor` and the body just adds them.
 #[tiled_kernel]
+#[tile_axes(N(block = BLOCK_N), C)]
 pub fn channel_bias_add_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(block = BLOCK_N, extent = N)]
-    #[tile(extent = C)]
-    x: In<Tile<T, D>>,
-    #[tile(extent = C)] bias: In<Tile<T, D>>,
-    #[tile(block = BLOCK_N, extent = N)]
-    #[tile(extent = C)]
-    y: Out<Tile<T, D>>,
+    #[tile(N, C)] x: In<Tile<T, D>>,
+    #[tile(C)] bias: In<Tile<T, D>>,
+    #[tile(N, C)] y: Out<Tile<T, D>>,
     N: i32,
     C: i32,
 ) where
@@ -145,16 +142,11 @@ pub fn channel_bias_add_backward<T: Triton, D: Float, const BLOCK_N: i32>(
 /// the grid is equivalent and needs no accumulation loop. Only an accumulating
 /// walk needs `teenygrad-1nr.18.3`.
 #[tiled_kernel]
+#[tile_axes(B(dim = Y), C, HW(block = BLOCK_HW))]
 pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
-    #[tile(extent = B, dim = Y)]
-    #[tile(extent = C)]
-    #[tile(block = BLOCK_HW, extent = HW)]
-    x: In<Tile<T, D>>,
-    #[tile(extent = C)] bias: In<Tile<T, D>>,
-    #[tile(extent = B, dim = Y)]
-    #[tile(extent = C)]
-    #[tile(block = BLOCK_HW, extent = HW)]
-    y: Out<Tile<T, D>>,
+    #[tile(B, C, HW)] x: In<Tile<T, D>>,
+    #[tile(C)] bias: In<Tile<T, D>>,
+    #[tile(B, C, HW)] y: Out<Tile<T, D>>,
     B: i32,
     C: i32,
     HW: i32,

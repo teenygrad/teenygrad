@@ -1500,14 +1500,11 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ClipRunt
 
 /// Forward: out[r, c] = a[r, c] - b[r]
 #[tiled_kernel]
+#[tile_axes(R(block = 1), C(block = BLOCK_C))]
 pub fn elemwise_sub_row_broadcast_forward<T: Triton, D: Num, const BLOCK_C: i32>(
-    #[tile(block = 1, extent = R)]
-    #[tile(block = BLOCK_C, extent = C)]
-    a: In<Tile<T, D>>,
-    #[tile(block = 1, extent = R)] b: In<Tile<T, D>>,
-    #[tile(block = 1, extent = R)]
-    #[tile(block = BLOCK_C, extent = C)]
-    out: Out<Tile<T, D>>,
+    #[tile(R, C)] a: In<Tile<T, D>>,
+    #[tile(R)] b: In<Tile<T, D>>,
+    #[tile(R, C)] out: Out<Tile<T, D>>,
     R: i32,
     C: i32,
 ) where
@@ -1520,14 +1517,11 @@ pub fn elemwise_sub_row_broadcast_forward<T: Triton, D: Num, const BLOCK_C: i32>
 
 /// Forward: out[r, c] = a[r, c] / b[r]
 #[tiled_kernel]
+#[tile_axes(R(block = 1), C(block = BLOCK_C))]
 pub fn elemwise_div_row_broadcast_forward<T: Triton, D: Float, const BLOCK_C: i32>(
-    #[tile(block = 1, extent = R)]
-    #[tile(block = BLOCK_C, extent = C)]
-    a: In<Tile<T, D>>,
-    #[tile(block = 1, extent = R)] b: In<Tile<T, D>>,
-    #[tile(block = 1, extent = R)]
-    #[tile(block = BLOCK_C, extent = C)]
-    out: Out<Tile<T, D>>,
+    #[tile(R, C)] a: In<Tile<T, D>>,
+    #[tile(R)] b: In<Tile<T, D>>,
+    #[tile(R, C)] out: Out<Tile<T, D>>,
     R: i32,
     C: i32,
 ) where

@@ -28,6 +28,7 @@ use teeny_triton::triton::{Axis, In, InputPrecision, Out, PaddingOption, Triton}
 #[tile_carry(acc = [BLOCK_M, BLOCK_N])]
 // Swizzled by GROUP_M, as in gemm.rs -- see the note there.
 #[tile_grid(swizzled)]
+#[tile_axes(M(block = BLOCK_M), K, N(block = BLOCK_N))]
 pub fn linear_forward<
     T: Triton,
     D: Num,
@@ -37,16 +38,10 @@ pub fn linear_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    #[tile(block = BLOCK_M, extent = M)]
-    #[tile(extent = K, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_N, extent = N)]
-    #[tile(extent = K, reduce)]
-    w_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_N, extent = N)] b_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_M, extent = M)]
-    #[tile(block = BLOCK_N, extent = N)]
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(M, K(reduce))] x_ptr: In<T::Pointer<D>>,
+    #[tile(N, K(reduce))] w_ptr: In<T::Pointer<D>>,
+    #[tile(N)] b_ptr: In<T::Pointer<D>>,
+    #[tile(M, N)] y_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,

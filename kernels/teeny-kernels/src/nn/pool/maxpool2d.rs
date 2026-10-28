@@ -45,6 +45,14 @@ use teeny_triton::triton::{
     acc = [BLOCK_OW],
     init = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_OW], -3.4028235e38_f32), None, false)
 )]
+#[tile_axes(
+    B(extent = _B),
+    C,
+    H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn maxpool2d_forward<
     T: Triton,
     D: Num,
@@ -60,21 +68,10 @@ pub fn maxpool2d_forward<
     // blocked axis and this kernel blocks OW alone, so H's window cannot be
     // expressed until teenygrad-1nr.18.5 allows a second blocked axis. H is
     // declared with its own truthful extent and left unresolvable.
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
     // The H axis is windowed with a fixed block of 1: this body's `pid`
     // decode yields one scalar `oh`, and that one output row reads `KH`
     // input rows (teenygrad-1tl.7).
-    #[tile(
-        extent = H,
-        window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)
-    )]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW),
-        fill = neg_inf
-    )]
+    #[tile(B, C, H, W(fill = neg_inf))]
     // `bounds = [2, 3]`: BOTH spatial coordinates can fall outside the input,
     // and unlike maxpool1d those lanes belong to STORED output lanes -- a
     // padded window's edge rows and columns. `fill = neg_inf` is what keeps
@@ -91,11 +88,7 @@ pub fn maxpool2d_forward<
         bounds = [2, 3]
     )]
     input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, OH, OW)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     H: i32,

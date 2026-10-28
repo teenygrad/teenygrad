@@ -71,13 +71,10 @@ use teeny_triton::triton::{Axis, In, Out, PaddingOption, Triton};
 // them but the extent names, which is the point. Seeding the output's `M` axis
 // resolves the input's `M` axis wherever it sits, so a transpose needs no
 // permutation field -- it falls out of name matching.
+#[tile_axes(M(block = BLOCK_M), N(block = BLOCK_N))]
 pub fn transpose_2d_forward<T: Triton, D: Num, const BLOCK_M: i32, const BLOCK_N: i32>(
-    #[tile(block = BLOCK_M, extent = M)]
-    #[tile(block = BLOCK_N, extent = N)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_N, extent = N)]
-    #[tile(block = BLOCK_M, extent = M)]
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(M, N)] x_ptr: In<T::Pointer<D>>,
+    #[tile(N, M)] y_ptr: Out<T::Pointer<D>>,
     M: i32,
     N: i32,
 ) {

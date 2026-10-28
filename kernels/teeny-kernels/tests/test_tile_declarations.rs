@@ -215,9 +215,11 @@ fn test_every_tile_param_forward_kernel_declares_its_axes() {
         }
         panic!(
             "{} forward kernel(s) take Tile parameters without declaring their tile axes.{}\n\n\
-             Add `#[tile(block = .., extent = ..)]` to every Tile parameter. Without it the \
-             kernel silently falls back to the implicit BLOCK_SIZE/n_elements convention and \
-             generates no tile_spec(), so TileGraph::propagate treats it as a hard boundary. \
+             Add `#[tile(...)]` to every Tile parameter -- `#[tile(block = .., extent = ..)]` \
+             for a single axis, or the axis names from the kernel's `#[tile_axes(...)]`. \
+             Without it the kernel silently falls back to the implicit BLOCK_SIZE/n_elements \
+             convention and generates no tile_spec(), so TileGraph::propagate treats it as a \
+             hard boundary. \
              See contributing/TiledKernelRecipe.md.",
             offenders.len(),
             report

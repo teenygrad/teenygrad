@@ -134,11 +134,10 @@ macro_rules! impl_reduce_float_runtime_op {
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -182,11 +181,10 @@ impl_reduce_num_runtime_op!(ReduceSumForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_mean_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -227,11 +225,10 @@ impl_reduce_float_runtime_op!(ReduceMeanForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_max_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = neg_inf)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce, fill = neg_inf))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -271,11 +268,10 @@ impl_reduce_num_runtime_op!(ReduceMaxForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_min_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = pos_inf)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce, fill = pos_inf))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -315,11 +311,10 @@ impl_reduce_num_runtime_op!(ReduceMinForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_l1_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -359,11 +354,10 @@ impl_reduce_num_runtime_op!(ReduceL1Forward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_l2_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -403,11 +397,10 @@ impl_reduce_float_runtime_op!(ReduceL2Forward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_sum_square_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -447,11 +440,10 @@ impl_reduce_num_runtime_op!(ReduceSumSquareForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_log_sum_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -491,11 +483,10 @@ impl_reduce_float_runtime_op!(ReduceLogSumForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = neg_inf)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce, fill = neg_inf))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -540,11 +531,10 @@ impl_reduce_float_runtime_op!(ReduceLogSumExpForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = one)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce, fill = one))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -580,13 +570,10 @@ impl_reduce_float_runtime_op!(ReduceProdForward);
 // tiled, not *why*. The reason is the prefix dependency, and it lives here.
 //
 // No `reduce` flag -- nothing is reduced; the output has the axis.
+#[tile_axes(n_outer(block = 1), n_inner)]
 pub fn cum_sum_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner)]
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(n_outer, n_inner)] x_ptr: In<T::Pointer<D>>,
+    #[tile(n_outer, n_inner)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -664,13 +651,10 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumSumForw
 // tiled, not *why*. The reason is the prefix dependency, and it lives here.
 //
 // No `reduce` flag -- nothing is reduced; the output has the axis.
+#[tile_axes(n_outer(block = 1), n_inner)]
 pub fn cum_prod_forward<T: Triton, D: Num, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(extent = n_inner)]
-    y_ptr: Out<T::Pointer<D>>,
+    #[tile(n_outer, n_inner)] x_ptr: In<T::Pointer<D>>,
+    #[tile(n_outer, n_inner)] y_ptr: Out<T::Pointer<D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -758,11 +742,10 @@ impl<D: Num + Send + Sync + 'static> teeny_core::model::RuntimeOp for CumProdFor
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn global_avg_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where
@@ -803,11 +786,10 @@ impl_reduce_float_runtime_op!(GlobalAvgPoolForward);
 // row per program, `row = program_id(Axis::X)`, and there is no BLOCK_OUTER to
 // name. It is documentation: `resolve_inputs` takes the block from the
 // propagated output tile, so a multi-row tile still resolves correctly.
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
 pub fn global_max_pool_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
-    #[tile(block = 1, extent = n_outer)]
-    #[tile(block = BLOCK_INNER, extent = n_inner, reduce, fill = neg_inf)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = n_outer)] y: Out<Tile<T, D>>,
+    #[tile(n_outer, n_inner(reduce, fill = neg_inf))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
     n_inner: i32,
     n_outer: i32,
 ) where

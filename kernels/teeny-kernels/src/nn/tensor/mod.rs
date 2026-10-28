@@ -49,13 +49,10 @@ mod tests {
     /// block-tiled. Exercises the flat-pid decode and the row-major stride
     /// derivation the prelude generates.
     #[tiled_kernel]
+    #[tile_axes(H, W(block = BLOCK_W))]
     pub fn multi_axis_probe_forward<T: Triton, D: Num, const BLOCK_W: i32>(
-        #[tile(extent = H)]
-        #[tile(block = BLOCK_W, extent = W)]
-        x: In<Tile<T, D>>,
-        #[tile(extent = H)]
-        #[tile(block = BLOCK_W, extent = W)]
-        y: Out<Tile<T, D>>,
+        #[tile(H, W)] x: In<Tile<T, D>>,
+        #[tile(H, W)] y: Out<Tile<T, D>>,
         H: i32,
         W: i32,
     ) where
@@ -373,19 +370,20 @@ mod tests {
     #[tiled_kernel]
     #[tile_loop(trip_count = [KH, KW], axes = [kh = KH, kw = KW], generate)]
     #[tile_carry(acc = [BLOCK_N])]
+    #[tile_axes(
+        C,
+        H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+        W(block = BLOCK_N, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+        OH,
+        OW(block = BLOCK_N),
+    )]
     pub fn windowed_operand_probe_forward<T: Triton, D: Num, const BLOCK_N: i32>(
         // BOTH declarations, which is conv2d's shape: `#[tile(..)]` says what
         // the operand *is* -- and is what teenygrad-1tl.7 put there, windows
         // included -- while `#[tile_loop_tile(..)]` says how to *read* it.
         // Different jobs, so the spec keeps the operand and only the prelude
         // skips it.
-        #[tile(name = "C", extent = C)]
-        #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
-        #[tile(
-            block = BLOCK_N,
-            extent = W,
-            window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
-        )]
+        #[tile(C, H, W)]
         #[tile_loop_tile(
             index = [
                 tile_c = C,
@@ -395,10 +393,7 @@ mod tests {
             bounds = [1, 2]
         )]
         x: In<Tile<T, D>>,
-        #[tile(name = "C", extent = C)]
-        #[tile(name = "OH", extent = OH)]
-        #[tile(block = BLOCK_N, extent = OW)]
-        y: Out<Tile<T, D>>,
+        #[tile(C, OH, OW)] y: Out<Tile<T, D>>,
         C: i32,
         H: i32,
         W: i32,
@@ -567,18 +562,15 @@ mod tests {
     /// `Tensor<i32, 1>`: every tensor type in the tree implements
     /// `Tensor<D, RANK>` generically over RANK, so it holds at rank 2 too.
     #[tiled_kernel]
+    #[tile_axes(M(block = BLOCK_M), N(block = BLOCK_N))]
     pub fn two_blocked_axes_probe_forward<
         T: Triton,
         D: Num,
         const BLOCK_M: i32,
         const BLOCK_N: i32,
     >(
-        #[tile(block = BLOCK_M, extent = M)]
-        #[tile(block = BLOCK_N, extent = N)]
-        x: In<Tile<T, D>>,
-        #[tile(block = BLOCK_M, extent = M)]
-        #[tile(block = BLOCK_N, extent = N)]
-        y: Out<Tile<T, D>>,
+        #[tile(M, N)] x: In<Tile<T, D>>,
+        #[tile(M, N)] y: Out<Tile<T, D>>,
         M: i32,
         N: i32,
     ) where
@@ -680,7 +672,7 @@ mod tests {
             .expect("a derived spec must be self-consistent");
     }
 
-    /// Metadata-only probe for `#[tile(span = N)]` on the raw-pointer route
+    /// Metadata-only probe for an axis's `span = N` on the raw-pointer route
     /// (teenygrad-1nr.18.6).
     ///
     /// `batch_norm_2d_nchw_forward_inference` is the real user, but it is route
@@ -689,14 +681,10 @@ mod tests {
     /// so both the later binding's dims and `reduction_axis` have to shift by
     /// the extra dim -- the arithmetic a declaration-position index gets wrong.
     #[tiled_kernel]
+    #[tile_axes(B, HW(block = BLOCK_HW, span = 2), C)]
     pub fn span_probe_forward<T: Triton, D: Num, const BLOCK_HW: i32>(
-        #[tile(extent = B)]
-        #[tile(block = BLOCK_HW, extent = HW, span = 2)]
-        #[tile(extent = C, reduce)]
-        x_ptr: In<T::Pointer<D>>,
-        #[tile(extent = B)]
-        #[tile(block = BLOCK_HW, extent = HW, span = 2)]
-        y_ptr: Out<T::Pointer<D>>,
+        #[tile(B, HW, C(reduce))] x_ptr: In<T::Pointer<D>>,
+        #[tile(B, HW)] y_ptr: Out<T::Pointer<D>>,
         B: i32,
         HW: i32,
         C: i32,

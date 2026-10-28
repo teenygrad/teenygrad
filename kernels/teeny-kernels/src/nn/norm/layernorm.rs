@@ -42,15 +42,12 @@ use teeny_triton::triton::{
 #[tiled_kernel]
 #[tile_loop(trip_count = [N, BLOCK_N])]
 #[tile_carry(sum = [1], var_sum = [1])]
+#[tile_axes(M(extent = _M), N)]
 pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(name = "M", extent = _M)]
-    #[tile(extent = N, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(name = "M", extent = _M)]
-    #[tile(extent = N, reduce)]
-    y_ptr: Out<T::Pointer<D>>,
-    #[tile(extent = N)] weight_ptr: In<T::Pointer<D>>,
-    #[tile(extent = N)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(M, N(reduce))] x_ptr: In<T::Pointer<D>>,
+    #[tile(M, N(reduce))] y_ptr: Out<T::Pointer<D>>,
+    #[tile(N)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(N)] bias_ptr: In<T::Pointer<D>>,
     _M: i32,
     N: i32,
     eps: f32,
@@ -211,19 +208,16 @@ pub fn layer_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
     fill = T::broadcast_to(sum, &[BLOCK_N]),
     store = rstd
 )]
+#[tile_axes(M(block = 1, extent = _M), N(block = BLOCK_N))]
 pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(name = "M", block = 1, extent = _M)]
     // `reduce` AND `walk`: reduce is what the axis means (the passes collapse
     // it to the per-row mean and rstd), walk is how it is read.
-    #[tile(block = BLOCK_N, extent = N, reduce, walk)]
-    x: In<Tile<T, D>>,
-    #[tile(name = "M", block = 1, extent = _M)]
-    #[tile(block = BLOCK_N, extent = N, walk)]
-    y: Out<Tile<T, D>>,
-    #[tile(block = BLOCK_N, extent = N, walk)] weight: In<Tile<T, D>>,
-    #[tile(block = BLOCK_N, extent = N, walk)] bias: In<Tile<T, D>>,
-    #[tile(name = "M", block = 1, extent = _M)] mean: Out<Tile<T, D>>,
-    #[tile(name = "M", block = 1, extent = _M)] rstd: Out<Tile<T, D>>,
+    #[tile(M, N(reduce, walk))] x: In<Tile<T, D>>,
+    #[tile(M, N(walk))] y: Out<Tile<T, D>>,
+    #[tile(N(walk))] weight: In<Tile<T, D>>,
+    #[tile(N(walk))] bias: In<Tile<T, D>>,
+    #[tile(M)] mean: Out<Tile<T, D>>,
+    #[tile(M)] rstd: Out<Tile<T, D>>,
     _M: i32,
     N: i32,
     eps: f32,
@@ -234,9 +228,7 @@ pub fn layer_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 {
     // One iteration of the map pass. `sum` is the mean and `var_sum` the rstd,
     // each a `[1]` tile after its pass's `finish`.
-    (x - T::broadcast_to(sum, &[BLOCK_N])) * T::broadcast_to(var_sum, &[BLOCK_N])
-        * weight
-        + bias
+    (x - T::broadcast_to(sum, &[BLOCK_N])) * T::broadcast_to(var_sum, &[BLOCK_N]) * weight + bias
 }
 
 // ─── Training backward ───────────────────────────────────────────────────────

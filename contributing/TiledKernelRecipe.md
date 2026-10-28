@@ -83,43 +83,85 @@ Two worked examples, both from `teenygrad-1nr.18.1`:
 - **`batch_norm_2d_nchw_forward_inference`** — `[B, C, HW]`, `B` on
   `Axis::Y`, four broadcast per-channel operands.
 
-Stack one `#[tile(...)]` per axis, **outermost first**:
+Declare each axis **once**, in `#[tile_axes(...)]` on the function, and give
+each parameter one `#[tile(...)]` listing the axes it has by name,
+**outermost first**:
 
 ```rust
-#[tile(extent = H)]                    // one CTA per index, no `block`
-#[tile(block = BLOCK_W, extent = W)]   // block-tiled
-x: In<Tile<T, D>>,
+#[tiled_kernel]
+#[tile_axes(B(dim = Y), C, HW(block = BLOCK_HW))]
+pub fn nchw_bias_add_forward<T: Triton, D: Float, const BLOCK_HW: i32>(
+    #[tile(B, C, HW)] x: In<Tile<T, D>>,
+    #[tile(C)] bias: In<Tile<T, D>>,       // broadcast: a subset of the axes
+    #[tile(B, C, HW)] y: Out<Tile<T, D>>,
+    B: i32,
+    C: i32,
+    HW: i32,
+)
 ```
+
+An entry is `NAME` or `NAME(key = value, ..)`. `NAME` is the axis's identity
+and, unless the entry says otherwise, the `{NAME}: i32` parameter its extent is
+read from. Write `B(extent = _B)` when the parameter is spelled differently.
+An entry with no keys, like `C` above, is an untiled axis: one CTA per index.
+
+The axis's block, extent, grid dim, span and window go in its declaration,
+because every parameter naming that axis shares them. Two axes with the same
+extent are already the same free variable to propagation, so restating them on
+each parameter only let the copies drift apart. The flags that genuinely differ
+between operands go on the parameter's use of the axis:
+
+```rust
+#[tile_axes(n_outer(block = 1), n_inner(block = BLOCK_INNER))]
+pub fn reduce_max_forward<..>(
+    #[tile(n_outer, n_inner(reduce, fill = neg_inf))] x: In<Tile<T, D>>,
+    #[tile(n_outer)] y: Out<Tile<T, D>>,
+    ..
+)
+```
+
+A kernel whose every parameter has a single axis can skip `#[tile_axes]` and
+write that axis out in full, `#[tile(block = BLOCK_SIZE, extent = n_elements)]`,
+as `relu_forward` does above. The two forms do not mix within one kernel.
 
 Rules the macro enforces:
 
 - Every `Tile` parameter must declare the **same axes in the same order**
   (a subset is allowed for a broadcast input, but not a different order).
-- Exactly **one** axis may carry `block = ..`. Two blocked axes need a 2-D
-  index tile — `teenygrad-1nr.18.5`.
 - There must be an `Out<Tile<..>>`: the output's axes are what the grid covers
   and what every input resolves against.
 - Either *all* `Tile` parameters declare `#[tile(...)]` or none do. A partial
   declaration is a compile error.
+- One `#[tile(...)]` per parameter. Every name in it must be declared in
+  `#[tile_axes]`, and every declared axis must be named by some parameter, so
+  a typo or a leftover is an error and not a silently missing axis.
 
-## The four attribute keys
+## The attribute keys
+
+In `#[tile_axes]` an axis takes `block`, `extent`, `dim`, `span` and `window`,
+and its entry's own `NAME` stands in for `name`. A parameter's use of the axis
+takes `reduce`, `walk` and `fill`. The flat single-axis `#[tile(...)]` takes
+all of them.
 
 | key | required | meaning |
 |---|---|---|
-| `extent = N` | yes | The `{NAME}: i32` **parameter** the axis's total extent is read from. Propagation is name matching: two axes anywhere declaring the same `extent_param` are the same free variable. |
+| `extent = N` | yes, flat form only | The `{NAME}: i32` **parameter** the axis's total extent is read from. Propagation is name matching: two axes anywhere declaring the same `extent_param` are the same free variable. In `#[tile_axes]` it defaults to the entry's `NAME`. |
 | `block = BLOCK_X` | no | The `const {NAME}: i32` giving the tile size, **or a decimal integer literal** for an axis the kernel steps one element at a time and so has no `BLOCK_*` const for. Omitted means an untiled axis — one CTA per index, and no binding, so nothing propagates for it. |
-| `name = "C"` | no | The axis's identity for `GridSpec` matching, and the suffix of the index the prelude binds (`tile_c`). Defaults to `extent`'s spelling, so **omit it unless they genuinely differ**. |
+| `name = "C"` | no, flat form only | The axis's identity for `GridSpec` matching, and the suffix of the index the prelude binds (`tile_c`). Defaults to `extent`'s spelling, so **omit it unless they genuinely differ**. In `#[tile_axes]` the entry's `NAME` is the name. |
 | `dim = X\|Y\|Z` | no | Which hardware grid dimension the axis reads. Defaults to `X`. |
 | `reduce` | no | Bare flag marking the axis this tensor reduces over. At most one per tensor, since `reduction_axis` is a single index. |
+| `walk` | no | Bare flag: the axis is neither gridded nor loaded whole, but walked in blocks by a `#[tile_reduce_pass]` and again by the map pass. |
+| `fill = ..` | no | What masked lanes of the load hold: `zeros`, `neg_inf`, `pos_inf`, `one`, or any expression. Matters for a reduced axis whose extent does not fill its block. |
 | `span = N` | no | The axis covers `N` real tensor dims, flattened row-major — `batch_norm_2d_nchw_forward_inference`'s `HW` is `span = 2` over an NCHW tensor. Metadata only: the body still addresses one axis, but the spec's rank is the real rank and the binding's `dims` cover all `N`. Without it a kernel's flattened view has a lower rank than its graph edge, `resolve_inputs` rejects the edge's tile, and the node is a hard boundary. Not combinable with `window` or `reduce`, nor on a single-axis kernel (whose `tile_spec(rank)` already spans every dim). |
 | `window(stride = S, pad = P, kernel = K, output = O)` | no | The axis is read through a strided sliding window. `stride`, `pad` and `kernel` each take a const generic's name **or a decimal integer literal**; `output` always names a runtime parameter. `pad` is optional — most pools have no padding const. `output` names the **output** variable the window resolves against, leaving `extent` free to stay truthful about the input's own extent. |
 
 Anything else is a compile error naming these keys.
 
-Three further attributes go on the **function**, not a parameter:
+Further attributes go on the **function**, not a parameter:
 
 | attribute | meaning |
 |---|---|
+| `#[tile_axes(A, B(key = value, ..), ..)]` | The kernel's axes, each declared once. See *The multi-axis case*. |
 | `#[tile_loop(trip_count = [A, B, ..])]` | The kernel's accumulation loop. The list is names multiplied together, not a formula — no consumer evaluates it yet. |
 | `#[tile_carry(name = [EXTENT, ..])]` | One loop-carried accumulator and its shape. `[1]` for a scalar carry. |
 | `#[tile_grid(order = [A, B, ..])]` | The grid axes outermost to innermost, when the body's `pid` decode order differs from the output's dim order, or when a loop covers an axis so it is not a grid axis at all. A subset is meaningful; a repeat is an error. |
@@ -160,9 +202,15 @@ kernel = 1`: `(block - 1) * 1 + 1 = block`. The pad family has no stride or
 kernel const to name, so those fields take literals:
 
 ```rust
-#[tile(block = BLOCK_OL, extent = L,
-       window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL))]
-input_ptr: In<T::Pointer<D>>,
+#[tile_axes(
+    B(extent = _B),
+    C,
+    L(block = BLOCK_OL, window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL)),
+    OL(block = BLOCK_OL),
+)]
+// ..
+#[tile(B, C, L)] input_ptr: In<T::Pointer<D>>,
+#[tile(B, C, OL)] output_ptr: Out<T::Pointer<D>>,
 ```
 
 This is the one family where the input region is *not* larger than the output
@@ -182,11 +230,10 @@ A rank-reducing kernel's input has an axis the output does not: `reduce_sum` is
 inner one `reduce`, and bind nothing to it:
 
 ```rust
-#[tile(block = 1, extent = n_outer)]
-#[tile(extent = n_inner, reduce)]
-x_ptr: In<T::Pointer<D>>,
-#[tile(block = 1, extent = n_outer)]
-y_ptr: Out<T::Pointer<D>>,
+#[tile_axes(n_outer(block = 1), n_inner)]
+// ..
+#[tile(n_outer, n_inner(reduce))] x_ptr: In<T::Pointer<D>>,
+#[tile(n_outer)] y_ptr: Out<T::Pointer<D>>,
 ```
 
 A 4-row output tile then resolves the input to `[Some(4), None]` — four whole
@@ -221,10 +268,13 @@ decimal literal `"1"`, and `(1 - 1) * stride + kernel` is exactly the rows one
 output row reads:
 
 ```rust
-#[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
-#[tile(block = BLOCK_OW, extent = W,
-       window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW))]
-x_ptr: In<T::Pointer<D>>,
+#[tile_axes(
+    // ..
+    H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+)]
+// ..
+#[tile(B, C_IN, H, W)] x_ptr: In<T::Pointer<D>>,
 ```
 
 This describes the body as written; it does not make the axis tileable. Such an
@@ -257,7 +307,8 @@ deleted for exactly that reason.
 
 ## Checklist
 
-- [ ] Every `Tile` parameter carries `#[tile(...)]`.
+- [ ] Every `Tile` parameter carries `#[tile(...)]`; a multi-axis kernel
+      declares its axes once in `#[tile_axes(...)]`.
 - [ ] `cargo test -p teeny-kernels --test test_tile_declarations` passes.
 - [ ] The kernel's own `tile_spec()` `validate()`s (assert it in a
       `#[cfg(test)] mod tests` beside the kernel, as `relu.rs` and `conv2d.rs`

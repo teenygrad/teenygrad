@@ -44,6 +44,12 @@ use teeny_triton::triton::{
 // (constant), mirrored (reflection), clamped (replication) or wrapped
 // (circular). That changes which elements are read, not how many, so `block`
 // stays a correct upper bound on the footprint.
+#[tile_axes(
+    B(extent = _B),
+    C,
+    L(block = BLOCK_OL, window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL)),
+    OL(block = BLOCK_OL),
+)]
 pub fn constant_pad1d_forward<
     T: Triton,
     D: Num,
@@ -51,19 +57,8 @@ pub fn constant_pad1d_forward<
     const PAD_RIGHT: i32,
     const BLOCK_OL: i32,
 >(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(
-        block = BLOCK_OL,
-        extent = L,
-        window(stride = 1, pad = PAD_LEFT, kernel = 1, output = OL),
-        fill = value
-    )]
-    input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(block = BLOCK_OL, extent = OL)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, L(fill = value))] input: In<Tile<T, D>>,
+    #[tile(B, C, OL)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     L: i32,

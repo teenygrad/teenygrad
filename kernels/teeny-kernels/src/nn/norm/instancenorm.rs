@@ -42,17 +42,12 @@ use teeny_triton::triton::{
 #[tiled_kernel]
 #[tile_loop(trip_count = [L, BLOCK_L])]
 #[tile_carry(sum = [1], var_sum = [1])]
+#[tile_axes(N(extent = _N), C, L)]
 pub fn instance_norm_forward_inference<T: Triton, D: Float, const BLOCK_L: i32>(
-    #[tile(name = "N", extent = _N)]
-    #[tile(extent = C)]
-    #[tile(extent = L, reduce)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(name = "N", extent = _N)]
-    #[tile(extent = C)]
-    #[tile(extent = L, reduce)]
-    y_ptr: Out<T::Pointer<D>>,
-    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
-    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(N, C, L(reduce))] x_ptr: In<T::Pointer<D>>,
+    #[tile(N, C, L(reduce))] y_ptr: Out<T::Pointer<D>>,
+    #[tile(C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(C)] bias_ptr: In<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -215,15 +210,10 @@ pub fn instance_norm_forward_inference<T: Triton, D: Float, const BLOCK_L: i32>(
     fill = T::broadcast_to(sum, &[BLOCK_L]),
     store = rstd
 )]
+#[tile_axes(N(block = 1, extent = _N), C(block = 1), L(block = BLOCK_L))]
 pub fn instance_norm_forward<T: Triton, D: Float, const BLOCK_L: i32>(
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(block = 1, extent = C)]
-    #[tile(block = BLOCK_L, extent = L, reduce, walk)]
-    x: In<Tile<T, D>>,
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(block = 1, extent = C)]
-    #[tile(block = BLOCK_L, extent = L, walk)]
-    y: Out<Tile<T, D>>,
+    #[tile(N, C, L(reduce, walk))] x: In<Tile<T, D>>,
+    #[tile(N, C, L(walk))] y: Out<Tile<T, D>>,
     // Raw pointers, as conv2d_bias leaves its bias. These are the read-once
     // broadcast operand of teenygrad-3rk6.1: indexed by the gridded C alone,
     // they would need a blocked axis for the prelude to shape their load, and
@@ -232,12 +222,8 @@ pub fn instance_norm_forward<T: Triton, D: Float, const BLOCK_L: i32>(
     // ranks, so they are loaded in the body instead.
     weight_ptr: In<T::Pointer<D>>,
     bias_ptr: In<T::Pointer<D>>,
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(block = 1, extent = C)]
-    mean: Out<Tile<T, D>>,
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(block = 1, extent = C)]
-    rstd: Out<Tile<T, D>>,
+    #[tile(N, C)] mean: Out<Tile<T, D>>,
+    #[tile(N, C)] rstd: Out<Tile<T, D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -275,8 +261,7 @@ pub fn instance_norm_forward<T: Triton, D: Float, const BLOCK_L: i32>(
         ),
         &[BLOCK_L],
     );
-    (x - T::broadcast_to(sum, &[BLOCK_L])) * T::broadcast_to(var_sum, &[BLOCK_L]) * gamma
-        + beta
+    (x - T::broadcast_to(sum, &[BLOCK_L])) * T::broadcast_to(var_sum, &[BLOCK_L]) * gamma + beta
 }
 
 // ─── Training backward ───────────────────────────────────────────────────────

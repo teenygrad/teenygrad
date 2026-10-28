@@ -64,7 +64,7 @@ use teeny_triton::triton::{
 // one flattened spatial axis, not two -- and the output is written as
 // `[B * C_OUT, y_row_stride]`, where `y_row_stride` is an allocation width
 // chosen for TMA alignment and is larger than `M`. So neither operand's real
-// axes line up one-to-one with a `#[tile(extent = ..)]` list.
+// axes line up one-to-one with a `#[tile(...)]` axis list.
 //
 // `TileAxisBinding::dims` does support a flattened binding -- several real dims
 // under one block const -- but the macro emits exactly one dim per declared

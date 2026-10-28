@@ -41,13 +41,10 @@ use teeny_triton::triton::{
 // survey. The reduced axis is still declared, since `n_cols` is not available
 // for tiling.
 #[tiled_kernel]
+#[tile_axes(n_rows(extent = _n_rows), n_cols(block = BLOCK_SIZE))]
 pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    #[tile(name = "n_rows", extent = _n_rows)]
-    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
-    x: In<Tile<T, D>>,
-    #[tile(name = "n_rows", extent = _n_rows)]
-    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
-    y: Out<Tile<T, D>>,
+    #[tile(n_rows, n_cols(reduce))] x: In<Tile<T, D>>,
+    #[tile(n_rows, n_cols(reduce))] y: Out<Tile<T, D>>,
     _n_rows: i32,
     n_cols: i32,
 ) where

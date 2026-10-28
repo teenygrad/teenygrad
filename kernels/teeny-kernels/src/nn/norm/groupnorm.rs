@@ -64,17 +64,12 @@ use teeny_triton::triton::{
 #[tiled_kernel]
 #[tile_loop(trip_count = [C, G, L, BLOCK_NL])]
 #[tile_carry(sum = [1], var_sum = [1])]
+#[tile_axes(N(extent = _N), C, L)]
 pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
-    #[tile(name = "N", extent = _N)]
-    #[tile(extent = C)]
-    #[tile(extent = L)]
-    x_ptr: In<T::Pointer<D>>,
-    #[tile(name = "N", extent = _N)]
-    #[tile(extent = C)]
-    #[tile(extent = L)]
-    y_ptr: Out<T::Pointer<D>>,
-    #[tile(extent = C)] weight_ptr: In<T::Pointer<D>>,
-    #[tile(extent = C)] bias_ptr: In<T::Pointer<D>>,
+    #[tile(N, C, L)] x_ptr: In<T::Pointer<D>>,
+    #[tile(N, C, L)] y_ptr: Out<T::Pointer<D>>,
+    #[tile(C)] weight_ptr: In<T::Pointer<D>>,
+    #[tile(C)] bias_ptr: In<T::Pointer<D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -256,32 +251,23 @@ pub fn group_norm_forward_inference<T: Triton, D: Float, const BLOCK_NL: i32>(
     fill = T::broadcast_to(sum, &[BLOCK_NL]),
     store = rstd
 )]
+#[tile_axes(N(block = 1, extent = _N), G(block = 1), group_size(block = BLOCK_NL))]
 pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
     // Declared as [N, G, group_size] rather than [N, C, L]: the same memory,
     // decomposed so the walked span is ONE axis. A group's elements are
     // contiguous -- `G * group_size == C * L` -- and the old form needed a
     // flattened walk over `(C / G) * L`, which no declaration could name
     // (teenygrad-3rk6.2).
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(name = "G", block = 1, extent = G)]
-    #[tile(block = BLOCK_NL, extent = group_size, reduce, walk)]
-    x: In<Tile<T, D>>,
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(name = "G", block = 1, extent = G)]
-    #[tile(block = BLOCK_NL, extent = group_size, walk)]
-    y: Out<Tile<T, D>>,
+    #[tile(N, G, group_size(reduce, walk))] x: In<Tile<T, D>>,
+    #[tile(N, G, group_size(walk))] y: Out<Tile<T, D>>,
     // Raw pointers, and not for teenygrad-3rk6.1's reason: these are a
     // COMPUTED gather. A lane's channel is `tile_walk / L + tile_g * (C / G)`,
     // so gamma varies WITHIN the walked span and no declared axis offset
     // reaches it. The body loads them from the exposed walk coordinate.
     weight_ptr: In<T::Pointer<D>>,
     bias_ptr: In<T::Pointer<D>>,
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(name = "G", block = 1, extent = G)]
-    mean: Out<Tile<T, D>>,
-    #[tile(name = "N", block = 1, extent = _N)]
-    #[tile(name = "G", block = 1, extent = G)]
-    rstd: Out<Tile<T, D>>,
+    #[tile(N, G)] mean: Out<Tile<T, D>>,
+    #[tile(N, G)] rstd: Out<Tile<T, D>>,
     _N: i32,
     C: i32,
     L: i32,
@@ -320,8 +306,7 @@ pub fn group_norm_forward<T: Triton, D: Float, const BLOCK_NL: i32>(
         None,
         false,
     );
-    (x - T::broadcast_to(sum, &[BLOCK_NL])) * T::broadcast_to(var_sum, &[BLOCK_NL]) * gamma
-        + beta
+    (x - T::broadcast_to(sum, &[BLOCK_NL])) * T::broadcast_to(var_sum, &[BLOCK_NL]) * gamma + beta
 }
 
 // ─── Training backward ───────────────────────────────────────────────────────

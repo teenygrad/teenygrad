@@ -205,13 +205,12 @@ pub fn batch_norm_forward_inference<T: Triton, D: Float, const BLOCK_N: i32>(
     ) - sum * sum,
     merge
 )]
+#[tile_axes(N(block = BLOCK_N), C(block = 1))]
 pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     // N is walked and OUTER, so each step advances by C.
-    #[tile(block = BLOCK_N, extent = N, reduce, walk)]
-    #[tile(block = 1, extent = C)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] mean: Out<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] rstd: Out<Tile<T, D>>,
+    #[tile(N(reduce, walk), C)] x: In<Tile<T, D>>,
+    #[tile(C)] mean: Out<Tile<T, D>>,
+    #[tile(C)] rstd: Out<Tile<T, D>>,
     running_mean_ptr: InOut<T::Pointer<D>>,
     running_var_ptr: InOut<T::Pointer<D>>,
     N: i32,
@@ -308,22 +307,19 @@ pub fn batch_norm_stats_forward<T: Triton, D: Float, const BLOCK_N: i32>(
 // weight/bias/mean/rstd stay raw pointers: all four are indexed by the gridded
 // C alone, which is teenygrad-3rk6.1's read-once broadcast operand, so they are
 // loaded in the body as conv2d_bias's bias is.
+#[tile_axes(N(block = BLOCK_N), C(block = 1))]
 pub fn batch_norm_normalize_forward<T: Triton, D: Float, const BLOCK_N: i32>(
     // N is WALKED and is the OUTER axis, so each step of the walk advances by
     // C. Every norm converted before this one walked its innermost axis, where
     // that stride is 1 (teenygrad-3rk6.2).
-    #[tile(block = BLOCK_N, extent = N, walk)]
-    #[tile(block = 1, extent = C)]
-    x: In<Tile<T, D>>,
-    #[tile(block = BLOCK_N, extent = N, walk)]
-    #[tile(block = 1, extent = C)]
-    y: Out<Tile<T, D>>,
+    #[tile(N(walk), C)] x: In<Tile<T, D>>,
+    #[tile(N(walk), C)] y: Out<Tile<T, D>>,
     // Per-channel scalars, broadcast across the N tile -- rank 1, indexed by
     // `c` alone, as `batch_norm_stats_forward` declares its own outputs.
-    #[tile(block = 1, extent = C)] weight: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] bias: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] mean: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] rstd: In<Tile<T, D>>,
+    #[tile(C)] weight: In<Tile<T, D>>,
+    #[tile(C)] bias: In<Tile<T, D>>,
+    #[tile(C)] mean: In<Tile<T, D>>,
+    #[tile(C)] rstd: In<Tile<T, D>>,
     N: i32,
     C: i32,
 ) where
@@ -550,19 +546,14 @@ impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::Run
 /// `[2, 3]`, which is what lets propagation cross this kernel instead of
 /// stopping at it (teenygrad-1nr.18.6).
 #[tiled_kernel]
+#[tile_axes(B(block = 1, dim = Y), C(block = 1), HW(block = BLOCK_HW, span = 2))]
 pub fn batch_norm_2d_nchw_forward_inference<T: Triton, D: Float, const BLOCK_HW: i32>(
-    #[tile(block = 1, extent = B, dim = Y)]
-    #[tile(block = 1, extent = C)]
-    #[tile(block = BLOCK_HW, extent = HW, span = 2)]
-    x: In<Tile<T, D>>,
-    #[tile(block = 1, extent = B, dim = Y)]
-    #[tile(block = 1, extent = C)]
-    #[tile(block = BLOCK_HW, extent = HW, span = 2)]
-    y: Out<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] weight: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] bias: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] running_mean: In<Tile<T, D>>,
-    #[tile(block = 1, extent = C)] running_var: In<Tile<T, D>>,
+    #[tile(B, C, HW)] x: In<Tile<T, D>>,
+    #[tile(B, C, HW)] y: Out<Tile<T, D>>,
+    #[tile(C)] weight: In<Tile<T, D>>,
+    #[tile(C)] bias: In<Tile<T, D>>,
+    #[tile(C)] running_mean: In<Tile<T, D>>,
+    #[tile(C)] running_var: In<Tile<T, D>>,
     B: i32,
     C: i32,
     HW: i32,

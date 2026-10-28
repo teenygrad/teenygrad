@@ -41,6 +41,16 @@ use teeny_triton::triton::{
 // (constant), mirrored (reflection), clamped (replication) or wrapped
 // (circular). That changes which elements are read, not how many, so `block`
 // stays a correct upper bound on the footprint.
+#[tile_axes(
+    B(extent = _B),
+    C,
+    Dv(window(stride = 1, pad = PD1, kernel = 1, output = OD)),
+    H(window(stride = 1, pad = PH1, kernel = 1, output = OH)),
+    W(block = BLOCK_OW, window(stride = 1, pad = PW1, kernel = 1, output = OW)),
+    OD,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn replication_pad3d_forward<
     T: Triton,
     D: Num,
@@ -52,28 +62,8 @@ pub fn replication_pad3d_forward<
     const PW2: i32,
     const BLOCK_OW: i32,
 >(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(
-        extent = Dv,
-        window(stride = 1, pad = PD1, kernel = 1, output = OD)
-    )]
-    #[tile(
-        extent = H,
-        window(stride = 1, pad = PH1, kernel = 1, output = OH)
-    )]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = 1, pad = PW1, kernel = 1, output = OW)
-    )]
-    input_ptr: In<T::Pointer<D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(extent = OD)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    output_ptr: Out<T::Pointer<D>>,
+    #[tile(B, C, Dv, H, W)] input_ptr: In<T::Pointer<D>>,
+    #[tile(B, C, OD, OH, OW)] output_ptr: Out<T::Pointer<D>>,
     _B: i32,
     C: i32,
     Dv: i32,

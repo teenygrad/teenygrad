@@ -60,6 +60,15 @@ use teeny_triton::triton::{
     generate
 )]
 #[tile_carry(acc = [BLOCK_OW])]
+#[tile_axes(
+    B(extent = _B),
+    C_IN,
+    H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+    C_OUT,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn conv2d_forward<
     T: Triton,
     D: Num,
@@ -94,14 +103,7 @@ pub fn conv2d_forward<
     // generated read runs before this body, so there is no loop-invariant
     // prologue to hold a `c_in_start`. `(c_out / (C_OUT / G)) * (C_IN / G)` is
     // what that local used to be.
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_IN)]
-    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C_IN, H, W)]
     #[tile_loop_tile(
         index = [
             tile_b = _B,
@@ -120,11 +122,7 @@ pub fn conv2d_forward<
         index = [tile_c_out = C_OUT, c_in_local = (C_IN / G), kh = KH, kw = KW]
     )]
     w: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_OUT)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    y: Out<Tile<T, D>>,
+    #[tile(B, C_OUT, OH, OW)] y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,
@@ -638,6 +636,15 @@ pub struct Conv2dOp<'a, T: Num> {
         &[BLOCK_OW]
     )
 )]
+#[tile_axes(
+    B(extent = _B),
+    C_IN,
+    H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+    C_OUT,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn conv2d_bias_forward<
     T: Triton,
     D: Num,
@@ -652,14 +659,7 @@ pub fn conv2d_bias_forward<
 >(
     // Both spatial axes are read through a sliding window. H's block is the
     // literal 1 (one scalar `oh` per program), W's is `BLOCK_OW`.
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_IN)]
-    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C_IN, H, W)]
     #[tile_loop_tile(
         index = [
             tile_b = _B,
@@ -686,11 +686,7 @@ pub fn conv2d_bias_forward<
     // `finish` being an arbitrary expression is what lets this kernel convert
     // anyway (teenygrad-3dbg).
     bias_ptr: In<T::Pointer<D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_OUT)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    y: Out<Tile<T, D>>,
+    #[tile(B, C_OUT, OH, OW)] y: Out<Tile<T, D>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,

@@ -38,13 +38,10 @@ use teeny_triton::triton::{Axis, In, Out, PaddingOption, Triton};
 // No `#[tile_grid(..)]`: the body decodes `pid_b = pid / num_pid_n` outer,
 // and the output's dims already run B then N, so dim order *is* the decode
 // order here -- unlike `transpose_2d_forward`.
+#[tile_axes(B(block = BLOCK_B), N(block = BLOCK_N))]
 pub fn flatten_forward<T: Triton, D: Num, const BLOCK_B: i32, const BLOCK_N: i32>(
-    #[tile(block = BLOCK_B, extent = B)]
-    #[tile(block = BLOCK_N, extent = N)]
-    input_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_B, extent = B)]
-    #[tile(block = BLOCK_N, extent = N)]
-    output_ptr: Out<T::Pointer<D>>,
+    #[tile(B, N)] input_ptr: In<T::Pointer<D>>,
+    #[tile(B, N)] output_ptr: Out<T::Pointer<D>>,
     B: i32,
     N: i32,
     stride_ib: i32,

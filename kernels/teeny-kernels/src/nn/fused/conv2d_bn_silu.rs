@@ -65,6 +65,15 @@ use teeny_triton::triton::{
         bn_out * (one / (one + T::exp(neg1 * bn_out)))
     }
 )]
+#[tile_axes(
+    B(extent = _B),
+    C_IN,
+    H(window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)),
+    C_OUT,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn conv2d_bn_silu_forward<
     T: Triton,
     const KH: i32,
@@ -76,14 +85,7 @@ pub fn conv2d_bn_silu_forward<
     const G: i32,
     const BLOCK_OW: i32,
 >(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_IN)]
-    #[tile(extent = H, window(stride = STRIDE_H, pad = PAD_H, kernel = KH, output = OH))]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, pad = PAD_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C_IN, H, W)]
     // `#[tile(..)]` above says what `x` IS; this says how to read it per
     // iteration, as conv2d_forward does. `bounds` names the padded spatial axes.
     #[tile_loop_tile(
@@ -104,11 +106,7 @@ pub fn conv2d_bn_silu_forward<
     w: In<Tile<T, f32>>,
     bn_scale_ptr: In<T::Pointer<f32>>,
     bn_shift_ptr: In<T::Pointer<f32>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C_OUT)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    y: Out<Tile<T, f32>>,
+    #[tile(B, C_OUT, OH, OW)] y: Out<Tile<T, f32>>,
     _B: i32,
     C_IN: i32,
     C_OUT: i32,

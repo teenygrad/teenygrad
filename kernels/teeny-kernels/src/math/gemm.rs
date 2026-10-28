@@ -59,6 +59,7 @@ use teeny_triton::triton::{PaddingOption, *};
 // dim as a *mixed-radix* decode. A GROUP_M grouping is not one, so no
 // `GridSpec` can describe this launch and none is emitted.
 #[tile_grid(swizzled)]
+#[tile_axes(M(block = BLOCK_M), K, N(block = BLOCK_N))]
 pub fn matmul_forward<
     T: Triton,
     D: Num,
@@ -67,15 +68,9 @@ pub fn matmul_forward<
     const BLOCK_K: i32,
     const GROUP_M: i32,
 >(
-    #[tile(block = BLOCK_M, extent = M)]
-    #[tile(extent = K, reduce)]
-    a_ptr: In<T::Pointer<D>>,
-    #[tile(extent = K, reduce)]
-    #[tile(block = BLOCK_N, extent = N)]
-    b_ptr: In<T::Pointer<D>>,
-    #[tile(block = BLOCK_M, extent = M)]
-    #[tile(block = BLOCK_N, extent = N)]
-    c_ptr: InOut<T::Pointer<D>>,
+    #[tile(M, K(reduce))] a_ptr: In<T::Pointer<D>>,
+    #[tile(K(reduce), N)] b_ptr: In<T::Pointer<D>>,
+    #[tile(M, N)] c_ptr: InOut<T::Pointer<D>>,
     M: i32,
     N: i32,
     K: i32,

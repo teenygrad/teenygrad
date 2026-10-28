@@ -57,21 +57,18 @@ use teeny_triton::triton::{
     ),
     store = rrms
 )]
+#[tile_axes(M(block = 1, extent = _M), N(block = BLOCK_N))]
 pub fn rms_norm_forward<T: Triton, D: Float, const BLOCK_N: i32>(
-    #[tile(name = "M", block = 1, extent = _M)]
     // `reduce` AND `walk`: they say different things. `reduce` is what the axis
     // MEANS -- the pass collapses it to the per-row statistic `rrms`, and the
     // spec's `reduction_axis` must keep saying so for propagation. `walk` is
     // HOW it is read: in blocks by a pass, rather than whole into one tile.
-    // Same split as `#[tile(.. window(..))]` saying what an axis is while
+    // Same split as an axis's `window(..)` saying what it is while
     // `#[tile_loop_tile]` says how to read it (teenygrad-3rk6.2).
-    #[tile(block = BLOCK_N, extent = N, reduce, walk)]
-    x: In<Tile<T, D>>,
-    #[tile(name = "M", block = 1, extent = _M)]
-    #[tile(block = BLOCK_N, extent = N, walk)]
-    y: Out<Tile<T, D>>,
-    #[tile(block = BLOCK_N, extent = N, walk)] weight: In<Tile<T, D>>,
-    #[tile(name = "M", block = 1, extent = _M)] rrms: Out<Tile<T, D>>,
+    #[tile(M, N(reduce, walk))] x: In<Tile<T, D>>,
+    #[tile(M, N(walk))] y: Out<Tile<T, D>>,
+    #[tile(N(walk))] weight: In<Tile<T, D>>,
+    #[tile(M)] rrms: Out<Tile<T, D>>,
     _M: i32,
     N: i32,
     eps: f32,

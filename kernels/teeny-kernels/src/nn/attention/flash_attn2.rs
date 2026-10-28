@@ -63,8 +63,8 @@ use teeny_triton::triton::{
 // of these tensors has `BH` as dim 0 -- q/o are `[BH, N_CTX_Q, HEAD_DIM]`, k/v
 // `[BH, N_CTX_K, HEAD_DIM]`, l `[BH, N_CTX_Q]` -- and `BH` is the *grid* extent
 // of `Axis::Y`, supplied in the launch config and never a kernel parameter;
-// the body only ever needs `pid_bh`. `#[tile(extent = ..)]` names a parameter,
-// and dims come from attribute position, so dim 0 cannot be skipped. Adding a
+// the body only ever needs `pid_bh`. An axis's `extent` names a parameter,
+// and dims come from position in `#[tile(...)]`, so dim 0 cannot be skipped. Adding a
 // `bh: i32` the body never reads would change a device kernel's ABI to carry
 // metadata. So `tile_spec()` here is `loop_spec` and nothing else, which is
 // also the shape the pre-revival design had.

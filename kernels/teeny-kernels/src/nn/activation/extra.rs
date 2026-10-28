@@ -628,6 +628,7 @@ impl teeny_core::model::RuntimeOp for ShrinkRuntimeOp {
 
 /// Forward: y = x - log(sum(exp(x)))  [numerically stable: subtract max first]
 #[tiled_kernel]
+#[tile_axes(n_rows(extent = _n_rows), n_cols(block = BLOCK_SIZE))]
 pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
     // teenygrad-1tl: declared exactly as `softmax_forward` is -- the same row
     // shape, and the sibling operation. `BLOCK_SIZE` binds the *reduced* axis
@@ -637,12 +638,8 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
     //
     // Unchanged from the hand-written version: both assume `BLOCK_SIZE` covers
     // `n_cols`, since the whole row must be present for the max and the sum.
-    #[tile(name = "n_rows", extent = _n_rows)]
-    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
-    x: In<Tile<T, f32>>,
-    #[tile(name = "n_rows", extent = _n_rows)]
-    #[tile(block = BLOCK_SIZE, extent = n_cols, reduce)]
-    y: Out<Tile<T, f32>>,
+    #[tile(n_rows, n_cols(reduce))] x: In<Tile<T, f32>>,
+    #[tile(n_rows, n_cols(reduce))] y: Out<Tile<T, f32>>,
     _n_rows: i32,
     n_cols: i32,
 ) where

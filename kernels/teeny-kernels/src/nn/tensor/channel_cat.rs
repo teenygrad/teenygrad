@@ -38,7 +38,7 @@ use teeny_triton::triton::{
 // declaration, for three reasons, the last of which is not a macro gap.
 //
 // 1. The leading axis has no parameter to name. `n_spatial` is never passed;
-//    it is implicit in `pid / num_c_tiles`. `#[tile(extent = ..)]` names a
+//    it is implicit in `pid / num_c_tiles`. An axis's `extent` names a
 //    runtime parameter, so that axis's extent is unnameable as the signature
 //    stands.
 // 2. The channel axis is a sub-range, not a whole axis. The output axis is

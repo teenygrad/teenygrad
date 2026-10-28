@@ -42,6 +42,16 @@ use teeny_triton::triton::{
         &[BLOCK_OW]
     )
 )]
+#[tile_axes(
+    B(extent = _B),
+    C,
+    Dv(window(stride = STRIDE_D, kernel = KD, output = OD)),
+    H(window(stride = STRIDE_H, kernel = KH, output = OH)),
+    W(block = BLOCK_OW, window(stride = STRIDE_W, kernel = KW, output = OW)),
+    OD,
+    OH,
+    OW(block = BLOCK_OW),
+)]
 pub fn avgpool3d_forward<
     T: Triton,
     D: Num,
@@ -53,21 +63,7 @@ pub fn avgpool3d_forward<
     const STRIDE_W: i32,
     const BLOCK_OW: i32,
 >(
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(
-        extent = Dv,
-        window(stride = STRIDE_D, kernel = KD, output = OD)
-    )]
-    #[tile(
-        extent = H,
-        window(stride = STRIDE_H, kernel = KH, output = OH)
-    )]
-    #[tile(
-        block = BLOCK_OW,
-        extent = W,
-        window(stride = STRIDE_W, kernel = KW, output = OW)
-    )]
+    #[tile(B, C, Dv, H, W)]
     // `#[tile(..)]` says what `input` IS; this says how to read it per
     // iteration. No `bounds`: a pool has no padding, so every windowed
     // coordinate of an in-range output tile is in range, and the prelude's own
@@ -82,12 +78,7 @@ pub fn avgpool3d_forward<
         ]
     )]
     input: In<Tile<T, D>>,
-    #[tile(name = "B", extent = _B)]
-    #[tile(extent = C)]
-    #[tile(extent = OD)]
-    #[tile(extent = OH)]
-    #[tile(block = BLOCK_OW, extent = OW)]
-    output: Out<Tile<T, D>>,
+    #[tile(B, C, OD, OH, OW)] output: Out<Tile<T, D>>,
     _B: i32,
     C: i32,
     Dv: i32,
