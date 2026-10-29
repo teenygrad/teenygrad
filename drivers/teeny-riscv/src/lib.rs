@@ -19,8 +19,9 @@
 //! `teeny_core::device` implementations ([`device`]), and a `libloading` wrapper for calling a
 //! kernel's exported symbol on a native RISC-V host ([`runtime`]).
 //!
-//! There is no RISC-V hardware support yet. With the `qemu` feature, [`device::RiscvDevice`]
-//! runs launched kernels under `qemu-riscv64`; without it, launching a kernel panics.
+//! Built for a `riscv64` host, [`device::RiscvDevice`] runs launched kernels natively, in-process.
+//! Built for any other host, it runs them under `qemu-riscv64` with the `qemu` feature, and
+//! launching a kernel panics without it.
 
 #![warn(missing_docs)]
 
@@ -32,7 +33,9 @@ pub mod device;
 mod elf;
 /// Error types.
 pub mod errors;
-#[cfg(feature = "qemu")]
+#[cfg(any(target_arch = "riscv64", test))]
+mod native;
+#[cfg(all(feature = "qemu", not(target_arch = "riscv64")))]
 mod qemu;
 /// Loading and calling a compiled kernel's shared library.
 pub mod runtime;

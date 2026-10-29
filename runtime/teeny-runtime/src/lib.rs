@@ -29,8 +29,9 @@
 //! Not to be confused with `teeny_riscv::runtime` (a `dlopen` wrapper module inside the RISC-V
 //! driver crate) -- this is a different, top-level crate.
 //!
-//! `teeny-riscv`'s `Device::launch` runs kernels under `qemu-riscv64` with this crate's `qemu`
-//! feature, and panics without it (there is no RISC-V hardware runtime yet).
+//! `teeny-riscv`'s `Device::launch` runs kernels natively when built for a `riscv64` host;
+//! elsewhere it runs them under `qemu-riscv64` with this crate's `qemu` feature, and panics
+//! without it.
 
 #[cfg(not(any(feature = "cuda", feature = "riscv")))]
 compile_error!("teeny-runtime needs at least one of the `cuda` or `riscv` features enabled");
