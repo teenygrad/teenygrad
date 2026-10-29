@@ -13,16 +13,19 @@ publish = false
 
 [features]
 default = []
-cuda = ["dep:teeny-cuda"]
-riscv = ["dep:teeny-riscv"]
+cuda = ["dep:teeny-cuda", "dep:teeny-runtime", "teeny-runtime/cuda"]
+riscv = ["dep:teeny-riscv", "dep:teeny-runtime", "teeny-runtime/riscv"]
 # Meaningful only combined with `riscv` -- gates the `riscv::qemu` submodule that shells out to
 # `qemu-riscv64` and a `riscv64-linux-gnu-gcc` cross toolchain to actually execute a compiled
-# kernel, rather than just compiling it.
-qemu = []
+# kernel, rather than just compiling it, and makes `model::RuntimeModel` launch under qemu.
+qemu = ["teeny-runtime?/qemu"]
 
 [dependencies]
 teeny-core.workspace = true
 teeny-cuda = { workspace = true, optional = true }
 teeny-riscv = { workspace = true, optional = true }
+# Backs `model::RuntimeModel`. Not `workspace = true`, for the same reason as teeny-kernels':
+# teeny-runtime's default `cuda` feature must stay off for a `riscv`-only build.
+teeny-runtime = { path = "../../runtime/teeny-runtime", version = "0.2.1", optional = true, default-features = false }
 anyhow.workspace = true
 thiserror.workspace = true
