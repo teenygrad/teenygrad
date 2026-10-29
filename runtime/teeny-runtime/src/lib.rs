@@ -29,9 +29,8 @@
 //! Not to be confused with `teeny_riscv::runtime` (a `dlopen` wrapper module inside the RISC-V
 //! driver crate) -- this is a different, top-level crate.
 //!
-//! `teeny-riscv`'s `Device::launch` is a structured-error stub today (the compiler backend has
-//! no real per-kernel argument ABI yet -- see `teenygrad-1zd`), so generic code written against
-//! this crate should expect `launch` to fail on the `riscv` backend until that lands.
+//! `teeny-riscv`'s `Device::launch` runs kernels under `qemu-riscv64` with this crate's `qemu`
+//! feature, and panics without it (there is no RISC-V hardware runtime yet).
 
 #[cfg(not(any(feature = "cuda", feature = "riscv")))]
 compile_error!("teeny-runtime needs at least one of the `cuda` or `riscv` features enabled");
@@ -44,6 +43,8 @@ mod backend {
     pub type Context<'a> = teeny_cuda::device::context::Cuda<'a>;
     /// The compiled-in backend's [`teeny_core::device::Device`] type.
     pub type Device<'a> = teeny_cuda::device::CudaDevice<'a>;
+    /// The compiled-in backend's [`teeny_core::device::buffer::Buffer`] type.
+    pub type Buffer<'a, N> = teeny_cuda::device::buffer::CudaBuffer<'a, N>;
     /// The compiled-in backend's [`teeny_core::device::LaunchConfig`] type.
     pub type LaunchConfig = teeny_cuda::device::CudaLaunchConfig;
     /// The compiled-in backend's [`teeny_core::compiler::Target`] type.
@@ -124,6 +125,16 @@ mod backend {
         }
     }
 
+    /// Builds a launch config with a pre-computed 3-D grid and block/cluster from `program`'s
+    /// metadata -- for ops whose [`teeny_core::model::RuntimeOp::grid`] uses more than one axis.
+    pub fn launch_config_grid<K: Kernel>(grid: [u32; 3], program: &Program<'_, K>) -> LaunchConfig {
+        LaunchConfig {
+            grid,
+            block: [program.threads_per_block().max(1), 1, 1],
+            cluster: [program.num_ctas().max(1), 1, 1],
+        }
+    }
+
     /// Builds a launch config from an explicit grid/block/cluster, for call sites that compute
     /// their own launch geometry rather than deriving it from `n_elements` or program metadata.
     pub fn launch_config_custom(
@@ -147,6 +158,8 @@ mod backend {
     pub type Context<'a> = teeny_riscv::device::context::Riscv<'a>;
     /// The compiled-in backend's [`teeny_core::device::Device`] type.
     pub type Device<'a> = teeny_riscv::device::RiscvDevice<'a>;
+    /// The compiled-in backend's [`teeny_core::device::buffer::Buffer`] type.
+    pub type Buffer<'a, N> = teeny_riscv::device::buffer::RiscvBuffer<'a, N>;
     /// The compiled-in backend's [`teeny_core::device::LaunchConfig`] type.
     pub type LaunchConfig = teeny_riscv::device::RiscvLaunchConfig;
     /// The compiled-in backend's [`teeny_core::compiler::Target`] type.
@@ -161,13 +174,18 @@ mod backend {
         Context::try_new()
     }
 
-    /// Always [`teeny_riscv::compiler::target::Capability::GenericRvv1_0`] -- unlike CUDA there
-    /// is no hardware to detect a capability from; `device` is accepted only for a signature
-    /// matching the `cuda` backend's `default_target`.
+    /// [`teeny_riscv::compiler::target::Capability::GenericRvv1_0`], unless overridden via the
+    /// `TEENYC_CAPABILITY` env var (e.g. `spacemit-k3`) as for the `cuda` backend -- unlike CUDA
+    /// there is no hardware to detect a capability from; `device` is accepted only for a
+    /// signature matching the `cuda` backend's `default_target`.
     pub fn default_target(_device: &Device<'_>) -> anyhow::Result<Target> {
-        Ok(Target::new(
-            teeny_riscv::compiler::target::Capability::GenericRvv1_0,
-        ))
+        let capability = match std::env::var("TEENYC_CAPABILITY") {
+            Ok(val) => val
+                .parse::<teeny_riscv::compiler::target::Capability>()
+                .map_err(|e| anyhow::anyhow!("TEENYC_CAPABILITY={val:?}: {e}"))?,
+            Err(_) => teeny_riscv::compiler::target::Capability::GenericRvv1_0,
+        };
+        Ok(Target::new(capability))
     }
 
     /// A fixed [`Target`] for compile-only checks (e.g. snapshot tests) that don't need -- and
@@ -203,6 +221,14 @@ mod backend {
         LaunchConfig::new([grid_x as u32, 1, 1])
     }
 
+    /// `grid` program ids, along all three axes.
+    pub fn launch_config_grid<K: Kernel>(
+        grid: [u32; 3],
+        _program: &Program<'_, K>,
+    ) -> LaunchConfig {
+        LaunchConfig::new(grid)
+    }
+
     /// `grid` program ids; `block` and `cluster` only mean something to the CUDA backend.
     pub fn launch_config_custom(
         grid: [u32; 3],
@@ -214,8 +240,9 @@ mod backend {
 }
 
 pub use backend::{
-    BACKEND_NAME, Context, Device, LaunchConfig, Program, Target, compile_kernel, default_target,
-    launch_config, launch_config_custom, launch_config_with_grid, load_program, reference_target,
+    BACKEND_NAME, Buffer, Context, Device, LaunchConfig, Program, Target, compile_kernel,
+    default_target, launch_config, launch_config_custom, launch_config_grid,
+    launch_config_with_grid, load_program, reference_target,
 };
 
 /// Opens the compiled-in backend's [`Context`], and opens its first listed device.
