@@ -71,4 +71,18 @@ impl KernelLibrary {
         unsafe { func() };
         Ok(())
     }
+
+    /// The address of the function `symbol`, for the caller to call with its real signature.
+    #[cfg_attr(not(target_arch = "riscv64"), allow(dead_code))]
+    pub(crate) fn symbol(&self, symbol: &str) -> Result<*const core::ffi::c_void> {
+        // Safety: the symbol is only read as an address here; calling it is the caller's
+        // responsibility.
+        let func: Symbol<*const core::ffi::c_void> = unsafe { self.lib.get(symbol.as_bytes()) }
+            .map_err(|source| Error::ResolveSymbol {
+                path: self.path.clone(),
+                symbol: symbol.to_string(),
+                source,
+            })?;
+        Ok(*func)
+    }
 }
