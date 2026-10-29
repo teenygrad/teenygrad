@@ -14,10 +14,11 @@ categories = ["hardware-support", "science", "external-ffi-bindings"]
 [lib]
 
 [features]
-# Runs kernels launched through `RiscvDevice` under `qemu-riscv64` user-mode emulation -- needs a
-# RISC-V cross C compiler and QEMU on the host. Without it, launching a kernel panics, since there
-# is no RISC-V hardware support. Also enables `teeny-test`'s QEMU helpers for this crate's tests.
-# Compiling for RISC-V needs neither and is always available.
+# On a non-RISC-V host, runs kernels launched through `RiscvDevice` under `qemu-riscv64` user-mode
+# emulation -- needs a RISC-V cross C compiler and QEMU on the host. Without it, launching a kernel
+# there panics. A riscv64 build always launches natively, in-process, and ignores this. Also
+# enables `teeny-test`'s QEMU helpers for this crate's tests. Compiling for RISC-V needs neither
+# and is always available.
 qemu = ["teeny-test/riscv", "teeny-test/qemu"]
 
 [dependencies]

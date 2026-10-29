@@ -14,8 +14,14 @@
  * limitations under the License.
  */
 
+/// Ahead-of-time kernel compilation.
+pub mod aot;
 /// RISC-V kernel compilation driver (`teenyc` / LLVM path).
 pub mod driver;
+/// Compiling a `teeny-core` graph's kernels.
+pub mod graph;
+/// AOT compile options (`--options` on the AOT compile CLI).
+pub mod options;
 /// `-C target-cpu` chip identifiers and the [`teeny_core::compiler::Target`] impl for RISC-V.
 pub mod target;
 

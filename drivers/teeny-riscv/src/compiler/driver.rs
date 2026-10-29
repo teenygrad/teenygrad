@@ -24,7 +24,8 @@ use crate::errors::Result;
 
 /// Compiles `kernel` for `target` via the LLVM backend's RISC-V path (`riscv64-generic`), using
 /// the `teenyc` binary resolved by [`teeny_compiler::compiler::find_teenyc`] and the default
-/// cache directory. Same signature as `teeny_cuda::compiler::compile_kernel` -- both back the
+/// cache directory. `teenyc` is only looked up when `kernel` isn't already cached, so a board
+/// running from a prebuilt cache needs no `teenyc` or `rustup`. Same signature as `teeny_cuda::compiler::compile_kernel` -- both back the
 /// same `LlvmCompiler` -- so `teeny-runtime` can re-export whichever backend's `compile_kernel`
 /// is active without callers caring which one it is.
 ///
@@ -43,9 +44,8 @@ pub fn compile_kernel(
     force: bool,
     debug: bool,
 ) -> Result<String> {
-    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let cache_dir = teeny_compiler::compiler::default_cache_dir();
-    let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir)?
+    let mut compiler = LlvmCompiler::with_default_teenyc(cache_dir)?
         .with_target_triple(TARGET_TRIPLE)
         .with_target_cpu(
             target

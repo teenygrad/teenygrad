@@ -25,7 +25,10 @@ use crate::errors::{Error, Result};
 
 /// The address range of one live buffer allocated by a [`crate::device::RiscvDevice`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(feature = "qemu"), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "qemu", not(target_arch = "riscv64"))),
+    allow(dead_code)
+)]
 pub(crate) struct Region {
     /// Address of the buffer's first byte.
     pub(crate) addr: usize,
@@ -56,7 +59,10 @@ impl BufferRegistry {
     }
 
     /// The region in `regions` containing `addr`, if any.
-    #[cfg_attr(not(any(feature = "qemu", test)), allow(dead_code))]
+    #[cfg_attr(
+        not(any(all(feature = "qemu", not(target_arch = "riscv64")), test)),
+        allow(dead_code)
+    )]
     pub(crate) fn find_in(regions: &[Region], addr: usize) -> Option<Region> {
         regions
             .iter()
