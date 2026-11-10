@@ -294,11 +294,13 @@ impl QemuEnv {
             return Ok(binary);
         }
 
-        // Build under per-process names and rename into place, so a concurrent launch never runs
-        // a partially written binary.
-        let pid = std::process::id();
-        let source_file = self.cache_dir.join(format!("{name}.{pid}.c"));
-        let tmp_binary = self.cache_dir.join(format!("{name}.{pid}.tmp"));
+        // Build under names unique to this build and rename into place, so a concurrent launch
+        // never runs a partially written binary. The process id alone isn't enough: tests in one
+        // binary run on threads of the same process, and two of them building the same
+        // trampoline would share the temporary files.
+        let unique = unique_id();
+        let source_file = self.cache_dir.join(format!("{name}.{unique}.c"));
+        let tmp_binary = self.cache_dir.join(format!("{name}.{unique}.tmp"));
         std::fs::write(&source_file, &source)
             .with_context(|| format!("failed to write {}", source_file.display()))?;
         let output = Command::new(&self.cc)
@@ -310,6 +312,7 @@ impl QemuEnv {
             .with_context(|| format!("failed to run {}", self.cc))?;
         let _ = std::fs::remove_file(&source_file);
         if !output.status.success() {
+            let _ = std::fs::remove_file(&tmp_binary);
             bail!(
                 "{} failed to compile the QEMU trampoline: {}",
                 self.cc,
@@ -321,18 +324,27 @@ impl QemuEnv {
         Ok(binary)
     }
 
-    /// `count` scratch file paths unique to one launch in this process.
+    /// `count` scratch file paths unique to one launch.
     fn buffer_files(&self, count: usize) -> Vec<PathBuf> {
-        static NEXT_LAUNCH: AtomicUsize = AtomicUsize::new(0);
-        let launch = NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed);
-        let pid = std::process::id();
+        let launch = unique_id();
         (0..count)
             .map(|i| {
                 self.cache_dir
-                    .join(format!("riscv_qemu_launch_{pid}_{launch}_buffer{i}.bin"))
+                    .join(format!("riscv_qemu_launch_{launch}_buffer{i}.bin"))
             })
             .collect()
     }
+}
+
+/// An id no other call, in this process or any other sharing the cache dir, returns:
+/// `<pid>_<n>`, with `n` counting calls in this process.
+fn unique_id() -> String {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    format!(
+        "{}_{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn resolve_tool(env_var: &str, default_name: &str) -> Result<String> {
