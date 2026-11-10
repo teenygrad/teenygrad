@@ -1,0 +1,11 @@
+#!/bin/sh
+# Mirrors the "Clippy" step of .github/workflows/ci.yml's build-test-clippy
+# job, so lint regressions (e.g. a new clippy lint tripping on old code) are
+# caught before a push triggers CI, not after.
+#
+# Enabled via `git config core.hooksPath .githooks` (see .githooks/README.md).
+
+set -e
+
+echo "pre-push: cargo clippy --workspace --exclude teeny-torch -- -D warnings"
+cargo clippy --workspace --exclude teeny-torch -- -D warnings

@@ -27,3 +27,6 @@ if [ "$RELOGIN_REQUIRED" = true ]; then
     echo "Please logout and login again, as new tools are installed"
     exit 0
 fi
+
+# use the repo's versioned hooks (see .githooks/README.md)
+git config core.hooksPath .githooks
