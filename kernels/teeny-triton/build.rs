@@ -79,7 +79,11 @@ fn process_module(
     result: &mut String,
     dtype_for_dsl: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let entries = fs::read_dir(current_path)?;
+    // Sorted, since `read_dir`'s order depends on the filesystem: the prelude's layout fixes the
+    // line numbers recorded in kernels' debug info (and so in their asm snapshots), which must not
+    // differ between machines.
+    let mut entries = fs::read_dir(current_path)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
 
     let module_name = current_path
         .file_stem()
@@ -97,7 +101,6 @@ fn process_module(
     )?;
 
     for entry in entries {
-        let entry = entry?;
         let path = entry.path();
 
         if path.is_dir() {
