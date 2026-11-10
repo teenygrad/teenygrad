@@ -42,6 +42,11 @@ fn main() {
         .blocklist_function("qgcvt")
         .blocklist_function("qecvt_r")
         .blocklist_function("qfcvt_r")
+        // The CUDA headers pull in <stdlib.h>, whose allocator declarations bindgen emits with
+        // `c_ulong` for `size_t`. Rust 1.99's `suspicious_runtime_symbol_definitions` lint flags
+        // `malloc`/`realloc` declared with anything but std's exact signature. Nothing here calls
+        // them, so leave the C allocator out of the bindings.
+        .blocklist_function("malloc|calloc|realloc|free|aligned_alloc|posix_memalign|valloc|pvalloc|memalign|reallocarray")
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
