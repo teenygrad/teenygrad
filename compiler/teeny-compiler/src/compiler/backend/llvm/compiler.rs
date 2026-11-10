@@ -19,6 +19,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
+use anyhow::Context;
 use derive_more::Display;
 use sha2::{Digest, Sha256};
 use teeny_core::compiler::{Compiler, CompilerOptions, Target};
@@ -81,12 +82,41 @@ const TEENYC_MLIR_LOG_TARGET: &str = "rustc_codegen_llvm::mlir";
 /// [`LlvmCompiler::with_target_triple`].
 const DEFAULT_TARGET_TRIPLE: &str = "nvptx64-nvidia-cuda";
 
+/// Where an [`LlvmCompiler`] gets its `teenyc` binary.
+#[derive(Debug, Clone)]
+enum Teenyc {
+    /// An explicit path, given to [`LlvmCompiler::new`].
+    Path(PathBuf),
+    /// Resolved via [`crate::compiler::find_teenyc`] the first time a kernel actually needs
+    /// compiling, so a deployed binary that only ever hits the kernel cache needs neither
+    /// `teenyc` nor `rustup` (see [`LlvmCompiler::with_default_teenyc`]).
+    Find,
+}
+
+impl Teenyc {
+    /// The `teenyc` binary to compile with, or an error saying why there is none -- only
+    /// called once a kernel has missed the cache.
+    fn resolve(&self) -> Result<PathBuf> {
+        let path = match self {
+            Self::Path(path) => path.clone(),
+            Self::Find => crate::compiler::find_teenyc()
+                .context("kernel not cached, and no teenyc to compile it with")?,
+        };
+        anyhow::ensure!(
+            path.exists(),
+            "kernel not cached and teenyc not found at {path:?}; \
+             set TEENYC_PATH to a valid teenyc binary"
+        );
+        Ok(path)
+    }
+}
+
 /// Compiles kernels by shelling out to the custom `teenyc` compiler (`-Zcodegen-backend=mlir`)
 /// at runtime. See [`crate::compiler::find_teenyc`] for how its path is resolved, and the crate
 /// docs for the `cargo-teeny` setup this requires.
 #[derive(Debug, Clone)]
 pub struct LlvmCompiler {
-    teenyc_path: PathBuf,
+    teenyc: Teenyc,
     cache_dir: PathBuf,
     target_triple: String,
     target_cpu: Option<String>,
@@ -113,9 +143,17 @@ impl LlvmCompiler {
     /// (or can't, e.g. the CUDA `compile_kernel` helper in `teeny-cuda`)
     /// call [`Self::with_log_level`] directly, turn on pipeline-stage logging via the environment.
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
-        let teenyc_path = teenyc_path.into();
-        let cache_dir = cache_dir.into();
+        Self::with_teenyc(Teenyc::Path(teenyc_path.into()), cache_dir.into())
+    }
 
+    /// Like [`Self::new`], but resolves `teenyc` via [`crate::compiler::find_teenyc`] only when
+    /// a kernel isn't already in `cache_dir` -- so cache hits work on a machine with no `teenyc`
+    /// or `rustup` at all, e.g. a board running a `cargo teeny package` bundle.
+    pub fn with_default_teenyc(cache_dir: impl Into<PathBuf>) -> Result<Self> {
+        Self::with_teenyc(Teenyc::Find, cache_dir.into())
+    }
+
+    fn with_teenyc(teenyc: Teenyc, cache_dir: PathBuf) -> Result<Self> {
         if !cache_dir.exists() {
             create_dir_all(&cache_dir)?;
         }
@@ -135,7 +173,7 @@ impl LlvmCompiler {
         });
 
         Ok(Self {
-            teenyc_path,
+            teenyc,
             cache_dir,
             target_triple: DEFAULT_TARGET_TRIPLE.to_string(),
             target_cpu: None,
@@ -232,12 +270,7 @@ impl Compiler for LlvmCompiler {
         };
 
         if requires_compilation() {
-            anyhow::ensure!(
-                self.teenyc_path.exists(),
-                "kernel not cached and teenyc not found at {:?}; \
-                 set TEENYC_PATH to a valid teenyc binary",
-                self.teenyc_path
-            );
+            let teenyc_path = self.teenyc.resolve()?;
 
             // Two callers compiling the *same* kernel hash concurrently (e.g. under `cargo
             // test`'s default parallelism) must not both write `kernel_file`/invoke `teenyc`
@@ -281,7 +314,7 @@ impl Compiler for LlvmCompiler {
                     emit.push(format!("asm={}", tmp_asm_file.display()));
                 }
 
-                let mut cmd = Command::new(&self.teenyc_path);
+                let mut cmd = Command::new(&teenyc_path);
                 cmd.arg(&kernel_file)
                     .arg("-Copt-level=3")
                     .arg("-Zcodegen-backend=mlir")

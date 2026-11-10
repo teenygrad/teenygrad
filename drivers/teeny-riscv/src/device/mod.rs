@@ -61,12 +61,16 @@ impl Default for RiscvLaunchConfig {
 impl LaunchConfig for RiscvLaunchConfig {}
 
 /// A RISC-V "device": there is no discrete accelerator to open, so this just represents the
-/// local machine or the `qemu-riscv64` user-mode emulation environment kernels run under.
+/// local `riscv64` machine or the `qemu-riscv64` user-mode emulation environment kernels run
+/// under.
 pub struct RiscvDevice<'a> {
     /// This device's (synthetic) static properties.
     pub info: RiscvDeviceInfo,
     /// The buffers this device has allocated, so `launch` can resolve pointer arguments.
     buffers: Arc<BufferRegistry>,
+    /// The kernel libraries native launches have loaded.
+    #[cfg(target_arch = "riscv64")]
+    libraries: crate::native::Libraries,
     _unused: PhantomData<&'a ()>,
 }
 
@@ -76,6 +80,8 @@ impl<'a> RiscvDevice<'a> {
         Self {
             info,
             buffers: Arc::default(),
+            #[cfg(target_arch = "riscv64")]
+            libraries: Default::default(),
             _unused: PhantomData,
         }
     }
@@ -96,11 +102,32 @@ impl<'a> Device<'a> for RiscvDevice<'a> {
         Ok(RiscvBuffer::with_registry(count, Arc::clone(&self.buffers)))
     }
 
+    /// Runs `program` once for every program id in `cfg.grid`, natively in this process --
+    /// spread over every core, or `TEENY_RISCV_THREADS` threads.
+    ///
+    /// Every pointer in `args` must address memory that stays valid for the whole launch, e.g.
+    /// a buffer allocated by this device.
+    #[cfg(target_arch = "riscv64")]
+    fn launch<K: Kernel>(
+        &self,
+        program: &Self::Program<K>,
+        cfg: &Self::LaunchConfig,
+        args: K::Args<'a>,
+    ) -> Result<()> {
+        crate::native::launch(
+            &self.libraries,
+            program.path(),
+            program.entry_point(),
+            cfg.grid,
+            &args,
+        )
+    }
+
     /// Runs `program` once for every program id in `cfg.grid`, under `qemu-riscv64`.
     ///
     /// Every pointer in `args` must point into a buffer allocated by this device; whatever the
     /// kernel writes to those buffers is copied back before this returns.
-    #[cfg(feature = "qemu")]
+    #[cfg(all(feature = "qemu", not(target_arch = "riscv64")))]
     fn launch<K: Kernel>(
         &self,
         program: &Self::Program<K>,
@@ -116,9 +143,9 @@ impl<'a> Device<'a> for RiscvDevice<'a> {
         )
     }
 
-    /// Always panics: there is no RISC-V hardware support, and without the `qemu` feature there
-    /// is nothing else to run the kernel on.
-    #[cfg(not(feature = "qemu"))]
+    /// Always panics: this host isn't RISC-V, and without the `qemu` feature there is nothing
+    /// else to run the kernel on.
+    #[cfg(not(any(feature = "qemu", target_arch = "riscv64")))]
     fn launch<K: Kernel>(
         &self,
         _program: &Self::Program<K>,
@@ -126,8 +153,8 @@ impl<'a> Device<'a> for RiscvDevice<'a> {
         _args: K::Args<'a>,
     ) -> Result<()> {
         panic!(
-            "no RISC-V hardware to launch kernels on; enable teeny-riscv's `qemu` feature to run \
-             them under qemu-riscv64"
+            "no RISC-V hardware to launch kernels on; run on a riscv64 host, or enable \
+             teeny-riscv's `qemu` feature to run them under qemu-riscv64"
         )
     }
 }
@@ -140,10 +167,10 @@ mod tests {
     use teeny_core::device::buffer::Buffer;
     use teeny_core::device::context::Context;
 
-    #[cfg(not(feature = "qemu"))]
+    #[cfg(not(any(feature = "qemu", target_arch = "riscv64")))]
     struct TestKernel;
 
-    #[cfg(not(feature = "qemu"))]
+    #[cfg(not(any(feature = "qemu", target_arch = "riscv64")))]
     impl Kernel for TestKernel {
         type Args<'a> = ();
 
@@ -201,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "qemu"))]
+    #[cfg(not(any(feature = "qemu", target_arch = "riscv64")))]
     #[should_panic(expected = "no RISC-V hardware")]
     fn launch_without_qemu_panics() {
         let program =

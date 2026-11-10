@@ -44,7 +44,8 @@ use crate::model::CudaModel;
 const MAX_CODEGEN_CAPABILITY: Capability = Capability::Sm120;
 
 /// Compiles `kernel` for `target` via the LLVM backend, using the `teenyc` binary resolved by
-/// [`teeny_compiler::compiler::find_teenyc`] and the default cache directory.
+/// [`teeny_compiler::compiler::find_teenyc`] and the default cache directory. `teenyc` is only
+/// looked up when `kernel` isn't already cached, so cache hits need no `teenyc` or `rustup`.
 ///
 /// - `force`: recompile even if a cached artifact exists.
 /// - `debug`: when `true`, enable `teenyc` pipeline-stage logging (`ttir` / `ttgpuir` / `llir` /
@@ -75,7 +76,8 @@ pub fn compile_kernel(
 }
 
 /// Compiles a lowered `graph` to a [`CudaModel`] via [`CudaGraphCompiler`], using the `teenyc`
-/// binary resolved by [`teeny_compiler::compiler::find_teenyc`] and the default cache directory.
+/// binary resolved by [`teeny_compiler::compiler::find_teenyc`] (only on a cache miss) and the
+/// default cache directory.
 ///
 /// This is the graph-level counterpart to [`compile_kernel`]: it handles `ExecutableOp` →
 /// `Kernel` adaptation internally so callers do not need an `ExecKernel`-style wrapper.
@@ -98,10 +100,9 @@ pub fn compile_cuda_graph<'a, L: Lowering<'a>>(
 }
 
 fn make_llvm_compiler(target: &Target, debug: bool) -> Result<LlvmCompiler> {
-    let teenyc_path = teeny_compiler::compiler::find_teenyc()?;
     let cache_dir = teeny_compiler::compiler::default_cache_dir();
     let effective_cpu = clamp_capability(target.capability).to_string();
-    let mut compiler = LlvmCompiler::new(teenyc_path, cache_dir)?.with_target_cpu(effective_cpu);
+    let mut compiler = LlvmCompiler::with_default_teenyc(cache_dir)?.with_target_cpu(effective_cpu);
     if debug {
         compiler = compiler.with_log_level(LogLevel::Debug);
     }
