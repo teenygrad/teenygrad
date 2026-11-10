@@ -6,8 +6,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 homepage.workspace = true
-readme.workspace = true
-publish = false
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_test/"
+keywords = ["testing", "kernels", "cuda", "riscv", "machine-learning"]
+categories = ["development-tools::testing", "science"]
 
 [lib]
 

@@ -36,7 +36,8 @@ teeny-compiler = { path = "compiler/teeny-compiler", version = "0.2.1" }
 teeny-cuda = { path = "drivers/teeny-cuda", version = "0.2.1" }
 teeny-riscv = { path = "drivers/teeny-riscv", version = "0.2.1" }
 teeny-vision = { path = "models/teeny-vision", version = "0.2.1" }
-# No version requirement: never published (publish = false), workspace-internal test support only.
+# No version requirement, though teeny-test is published: every workspace crate takes it only as a
+# dev-dependency, which `cargo publish` then strips, so it never has to be released before them.
 teeny-test = { path = "testing/teeny-test" }
 teeny-runtime = { path = "runtime/teeny-runtime", version = "0.2.1" }
 

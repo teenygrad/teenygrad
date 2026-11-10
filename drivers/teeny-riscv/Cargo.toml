@@ -16,9 +16,12 @@ categories = ["hardware-support", "science", "external-ffi-bindings"]
 [features]
 # Runs kernels launched through `RiscvDevice` under `qemu-riscv64` user-mode emulation -- needs a
 # RISC-V cross C compiler and QEMU on the host. Without it, launching a kernel panics, since there
-# is no RISC-V hardware support. Also enables `teeny-test`'s QEMU helpers for this crate's tests.
-# Compiling for RISC-V needs neither and is always available.
-qemu = ["teeny-test/riscv", "teeny-test/qemu"]
+# is no RISC-V hardware support. Compiling for RISC-V needs neither and is always available.
+#
+# This crate's tests always get `teeny-test`'s QEMU helpers (enabled on the dev-dependency below),
+# which only need QEMU when called. They aren't enabled from here: release-plz treats a
+# dev-dependency a feature names as one to release first, and teeny-test depends on teeny-riscv.
+qemu = []
 
 [dependencies]
 teeny-core.workspace = true
@@ -31,5 +34,5 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
-teeny-test.workspace = true
+teeny-test = { workspace = true, features = ["riscv", "qemu"] }
 dotenv.workspace = true

@@ -30,13 +30,3 @@ publish = false
 name = "teeny-fxgraph"
 release = false
 publish = false
-
-# teeny-test is the workspace's internal test harness (`publish = false`). It must also be left out
-# of release-plz's release flow: release-plz orders every release-enabled package, and treats a
-# dev-dependency that a feature names (teeny-riscv's `qemu = ["teeny-test/…"]`) as one to release
-# first. teeny-test optionally depends on teeny-riscv, so including it is a cycle
-# ("Circular dependency detected: teeny-riscv -> teeny-test") and the whole release aborts.
-[[package]]
-name = "teeny-test"
-release = false
-publish = false
