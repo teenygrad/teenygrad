@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,10 +28,10 @@
 #![allow(non_snake_case)]
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::{Device, program::Kernel};
 use teeny_core::dtype::Num;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -42,9 +42,9 @@ use teeny_triton::triton::{
 /// Adds two vectors: `out[i] = a[i] + b[i]`.
 #[kernel]
 pub fn vector_add<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -115,12 +115,12 @@ fn main() -> Result<()> {
 
     // Open the first GPU and ask what it is, so the kernel is compiled for the
     // card that will run it rather than for a guess.
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
 
     // Build the kernel for this block size, then compile it to PTX.
     let kernel = VectorAdd::<f32>::new(BLOCK_SIZE);
-    let ptx_path = compile_kernel(&kernel, &Target::new(env.capability), false)?;
+    let ptx_path = compile_kernel(&kernel, &Target::new(env.capability), false, false)?;
     println!("compiled {} → {ptx_path}", kernel.name());
 
     // Device memory: two inputs to fill, one output to read back.
@@ -131,13 +131,13 @@ fn main() -> Result<()> {
     b_buf.to_device(&b_host)?;
 
     let ptx = std::fs::read(&ptx_path)?;
-    let program = teeny_cuda::testing::load_program_from_ptx::<VectorAdd<f32>>(&ptx)?;
+    let program = teeny_test::cuda::load_program_from_ptx::<VectorAdd<f32>>(&ptx)?;
 
     // One program per BLOCK_SIZE-wide slice, rounding up so the ragged tail
     // still gets one. The threads-per-program is not ours to pick: teenyc
     // records it in the PTX, and the driver rejects any other block dimension.
     let grid = N.div_ceil(BLOCK_SIZE as usize);
-    let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &program);
+    let cfg = teeny_test::cuda::launch_config_with_grid(grid, &program);
     println!(
         "launching {} programs of {} threads",
         cfg.grid[0], cfg.block[0]

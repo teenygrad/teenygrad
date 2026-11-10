@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,8 +28,8 @@ use teeny_triton::triton::{
 /// Forward: y = tanh(x) = 2*sigmoid(2x) - 1 = 2/(1+exp(-2x)) - 1
 #[kernel(backward = TanhBackward)]
 pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -70,9 +70,9 @@ pub fn tanh_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Backward: dx = dy * (1 - y²)  — sech²(x) expressed via saved output
 #[kernel]
 pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -121,8 +121,8 @@ pub fn tanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// Forward: y = x - tanh(x)
 #[kernel(backward = TanhshrinkBackward)]
 pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -164,10 +164,10 @@ pub fn tanhshrink_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 ///   Since y = x - tanh(x), we have tanh(x) = x - y, so tanh²(x) = (x-y)².
 #[kernel]
 pub fn tanhshrink_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    dy_ptr: T::Pointer<D>,
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -229,4 +229,68 @@ pub struct TanhOp<D: Float> {
 pub struct TanhshrinkOp<D: Float> {
     pub forward: TanhshrinkForward<D>,
     pub backward: TanhshrinkBackward<D>,
+}
+
+// ── RuntimeOp for Tanh forward ───────────────────────────────────────────────
+
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for TanhForward<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(n as i32);
+    }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
+
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool {
+        true
+    }
+
+    // tanh_backward(dy_ptr, y_ptr, dx_ptr, n_elements) — y-style (saved output)
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        _inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        _grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        _grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(grad_output); // dy_ptr
+        visitor.visit_ptr(output); // y_ptr (saved tanh output)
+        visitor.visit_ptr(grad_inputs[0]); // dx_ptr
+        visitor.visit_i32(n as i32);
+    }
+
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
 }

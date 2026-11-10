@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,11 @@
 //! The `cuda` feature (on by default) enables the `teeny-cuda` backend, which requires the CUDA
 //! toolkit to build — see its crate README. Running/compiling kernels additionally needs the
 //! custom `teenyc` compiler at runtime; see `teeny-compiler`'s README.
+//!
+//! The `riscv` feature enables the `teeny-riscv` backend for integration tests (real per-kernel
+//! RISC-V execution isn't possible yet — see that crate's README); `qemu` additionally enables
+//! tests that execute a compiled kernel under `qemu-riscv64`, requiring a RISC-V cross toolchain
+//! and QEMU's user-mode emulator on the host (see `teeny-test`'s `riscv` module).
 
 // `#[kernel]`-annotated functions naturally take many parameters (pointers, strides, dims,
 // block-size const-generics) matching the CUDA/Triton kernel calling convention -- inherent to

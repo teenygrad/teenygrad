@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,10 +28,17 @@
 
 /// Error types.
 pub mod error;
+/// Host-side kernel I/O layout (`KernelIo` / `PtrRole`), derived from marked pointer params.
+pub mod kernel_io;
 /// The `Triton` DSL trait and its supporting types.
 pub mod triton;
 /// The generated DSL source text, embedded as [`triton_lang::TRITON`].
 pub mod triton_lang;
+
+pub use kernel_io::{
+    BlockSized, KernelIo, KernelIoLayout, NElementsTiled, PointwiseFuseProbe,
+    PointwiseFuseProbeExt, PtrRole,
+};
 
 /// A compiled kernel's identity: its name, type signature, and generated source block.
 #[derive(Debug)]

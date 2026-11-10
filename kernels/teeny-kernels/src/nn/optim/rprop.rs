@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,10 +39,10 @@ use teeny_triton::triton::{
 /// Grid: `[ceil(n_elements / BLOCK_SIZE), 1, 1]`.
 #[kernel]
 pub fn rprop_step<T: Triton, const BLOCK_SIZE: i32>(
-    params_ptr: T::Pointer<f32>,
-    grad_ptr: T::Pointer<f32>,
-    prev_grad_ptr: T::Pointer<f32>,
-    step_size_ptr: T::Pointer<f32>,
+    params_ptr: InOutPtr<T::Pointer<f32>>,
+    grad_ptr: InPtr<T::Pointer<f32>>,
+    prev_grad_ptr: InOutPtr<T::Pointer<f32>>,
+    step_size_ptr: InOutPtr<T::Pointer<f32>>,
     n_elements: i32,
     eta_plus: f32,
     eta_minus: f32,

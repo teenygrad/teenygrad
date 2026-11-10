@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,10 +29,10 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::dtype::Float;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -44,8 +44,8 @@ use teeny_triton::triton::{
 /// addresses, which is the pattern the hardware is built for.
 #[kernel]
 pub fn sum_rows<T: Triton, D: Float, const BLOCK: i32>(
-    in_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    in_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     _n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -78,8 +78,8 @@ pub fn sum_rows<T: Triton, D: Float, const BLOCK: i32>(
 /// different cache line.
 #[kernel]
 pub fn sum_cols<T: Triton, D: Float, const BLOCK: i32, const COLS: i32>(
-    in_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    in_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     _n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -125,7 +125,7 @@ const WARMUP: usize = 5;
 const ITERS: usize = 30;
 
 fn main() -> Result<()> {
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
     let target = Target::new(env.capability);
 
@@ -155,9 +155,9 @@ fn main() -> Result<()> {
     // bounds that obscure what is really a six-line loop.
     macro_rules! timed {
         ($kernel:expr, $ty:ty, $label:literal) => {{
-            let ptx = std::fs::read(compile_kernel(&$kernel, &target, false)?)?;
-            let prog = teeny_cuda::testing::load_program_from_ptx::<$ty>(&ptx)?;
-            let cfg = teeny_cuda::testing::launch_config_with_grid(GRID, &prog);
+            let ptx = std::fs::read(compile_kernel(&$kernel, &target, false, false)?)?;
+            let prog = teeny_test::cuda::load_program_from_ptx::<$ty>(&ptx)?;
+            let cfg = teeny_test::cuda::launch_config_with_grid(GRID, &prog);
 
             for _ in 0..WARMUP {
                 device.launch(&prog, &cfg, args)?;

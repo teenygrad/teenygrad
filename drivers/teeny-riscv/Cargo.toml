@@ -1,0 +1,35 @@
+[package]
+name = "teeny-riscv"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_riscv/"
+keywords = ["riscv", "cpu", "machine-learning", "kernels"]
+categories = ["hardware-support", "science", "external-ffi-bindings"]
+
+[lib]
+
+[features]
+# Runs kernels launched through `RiscvDevice` under `qemu-riscv64` user-mode emulation -- needs a
+# RISC-V cross C compiler and QEMU on the host. Without it, launching a kernel panics, since there
+# is no RISC-V hardware support. Also enables `teeny-test`'s QEMU helpers for this crate's tests.
+# Compiling for RISC-V needs neither and is always available.
+qemu = ["teeny-test/riscv", "teeny-test/qemu"]
+
+[dependencies]
+teeny-core.workspace = true
+teeny-compiler.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+libloading.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+teeny-kernels = { path = "../../kernels/teeny-kernels" }
+teeny-test.workspace = true
+dotenv.workspace = true

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ use std::error::Error;
 
 use dotenv::dotenv;
 use insta::assert_snapshot;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_cuda::compiler::target::Capability;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[test]
@@ -36,7 +36,7 @@ fn test_compile() -> Result<(), Box<dyn Error>> {
 
     let tensor_add = &teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(1024);
     let target = Target::new(Capability::Sm89);
-    let output_file = compile_kernel(tensor_add, &target, true)?;
+    let output_file = compile_kernel(tensor_add, &target, true, false)?;
 
     let generated_ptx = std::fs::read_to_string(output_file)?;
     assert_snapshot!("elemwise_add_forward_sm90", generated_ptx.trim());

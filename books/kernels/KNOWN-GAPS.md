@@ -106,9 +106,10 @@ metadata (derived from `.reqntid`, rounded up to whole warps), and `num_stages`
 does not appear at all.
 
 **Effect on the book.** The brief's "Warps, stages, and occupancy" chapter
-becomes "Choosing a block size", scoped to `RuntimeOp::block`/`grid` and
-`CudaLaunchConfig`. The brief's "Shared memory and software pipelining" chapter
-is dropped entirely — neither is exposed.
+becomes "Choosing a block size", scoped to `RuntimeOp::grid`, kernel tile
+consts (`BLOCK_SIZE` and friends), and `CudaLaunchConfig` (whose thread count
+comes from PTX metadata). The brief's "Shared memory and software pipelining"
+chapter is dropped entirely — neither is exposed.
 
 ---
 

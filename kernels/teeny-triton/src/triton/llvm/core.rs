@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -625,6 +625,19 @@ pub mod core {
             fn bitor(self, rhs: bool) -> Self::Output {
                 false
             }
+        }
+
+        #[lang = "deref"]
+        pub trait Deref {
+            // No `?Sized` here: `Sized` lives at the DSL crate root and is not
+            // in scope inside `core::ops` (see E0405 on embedded kernel compile).
+            type Target;
+            fn deref(&self) -> &Self::Target;
+        }
+
+        #[lang = "deref_mut"]
+        pub trait DerefMut: Deref {
+            fn deref_mut(&mut self) -> &mut Self::Target;
         }
     }
 }

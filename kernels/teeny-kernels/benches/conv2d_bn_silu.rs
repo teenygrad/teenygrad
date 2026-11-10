@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,13 +35,14 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use dotenv::dotenv;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::{Device, buffer::Buffer};
-use teeny_cuda::{device::CudaDevice, device::CudaLaunchConfig, testing};
+use teeny_cuda::compiler::{compile_kernel, target::Target};
+use teeny_cuda::{device::CudaDevice, device::CudaLaunchConfig};
 use teeny_kernels::nn::fused::{
     conv2d_bn_silu::Conv2dBnSiluForward, conv2d_bn_silu_gemm::Conv2dBnSiluGemmForward,
     conv2d_bn_silu_tiled::Conv2dBnSiluTiledForward,
 };
+use teeny_test::cuda as testing;
 
 const BLOCK_OW_SCALAR: i32 = 16;
 const BLOCK_OW_TILED: i32 = 16;
@@ -124,7 +125,7 @@ fn bench_scalar(
         1,
         BLOCK_OW_SCALAR,
     );
-    let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
     let program = testing::load_program_from_ptx::<Conv2dBnSiluForward>(&ptx)?;
 
     let num_ow_tiles = ow.div_ceil(BLOCK_OW_SCALAR as usize);
@@ -199,7 +200,7 @@ fn bench_tiled(
         BLOCK_OW_TILED,
         BLOCK_N_TILED,
     );
-    let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
     let program = testing::load_program_from_ptx::<Conv2dBnSiluTiledForward>(&ptx)?;
 
     let num_ow_tiles = ow.div_ceil(BLOCK_OW_TILED as usize);
@@ -271,7 +272,7 @@ fn bench_gemm(
 
     let kernel =
         Conv2dBnSiluGemmForward::new(BLOCK_M_GEMM, BLOCK_N_GEMM, BLOCK_K_GEMM, GROUP_M_GEMM);
-    let ptx = std::fs::read(compile_kernel(&kernel, target, false)?)?;
+    let ptx = std::fs::read(compile_kernel(&kernel, target, false, false)?)?;
     let program = testing::load_program_from_ptx::<Conv2dBnSiluGemmForward>(&ptx)?;
 
     let num_pm = m.div_ceil(BLOCK_M_GEMM as usize);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +14,5 @@
  * limitations under the License.
  */
 
-use thiserror::Error;
-
 /// `teeny-compiler`'s result alias.
 pub type Result<T> = anyhow::Result<T>;
-
-/// Errors produced by `teeny-compiler`.
-#[derive(Error, Debug)]
-pub enum Error {
-    /// A target capability string didn't match any known GPU architecture.
-    #[error("Unknown capability: {0}")]
-    UnknownCapability(String),
-}

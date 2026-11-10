@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,16 +23,18 @@
 use std::mem::size_of;
 
 use dotenv::dotenv;
-use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_core::{
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,
     nn::{Layer, activation::sigmoid::Silu},
 };
+use teeny_cuda::compiler::target::Target;
 use teeny_cuda::{
-    compiler::graph::CudaGraphCompiler, device::mem, errors::Result, model::TensorRef, testing,
+    compiler::graph::CudaGraphCompiler, device::mem, errors::Result, model::TensorRef,
 };
 use teeny_kernels::graph::TritonLowering;
+use teeny_test::cuda as testing;
 
 const BATCH: usize = 4;
 const FEATURES: usize = 128;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,8 +44,8 @@ pub fn circular_pad1d_forward<
     const PAD_RIGHT: i32,
     const BLOCK_OL: i32,
 >(
-    input_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    input_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     L: i32,
@@ -141,8 +141,8 @@ pub fn circular_pad1d_backward<
     const PAD_RIGHT: i32,
     const BLOCK_OL: i32,
 >(
-    dy_ptr: T::Pointer<D>,
-    dx_ptr: T::Pointer<D>,
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
     _B: i32,
     C: i32,
     L: i32,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,8 @@
 pub mod activation;
 pub mod attention;
 pub mod conv;
-pub mod fused;
+// `fused/` (conv2d_bn_silu*) is kept on disk as reference but not linked —
+// Anduin should compose fusion natively rather than dispatching a special-cased op.
 pub mod loss;
 pub mod mlp;
 pub mod norm;

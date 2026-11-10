@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,84 +18,108 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::program::Kernel;
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "hardware")]
 use teeny_core::device::{Device, buffer::Buffer};
-#[cfg(feature = "cuda")]
-use teeny_cuda::{errors::Result, testing};
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
-// ── MLIR snapshots ────────────────────────────────────────────────────────────
+// ── ASM snapshots ────────────────────────────────────────────────────────────
 
 #[test]
-fn test_adagrad_step_mlir() -> anyhow::Result<()> {
+fn test_adagrad_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adagrad::AdagradStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("adagrad_step_source", kernel.source());
-    assert_debug_snapshot!("adagrad_step_mlir", mlir.trim());
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
+    assert_debug_snapshot!(
+        format!("adagrad_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("adagrad_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
     Ok(())
 }
 
 #[test]
-fn test_adadelta_step_mlir() -> anyhow::Result<()> {
+fn test_adadelta_step_asm() -> anyhow::Result<()> {
     dotenv().ok();
     let kernel = teeny_kernels::nn::optim::adagrad::AdadeltaStep::new(BLOCK_SIZE);
-    let target = Target::new(teeny_cuda::compiler::target::Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
-    assert_debug_snapshot!("adadelta_step_source", kernel.source());
-    assert_debug_snapshot!("adadelta_step_mlir", mlir.trim());
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
+    assert_debug_snapshot!(
+        format!("adadelta_step_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("adadelta_step_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
     Ok(())
 }
 
 // ── CUDA: Adagrad ─────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_adagrad_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_adagrad_step() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
 
-    let params_in = load_fixture("optim_adagrad/adagrad_params_in.bin");
-    let grad = load_fixture("optim_adagrad/adagrad_grad.bin");
-    let sum_in = load_fixture("optim_adagrad/adagrad_sum_in.bin");
-    let params_ex = load_fixture("optim_adagrad/adagrad_params_out.bin");
-    let sum_ex = load_fixture("optim_adagrad/adagrad_sum_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adagrad_params_in.bin",
+    );
+    let grad = load_fixture(env!("CARGO_MANIFEST_DIR"), "optim_adagrad/adagrad_grad.bin");
+    let sum_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adagrad_sum_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adagrad_params_out.bin",
+    );
+    let sum_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adagrad_sum_out.bin",
+    );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut sum_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut sum_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     sum_buf.to_device(&sum_in)?;
 
     let kernel = teeny_kernels::nn::optim::adagrad::AdagradStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx_path = teeny_runtime::compile_kernel(
+        &kernel,
+        &teeny_runtime::default_target(&device)?,
+        true,
+        false,
+    )?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::adagrad::AdagradStep>(&ptx)?;
-    env.device.launch(
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::adagrad::AdagradStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            sum_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            sum_buf.as_device_ptr(),
             N as i32,
             0.01_f32,  // lr
             1e-10_f32, // eps
@@ -127,40 +151,66 @@ fn test_adagrad_step_cuda() -> Result<()> {
 // ── CUDA: Adadelta ────────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_adadelta_step_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_adadelta_step() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
+    let device = teeny_runtime::open()?;
 
-    let params_in = load_fixture("optim_adagrad/adadelta_params_in.bin");
-    let grad = load_fixture("optim_adagrad/adadelta_grad.bin");
-    let sq_avg_in = load_fixture("optim_adagrad/adadelta_sq_avg_in.bin");
-    let acc_delta_in = load_fixture("optim_adagrad/adadelta_acc_delta_in.bin");
-    let params_ex = load_fixture("optim_adagrad/adadelta_params_out.bin");
-    let sq_avg_ex = load_fixture("optim_adagrad/adadelta_sq_avg_out.bin");
-    let acc_delta_ex = load_fixture("optim_adagrad/adadelta_acc_delta_out.bin");
+    let params_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_params_in.bin",
+    );
+    let grad = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_grad.bin",
+    );
+    let sq_avg_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_sq_avg_in.bin",
+    );
+    let acc_delta_in = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_acc_delta_in.bin",
+    );
+    let params_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_params_out.bin",
+    );
+    let sq_avg_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_sq_avg_out.bin",
+    );
+    let acc_delta_ex = load_fixture(
+        env!("CARGO_MANIFEST_DIR"),
+        "optim_adagrad/adadelta_acc_delta_out.bin",
+    );
 
-    let mut params_buf = env.device.buffer::<f32>(N)?;
-    let mut grad_buf = env.device.buffer::<f32>(N)?;
-    let mut sq_avg_buf = env.device.buffer::<f32>(N)?;
-    let mut acc_delta_buf = env.device.buffer::<f32>(N)?;
+    let mut params_buf = device.buffer::<f32>(N)?;
+    let mut grad_buf = device.buffer::<f32>(N)?;
+    let mut sq_avg_buf = device.buffer::<f32>(N)?;
+    let mut acc_delta_buf = device.buffer::<f32>(N)?;
     params_buf.to_device(&params_in)?;
     grad_buf.to_device(&grad)?;
     sq_avg_buf.to_device(&sq_avg_in)?;
     acc_delta_buf.to_device(&acc_delta_in)?;
 
     let kernel = teeny_kernels::nn::optim::adagrad::AdadeltaStep::new(BLOCK_SIZE);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true)?)?;
+    let ptx_path = teeny_runtime::compile_kernel(
+        &kernel,
+        &teeny_runtime::default_target(&device)?,
+        true,
+        false,
+    )?;
     let program =
-        testing::load_program_from_ptx::<teeny_kernels::nn::optim::adagrad::AdadeltaStep>(&ptx)?;
-    env.device.launch(
+        teeny_runtime::load_program::<teeny_kernels::nn::optim::adagrad::AdadeltaStep>(&ptx_path)?;
+    device.launch(
         &program,
-        &testing::launch_config_from_program(N, &program),
+        &teeny_runtime::launch_config(N, &program),
         (
-            params_buf.as_device_ptr() as *mut f32,
-            grad_buf.as_device_ptr() as *mut f32,
-            sq_avg_buf.as_device_ptr() as *mut f32,
-            acc_delta_buf.as_device_ptr() as *mut f32,
+            params_buf.as_device_ptr(),
+            grad_buf.as_device_ptr(),
+            sq_avg_buf.as_device_ptr(),
+            acc_delta_buf.as_device_ptr(),
             N as i32,
             1.0_f32,  // lr
             0.9_f32,  // rho

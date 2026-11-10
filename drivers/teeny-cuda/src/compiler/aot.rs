@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
  */
 
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::graph::Graph;
 use teeny_core::model::{Lowering, LoweringMode};
 
 use crate::compiler::graph::CudaGraphCompiler;
 use crate::compiler::options::Options;
+use crate::compiler::target::Target;
 use crate::errors::Result;
 use crate::model::CudaModel;
 

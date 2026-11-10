@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,27 @@ use teeny_core::device::program::{Kernel, Program};
 use crate::cuda;
 use crate::errors::{Error, Result};
 
+/// Register/spill/constant-memory statistics parsed from `ptxas -v`'s stderr by teenyc's
+/// `CudaBackend::makeBIN`, emitted as extra `// meta:key=value` PTX comments alongside the
+/// usual metadata block. Only present when the PTX was compiled with `$TEENYC_GENERATE_BIN`
+/// set (a real `ptxas` subprocess compile targeting a specific SM architecture, so it isn't
+/// run by default) — absence means "not measured", never a fabricated zero.
+// ANCHOR: ptxas_stats_struct
+#[derive(Debug, Default, Clone)]
+pub struct PtxasStats {
+    /// Registers used per thread.
+    pub num_regs: u32,
+    /// Bytes of register spill stores to local memory.
+    pub spill_stores: u32,
+    /// Bytes of register spill loads from local memory.
+    pub spill_loads: u32,
+    /// Bytes of stack frame per thread.
+    pub stack_frame: u32,
+    /// `(bank, bytes)` pairs, e.g. `(0, 384)` for `384 bytes cmem[0]`.
+    pub cmem_banks: Vec<(u32, u32)>,
+}
+// ANCHOR_END: ptxas_stats_struct
+
 /// Kernel resource metadata parsed from `// meta:key=value` PTX comments
 /// appended by the Triton CUDA backend during compilation.
 #[derive(Debug, Default, Clone)]
@@ -35,6 +56,9 @@ pub(crate) struct KernelMetadata {
     pub(crate) global_scratch_align: u64,
     pub(crate) profile_scratch_size: u32,
     pub(crate) profile_scratch_align: u32,
+    /// `None` unless the PTX was compiled with `$TEENYC_GENERATE_BIN` set and `ptxas`
+    /// produced usable `-v` output; see [`PtxasStats`].
+    pub(crate) ptxas_stats: Option<PtxasStats>,
 }
 
 impl KernelMetadata {
@@ -47,6 +71,11 @@ impl KernelMetadata {
         };
         let mut reqntid: Option<u32> = None;
         let mut visible_entry_name = String::new();
+        // Built up incrementally as num_regs/spill_stores/.../cmem lines are seen, then
+        // moved into `m.ptxas_stats` at the end. Its presence is exactly the "was a bin
+        // requested and did ptxas run" signal -- CudaBackend only ever emits these lines
+        // together, guarded by `has_ptxas_stats` on the C++ side.
+        let mut ptxas_stats: Option<PtxasStats> = None;
 
         for line in ptx.lines() {
             let trimmed = line.trim();
@@ -65,6 +94,31 @@ impl KernelMetadata {
                         "profile_scratch_size" => m.profile_scratch_size = val.parse().unwrap_or(0),
                         "profile_scratch_align" => {
                             m.profile_scratch_align = val.parse().unwrap_or(1)
+                        }
+                        "num_regs" => {
+                            ptxas_stats.get_or_insert_default().num_regs = val.parse().unwrap_or(0)
+                        }
+                        "spill_stores" => {
+                            ptxas_stats.get_or_insert_default().spill_stores =
+                                val.parse().unwrap_or(0)
+                        }
+                        "spill_loads" => {
+                            ptxas_stats.get_or_insert_default().spill_loads =
+                                val.parse().unwrap_or(0)
+                        }
+                        "stack_frame" => {
+                            ptxas_stats.get_or_insert_default().stack_frame =
+                                val.parse().unwrap_or(0)
+                        }
+                        "cmem" => {
+                            let banks = val
+                                .split(',')
+                                .filter_map(|pair| {
+                                    let (bank, bytes) = pair.split_once(':')?;
+                                    Some((bank.parse().ok()?, bytes.parse().ok()?))
+                                })
+                                .collect();
+                            ptxas_stats.get_or_insert_default().cmem_banks = banks;
                         }
                         _ => {}
                     }
@@ -128,6 +182,7 @@ impl KernelMetadata {
             m.num_warps = reqntid.unwrap_or(128).div_ceil(32);
         }
 
+        m.ptxas_stats = ptxas_stats;
         m
     }
 
@@ -146,7 +201,8 @@ impl KernelMetadata {
 ///
 /// This function truncates the PTX at the first `.file` or `.section .debug`
 /// directive, which always appears after the kernel body.
-fn strip_debug_sections(ptx: &[u8]) -> &[u8] {
+fn strip_debug_sections(ptx: &[u8]) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::with_capacity(ptx.len());
     let mut pos = 0;
     while pos < ptx.len() {
         let line_end = ptx[pos..]
@@ -166,12 +222,42 @@ fn strip_debug_sections(ptx: &[u8]) -> &[u8] {
         if trimmed.starts_with(b".file")
             || (trimmed.starts_with(b".section") && line.windows(7).any(|w| w == b".debug_"))
         {
-            return &ptx[..pos];
+            break;
+        }
+
+        // `.loc` has to go with them. It is the *only* thing in the retained
+        // prefix that refers into the DWARF we are dropping: LLVM's NVPTX
+        // backend writes `.loc 1 3177 15, function_name $L__info_string0,
+        // inlined_at 1 3199 5` for every inlined frame, and both the file
+        // index and `$L__info_string0` are defined in the sections below --
+        // `.file 1 "..."` and `.section .debug_str` respectively.
+        //
+        // Keeping these while dropping their definitions is what made every
+        // module unassemblable (teenygrad-dd1):
+        //
+        //     ptxas error : Unresolved label '$L__info_string0' used in
+        //                   function_name attribute.
+        //
+        // Line tables have no consumer on the driver-JIT path anyway, so the
+        // consistent thing is to emit none.
+        // Match the directive, not the prefix: `.local` also starts with
+        // `.loc`, and dropping a `.local .align 4 .b8 __local_depot1[28];`
+        // declaration while keeping the `mov.b64 %SPL, __local_depot1;` that
+        // uses it breaks every kernel with a stack frame -- which is any
+        // kernel calling a libdevice function that needs one, e.g.
+        // `__nv_sinf`'s argument reduction.
+        let directive_end = trimmed
+            .iter()
+            .position(|b| b.is_ascii_whitespace())
+            .unwrap_or(trimmed.len());
+        if &trimmed[..directive_end] != b".loc" {
+            out.extend_from_slice(line);
+            out.push(b'\n');
         }
 
         pos = line_end + 1;
     }
-    ptx
+    out
 }
 
 /// A loaded CUDA program: the cubin is loaded into a `CUmodule` and the
@@ -202,6 +288,22 @@ impl<'a, K: Kernel> CudaProgram<'a, K> {
     pub fn num_ctas(&self) -> u32 {
         self.metadata.num_ctas
     }
+    /// Number of warps per thread block, from the kernel's parsed metadata.
+    pub fn num_warps(&self) -> u32 {
+        self.metadata.num_warps
+    }
+    // ANCHOR: ptxas_stats_accessor
+    /// Register/spill/constant-memory statistics from `ptxas -v`, if available.
+    ///
+    /// `None` unless the PTX was compiled with `$TEENYC_GENERATE_BIN` set (see
+    /// teenyc's `CudaBackend::makeBIN`) — `ptxas` is a real subprocess compile
+    /// targeting a specific device architecture, so it isn't run by default, and
+    /// these numbers don't exist until it has been. Also `None` for programs
+    /// loaded via [`CudaProgram::try_new`] (a cubin has no PTX metadata to parse).
+    pub fn ptxas_stats(&self) -> Option<&PtxasStats> {
+        self.metadata.ptxas_stats.as_ref()
+    }
+    // ANCHOR_END: ptxas_stats_accessor
 
     /// Load a cubin image into the current CUDA context and resolve `entry_point`.
     ///
@@ -338,5 +440,77 @@ impl Kernel for ErasedKernel {
     }
     fn entry_point_source(&self) -> &str {
         ""
+    }
+}
+
+#[cfg(test)]
+mod strip_debug_sections_tests {
+    use super::strip_debug_sections;
+
+    /// The shape LLVM's NVPTX backend emits: `.loc` inside the function
+    /// referring to a file index and a `$L__info_string0` label that are
+    /// only defined in the DWARF sections after it.
+    const PTX: &str = concat!(
+        ".version 8.7\n",
+        ".target sm_120a\n",
+        ".visible .entry k(\n",
+        ")\n",
+        "{\n",
+        "\t.loc\t1 3177 15, function_name $L__info_string0, inlined_at 1 3199 5\n",
+        "\tmov.u32 \t%r17, %ctaid.x;\n",
+        "\tret;\n",
+        "}\n",
+        "\t.file\t1 \"/tmp/k.rs\"\n",
+        "\t.section\t.debug_str\n",
+        "\t{\n",
+        "$L__info_string0:\n",
+        "\t}\n",
+    );
+
+    /// Both halves of the inconsistency that made every module unassemblable
+    /// (teenygrad-dd1): the DWARF goes, and so does everything referring into
+    /// it. Keeping the `.loc` while dropping `.debug_str` is what produced
+    /// "Unresolved label '$L__info_string0' used in function_name attribute".
+    #[test]
+    fn test_drops_loc_along_with_the_dwarf_it_refers_into() {
+        let out = strip_debug_sections(PTX.as_bytes());
+        let out = String::from_utf8(out).expect("stripping keeps the PTX valid ASCII");
+
+        assert!(
+            !out.contains("$L__info_string0"),
+            "no reference may outlive its definition:\n{out}"
+        );
+        assert!(!out.contains(".loc"), "line tables go entirely:\n{out}");
+        assert!(!out.contains(".file"), "so does the file table:\n{out}");
+        assert!(
+            !out.contains(".debug_str"),
+            "and the DWARF sections:\n{out}"
+        );
+    }
+
+    /// Stripping is not truncation at the first `.loc`: everything the module
+    /// needs to assemble has to survive.
+    #[test]
+    fn test_keeps_the_kernel_body() {
+        let out = strip_debug_sections(PTX.as_bytes());
+        let out = String::from_utf8(out).expect("valid ASCII");
+
+        for needed in [
+            ".version 8.7",
+            ".target sm_120a",
+            ".visible .entry k(",
+            "mov.u32 \t%r17, %ctaid.x;",
+            "ret;",
+        ] {
+            assert!(out.contains(needed), "dropped `{needed}`:\n{out}");
+        }
+    }
+
+    /// PTX carrying no debug info at all is passed through unchanged.
+    #[test]
+    fn test_ptx_without_debug_info_is_untouched() {
+        let plain = ".version 8.7\n.visible .entry k(\n)\n{\n\tret;\n}\n";
+        let out = strip_debug_sections(plain.as_bytes());
+        assert_eq!(String::from_utf8(out).expect("valid ASCII"), plain);
     }
 }

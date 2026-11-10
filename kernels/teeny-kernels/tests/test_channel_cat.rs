@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,62 +33,78 @@ use std::path::PathBuf;
 
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
 // ── Dimensions ───────────────────────────────────────────────────────────────
+#[cfg(feature = "hardware")]
 const N_SPATIAL: usize = 64;
+#[cfg(feature = "hardware")]
 const C_TOTAL: usize = 32;
+#[cfg(feature = "hardware")]
 const CHUNK_C: usize = 16;
 const BLOCK_SIZE: i32 = 128;
 
+#[cfg(feature = "hardware")]
 const N_ELEM_CHUNK: usize = N_SPATIAL * CHUNK_C; // 1024
+#[cfg(feature = "hardware")]
 const N_ELEM_OUT: usize = N_SPATIAL * C_TOTAL; // 2048
 
 // ── Fixture loader ────────────────────────────────────────────────────────────
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
-// ── MLIR snapshot tests ───────────────────────────────────────────────────────
+// ── ASM snapshot tests ───────────────────────────────────────────────────────
 
 #[test]
-fn test_channel_cat_forward_snapshot() -> Result<()> {
+fn test_channel_cat_forward_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::tensor::channel_cat::ChannelCatForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
-    assert_debug_snapshot!("channel_cat_forward_source", kernel.source());
-    assert_debug_snapshot!("channel_cat_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("channel_cat_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("channel_cat_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_channel_cat_backward_snapshot() -> Result<()> {
+fn test_channel_cat_backward_snapshot() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::tensor::channel_cat::ChannelCatBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
-    assert_debug_snapshot!("channel_cat_backward_source", kernel.source());
-    assert_debug_snapshot!("channel_cat_backward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!(
+            "channel_cat_backward_source_{}",
+            teeny_runtime::BACKEND_NAME
+        ),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("channel_cat_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
 
     Ok(())
 }
@@ -96,15 +112,14 @@ fn test_channel_cat_backward_snapshot() -> Result<()> {
 // ── CUDA forward test ─────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_channel_cat_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_channel_cat_forward() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let x0_host = load_fixture("channel_cat/x0.bin");
-    let x1_host = load_fixture("channel_cat/x1.bin");
-    let expected_cat = load_fixture("channel_cat/expected_cat.bin");
+    let x0_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/x0.bin");
+    let x1_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/x1.bin");
+    let expected_cat = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/expected_cat.bin");
 
     assert_eq!(x0_host.len(), N_ELEM_CHUNK);
     assert_eq!(x1_host.len(), N_ELEM_CHUNK);
@@ -119,26 +134,26 @@ fn test_channel_cat_forward_cuda() -> Result<()> {
     x1_buf.to_device(&x1_host)?;
 
     let kernel = teeny_kernels::nn::tensor::channel_cat::ChannelCatForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::tensor::channel_cat::ChannelCatForward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_c_tiles = CHUNK_C.div_ceil(BLOCK_SIZE as usize);
-    let cfg = CudaLaunchConfig {
-        grid: [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
-        block: [BLOCK_SIZE as u32, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
+        [BLOCK_SIZE as u32, 1, 1],
+        [1, 1, 1],
+    );
 
     // Chunk 0 → output channels [0, CHUNK_C)
     device.launch(
         &program,
         &cfg,
         (
-            x0_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
+            x0_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
             CHUNK_C as i32,
             C_TOTAL as i32,
             0i32, // chunk_offset = 0
@@ -150,8 +165,8 @@ fn test_channel_cat_forward_cuda() -> Result<()> {
         &program,
         &cfg,
         (
-            x1_buf.as_device_ptr() as *mut f32,
-            y_buf.as_device_ptr() as *mut f32,
+            x1_buf.as_device_ptr(),
+            y_buf.as_device_ptr(),
             CHUNK_C as i32,
             C_TOTAL as i32,
             CHUNK_C as i32, // chunk_offset = 16
@@ -175,15 +190,14 @@ fn test_channel_cat_forward_cuda() -> Result<()> {
 // ── CUDA backward test ────────────────────────────────────────────────────────
 
 #[test]
-#[cfg(feature = "cuda")]
-fn test_channel_cat_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_channel_cat_backward() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let dy_host = load_fixture("channel_cat/dy.bin");
-    let expected_dx0 = load_fixture("channel_cat/expected_dx0.bin");
-    let expected_dx1 = load_fixture("channel_cat/expected_dx1.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/dy.bin");
+    let expected_dx0 = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/expected_dx0.bin");
+    let expected_dx1 = load_fixture(env!("CARGO_MANIFEST_DIR"), "channel_cat/expected_dx1.bin");
 
     assert_eq!(dy_host.len(), N_ELEM_OUT);
     assert_eq!(expected_dx0.len(), N_ELEM_CHUNK);
@@ -194,26 +208,26 @@ fn test_channel_cat_backward_cuda() -> Result<()> {
     dy_buf.to_device(&dy_host)?;
 
     let kernel = teeny_kernels::nn::tensor::channel_cat::ChannelCatBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx = std::fs::read(compile_kernel(&kernel, &target, true)?)?;
-    let program = testing::load_program_from_ptx::<
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::tensor::channel_cat::ChannelCatBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
     let num_c_tiles = CHUNK_C.div_ceil(BLOCK_SIZE as usize);
-    let cfg = CudaLaunchConfig {
-        grid: [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
-        block: [BLOCK_SIZE as u32, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [(N_SPATIAL * num_c_tiles) as u32, 1, 1],
+        [BLOCK_SIZE as u32, 1, 1],
+        [1, 1, 1],
+    );
 
     // Gradient for chunk 0 (reads dy channels [0, CHUNK_C))
     device.launch(
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            dx0_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            dx0_buf.as_device_ptr(),
             CHUNK_C as i32,
             C_TOTAL as i32,
             0i32,
@@ -225,8 +239,8 @@ fn test_channel_cat_backward_cuda() -> Result<()> {
         &program,
         &cfg,
         (
-            dy_buf.as_device_ptr() as *mut f32,
-            dx1_buf.as_device_ptr() as *mut f32,
+            dy_buf.as_device_ptr(),
+            dx1_buf.as_device_ptr(),
             CHUNK_C as i32,
             C_TOTAL as i32,
             CHUNK_C as i32,

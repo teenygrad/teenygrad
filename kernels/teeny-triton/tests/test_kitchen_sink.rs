@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,17 @@
 use std::path::PathBuf;
 
 use insta::assert_debug_snapshot;
-use teeny_compiler::compiler::{backend::llvm::compiler::LlvmCompiler, target::cuda::Target};
+use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
 use teeny_core::{
-    compiler::Compiler,
+    compiler::{Compiler, CompilerOptions},
     device::program::Kernel,
     dtype::{Dtype, Float},
 };
+use teeny_cuda::compiler::target::Target;
 use teeny_macros::kernel;
 use teeny_triton::triton::{
-    Axis, CacheModifier, DotFormat, EvictionPolicy, FpDowncastRounding, InputPrecision, MemScope,
-    MemSem, PaddingOption, Triton,
+    Axis, CacheModifier, DotFormat, EvictionPolicy, FpDowncastRounding, InPtr, InputPrecision,
+    MemScope, MemSem, OutPtr, PaddingOption, Triton,
 };
 
 use teeny_cuda::compiler::target::Capability;
@@ -34,9 +35,9 @@ use teeny_cuda::compiler::target::Capability;
 #[kernel]
 #[allow(unused)]
 fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
-    x_ptr: T::Pointer<D>,
-    y_ptr: T::Pointer<D>,
-    output_ptr: T::Pointer<D>,
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: InPtr<T::Pointer<D>>,
+    output_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) {
     fn combine_num<TT: Triton, DD: Dtype>(
@@ -309,7 +310,8 @@ fn test_kitchen_sink() -> anyhow::Result<()> {
         std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "/tmp/teenyc_cache".to_string());
     let compiler = LlvmCompiler::new(teenyc_path, cache_dir)?;
     let target = Target::new(Capability::Sm90);
-    let ptx_path: PathBuf = compiler.compile(&kernel, &target, true)?.into();
+    let options = CompilerOptions::default().with_force(true);
+    let ptx_path: PathBuf = compiler.compile(&kernel, &target, &options)?.into();
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("kitchen_sink_source", kernel.source());

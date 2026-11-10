@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,14 +46,14 @@ use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::RngExt;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_compiler::compiler::driver::cuda::compile_kernel;
-use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
     device::{context::Context as DeviceContext, program::ArgVisitor},
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,
     nn::Layer,
 };
+use teeny_cuda::compiler::compile_kernel;
+use teeny_cuda::compiler::target::Target;
 use teeny_cuda::{
     compiler::{graph::CudaGraphCompiler, target::capability_from_device_info},
     device::{
@@ -175,9 +175,9 @@ async fn main() -> Result<()> {
     let ce_bwd_spec = CrossEntropyLossBackward::new(CE_BLOCK_SIZE);
     let adamw_spec = AdamwStep::new(ADAMW_BLOCK_SIZE);
 
-    let ptx_ce_fwd = std::fs::read(compile_kernel(&ce_fwd_spec, &target, false)?)?;
-    let ptx_ce_bwd = std::fs::read(compile_kernel(&ce_bwd_spec, &target, false)?)?;
-    let ptx_adamw = std::fs::read(compile_kernel(&adamw_spec, &target, false)?)?;
+    let ptx_ce_fwd = std::fs::read(compile_kernel(&ce_fwd_spec, &target, false, false)?)?;
+    let ptx_ce_bwd = std::fs::read(compile_kernel(&ce_bwd_spec, &target, false, false)?)?;
+    let ptx_adamw = std::fs::read(compile_kernel(&adamw_spec, &target, false, false)?)?;
 
     let ce_fwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_fwd)?;
     let ce_bwd_prog = CudaProgram::<ErasedKernel>::try_from_ptx(&ptx_ce_bwd)?;

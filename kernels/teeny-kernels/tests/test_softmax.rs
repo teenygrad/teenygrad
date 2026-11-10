@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,60 +17,71 @@
 use dotenv::dotenv;
 use insta::assert_debug_snapshot;
 use std::path::PathBuf;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
+#[cfg(feature = "hardware")]
 use teeny_core::device::Device;
+#[cfg(feature = "hardware")]
 use teeny_core::device::buffer::Buffer;
 use teeny_core::device::program::Kernel;
 
-#[cfg(feature = "cuda")]
-use teeny_cuda::{compiler::target::Capability, device::CudaLaunchConfig, errors::Result, testing};
+#[cfg(feature = "hardware")]
+use teeny_test::load_fixture;
 
+#[cfg(feature = "hardware")]
 const N_ROWS: usize = 64;
+#[cfg(feature = "hardware")]
 const N_COLS: usize = 128;
 const BLOCK_SIZE: i32 = 128;
 
 /// Must match `.reqntid` in the generated PTX.
+#[cfg(feature = "hardware")]
 const PTX_LAUNCH_THREADS_X: u32 = 128;
 
-fn load_fixture(rel: &str) -> Vec<f32> {
-    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), rel);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {path}: {e}"));
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
-// MLIR snapshot tests
+// ASM snapshot tests
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_softmax_forward_mlir_output() -> Result<()> {
+fn test_softmax_forward_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
-    assert_debug_snapshot!("softmax_forward_source", kernel.source());
-    assert_debug_snapshot!("softmax_forward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("softmax_forward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("softmax_forward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_softmax_backward_mlir_output() -> Result<()> {
+fn test_softmax_backward_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(Capability::Sm89);
-    let ptx_path = PathBuf::from(compile_kernel(&kernel, &target, true)?);
-    let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
+    let target = teeny_runtime::reference_target();
+    let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
+        &kernel, &target, true, false,
+    )?);
+    let asm = teeny_test::read_compiled_asm(ptx_path);
 
-    assert_debug_snapshot!("softmax_backward_source", kernel.source());
-    assert_debug_snapshot!("softmax_backward_mlir", mlir.trim());
+    assert_debug_snapshot!(
+        format!("softmax_backward_source_{}", teeny_runtime::BACKEND_NAME),
+        kernel.source()
+    );
+    assert_debug_snapshot!(
+        format!("softmax_backward_asm_{}", teeny_runtime::BACKEND_NAME),
+        asm
+    );
 
     Ok(())
 }
@@ -81,14 +92,13 @@ fn test_softmax_backward_mlir_output() -> Result<()> {
 
 /// Forward: GPU softmax output must match the PyTorch reference row-by-row.
 #[test]
-#[cfg(feature = "cuda")]
-fn test_softmax_forward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_softmax_forward() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let input_host = load_fixture("softmax/x_forward.bin");
-    let expected = load_fixture("softmax/expected_forward.bin");
+    let input_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "softmax/x_forward.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "softmax/expected_forward.bin");
     let mut y_host = vec![0.0f32; N_ROWS * N_COLS];
 
     let mut x_buf = device.buffer::<f32>(N_ROWS * N_COLS)?;
@@ -97,24 +107,23 @@ fn test_softmax_forward_cuda() -> Result<()> {
     x_buf.to_device(&input_host)?;
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxForward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[softmax_forward] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::softmax::SoftmaxForward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = CudaLaunchConfig {
-        grid: [N_ROWS as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [N_ROWS as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        x_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
+        x_buf.as_device_ptr(),
+        y_buf.as_device_ptr(),
         N_ROWS as i32,
         N_COLS as i32,
     );
@@ -145,15 +154,14 @@ fn test_softmax_forward_cuda() -> Result<()> {
 
 /// Backward: GPU dx must match `y * (dy - sum(y * dy))` computed by PyTorch.
 #[test]
-#[cfg(feature = "cuda")]
-fn test_softmax_backward_cuda() -> Result<()> {
+#[cfg(feature = "hardware")]
+fn test_softmax_backward() -> anyhow::Result<()> {
     dotenv().ok();
-    let env = testing::setup_cuda_env()?;
-    let device = env.device;
+    let device = teeny_runtime::open()?;
 
-    let y_host = load_fixture("softmax/y_backward.bin");
-    let dy_host = load_fixture("softmax/dy_backward.bin");
-    let expected = load_fixture("softmax/expected_backward.bin");
+    let y_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "softmax/y_backward.bin");
+    let dy_host = load_fixture(env!("CARGO_MANIFEST_DIR"), "softmax/dy_backward.bin");
+    let expected = load_fixture(env!("CARGO_MANIFEST_DIR"), "softmax/expected_backward.bin");
     let mut dx_host = vec![0.0f32; N_ROWS * N_COLS];
 
     let mut dy_buf = device.buffer::<f32>(N_ROWS * N_COLS)?;
@@ -164,25 +172,24 @@ fn test_softmax_backward_cuda() -> Result<()> {
     y_buf.to_device(&y_host)?;
 
     let kernel = teeny_kernels::nn::activation::softmax::SoftmaxBackward::<f32>::new(BLOCK_SIZE);
-    let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let target = teeny_runtime::default_target(&device)?;
+    let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;
     println!("[softmax_backward] compiled PTX: {ptx_path}");
-    let ptx = std::fs::read(&ptx_path)?;
 
-    let program = testing::load_program_from_ptx::<
+    let program = teeny_runtime::load_program::<
         teeny_kernels::nn::activation::softmax::SoftmaxBackward<f32>,
-    >(&ptx)?;
+    >(&ptx_path)?;
 
-    let cfg = CudaLaunchConfig {
-        grid: [N_ROWS as u32, 1, 1],
-        block: [PTX_LAUNCH_THREADS_X, 1, 1],
-        cluster: [1, 1, 1],
-    };
+    let cfg = teeny_runtime::launch_config_custom(
+        [N_ROWS as u32, 1, 1],
+        [PTX_LAUNCH_THREADS_X, 1, 1],
+        [1, 1, 1],
+    );
 
     let args = (
-        dy_buf.as_device_ptr() as *mut f32,
-        y_buf.as_device_ptr() as *mut f32,
-        dx_buf.as_device_ptr() as *mut f32,
+        dy_buf.as_device_ptr(),
+        y_buf.as_device_ptr(),
+        dx_buf.as_device_ptr(),
         N_ROWS as i32,
         N_COLS as i32,
     );

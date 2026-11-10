@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,10 +30,10 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::dtype::Num;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -44,9 +44,9 @@ use teeny_triton::triton::{
 /// The Chapter 5 kernel, unchanged. Only `BLOCK_SIZE` varies below.
 #[kernel]
 pub fn sweep_add<T: Triton, D: Num, const BLOCK_SIZE: i32>(
-    a_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     n_elements: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -101,7 +101,7 @@ const WARMUP: usize = 5;
 const ITERS: usize = 50;
 
 fn main() -> Result<()> {
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
     let target = Target::new(env.capability);
 
@@ -129,15 +129,15 @@ fn main() -> Result<()> {
 
     for block_size in BLOCK_SIZES {
         let kernel = SweepAdd::<f32>::new(block_size);
-        let ptx = std::fs::read(compile_kernel(&kernel, &target, false)?)?;
-        let program = teeny_cuda::testing::load_program_from_ptx::<SweepAdd<f32>>(&ptx)?;
+        let ptx = std::fs::read(compile_kernel(&kernel, &target, false, false)?)?;
+        let program = teeny_test::cuda::load_program_from_ptx::<SweepAdd<f32>>(&ptx)?;
 
         // One program per BLOCK_SIZE-wide slice of the data. The *thread* count
         // is not ours to choose — teenyc records it in the PTX and the driver
         // rejects any other block dimension with "invalid argument" — so the
         // grid comes from BLOCK_SIZE and the block from the compiled metadata.
         let grid = N.div_ceil(block_size as usize);
-        let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &program);
+        let cfg = teeny_test::cuda::launch_config_with_grid(grid, &program);
 
         let args = (
             a_buf.as_device_ptr() as *mut f32,

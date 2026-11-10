@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,8 +40,14 @@ pub struct KernelInstance {
     pub name: String,
     /// Combined forward kernel source (`kernel_source + entry_point`).
     pub source: String,
+    /// Forward kernel body only (no C-ABI entry wrapper) — used when composing
+    /// fused entries that synthesize their own wrapper.
+    pub kernel_body: String,
     /// Runtime dispatch object for arg-packing and launch config.
     pub runtime_op: Arc<dyn RuntimeOp>,
+    /// `Some(BLOCK_SIZE)` when this kernel passes the pointwise-fuse probe
+    /// (unary In/Out + `n_elements` CTA map); otherwise `None`.
+    pub pointwise_fuse_block_size: Option<i32>,
     /// Backward kernel, present only when the kernel declares one.
     pub backward: Option<KernelInstanceBackward>,
 }
@@ -61,6 +67,9 @@ pub trait RuntimeContext<'a> {}
 /// Encapsulates the runtime-dispatch behaviour for a compiled op node:
 /// how many activation inputs it takes, what parameter buffers it needs,
 /// how to pack kernel arguments, and how to compute the launch grid.
+///
+/// CUDA thread counts are not part of this trait: the executor reads them from
+/// compiled PTX metadata (`.reqntid` / `num_warps`) at launch time.
 ///
 /// Implementations live in `teeny-kernels` alongside the kernel structs so that
 /// each kernel owns its arg layout. The trait is defined here in `teeny-core`
@@ -142,9 +151,6 @@ pub trait RuntimeOp: Send + Sync {
         output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     );
-
-    /// Threads-per-CTA for this kernel (x, y, z).
-    fn block(&self) -> [u32; 3];
 
     /// Number of CTAs to launch (x, y, z), given the concrete output shape.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3];
@@ -255,12 +261,6 @@ pub trait RuntimeOp: Send + Sync {
         );
     }
 
-    /// Threads-per-CTA for the backward kernel.
-    #[cfg(feature = "training")]
-    fn backward_block(&self) -> [u32; 3] {
-        [128, 1, 1]
-    }
-
     /// Number of CTAs for the backward kernel.
     ///
     /// `input_shapes[i]` is the concrete shape of the i-th activation input.
@@ -351,6 +351,9 @@ pub trait ExecutableOp {
     fn runtime_op(&self) -> Option<Arc<dyn RuntimeOp>> {
         None
     }
+
+    /// Downcast support for backend-specific executable types.
+    fn as_any(&self) -> &dyn core::any::Any;
 
     /// Returns the backward kernel source, or `""` if no backward is available.
     #[cfg(feature = "training")]

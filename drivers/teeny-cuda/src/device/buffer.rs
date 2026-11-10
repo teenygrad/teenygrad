@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,9 +45,11 @@ impl<'a, N: Num> CudaBuffer<'a, N> {
         })
     }
 
-    /// The underlying device pointer.
-    pub fn as_device_ptr(&self) -> DevicePtr {
-        self.ptr
+    /// The underlying device pointer, reinterpreted as `*mut N` -- matches
+    /// `RiscvBuffer::as_device_ptr`'s return type so generic call sites (kernel-argument tuples
+    /// written once against either backend) don't need a backend-specific cast.
+    pub fn as_device_ptr(&self) -> *mut N {
+        self.ptr as *mut N
     }
 
     /// The number of elements this buffer holds.

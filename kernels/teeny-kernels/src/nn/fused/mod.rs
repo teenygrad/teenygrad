@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+//! Hand-written fused Conv2d+BN+SiLU kernels kept as reference.
+//!
+//! This module is **not** linked from [`crate::nn`] — Anduin should compose
+//! fusion natively rather than dispatching these special-cased ops.
 
 pub mod conv2d_bn_silu;
 pub mod conv2d_bn_silu_gemm;

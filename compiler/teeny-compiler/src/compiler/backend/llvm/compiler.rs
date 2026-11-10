@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ use std::process::Command;
 
 use derive_more::Display;
 use sha2::{Digest, Sha256};
-use teeny_core::compiler::{Compiler, Target};
+use teeny_core::compiler::{Compiler, CompilerOptions, Target};
 use teeny_core::device::program::Kernel;
 use tracing::info;
 
@@ -77,6 +77,10 @@ impl std::str::FromStr for LogLevel {
 /// `tracing` target `teenyc`'s MLIR backend logs pipeline-stage IR under; see [`LogLevel`].
 const TEENYC_MLIR_LOG_TARGET: &str = "rustc_codegen_llvm::mlir";
 
+/// Default `--target` triple: NVIDIA GPUs via the MLIR/Triton CUDA backend. See
+/// [`LlvmCompiler::with_target_triple`].
+const DEFAULT_TARGET_TRIPLE: &str = "nvptx64-nvidia-cuda";
+
 /// Compiles kernels by shelling out to the custom `teenyc` compiler (`-Zcodegen-backend=mlir`)
 /// at runtime. See [`crate::compiler::find_teenyc`] for how its path is resolved, and the crate
 /// docs for the `cargo-teeny` setup this requires.
@@ -84,6 +88,7 @@ const TEENYC_MLIR_LOG_TARGET: &str = "rustc_codegen_llvm::mlir";
 pub struct LlvmCompiler {
     teenyc_path: PathBuf,
     cache_dir: PathBuf,
+    target_triple: String,
     target_cpu: Option<String>,
     ptx_version: Option<u32>,
     log_level: Option<LogLevel>,
@@ -105,7 +110,7 @@ impl LlvmCompiler {
     ///
     /// `log_level` similarly defaults from `$TEENYC_LOG_LEVEL` if set (parse failures are
     /// ignored, falling back to `None`) — this lets any call site, including ones that don't
-    /// (or can't, e.g. a fixed helper like [`crate::compiler::driver::cuda::compile_kernel`])
+    /// (or can't, e.g. the CUDA `compile_kernel` helper in `teeny-cuda`)
     /// call [`Self::with_log_level`] directly, turn on pipeline-stage logging via the environment.
     pub fn new(teenyc_path: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
         let teenyc_path = teenyc_path.into();
@@ -132,13 +137,29 @@ impl LlvmCompiler {
         Ok(Self {
             teenyc_path,
             cache_dir,
+            target_triple: DEFAULT_TARGET_TRIPLE.to_string(),
             target_cpu: None,
             ptx_version,
             log_level,
         })
     }
 
-    /// Sets the target GPU architecture (e.g. `sm_90`) passed to `teenyc` as `-Ctarget-cpu`.
+    /// Sets the `--target` triple passed to `teenyc`, selecting which Triton backend (Cuda,
+    /// Riscv) compiles the kernel -- see `rustc_codegen_llvm::mlir::target::resolve` in the
+    /// `teeny` compiler fork. Defaults to `"nvptx64-nvidia-cuda"`.
+    ///
+    /// For RISC-V, use `"riscv64-generic"` together with [`Self::with_target_cpu`] set to a
+    /// chip identifier (e.g. `spacemit-k3`, `generic-rvv1.0`) -- not an LLVM `-mcpu` value; the
+    /// RISC-V path doesn't go through LLVM's RISC-V codegen at all yet, and is currently a stub
+    /// that fails every compile until real Triton RISC-V codegen exists.
+    pub fn with_target_triple(mut self, target_triple: impl Into<String>) -> Self {
+        self.target_triple = target_triple.into();
+        self
+    }
+
+    /// Sets the target CPU/architecture (e.g. `sm_90` for CUDA, `spacemit-k3` for RISC-V)
+    /// passed to `teenyc` as `-Ctarget-cpu`. What values are valid depends on
+    /// [`Self::with_target_triple`]'s backend.
     pub fn with_target_cpu(mut self, cpu: impl Into<String>) -> Self {
         self.target_cpu = Some(cpu.into());
         self
@@ -163,9 +184,21 @@ impl LlvmCompiler {
 }
 
 impl Compiler for LlvmCompiler {
-    fn compile(&self, kernel: &impl Kernel, _target: &impl Target, force: bool) -> Result<String> {
+    fn compile(
+        &self,
+        kernel: &impl Kernel,
+        _target: &impl Target,
+        options: &CompilerOptions,
+    ) -> Result<String> {
+        anyhow::ensure!(
+            options.emit_bin || options.emit_asm,
+            "CompilerOptions requests no output; set emit_bin and/or emit_asm"
+        );
+
         // Hash the kernel id together with target cpu and ptx version so that
-        // different targets/overrides each get their own cache entry.
+        // different targets/overrides each get their own cache entry. target_cpu's
+        // vocabulary never overlaps between backends (sm_XX for CUDA vs. chip names for
+        // RISC-V), so it alone already disambiguates target_triple too.
         let effective_id = {
             let mut h = Sha256::new();
             h.update(kernel.id().as_bytes());
@@ -186,12 +219,23 @@ impl Compiler for LlvmCompiler {
             .cache_dir
             .join(kernel_file_name.clone())
             .with_extension("o");
+        // The generated assembly, kept next to the object file for snapshot tests
+        // (see `teeny_test::read_compiled_asm`). For RISC-V the object is a linked
+        // shared library, so it is the only readable form of the kernel's code.
+        let asm_file = output_file.with_extension("s");
+        // Only the artifacts actually requested gate the cache: asking for assembly alone
+        // must not recompile just because no object was ever produced, and vice versa.
+        let requires_compilation = || {
+            options.force
+                || (options.emit_bin && !output_file.exists())
+                || (options.emit_asm && !asm_file.exists())
+        };
 
-        if !output_file.exists() || force {
+        if requires_compilation() {
             anyhow::ensure!(
                 self.teenyc_path.exists(),
-                "kernel not cached and rustc not found at {:?}; \
-                 set TEENYC_PATH to a valid rustc binary",
+                "kernel not cached and teenyc not found at {:?}; \
+                 set TEENYC_PATH to a valid teenyc binary",
                 self.teenyc_path
             );
 
@@ -210,7 +254,7 @@ impl Compiler for LlvmCompiler {
             // released the lock for) this exact hash while we were waiting, reuse its
             // output rather than redundantly recompiling. This -- not just avoiding the
             // corrupted-write symptom -- is the actual point of taking the lock.
-            if !output_file.exists() || force {
+            if requires_compilation() {
                 let mut file = File::create(&kernel_file)?;
 
                 info!("Writing kernel code to file");
@@ -223,14 +267,26 @@ impl Compiler for LlvmCompiler {
                 let tmp_output_file = self
                     .cache_dir
                     .join(format!("{kernel_file_name}.o.tmp.{}", std::process::id()));
+                let tmp_asm_file = self
+                    .cache_dir
+                    .join(format!("{kernel_file_name}.s.tmp.{}", std::process::id()));
+
+                // Ask `teenyc` only for the requested artifacts -- emitting an object the
+                // caller does not want costs a full codegen (and, on RISC-V, link) pass.
+                let mut emit = Vec::new();
+                if options.emit_bin {
+                    emit.push(format!("obj={}", tmp_output_file.display()));
+                }
+                if options.emit_asm {
+                    emit.push(format!("asm={}", tmp_asm_file.display()));
+                }
 
                 let mut cmd = Command::new(&self.teenyc_path);
                 cmd.arg(&kernel_file)
                     .arg("-Copt-level=3")
                     .arg("-Zcodegen-backend=mlir")
-                    .arg("--emit=obj")
-                    .arg(format!("-o{}", tmp_output_file.display()))
-                    .arg("--target=nvptx64-nvidia-cuda")
+                    .arg(format!("--emit={}", emit.join(",")))
+                    .arg(format!("--target={}", self.target_triple))
                     .arg("--crate-type=lib")
                     .arg("-C")
                     .arg("overflow-checks=off")
@@ -266,25 +322,50 @@ impl Compiler for LlvmCompiler {
 
                 if !output.status.success() {
                     let _ = std::fs::remove_file(&tmp_output_file);
+                    let _ = std::fs::remove_file(&tmp_asm_file);
                     let _ = std::fs::remove_file(tmp_output_file.with_extension("mlir"));
+                    let _ = std::fs::remove_file(tmp_asm_file.with_extension("mlir"));
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!("rustc exited with status {}\n{}", output.status, stderr);
                 }
 
                 // `teenyc` also writes a `.mlir` sidecar next to the object file (the
-                // pre-Triton MLIR source, read back by e.g. the `*_mlir_output` snapshot
-                // tests) -- derived from the same `-o` path, so it needs the same
-                // temp-then-rename treatment. It may not exist for every invocation, hence
-                // the existence check rather than treating a missing file as an error.
-                let tmp_mlir_file = tmp_output_file.with_extension("mlir");
+                // pre-Triton MLIR source, useful for pipeline debugging via `debug = true`
+                // above -- not read by the `*_asm` snapshot tests, which assert on the
+                // generated assembly instead, since that's the part that's actually
+                // target-specific) -- derived from whichever output path `teenyc` was given, so
+                // it needs the same temp-then-rename treatment. It may not exist for every
+                // invocation, hence the existence check rather than treating a missing file as
+                // an error.
+                let tmp_mlir_file = if options.emit_bin {
+                    tmp_output_file.with_extension("mlir")
+                } else {
+                    tmp_asm_file.with_extension("mlir")
+                };
                 if tmp_mlir_file.exists() {
                     std::fs::rename(&tmp_mlir_file, output_file.with_extension("mlir"))?;
                 }
 
-                std::fs::rename(&tmp_output_file, &output_file)?;
+                // Rename the assembly before the object: `requires_compilation`
+                // treats a missing `.s` as uncached, so a reader never sees an
+                // object whose assembly is still being moved into place.
+                if options.emit_asm {
+                    std::fs::rename(&tmp_asm_file, &asm_file)?;
+                }
+                if options.emit_bin {
+                    std::fs::rename(&tmp_output_file, &output_file)?;
+                }
             }
         }
 
-        Ok(output_file.to_string_lossy().to_string())
+        // The object is what callers load and launch; when it wasn't requested, the assembly is
+        // the only artifact there is. Both share a stem, so either lets a caller derive the
+        // other by extension (see `teeny_test::read_compiled_asm`).
+        let artifact = if options.emit_bin {
+            &output_file
+        } else {
+            &asm_file
+        };
+        Ok(artifact.to_string_lossy().to_string())
     }
 }

@@ -38,7 +38,7 @@ jobs:
           sudo dpkg -i /tmp/cuda-keyring.deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2 cuda-profiler-api-13-2
+            cuda-nvcc-13-4 cuda-cudart-dev-13-4 cuda-nvrtc-dev-13-4 cuda-driver-dev-13-4 cuda-profiler-api-13-4
           echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
       - name: Run release-plz
         uses: release-plz/action@v0.5
@@ -85,7 +85,7 @@ jobs:
           sudo dpkg -i /tmp/cuda-keyring.deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cuda-nvcc-13-2 cuda-cudart-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2 cuda-profiler-api-13-2
+            cuda-nvcc-13-4 cuda-cudart-dev-13-4 cuda-nvrtc-dev-13-4 cuda-driver-dev-13-4 cuda-profiler-api-13-4
           echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
       - name: Run release-plz
         uses: release-plz/action@v0.5

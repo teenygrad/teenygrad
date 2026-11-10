@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,15 +19,15 @@
 
 use dotenv::dotenv;
 use teeny_compiler::compiler::backend::llvm::compiler::LlvmCompiler;
-use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::{
     graph::{DtypeRepr, SymTensor},
     model::LoweringMode,
     nn::Layer,
 };
 use teeny_cuda::compiler::graph::CudaGraphCompiler;
-use teeny_cuda::testing;
+use teeny_cuda::compiler::target::Target;
 use teeny_kernels::graph::TritonLowering;
+use teeny_test::cuda as testing;
 use teeny_vision::mnist;
 
 #[test]

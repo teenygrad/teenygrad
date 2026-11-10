@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,10 +21,13 @@ use self::types::{self as ty};
 
 /// LLVM-backend-facing DSL types (the compiled counterpart of this module's `Tensor`/`Pointer`).
 pub mod llvm;
+/// In/out pointer markers for `#[kernel]` parameters (`InPtr`, `OutPtr`, …).
+pub mod ptr;
 /// Dtype/numeric-kind trait hierarchy (`Dtype`, `Num`, `Int`, `Float`) used to bound the `Triton`
 /// trait's generic methods.
 pub mod types;
 
+pub use ptr::*;
 pub use types::*;
 
 /*------------------------------ Parameter Enums ------------------------------*/

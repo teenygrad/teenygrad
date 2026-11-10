@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
  */
 
 use dotenv::dotenv;
-use teeny_compiler::compiler::driver::cuda::compile_kernel;
-use teeny_compiler::compiler::target::cuda::Target;
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
+use teeny_cuda::compiler::compile_kernel;
+use teeny_cuda::compiler::target::Target;
 use teeny_cuda::errors::Result;
-use teeny_cuda::testing;
+use teeny_test::cuda as testing;
 
 const N: usize = 1024;
 const BLOCK_SIZE: i32 = 128;
@@ -42,9 +42,9 @@ fn test_tensor_add() -> Result<()> {
     let out_buf = device.buffer::<f32>(N)?;
     println!(
         "[4/9] allocated device buffers: x={:#x} y={:#x} out={:#x}",
-        x_buf.as_device_ptr(),
-        y_buf.as_device_ptr(),
-        out_buf.as_device_ptr(),
+        x_buf.as_device_ptr() as usize,
+        y_buf.as_device_ptr() as usize,
+        out_buf.as_device_ptr() as usize,
     );
 
     x_buf.to_device(&x_host)?;
@@ -55,7 +55,7 @@ fn test_tensor_add() -> Result<()> {
     let kernel =
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward::<f32>::new(BLOCK_SIZE);
     let target = Target::new(env.capability);
-    let ptx_path = compile_kernel(&kernel, &target, true)?;
+    let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[6/9] compiled PTX: {ptx_path}");
     let ptx = std::fs::read(&ptx_path)?;
     println!("      PTX size: {} bytes", ptx.len());
@@ -67,6 +67,22 @@ fn test_tensor_add() -> Result<()> {
     let program = testing::load_program_from_ptx::<
         teeny_kernels::nn::tensor::elemwise_add::ElemwiseAddForward<f32>,
     >(&ptx)?;
+
+    // ANCHOR: ptxas_stats_usage
+    match program.ptxas_stats() {
+        Some(stats) => println!(
+            "[ptxas] num_regs={} spill_stores={} spill_loads={} stack_frame={} cmem_banks={:?}",
+            stats.num_regs,
+            stats.spill_stores,
+            stats.spill_loads,
+            stats.stack_frame,
+            stats.cmem_banks
+        ),
+        None => {
+            println!("[ptxas] no stats (set $TEENYC_GENERATE_BIN=1 when compiling to get them)")
+        }
+    }
+    // ANCHOR_END: ptxas_stats_usage
 
     // ── Launch ─────────────────────────────────────────────────────────────
     let cfg = testing::launch_config_from_program(N, &program);

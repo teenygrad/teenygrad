@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -118,8 +118,10 @@ fn assert_round_trips(scheme: Scheme, granularity: Granularity, max_tol_fraction
         Some(
             zp_view
                 .data()
-                .chunks_exact(4)
-                .map(|b| i32::from_le_bytes(b.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| i32::from_le_bytes(*b))
                 .collect::<Vec<_>>(),
         )
     };

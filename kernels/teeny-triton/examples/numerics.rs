@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,10 +30,10 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use teeny_compiler::compiler::{driver::cuda::compile_kernel, target::cuda::Target};
 use teeny_core::device::Device;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::dtype::Float;
+use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_macros::kernel;
 use teeny_triton::triton::{
     types::{AddOffsets, Comparison},
@@ -46,9 +46,9 @@ use teeny_triton::triton::{
 /// costs end to end.
 #[kernel]
 pub fn add_typed<T: Triton, D: Float, const BLOCK: i32>(
-    a_ptr: T::Pointer<D>,
-    b_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -93,8 +93,8 @@ pub fn add_typed<T: Triton, D: Float, const BLOCK: i32>(
 /// `BLOCK`, which is what makes the result order-dependent.
 #[kernel]
 pub fn partial_sum<T: Triton, D: Float, const BLOCK: i32>(
-    in_ptr: T::Pointer<D>,
-    out_ptr: T::Pointer<D>,
+    in_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
     _n: i32,
 ) where
     T::I32Tensor: types::Tensor<i32, 1>,
@@ -126,7 +126,7 @@ const WARMUP: usize = 5;
 const ITERS: usize = 30;
 
 fn main() -> Result<()> {
-    let env = teeny_cuda::testing::setup_cuda_env()?;
+    let env = teeny_test::cuda::setup_cuda_env()?;
     let device = env.device;
     let target = Target::new(env.capability);
 
@@ -157,9 +157,9 @@ fn throughput(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target) -> R
             b.to_device(&host)?;
 
             let k = <$ktype>::new(256);
-            let ptx = std::fs::read(compile_kernel(&k, target, false)?)?;
-            let prog = teeny_cuda::testing::load_program_from_ptx::<$ktype>(&ptx)?;
-            let cfg = teeny_cuda::testing::launch_config_with_grid(N.div_ceil(256), &prog);
+            let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
+            let prog = teeny_test::cuda::load_program_from_ptx::<$ktype>(&ptx)?;
+            let cfg = teeny_test::cuda::launch_config_with_grid(N.div_ceil(256), &prog);
             let args = (
                 a.as_device_ptr() as *mut $ty,
                 b.as_device_ptr() as *mut $ty,
@@ -212,9 +212,9 @@ fn reproducibility(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target)
         let out = device.buffer::<f32>(grid)?;
 
         let k = PartialSum::<f32>::new(block);
-        let ptx = std::fs::read(compile_kernel(&k, target, false)?)?;
-        let prog = teeny_cuda::testing::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
-        let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &prog);
+        let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
+        let prog = teeny_test::cuda::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
+        let cfg = teeny_test::cuda::launch_config_with_grid(grid, &prog);
         device.launch(
             &prog,
             &cfg,
@@ -267,9 +267,9 @@ fn accumulator(device: &teeny_cuda::device::CudaDevice<'_>, target: &Target) -> 
     let out = device.buffer::<f32>(grid)?;
 
     let k = PartialSum::<f32>::new(block);
-    let ptx = std::fs::read(compile_kernel(&k, target, false)?)?;
-    let prog = teeny_cuda::testing::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
-    let cfg = teeny_cuda::testing::launch_config_with_grid(grid, &prog);
+    let ptx = std::fs::read(compile_kernel(&k, target, false, false)?)?;
+    let prog = teeny_test::cuda::load_program_from_ptx::<PartialSum<f32>>(&ptx)?;
+    let cfg = teeny_test::cuda::launch_config_with_grid(grid, &prog);
     device.launch(
         &prog,
         &cfg,

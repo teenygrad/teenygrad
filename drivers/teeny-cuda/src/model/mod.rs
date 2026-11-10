@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Teenygrad.
+ * Copyright (c) 2026 teenygrad (https://teenygrad.org).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1956,7 +1956,7 @@ impl Drop for CudaGraphModel {
 ///
 /// Create via:
 /// ```ignore
-/// let ptx = std::fs::read(compile_kernel(&AdamwStep::new(1024), &target, true)?)?;
+/// let ptx = std::fs::read(compile_kernel(&AdamwStep::new(1024), &target, true, false)?)?;
 /// let kernel = AdamwKernel::from_ptx(&ptx)?;
 /// ```
 #[cfg(feature = "training")]
