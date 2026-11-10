@@ -19,9 +19,10 @@ categories = ["hardware-support", "science", "external-ffi-bindings"]
 # there panics. A riscv64 build always launches natively, in-process, and ignores this. Compiling
 # for RISC-V needs neither and is always available.
 #
-# This crate's tests always get `teeny-test`'s QEMU helpers (enabled on the dev-dependency below),
-# which only need QEMU when called. They aren't enabled from here: release-plz treats a
-# dev-dependency a feature names as one to release first, and teeny-test depends on teeny-riscv.
+# This crate's tests always get `teeny-test`'s QEMU helpers (its `qemu-harness` feature, enabled on
+# the dev-dependency below), which only need QEMU when called. They aren't enabled from here:
+# release-plz treats a dev-dependency a feature names as one to release first, and teeny-test
+# depends on teeny-riscv. Not teeny-test's `qemu`, which would turn this crate's `qemu` back on.
 qemu = []
 
 [dependencies]
@@ -35,5 +36,5 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 teeny-kernels = { path = "../../kernels/teeny-kernels" }
-teeny-test = { workspace = true, features = ["riscv", "qemu"] }
+teeny-test = { workspace = true, features = ["riscv", "qemu-harness"] }
 dotenv.workspace = true

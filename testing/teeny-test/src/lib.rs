@@ -22,8 +22,8 @@
 //!   [`read_compiled_asm`] are driver-agnostic and always available.
 //! - [`cuda`] (feature `cuda`) wraps `teeny-cuda`'s device/program types for test setup.
 //! - [`riscv`] (feature `riscv`) wraps `teeny-riscv`'s host-tool discovery; its [`riscv::qemu`]
-//!   submodule (feature `qemu`, additionally) can actually execute a compiled kernel under
-//!   `qemu-riscv64`.
+//!   submodule (feature `qemu-harness`, which `qemu` implies) can actually execute a compiled
+//!   kernel under `qemu-riscv64`.
 //! - [`model`] (feature `cuda` or `riscv`) runs a whole lowered graph on whichever backend
 //!   `teeny-runtime` was built for, for cross-backend correctness checks.
 

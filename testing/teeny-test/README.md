@@ -29,10 +29,12 @@ With features:
 | Feature | Module | Provides |
 |---|---|---|
 | `cuda` | `cuda` | `setup_cuda_env` (opens the first device; `TEENYC_CAPABILITY` overrides its compute capability), launch-config helpers, loading a program from PTX |
-| `riscv` + `qemu` | `riscv`, `riscv::qemu` | `setup_qemu_env`, which finds `qemu-riscv64` and a `riscv64-linux-gnu` cross C compiler (`TEENYC_QEMU_RISCV64` / `TEENYC_RISCV_CC` override them), and runs a compiled kernel under user-mode emulation |
+| `cuda` or `riscv` | `model` | `RuntimeModel`, which runs a whole lowered graph on whichever backend `teeny-runtime` was built for, for cross-backend correctness checks |
+| `riscv` + `qemu-harness` | `riscv`, `riscv::qemu` | `setup_qemu_env`, which finds `qemu-riscv64` and a `riscv64-linux-gnu` cross C compiler (`TEENYC_QEMU_RISCV64` / `TEENYC_RISCV_CC` override them), and runs a compiled kernel under user-mode emulation |
+| `riscv` + `qemu` | as above | `qemu-harness`, plus `teeny-runtime/qemu`, so `RuntimeModel` and every `teeny-riscv` device launch in the build run under QEMU |
 
-`riscv` on its own only brings in `teeny-riscv`. Compiling a kernel for RISC-V works on any host,
-and only running one needs `qemu`.
+Compiling a kernel for RISC-V works on any host; only running one needs QEMU. Take
+`qemu-harness` when your tests call the helpers directly, and `qemu` to run whole models.
 
 ## Prerequisites
 

@@ -17,10 +17,10 @@
 //! RISC-V test support. Compiling a kernel for RISC-V (`teeny_riscv::compiler::compile_kernel`)
 //! works on any host, since it only shells out to `teenyc`/LLVM. *Running* the compiled `.so`
 //! needs RISC-V hardware or user-mode emulation -- see [`qemu`] (gated behind the separate
-//! `qemu` feature, since it needs `qemu-riscv64` and a `riscv64-linux-gnu` cross toolchain on
-//! the host, not just this crate's `riscv` feature).
+//! `qemu-harness` feature, which `qemu` implies, since it needs `qemu-riscv64` and a
+//! `riscv64-linux-gnu` cross toolchain on the host, not just this crate's `riscv` feature).
 
-#[cfg(feature = "qemu")]
+#[cfg(feature = "qemu-harness")]
 use anyhow::{Context, Result, bail};
 
 /// RISC-V-related host tools resolved for a test run: a cross C compiler for
@@ -30,9 +30,9 @@ use anyhow::{Context, Result, bail};
 /// `TEENYC_QEMU_RISCV64` env vars (e.g. for a toolchain installed under a non-standard prefix).
 /// Resolution fails clearly (rather than skipping the test silently) when a tool the caller
 /// needs isn't found -- see [`qemu::setup_qemu_env`], the only current caller. Only meaningful
-/// alongside the `qemu` feature -- these tools are for actually *running* a compiled kernel,
+/// alongside the `qemu-harness` feature -- these tools are for actually *running* a compiled kernel,
 /// not compiling one.
-#[cfg(feature = "qemu")]
+#[cfg(feature = "qemu-harness")]
 pub struct RiscvHostTools {
     /// Path (or bare name) of the `riscv64-linux-gnu-gcc`-equivalent cross C compiler.
     pub cc: String,
@@ -42,14 +42,14 @@ pub struct RiscvHostTools {
 
 /// Resolves [`RiscvHostTools`], erroring with a clear, actionable message if a requested tool
 /// can't be found on `PATH` (via `which`) or the overriding env var doesn't point to a real file.
-#[cfg(feature = "qemu")]
+#[cfg(feature = "qemu-harness")]
 pub(crate) fn resolve_host_tools() -> Result<RiscvHostTools> {
     let cc = resolve_tool("TEENYC_RISCV_CC", "riscv64-linux-gnu-gcc")?;
     let qemu = resolve_tool("TEENYC_QEMU_RISCV64", "qemu-riscv64")?;
     Ok(RiscvHostTools { cc, qemu })
 }
 
-#[cfg(feature = "qemu")]
+#[cfg(feature = "qemu-harness")]
 fn resolve_tool(env_var: &str, default_name: &str) -> Result<String> {
     if let Ok(path) = std::env::var(env_var) {
         if !std::path::Path::new(&path).is_file() {
@@ -66,7 +66,7 @@ fn resolve_tool(env_var: &str, default_name: &str) -> Result<String> {
     })
 }
 
-#[cfg(feature = "qemu")]
+#[cfg(feature = "qemu-harness")]
 fn which_on_path(name: &str) -> Result<String> {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     for dir in std::env::split_paths(&path_var) {
@@ -78,7 +78,7 @@ fn which_on_path(name: &str) -> Result<String> {
     bail!("'{name}' not found in any PATH directory")
 }
 
-#[cfg(feature = "qemu")]
+#[cfg(feature = "qemu-harness")]
 /// Compiling the placeholder kernel's `.so` to a real host executable that `dlopen`s and calls
 /// it, run under `qemu-riscv64`.
 pub mod qemu;
