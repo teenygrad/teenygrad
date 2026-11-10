@@ -15,7 +15,11 @@ categories = ["command-line-utilities", "science"]
 default = []
 # Enables the "cuda" --device backend (teeny-cuda) and the smoke-test binary,
 # which AOT-compiles teeny-vision's LeNet-5 against it.
-cuda = ["dep:teeny-cuda", "dep:teeny-kernels", "dep:teeny-vision"]
+cuda = ["dep:teeny-cuda", "dep:teeny-kernels", "teeny-kernels/cuda", "dep:teeny-vision"]
+# Enables the "riscv" --device backend (teeny-riscv). Needs no CUDA toolkit: teeny-kernels is
+# pulled in with its default (cuda) feature off. The smoke-test binary stays CUDA-only, since
+# teeny-vision depends on teeny-cuda unconditionally.
+riscv = ["dep:teeny-riscv", "dep:teeny-kernels", "teeny-kernels/riscv"]
 
 [lib]
 
@@ -27,7 +31,10 @@ required-features = ["cuda"]
 [dependencies]
 teeny-core.workspace = true
 teeny-cuda = { workspace = true, optional = true }
-teeny-kernels = { workspace = true, optional = true }
+teeny-riscv = { workspace = true, optional = true }
+# A path dep rather than `workspace = true`: the workspace entry leaves `default-features` on, and
+# teeny-kernels defaults to `cuda`, which a `riscv`-only build must not pull in.
+teeny-kernels = { path = "../../kernels/teeny-kernels", version = "0.2.1", default-features = false, features = ["training"], optional = true }
 teeny-vision = { workspace = true, optional = true }
 clap.workspace = true
 anyhow.workspace = true

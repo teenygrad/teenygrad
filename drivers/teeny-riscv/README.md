@@ -22,6 +22,13 @@ emulation (e.g. `qemu-riscv64`) — this was verified manually during developmen
 the automated test suite here, since that requires cross-compiling and running the test binary
 itself for `riscv64gc-unknown-linux-gnu`, not just the kernel.
 
+## Ahead-of-time compilation
+
+`compiler::aot::compile_graph` lowers a traced `teeny-core` graph and compiles each op's forward
+kernel into a cache directory, keyed by kernel id and capability. Options are parsed by
+`compiler::options::Options::parse` from strings like `"capability=spacemit-k3,log-level=debug"`.
+This is what `teeny-cli`'s `--device riscv` backend (feature `riscv`) calls.
+
 ## Prerequisites
 
 Like `teeny-cuda`, kernel compilation shells out to the `teenyc` compiler at runtime — see
