@@ -17,10 +17,15 @@ categories = ["development-tools::testing", "science"]
 default = []
 cuda = ["dep:teeny-cuda", "dep:teeny-runtime", "teeny-runtime/cuda"]
 riscv = ["dep:teeny-riscv", "dep:teeny-runtime", "teeny-runtime/riscv"]
-# Meaningful only combined with `riscv` -- gates the `riscv::qemu` submodule that shells out to
-# `qemu-riscv64` and a `riscv64-linux-gnu-gcc` cross toolchain to actually execute a compiled
-# kernel, rather than just compiling it, and makes `model::RuntimeModel` launch under qemu.
-qemu = ["teeny-runtime?/qemu"]
+# Meaningful only combined with `riscv`. `qemu-harness` gates just the `riscv::qemu` submodule,
+# which shells out to `qemu-riscv64` and a `riscv64-linux-gnu-gcc` cross toolchain to execute a
+# compiled kernel rather than just compiling it. `qemu` adds making `model::RuntimeModel` (and
+# every teeny-riscv device launch in the build) run under qemu, via `teeny-runtime/qemu`.
+#
+# teeny-riscv's own tests take `qemu-harness`, not `qemu`: `qemu` turns teeny-riscv's `qemu`
+# feature on, which would make a plain `cargo test --workspace` run its QEMU tests.
+qemu-harness = []
+qemu = ["qemu-harness", "teeny-runtime?/qemu"]
 
 [dependencies]
 teeny-core.workspace = true
