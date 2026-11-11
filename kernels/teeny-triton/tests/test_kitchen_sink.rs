@@ -81,7 +81,7 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let bto = T::broadcast_to(ba, &[BLOCK_SIZE]);
     let ex = T::expand_dims(bto, 0);
     let p = T::permute(ex, &[0]);
-    let rs = T::reshape(p, &[BLOCK_SIZE], false);
+    let rs = T::reshape(p, &[2 * BLOCK_SIZE], false);
     let tr = T::trans(rs, &[0]);
     let rv = T::ravel(tr, false);
     let vw = T::view(rv, &[BLOCK_SIZE]);
