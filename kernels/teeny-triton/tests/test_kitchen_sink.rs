@@ -75,21 +75,26 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let _ = T::full::<D>(&[BLOCK_SIZE], dummy_value::<D>());
     let casted = T::cast::<D, D>(z, Some(FpDowncastRounding::Rtne), false);
     let _casted_rtz = T::cast::<D, D>(casted, Some(FpDowncastRounding::Rtz), true);
+    // Shapes have to stay consistent: teenyc rejects a shape op given a shape it can't
+    // produce. `cat` doubles [BLOCK_SIZE] to [2 * BLOCK_SIZE].
     let cat = T::cat(z, zl, true);
 
     let (ba, bb) = T::broadcast(cat, cat);
-    let bto = T::broadcast_to(ba, &[BLOCK_SIZE]);
+    let bto = T::broadcast_to(ba, &[2 * BLOCK_SIZE]);
     let ex = T::expand_dims(bto, 0);
-    let p = T::permute(ex, &[0]);
+    let p = T::permute(ex, &[1, 0]);
     let rs = T::reshape(p, &[2 * BLOCK_SIZE], false);
     let tr = T::trans(rs, &[0]);
     let rv = T::ravel(tr, false);
-    let vw = T::view(rv, &[BLOCK_SIZE]);
+    let vw = T::view(rv, &[2 * BLOCK_SIZE]);
     let jn = T::join(vw, bb);
-    let il = T::interleave(jn, jn);
-    let (sp0, sp1) = T::split(il);
+    let _il = T::interleave(jn, jn);
+    let (sp0, sp1) = T::split(jn);
 
-    let dot = T::dot::<D, D>(sp0, sp1, None, InputPrecision::TF32, Some(1));
+    // 2 * BLOCK_SIZE = 2048 = 32 * 64.
+    let lhs = T::view(sp0, &[32, 64]);
+    let rhs = T::view(sp1, &[64, 32]);
+    let dot = T::dot::<D, D>(lhs, rhs, None, InputPrecision::TF32, Some(1));
     let _dot_tf32x3 = T::dot::<D, D>(dot, dot, None, InputPrecision::TF32x3, None);
     let _dot_ieee = T::dot::<D, D>(dot, dot, None, InputPrecision::IEEE, None);
     let scale = zl;
