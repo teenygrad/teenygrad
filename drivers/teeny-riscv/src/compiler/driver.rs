@@ -33,11 +33,10 @@ use crate::errors::Result;
 /// - `debug`: when `true`, enable the same `teenyc` pipeline-stage logging as
 ///   `teeny_cuda::compiler::compile_kernel`'s `debug` parameter.
 ///
-/// The underlying backend (`RiscvBackend`) is still a stub -- every kernel compiles to the same
-/// placeholder no-argument `void @<name>()` function regardless of `kernel`'s actual body (see
-/// the crate README) -- so this only proves the compile pipeline (real LLVM RISC-V codegen,
-/// linked via `ld.lld`) produces a genuine RISC-V shared object, not that it runs `kernel`'s
-/// logic.
+/// The output is a RISC-V ELF shared object with `kernel`'s Triton body lowered through
+/// `teenyc`'s RISC-V backend. `target`'s capability is passed as the target cpu, but `teenyc`
+/// doesn't map chip names to LLVM cpus yet, so every capability currently gets generic RV64
+/// codegen with the vector extension (see the crate README).
 pub fn compile_kernel(
     kernel: &impl Kernel,
     target: &Target,
