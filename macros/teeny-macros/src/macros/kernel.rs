@@ -19,7 +19,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
     Expr, FnArg, GenericArgument, GenericParam, Ident, ItemFn, MetaNameValue, Pat, PatType,
-    PathArguments, Token, Type, TypeParamBound, parse::Parser, parse_macro_input,
+    PathArguments, Token, Type, TypeParamBound, WherePredicate, parse::Parser, parse_macro_input,
     punctuated::Punctuated,
 };
 
@@ -45,6 +45,50 @@ enum PtrArgKind {
     InOut,
     /// Bare `HW::Pointer<D>` with no In/Out marker.
     Raw,
+}
+
+/// Whether `bounds` include a `Triton` trait bound (by last path segment, so `Triton`,
+/// `teeny_triton::triton::Triton` and `Triton<I32Tensor = ...>` all count).
+fn has_triton_bound<'b>(mut bounds: impl Iterator<Item = &'b TypeParamBound>) -> bool {
+    bounds.any(|b| {
+        matches!(b, TypeParamBound::Trait(tb)
+            if tb.path.segments.last().is_some_and(|s| s.ident == "Triton"))
+    })
+}
+
+/// The hardware type parameter: the type parameter with a `Triton` bound, written either inline
+/// (`T: Triton`) or in the where clause (`where T: Triton<...>`). The where-clause form is the
+/// only place an associated-type equality such as `I32Tensor = Tensor<i32>` can go, and
+/// requiring the bound inline as well would make such kernels repeat it.
+fn find_hw_param(generics: &syn::Generics) -> Option<Ident> {
+    let type_params = || {
+        generics.params.iter().filter_map(|p| match p {
+            GenericParam::Type(tp) => Some(tp),
+            _ => None,
+        })
+    };
+    let inline = type_params().find(|tp| has_triton_bound(tp.bounds.iter()));
+    let in_where = || {
+        generics
+            .where_clause
+            .as_ref()?
+            .predicates
+            .iter()
+            .find_map(|pred| {
+                let WherePredicate::Type(pt) = pred else {
+                    return None;
+                };
+                let Type::Path(tp) = &pt.bounded_ty else {
+                    return None;
+                };
+                let ident = tp.path.get_ident()?;
+                (tp.qself.is_none()
+                    && has_triton_bound(pt.bounds.iter())
+                    && type_params().any(|p| p.ident == *ident))
+                .then(|| ident.clone())
+            })
+    };
+    inline.map(|tp| tp.ident.clone()).or_else(in_where)
 }
 
 fn extract_single_generic_type(seg: &syn::PathSegment) -> Option<Type> {
@@ -298,29 +342,7 @@ pub fn kernel(attrs: TokenStream, item: TokenStream) -> TokenStream {
         attrs.iter().filter(|a| a.path().is_ident("doc")).collect();
 
     // 2. Find the hardware type param — the one with a `Triton` bound.
-    let hw_ident: Ident = input
-        .sig
-        .generics
-        .params
-        .iter()
-        .find_map(|p| {
-            if let GenericParam::Type(tp) = p {
-                let is_hw = tp.bounds.iter().any(|b| {
-                    if let TypeParamBound::Trait(tb) = b {
-                        tb.path
-                            .segments
-                            .last()
-                            .map(|s| s.ident == "Triton")
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    }
-                });
-                if is_hw { Some(tp.ident.clone()) } else { None }
-            } else {
-                None
-            }
-        })
+    let hw_ident: Ident = find_hw_param(&input.sig.generics)
         .expect("#[kernel] requires a type parameter with a `Triton` bound");
 
     // Trait-bound name of the first non-hw dtype type parameter (e.g. `Float`),
