@@ -257,6 +257,33 @@ impl<T> From<T> for T {
     }
 }
 
+// Kernel bodies are type-checked against `std` in the source crate but compiled against this
+// file, so a conversion `std` provides (`f64::from(w - 1)`) has to exist here as well or the
+// kernel only fails once `teenyc` compiles it. These are `std`'s lossless primitive conversions,
+// minus `isize`/`usize` and the 128-bit types, which kernels can't use.
+macro_rules! lossless_from {
+    ($($from:ty => $($to:ty),+;)+) => {
+        $($(
+            impl From<$from> for $to {
+                fn from(value: $from) -> Self {
+                    value as $to
+                }
+            }
+        )+)+
+    };
+}
+
+lossless_from! {
+    bool => u8, u16, u32, u64, i8, i16, i32, i64;
+    u8 => u16, u32, u64, i16, i32, i64, f32, f64;
+    u16 => u32, u64, i32, i64, f32, f64;
+    u32 => u64, i64, f64;
+    i8 => i16, i32, i64, f32, f64;
+    i16 => i32, i64, f32, f64;
+    i32 => i64, f64;
+    f32 => f64;
+}
+
 impl<T, U> Into<U> for T
 where
     U: From<T>,
