@@ -302,6 +302,41 @@ fn kitchen_sink<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let _ = block_ptr2;
 }
 
+/// Replaces the crate disambiguator in v0-mangled symbols (`Cs<hash>_<len>kitchen_sink...`) with
+/// `<hash>`. It's derived from the compiler build, so without this the MLIR snapshot changes with
+/// every `teenyc` release even when the generated code doesn't.
+fn redact_crate_hash(mlir: &str) -> String {
+    const CRATE: &str = "kitchen_sink_";
+    let mut out = String::with_capacity(mlir.len());
+    let mut rest = mlir;
+    while let Some(at) = rest.find(CRATE) {
+        let (head, tail) = rest.split_at(at);
+        // `head` ends in `_R<tags>Cs<hash>_<len>`: keep `Cs` and `_<len>`, drop the hash between
+        // them. The first `Cs` after the symbol's `_R` is the one that starts the hash; searching
+        // back from the end could stop at a `Cs` inside the base62 hash itself.
+        let len_start = head.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        let hash_start = |h: &str| {
+            let sym = h.rfind("_R")?;
+            h[sym..].find("Cs").map(|cs| sym + cs)
+        };
+        match head[..len_start]
+            .strip_suffix('_')
+            .and_then(|h| hash_start(h).map(|cs| (h, cs)))
+        {
+            Some((h, cs)) => {
+                out.push_str(&h[..cs + 2]);
+                out.push_str("<hash>");
+                out.push_str(&head[len_start - 1..]);
+            }
+            None => out.push_str(head),
+        }
+        out.push_str(CRATE);
+        rest = &tail[CRATE.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[test]
 fn test_kitchen_sink() -> anyhow::Result<()> {
     let kernel = KitchenSink::<f32>::new(1024);
@@ -315,7 +350,7 @@ fn test_kitchen_sink() -> anyhow::Result<()> {
     let mlir = std::fs::read_to_string(ptx_path.with_extension("mlir"))?;
 
     assert_debug_snapshot!("kitchen_sink_source", kernel.source());
-    assert_debug_snapshot!("kitchen_sink_mlir", mlir.trim());
+    assert_debug_snapshot!("kitchen_sink_mlir", redact_crate_hash(mlir.trim()));
 
     Ok(())
 }
