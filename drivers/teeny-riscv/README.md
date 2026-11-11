@@ -6,21 +6,19 @@ loading a compiled kernel's shared library and calling its exported symbol.
 
 ## Status
 
-Early scaffold. The underlying `teeny` compiler fork's RISC-V codegen (`RiscvBackend`) is still a
-stub: every kernel currently compiles to the same placeholder no-argument `void @<name>()`
-function regardless of source, through a real LLVM RISC-V `TargetMachine` and linked into a real
-ELF shared library via `ld.lld`. There is no chip-name-to-LLVM-cpu/feature mapping yet (this
-crate's `Capability` values are accepted by the compiler invocation but not yet honored by
-codegen), and no real MIR/Triton-to-LLVM-IR lowering, so real per-kernel argument passing isn't
-possible yet.
+Kernels compile through the `teeny` compiler fork's RISC-V backend: their Triton bodies are
+lowered to LLVM IR, compiled with LLVM's RISC-V `TargetMachine` and linked into an ELF shared
+library with `ld.lld`. Built for a `riscv64` host, `RiscvDevice` loads that library and runs the
+kernel natively; on any other host it runs it under `qemu-riscv64` with the `qemu` feature.
 
-This crate's own tests only exercise that pipeline against the current placeholder kernel:
-compiling it via `LlvmCompiler` with the `riscv64-generic` target, and verifying the output is a
-well-formed RISC-V ELF shared object. Actually `dlopen`/calling the compiled kernel (via
-[`runtime::KernelLibrary`]) requires running on real RISC-V hardware or under RISC-V user-mode
-emulation (e.g. `qemu-riscv64`) — this was verified manually during development but isn't part of
-the automated test suite here, since that requires cross-compiling and running the test binary
-itself for `riscv64gc-unknown-linux-gnu`, not just the kernel.
+There is no chip-name-to-LLVM-cpu mapping yet: `Capability` values are passed to the compiler as
+the target cpu, but every one currently gets generic RV64 codegen with the vector extension, not
+chip-specific tuning.
+
+This crate's tests compile a real kernel and check the output is a well-formed RISC-V ELF shared
+object exporting its entry point (`test_compile_riscv.rs`), and, with the `qemu` feature, run it
+under `qemu-riscv64` and check its results (`test_qemu_relu.rs`). `teeny-kernels`' snapshot and
+execution tests (features `riscv`, plus `qemu,hardware` to execute) cover the full kernel set.
 
 ## Ahead-of-time compilation
 
