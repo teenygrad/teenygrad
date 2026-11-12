@@ -39,7 +39,8 @@ pub struct CompilerOptions {
     /// `teeny_test::read_compiled_asm`); on RISC-V it is the only readable form of the kernel,
     /// since the object there is a linked shared library.
     pub emit_asm: bool,
-    /// Emit the object file (`.o`) -- the artifact that actually gets loaded and launched.
+    /// Emit the binary -- the artifact that actually gets loaded and launched: PTX (`.o`) for
+    /// CUDA, a linked shared object (`.so`) for RISC-V.
     pub emit_bin: bool,
 }
 
