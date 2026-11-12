@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-compiler-v0.3.0...teeny-compiler-v0.3.1) - 2026-11-11
 
+### Fixed
+
+- *(teeny-compiler)* name the RISC-V kernel binary .so ([#136](https://github.com/teenygrad/teenygrad/pull/136))
+
 ### Other
 
+- *(teeny-kernels)* add the #133 division regression test and update CUDA snapshots ([#134](https://github.com/teenygrad/teenygrad/pull/134))
 - *(teeny-compiler)* update the sm90 snapshot for core.rs's line shift ([#126](https://github.com/teenygrad/teenygrad/pull/126))
 
 ## [0.3.0](https://github.com/teenygrad/teenygrad/compare/teeny-compiler-v0.2.1...teeny-compiler-v0.3.0) - 2026-11-10

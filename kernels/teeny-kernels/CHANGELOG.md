@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(teeny-triton)* give the kernel core std's lossless From conversions ([#123](https://github.com/teenygrad/teenygrad/pull/123))
 
+### Other
+
+- *(teeny-kernels)* add #133 bounds-mask and strided-copy regression tests ([#135](https://github.com/teenygrad/teenygrad/pull/135))
+- *(teeny-kernels)* add the #133 division regression test and update CUDA snapshots ([#134](https://github.com/teenygrad/teenygrad/pull/134))
+
 ## [0.3.0](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.2.1...teeny-kernels-v0.3.0) - 2026-11-10
 
 ### Other

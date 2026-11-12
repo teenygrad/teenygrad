@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
+- *(teeny-kernels)* add the #133 division regression test and update CUDA snapshots ([#134](https://github.com/teenygrad/teenygrad/pull/134))
 - *(teeny-triton)* keep the kitchen sink's shapes consistent ([#130](https://github.com/teenygrad/teenygrad/pull/130))
 - *(teeny-triton)* reshape the kitchen sink's [1, 2048] tensor to [2048] ([#128](https://github.com/teenygrad/teenygrad/pull/128))
 - *(teeny-triton)* mask the crate hash in the kitchen-sink MLIR snapshot ([#127](https://github.com/teenygrad/teenygrad/pull/127))
