@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-core-v0.3.0...teeny-core-v0.3.1) - 2026-11-12
+
+### Fixed
+
+- *(teeny-compiler)* name the RISC-V kernel binary .so ([#136](https://github.com/teenygrad/teenygrad/pull/136))
+
 ## [0.2.1](https://github.com/teenygrad/teenygrad/compare/teeny-core-v0.2.0...teeny-core-v0.2.1) - 2026-11-10
 
 ### Other

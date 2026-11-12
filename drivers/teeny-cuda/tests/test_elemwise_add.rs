@@ -57,6 +57,11 @@ fn test_tensor_add() -> Result<()> {
     let target = Target::new(env.capability);
     let ptx_path = compile_kernel(&kernel, &target, true, false)?;
     println!("[6/9] compiled PTX: {ptx_path}");
+    // Only RISC-V's linked shared object is named `.so` (#120); the PTX keeps `.o`.
+    assert!(
+        ptx_path.ends_with(".o"),
+        "{ptx_path} should keep its .o name"
+    );
     let ptx = std::fs::read(&ptx_path)?;
     println!("      PTX size: {} bytes", ptx.len());
     println!(

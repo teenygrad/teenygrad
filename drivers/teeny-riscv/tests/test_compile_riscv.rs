@@ -37,6 +37,15 @@ fn compiles_to_a_riscv_elf_shared_library() -> anyhow::Result<()> {
     let target = Target::new(Capability::GenericRvv1_0);
 
     let output_path = compile_kernel(&kernel, &target, true, false)?;
+    // The file is a linked shared object, to be `dlopen`ed as is; a `.o` name sent callers off
+    // trying to link it (#120).
+    assert_eq!(
+        std::path::Path::new(&output_path)
+            .extension()
+            .and_then(|e| e.to_str()),
+        Some("so"),
+        "{output_path} should be named for the shared object it is"
+    );
     let bytes = std::fs::read(&output_path)?;
 
     assert_eq!(
