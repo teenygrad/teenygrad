@@ -211,18 +211,21 @@ fn an_unshaped_operand_is_refused() {
 /// [3, 8, 129]  @ [129, 8]                    0.0077
 /// ```
 ///
-/// The unbatched `[8, 8] @ [8, 5]` is wrong too, so this is not about batching. What
-/// every failing case shares is `k` below `BLOCK_K` (8, 6 and 1 against a block that
-/// stays at 16 or 32 on CUDA, since `pick_gemm_tile_sizes` only clamps it where
-/// `PARTIAL_K_TILE_IS_PADDED` is false), or a K tail of a single lane at k = 129. It
-/// is the same 16-byte descriptor granularity as `a_partial_k_tile_is_dropped`: the
-/// contracted axis is read in 16-byte units, so a short or ragged K is not padded
-/// with zeros the way the kernel assumes. The `[3, 8, 129]` case at 0.0077 is just
-/// TF32 against a 1e-3 tolerance and is a separate, harmless matter.
+/// The unbatched `[8, 8] @ [8, 5]` is wrong too, so this is not about batching, and it
+/// is not ours either: teenygrad#143. Upstream's own unmodified `MatmulForward`, run
+/// directly in a clean worktree, is wrong on CUDA whenever `k` or `n` is not a multiple
+/// of 4, exact whenever it is, and exact for every case on RISC-V. Those are the
+/// innermost extents of the three tensor descriptors, so a `k` or `n` that is not a
+/// multiple of 4 f32 gives a row stride that is not a multiple of 16 bytes and
+/// `PaddingOption::Zero` stops holding. At `BLOCK_N` 4 the same shape faults with
+/// `CUDA error: 716 (misaligned address)` instead of answering wrongly.
 ///
-/// Unreported upstream so far. teenygrad#141 keeps `tt.divisibility = 16` on pointer
-/// arguments deliberately, to hold on to 4-wide vectorisation, so this needs its own
-/// issue against that choice rather than a re-open of #133.
+/// Every case here fits that: `n` of 5 and 9, and `k` of 1, 6 and 129. The
+/// `[3, 8, 129]` case at 0.0077 is just TF32 against a 1e-3 tolerance and would pass a
+/// looser one.
+///
+/// So these stay ignored on CUDA until #143 is fixed, not because of anything in
+/// `matmul_forward`'s batching or K tail, both of which are exact on RISC-V.
 #[cfg(all(feature = "hardware", any(feature = "cuda", feature = "riscv")))]
 mod execution {
     use super::*;
@@ -309,7 +312,7 @@ mod execution {
             #[test]
             #[cfg_attr(
                 feature = "cuda",
-                ignore = "CUDA matmul is wrong for k below BLOCK_K, see the module note"
+                ignore = "CUDA matmul is wrong for ragged k or n, teenygrad#143"
             )]
             fn $name() {
                 run(&$a, &$b);
@@ -372,7 +375,7 @@ mod execution {
     #[test]
     #[cfg_attr(
         feature = "cuda",
-        ignore = "CUDA matmul is wrong for k below BLOCK_K, see the module note"
+        ignore = "CUDA matmul is wrong for ragged k or n, teenygrad#143"
     )]
     fn every_contracted_extent_is_summed_whole() {
         for k in [1usize, 2, 3, 4, 5, 6, 7, 8, 9, 12, 20, 28, 33] {
@@ -398,7 +401,7 @@ mod execution {
     /// this workspace does a 2-D masked load yet.
     #[cfg(feature = "cuda")]
     #[test]
-    #[ignore = "CUDA drops a K tail of 1 to 3 lanes; 16-byte descriptor granularity"]
+    #[ignore = "CUDA is wrong for ragged k or n, teenygrad#143"]
     fn a_short_k_tail_on_cuda() {
         run(&[64, 6], &[6, 64]);
         run(&[64, 257], &[257, 64]);
@@ -412,7 +415,7 @@ mod execution {
     #[test]
     #[cfg_attr(
         feature = "cuda",
-        ignore = "CUDA matmul is wrong for k below BLOCK_K, see the module note"
+        ignore = "CUDA matmul is wrong for ragged k or n, teenygrad#143"
     )]
     fn a_k_tail_in_the_wider_tiles() {
         run(&[8, 44], &[44, 8]);
