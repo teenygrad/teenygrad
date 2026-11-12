@@ -41,6 +41,13 @@ pub mod mem;
 /// Compiled kernel programs.
 pub mod program;
 
+/// The alignment, in bytes, every kernel pointer argument must have. teenyc declares each one
+/// `tt.divisibility = 16`, and Triton then issues 16-byte vector loads and stores through it; a
+/// less aligned pointer makes the kernel fault with "misaligned address", which also poisons the
+/// CUDA context. `cuMemAlloc` returns 256-byte aligned memory, so only a pointer offset into a
+/// buffer can fall short.
+pub const KERNEL_POINTER_ALIGNMENT: usize = 16;
+
 /// Packs kernel arguments into the `void**` array expected by `cuLaunchKernel`.
 ///
 /// Each argument's value is stored as raw bytes in `values`. After visiting all
@@ -48,6 +55,9 @@ pub mod program;
 /// those buffers — the slice lifetime is tied to `self`.
 pub struct CudaArgPacker {
     values: Vec<Vec<u8>>,
+    /// The first pointer argument that isn't [`KERNEL_POINTER_ALIGNMENT`]-aligned, as
+    /// `(index, address)`; every launch path refuses to launch while this is set.
+    misaligned: Option<(usize, usize)>,
 }
 
 impl Default for CudaArgPacker {
@@ -59,7 +69,19 @@ impl Default for CudaArgPacker {
 impl CudaArgPacker {
     /// Creates an empty argument packer.
     pub fn new() -> Self {
-        Self { values: Vec::new() }
+        Self {
+            values: Vec::new(),
+            misaligned: None,
+        }
+    }
+
+    /// Fails with [`Error::MisalignedPointerArg`] if any pointer argument isn't
+    /// [`KERNEL_POINTER_ALIGNMENT`]-aligned, which must be checked before `cuLaunchKernel`.
+    fn check_pointer_alignment(&self) -> Result<()> {
+        match self.misaligned {
+            Some((index, address)) => Err(Error::MisalignedPointerArg { index, address }.into()),
+            None => Ok(()),
+        }
     }
 
     fn push_bytes(&mut self, bytes: &[u8]) {
@@ -79,7 +101,11 @@ impl CudaArgPacker {
 
 impl ArgVisitor for CudaArgPacker {
     fn visit_ptr(&mut self, ptr: *mut core::ffi::c_void) {
-        self.push_bytes(&(ptr as usize).to_ne_bytes());
+        let address = ptr as usize;
+        if self.misaligned.is_none() && !address.is_multiple_of(KERNEL_POINTER_ALIGNMENT) {
+            self.misaligned = Some((self.values.len(), address));
+        }
+        self.push_bytes(&address.to_ne_bytes());
     }
     fn visit_bool(&mut self, val: bool) {
         self.push_bytes(&[val as u8]);
@@ -318,6 +344,10 @@ impl<'a> Device<'a> for CudaDevice<'a> {
         cfg: &Self::LaunchConfig,
         args: K::Args<'a>,
     ) -> teeny_core::errors::Result<()> {
+        let mut packer = CudaArgPacker::new();
+        args.visit_args(&mut packer);
+        packer.check_pointer_alignment()?;
+
         // Allocate global scratch memory for TMA descriptors if the kernel requires it.
         // Total scratch = per-CTA scratch * number of CTAs in the launch grid.
         let num_ctas = (cfg.grid[0] * cfg.grid[1] * cfg.grid[2]) as u64;
@@ -335,8 +365,6 @@ impl<'a> Device<'a> for CudaDevice<'a> {
             unsafe { cuda::cuMemsetD8_v2(scratch_ptr, 0, scratch_total as usize) };
         }
 
-        let mut packer = CudaArgPacker::new();
-        args.visit_args(&mut packer);
         // Trailing Triton kernel parameters: global scratch pad + profile scratch pad.
         packer.visit_ptr(scratch_ptr as *mut std::ffi::c_void); // global scratch pad
         packer.visit_ptr(std::ptr::null_mut()); // profile scratch pad (unused)
@@ -398,6 +426,7 @@ impl<'a> CudaDevice<'a> {
         packer: &mut CudaArgPacker,
         stream: cuda::CUstream,
     ) -> Result<()> {
+        packer.check_pointer_alignment()?;
         let mut ptrs = packer.as_ptrs();
         Self::ensure_dynamic_shared(program.function, program.metadata.shared)?;
         let status = unsafe {
@@ -433,6 +462,7 @@ impl<'a> CudaDevice<'a> {
         cfg: &CudaLaunchConfig,
         packer: &mut CudaArgPacker,
     ) -> Result<()> {
+        packer.check_pointer_alignment()?;
         let num_ctas = (cfg.grid[0] * cfg.grid[1] * cfg.grid[2]) as u64;
         let scratch_total = program.metadata.global_scratch_size * num_ctas;
         let mut scratch_ptr: cuda::CUdeviceptr = 0;
@@ -483,5 +513,41 @@ impl<'a> CudaDevice<'a> {
             return Err(Error::from_cuda_error(sync_status).into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn packed(args: &[usize]) -> CudaArgPacker {
+        let mut packer = CudaArgPacker::new();
+        packer.visit_i32(7);
+        for &address in args {
+            packer.visit_ptr(address as *mut core::ffi::c_void);
+        }
+        packer
+    }
+
+    #[test]
+    fn aligned_and_null_pointers_pass() {
+        assert!(
+            packed(&[0, 0x7f00_0000, 0x7f00_0010])
+                .check_pointer_alignment()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn first_misaligned_pointer_is_reported_with_its_index() {
+        let err = packed(&[0x7f00_0000, 0x7f00_0004, 0x7f00_0008])
+            .check_pointer_alignment()
+            .expect_err("0x7f000004 is not 16-byte aligned");
+        match err.downcast_ref::<Error>() {
+            Some(Error::MisalignedPointerArg { index, address }) => {
+                assert_eq!((*index, *address), (2, 0x7f00_0004));
+            }
+            other => panic!("expected MisalignedPointerArg, got {other:?}"),
+        }
     }
 }
