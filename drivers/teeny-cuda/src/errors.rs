@@ -61,6 +61,20 @@ pub enum Error {
         buf: usize,
     },
 
+    /// A kernel pointer argument wasn't [`crate::device::KERNEL_POINTER_ALIGNMENT`]-byte aligned,
+    /// so the launch was refused before it could fault.
+    #[error(
+        "kernel pointer argument {index} ({address:#x}) is not 16-byte aligned; teenyc compiles \
+         kernels assuming every pointer argument is, so pass a buffer's own pointer rather than \
+         one offset into it"
+    )]
+    MisalignedPointerArg {
+        /// Position of the argument in the kernel's parameter list.
+        index: usize,
+        /// The pointer's address.
+        address: usize,
+    },
+
     /// A `--options`-style compiler options string ([`crate::compiler::options::Options::parse`])
     /// was malformed.
     #[error("invalid compiler options '{input}': {reason}")]
