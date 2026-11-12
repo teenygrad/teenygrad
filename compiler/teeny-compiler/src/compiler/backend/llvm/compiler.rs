@@ -213,6 +213,18 @@ impl LlvmCompiler {
         self
     }
 
+    /// The extension of the binary `teenyc` emits for this target, named for what the file is.
+    /// `--emit=obj` gets the backend's final binary: on RISC-V that is an ELF shared object
+    /// linked by `teenyc` and loaded with `dlopen`, so it is `.so`, since a `.o` name invites
+    /// linking it again (#120). CUDA's PTX keeps `.o`.
+    fn binary_extension(&self) -> &'static str {
+        if self.target_triple.starts_with("riscv") {
+            "so"
+        } else {
+            "o"
+        }
+    }
+
     /// Sets `teenyc`'s diagnostic verbosity (see [`LogLevel`]). Left unset (the default),
     /// `teenyc` uses its own default (roughly `warn`) and no pipeline-stage IR is captured.
     pub fn with_log_level(mut self, log_level: LogLevel) -> Self {
@@ -253,12 +265,13 @@ impl Compiler for LlvmCompiler {
         };
         let kernel_file_name = format!("{}_{}", kernel.name(), effective_id);
         let kernel_file = self.cache_dir.join(&kernel_file_name).with_extension("rs");
+        let binary_extension = self.binary_extension();
         let output_file = self
             .cache_dir
             .join(kernel_file_name.clone())
-            .with_extension("o");
-        // The generated assembly, kept next to the object file for snapshot tests
-        // (see `teeny_test::read_compiled_asm`). For RISC-V the object is a linked
+            .with_extension(binary_extension);
+        // The generated assembly, kept next to the binary for snapshot tests
+        // (see `teeny_test::read_compiled_asm`). For RISC-V the binary is a linked
         // shared library, so it is the only readable form of the kernel's code.
         let asm_file = output_file.with_extension("s");
         // Only the artifacts actually requested gate the cache: asking for assembly alone
@@ -297,9 +310,10 @@ impl Compiler for LlvmCompiler {
                 // Compile to a unique per-process temp path and atomically rename it into
                 // place afterwards (POSIX `rename` is atomic within the same directory), so
                 // any reader of `output_file` never observes a partial write.
-                let tmp_output_file = self
-                    .cache_dir
-                    .join(format!("{kernel_file_name}.o.tmp.{}", std::process::id()));
+                let tmp_output_file = self.cache_dir.join(format!(
+                    "{kernel_file_name}.{binary_extension}.tmp.{}",
+                    std::process::id()
+                ));
                 let tmp_asm_file = self
                     .cache_dir
                     .join(format!("{kernel_file_name}.s.tmp.{}", std::process::id()));
