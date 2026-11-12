@@ -96,8 +96,12 @@ fn lower(shape: &[usize], pads: &[i64], value: Option<f32>) -> anyhow::Result<us
 fn the_export_s_shapes_lower() {
     // A middle axis of a rank-5 tensor, which is the export's own form.
     assert_eq!(
-        lower(&[1, 112, 26, 30, 40], &[0, 0, 1, 0, 0, 0, 0, 1, 0, 0], Some(0.0))
-            .expect("rank 5"),
+        lower(
+            &[1, 112, 26, 30, 40],
+            &[0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
+            Some(0.0)
+        )
+        .expect("rank 5"),
         2
     );
     // No value operand at all: ONNX pads with zero.
@@ -241,10 +245,6 @@ mod execution {
     /// Padding both ends of both axes, with a value that is not zero so an unwritten
     /// element and a padded one are different things.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn padding_a_matrix_on_every_side() {
         run(&[3, 4], &[1, 2, 2, 1], -7.5);
     }
@@ -252,10 +252,6 @@ mod execution {
     /// One axis only, which is the export's case: the others have to come through
     /// untouched.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn padding_a_middle_axis_of_a_rank_four_tensor() {
         run(&[2, 3, 2, 3], &[0, 1, 0, 0, 0, 2, 0, 0], 100.0);
     }
@@ -263,20 +259,12 @@ mod execution {
     /// A negative pad crops, and a mix of cropping and padding on the same tensor is
     /// where a shift applied in the wrong direction shows up.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_negative_pad_crops() {
         run(&[4, 5], &[-1, 2, 0, -1], 0.25);
     }
 
     /// More elements than one block of lanes.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_tensor_longer_than_a_block() {
         run(&[40, 40], &[1, 1, 1, 1], -1.0);
     }

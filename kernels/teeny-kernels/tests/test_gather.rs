@@ -344,7 +344,8 @@ mod execution {
 
         let wrong = (0..want.len()).filter(|&i| out[i] != want[i]).count();
         assert_eq!(
-            wrong, 0,
+            wrong,
+            0,
             "{in_shape:?} axis {axis} {indices:?}: {wrong} of {} wrong",
             want.len()
         );
@@ -354,15 +355,7 @@ mod execution {
         );
     }
 
-    /// Ignored on CUDA: teenygrad#133. The index split divides by `out_block` and
-    /// `inner`, and integer division by a scalar kernel argument is miscompiled there
-    /// unless the divisor is a multiple of 4. The kernel itself is correct: this test
-    /// passes on the RISC-V backend, where it is not ignored.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn gather_runs_on_device() {
         run_case(&[5], 0, &[4, 0, 2, 2]);
         run_case(&[4, 3], 0, &[3, 1, 0]);

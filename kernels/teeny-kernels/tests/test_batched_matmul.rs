@@ -21,12 +21,7 @@ use teeny_kernels::graph::TritonLowering;
 /// stride in the plan shows up as a mismatch rather than being reproduced on both
 /// sides.
 #[cfg_attr(not(feature = "hardware"), allow(dead_code))]
-fn reference(
-    a: &[f32],
-    a_shape: &[usize],
-    b: &[f32],
-    b_shape: &[usize],
-) -> (Vec<f32>, Vec<usize>) {
+fn reference(a: &[f32], a_shape: &[usize], b: &[f32], b_shape: &[usize]) -> (Vec<f32>, Vec<usize>) {
     let (m, k) = (a_shape[a_shape.len() - 2], a_shape[a_shape.len() - 1]);
     let n = b_shape[b_shape.len() - 1];
     let a_prefix = &a_shape[..a_shape.len() - 2];
@@ -164,7 +159,12 @@ fn an_unplannable_product_says_why() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(3), Some(4)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(5), Some(2)]);
-    g.add_node(Op::MatMul, vec![a, b], DtypeRepr::F32, vec![Some(3), Some(2)]);
+    g.add_node(
+        Op::MatMul,
+        vec![a, b],
+        DtypeRepr::F32,
+        vec![Some(3), Some(2)],
+    );
     let msg = match TritonLowering::new().lower(&g, LoweringMode::Inference) {
         Ok(_) => panic!("mismatched extents should not lower"),
         Err(e) => e.to_string(),
@@ -179,7 +179,12 @@ fn an_unshaped_operand_is_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4), Some(2)]);
-    g.add_node(Op::MatMul, vec![a, b], DtypeRepr::F32, vec![Some(3), Some(2)]);
+    g.add_node(
+        Op::MatMul,
+        vec![a, b],
+        DtypeRepr::F32,
+        vec![Some(3), Some(2)],
+    );
     let msg = match TritonLowering::new().lower(&g, LoweringMode::Inference) {
         Ok(_) => panic!("an unshaped operand should not lower"),
         Err(e) => e.to_string(),
@@ -191,6 +196,33 @@ fn an_unshaped_operand_is_refused() {
 // Execution
 // ---------------------------------------------------------------------------
 
+/// These ran only on RISC-V until now. They were ignored on CUDA against
+/// teenygrad#133, integer division by a scalar kernel argument; that was the wrong
+/// cause. #133 is fixed as of teenyc `18d0e1214`, and every other test ignored for
+/// it now passes on CUDA, while all nine here still fail:
+///
+/// ```text
+/// [8, 8]       @ [8, 5]       relative error 3.78
+/// [8, 1]       @ [1, 8]                      0.66
+/// [64, 6]      @ [6, 64]                     1.19
+/// [1, 7, 8]    @ [4, 8, 9]                 172.56
+/// [4, 7, 8]    @ [4, 8, 9]                   6.03
+/// [3, 8, 8]    @ [8, 5]                      3.78
+/// [3, 8, 129]  @ [129, 8]                    0.0077
+/// ```
+///
+/// The unbatched `[8, 8] @ [8, 5]` is wrong too, so this is not about batching. What
+/// every failing case shares is `k` below `BLOCK_K` (8, 6 and 1 against a block that
+/// stays at 16 or 32 on CUDA, since `pick_gemm_tile_sizes` only clamps it where
+/// `PARTIAL_K_TILE_IS_PADDED` is false), or a K tail of a single lane at k = 129. It
+/// is the same 16-byte descriptor granularity as `a_partial_k_tile_is_dropped`: the
+/// contracted axis is read in 16-byte units, so a short or ragged K is not padded
+/// with zeros the way the kernel assumes. The `[3, 8, 129]` case at 0.0077 is just
+/// TF32 against a 1e-3 tolerance and is a separate, harmless matter.
+///
+/// Unreported upstream so far. teenygrad#141 keeps `tt.divisibility = 16` on pointer
+/// arguments deliberately, to hold on to 4-wide vectorisation, so this needs its own
+/// issue against that choice rather than a re-open of #133.
 #[cfg(all(feature = "hardware", any(feature = "cuda", feature = "riscv")))]
 mod execution {
     use super::*;
@@ -277,7 +309,7 @@ mod execution {
             #[test]
             #[cfg_attr(
                 feature = "cuda",
-                ignore = "CUDA integer division miscompiled, teenygrad#133"
+                ignore = "CUDA matmul is wrong for k below BLOCK_K, see the module note"
             )]
             fn $name() {
                 run(&$a, &$b);
@@ -340,7 +372,7 @@ mod execution {
     #[test]
     #[cfg_attr(
         feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
+        ignore = "CUDA matmul is wrong for k below BLOCK_K, see the module note"
     )]
     fn every_contracted_extent_is_summed_whole() {
         for k in [1usize, 2, 3, 4, 5, 6, 7, 8, 9, 12, 20, 28, 33] {
@@ -380,7 +412,7 @@ mod execution {
     #[test]
     #[cfg_attr(
         feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
+        ignore = "CUDA matmul is wrong for k below BLOCK_K, see the module note"
     )]
     fn a_k_tail_in_the_wider_tiles() {
         run(&[8, 44], &[44, 8]);

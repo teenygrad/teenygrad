@@ -186,10 +186,8 @@ mod execution {
                                     if oh >= h_out || ow >= w_out {
                                         continue;
                                     }
-                                    let wv =
-                                        w[((ci * s.c_out + co) * s.kh + kh) * s.kw + kw];
-                                    out[((ni * s.c_out + co) * h_out + oh) * w_out + ow] +=
-                                        xv * wv;
+                                    let wv = w[((ci * s.c_out + co) * s.kh + kh) * s.kw + kw];
+                                    out[((ni * s.c_out + co) * h_out + oh) * w_out + ow] += xv * wv;
                                 }
                             }
                         }
@@ -251,10 +249,6 @@ mod execution {
     /// The export's shape in miniature: a 4x4 kernel at stride 2 with a pad of 1,
     /// which doubles the extents exactly.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn doubling_with_a_four_tap_kernel() {
         run(&Spec {
             n: 1,
@@ -273,10 +267,6 @@ mod execution {
     /// Stride 1 with no padding, where every tap of every element lands inside the
     /// output and the condition never rejects anything.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn stride_one_without_padding() {
         run(&Spec {
             n: 2,
@@ -296,10 +286,6 @@ mod execution {
     /// every output position has exactly one contributing tap, so a wrong divisibility
     /// test leaves most of the output empty.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn stride_four_with_a_bias() {
         run(&Spec {
             n: 1,
@@ -318,10 +304,6 @@ mod execution {
     /// A stride larger than the kernel, which leaves output positions no tap reaches
     /// at all: those have to come out as zero, or as the bias.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_stride_wider_than_the_kernel_leaves_gaps() {
         run(&Spec {
             n: 1,
@@ -340,10 +322,6 @@ mod execution {
     /// Padding that crops more than one element off each side, where the first output
     /// element comes from a tap in the middle of the kernel.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn padding_that_crops_two() {
         run(&Spec {
             n: 1,

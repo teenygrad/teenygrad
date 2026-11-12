@@ -50,7 +50,10 @@ fn lower(x: &[usize], grid: &[usize]) -> anyhow::Result<usize> {
 #[test]
 fn the_export_s_shapes_lower() {
     // The export's own form: a single row sampled at nine positions, 19200 of them.
-    assert_eq!(lower(&[19200, 28, 1, 104], &[19200, 1, 9, 2]).expect("export"), 3);
+    assert_eq!(
+        lower(&[19200, 28, 1, 104], &[19200, 1, 9, 2]).expect("export"),
+        3
+    );
 }
 
 #[test]
@@ -219,10 +222,6 @@ mod execution {
     /// Positions between elements, at the edges, and outside: the last of those is
     /// where zero padding has to apply rather than the nearest element.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn sampling_inside_and_outside() {
         let grid = vec![
             -1.0, -1.0, // the first element exactly
@@ -238,10 +237,6 @@ mod execution {
     /// Without aligned corners the edges mean something else, and the first and last
     /// positions fall half an element outside the input.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn sampling_without_aligned_corners() {
         let grid = vec![-1.0, -1.0, 0.0, 0.0, 0.25, 0.75, 1.0, 1.0];
         run(&[1, 1, 4, 4], &[1, 2, 2, 2], &grid, false);
@@ -250,10 +245,6 @@ mod execution {
     /// A single row, which is the export's shape: the y coordinate has one element to
     /// land on, so a mistake in the row arithmetic shows up as zeros.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn sampling_a_single_row() {
         // Five positions per batch, and the two batches look at different places.
         let grid = vec![
@@ -266,10 +257,6 @@ mod execution {
     /// Several batches and channels: the grid is shared across channels but not
     /// across batches, which is the indexing most easily got wrong.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn the_grid_is_per_batch_and_shared_across_channels() {
         let grid = vec![
             // batch 0 looks at the top-left corner

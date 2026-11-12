@@ -25,7 +25,10 @@ fn scatter_graph(data: &[usize], indices: &[usize], updates: &[usize]) -> Graph 
 
 fn lower(data: &[usize], indices: &[usize], updates: &[usize]) -> anyhow::Result<usize> {
     TritonLowering::new()
-        .lower(&scatter_graph(data, indices, updates), LoweringMode::Inference)
+        .lower(
+            &scatter_graph(data, indices, updates),
+            LoweringMode::Inference,
+        )
         .map(|dag| dag.len())
 }
 
@@ -33,8 +36,12 @@ fn lower(data: &[usize], indices: &[usize], updates: &[usize]) -> anyhow::Result
 fn the_export_s_shapes_lower() {
     // A full coordinate into a rank-5 tensor, which is the export's own form.
     assert_eq!(
-        lower(&[1, 8, 104, 120, 160], &[1, 8, 1, 120, 160, 5], &[1, 8, 1, 120, 160])
-            .expect("rank 5"),
+        lower(
+            &[1, 8, 104, 120, 160],
+            &[1, 8, 1, 120, 160, 5],
+            &[1, 8, 1, 120, 160]
+        )
+        .expect("rank 5"),
         4
     );
     // A partial coordinate, which scatters whole slices.
@@ -248,10 +255,6 @@ mod execution {
 
     /// A full coordinate names one element, so the updates are scalars.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn scattering_single_elements() {
         run(&[3, 4], &[0, 1, 2, 3, 1, 0], 2);
     }
@@ -259,10 +262,6 @@ mod execution {
     /// A coordinate narrower than the rank scatters whole slices, which is where a
     /// wrong slice length shows up.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn scattering_slices() {
         run(&[4, 3], &[2, 0], 1);
     }
@@ -270,20 +269,12 @@ mod execution {
     /// Nothing scattered at all: the output still has to be the data, which is the
     /// pass a scatter-only kernel would get wrong.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn scattering_nothing_still_copies() {
         run(&[2, 3], &[], 2);
     }
 
     /// A negative coordinate counts from the end of its own axis.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_negative_coordinate_counts_from_the_end() {
         run(&[3, 4], &[-1, -1, 0, -2], 2);
     }
@@ -291,10 +282,6 @@ mod execution {
     /// A rank-3 tensor with both a partial coordinate and more elements than one block
     /// of lanes, so the copy pass spans several tiles.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_larger_tensor_with_slices() {
         run(&[8, 5, 40], &[3, 0, 7], 1);
     }
@@ -368,10 +355,6 @@ mod execution {
     /// Fewer rows than the axis has, which is the export's case: the output keeps the
     /// data wherever no index pointed.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn scattering_elements_along_a_middle_axis() {
         // shape [2, 4, 3], axis 1, two rows of indices per (outer, inner).
         run_elements(&[2, 4, 3], 1, 2, &[0, 3, 1, 2, 0, 3, 3, 1, 2, 0, 2, 1]);
@@ -380,20 +363,12 @@ mod execution {
     /// The innermost axis, where `inner` is 1 and a wrong stride would still land
     /// inside the tensor.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn scattering_elements_along_the_last_axis() {
         run_elements(&[3, 4], 1, 2, &[0, 3, 2, 1, 3, 0]);
     }
 
     /// A negative index counts from the end of the axis.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_negative_element_index_counts_from_the_end() {
         run_elements(&[2, 4], 1, 2, &[-1, -4, -2, 0]);
     }

@@ -208,10 +208,6 @@ mod execution {
 
     /// A bias along the last axis, which is the export's commonest broadcast.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_bias_along_the_last_axis() {
         run(Op::Add, &[2, 3, 4], &[4]);
         run(Op::Mul, &[2, 3, 4], &[4]);
@@ -220,10 +216,6 @@ mod execution {
     /// A scalar on either side, including the subtraction and division where the order
     /// matters.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_scalar_on_either_side() {
         run(Op::Div, &[2, 3, 4], &[]);
         run(Op::Sub, &[], &[2, 3, 4]);
@@ -232,10 +224,6 @@ mod execution {
 
     /// A per-channel scale, where the broadcast axes are in the middle of the shape.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_per_channel_scale() {
         run(Op::Mul, &[2, 3, 4, 5], &[1, 3, 1, 1]);
         run(Op::Add, &[2, 3, 4, 5], &[1, 3, 1, 1]);
@@ -244,10 +232,6 @@ mod execution {
     /// Both operands short on different axes, which only the general strides handle:
     /// neither operand is simply the output's shape.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn both_operands_broadcast_at_once() {
         run(Op::Add, &[4, 1, 3], &[1, 5, 3]);
         run(Op::Mul, &[2, 1], &[1, 6]);
@@ -255,10 +239,6 @@ mod execution {
 
     /// More elements than one block of lanes.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn an_output_longer_than_a_block() {
         run(Op::Add, &[3, 500], &[500]);
     }

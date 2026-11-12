@@ -125,7 +125,13 @@ fn ramp(n: usize) -> Vec<f32> {
     (0..n).map(|i| i as f32 + 0.5).collect()
 }
 
-fn check_mapping(label: &str, x: &[f32], want: &[f32], out_shape: &[usize], op: &StridedCopyRuntimeOp<f32>) {
+fn check_mapping(
+    label: &str,
+    x: &[f32],
+    want: &[f32],
+    out_shape: &[usize],
+    op: &StridedCopyRuntimeOp<f32>,
+) {
     let n: usize = out_shape.iter().product();
     assert_eq!(n, want.len(), "{label}: reference length disagrees");
     let mapping = kernel_index_mapping(&op.kernel_scalars(n as i32), n);
@@ -151,7 +157,13 @@ fn transpose_case(in_shape: &[usize], perm: &[usize]) {
     let x = ramp(in_shape.iter().product());
     let (want, out_shape) = transpose_reference(&x, in_shape, perm);
     let op = StridedCopyRuntimeOp::<f32>::transpose(1024, in_shape, perm);
-    check_mapping(&format!("transpose {in_shape:?} by {perm:?}"), &x, &want, &out_shape, &op);
+    check_mapping(
+        &format!("transpose {in_shape:?} by {perm:?}"),
+        &x,
+        &want,
+        &out_shape,
+        &op,
+    );
 }
 
 #[test]
@@ -177,7 +189,13 @@ fn the_mapping_matches_onnx_transpose() {
     transpose_case(&[2, 1, 3, 1, 2, 2], &[5, 4, 3, 2, 1, 0]);
 }
 
-fn slice_case(in_shape: &[usize], starts: &[i64], ends: &[i64], axes: Option<&[i64]>, steps: Option<&[i64]>) {
+fn slice_case(
+    in_shape: &[usize],
+    starts: &[i64],
+    ends: &[i64],
+    axes: Option<&[i64]>,
+    steps: Option<&[i64]>,
+) {
     let x = ramp(in_shape.iter().product());
     let plan = slice_plan(in_shape, starts, ends, axes, steps)
         .unwrap_or_else(|| panic!("{in_shape:?} [{starts:?}..{ends:?}] should be a valid slice"));
@@ -316,7 +334,9 @@ fn transpose_lowers() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[2, 3, 4]);
     g.add_node(
-        Op::Transpose { perm: vec![2, 0, 1] },
+        Op::Transpose {
+            perm: vec![2, 0, 1],
+        },
         vec![x],
         DtypeRepr::F32,
         shape_of(&[4, 2, 3]),
@@ -395,7 +415,9 @@ fn a_perm_of_the_wrong_length_points_at_the_shape() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[128]);
     g.add_node(
-        Op::Transpose { perm: vec![0, 2, 1] },
+        Op::Transpose {
+            perm: vec![0, 2, 1],
+        },
         vec![x],
         DtypeRepr::F32,
         shape_of(&[128]),
@@ -434,8 +456,7 @@ fn an_integer_tensor_copies() {
         let target = i64_constant(&mut g, &[2, 3]);
         g.add_node(Op::Expand, vec![x, target], dtype, shape_of(&[2, 3]));
         assert_eq!(
-            lower(&g, ConstantMap::new())
-                .unwrap_or_else(|e| panic!("{dtype:?} should lower: {e}")),
+            lower(&g, ConstantMap::new()).unwrap_or_else(|e| panic!("{dtype:?} should lower: {e}")),
             2
         );
     }
@@ -536,7 +557,12 @@ fn a_mapping_that_disagrees_with_the_recorded_shape_is_refused() {
     let ends = i64_constant(&mut g, &[8]);
     // The node claims the shape a step of 2 would give, but no steps operand is
     // present, so the operands describe all 8 elements.
-    g.add_node(Op::Slice, vec![x, starts, ends], DtypeRepr::F32, shape_of(&[4]));
+    g.add_node(
+        Op::Slice,
+        vec![x, starts, ends],
+        DtypeRepr::F32,
+        shape_of(&[4]),
+    );
     let mut c = ConstantMap::new();
     c.insert(starts, i64_tensor(&[0]));
     c.insert(ends, i64_tensor(&[8]));
@@ -568,7 +594,12 @@ fn an_expand_that_is_not_a_broadcast_is_rejected() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[2, 3]);
     let target = i64_constant(&mut g, &[2, 4]);
-    g.add_node(Op::Expand, vec![x, target], DtypeRepr::F32, shape_of(&[2, 4]));
+    g.add_node(
+        Op::Expand,
+        vec![x, target],
+        DtypeRepr::F32,
+        shape_of(&[2, 4]),
+    );
     let msg = lowering_error(&g, ConstantMap::new());
     assert!(msg.contains("nor is 1"), "{msg}");
 }
@@ -651,16 +682,8 @@ mod execution {
         println!("{label} -> {} elements, exact", want.len());
     }
 
-    /// Ignored on CUDA: teenygrad#133. Integer division of a tensor by a scalar kernel
-    /// argument is miscompiled there unless the divisor is a multiple of 4, and the
-    /// index peel divides by the output extents. The kernel is correct, which this
-    /// test shows on the RISC-V backend where it is not ignored, and the mapping is
-    /// checked against a reference above with no device at all.
+    /// The mapping is also checked against a reference above with no device at all.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn transpose_runs_on_device() {
         for (dims, perm) in [
             (vec![2usize, 3], vec![1usize, 0]),
@@ -689,18 +712,26 @@ mod execution {
     }
 
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn slice_runs_on_device() {
         for (dims, starts, ends, axes, steps) in [
             (vec![6usize], vec![1i64], vec![4i64], None, None),
             // `steps` is operand 4, so supplying it means supplying `axes` too.
-            (vec![8], vec![0], vec![8], Some(vec![0i64]), Some(vec![2i64])),
+            (
+                vec![8],
+                vec![0],
+                vec![8],
+                Some(vec![0i64]),
+                Some(vec![2i64]),
+            ),
             (vec![6], vec![5], vec![-7], Some(vec![0]), Some(vec![-1])),
             (vec![4, 5], vec![1], vec![3], Some(vec![0i64]), None),
-            (vec![4, 6], vec![1, 0], vec![4, 6], Some(vec![0, 1]), Some(vec![2, 3])),
+            (
+                vec![4, 6],
+                vec![1, 0],
+                vec![4, 6],
+                Some(vec![0, 1]),
+                Some(vec![2, 3]),
+            ),
         ] {
             let x = ramp(dims.iter().product());
             let plan = slice_plan(&dims, &starts, &ends, axes.as_deref(), steps.as_deref())
@@ -711,28 +742,30 @@ mod execution {
             let input = input_node(&mut g, &dims);
             let mut inputs = vec![input];
             let mut c = ConstantMap::new();
-            for vals in [Some(starts.clone()), Some(ends.clone()), axes.clone(), steps.clone()] {
+            for vals in [
+                Some(starts.clone()),
+                Some(ends.clone()),
+                axes.clone(),
+                steps.clone(),
+            ] {
                 // Operands are positional, so a missing one ends the list.
                 let Some(vals) = vals else { break };
                 let id = i64_constant(&mut g, &vals);
                 c.insert(id, i64_tensor(&vals));
                 inputs.push(id);
             }
-            g.add_node(
-                Op::Slice,
-                inputs,
-                DtypeRepr::F32,
-                shape_of(&plan.out_shape),
+            g.add_node(Op::Slice, inputs, DtypeRepr::F32, shape_of(&plan.out_shape));
+            run(
+                &g,
+                c,
+                &x,
+                &want,
+                &format!("slice {dims:?} {starts:?}..{ends:?}"),
             );
-            run(&g, c, &x, &want, &format!("slice {dims:?} {starts:?}..{ends:?}"));
         }
     }
 
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn expand_runs_on_device() {
         for (in_dims, out_dims) in [
             (vec![1usize], vec![4usize]),

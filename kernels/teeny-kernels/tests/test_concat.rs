@@ -239,10 +239,6 @@ mod execution {
     }
 
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn concatenating_vectors() {
         run(&[vec![3], vec![2], vec![4]], 0);
     }
@@ -250,10 +246,6 @@ mod execution {
     /// The innermost axis: every operand's block is one contiguous run per row, and
     /// the runs interleave in the output.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn concatenating_the_innermost_axis() {
         run(&[vec![3, 2], vec![3, 5]], 1);
     }
@@ -262,10 +254,6 @@ mod execution {
     /// the case a wrong `inner` would still get right, so it is checked alongside the
     /// others rather than on its own.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn concatenating_the_outermost_axis() {
         run(&[vec![2, 4], vec![3, 4]], 0);
     }
@@ -273,10 +261,6 @@ mod execution {
     /// A middle axis of a rank-4 tensor, which is where both `outer` and `inner` are
     /// greater than one and an arithmetic mistake has nowhere to hide.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn concatenating_a_middle_axis() {
         run(&[vec![2, 3, 2, 3], vec![2, 1, 2, 3], vec![2, 4, 2, 3]], 1);
     }
@@ -284,10 +268,6 @@ mod execution {
     /// More elements than one block of lanes, so the last tile of a chunk is partly
     /// masked off.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn a_chunk_longer_than_a_block() {
         run(&[vec![2, 300], vec![2, 101]], 1);
     }

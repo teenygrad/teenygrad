@@ -60,8 +60,13 @@ fn lower(
 fn the_export_s_shapes_lower() {
     // Two spatial axes, linear with aligned corners: the export's commonest resize.
     assert_eq!(
-        lower(&[1, 128, 30, 40], &[1, 128, 60, 80], "linear", "align_corners")
-            .expect("2-D linear"),
+        lower(
+            &[1, 128, 30, 40],
+            &[1, 128, 60, 80],
+            "linear",
+            "align_corners"
+        )
+        .expect("2-D linear"),
         2
     );
     // Three spatial axes.
@@ -81,8 +86,13 @@ fn the_export_s_shapes_lower() {
         2
     );
     assert_eq!(
-        lower(&[1, 9, 120, 160], &[1, 9, 480, 640], "nearest", "asymmetric")
-            .expect("nearest"),
+        lower(
+            &[1, 9, 120, 160],
+            &[1, 9, 480, 640],
+            "nearest",
+            "asymmetric"
+        )
+        .expect("nearest"),
         2
     );
 }
@@ -100,7 +110,12 @@ fn too_many_resized_axes_are_refused() {
 
 #[test]
 fn an_unimplemented_mode_is_refused_by_name() {
-    let msg = match lower(&[1, 1, 4, 4], &[1, 1, 8, 8], "cubic_antialias", "half_pixel") {
+    let msg = match lower(
+        &[1, 1, 4, 4],
+        &[1, 1, 8, 8],
+        "cubic_antialias",
+        "half_pixel",
+    ) {
         Ok(_) => panic!("an unknown mode should not lower"),
         Err(e) => e.to_string(),
     };
@@ -259,51 +274,55 @@ mod execution {
     }
 
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn linear_over_two_axes() {
-        run(&[1, 2, 3, 4], &[1, 2, 6, 8], "linear", "align_corners", "floor");
+        run(
+            &[1, 2, 3, 4],
+            &[1, 2, 6, 8],
+            "linear",
+            "align_corners",
+            "floor",
+        );
     }
 
     /// Downsampling as well as up, since the plan's taps move in the other direction.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn linear_downsampling() {
-        run(&[1, 1, 8, 6], &[1, 1, 3, 4], "linear", "half_pixel", "floor");
+        run(
+            &[1, 1, 8, 6],
+            &[1, 1, 3, 4],
+            "linear",
+            "half_pixel",
+            "floor",
+        );
     }
 
     /// Three resized axes, which is where a stride taken from the wrong axis shows up.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn linear_over_three_axes() {
-        run(&[1, 2, 2, 3, 2], &[1, 2, 4, 6, 4], "linear", "half_pixel", "floor");
+        run(
+            &[1, 2, 2, 3, 2],
+            &[1, 2, 4, 6, 4],
+            "linear",
+            "half_pixel",
+            "floor",
+        );
     }
 
     /// Nearest with floor, which is what the export asks for: a whole-factor repeat.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn nearest_repeats_each_element() {
-        run(&[1, 3, 2, 3], &[1, 3, 8, 12], "nearest", "asymmetric", "floor");
+        run(
+            &[1, 3, 2, 3],
+            &[1, 3, 8, 12],
+            "nearest",
+            "asymmetric",
+            "floor",
+        );
     }
 
     /// Cubic's four taps per axis, sixteen per output element, including the negative
     /// weights that make it a sharpening filter rather than an average.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn cubic_over_two_axes() {
         run(&[1, 1, 5, 6], &[1, 1, 7, 9], "cubic", "half_pixel", "floor");
     }
@@ -311,11 +330,13 @@ mod execution {
     /// An uneven ratio, where every output coordinate has a different fractional
     /// offset and a mistake in one does not repeat into the others.
     #[test]
-    #[cfg_attr(
-        feature = "cuda",
-        ignore = "CUDA integer division miscompiled, teenygrad#133"
-    )]
     fn an_uneven_ratio() {
-        run(&[1, 1, 37, 37], &[1, 1, 40, 48], "linear", "half_pixel", "floor");
+        run(
+            &[1, 1, 37, 37],
+            &[1, 1, 40, 48],
+            "linear",
+            "half_pixel",
+            "floor",
+        );
     }
 }
