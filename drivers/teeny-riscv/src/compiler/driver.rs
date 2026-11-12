@@ -33,8 +33,10 @@ use crate::errors::Result;
 /// - `debug`: when `true`, enable the same `teenyc` pipeline-stage logging as
 ///   `teeny_cuda::compiler::compile_kernel`'s `debug` parameter.
 ///
-/// The output is a RISC-V ELF shared object with `kernel`'s Triton body lowered through
-/// `teenyc`'s RISC-V backend. `target`'s capability is passed as the target cpu, but `teenyc`
+/// Returns the path of a RISC-V ELF shared object (`<cache>/<kernel>_<hash>.so`) with `kernel`'s
+/// Triton body lowered through `teenyc`'s RISC-V backend. It is already linked: `dlopen` it as
+/// is rather than linking it into another library. The generated assembly sits beside it as
+/// `<kernel>_<hash>.s`. `target`'s capability is passed as the target cpu, but `teenyc`
 /// doesn't map chip names to LLVM cpus yet, so every capability currently gets generic RV64
 /// codegen with the vector extension (see the crate README).
 pub fn compile_kernel(
