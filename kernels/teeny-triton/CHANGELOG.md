@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-triton-v0.3.0...teeny-triton-v0.3.1) - 2026-11-12
+
+### Fixed
+
+- *(teeny-macros)* accept the Triton bound in a kernel's where clause ([#124](https://github.com/teenygrad/teenygrad/pull/124))
+- *(teeny-triton)* give the kernel core std's lossless From conversions ([#123](https://github.com/teenygrad/teenygrad/pull/123))
+
+### Other
+
+- release 0.3.1 (scalar divisibility fix, RISC-V .so naming) ([#137](https://github.com/teenygrad/teenygrad/pull/137))
+- *(teeny-triton)* keep the kitchen sink's shapes consistent ([#130](https://github.com/teenygrad/teenygrad/pull/130))
+- *(teeny-triton)* reshape the kitchen sink's [1, 2048] tensor to [2048] ([#128](https://github.com/teenygrad/teenygrad/pull/128))
+- *(teeny-triton)* mask the crate hash in the kitchen-sink MLIR snapshot ([#127](https://github.com/teenygrad/teenygrad/pull/127))
+
 ## [0.2.1](https://github.com/teenygrad/teenygrad/compare/teeny-triton-v0.2.0...teeny-triton-v0.2.1) - 2026-11-10
 
 ### Other
