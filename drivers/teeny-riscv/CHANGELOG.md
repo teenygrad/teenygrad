@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-riscv-v0.3.0...teeny-riscv-v0.3.1) - 2026-11-11
 
+### Fixed
+
+- *(teeny-compiler)* name the RISC-V kernel binary .so ([#136](https://github.com/teenygrad/teenygrad/pull/136))
+
 ### Other
 
 - *(teeny-riscv)* drop the stale RiscvBackend-is-a-stub notes ([#125](https://github.com/teenygrad/teenygrad/pull/125))
