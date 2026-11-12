@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.3.0...teeny-kernels-v0.3.1) - 2026-11-11
+
+### Fixed
+
+- *(teeny-triton)* give the kernel core std's lossless From conversions ([#123](https://github.com/teenygrad/teenygrad/pull/123))
+
 ## [0.3.0](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.2.1...teeny-kernels-v0.3.0) - 2026-11-10
 
 ### Other

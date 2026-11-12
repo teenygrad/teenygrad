@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 teeny-core.workspace = true
-teeny-data = { path = "../teeny-data", version = "0.3.0" }
+teeny-data = { path = "../teeny-data", version = "0.3.1" }
 safetensors.workspace = true
 half.workspace = true
 thiserror.workspace = true
