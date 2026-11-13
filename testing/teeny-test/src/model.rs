@@ -789,6 +789,21 @@ impl<'a> RuntimeModel<'a> {
                 op.runtime_op
                     .grid_for_launch(launch_idx, &input_shapes, &node.output_shape)
             };
+            // A node with an empty extent asks for a grid with no blocks, which CUDA
+            // refuses with "invalid argument" rather than doing nothing. An ONNX export
+            // can legitimately contain one: FoundationStereo's crop-then-pad chains
+            // slice an axis to zero length, pad it back and add the result, so the
+            // kernel has nothing to do and its zeroed output is the right answer.
+            if grid.contains(&0) {
+                if self.trace {
+                    eprintln!(
+                        "skipped node {idx} ({}): empty grid {grid:?} for shape {:?}",
+                        self.node_name(idx).unwrap_or("unnamed"),
+                        node.output_shape
+                    );
+                }
+                continue;
+            }
             let cfg = teeny_runtime::launch_config_grid(grid, &op.program);
             device.launch(&op.program, &cfg, args).with_context(|| {
                 format!(
