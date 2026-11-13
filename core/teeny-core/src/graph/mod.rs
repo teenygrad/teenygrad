@@ -1107,8 +1107,6 @@ impl Op {
             // A reduction's axes, where the file wrote them as an operand rather than
             // an attribute. `teeny_onnx::materialize` moves the value onto the op, so
             // by lowering time this operand only needs eliding.
-            // A cumulative op's axis, which ONNX always writes as an operand.
-            Op::CumSum { .. } | Op::CumProd { .. } => &[1],
             Op::ReduceSum { .. }
             | Op::ReduceMean { .. }
             | Op::ReduceMax { .. }
@@ -1124,12 +1122,14 @@ impl Op {
             // buffer of their own.
             Op::Clip { .. } => &[1, 2],
             // Split(data, split), TopK(x, k), OneHot(indices, depth, values),
-            // Trilu(x, k), CumSum(x, axis), Compress(data, condition)
+            // Trilu(x, k), CumSum(x, axis), CumProd(x, axis),
+            // Compress(data, condition)
             Op::Split { .. }
             | Op::TopK { .. }
             | Op::OneHot { .. }
             | Op::Trilu { .. }
             | Op::CumSum { .. }
+            | Op::CumProd { .. }
             | Op::Compress { .. } => &[1],
             _ => &[],
         }
