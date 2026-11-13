@@ -53,6 +53,16 @@ impl Onnx {
             .as_ref()
             .ok_or_else(|| Error::InvalidModel("Model is missing graph field".to_string()))?;
 
+        // The default ONNX domain's version. An empty domain name is "ai.onnx", and a
+        // model that names no version leaves this zero, where the newest meaning of an
+        // absent attribute is the better guess.
+        let opset = model
+            .opset_import
+            .iter()
+            .find(|o| o.domain.is_empty() || o.domain == "ai.onnx")
+            .map(|o| o.version)
+            .unwrap_or(0);
+
         let mut graph = Graph::new();
         let mut value_to_node: BTreeMap<String, usize> = BTreeMap::new();
 
@@ -153,7 +163,7 @@ impl Onnx {
                     }
                 });
 
-            let op = map_node_op(node, &initializer_map)?;
+            let op = map_node_op(node, &initializer_map, opset)?;
             let node_id = graph.add_node(op, inputs, dtype, shape);
 
             if !node.name.is_empty() {
@@ -269,7 +279,11 @@ fn get_attr_string<'a>(node: &'a NodeProto, name: &str, default: &'a str) -> &'a
         .unwrap_or(default)
 }
 
-fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) -> Result<Op> {
+fn map_node_op(
+    node: &NodeProto,
+    initializers: &BTreeMap<&str, &TensorProto>,
+    opset: i64,
+) -> Result<Op> {
     let op = match node.op_type.as_str() {
         // ---------------------------------------------------------------
         // Existing ops (previously supported)
@@ -280,9 +294,12 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         "Add" => Op::Add,
         "Flatten" => Op::Flatten,
         "Softmax" => {
-            let axis = get_attr_int(node, "axis", 1);
+            // ONNX changed the default in opset 13, from 1 to -1, so the file's own
+            // opset decides what an absent attribute means. The axis is kept as
+            // written: clamping a negative one to 0 normalized the batch axis instead.
+            let default = if opset >= 13 { -1 } else { 1 };
             Op::Softmax {
-                dim: axis.max(0) as usize,
+                dim: get_attr_int(node, "axis", default),
             }
         }
 
