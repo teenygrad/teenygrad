@@ -36,6 +36,34 @@ use teeny_runtime::Target;
 use teeny_test::model::RuntimeModel;
 
 /// A file of little-endian f32s.
+/// Whether an all-zero output from this op is worth looking at.
+///
+/// A constant or a fed weight can be zero on purpose: a normalization bias usually is.
+/// So can anything that only moves data, since FoundationStereo pads an axis and takes
+/// sliding windows over it and the first window is all padding. Arithmetic is what
+/// cannot innocently turn non-zero inputs into zeros everywhere.
+fn suspicious(op: &teeny_core::graph::Op) -> bool {
+    use teeny_core::graph::Op;
+    !matches!(
+        op,
+        Op::Constant { .. }
+            | Op::Input
+            | Op::ConstantOfShape { .. }
+            | Op::Slice
+            | Op::Pad { .. }
+            | Op::Concat { .. }
+            | Op::Reshape
+            | Op::Transpose { .. }
+            | Op::Expand
+            | Op::Squeeze { .. }
+            | Op::Unsqueeze { .. }
+            | Op::Cast { .. }
+            | Op::Relu
+            | Op::Gather { .. }
+            | Op::ScatterND
+    )
+}
+
 fn read_f32(path: &str) -> Vec<f32> {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
     bytes
@@ -307,11 +335,24 @@ fn where_the_output_goes_to_zero() {
         let max = v.iter().fold(0.0f32, |m, x| m.max(x.abs()));
         let gz = dag_to_graph[*d];
         let is_constant = gz != usize::MAX
+            && !suspicious(&import.graph.nodes[gz].op)
             && matches!(
                 import.graph.nodes[gz].op,
                 teeny_core::graph::Op::Constant { .. }
                     | teeny_core::graph::Op::Input
                     | teeny_core::graph::Op::ConstantOfShape { .. }
+                    | teeny_core::graph::Op::Slice
+                    | teeny_core::graph::Op::Pad { .. }
+                    | teeny_core::graph::Op::Concat { .. }
+                    | teeny_core::graph::Op::Reshape
+                    | teeny_core::graph::Op::Transpose { .. }
+                    | teeny_core::graph::Op::Expand
+                    | teeny_core::graph::Op::Squeeze { .. }
+                    | teeny_core::graph::Op::Unsqueeze { .. }
+                    | teeny_core::graph::Op::Cast { .. }
+                    | teeny_core::graph::Op::Relu
+                    | teeny_core::graph::Op::Gather { .. }
+                    | teeny_core::graph::Op::ScatterND
             );
         let zero = !v.is_empty() && max == 0.0 && !is_constant;
         if zero && first_zero.is_none() {
@@ -364,6 +405,120 @@ fn where_the_output_goes_to_zero() {
         .enumerate()
         .map(|(slot, &d)| (d, got[slot].iter().fold(0.0f32, |m, x| m.max(x.abs()))))
         .collect();
+    // Where the signal actually dies: a node that is all zero while every input it has
+    // is not. Data movement and constants are excluded above, so what is left is
+    // arithmetic, and an Add or a Mul cannot innocently turn a non-zero operand into
+    // zeros everywhere. This is a stronger statement than "the first zero", most of
+    // which are the padding windows being padding.
+    {
+        let pinned_zero: BTreeMap<usize, bool> = outputs
+            .iter()
+            .enumerate()
+            .map(|(slot, &d)| {
+                let v = &got[slot];
+                (d, !v.is_empty() && v.iter().all(|x| *x == 0.0))
+            })
+            .collect();
+        let mut origins = 0usize;
+        println!();
+        for (_, d, slot) in &rows {
+            if !got[*slot].iter().all(|x| *x == 0.0) || got[*slot].is_empty() {
+                continue;
+            }
+            let g = dag_to_graph[*d];
+            if g == usize::MAX || !suspicious(&import.graph.nodes[g].op) {
+                continue;
+            }
+            let parents = &dag.node(*d).parents;
+            if parents.is_empty()
+                || parents
+                    .iter()
+                    .any(|p| pinned_zero.get(p).copied().unwrap_or(true))
+            {
+                continue;
+            }
+            println!(
+                "ORIGIN dag {d} step {:?} {:?} shape {:?} {}",
+                pos.get(d),
+                import.graph.nodes[g].op,
+                model.output_shape(*d),
+                model.node_name(*d).unwrap_or("unnamed")
+            );
+            for &pp in parents {
+                let m = outputs
+                    .iter()
+                    .position(|&o| o == pp)
+                    .map(|sl| got[sl].iter().fold(0.0f32, |m, x| m.max(x.abs())));
+                println!(
+                    "    input dag {pp:>6} step {:?} max {:?} shape {:?} {}",
+                    pos.get(&pp),
+                    m,
+                    model.output_shape(pp),
+                    model.node_name(pp).unwrap_or("unnamed")
+                );
+            }
+            // Element by element at one index: maxima can be non-zero in disjoint
+            // places, which would make an all-zero product correct. A single index
+            // where both operands are non-zero and the output is not their product is
+            // not explainable that way.
+            if parents.len() == 2
+                && let (Some(sa), Some(sb)) = (
+                    outputs.iter().position(|&o| o == parents[0]),
+                    outputs.iter().position(|&o| o == parents[1]),
+                )
+            {
+                let (a, b, out) = (&got[sa], &got[sb], &got[*slot]);
+                // Only meaningful when the operands are not broadcast: otherwise a
+                // flat index into the smaller one is not the element the output reads.
+                if a.len() == out.len() && b.len() == out.len() {
+                    let za = a.iter().filter(|v| **v == 0.0).count();
+                    let zb = b.iter().filter(|v| **v == 0.0).count();
+                    println!(
+                        "    exact zeros: {} of {} in the first operand, {} of {} in the second",
+                        za,
+                        a.len(),
+                        zb,
+                        b.len()
+                    );
+                }
+                let both = if a.len() == out.len() && b.len() == out.len() {
+                    (0..out.len())
+                        .filter(|&i| a[i] != 0.0 && b[i] != 0.0)
+                        .count()
+                } else {
+                    usize::MAX
+                };
+                if both == usize::MAX {
+                    println!("    operands are broadcast, so no index comparison");
+                } else {
+                    println!(
+                        "    {both} of {} indices have both operands non-zero",
+                        out.len()
+                    );
+                }
+                if both != usize::MAX
+                    && let Some(i) = (0..out.len()).find(|&i| a[i] != 0.0 && b[i] != 0.0)
+                {
+                    println!(
+                        "    at index {i}: {:.6e} and {:.6e} gave {:.6e}, product is {:.6e}",
+                        a[i],
+                        b[i],
+                        out[i],
+                        a[i] * b[i]
+                    );
+                }
+            }
+
+            origins += 1;
+            if origins == 4 {
+                break;
+            }
+        }
+        if origins == 0 {
+            println!("no arithmetic node turns non-zero inputs into all zeros");
+        }
+    }
+
     match first_huge {
         Some((step, d)) => {
             let g = dag_to_graph[d];
