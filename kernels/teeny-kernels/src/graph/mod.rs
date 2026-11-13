@@ -1760,12 +1760,26 @@ impl CopyMapping<'_> {
 ///
 /// `Op::Softmax` names it `dim` and `Op::LogSoftmax` names it `axis`; both count
 /// negative from the end.
-fn softmax_axis(op: &Op) -> Option<(i64, bool)> {
+fn softmax_axis(op: &Op) -> Option<(i64, AxisOp)> {
     match op {
-        Op::Softmax { dim } => Some((*dim, false)),
-        Op::LogSoftmax { axis } => Some((*axis, true)),
+        Op::Softmax { dim } => Some((*dim, AxisOp::Softmax)),
+        Op::LogSoftmax { axis } => Some((*axis, AxisOp::LogSoftmax)),
+        Op::CumSum { axis, .. } => Some((*axis, AxisOp::CumSum)),
+        Op::CumProd { axis, .. } => Some((*axis, AxisOp::CumProd)),
         _ => None,
     }
+}
+
+/// An op that works along one named axis, where the kernel only does the innermost one.
+///
+/// All four keep their input's shape, so moving the axis means a transpose on each
+/// side rather than the single one a reduction needs.
+#[derive(Clone, Copy, PartialEq)]
+enum AxisOp {
+    Softmax,
+    LogSoftmax,
+    CumSum,
+    CumProd,
 }
 
 fn reduce_parts(op: &Op) -> Option<(&[i64], bool, bool)> {
@@ -2225,8 +2239,11 @@ impl TritonLowering {
             // the output keeps the input's shape, so this needs a transpose on both
             // sides: in, normalize, and back. Without it the kernel normalized the last
             // axis whatever the op asked for.
-            if let Some((dim, is_log)) = softmax_axis(&node.op)
-                && let &[data] = node.inputs.as_slice()
+            // A cumulative op carries its axis as a second operand, which
+            // `Op::shape_operand_positions` marks as metadata, so only the first input
+            // is data. Matching on exactly one input skipped those entirely.
+            if let Some((dim, axis_op)) = softmax_axis(&node.op)
+                && let Some(&data) = node.inputs.first()
                 && !elided[data]
             {
                 let what = node_label(graph, node_index);
@@ -2272,7 +2289,7 @@ impl TritonLowering {
                         dtype: node.dtype,
                         shape: transposed,
                     };
-                    let executable: Box<dyn ExecutableOp> = if is_log {
+                    let executable: Box<dyn ExecutableOp> = if axis_op == AxisOp::LogSoftmax {
                         let fwd = LogSoftmaxForward::new(block_size);
                         let nm = fwd.name.to_string();
                         let fwd_src = fwd.source.clone();
@@ -2293,8 +2310,12 @@ impl TritonLowering {
                             backward_entry_point: String::new(),
                             runtime_op: rop,
                         })
-                    } else {
+                    } else if axis_op == AxisOp::Softmax {
                         make_float_kernel!(SoftmaxForward(block_size), middle)
+                    } else if axis_op == AxisOp::CumSum {
+                        make_num_kernel!(CumSumForward(1024), middle)
+                    } else {
+                        make_num_kernel!(CumProdForward(1024), middle)
                     };
                     let middle_dag_idx = dag.add_node(executable);
                     dag.add_edge(into_dag_idx, middle_dag_idx);
@@ -4031,6 +4052,26 @@ impl TritonLowering {
                     make_float_kernel!(ReduceLogSumExpForward(1024), node)
                 }
                 Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
+                Op::CumSum {
+                    exclusive,
+                    reverse,
+                    ..
+                }
+                | Op::CumProd {
+                    exclusive,
+                    reverse,
+                    ..
+                } if *exclusive || *reverse => {
+                    // The kernels accumulate inclusively and forwards, and nothing in
+                    // them reads these, so either flag would be ignored rather than
+                    // obeyed.
+                    let what = node_label(graph, node_index);
+                    return Err(anyhow::anyhow!(
+                        "Op::CumSum/CumProd {what}: exclusive={exclusive} \
+                         reverse={reverse} is not implemented; the kernel accumulates \
+                         inclusively and forwards"
+                    ));
+                }
                 Op::CumSum { .. } => make_num_kernel!(CumSumForward(1024), node),
                 Op::CumProd { .. } => make_num_kernel!(CumProdForward(1024), node),
                 Op::GlobalAvgPool => make_float_kernel!(GlobalAvgPoolForward(1024), node),

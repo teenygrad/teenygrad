@@ -17,6 +17,7 @@
 
 #![cfg(all(feature = "hardware", feature = "riscv", not(feature = "cuda")))]
 
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use teeny_core::model::{Lowering, LoweringMode};
@@ -133,6 +134,73 @@ fn the_export_runs_on_riscv_and_matches_pytorch() {
     .expect("compiling the model for riscv64");
     println!("compiled and allocated in {:.1?}", started.elapsed());
 
+    // Conv2d and friends keep their weights in parameter slots, not as graph inputs,
+    // and a slot nobody fills is zero: every one of the graph's 382 Conv2d nodes
+    // returned exactly zero before this, weight and bias slot both being empty
+    // (teenygrad#131's hidden param slots). The data is in the file; what is missing is
+    // the binding. A node's slots take its own constant operands in order, so each
+    // slot gets the next operand after the first that carries tensor data.
+    let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
+    let mut by_node: BTreeMap<usize, Vec<(usize, String)>> = BTreeMap::new();
+    for (name, node_idx, param_idx) in slots {
+        by_node.entry(node_idx).or_default().push((param_idx, name));
+    }
+
+    let mut bound = 0usize;
+    let mut bound_values = 0usize;
+    let mut unbound: Vec<String> = Vec::new();
+    for (node_idx, mut node_slots) in by_node {
+        node_slots.sort_by_key(|(pi, _)| *pi);
+        let g = dag_to_graph[node_idx];
+        if g == usize::MAX {
+            unbound.push(format!("node {node_idx}: no graph node"));
+            continue;
+        }
+        // The operands that carry tensor data, in the order the op takes them. A
+        // `Constant` has no operands and is its own value, keyed by its own index.
+        let operands: Vec<usize> = import.graph.nodes[g]
+            .inputs
+            .iter()
+            .copied()
+            .filter(|op_idx| import.tensors.contains_key(op_idx))
+            .collect();
+        let sources: Vec<usize> = if operands.is_empty() {
+            import
+                .tensors
+                .contains_key(&g)
+                .then_some(g)
+                .into_iter()
+                .collect()
+        } else {
+            operands
+        };
+        let mut constants = sources
+            .into_iter()
+            .map(|op_idx| (op_idx, &import.tensors[&op_idx]));
+        for (param_idx, name) in node_slots {
+            let Some((op_idx, tensor)) = constants.next() else {
+                unbound.push(format!("{name}: node {node_idx} has no operand left"));
+                continue;
+            };
+            let data = as_words(&tensor.bytes);
+            match model.load_param_f32(node_idx, param_idx, &data) {
+                Ok(()) => {
+                    bound += 1;
+                    bound_values += data.len();
+                }
+                Err(e) => unbound.push(format!("{name}: operand {op_idx}: {e}")),
+            }
+        }
+    }
+    println!(
+        "bound {bound} parameter slots, {:.2} GiB; {} not bound",
+        (bound_values * 4) as f64 / (1 << 30) as f64,
+        unbound.len()
+    );
+    for u in unbound.iter().take(10) {
+        println!("  unbound: {u}");
+    }
+
     model.set_trace(std::env::var("FS96_TRACE").is_ok());
     let refs: Vec<&[f32]> = feeds.iter().map(|v| v.as_slice()).collect();
     let outputs = model.terminal_node_indices_sorted_by_size();
@@ -169,11 +237,11 @@ fn the_export_runs_on_riscv_and_matches_pytorch() {
     println!(
         "disparity: mean |riscv - pytorch| = {:.4}, worst {:.4} at {at} (got {:.3}, \
          want {:.3})",
-        mean,
-        worst,
-        out[at],
-        want[at]
+        mean, worst, out[at], want[at]
     );
     // A disparity in pixels: a mean error below a tenth of a pixel is the same answer.
-    assert!(mean < 0.1, "the disparity does not match PyTorch's: mean {mean}");
+    assert!(
+        mean < 0.1,
+        "the disparity does not match PyTorch's: mean {mean}"
+    );
 }

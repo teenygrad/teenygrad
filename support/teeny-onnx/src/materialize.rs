@@ -99,6 +99,9 @@ pub struct MaterializeReport {
     /// Reductions whose axes were moved from an operand onto the op. See
     /// `adopt_reduce_axes`.
     pub reduce_axes_adopted: usize,
+    /// Cumulative ops whose single axis was moved from an operand onto the op. See
+    /// `adopt_axis_operands`.
+    pub axis_operands_adopted: usize,
     /// Nodes whose output shape the pass worked out, having been imported with an
     /// unknown rank or a dynamic dimension.
     ///
@@ -334,6 +337,7 @@ pub fn materialize_constants(
     }
 
     report.reduce_axes_adopted = adopt_reduce_axes(graph, &values);
+    report.axis_operands_adopted = adopt_axis_operands(graph, &values);
 
     report.shapes_unresolved = graph
         .nodes
@@ -388,6 +392,45 @@ fn adopt_reduce_axes(graph: &mut Graph, values: &BTreeMap<usize, Value>) -> usiz
         }
     }
     adopted
+}
+
+/// Moves a cumulative op's axis from its operand onto the op.
+///
+/// ONNX has always carried `CumSum`'s axis as an operand rather than an attribute, so
+/// the importer cannot see it: it is usually a `Constant` node, whose value this pass
+/// is what computes. Left alone the op keeps the 0 the importer wrote, and the kernel
+/// accumulates along the innermost axis whatever the file asked for. Returns how many
+/// ops were rewritten.
+fn adopt_axis_operands(graph: &mut Graph, values: &BTreeMap<usize, Value>) -> usize {
+    let mut adopted = 0usize;
+    for id in 0..graph.nodes.len() {
+        let Some(&operand) = graph.nodes[id].inputs.get(1) else {
+            continue;
+        };
+        if cum_axis_mut(&mut graph.nodes[id].op).is_none() {
+            continue;
+        }
+        let Some(value) = values.get(&operand) else {
+            continue;
+        };
+        if !matches!(value.data, Data::Int(_)) || value.len() != 1 {
+            continue;
+        }
+        let read = value.int_at(0);
+        if let Some(axis) = cum_axis_mut(&mut graph.nodes[id].op) {
+            *axis = read;
+            adopted += 1;
+        }
+    }
+    adopted
+}
+
+/// A cumulative op's `axis` field, to be written.
+fn cum_axis_mut(op: &mut Op) -> Option<&mut i64> {
+    match op {
+        Op::CumSum { axis, .. } | Op::CumProd { axis, .. } => Some(axis),
+        _ => None,
+    }
 }
 
 /// A reduction's `axes` field, to be written.

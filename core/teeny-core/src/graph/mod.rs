@@ -1107,6 +1107,8 @@ impl Op {
             // A reduction's axes, where the file wrote them as an operand rather than
             // an attribute. `teeny_onnx::materialize` moves the value onto the op, so
             // by lowering time this operand only needs eliding.
+            // A cumulative op's axis, which ONNX always writes as an operand.
+            Op::CumSum { .. } | Op::CumProd { .. } => &[1],
             Op::ReduceSum { .. }
             | Op::ReduceMean { .. }
             | Op::ReduceMax { .. }
@@ -2358,6 +2360,13 @@ pub enum Op {
     },
     /// Cumulative sum along an axis (ONNX `CumSum`).
     CumSum {
+        /// The axis to accumulate along, negative counting from the end.
+        ///
+        /// ONNX carries this as an operand rather than an attribute, so
+        /// `teeny_onnx::materialize` moves the value here once it is known. It is kept
+        /// because accumulating along the wrong axis is a wrong answer of the right
+        /// shape.
+        axis: i64,
         /// Whether to exclude the current element from the cumulative result.
         exclusive: bool,
         /// Whether to accumulate in reverse order.
@@ -2365,6 +2374,9 @@ pub enum Op {
     },
     /// Cumulative product along an axis (ONNX `CumProd`).
     CumProd {
+        /// The axis to accumulate along, negative counting from the end. As
+        /// [`Op::CumSum`]'s.
+        axis: i64,
         /// Whether to exclude the current element from the cumulative result.
         exclusive: bool,
         /// Whether to accumulate in reverse order.

@@ -1459,10 +1459,17 @@ fn map_node_op(
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "CumSum" => Op::CumSum {
+            // ONNX puts the axis in operand 1, which is usually a Constant node and so
+            // not visible here; `materialize::adopt_axis_operands` writes it once the
+            // fold has computed it. Zero until then, which is also ONNX's meaning for
+            // a rank-1 input and the only safe guess.
+            axis: 0,
             exclusive: get_attr_int(node, "exclusive", 0) != 0,
             reverse: get_attr_int(node, "reverse", 0) != 0,
         },
         "CumProd" => Op::CumProd {
+            // As `CumSum` above.
+            axis: 0,
             exclusive: get_attr_int(node, "exclusive", 0) != 0,
             reverse: get_attr_int(node, "reverse", 0) != 0,
         },
