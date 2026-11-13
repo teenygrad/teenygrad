@@ -261,6 +261,36 @@ fn get_attr_ints<'a>(node: &'a NodeProto, name: &str) -> Option<&'a [i64]> {
         .map(|a| a.ints.as_slice())
 }
 
+/// A reduction's `axes`, from the attribute or from the operand ONNX moved it to.
+///
+/// Opset 13 moved `ReduceSum`'s axes to an input and opset 18 moved the rest, so a file
+/// may state them either way. An operand that is an initializer is read here; one that
+/// is computed is not visible at import, and the empty list it leaves behind is what
+/// `noop_with_empty_axes` would call "reduce everything". The lowering tells the two
+/// apart by the operand count, so it can refuse rather than reduce the wrong thing.
+fn reduce_axes_attr(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) -> Vec<i64> {
+    if let Some(axes) = get_attr_ints(node, "axes") {
+        return axes.to_vec();
+    }
+    let Some(name) = node.input.get(1) else {
+        return Vec::new();
+    };
+    let Some(tensor) = initializers.get(name.as_str()) else {
+        return Vec::new();
+    };
+    if !tensor.int64_data.is_empty() {
+        return tensor.int64_data.clone();
+    }
+    // An initializer usually carries its values in `raw_data`, little-endian.
+    tensor
+        .raw_data
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| i64::from_le_bytes(*c))
+        .collect()
+}
+
 fn get_attr_string<'a>(node: &'a NodeProto, name: &str, default: &'a str) -> &'a str {
     node.attribute
         .iter()
@@ -804,42 +834,52 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         // Reductions
         // ---------------------------------------------------------------
         "ReduceSum" => Op::ReduceSum {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceMean" => Op::ReduceMean {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceMax" => Op::ReduceMax {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceMin" => Op::ReduceMin {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceProd" => Op::ReduceProd {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceL1" => Op::ReduceL1 {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceL2" => Op::ReduceL2 {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceLogSum" => Op::ReduceLogSum {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceLogSumExp" => Op::ReduceLogSumExp {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
         "ReduceSumSquare" => Op::ReduceSumSquare {
+            axes: reduce_axes_attr(node, initializers),
             keepdims: get_attr_int(node, "keepdims", 1) != 0,
             noop_with_empty_axes: get_attr_int(node, "noop_with_empty_axes", 0) != 0,
         },
