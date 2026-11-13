@@ -25,6 +25,7 @@
 
 #![cfg(all(feature = "hardware", feature = "cuda"))]
 
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use teeny_core::model::{Lowering, LoweringMode};
@@ -67,6 +68,20 @@ fn where_the_output_goes_to_zero() {
     let (folded, _, _) =
         materialize_and_resolve(&mut import, &MaterializeConfig::default()).expect("resolve");
     println!("imported and folded in {:.1?}", started.elapsed());
+
+    // Are the normalization Constants that come out zero present as values at all?
+    for (g, name) in import.graph.names.iter() {
+        if name.ends_with("deconv32_16/conv1/IN/Constant_1")
+            || name.ends_with("deconv32_16/conv2/bn1/Constant_1")
+        {
+            let in_tensors = import.tensors.get(g).map(|t| t.bytes.len());
+            let in_folded = folded.get(g).map(|c| (c.bytes.len(), c.dtype));
+            println!(
+                "{name}: graph {g} shape {:?} tensors {:?} folded {:?}",
+                import.graph.nodes[*g].shape, in_tensors, in_folded
+            );
+        }
+    }
 
     let lowering = TritonLowering::new().with_constants(folded);
     let (dag, graph_to_dag) = lowering
@@ -141,17 +156,71 @@ fn where_the_output_goes_to_zero() {
     println!("compiled and allocated in {:.1?}", started.elapsed());
 
     // Conv2d and friends keep their weights in parameter slots, not as graph inputs,
-    // and a slot nobody fills is zero. Feeding the weights as activations leaves every
-    // such slot empty, which is teenygrad#131's "hidden param slots".
+    // and a slot nobody fills is zero: every one of the graph's 382 Conv2d nodes
+    // returned exactly zero before this, weight and bias slot both being empty
+    // (teenygrad#131's hidden param slots). The data is in the file; what is missing is
+    // the binding. A node's slots take its own constant operands in order, so each
+    // slot gets the next operand after the first that carries tensor data.
     let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
-    println!("{} parameter slots", slots.len());
-    for (name, node_idx, param_idx) in slots.iter().filter(|(n, _, _)| n.contains("Conv")).take(8) {
-        println!("  conv slot: {name} -> node {node_idx} slot {param_idx}");
+    let mut by_node: BTreeMap<usize, Vec<(usize, String)>> = BTreeMap::new();
+    for (name, node_idx, param_idx) in slots {
+        by_node.entry(node_idx).or_default().push((param_idx, name));
+    }
+
+    let mut bound = 0usize;
+    let mut bound_values = 0usize;
+    let mut unbound: Vec<String> = Vec::new();
+    for (node_idx, mut node_slots) in by_node {
+        node_slots.sort_by_key(|(pi, _)| *pi);
+        let g = dag_to_graph[node_idx];
+        if g == usize::MAX {
+            unbound.push(format!("node {node_idx}: no graph node"));
+            continue;
+        }
+        // The operands that carry tensor data, in the order the op takes them. A
+        // `Constant` has no operands and is its own value, keyed by its own index.
+        let operands: Vec<usize> = import.graph.nodes[g]
+            .inputs
+            .iter()
+            .copied()
+            .filter(|op_idx| import.tensors.contains_key(op_idx))
+            .collect();
+        let sources: Vec<usize> = if operands.is_empty() {
+            import
+                .tensors
+                .contains_key(&g)
+                .then_some(g)
+                .into_iter()
+                .collect()
+        } else {
+            operands
+        };
+        let mut constants = sources
+            .into_iter()
+            .map(|op_idx| (op_idx, &import.tensors[&op_idx]));
+        for (param_idx, name) in node_slots {
+            let Some((op_idx, tensor)) = constants.next() else {
+                unbound.push(format!("{name}: node {node_idx} has no operand left"));
+                continue;
+            };
+            let data = as_words(&tensor.bytes);
+            match model.load_param_f32(node_idx, param_idx, &data) {
+                Ok(()) => {
+                    bound += 1;
+                    bound_values += data.len();
+                }
+                Err(e) => unbound.push(format!("{name}: operand {op_idx}: {e}")),
+            }
+        }
     }
     println!(
-        "{} of those slots belong to a Conv node",
-        slots.iter().filter(|(n, _, _)| n.contains("Conv")).count()
+        "bound {bound} parameter slots, {:.2} GiB; {} not bound",
+        (bound_values * 4) as f64 / (1 << 30) as f64,
+        unbound.len()
     );
+    for u in unbound.iter().take(10) {
+        println!("  unbound: {u}");
+    }
 
     model.set_trace(std::env::var("FS96_TRACE").is_ok());
     let refs: Vec<&[f32]> = feeds.iter().map(|v| v.as_slice()).collect();
@@ -159,7 +228,21 @@ fn where_the_output_goes_to_zero() {
     // Pin every node, so each one's output can be read afterwards, and walk the DAG's
     // own topological order to find the earliest node that is all zero while every one
     // of its inputs is not. That node is where the zeros start.
-    let outputs: Vec<usize> = (0..model.len()).collect();
+    // Pinning every node keeps every buffer, which is 16.6 GiB at 480x640. The
+    // diagnostic needs that; a plain end-to-end run only needs the output, so the pool
+    // can reuse the rest.
+    let disp_dag = graph_to_dag[*import.value_to_node.get("disp").expect("disp")];
+    let pin_all = std::env::var("FS_PIN_ALL").is_ok();
+    let outputs: Vec<usize> = if pin_all {
+        (0..model.len()).collect()
+    } else {
+        vec![disp_dag]
+    };
+    println!(
+        "pinning {} node(s){}",
+        outputs.len(),
+        if pin_all { " (FS_PIN_ALL)" } else { "" }
+    );
 
     let started = Instant::now();
     let got = model
@@ -167,15 +250,71 @@ fn where_the_output_goes_to_zero() {
         .expect("running the model");
     println!("ran in {:.1?}", started.elapsed());
 
+    if !pin_all {
+        let out = &got[0];
+        let max = out.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        println!(
+            "disp (dag {disp_dag}): {} values, max |cuda| = {max:.4}",
+            out.len()
+        );
+        if out.len() == want.len() {
+            let sum: f64 = out
+                .iter()
+                .zip(&want)
+                .map(|(g, w)| (g - w).abs() as f64)
+                .sum();
+            println!("mean |cuda - pytorch| = {:.4}", sum / want.len() as f64);
+        } else {
+            println!(
+                "no reference of this length ({} values), reporting the output only",
+                want.len()
+            );
+        }
+        return;
+    }
+
     let all_zero: Vec<bool> = got
         .iter()
         .map(|v| !v.is_empty() && v.iter().all(|x| *x == 0.0))
         .collect();
     let empty: Vec<bool> = got.iter().map(|v| v.is_empty()).collect();
 
+    // Only what the output actually depends on: a zero in a dead branch says nothing.
+    let disp_dag_for_walk = graph_to_dag[*import.value_to_node.get("disp").expect("disp")];
+    let mut needed = vec![false; dag.len()];
+    let mut stack = vec![disp_dag_for_walk];
+    while let Some(d) = stack.pop() {
+        if needed[d] {
+            continue;
+        }
+        needed[d] = true;
+        for &pp in &dag.node(d).parents {
+            stack.push(pp);
+        }
+    }
+    println!(
+        "{} of {} all-zero nodes are on disp's path",
+        (0..dag.len()).filter(|&d| all_zero[d] && needed[d]).count(),
+        all_zero.iter().filter(|x| **x).count()
+    );
+
     let mut found = 0usize;
     for d in dag.topological_sort() {
-        if !all_zero[d] {
+        if !all_zero[d] || !needed[d] {
+            continue;
+        }
+        // A constant or a fed weight can be legitimately zero: a normalization bias
+        // usually is. Only a computed node that turns non-zero inputs into zeros is
+        // evidence of a fault.
+        let gk = dag_to_graph[d];
+        if gk != usize::MAX
+            && matches!(
+                import.graph.nodes[gk].op,
+                teeny_core::graph::Op::Constant { .. }
+                    | teeny_core::graph::Op::Input
+                    | teeny_core::graph::Op::ConstantOfShape { .. }
+            )
+        {
             continue;
         }
         let parents = &dag.node(d).parents;
@@ -250,19 +389,31 @@ fn where_the_output_goes_to_zero() {
         empty.iter().filter(|x| **x).count()
     );
 
-    // The disparity itself, for the record.
-    let out = got
+    // The disparity itself. With every node pinned, several outputs have the
+    // reference's length, so take the export's declared output by name rather than the
+    // first of that length.
+    let out = &got[outputs
         .iter()
-        .find(|o| o.len() == want.len())
-        .expect("no output of the reference's length");
+        .position(|&i| i == disp_dag)
+        .expect("disp was pinned")];
+    assert_eq!(out.len(), want.len(), "disp has the wrong length");
+
     let max = out.iter().fold(0.0f32, |m, x| m.max(x.abs()));
-    let sum: f64 = out
-        .iter()
-        .zip(&want)
-        .map(|(g, w)| (g - w).abs() as f64)
-        .sum();
+    let mut worst = 0.0f32;
+    let mut at = 0usize;
+    let mut sum = 0.0f64;
+    for i in 0..want.len() {
+        let d = (out[i] - want[i]).abs();
+        sum += d as f64;
+        if d > worst {
+            worst = d;
+            at = i;
+        }
+    }
+    let mean = sum / want.len() as f64;
     println!(
-        "disparity: max |cuda| = {max:.4}, mean |cuda - pytorch| = {:.4}",
-        sum / want.len() as f64
+        "\ndisp (dag {disp_dag}): max |cuda| = {max:.4}, mean |cuda - pytorch| = {mean:.4}, \
+         worst {worst:.4} at {at} (got {:.3}, want {:.3})",
+        out[at], want[at]
     );
 }
