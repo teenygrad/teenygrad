@@ -51,10 +51,23 @@ pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let col_offsets = T::arange(0, BLOCK_SIZE);
     let offsets = col_offsets + row_offset;
 
+    // `BLOCK_SIZE` is `n_cols` rounded up to a power of two, so the lanes past the row
+    // belong to the next one, or to nothing at all on the last row. Unmasked, they were
+    // read into the softmax, which put the next row's values in this row's denominator,
+    // and written back, which overwrote that row's first elements. On the last row both
+    // ran past the end of the buffer.
+    //
+    // The sentinel is a large negative number rather than negative infinity: the
+    // generated kernel core has no `f64::NEG_INFINITY` to name, and a finite one cannot
+    // give `-inf - -inf` either. `exp` of it underflows to zero in both f32 and f64,
+    // which is all the sum needs.
+    let in_row = col_offsets.lt(n_cols);
+    let outside = T::full(&[BLOCK_SIZE], D::from_f64(-1e30));
+
     let x = T::load(
         x_ptr.add_offsets(offsets),
-        None,
-        None,
+        Some(in_row),
+        Some(outside),
         &[],
         None,
         None,
@@ -65,7 +78,7 @@ pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     // Triton's builtin: numerically-stable softmax (max subtraction, exp, sum, div).
     let y = T::softmax(x, None, false, false);
 
-    T::store(y_ptr.add_offsets(offsets), y, None, &[], None, None);
+    T::store(y_ptr.add_offsets(offsets), y, Some(in_row), &[], None, None);
 }
 // ANCHOR_END: softmax_forward
 
@@ -131,6 +144,18 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     T::store(dx_ptr.add_offsets(offsets), dx, None, &[], None, None);
 }
 
+/// A tensor's `[rows, cols]` view for a softmax over its innermost axis: the last
+/// extent is the row width and the product of the rest is the row count.
+///
+/// A rank-1 tensor is one row, and a rank-0 one is a single element, which is its own
+/// softmax.
+pub(crate) fn rows_and_cols(shape: &[usize]) -> (usize, usize) {
+    match shape.split_last() {
+        Some((&cols, outer)) => (outer.iter().product::<usize>().max(1), cols),
+        None => (1, 1),
+    }
+}
+
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxForward<D> {
     fn n_activation_inputs(&self) -> usize {
         1
@@ -150,8 +175,15 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxF
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         // kernel args: x_ptr, y_ptr, n_rows, n_cols
-        let n_rows = output_shape[0] as i32;
-        let n_cols = output_shape[1] as i32;
+        //
+        // One CTA per row over the innermost axis, so the row count is the product of
+        // every other axis. Reading them as `output_shape[0]` and `[1]` only agreed
+        // with that at rank 2: at rank 4 it passed the second axis as the row width and
+        // launched one row of however many there were, leaving the rest of the output
+        // at whatever the buffer held. It also panicked on a rank-1 shape.
+        let (n_rows, n_cols) = rows_and_cols(output_shape);
+        let n_rows = n_rows as i32;
+        let n_cols = n_cols as i32;
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(n_rows);
@@ -160,7 +192,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxF
 
     // One CTA per row.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [output_shape[0] as u32, 1, 1]
+        [rows_and_cols(output_shape).0 as u32, 1, 1]
     }
 }
 

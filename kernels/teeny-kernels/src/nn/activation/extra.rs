@@ -732,10 +732,16 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
     let row_offset = pid * n_cols;
     let col_offsets = T::arange(0, BLOCK_SIZE);
     let offsets = col_offsets + row_offset;
+
+    // The lanes past the row belong to the next one, or to nothing at all on the last
+    // row. See `softmax::softmax_forward`, which had the same two faults.
+    let in_row = col_offsets.lt(n_cols);
+    let outside = T::full(&[BLOCK_SIZE], -1e30f32);
+
     let x = T::load(
         x_ptr.add_offsets(offsets),
-        None,
-        None,
+        Some(in_row),
+        Some(outside),
         &[],
         None,
         None,
@@ -746,7 +752,7 @@ pub fn log_softmax_forward<T: Triton, const BLOCK_SIZE: i32>(
     let x_m = x - m;
     let log_sum = T::log(T::sum(T::exp(x_m), Some(0), true));
     let y = x_m - log_sum;
-    T::store(y_ptr.add_offsets(offsets), y, None, &[], None, None);
+    T::store(y_ptr.add_offsets(offsets), y, Some(in_row), &[], None, None);
 }
 
 /// Backward: dx = dy - softmax(x) * sum(dy)
@@ -809,15 +815,23 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
         _: i32,
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-        let n_rows = output_shape.first().copied().unwrap_or(1) as i32;
-        let n_cols = output_shape.last().copied().unwrap_or(1) as i32;
+        // One CTA per row over the innermost axis, so the row count is the product of
+        // every other axis and not the first extent alone, which only agreed with that
+        // at rank 2. See `softmax::rows_and_cols`.
+        let (rows, cols) = crate::nn::activation::softmax::rows_and_cols(output_shape);
+        let n_rows = rows as i32;
+        let n_cols = cols as i32;
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(n_rows);
         visitor.visit_i32(n_cols);
     }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [output_shape.first().copied().unwrap_or(1) as u32, 1, 1]
+        [
+            crate::nn::activation::softmax::rows_and_cols(output_shape).0 as u32,
+            1,
+            1,
+        ]
     }
     #[cfg(feature = "training")]
     fn has_backward(&self) -> bool {
@@ -836,8 +850,12 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
         _: &[teeny_core::model::RawPtr],
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
-        let n_rows = output_shape.first().copied().unwrap_or(1) as i32;
-        let n_cols = output_shape.last().copied().unwrap_or(1) as i32;
+        // One CTA per row over the innermost axis, so the row count is the product of
+        // every other axis and not the first extent alone, which only agreed with that
+        // at rank 2. See `softmax::rows_and_cols`.
+        let (rows, cols) = crate::nn::activation::softmax::rows_and_cols(output_shape);
+        let n_rows = rows as i32;
+        let n_cols = cols as i32;
         visitor.visit_ptr(grad_output);
         visitor.visit_ptr(output);
         visitor.visit_ptr(grad_inputs[0]);
@@ -846,6 +864,10 @@ impl teeny_core::model::RuntimeOp for LogSoftmaxForward {
     }
     #[cfg(feature = "training")]
     fn backward_grid(&self, _: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
-        [output_shape.first().copied().unwrap_or(1) as u32, 1, 1]
+        [
+            crate::nn::activation::softmax::rows_and_cols(output_shape).0 as u32,
+            1,
+            1,
+        ]
     }
 }

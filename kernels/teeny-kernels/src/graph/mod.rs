@@ -547,6 +547,21 @@ impl std::fmt::Debug for TritonLowering {
     }
 }
 
+/// Which axis a normalization or reduction names, resolved against the rank.
+///
+/// Negative counts from the end, as ONNX does. `None` when it falls outside
+/// `-rank ..= rank - 1`, which is not an axis the tensor has.
+fn resolve_axis(axis: i64, rank: usize) -> Option<usize> {
+    let resolved = if axis < 0 { axis + rank as i64 } else { axis };
+    (resolved >= 0 && resolved < rank as i64).then_some(resolved as usize)
+}
+
+/// Whether `axis` is the innermost one, which is the only axis the softmax and
+/// reduction kernels can work on: they walk a flattened `[rows, cols]` view.
+fn is_innermost(axis: usize, rank: usize) -> bool {
+    rank > 0 && axis + 1 == rank
+}
+
 impl TritonLowering {
     pub fn new() -> Self {
         Self::default()
@@ -1753,7 +1768,29 @@ impl TritonLowering {
                 ),
 
                 // --- Activation (D: Float) ---
-                Op::Softmax { .. } => {
+                Op::Softmax { dim } => {
+                    // The kernel normalizes a flattened `[rows, cols]` view's innermost
+                    // axis, so that is the only axis it can be asked for. Anything else
+                    // used to be normalized over the last axis anyway, which is a wrong
+                    // answer of the right shape, so it is refused until the lowering can
+                    // transpose the named axis innermost and back. See teenygrad#152.
+                    let rank = node.shape.len();
+                    let axis = resolve_axis(*dim, rank).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Op::Softmax: axis {dim} is outside the {rank} axes of \
+                             {:?}",
+                            node.shape
+                        )
+                    })?;
+                    if !is_innermost(axis, rank) {
+                        return Err(anyhow::anyhow!(
+                            "Op::Softmax: axis {dim} of a rank-{rank} input is not the \
+                             innermost one, and the kernel normalizes a flattened \
+                             [rows, cols] view's innermost axis. Transposing it there \
+                             first needs Op::Transpose, which is not lowered yet. See \
+                             teenygrad#152."
+                        ));
+                    }
                     // BLOCK_SIZE must be >= n_cols (the last dim), rounded up to next power of 2.
                     let n_cols = node.shape.last().and_then(|d| *d).unwrap_or(1024);
                     let block_size = n_cols.next_power_of_two() as i32;
@@ -2305,7 +2342,23 @@ impl TritonLowering {
                         runtime_op: rop,
                     })
                 }
-                Op::LogSoftmax { .. } => {
+                Op::LogSoftmax { axis } => {
+                    // As `Op::Softmax` above: the kernel only does the innermost axis.
+                    let rank = node.shape.len();
+                    let resolved = resolve_axis(*axis, rank).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Op::LogSoftmax: axis {axis} is outside the {rank} axes of \
+                             {:?}",
+                            node.shape
+                        )
+                    })?;
+                    if !is_innermost(resolved, rank) {
+                        return Err(anyhow::anyhow!(
+                            "Op::LogSoftmax: axis {axis} of a rank-{rank} input is not \
+                             the innermost one, and the kernel normalizes a flattened \
+                             [rows, cols] view's innermost axis. See teenygrad#152."
+                        ));
+                    }
                     let n_cols = node.shape.last().and_then(|d| *d).unwrap_or(1024);
                     let block_size = n_cols.next_power_of_two() as i32;
                     let fwd = LogSoftmaxForward::new(block_size);

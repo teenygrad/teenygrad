@@ -709,8 +709,13 @@ pub enum Op {
     Tanhshrink,
     /// Softmax activation (see `nn::activation::softmax::Softmax`).
     Softmax {
-        /// The dimension to operate along.
-        dim: usize,
+        /// The axis to normalize along, negative counting from the end.
+        ///
+        /// ONNX's default is -1 from opset 13 and 1 before it, and an exporter may write
+        /// either, so this is kept as written and resolved against the rank where the
+        /// rank is known. Clamping a negative axis to 0 silently normalized the wrong
+        /// axis.
+        dim: i64,
     },
 
     // --- Attention ---
@@ -3114,7 +3119,9 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Tanhshrink<D, SymTensor, 
 impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RANK> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softmax { dim: self.dim })
+        input.record(Op::Softmax {
+            dim: self.dim as i64,
+        })
     }
 }
 
