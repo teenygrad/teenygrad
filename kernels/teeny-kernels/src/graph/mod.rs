@@ -17,9 +17,9 @@
 use std::sync::Arc;
 use teeny_core::{
     graph::{
-        ConstantMap, ConstantTensor, DtypeRepr, EINSUM_MAX_RANK, EinsumPlan, Graph, GraphNode,
-        Op, ResizeCoords, ResizeMode, ResizeNearest, Shape, SlicePlan, einsum_plan,
-        matmul_plan, resize_axis_plan, slice_plan,
+        ConstantMap, ConstantTensor, DtypeRepr, EINSUM_MAX_RANK, EinsumPlan, Graph, GraphNode, Op,
+        ResizeCoords, ResizeMode, ResizeNearest, Shape, SlicePlan, einsum_plan, matmul_plan,
+        reduce_axes, reduce_transpose_perm, resize_axis_plan, slice_plan,
     },
     model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
@@ -98,9 +98,6 @@ use crate::nn::{
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
         constant::ConstantRuntimeOp,
-        gather::{GatherForward, GatherRuntimeOp},
-        strided_copy::{StridedCopyForward, StridedCopyRuntimeOp},
-        tile::{MAX_RANK, TileForward, TileRuntimeOp},
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
         elemwise_binary::{
             ClipRuntimeOp, ElemwiseDivBackward, ElemwiseDivForward, ElemwiseEqualForward,
@@ -124,26 +121,29 @@ use crate::nn::{
             ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward, ElemwiseSinhForward,
             ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward, ElemwiseTanForward,
         },
+        gather::{GatherForward, GatherRuntimeOp},
         reduction::{
             CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward,
             ReduceL1Forward, ReduceL2Forward, ReduceLogSumExpForward, ReduceLogSumForward,
             ReduceMaxForward, ReduceMeanForward, ReduceMinForward, ReduceProdForward,
             ReduceSumForward, ReduceSumSquareForward,
         },
+        strided_copy::{StridedCopyForward, StridedCopyRuntimeOp},
+        tile::{MAX_RANK, TileForward, TileRuntimeOp},
         upsample_nearest2d::{UpsampleNearest2dBackward, UpsampleNearest2dForward},
     },
 };
 
 use crate::math::einsum::{EinsumForward, EinsumRuntimeOp};
 use crate::math::gemm::MatMulRuntimeOp;
-use crate::nn::pad::pad_nd::PadNdRuntimeOp;
 use crate::nn::conv::conv_transpose2d::ConvTranspose2dRuntimeOp;
+use crate::nn::pad::pad_nd::PadNdRuntimeOp;
 use crate::nn::tensor::concat::ConcatRuntimeOp;
+use crate::nn::tensor::fill::FillRuntimeOp;
 use crate::nn::tensor::grid_sample::GridSampleRuntimeOp;
+use crate::nn::tensor::logical::{LogicalAndForward, LogicalOrForward, LogicalXorForward};
 use crate::nn::tensor::resize::{MAX_AXES as RESIZE_MAX_AXES, ResizeAxis, ResizeRuntimeOp};
 use crate::nn::tensor::scatter::{ScatterElementsRuntimeOp, ScatterNdRuntimeOp};
-use crate::nn::tensor::fill::FillRuntimeOp;
-use crate::nn::tensor::logical::{LogicalAndForward, LogicalOrForward, LogicalXorForward};
 
 use crate::errors::Result;
 
@@ -783,8 +783,11 @@ fn broadcast_binary_executable(
                 match which {
                     BroadcastOp::Add => {
                         let k = BroadcastAddForward::<$ty>::new(128);
-                        let (n, s, b) =
-                            (k.name.to_string(), k.source.clone(), k.kernel_source.clone());
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
                         let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
                             k,
                             128,
@@ -792,12 +795,22 @@ fn broadcast_binary_executable(
                             &aligned[0],
                             &aligned[1],
                         );
-                        (n, s, b, Arc::new(rop.ok_or_else(|| broadcast_refusal(op, what, &out_shape, &aligned))?))
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
                     }
                     BroadcastOp::Sub => {
                         let k = BroadcastSubForward::<$ty>::new(128);
-                        let (n, s, b) =
-                            (k.name.to_string(), k.source.clone(), k.kernel_source.clone());
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
                         let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
                             k,
                             128,
@@ -805,12 +818,22 @@ fn broadcast_binary_executable(
                             &aligned[0],
                             &aligned[1],
                         );
-                        (n, s, b, Arc::new(rop.ok_or_else(|| broadcast_refusal(op, what, &out_shape, &aligned))?))
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
                     }
                     BroadcastOp::Mul => {
                         let k = BroadcastMulForward::<$ty>::new(128);
-                        let (n, s, b) =
-                            (k.name.to_string(), k.source.clone(), k.kernel_source.clone());
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
                         let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
                             k,
                             128,
@@ -818,12 +841,22 @@ fn broadcast_binary_executable(
                             &aligned[0],
                             &aligned[1],
                         );
-                        (n, s, b, Arc::new(rop.ok_or_else(|| broadcast_refusal(op, what, &out_shape, &aligned))?))
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
                     }
                     BroadcastOp::Div => {
                         let k = BroadcastDivForward::<$ty>::new(128);
-                        let (n, s, b) =
-                            (k.name.to_string(), k.source.clone(), k.kernel_source.clone());
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
                         let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
                             k,
                             128,
@@ -831,7 +864,14 @@ fn broadcast_binary_executable(
                             &aligned[0],
                             &aligned[1],
                         );
-                        (n, s, b, Arc::new(rop.ok_or_else(|| broadcast_refusal(op, what, &out_shape, &aligned))?))
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
                     }
                 };
             (name, source, body, erased)
@@ -964,7 +1004,12 @@ fn scatter_elements_executable(
     macro_rules! build {
         ($ty:ty) => {{
             let rop = ScatterElementsRuntimeOp::<$ty>::new(
-                1024, data[ax], updates[ax], inner, n_data, n_updates,
+                1024,
+                data[ax],
+                updates[ax],
+                inner,
+                n_data,
+                n_updates,
             )
             .ok_or_else(|| {
                 anyhow::anyhow!(
@@ -1028,7 +1073,12 @@ fn scatter_nd_executable(
         ));
     }
     let operand = |pos: usize, name: &str| -> Result<Vec<usize>> {
-        concrete_shape(&graph.nodes[node.inputs[pos]].shape, "ScatterND", name, what)
+        concrete_shape(
+            &graph.nodes[node.inputs[pos]].shape,
+            "ScatterND",
+            name,
+            what,
+        )
     };
     let data = operand(0, "data")?;
     let indices = operand(1, "indices")?;
@@ -1317,21 +1367,40 @@ fn logical_executable(
     // it at the right width. As in the constant path, `bool` is deliberately not a
     // `Num` dtype, and the aliasing is sound here because the kernel only ever reads
     // a byte as true-or-false and writes back 1 or 0.
-    let (name, kernel_source, kernel_body, runtime_op): (String, String, String, Arc<dyn RuntimeOp>) =
-        match which {
-            LogicalOp::And => {
-                let k = LogicalAndForward::new(1024);
-                (k.name.to_string(), k.source.clone(), k.kernel_source.clone(), Arc::new(k))
-            }
-            LogicalOp::Or => {
-                let k = LogicalOrForward::new(1024);
-                (k.name.to_string(), k.source.clone(), k.kernel_source.clone(), Arc::new(k))
-            }
-            LogicalOp::Xor => {
-                let k = LogicalXorForward::new(1024);
-                (k.name.to_string(), k.source.clone(), k.kernel_source.clone(), Arc::new(k))
-            }
-        };
+    let (name, kernel_source, kernel_body, runtime_op): (
+        String,
+        String,
+        String,
+        Arc<dyn RuntimeOp>,
+    ) = match which {
+        LogicalOp::And => {
+            let k = LogicalAndForward::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+                Arc::new(k),
+            )
+        }
+        LogicalOp::Or => {
+            let k = LogicalOrForward::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+                Arc::new(k),
+            )
+        }
+        LogicalOp::Xor => {
+            let k = LogicalXorForward::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+                Arc::new(k),
+            )
+        }
+    };
 
     Ok(Box::new(KernelExecutable {
         entry_point: format!("{name}_entry_point"),
@@ -1683,6 +1752,66 @@ impl CopyMapping<'_> {
 /// [`MAX_RANK`] and *truncates* anything longer, which would drop the fastest-varying
 /// dimensions and copy the wrong elements with no error. Refusing here turns that into
 /// a lowering failure naming the op.
+/// A reduction's axes, keepdims and empty-axes rule, or `None` for anything else.
+///
+/// Grouped because the reduction kernels treat them all the same way, and so does the
+/// transpose that has to come first.
+fn reduce_parts(op: &Op) -> Option<(&[i64], bool, bool)> {
+    match op {
+        Op::ReduceSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMean {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMax {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMin {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceProd {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL1 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL2 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSumExp {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceSumSquare {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        } => Some((axes, *keepdims, *noop_with_empty_axes)),
+        _ => None,
+    }
+}
+
 fn strided_copy_executable(
     node: &GraphNode,
     op: &str,
@@ -2014,6 +2143,58 @@ impl TritonLowering {
 
             if elided[node_index] {
                 continue;
+            }
+
+            // The reduction kernels walk a flattened `[outer, inner]` view and infer
+            // the split from the output shape, so they can only reduce the innermost
+            // axes. When the axes are somewhere else, a transpose goes in front to put
+            // them there and the reduction reads that instead of the original input.
+            // Nothing is needed afterwards: the axes that stay keep their relative
+            // order, so the reduced elements come out in the order the recorded output
+            // shape already describes, whether the reduced axes are kept as 1s or
+            // dropped. Without this the reduction sums adjacent elements instead of
+            // strided ones and returns a plausibly-shaped wrong answer.
+            let mut reduce_input_override: Option<(usize, usize)> = None;
+            if let Some((axes, _, noop_with_empty_axes)) = reduce_parts(&node.op)
+                && let &[data] = node.inputs.as_slice()
+                && !elided[data]
+            {
+                let what = node_label(graph, node_index);
+                let in_shape =
+                    concrete_shape(&graph.nodes[data].shape, "Reduce", &what, "its input's")?;
+                let Some(reduced) = reduce_axes(axes, in_shape.len(), noop_with_empty_axes) else {
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce {what}: axes {axes:?} are not all within the \
+                         {} axes of {in_shape:?}",
+                        in_shape.len()
+                    ));
+                };
+                if let Some(perm) = reduce_transpose_perm(&reduced, in_shape.len()) {
+                    let transposed: Vec<Option<usize>> =
+                        perm.iter().map(|&a| Some(in_shape[a])).collect();
+                    // A stand-in for the transpose's own output, which no graph node
+                    // describes: `strided_copy_executable` checks the shape it is given
+                    // against the mapping, and the reduction node's shape is a
+                    // different tensor's.
+                    let staging = GraphNode {
+                        op: Op::Transpose { perm: perm.clone() },
+                        inputs: vec![data],
+                        dtype: graph.nodes[data].dtype,
+                        shape: transposed,
+                    };
+                    let executable = strided_copy_executable(
+                        &staging,
+                        "Reduce",
+                        CopyMapping::Transpose {
+                            in_shape: &in_shape,
+                            perm: &perm,
+                        },
+                        &what,
+                    )?;
+                    let staging_dag_idx = dag.add_node(executable);
+                    dag.add_edge(graph_to_dag[data], staging_dag_idx);
+                    reduce_input_override = Some((data, staging_dag_idx));
+                }
             }
 
             // Training BatchNorm needs two sequential DAG nodes: stats then normalize.
@@ -3087,8 +3268,7 @@ impl TritonLowering {
                     let what = node_label(graph, node_index);
                     macro_rules! build_leaky {
                         ($ty:ty) => {{
-                            let rop =
-                                LeakyReluRuntimeOp::<$ty>::new(1024, *negative_slope as f32);
+                            let rop = LeakyReluRuntimeOp::<$ty>::new(1024, *negative_slope as f32);
                             let kernel = rop.kernel();
                             let name = kernel.name.to_string();
                             let source = kernel.source.clone();
@@ -3894,8 +4074,9 @@ impl TritonLowering {
                         })?;
                         concrete_shape(&graph.nodes[i].shape, "MatMul", side, &what)
                     };
-                    let plan = matmul_plan(&operand(0, "left operand")?, &operand(1, "right operand")?)
-                        .map_err(|e| anyhow::anyhow!("Op::MatMul {what}: {e}"))?;
+                    let plan =
+                        matmul_plan(&operand(0, "left operand")?, &operand(1, "right operand")?)
+                            .map_err(|e| anyhow::anyhow!("Op::MatMul {what}: {e}"))?;
 
                     let (block_m, block_n, block_k) =
                         pick_gemm_tile_sizes(Some(plan.m), plan.n, plan.k);
@@ -4108,20 +4289,15 @@ impl TritonLowering {
                     let steps = operand(4, false)?;
                     // Shared with shape inference, so the extents this copy writes and
                     // the ones the graph records cannot disagree.
-                    let plan = slice_plan(
-                        &in_shape,
-                        &starts,
-                        &ends,
-                        axes.as_deref(),
-                        steps.as_deref(),
-                    )
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Op::Slice {what}: starts {starts:?}, ends {ends:?}, axes \
+                    let plan =
+                        slice_plan(&in_shape, &starts, &ends, axes.as_deref(), steps.as_deref())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::Slice {what}: starts {starts:?}, ends {ends:?}, axes \
                              {axes:?} and steps {steps:?} do not describe a slice of \
                              {in_shape:?}"
-                        )
-                    })?;
+                                )
+                            })?;
                     strided_copy_executable(
                         node,
                         "Slice",
@@ -4260,8 +4436,7 @@ impl TritonLowering {
                     // node's own inferred shape, which is the one the output buffer is
                     // allocated from. Reading it here rather than the operand keeps the
                     // copy and the allocation describing the same tensor.
-                    let out_shape =
-                        concrete_shape(&node.shape, "Expand", &what, "its own output")?;
+                    let out_shape = concrete_shape(&node.shape, "Expand", &what, "its own output")?;
                     if out_shape.len() < in_shape.len() {
                         return Err(anyhow::anyhow!(
                             "Op::Expand {what}: cannot expand {in_shape:?} to the lower \
@@ -4374,9 +4549,10 @@ impl TritonLowering {
                         ));
                     }
                     let in_shape = concrete_shape(
-                        &graph.nodes[*node.inputs.first().ok_or_else(|| {
-                            anyhow::anyhow!("Op::Pad {what}: no tensor to pad")
-                        })?]
+                        &graph.nodes[*node
+                            .inputs
+                            .first()
+                            .ok_or_else(|| anyhow::anyhow!("Op::Pad {what}: no tensor to pad"))?]
                         .shape,
                         "Pad",
                         "operand 0",
@@ -4410,14 +4586,17 @@ impl TritonLowering {
                         .get(3)
                         .filter(|&&id| !matches!(graph.nodes[id].op, Op::Omitted))
                     {
-                        Some(id) => self.constants.get(id).and_then(|t| t.as_i64()).ok_or_else(
-                            || {
-                                anyhow::anyhow!(
-                                    "Op::Pad {what}: it names its axes with an operand \
+                        Some(id) => {
+                            self.constants
+                                .get(id)
+                                .and_then(|t| t.as_i64())
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::Pad {what}: it names its axes with an operand \
                                      that has no integer value"
-                                )
-                            },
-                        )?,
+                                    )
+                                })?
+                        }
                         None => (0..rank as i64).collect(),
                     };
                     if pads.len() != axes.len() * 2 {
@@ -4433,15 +4612,17 @@ impl TritonLowering {
                     let mut lo = vec![0i64; rank];
                     for (k, &ax) in axes.iter().enumerate() {
                         let ax = if ax < 0 { ax + rank as i64 } else { ax };
-                        let ax = usize::try_from(ax).ok().filter(|&a| a < rank).ok_or_else(
-                            || {
-                                anyhow::anyhow!(
-                                    "Op::Pad {what}: axis {} is outside a rank-{rank} \
+                        let ax =
+                            usize::try_from(ax)
+                                .ok()
+                                .filter(|&a| a < rank)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::Pad {what}: axis {} is outside a rank-{rank} \
                                      tensor",
-                                    axes[k]
-                                )
-                            },
-                        )?;
+                                        axes[k]
+                                    )
+                                })?;
                         lo[ax] = pads[k];
                         let hi = pads[axes.len() + k];
                         let want = in_shape[ax] as i64 + pads[k] + hi;
@@ -4537,8 +4718,12 @@ impl TritonLowering {
                             node.inputs.len()
                         ));
                     };
-                    let a_shape =
-                        concrete_shape(&graph.nodes[a].shape, "Einsum", &what, "its left operand's")?;
+                    let a_shape = concrete_shape(
+                        &graph.nodes[a].shape,
+                        "Einsum",
+                        &what,
+                        "its left operand's",
+                    )?;
                     let b_shape = concrete_shape(
                         &graph.nodes[b].shape,
                         "Einsum",
@@ -4548,13 +4733,12 @@ impl TritonLowering {
                     // The equation is planned by the same function shape inference
                     // uses, so the extents the graph records and the strides the
                     // contraction runs under come from one reading of it.
-                    let plan =
-                        einsum_plan(equation, &a_shape, &b_shape).map_err(|e| {
-                            anyhow::anyhow!(
-                                "Op::Einsum {what}: cannot plan '{equation}' over \
+                    let plan = einsum_plan(equation, &a_shape, &b_shape).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Op::Einsum {what}: cannot plan '{equation}' over \
                                  {a_shape:?} and {b_shape:?}: {e}"
-                            )
-                        })?;
+                        )
+                    })?;
                     if let Some(recorded) =
                         node.shape.iter().copied().collect::<Option<Vec<usize>>>()
                         && recorded != plan.out_shape
@@ -4609,8 +4793,7 @@ impl TritonLowering {
                         "input",
                         &what,
                     )?;
-                    let out_shape =
-                        concrete_shape(&node.shape, "ConvTranspose", "output", &what)?;
+                    let out_shape = concrete_shape(&node.shape, "ConvTranspose", "output", &what)?;
                     if x_shape.len() != 4 || out_shape.len() != 4 {
                         return Err(anyhow::anyhow!(
                             "Op::ConvTranspose {what}: {x_shape:?} to {out_shape:?}; \
@@ -4905,8 +5088,7 @@ impl TritonLowering {
                         "grid",
                         &what,
                     )?;
-                    let out_shape =
-                        concrete_shape(&node.shape, "GridSample", "output", &what)?;
+                    let out_shape = concrete_shape(&node.shape, "GridSample", "output", &what)?;
                     if x_shape.len() != 4 || grid_shape.len() != 4 || out_shape.len() != 4 {
                         return Err(anyhow::anyhow!(
                             "Op::GridSample {what}: {x_shape:?} sampled by \
@@ -5233,7 +5415,13 @@ impl TritonLowering {
                 if elided[input_graph_idx] {
                     continue;
                 }
-                dag.add_edge(graph_to_dag[input_graph_idx], dag_idx);
+                // A reduction whose axes needed moving reads the transpose above
+                // instead of its own input.
+                let from = match reduce_input_override {
+                    Some((original, staging)) if original == input_graph_idx => staging,
+                    _ => graph_to_dag[input_graph_idx],
+                };
+                dag.add_edge(from, dag_idx);
             }
         }
 
