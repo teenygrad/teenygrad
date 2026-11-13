@@ -46,7 +46,7 @@ teeny-cuda = { workspace = true, optional = true }
 # a workspace-inherited dependency, and it must be off here -- teeny-runtime's own default is
 # `cuda`, which would otherwise silently win even when only this crate's `riscv` feature (and not
 # `cuda`) is enabled.
-teeny-runtime = { path = "../../runtime/teeny-runtime", version = "0.3.1", optional = true, default-features = false }
+teeny-runtime = { path = "../../runtime/teeny-runtime", version = "0.4.0", optional = true, default-features = false }
 
 [dev-dependencies]
 teeny-compiler = { path = "../../compiler/teeny-compiler" }

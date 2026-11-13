@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.3.1...teeny-kernels-v0.4.0) - 2026-11-13
+
+### Other
+
+- merge release/0.3.2 into main ([#146](https://github.com/teenygrad/teenygrad/pull/146))
+- re-bless CUDA PTX snapshots for the Triton 3.9 teenyc ([#145](https://github.com/teenygrad/teenygrad/pull/145))
+- add #134-#136 to the 0.3.1 changelogs ([#139](https://github.com/teenygrad/teenygrad/pull/139))
+
 ## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-kernels-v0.3.0...teeny-kernels-v0.3.1) - 2026-11-11
 
 ### Fixed

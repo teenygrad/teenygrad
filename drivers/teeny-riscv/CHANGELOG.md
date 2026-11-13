@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/teenygrad/teenygrad/compare/teeny-riscv-v0.3.1...teeny-riscv-v0.4.0) - 2026-11-13
+
+### Other
+
+- add #134-#136 to the 0.3.1 changelogs ([#139](https://github.com/teenygrad/teenygrad/pull/139))
+
 ## [0.3.1](https://github.com/teenygrad/teenygrad/compare/teeny-riscv-v0.3.0...teeny-riscv-v0.3.1) - 2026-11-11
 
 ### Fixed
