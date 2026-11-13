@@ -225,64 +225,16 @@ fn where_the_output_goes_to_zero() {
     model.set_trace(std::env::var("FS96_TRACE").is_ok());
     let refs: Vec<&[f32]> = feeds.iter().map(|v| v.as_slice()).collect();
 
-    // Pin every node, so each one's output can be read afterwards, and walk the DAG's
-    // own topological order to find the earliest node that is all zero while every one
-    // of its inputs is not. That node is where the zeros start.
-    // Pinning every node keeps every buffer, which is 16.6 GiB at 480x640. The
-    // diagnostic needs that; a plain end-to-end run only needs the output, so the pool
-    // can reuse the rest.
+    // What to keep. Pinning every node keeps every buffer, which is 273.60 GiB at
+    // 480x640, so the diagnostic walks a ladder instead: the nodes the output depends
+    // on, in the DAG's own topological order, every FS_PIN_STRIDE-th one. The earliest
+    // rung that is all zero brackets where the zeros start, and FS_PIN_RANGE=a..b then
+    // pins every node between two rungs to narrow it. Without either, only the output
+    // is kept and the pool reuses the rest.
     let disp_dag = graph_to_dag[*import.value_to_node.get("disp").expect("disp")];
-    let pin_all = std::env::var("FS_PIN_ALL").is_ok();
-    let outputs: Vec<usize> = if pin_all {
-        (0..model.len()).collect()
-    } else {
-        vec![disp_dag]
-    };
-    println!(
-        "pinning {} node(s){}",
-        outputs.len(),
-        if pin_all { " (FS_PIN_ALL)" } else { "" }
-    );
 
-    let started = Instant::now();
-    let got = model
-        .run(&device, &refs, &outputs)
-        .expect("running the model");
-    println!("ran in {:.1?}", started.elapsed());
-
-    if !pin_all {
-        let out = &got[0];
-        let max = out.iter().fold(0.0f32, |m, x| m.max(x.abs()));
-        println!(
-            "disp (dag {disp_dag}): {} values, max |cuda| = {max:.4}",
-            out.len()
-        );
-        if out.len() == want.len() {
-            let sum: f64 = out
-                .iter()
-                .zip(&want)
-                .map(|(g, w)| (g - w).abs() as f64)
-                .sum();
-            println!("mean |cuda - pytorch| = {:.4}", sum / want.len() as f64);
-        } else {
-            println!(
-                "no reference of this length ({} values), reporting the output only",
-                want.len()
-            );
-        }
-        return;
-    }
-
-    let all_zero: Vec<bool> = got
-        .iter()
-        .map(|v| !v.is_empty() && v.iter().all(|x| *x == 0.0))
-        .collect();
-    let empty: Vec<bool> = got.iter().map(|v| v.is_empty()).collect();
-
-    // Only what the output actually depends on: a zero in a dead branch says nothing.
-    let disp_dag_for_walk = graph_to_dag[*import.value_to_node.get("disp").expect("disp")];
     let mut needed = vec![false; dag.len()];
-    let mut stack = vec![disp_dag_for_walk];
+    let mut stack = vec![disp_dag];
     while let Some(d) = stack.pop() {
         if needed[d] {
             continue;
@@ -292,102 +244,273 @@ fn where_the_output_goes_to_zero() {
             stack.push(pp);
         }
     }
-    println!(
-        "{} of {} all-zero nodes are on disp's path",
-        (0..dag.len()).filter(|&d| all_zero[d] && needed[d]).count(),
-        all_zero.iter().filter(|x| **x).count()
-    );
+    // The output's ancestors, in the order they run.
+    let path: Vec<usize> = dag
+        .topological_sort()
+        .into_iter()
+        .filter(|&d| needed[d])
+        .collect();
+    println!("disp depends on {} of {} nodes", path.len(), dag.len());
 
-    let mut found = 0usize;
-    for d in dag.topological_sort() {
-        if !all_zero[d] || !needed[d] {
-            continue;
-        }
-        // A constant or a fed weight can be legitimately zero: a normalization bias
-        // usually is. Only a computed node that turns non-zero inputs into zeros is
-        // evidence of a fault.
-        let gk = dag_to_graph[d];
-        if gk != usize::MAX
+    let stride: Option<usize> = std::env::var("FS_PIN_STRIDE")
+        .ok()
+        .map(|v| v.parse().unwrap());
+    let range: Option<(usize, usize)> = std::env::var("FS_PIN_RANGE").ok().map(|v| {
+        let (a, b) = v.split_once("..").expect("FS_PIN_RANGE=a..b");
+        (a.parse().unwrap(), b.parse().unwrap())
+    });
+
+    let mut rungs: Vec<usize> = match (stride, range) {
+        (n, Some((a, b))) => path[a.min(path.len())..b.min(path.len())]
+            .iter()
+            .copied()
+            .step_by(n.unwrap_or(1).max(1))
+            .collect(),
+        (Some(n), None) => path.iter().copied().step_by(n.max(1)).collect(),
+        (None, None) => Vec::new(),
+    };
+    if !rungs.contains(&disp_dag) {
+        rungs.push(disp_dag);
+    }
+    let outputs = rungs.clone();
+    println!("pinning {} node(s)", outputs.len());
+
+    let started = Instant::now();
+    let got = model
+        .run(&device, &refs, &outputs)
+        .expect("running the model");
+    println!("ran in {:.1?}", started.elapsed());
+
+    // Every pinned node in run order, with where the zeros begin.
+    let pos: BTreeMap<usize, usize> = path
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, d)| (d, i))
+        .collect();
+    let mut rows: Vec<(usize, usize, usize)> = outputs
+        .iter()
+        .enumerate()
+        .map(|(slot, &d)| (*pos.get(&d).unwrap_or(&usize::MAX), d, slot))
+        .collect();
+    rows.sort_unstable();
+
+    println!(
+        "\n{:>8}  {:>7}  {:>9}  {:>12}  {:>5}  {}",
+        "step", "node", "len", "max |v|", "zero", "name"
+    );
+    let mut last_nonzero: Option<(usize, usize)> = None;
+    let mut first_zero: Option<(usize, usize)> = None;
+    let mut first_huge: Option<(usize, usize)> = None;
+    for (step, d, slot) in &rows {
+        let v = &got[*slot];
+        let max = v.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        let gz = dag_to_graph[*d];
+        let is_constant = gz != usize::MAX
             && matches!(
-                import.graph.nodes[gk].op,
+                import.graph.nodes[gz].op,
                 teeny_core::graph::Op::Constant { .. }
                     | teeny_core::graph::Op::Input
                     | teeny_core::graph::Op::ConstantOfShape { .. }
-            )
-        {
-            continue;
-        }
-        let parents = &dag.node(d).parents;
-        if parents.iter().any(|&p| all_zero[p] || empty[p]) {
-            continue; // inherited zeros, not the origin
-        }
-        let g = dag_to_graph[d];
-        println!(
-            "\nFIRST all-zero node with non-zero inputs: dag {d} {} shape {:?}",
-            model.node_name(d).unwrap_or("unnamed"),
-            model.output_shape(d)
-        );
-        if g != usize::MAX {
-            println!("  graph node {g}, op {:?}", import.graph.nodes[g].op);
-        }
-        for &pp in parents {
-            let pg = dag_to_graph[pp];
-            let maxv = got[pp].iter().fold(0.0f32, |m, x| m.max(x.abs()));
-            println!(
-                "  input dag {pp:>6} len {:>8} max |v| {maxv:>12.6} {:?} {}",
-                got[pp].len(),
-                pg.checked_sub(0).and_then(|g| if g == usize::MAX {
-                    None
-                } else {
-                    Some(&import.graph.nodes[g].op)
-                }),
-                model.node_name(pp).unwrap_or("unnamed"),
             );
+        let zero = !v.is_empty() && max == 0.0 && !is_constant;
+        if zero && first_zero.is_none() {
+            first_zero = Some((*step, *d));
         }
-        found += 1;
-        if found == 5 {
-            break;
+        if !zero {
+            if first_zero.is_none() {
+                last_nonzero = Some((*step, *d));
+            }
         }
+        // FoundationStereo's activations are of order 100; anything far past that is
+        // garbage rather than a large answer.
+        let huge = max > 1e6;
+        if huge && first_huge.is_none() {
+            first_huge = Some((*step, *d));
+        }
+        let flag = if zero {
+            "ZERO"
+        } else if huge {
+            "HUGE"
+        } else if max.is_nan() {
+            "NAN"
+        } else {
+            ""
+        };
+        println!(
+            "{step:>8}  {d:>7}  {:>9}  {max:>12.3e}  {flag:>5}  {}",
+            v.len(),
+            model.node_name(*d).unwrap_or("unnamed")
+        );
     }
-    if found == 0 {
-        println!("\nno node is all zero with non-zero inputs");
+    match (last_nonzero, first_zero) {
+        (Some((a, da)), Some((b, db))) => println!(
+            "\nzeros start between step {a} (node {da}, {}) and step {b} (node {db}, {}): \
+             rerun with FS_PIN_RANGE={a}..{}",
+            model.node_name(da).unwrap_or("unnamed"),
+            model.node_name(db).unwrap_or("unnamed"),
+            b + 1
+        ),
+        (None, Some((b, db))) => println!(
+            "\nthe first rung is already zero: step {b}, node {db} ({})",
+            model.node_name(db).unwrap_or("unnamed")
+        ),
+        _ => println!("\nno pinned node is all zero"),
     }
-    // Which kinds of node are zero, counted over the whole graph.
-    {
-        use std::collections::BTreeMap;
-        let mut tally: BTreeMap<String, (usize, usize)> = BTreeMap::new();
-        for d in 0..dag.len() {
+    // Where a rung first blows up, with its inputs, so the op that did it is named
+    // rather than guessed. An input that was not pinned cannot be reported.
+    let maxes: BTreeMap<usize, f32> = outputs
+        .iter()
+        .enumerate()
+        .map(|(slot, &d)| (d, got[slot].iter().fold(0.0f32, |m, x| m.max(x.abs()))))
+        .collect();
+    match first_huge {
+        Some((step, d)) => {
             let g = dag_to_graph[d];
-            if g == usize::MAX {
-                continue;
+            println!(
+                "\nfirst rung past 1e6: step {step}, node {d} ({}), max {:.3e}",
+                model.node_name(d).unwrap_or("unnamed"),
+                maxes[&d]
+            );
+            if g != usize::MAX {
+                println!("  op {:?}", import.graph.nodes[g].op);
             }
-            let kind = format!("{:?}", import.graph.nodes[g].op);
-            let kind = kind
-                .split_whitespace()
-                .next()
-                .unwrap_or("?")
-                .trim_end_matches('{')
-                .to_string();
-            let e = tally.entry(kind).or_insert((0, 0));
-            e.1 += 1;
-            if all_zero[d] {
-                e.0 += 1;
+            let slot_of = |n: usize| outputs.iter().position(|&o| o == n);
+            for &pp in &dag.node(d).parents {
+                let pg = dag_to_graph[pp];
+                let max = maxes
+                    .get(&pp)
+                    .map(|m| format!("{m:.3e}"))
+                    .unwrap_or_else(|| "not pinned".to_string());
+                println!(
+                    "  input dag {pp:>6} max {max:>12} {:?} {}",
+                    if pg == usize::MAX {
+                        None
+                    } else {
+                        Some(&import.graph.nodes[pg].op)
+                    },
+                    model.node_name(pp).unwrap_or("unnamed")
+                );
+            }
+            // For a two-operand elementwise node, the element that blew up and what it
+            // was computed from. `x / norm` cannot exceed one, since a norm is at least
+            // the magnitude of any element it covers, so an operand pair that produces
+            // 1e13 says which side is wrong.
+            let parents = dag.node(d).parents.clone();
+            if parents.len() == 2
+                && let (Some(sa), Some(sb)) = (slot_of(parents[0]), slot_of(parents[1]))
+            {
+                let (a, b) = (&got[sa], &got[sb]);
+                let out = &got[slot_of(d).expect("pinned")];
+                if a.len() == out.len() && b.len() == out.len() {
+                    let mut at = 0usize;
+                    let mut worst = 0.0f32;
+                    for (i, v) in out.iter().enumerate() {
+                        if v.abs() > worst {
+                            worst = v.abs();
+                            at = i;
+                        }
+                    }
+                    println!(
+                        "  worst element {at}: {:?} = {:.6e}, {:?} = {:.6e}, out = {:.6e}",
+                        model.node_name(parents[0]).unwrap_or("a"),
+                        a[at],
+                        model.node_name(parents[1]).unwrap_or("b"),
+                        b[at],
+                        out[at]
+                    );
+                    // How many divisors are far below the numerator they divide.
+                    let bad = a
+                        .iter()
+                        .zip(b.iter())
+                        .filter(|(x, n)| n.abs() < x.abs() * 0.999)
+                        .count();
+                    println!(
+                        "  {bad} of {} elements have |numerator| > |divisor|, which a norm \
+                         cannot allow",
+                        a.len()
+                    );
+                }
             }
         }
-        let mut rows: Vec<_> = tally.into_iter().filter(|(_, (z, _))| *z > 0).collect();
-        rows.sort_by_key(|(_, (z, _))| std::cmp::Reverse(*z));
-        println!("\nall-zero nodes by op kind (zero / total):");
-        for (k, (z, t)) in rows.iter().take(25) {
-            println!("  {k:<28} {z:>5} / {t:<5}");
-        }
+        None => println!("no pinned node exceeds 1e6"),
     }
 
-    println!(
-        "\n{} of {} nodes are all zero, {} are empty",
-        all_zero.iter().filter(|x| **x).count(),
-        got.len(),
-        empty.iter().filter(|x| **x).count()
-    );
+    // A norm is at least the magnitude of any element it covers, so when x / norm
+    // exceeds one, either the reduction computed the wrong value or the broadcast
+    // paired elements with the wrong norm. Which one is answered by recomputing the
+    // norm from x under each candidate layout and seeing which matches what the
+    // reduction produced: contiguous groups (the reduced axis innermost) or strided
+    // ones (the reduced axis outermost).
+    if let Some((_, huge)) = first_huge
+        && let Some(x_node) = dag.node(huge).parents.first().copied()
+        && let Some(reduce_node) = outputs
+            .iter()
+            .copied()
+            .find(|&d| model.node_name(d).is_some_and(|n| n.contains("ReduceL2")))
+        && let (Some(xs), Some(rs)) = (
+            outputs.iter().position(|&o| o == x_node),
+            outputs.iter().position(|&o| o == reduce_node),
+        )
+    {
+        let x = &got[xs];
+        let norm = &got[rs];
+        if !norm.is_empty() && x.len() % norm.len() == 0 {
+            let m = norm.len();
+            let g = x.len() / m;
+            let mut err_contiguous = 0.0f32;
+            let mut err_strided = 0.0f32;
+            for j in 0..m {
+                let a: f32 = (0..g)
+                    .map(|k| x[j * g + k] * x[j * g + k])
+                    .sum::<f32>()
+                    .sqrt();
+                let b: f32 = (0..g)
+                    .map(|k| x[j + k * m] * x[j + k * m])
+                    .sum::<f32>()
+                    .sqrt();
+                err_contiguous = err_contiguous.max((a - norm[j]).abs());
+                err_strided = err_strided.max((b - norm[j]).abs());
+            }
+            let zeros = norm.iter().filter(|v| **v == 0.0).count();
+            println!(
+                "\n{} over {} groups of {g}: {zeros} of {m} norms are exactly zero",
+                model.node_name(reduce_node).unwrap_or("reduce"),
+                m
+            );
+            println!(
+                "  recomputed from {}: worst error {:.4e} with contiguous groups, \
+                 {:.4e} with strided groups",
+                model.node_name(x_node).unwrap_or("x"),
+                err_contiguous,
+                err_strided
+            );
+
+            // Which norm each element was actually given. With the reduced axis
+            // innermost, element i belongs to group i / g; pairing it with i % m
+            // instead is the same mistake read the other way round.
+            if let Some(div_node) = dag.node(huge).parents.get(1).copied()
+                && let Some(es) = outputs.iter().position(|&o| o == div_node)
+            {
+                let expanded = &got[es];
+                if expanded.len() == x.len() {
+                    let mut err_by_group = 0.0f32;
+                    let mut err_by_modulo = 0.0f32;
+                    for i in 0..expanded.len() {
+                        err_by_group = err_by_group.max((expanded[i] - norm[i / g]).abs());
+                        err_by_modulo = err_by_modulo.max((expanded[i] - norm[i % m]).abs());
+                    }
+                    println!(
+                        "  {} holds: worst error {:.4e} against norm[i / {g}] (correct), \
+                         {:.4e} against norm[i % {m}]",
+                        model.node_name(div_node).unwrap_or("expand"),
+                        err_by_group,
+                        err_by_modulo
+                    );
+                }
+            }
+        }
+    }
 
     // The disparity itself. With every node pinned, several outputs have the
     // reference's length, so take the export's declared output by name rather than the
@@ -396,7 +519,16 @@ fn where_the_output_goes_to_zero() {
         .iter()
         .position(|&i| i == disp_dag)
         .expect("disp was pinned")];
-    assert_eq!(out.len(), want.len(), "disp has the wrong length");
+    if out.len() != want.len() {
+        let max = out.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        println!(
+            "\ndisp (dag {disp_dag}): {} values, max |cuda| = {max:.4}; the reference is \
+             {} values, so no comparison here",
+            out.len(),
+            want.len()
+        );
+        return;
+    }
 
     let max = out.iter().fold(0.0f32, |m, x| m.max(x.abs()));
     let mut worst = 0.0f32;
