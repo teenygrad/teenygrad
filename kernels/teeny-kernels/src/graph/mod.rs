@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 use teeny_core::{
-    graph::{DtypeRepr, Graph, Op, Shape},
+    graph::{DtypeRepr, Graph, Op, Shape, reduce_axes, reduce_transpose_perm},
     model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
 };
@@ -547,6 +547,63 @@ impl std::fmt::Debug for TritonLowering {
     }
 }
 
+/// A reduction's axes, keepdims and empty-axes rule, or `None` for anything else.
+fn reduce_parts(op: &Op) -> Option<(&[i64], bool)> {
+    match op {
+        Op::ReduceSum {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceMean {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceMax {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceMin {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceProd {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceL1 {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceL2 {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceLogSum {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceLogSumExp {
+            axes,
+            noop_with_empty_axes,
+            ..
+        }
+        | Op::ReduceSumSquare {
+            axes,
+            noop_with_empty_axes,
+            ..
+        } => Some((axes, *noop_with_empty_axes)),
+        _ => None,
+    }
+}
+
 impl TritonLowering {
     pub fn new() -> Self {
         Self::default()
@@ -707,6 +764,43 @@ impl TritonLowering {
 
         for node_index in node_indexes {
             let node = &graph.nodes[node_index];
+
+            // The reduction kernels walk a flattened `[outer, inner]` view and infer
+            // the split from the output shape, so they can only reduce the innermost
+            // axes. Reducing any other axis sums adjacent elements instead of strided
+            // ones and returns a plausibly-shaped wrong answer, so it is refused here
+            // until the lowering can transpose them innermost first, which needs
+            // `Op::Transpose`. See teenygrad#151.
+            if let Some((axes, noop_with_empty_axes)) = reduce_parts(&node.op) {
+                let rank = graph
+                    .nodes
+                    .get(node.inputs.first().copied().unwrap_or(node_index))
+                    .map(|n| n.shape.len())
+                    .unwrap_or(0);
+                // An axes operand the importer could not resolve leaves the list empty,
+                // which would otherwise read as "reduce everything".
+                if axes.is_empty() && node.inputs.len() > 1 {
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce: the axes are a computed operand, so the lowering \
+                         cannot know what to reduce, and an empty list here would mean \
+                         every axis. Materialise the operand first. See teenygrad#151."
+                    ));
+                }
+                let Some(reduced) = reduce_axes(axes, rank, noop_with_empty_axes) else {
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce: axes {axes:?} are not all within the {rank} axes \
+                         of the input"
+                    ));
+                };
+                if reduce_transpose_perm(&reduced, rank).is_some() {
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce: axes {axes:?} of a rank-{rank} input are not the \
+                         innermost ones, and the kernels reduce a flattened \
+                         [outer, inner] view. Transposing them innermost first needs \
+                         Op::Transpose, which is not lowered yet. See teenygrad#151."
+                    ));
+                }
+            }
 
             // Training BatchNorm needs two sequential DAG nodes: stats then normalize.
             // BatchNorm2d uses NCHW-native kernels (falls through to the inference path below)

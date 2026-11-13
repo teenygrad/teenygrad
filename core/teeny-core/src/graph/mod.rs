@@ -1091,6 +1091,15 @@ pub enum Op {
     // --- Reductions ---
     /// Sum reduction along axes (ONNX `ReduceSum`).
     ReduceSum {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1098,6 +1107,15 @@ pub enum Op {
     },
     /// Mean reduction along axes (ONNX `ReduceMean`).
     ReduceMean {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1105,6 +1123,15 @@ pub enum Op {
     },
     /// Max reduction along axes (ONNX `ReduceMax`).
     ReduceMax {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1112,6 +1139,15 @@ pub enum Op {
     },
     /// Min reduction along axes (ONNX `ReduceMin`).
     ReduceMin {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1119,6 +1155,15 @@ pub enum Op {
     },
     /// Product reduction along axes (ONNX `ReduceProd`).
     ReduceProd {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1126,6 +1171,15 @@ pub enum Op {
     },
     /// L1-norm reduction along axes (ONNX `ReduceL1`).
     ReduceL1 {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1133,6 +1187,15 @@ pub enum Op {
     },
     /// L2-norm reduction along axes (ONNX `ReduceL2`).
     ReduceL2 {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1140,6 +1203,15 @@ pub enum Op {
     },
     /// Log-sum reduction along axes (ONNX `ReduceLogSum`).
     ReduceLogSum {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1147,6 +1219,15 @@ pub enum Op {
     },
     /// Log-sum-exp reduction along axes (ONNX `ReduceLogSumExp`).
     ReduceLogSumExp {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1154,6 +1235,15 @@ pub enum Op {
     },
     /// Sum-of-squares reduction along axes (ONNX `ReduceSumSquare`).
     ReduceSumSquare {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise. ONNX
+        /// moved this from an attribute to an operand, in opset 13 for `ReduceSum` and
+        /// opset 18 for the rest, so an export may state it either way and a reader has
+        /// to accept both. It is kept here because a reduction over the wrong axes is a
+        /// wrong answer and not merely an unknown shape: without it nothing downstream
+        /// can tell one from the other.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1652,6 +1742,59 @@ impl Graph {
 // ---------------------------------------------------------------------------
 // Shape inference — computes the output shape for each Op given an input shape
 // ---------------------------------------------------------------------------
+
+/// Which axes a reduction actually reduces, sorted and de-duplicated.
+///
+/// `axes` counts negative from the end, as ONNX does. An empty list means every axis,
+/// unless `noop_with_empty_axes`, where it means none and the op is a copy. Returns
+/// `None` when an entry is outside `-rank ..= rank - 1`, since a reduction over an axis
+/// the tensor does not have is not a shape that can be guessed at.
+///
+/// A rank of zero gives an empty list: a scalar has nothing to reduce, and `axes` must
+/// then be empty for the same reason.
+pub fn reduce_axes(
+    axes: &[i64],
+    rank: usize,
+    noop_with_empty_axes: bool,
+) -> Option<alloc::vec::Vec<usize>> {
+    if axes.is_empty() {
+        return Some(if noop_with_empty_axes {
+            alloc::vec::Vec::new()
+        } else {
+            (0..rank).collect()
+        });
+    }
+    let mut out = alloc::vec::Vec::with_capacity(axes.len());
+    for &axis in axes {
+        let resolved = if axis < 0 { axis + rank as i64 } else { axis };
+        if resolved < 0 || resolved >= rank as i64 {
+            return None;
+        }
+        out.push(resolved as usize);
+    }
+    out.sort_unstable();
+    out.dedup();
+    Some(out)
+}
+
+/// A permutation that moves `axes` to the end, keeping every other axis in order.
+///
+/// `None` when they are already the trailing axes, which is the layout a reduction
+/// kernel that walks a flattened `[outer, inner]` view needs. The axes that stay keep
+/// their relative order, so the reduced output's elements come out in the same order as
+/// the recorded output shape describes, whether or not the reduced axes are kept as 1s.
+pub fn reduce_transpose_perm(axes: &[usize], rank: usize) -> Option<alloc::vec::Vec<usize>> {
+    if axes.is_empty() || axes.len() > rank {
+        return None;
+    }
+    // Already trailing: the axes are exactly the last `axes.len()` of them.
+    if axes.iter().copied().eq(rank - axes.len()..rank) {
+        return None;
+    }
+    let mut perm: alloc::vec::Vec<usize> = (0..rank).filter(|a| !axes.contains(a)).collect();
+    perm.extend_from_slice(axes);
+    Some(perm)
+}
 
 fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
     // Constant has no tensor inputs — its shape is embedded in the op itself.
@@ -2191,22 +2334,80 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             vec![input[0], Some(*out_channels), h_out, w_out]
         }
 
-        Op::ReduceSum { keepdims, .. }
-        | Op::ReduceMean { keepdims, .. }
-        | Op::ReduceMax { keepdims, .. }
-        | Op::ReduceMin { keepdims, .. }
-        | Op::ReduceProd { keepdims, .. }
-        | Op::ReduceL1 { keepdims, .. }
-        | Op::ReduceL2 { keepdims, .. }
-        | Op::ReduceLogSum { keepdims, .. }
-        | Op::ReduceLogSumExp { keepdims, .. }
-        | Op::ReduceSumSquare { keepdims, .. } => {
-            // Without axis info at static-inference time, approximate:
-            // keepdims=true → same rank, keepdims=false → reduce all → scalar.
+        Op::ReduceSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMean {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMax {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMin {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceProd {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL1 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL2 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSumExp {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceSumSquare {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        } => {
+            // The axes are on the op, so the reduced extents are known: a kept axis
+            // becomes 1 and a dropped one goes away. Reducing every axis with
+            // `keepdims` gives all 1s, and without it a scalar, which an empty shape
+            // is. An axis outside the rank leaves the shape unknown rather than
+            // guessed.
+            let Some(reduced) = reduce_axes(axes, input.len(), *noop_with_empty_axes) else {
+                return vec![];
+            };
+            if reduced.is_empty() {
+                return input.clone();
+            }
             if *keepdims {
-                input.clone()
+                let mut out = input.clone();
+                for &axis in &reduced {
+                    out[axis] = Some(1);
+                }
+                out
             } else {
-                vec![Some(1)]
+                input
+                    .iter()
+                    .enumerate()
+                    .filter(|(axis, _)| !reduced.contains(axis))
+                    .map(|(_, dim)| *dim)
+                    .collect()
             }
         }
 
@@ -3294,5 +3495,102 @@ mod tests {
         assert_eq!(g.nodes[11].shape, vec![None, Some(84)]);
         assert_eq!(g.nodes[12].shape, vec![None, Some(10)]);
         assert_eq!(g.nodes[13].shape, vec![None, Some(10)]);
+    }
+}
+
+#[cfg(test)]
+mod reduce_axes_tests {
+    use super::*;
+
+    #[test]
+    fn negative_axes_count_from_the_end() {
+        assert_eq!(reduce_axes(&[-1], 4, false), Some(vec![3]));
+        assert_eq!(reduce_axes(&[-4], 4, false), Some(vec![0]));
+        assert_eq!(reduce_axes(&[-2, 1], 4, false), Some(vec![1, 2]));
+    }
+
+    #[test]
+    fn axes_come_back_sorted_and_deduplicated() {
+        assert_eq!(reduce_axes(&[3, 1, 3, -3], 4, false), Some(vec![1, 3]));
+    }
+
+    #[test]
+    fn an_empty_list_means_every_axis_or_none() {
+        assert_eq!(reduce_axes(&[], 3, false), Some(vec![0, 1, 2]));
+        assert_eq!(reduce_axes(&[], 3, true), Some(vec![]));
+    }
+
+    #[test]
+    fn an_axis_outside_the_rank_is_refused() {
+        assert_eq!(reduce_axes(&[4], 4, false), None);
+        assert_eq!(reduce_axes(&[-5], 4, false), None);
+    }
+
+    #[test]
+    fn a_scalar_has_nothing_to_reduce() {
+        assert_eq!(reduce_axes(&[], 0, false), Some(vec![]));
+        assert_eq!(reduce_axes(&[0], 0, false), None);
+    }
+
+    #[test]
+    fn trailing_axes_need_no_transpose() {
+        assert_eq!(reduce_transpose_perm(&[3], 4), None);
+        assert_eq!(reduce_transpose_perm(&[2, 3], 4), None);
+        assert_eq!(reduce_transpose_perm(&[0, 1, 2, 3], 4), None);
+    }
+
+    #[test]
+    fn a_middle_axis_moves_to_the_end_and_the_rest_keep_their_order() {
+        // FoundationStereo's normalization: [1, 8, 28, 120, 155] reducing axis 2.
+        assert_eq!(reduce_transpose_perm(&[2], 5), Some(vec![0, 1, 3, 4, 2]));
+        assert_eq!(reduce_transpose_perm(&[0], 3), Some(vec![1, 2, 0]));
+        assert_eq!(reduce_transpose_perm(&[1, 2], 4), Some(vec![0, 3, 1, 2]));
+    }
+
+    #[test]
+    fn nothing_to_move_gives_no_permutation() {
+        assert_eq!(reduce_transpose_perm(&[], 4), None);
+    }
+
+    #[test]
+    fn a_kept_reduction_sets_its_axes_to_one() {
+        let op = Op::ReduceL2 {
+            axes: vec![2],
+            keepdims: true,
+            noop_with_empty_axes: false,
+        };
+        let shape = vec![Some(1), Some(8), Some(28), Some(120), Some(155)];
+        assert_eq!(
+            infer_output_shape(&op, &[&shape]),
+            vec![Some(1), Some(8), Some(1), Some(120), Some(155)]
+        );
+    }
+
+    #[test]
+    fn a_dropped_reduction_removes_its_axes() {
+        let op = Op::ReduceSum {
+            axes: vec![0, 2],
+            keepdims: false,
+            noop_with_empty_axes: false,
+        };
+        let shape = vec![Some(2), Some(3), Some(4), Some(5)];
+        assert_eq!(infer_output_shape(&op, &[&shape]), vec![Some(3), Some(5)]);
+    }
+
+    #[test]
+    fn reducing_everything_gives_ones_or_a_scalar() {
+        let shape = vec![Some(2), Some(3)];
+        let kept = Op::ReduceMean {
+            axes: vec![],
+            keepdims: true,
+            noop_with_empty_axes: false,
+        };
+        assert_eq!(infer_output_shape(&kept, &[&shape]), vec![Some(1), Some(1)]);
+        let dropped = Op::ReduceMean {
+            axes: vec![],
+            keepdims: false,
+            noop_with_empty_axes: false,
+        };
+        assert_eq!(infer_output_shape(&dropped, &[&shape]), vec![]);
     }
 }
