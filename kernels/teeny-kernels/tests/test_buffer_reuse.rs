@@ -163,3 +163,64 @@ fn a_released_buffer_says_it_was_released() {
         .expect_err("the middle buffer should be gone");
     assert!(err.to_string().contains("holds no buffer"), "{err}");
 }
+
+/// A narrowing chain: each step is smaller than the last, so every request after the
+/// first can be served by the buffer the previous step gave back even though none of
+/// them is the same size.
+///
+/// With exact matching this allocated one buffer per distinct size and held them all,
+/// which is what put the FoundationStereo export at 480x640 out of memory on a 16 GiB
+/// card: 16.60 GiB ever allocated against a 3.62 GiB live peak. The values matter as
+/// much as the counts, since a node served by a larger buffer must still read back
+/// exactly its own elements.
+#[test]
+fn a_narrowing_chain_reuses_the_largest_buffer() {
+    let (device, target) = device_and_target();
+
+    // Slice each step down by one element: 64, 63, 62, ...
+    let widths = [64usize, 63, 62, 61, 60, 59];
+    let mut g = Graph::new();
+    let input = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(widths[0])]);
+    let mut last = input;
+    for w in widths.iter().skip(1) {
+        let relu = g.add_node(Op::Relu, vec![last], DtypeRepr::F32, vec![Some(*w)]);
+        last = relu;
+    }
+
+    let mut model = RuntimeModel::compile(
+        &device,
+        &g,
+        &TritonLowering::new(),
+        LoweringMode::Inference,
+        &target,
+        1,
+        false,
+    )
+    .expect("compile");
+
+    let x: Vec<f32> = (0..widths[0]).map(|i| i as f32 - 32.0).collect();
+    let got = model.run(&device, &[&x], &[last]).expect("run");
+    let out = &got[0];
+
+    // Relu of a relu is a relu, and each step keeps the leading elements.
+    assert_eq!(out.len(), *widths.last().unwrap());
+    for (i, v) in out.iter().enumerate() {
+        assert_eq!(*v, x[i].max(0.0), "element {i}");
+    }
+
+    let stats = model.buffer_stats();
+    let planned = model.planned_buffer_stats(&[last]);
+    assert_eq!(
+        stats, planned,
+        "the plan should predict the run: {stats:?} against {planned:?}"
+    );
+    // Five ops: the first two need buffers of their own, since the input keeps its own
+    // and the first op's output is still live when the second runs. Every later step
+    // fits in one that came back.
+    assert_eq!(stats.acquired, widths.len() - 1);
+    assert_eq!(
+        stats.reused,
+        widths.len() - 3,
+        "a smaller step should take the larger free buffer: {stats:?}"
+    );
+}

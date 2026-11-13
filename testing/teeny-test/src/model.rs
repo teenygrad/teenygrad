@@ -23,7 +23,7 @@
 //! [`teeny_core::device::Device::launch`], and there is no graph capture or optimisation -- since
 //! its purpose is cross-backend correctness rather than speed.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -181,15 +181,42 @@ fn zeroed_buffer<'a>(
     Ok(buf)
 }
 
+/// How much larger than the request a free buffer may be and still be reused.
+///
+/// Bounds what a node holds beyond its own size, since the spare words stay resident.
+/// Above this the pool allocates instead, trading a little more total allocation for a
+/// lower live peak. Measured over the FoundationStereo export at 480x640, 15651
+/// activation buffers:
+///
+/// ```text
+/// factor   allocated   live peak
+///      1    16.60 GiB    3.62 GiB   exact match: a buffer per distinct size, all held
+///      2     6.72 GiB    4.04 GiB
+///      3     6.01 GiB    4.16 GiB
+///      4     5.98 GiB    4.30 GiB
+///      8     6.15 GiB    4.87 GiB
+///   none     8.13 GiB    8.11 GiB   any buffer that fits, however much larger
+/// ```
+///
+/// `allocated` is what the device is holding by the end, since the pool never gives a
+/// buffer back, so that is the number a board has to have. Three is where it stops
+/// falling; four buys 0.03 GiB of it for 0.14 GiB of peak.
+const WASTE_FACTOR: usize = 3;
+
 /// Buffers that nothing needs any more, ready to be handed out again.
 ///
-/// Keyed by word count, so a buffer is only reused for an output of exactly its size.
-/// A looser match would waste less but would also hand a kernel a buffer larger than
-/// its output, and `read_output_bytes` reads a node's buffer by its shape, so the two
-/// have to agree.
+/// Keyed by each buffer's real capacity in words, and a request takes the smallest one
+/// that fits rather than one of exactly its size. That is safe because a node's buffer
+/// is only ever read and written through the node's own shape: `read_output_f32` and
+/// `read_output_bytes` size the host side from `output_shape`, and both `to_device` and
+/// `to_host` take a slice shorter than the buffer. The words past the node's own output
+/// are never touched, which is also why `acquire` zeroes only as many as the node asked
+/// for.
 #[derive(Default)]
 struct BufferPool<'a> {
-    free: HashMap<usize, Vec<Buffer<'a, f32>>>,
+    /// Free buffers by their real capacity in words, smallest key first, so a request
+    /// can be served by the smallest buffer that already fits.
+    free: BTreeMap<usize, Vec<Buffer<'a, f32>>>,
     /// How many buffers were handed out, and how many of those came from the pool.
     acquired: usize,
     reused: usize,
@@ -202,7 +229,10 @@ struct BufferPool<'a> {
 /// What a run cost in buffers.
 ///
 /// `peak_words` is the most held at once and `allocated_words` the total asked of the
-/// device, which is the same number only when nothing could be reused.
+/// device, which is the same number only when nothing could be reused. Both count a
+/// buffer's real capacity, which can exceed what the node asked for: a request is
+/// served by the smallest free buffer that fits, so the words a node does not use are
+/// still held.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BufferStats {
     /// Buffers handed to a node's output.
@@ -216,30 +246,52 @@ pub struct BufferStats {
 }
 
 impl<'a> BufferPool<'a> {
-    /// A zeroed buffer of `words` words, from the pool if one is free.
+    /// A zeroed buffer of at least `words` words, and its real capacity.
+    ///
+    /// Served by the smallest free buffer that fits, not only by one of exactly the
+    /// right size. Exact matching kept a buffer per distinct size for the whole run, so
+    /// what the pool held grew to the total ever allocated -- 16.60 GiB for the
+    /// FoundationStereo export at 480x640, against a live peak of 3.62 GiB, which is
+    /// out of memory on a 16 GiB card. Reads and writes are bounded by what the node
+    /// asked for, so the spare words at the end are never touched.
     ///
     /// Zeroed on every acquire, not just on allocation: a kernel that writes only part
     /// of its output would otherwise read the last tensor that lived here, which is a
-    /// bug that would appear only once buffers start being shared.
-    fn acquire(&mut self, device: &Device<'a>, words: usize) -> Result<Buffer<'a, f32>> {
+    /// bug that would appear only once buffers start being shared. Only the words the
+    /// node will use are zeroed, for the same reason the rest is never read.
+    fn acquire(&mut self, device: &Device<'a>, words: usize) -> Result<(Buffer<'a, f32>, usize)> {
         self.acquired += 1;
         let words = words.max(1);
-        self.live_words += words;
-        self.peak_words = self.peak_words.max(self.live_words);
-        if let Some(mut buf) = self.free.get_mut(&words).and_then(|v| v.pop()) {
+        // The smallest free capacity that fits, but not one so much larger that holding
+        // it costs more than a fresh allocation: the words a node does not use are
+        // still resident, so an unbounded best fit traded the total allocated for a
+        // higher live peak. Up to WASTE_FACTOR times the request, else allocate.
+        let fit = self
+            .free
+            .range(words..=words.saturating_mul(WASTE_FACTOR))
+            .find(|(_, bufs)| !bufs.is_empty())
+            .map(|(&capacity, _)| capacity);
+        if let Some(capacity) = fit
+            && let Some(mut buf) = self.free.get_mut(&capacity).and_then(|v| v.pop())
+        {
             self.reused += 1;
+            self.live_words += capacity;
+            self.peak_words = self.peak_words.max(self.live_words);
             buf.to_device(&vec![0.0f32; words])?;
-            return Ok(buf);
+            return Ok((buf, capacity));
         }
         self.allocated_words += words;
+        self.live_words += words;
+        self.peak_words = self.peak_words.max(self.live_words);
         let mut buf = device.buffer::<f32>(words)?;
         buf.to_device(&vec![0.0f32; words])?;
-        Ok(buf)
+        Ok((buf, words))
     }
 
-    fn release(&mut self, words: usize, buf: Buffer<'a, f32>) {
-        self.live_words = self.live_words.saturating_sub(words.max(1));
-        self.free.entry(words.max(1)).or_default().push(buf);
+    /// Takes a buffer back, filed under the capacity `acquire` reported for it.
+    fn release(&mut self, capacity: usize, buf: Buffer<'a, f32>) {
+        self.live_words = self.live_words.saturating_sub(capacity);
+        self.free.entry(capacity).or_default().push(buf);
     }
 
     fn stats(&self) -> BufferStats {
@@ -278,8 +330,12 @@ struct Node<'a> {
     /// sum: for the FoundationStereo export at 480x640 that is the difference between
     /// 42 GiB and 274 GiB.
     output: Option<Buffer<'a, f32>>,
-    /// Words the output buffer holds, for matching one from the pool.
+    /// Words the node's output needs, which is what it asks the pool for.
     words: usize,
+    /// The real capacity of the buffer in `output`, which can exceed `words` when the
+    /// pool served the request from a larger free buffer. Release files it under this,
+    /// so the spare capacity stays findable.
+    capacity: usize,
     /// The last step of the run that reads this node, if any reads it at all.
     last_reader: Option<usize>,
     /// What the buffer's bytes mean, for reading it back at the right width.
@@ -354,6 +410,8 @@ impl<'a> RuntimeModel<'a> {
                     output_shape: raw_output_shape,
                     output: Some(output),
                     words,
+                    // An input's buffer is its own, never from the pool.
+                    capacity: words,
                     last_reader: None,
                     dtype,
                 });
@@ -431,6 +489,8 @@ impl<'a> RuntimeModel<'a> {
                 output_shape,
                 output: None,
                 words,
+                // Set when the pool hands this node a buffer.
+                capacity: 0,
                 last_reader: None,
                 dtype,
             });
@@ -477,7 +537,8 @@ impl<'a> RuntimeModel<'a> {
     /// graph's liveness.
     pub fn planned_buffer_stats(&self, outputs: &[usize]) -> BufferStats {
         let pinned: BTreeSet<usize> = outputs.iter().copied().collect();
-        let mut free: HashMap<usize, usize> = HashMap::new();
+        // Free capacities and how many of each, mirroring the pool's best fit.
+        let mut free: BTreeMap<usize, usize> = BTreeMap::new();
         let mut held: Vec<Option<usize>> = vec![None; self.nodes.len()];
         let mut stats = BufferStats::default();
         let mut live_words = 0usize;
@@ -486,25 +547,33 @@ impl<'a> RuntimeModel<'a> {
             if self.nodes[idx].op.is_some() {
                 let words = self.nodes[idx].words.max(1);
                 stats.acquired += 1;
-                live_words += words;
-                stats.peak_words = stats.peak_words.max(live_words);
-                match free.get_mut(&words) {
-                    Some(n) if *n > 0 => {
-                        *n -= 1;
+                let fit = free
+                    .range(words..=words.saturating_mul(WASTE_FACTOR))
+                    .find(|(_, n)| **n > 0)
+                    .map(|(&capacity, _)| capacity);
+                let capacity = match fit {
+                    Some(capacity) => {
+                        *free.get_mut(&capacity).expect("just found") -= 1;
                         stats.reused += 1;
+                        capacity
                     }
-                    _ => stats.allocated_words += words,
-                }
-                held[idx] = Some(words);
+                    None => {
+                        stats.allocated_words += words;
+                        words
+                    }
+                };
+                live_words += capacity;
+                stats.peak_words = stats.peak_words.max(live_words);
+                held[idx] = Some(capacity);
             }
             for &parent in &self.parents[idx] {
                 if self.nodes[parent].op.is_some()
                     && self.nodes[parent].last_reader == Some(step)
                     && !pinned.contains(&parent)
-                    && let Some(words) = held[parent].take()
+                    && let Some(capacity) = held[parent].take()
                 {
-                    live_words = live_words.saturating_sub(words);
-                    *free.entry(words).or_insert(0) += 1;
+                    live_words = live_words.saturating_sub(capacity);
+                    *free.entry(capacity).or_insert(0) += 1;
                 }
             }
         }
@@ -676,7 +745,9 @@ impl<'a> RuntimeModel<'a> {
             let started = Instant::now();
             if self.nodes[idx].op.is_some() {
                 let words = self.nodes[idx].words;
-                self.nodes[idx].output = Some(pool.acquire(device, words)?);
+                let (buffer, capacity) = pool.acquire(device, words)?;
+                self.nodes[idx].output = Some(buffer);
+                self.nodes[idx].capacity = capacity;
             }
             let Some(tight) = self.launch_node(device, idx)? else {
                 continue;
@@ -707,8 +778,8 @@ impl<'a> RuntimeModel<'a> {
                     && !pinned.contains(&p)
                     && let Some(buffer) = node.output.take()
                 {
-                    let words = node.words;
-                    pool.release(words, buffer);
+                    let capacity = node.capacity;
+                    pool.release(capacity, buffer);
                 }
             }
         }
@@ -743,7 +814,10 @@ impl<'a> RuntimeModel<'a> {
             .iter()
             .map(|&p| {
                 (
-                    self.nodes[p].output.as_ref().map_or(core::ptr::null_mut(), ptr),
+                    self.nodes[p]
+                        .output
+                        .as_ref()
+                        .map_or(core::ptr::null_mut(), ptr),
                     self.nodes[p].output_shape.as_slice(),
                 )
             })
