@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.2](https://github.com/teenygrad/teenygrad/compare/teeny-cuda-v0.3.1...teeny-cuda-v0.3.2) - 2026-11-13
 
+### Fixed
+
+- *(teeny-cuda)* refuse kernel launches with pointers that aren't 16-byte aligned ([#141](https://github.com/teenygrad/teenygrad/pull/141))
+
 ### Other
 
 - add #134-#136 to the 0.3.1 changelogs ([#139](https://github.com/teenygrad/teenygrad/pull/139))
