@@ -1104,6 +1104,19 @@ impl Op {
             Op::Squeeze { .. } | Op::Unsqueeze { .. } => &[1],
             // Gather(data, indices): read from a parameter slot, see above.
             Op::Gather { .. } => &[1],
+            // A reduction's axes, where the file wrote them as an operand rather than
+            // an attribute. `teeny_onnx::materialize` moves the value onto the op, so
+            // by lowering time this operand only needs eliding.
+            Op::ReduceSum { .. }
+            | Op::ReduceMean { .. }
+            | Op::ReduceMax { .. }
+            | Op::ReduceMin { .. }
+            | Op::ReduceProd { .. }
+            | Op::ReduceL1 { .. }
+            | Op::ReduceL2 { .. }
+            | Op::ReduceLogSum { .. }
+            | Op::ReduceLogSumExp { .. }
+            | Op::ReduceSumSquare { .. } => &[1],
             // `Clip`'s bounds are scalars the lowering reads on the host and packs as
             // kernel arguments, so like a shape operand they never need a device
             // buffer of their own.

@@ -96,6 +96,9 @@ pub struct MaterializeReport {
     /// the pass refuses. A non-zero count here means the importer's shape coverage,
     /// not this pass, is what limits how much folds.
     pub shape_of_unknown_rank: usize,
+    /// Reductions whose axes were moved from an operand onto the op. See
+    /// `adopt_reduce_axes`.
+    pub reduce_axes_adopted: usize,
     /// Nodes whose output shape the pass worked out, having been imported with an
     /// unknown rank or a dynamic dimension.
     ///
@@ -330,6 +333,8 @@ pub fn materialize_constants(
         }
     }
 
+    report.reduce_axes_adopted = adopt_reduce_axes(graph, &values);
+
     report.shapes_unresolved = graph
         .nodes
         .iter()
@@ -337,6 +342,69 @@ pub fn materialize_constants(
         .count();
 
     (folded, report)
+}
+
+/// Moves a reduction's axes from its operand onto the op, where everything downstream
+/// reads them.
+///
+/// ONNX kept `axes` as an attribute until opset 13 for `ReduceSum` and opset 18 for the
+/// rest, and as an operand after. The importer can only read the attribute form: an
+/// operand is often a `Constant` node, whose value this pass is what computes. Left
+/// alone, the op's `axes` stays empty, and an empty list means *every* axis unless
+/// `noop_with_empty_axes` says otherwise, so a reduction over one axis silently becomes
+/// a reduction over all of them. The FoundationStereo export is exactly that: all 10 of
+/// its `ReduceSum` nodes carry an operand of `[2]` and no attribute.
+///
+/// The operand stays in `inputs`, where `Op::shape_operand_positions` marks it as
+/// metadata so lowering elides it rather than allocating for it. Returns how many ops
+/// were rewritten.
+fn adopt_reduce_axes(graph: &mut Graph, values: &BTreeMap<usize, Value>) -> usize {
+    let mut adopted = 0usize;
+    for id in 0..graph.nodes.len() {
+        let Some(&operand) = graph.nodes[id].inputs.get(1) else {
+            continue;
+        };
+        // Only when the op has no axes of its own: an attribute, if the file wrote one,
+        // is what it means.
+        let has_axes = match reduce_axes_mut(&mut graph.nodes[id].op) {
+            Some(axes) => !axes.is_empty(),
+            None => continue,
+        };
+        if has_axes {
+            continue;
+        }
+        let Some(value) = values.get(&operand) else {
+            continue;
+        };
+        // A float axes operand would be a malformed file; `as_ints` on one would
+        // truncate silently, so an integer dtype is required.
+        if !matches!(value.data, Data::Int(_)) {
+            continue;
+        }
+        let read = value.as_ints();
+        if let Some(axes) = reduce_axes_mut(&mut graph.nodes[id].op) {
+            *axes = read;
+            adopted += 1;
+        }
+    }
+    adopted
+}
+
+/// A reduction's `axes` field, to be written.
+fn reduce_axes_mut(op: &mut Op) -> Option<&mut Vec<i64>> {
+    match op {
+        Op::ReduceSum { axes, .. }
+        | Op::ReduceMean { axes, .. }
+        | Op::ReduceMax { axes, .. }
+        | Op::ReduceMin { axes, .. }
+        | Op::ReduceProd { axes, .. }
+        | Op::ReduceL1 { axes, .. }
+        | Op::ReduceL2 { axes, .. }
+        | Op::ReduceLogSum { axes, .. }
+        | Op::ReduceLogSumExp { axes, .. }
+        | Op::ReduceSumSquare { axes, .. } => Some(axes),
+        _ => None,
+    }
 }
 
 /// Collects every constant value that lowering may need, for

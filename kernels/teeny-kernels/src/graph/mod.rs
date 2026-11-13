@@ -2167,10 +2167,21 @@ impl TritonLowering {
             // dropped. Without this the reduction sums adjacent elements instead of
             // strided ones and returns a plausibly-shaped wrong answer.
             let mut reduce_input_override: Option<(usize, usize)> = None;
+            // A reduction may carry a second operand, the axes, which
+            // `Op::shape_operand_positions` marks as metadata: its value is on the op by
+            // now and the operand is elided, so only the first input is data.
             if let Some((axes, _, noop_with_empty_axes)) = reduce_parts(&node.op)
-                && let &[data] = node.inputs.as_slice()
+                && let Some(&data) = node.inputs.first()
                 && !elided[data]
             {
+                if axes.is_empty() && node.inputs.len() > 1 {
+                    let what = node_label(graph, node_index);
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce {what}: the axes operand was not materialised, and \
+                         an empty list here would mean every axis rather than the one \
+                         the file asked for. Run teeny_onnx::materialize first."
+                    ));
+                }
                 let what = node_label(graph, node_index);
                 let in_shape =
                     concrete_shape(&graph.nodes[data].shape, "Reduce", &what, "its input's")?;
