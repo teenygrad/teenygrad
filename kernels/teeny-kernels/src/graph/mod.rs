@@ -1756,6 +1756,18 @@ impl CopyMapping<'_> {
 ///
 /// Grouped because the reduction kernels treat them all the same way, and so does the
 /// transpose that has to come first.
+/// A softmax's axis, and whether it is the log form, or `None` for anything else.
+///
+/// `Op::Softmax` names it `dim` and `Op::LogSoftmax` names it `axis`; both count
+/// negative from the end.
+fn softmax_axis(op: &Op) -> Option<(i64, bool)> {
+    match op {
+        Op::Softmax { dim } => Some((*dim, false)),
+        Op::LogSoftmax { axis } => Some((*axis, true)),
+        _ => None,
+    }
+}
+
 fn reduce_parts(op: &Op) -> Option<(&[i64], bool, bool)> {
     match op {
         Op::ReduceSum {
@@ -2194,6 +2206,107 @@ impl TritonLowering {
                     let staging_dag_idx = dag.add_node(executable);
                     dag.add_edge(graph_to_dag[data], staging_dag_idx);
                     reduce_input_override = Some((data, staging_dag_idx));
+                }
+            }
+
+            // The softmax kernels normalize a tensor's innermost axis, one CTA per row,
+            // so an axis anywhere else has to be moved there first. Unlike a reduction
+            // the output keeps the input's shape, so this needs a transpose on both
+            // sides: in, normalize, and back. Without it the kernel normalized the last
+            // axis whatever the op asked for.
+            if let Some((dim, is_log)) = softmax_axis(&node.op)
+                && let &[data] = node.inputs.as_slice()
+                && !elided[data]
+            {
+                let what = node_label(graph, node_index);
+                let in_shape =
+                    concrete_shape(&graph.nodes[data].shape, "Softmax", &what, "its input's")?;
+                let rank = in_shape.len();
+                let Some(axes) = reduce_axes(&[dim], rank, false) else {
+                    return Err(anyhow::anyhow!(
+                        "Op::Softmax {what}: axis {dim} is outside the {rank} axes of \
+                         {in_shape:?}"
+                    ));
+                };
+                if let Some(perm) = reduce_transpose_perm(&axes, rank) {
+                    let axis = axes[0];
+                    let permuted: Vec<usize> = perm.iter().map(|&a| in_shape[a]).collect();
+                    let transposed: Shape = permuted.iter().map(|&d| Some(d)).collect();
+
+                    // In: the axis to normalize becomes the innermost one.
+                    let staging = GraphNode {
+                        op: Op::Transpose { perm: perm.clone() },
+                        inputs: vec![data],
+                        dtype: graph.nodes[data].dtype,
+                        shape: transposed.clone(),
+                    };
+                    let executable = strided_copy_executable(
+                        &staging,
+                        "Softmax",
+                        CopyMapping::Transpose {
+                            in_shape: &in_shape,
+                            perm: &perm,
+                        },
+                        &what,
+                    )?;
+                    let into_dag_idx = dag.add_node(executable);
+                    dag.add_edge(graph_to_dag[data], into_dag_idx);
+
+                    // The normalization itself, over the transposed tensor, whose last
+                    // axis is now the one the op named.
+                    let block_size = in_shape[axis].next_power_of_two() as i32;
+                    let middle = GraphNode {
+                        op: node.op.clone(),
+                        inputs: vec![],
+                        dtype: node.dtype,
+                        shape: transposed,
+                    };
+                    let executable: Box<dyn ExecutableOp> = if is_log {
+                        let fwd = LogSoftmaxForward::new(block_size);
+                        let nm = fwd.name.to_string();
+                        let fwd_src = fwd.source.clone();
+                        #[cfg(feature = "training")]
+                        let bwd_src = LogSoftmaxBackward::new(block_size).source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{nm}_entry_point"),
+                            name: nm,
+                            kernel_source: fwd_src,
+                            kernel_body: String::new(),
+                            pointwise_fuse_block_size: None,
+                            shape: middle.shape.clone(),
+                            dtype: middle.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: bwd_src,
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    } else {
+                        make_float_kernel!(SoftmaxForward(block_size), middle)
+                    };
+                    let middle_dag_idx = dag.add_node(executable);
+                    dag.add_edge(into_dag_idx, middle_dag_idx);
+
+                    // Back: the inverse permutation restores the recorded shape, which
+                    // a softmax leaves as its input's.
+                    let mut inverse = vec![0usize; rank];
+                    for (new_axis, &old_axis) in perm.iter().enumerate() {
+                        inverse[old_axis] = new_axis;
+                    }
+                    let executable = strided_copy_executable(
+                        node,
+                        "Softmax",
+                        CopyMapping::Transpose {
+                            in_shape: &permuted,
+                            perm: &inverse,
+                        },
+                        &what,
+                    )?;
+                    let out_dag_idx = dag.add_node(executable);
+                    dag.add_edge(middle_dag_idx, out_dag_idx);
+                    graph_to_dag[node_index] = out_dag_idx;
+                    continue;
                 }
             }
 

@@ -136,6 +136,7 @@ pub fn resolve_if_branches(import: &mut Import, folded: &ConstantMap) -> Result<
                 std::mem::take(&mut import.value_to_node),
                 import.value_info_map.clone(),
                 body,
+                import.opset,
             )?;
             // A branch body has no inputs of its own, per the ONNX spec, but it may
             // carry initializers.
@@ -210,8 +211,7 @@ pub fn materialize_and_resolve(
         let mut seed = import.tensors.clone();
         seed.extend(folds.iter().map(|(k, v)| (*k, v.clone())));
 
-        let (folded, materialize_report) =
-            materialize_constants(&mut import.graph, &seed, config);
+        let (folded, materialize_report) = materialize_constants(&mut import.graph, &seed, config);
         let materialize_report = first_report.get_or_insert(materialize_report).clone();
         folds.extend(folded.iter().map(|(k, v)| (*k, v.clone())));
 
@@ -320,9 +320,12 @@ mod tests {
         let mut then_g = GraphProto::new();
         then_g.output.push(value_info("then_out", None));
         then_g.node.push(constant_node("/sq_axes", "sq_axes", &[1]));
-        then_g
-            .node
-            .push(node("Squeeze", "/Squeeze", &["x", "sq_axes"], &["then_out"]));
+        then_g.node.push(node(
+            "Squeeze",
+            "/Squeeze",
+            &["x", "sq_axes"],
+            &["then_out"],
+        ));
 
         let mut else_g = GraphProto::new();
         else_g.output.push(value_info("else_out", None));
@@ -377,7 +380,10 @@ mod tests {
         let node = &import.graph.nodes[id];
         (
             &node.op,
-            node.inputs.iter().map(|&i| &import.graph.nodes[i].op).collect(),
+            node.inputs
+                .iter()
+                .map(|&i| &import.graph.nodes[i].op)
+                .collect(),
         )
     }
 
@@ -390,7 +396,10 @@ mod tests {
         assert!(import.branches.is_empty(), "the If should be consumed");
 
         let (op, reads) = if_node(&import);
-        assert!(matches!(op, Op::Identity), "the If should pass through: {op:?}");
+        assert!(
+            matches!(op, Op::Identity),
+            "the If should pass through: {op:?}"
+        );
         assert_eq!(reads.len(), 1);
         assert!(
             matches!(reads[0], Op::Squeeze { .. }),

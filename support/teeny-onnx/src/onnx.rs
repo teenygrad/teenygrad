@@ -36,7 +36,6 @@ include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 /// Parses ONNX protobuf models into a `teeny-core` [`Graph`].
 pub struct Onnx {}
 
-
 /// One element's width in bytes for a dtype as stored in a tensor's `raw_data`.
 fn dtype_width(dtype: DtypeRepr) -> usize {
     match dtype {
@@ -129,10 +128,7 @@ pub type TensorData = teeny_core::graph::ConstantTensor;
 /// this graph IR records statically and so cannot represent. `None` reports that, and
 /// the node keeps an empty `axes` as it did before; `crate::materialize` refuses to
 /// fold an `Unsqueeze` in that state rather than treat it as an identity.
-fn axes_operand(
-    inputs: &[usize],
-    tensors: &BTreeMap<usize, TensorData>,
-) -> Option<Vec<i64>> {
+fn axes_operand(inputs: &[usize], tensors: &BTreeMap<usize, TensorData>) -> Option<Vec<i64>> {
     tensors.get(inputs.get(1)?)?.as_i64()
 }
 
@@ -153,6 +149,10 @@ pub struct Import {
     pub value_info_map: BTreeMap<String, (DtypeRepr, Shape)>,
     /// Unresolved `If` nodes, keyed by node index. See [`crate::branches`].
     pub branches: BTreeMap<usize, IfBranches>,
+    /// The file's ONNX opset version for the default domain, or zero when it named
+    /// none. Some attributes changed their default between versions, so a later pass
+    /// that imports a subgraph needs the same number the first pass used.
+    pub opset: i64,
 }
 
 /// The two branch bodies of an `If` node, kept unimported.
@@ -207,6 +207,9 @@ pub(crate) struct ImportCtx<'a> {
     pub(crate) value_to_node: BTreeMap<String, usize>,
     pub(crate) value_info_map: BTreeMap<String, (DtypeRepr, Shape)>,
     initializer_map: BTreeMap<&'a str, &'a TensorProto>,
+    /// The file's ONNX opset version, which decides what some absent attributes mean.
+    /// Zero when the model did not say, where the newest meaning is assumed.
+    pub(crate) opset: i64,
     /// The shared [`Op::Omitted`] node, once something has needed one.
     omitted: Option<usize>,
 }
@@ -248,11 +251,11 @@ impl<'a> ImportCtx<'a> {
             None => {
                 // Equal shares, which is what ONNX does with no sizes given. This is
                 // the one case that needs the extent, and so the shape.
-                let shape: Vec<usize> =
-                    match self.graph.nodes[data].shape.iter().copied().collect() {
-                        Some(s) => s,
-                        None => return Ok(None),
-                    };
+                let shape: Vec<usize> = match self.graph.nodes[data].shape.iter().copied().collect()
+                {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
                 let rank = shape.len();
                 let ax = if axis < 0 { axis + rank as i64 } else { axis };
                 let Ok(ax) = usize::try_from(ax).map(|a| a.min(rank)) else {
@@ -275,12 +278,9 @@ impl<'a> ImportCtx<'a> {
             let starts = self.scalar_i64_constant(start as i64);
             let ends = self.scalar_i64_constant((start + len) as i64);
             let axes = self.scalar_i64_constant(axis);
-            let id = self.graph.add_node(
-                Op::Slice,
-                vec![data, starts, ends, axes],
-                dtype,
-                Vec::new(),
-            );
+            let id =
+                self.graph
+                    .add_node(Op::Slice, vec![data, starts, ends, axes], dtype, Vec::new());
             if !name.is_empty() {
                 self.graph.names.insert(id, format!("{name}:{which}"));
             }
@@ -314,7 +314,7 @@ impl<'a> ImportCtx<'a> {
     }
 
     /// Builds an empty context whose name metadata comes from `onnx_graph`.
-    fn new(onnx_graph: &'a GraphProto) -> Result<Self> {
+    fn new(onnx_graph: &'a GraphProto, opset: i64) -> Result<Self> {
         let mut value_info_map: BTreeMap<String, (DtypeRepr, Shape)> = BTreeMap::new();
         for info in onnx_graph
             .input
@@ -331,6 +331,7 @@ impl<'a> ImportCtx<'a> {
             tensors: BTreeMap::new(),
             value_to_node: BTreeMap::new(),
             value_info_map,
+            opset,
             initializer_map: onnx_graph
                 .initializer
                 .iter()
@@ -353,6 +354,7 @@ impl<'a> ImportCtx<'a> {
         value_to_node: BTreeMap<String, usize>,
         mut value_info_map: BTreeMap<String, (DtypeRepr, Shape)>,
         subgraph: &'a GraphProto,
+        opset: i64,
     ) -> Result<Self> {
         for info in subgraph
             .input
@@ -369,6 +371,7 @@ impl<'a> ImportCtx<'a> {
             tensors,
             value_to_node,
             value_info_map,
+            opset,
             initializer_map: subgraph
                 .initializer
                 .iter()
@@ -504,7 +507,7 @@ impl<'a> ImportCtx<'a> {
             })
             .transpose()?;
 
-        let op = map_node_op(node, &self.initializer_map)?;
+        let op = map_node_op(node, &self.initializer_map, self.opset)?;
 
         // Opset 13 moved `axes` from an attribute to input 1 for Squeeze and
         // Unsqueeze. `map_node_op` can only read the attribute, so resolve the
@@ -517,11 +520,9 @@ impl<'a> ImportCtx<'a> {
             Op::Squeeze { axes } if axes.is_empty() && node.input.len() > 1 => Op::Squeeze {
                 axes: axes_operand(&inputs, &self.tensors).unwrap_or(axes),
             },
-            Op::Unsqueeze { axes } if axes.is_empty() && node.input.len() > 1 => {
-                Op::Unsqueeze {
-                    axes: axes_operand(&inputs, &self.tensors).unwrap_or(axes),
-                }
-            }
+            Op::Unsqueeze { axes } if axes.is_empty() && node.input.len() > 1 => Op::Unsqueeze {
+                axes: axes_operand(&inputs, &self.tensors).unwrap_or(axes),
+            },
             other => other,
         };
 
@@ -666,7 +667,16 @@ impl Onnx {
             .as_ref()
             .ok_or_else(|| Error::InvalidModel("Model is missing graph field".to_string()))?;
 
-        let mut ctx = ImportCtx::new(onnx_graph)?;
+        // The default ONNX domain's version. An empty domain name is "ai.onnx", and a
+        // model that names no version leaves this zero, where the newest meaning of an
+        // absent attribute is the better guess.
+        let opset = model
+            .opset_import
+            .iter()
+            .find(|o| o.domain.is_empty() || o.domain == "ai.onnx")
+            .map(|o| o.version)
+            .unwrap_or(0);
+        let mut ctx = ImportCtx::new(onnx_graph, opset)?;
         let mut branches: BTreeMap<usize, IfBranches> = BTreeMap::new();
         ctx.add_initializers_and_inputs(onnx_graph)?;
 
@@ -689,6 +699,7 @@ impl Onnx {
             value_to_node: ctx.value_to_node,
             value_info_map: ctx.value_info_map,
             branches,
+            opset,
         })
     }
 }
@@ -773,10 +784,7 @@ fn get_attr_int(node: &NodeProto, name: &str, default: i64) -> i64 {
 /// `get_attr_float`'s default cannot do that, and for a bound it matters: a `Clip`
 /// with no `min` leaves values alone, while one with `min = 0` is a ReLU.
 fn get_attr_float_opt(node: &NodeProto, name: &str) -> Option<f32> {
-    node.attribute
-        .iter()
-        .find(|a| a.name == name)
-        .map(|a| a.f)
+    node.attribute.iter().find(|a| a.name == name).map(|a| a.f)
 }
 
 fn get_attr_float(node: &NodeProto, name: &str, default: f32) -> f32 {
@@ -802,7 +810,11 @@ fn get_attr_string<'a>(node: &'a NodeProto, name: &str, default: &'a str) -> &'a
         .unwrap_or(default)
 }
 
-fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) -> Result<Op> {
+fn map_node_op(
+    node: &NodeProto,
+    initializers: &BTreeMap<&str, &TensorProto>,
+    opset: i64,
+) -> Result<Op> {
     let op = match node.op_type.as_str() {
         // ---------------------------------------------------------------
         // Existing ops (previously supported)
@@ -813,9 +825,13 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
         "Add" => Op::Add,
         "Flatten" => Op::Flatten,
         "Softmax" => {
-            let axis = get_attr_int(node, "axis", 1);
+            // ONNX changed the default in opset 13, from 1 to -1, so the file's own
+            // opset decides what an absent attribute means. The axis is kept as
+            // written: a negative one is resolved against the rank at lowering, where
+            // the rank is known, and clamping it to 0 normalized the wrong axis.
+            let default = if opset >= 13 { -1 } else { 1 };
             Op::Softmax {
-                dim: axis.max(0) as usize,
+                dim: get_attr_int(node, "axis", default),
             }
         }
 
@@ -1476,8 +1492,7 @@ fn map_node_op(node: &NodeProto, initializers: &BTreeMap<&str, &TensorProto>) ->
             // nearest upsample asks for `floor` explicitly, and reading one for the
             // other shifts the whole axis by an element, so it is carried rather than
             // assumed.
-            nearest_mode: get_attr_string(node, "nearest_mode", "round_prefer_floor")
-                .to_string(),
+            nearest_mode: get_attr_string(node, "nearest_mode", "round_prefer_floor").to_string(),
             antialias: get_attr_int(node, "antialias", 0) != 0,
         },
 
@@ -1769,7 +1784,12 @@ mod tensor_data_tests {
         let mut t = proto(tensor_proto::DataType::INT16 as i32, &[3]);
         t.int32_data = vec![1, -2, 300];
         let td = tensor_data(&t, "i16").expect("an int16 tensor should decode");
-        assert_eq!(td.bytes.len(), 6, "three int16s are six bytes: {:?}", td.bytes);
+        assert_eq!(
+            td.bytes.len(),
+            6,
+            "three int16s are six bytes: {:?}",
+            td.bytes
+        );
         assert_eq!(td.as_i64(), Some(vec![1i64, -2, 300]));
 
         let mut t = proto(tensor_proto::DataType::INT8 as i32, &[3]);
@@ -1851,12 +1871,16 @@ mod omitted_operand_tests {
         let mut g = onnx_proto3::GraphProto::new();
         g.input.push(value_info("x", &[1, 3, 8, 8]));
         g.output.push(value_info("y", &[]));
-        g.initializer.push(i64_initializer("sizes", &[1, 3, 16, 16]));
+        g.initializer
+            .push(i64_initializer("sizes", &[1, 3, 16, 16]));
 
         let mut n = NodeProto::new();
         n.op_type = "Resize".to_string();
         n.name = "/Resize".to_string();
-        n.input = ["x", "", "", "sizes"].iter().map(|s| s.to_string()).collect();
+        n.input = ["x", "", "", "sizes"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         n.output = vec!["y".to_string()];
         g.node.push(n);
 
@@ -2042,7 +2066,10 @@ mod split_expansion_tests {
         assert!(matches!(import.graph.nodes[a].op, Op::Slice));
         assert!(matches!(import.graph.nodes[b].op, Op::Slice));
         // Both slices read the same tensor.
-        assert_eq!(import.graph.nodes[a].inputs[0], import.graph.nodes[b].inputs[0]);
+        assert_eq!(
+            import.graph.nodes[a].inputs[0],
+            import.graph.nodes[b].inputs[0]
+        );
     }
 
     /// The sizes become the slices' own bounds, and shape inference works out what
