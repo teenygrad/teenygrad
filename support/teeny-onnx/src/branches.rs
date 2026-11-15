@@ -227,6 +227,7 @@ pub fn materialize_and_resolve(
             let mut all = lowering_constants(&import.graph, &seed, &folds);
             // With every shape now known, give the ops that have no broadcasting
             // kernel operands of their output's shape.
+            crate::rewrite::split_variadic(&mut import.graph, &mut all);
             crate::rewrite::expand_for_broadcast(&mut import.graph, &mut all);
             crate::rewrite::compare_then_cast(&mut import.graph);
             crate::rewrite::dedupe_operands(&mut import.graph);

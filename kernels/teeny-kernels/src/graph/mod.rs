@@ -39,7 +39,7 @@ use crate::nn::{
             CeluForward, CeluForwardDispatch, EluForward, EluForwardDispatch, SeluForward,
             SeluForwardDispatch,
         },
-        gelu::{GeluForwardDispatch, MishForward, MishForwardDispatch},
+        gelu::{GeluErfForward, GeluForwardDispatch, MishForward, MishForwardDispatch},
         hard::{
             HardshrinkForward, HardshrinkForwardDispatch, HardsigmoidForward,
             HardsigmoidForwardDispatch, HardswishForward, HardswishForwardDispatch,
@@ -98,7 +98,7 @@ use crate::nn::{
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
         elemwise_binary::{
             ClipRuntimeOp, ElemwiseDivBackward, ElemwiseDivForward, ElemwiseEqualForward,
-            ElemwiseFmodForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
+            ElemwiseFmodForward, ElemwiseTruncModForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
             ElemwiseLessEqualForward, ElemwiseLessForward, ElemwiseMaxBackward, ElemwiseMaxForward,
             ElemwiseMeanBackward, ElemwiseMeanForward, ElemwiseMinBackward, ElemwiseMinForward,
             ElemwiseMulBackward, ElemwiseMulForward, ElemwisePowBackward, ElemwisePowForward,
@@ -550,6 +550,7 @@ macro_rules! impl_unary_runtime_op_float {
 
 impl_unary_runtime_op_float!(SeluForward);
 impl_unary_runtime_op_float!(MishForward);
+impl_unary_runtime_op_float!(GeluErfForward);
 impl_unary_runtime_op_float!(Relu6Forward);
 impl_unary_runtime_op_float!(HardsigmoidForward);
 impl_unary_runtime_op_float!(HardswishForward);
@@ -3240,6 +3241,17 @@ impl TritonLowering {
                         node
                     )
                 }
+                Op::MaxPool1d { .. } | Op::MaxPool2d { .. } | Op::MaxPool3d { .. }
+                    if matches!(node.dtype, DtypeRepr::U8 | DtypeRepr::Bool) =>
+                {
+                    // The pooling kernels pad with the dtype's lowest float value, which
+                    // wraps for unsigned bytes.
+                    return Err(anyhow::anyhow!(
+                        "MaxPool {}: {:?} input is not supported",
+                        node_label(graph, node_index),
+                        node.dtype
+                    ));
+                }
                 Op::MaxPool1d { kernel_l, stride } => {
                     make_num_kernel!(Maxpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
                 }
@@ -3557,6 +3569,7 @@ impl TritonLowering {
                     node.dtype,
                     GeluForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
+                Op::GeluErf => make_float_kernel!(GeluErfForward(1024), node),
                 Op::Mish => exec_from(
                     node.shape.clone(),
                     node.dtype,
@@ -4127,7 +4140,21 @@ impl TritonLowering {
                 Op::Pow => {
                     make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node)
                 }
-                Op::Mod { .. } => make_float_kernel!(ElemwiseFmodForward(1024), node),
+                Op::Mod { .. }
+                    if node
+                        .inputs
+                        .iter()
+                        .any(|&i| !matches!(graph.nodes[i].dtype, DtypeRepr::F32 | DtypeRepr::F64)) =>
+                {
+                    // The Mod kernels compute in floating point; an integer operand read as
+                    // float words would give garbage.
+                    return Err(anyhow::anyhow!(
+                        "Op::Mod {}: integer operands are not supported (the kernels are float-only)",
+                        node_label(graph, node_index)
+                    ));
+                }
+                Op::Mod { fmod: true } => make_float_kernel!(ElemwiseTruncModForward(1024), node),
+                Op::Mod { fmod: false } => make_float_kernel!(ElemwiseFmodForward(1024), node),
                 Op::ElemMin => {
                     make_num_kernel!(ElemwiseMinForward(1024), ElemwiseMinBackward(1024), node)
                 }
@@ -4248,6 +4275,25 @@ impl TritonLowering {
                 }
 
                 // ── ONNX reduction ops ────────────────────────────────────────
+                Op::ReduceMax { .. } | Op::ReduceMin { .. } | Op::ReduceLogSumExp { .. }
+                    if node.inputs.first().is_some_and(|&i| {
+                        graph.nodes[i].shape.contains(&Some(0))
+                            || (!matches!(node.op, Op::ReduceLogSumExp { .. })
+                                && graph.nodes[i].dtype == DtypeRepr::Bool)
+                    }) =>
+                {
+                    // Over an empty set these reduce to ±inf, but the kernels start from
+                    // the dtype's finite extremes; and on Bool they start from signed byte
+                    // extremes. Refuse both rather than return a wrong value.
+                    let src = &graph.nodes[node.inputs[0]];
+                    return Err(anyhow::anyhow!(
+                        "{:?} {}: input {:?} of shape {:?} is not supported (empty or Bool)",
+                        node.op,
+                        node_label(graph, node_index),
+                        src.dtype,
+                        src.shape
+                    ));
+                }
                 Op::ReduceSum { .. } => make_num_kernel!(ReduceSumForward(1024), node),
                 Op::ReduceMean { .. } => make_float_kernel!(ReduceMeanForward(1024), node),
                 Op::ReduceMax { .. } => make_num_kernel!(ReduceMaxForward(1024), node),

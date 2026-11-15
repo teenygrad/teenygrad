@@ -1273,11 +1273,27 @@ fn map_node_op(
         "Elu" => Op::Elu {
             alpha: get_attr_float(node, "alpha", 1.0) as f64,
         },
-        "Selu" => Op::Selu,
+        "Selu" => {
+            // The kernel has PyTorch's constants baked in, which are ONNX's defaults.
+            let alpha = get_attr_float(node, "alpha", 1.673_263_2);
+            let gamma = get_attr_float(node, "gamma", 1.050_701);
+            if (alpha - 1.673_263_2).abs() > 1e-5 || (gamma - 1.050_701).abs() > 1e-5 {
+                return Err(Error::InvalidModel(format!(
+                    "Selu '{}' with alpha {alpha}, gamma {gamma}: only the defaults \
+                     (1.6733, 1.0507) are supported",
+                    node.name
+                ))
+                .into());
+            }
+            Op::Selu
+        }
         "Celu" => Op::Celu {
             alpha: get_attr_float(node, "alpha", 1.0) as f64,
         },
-        "Gelu" => Op::Gelu,
+        "Gelu" => match get_attr_string(node, "approximate", "none") {
+            "tanh" => Op::Gelu,
+            _ => Op::GeluErf,
+        },
         "Mish" => Op::Mish,
         "HardSigmoid" => {
             // The kernel is PyTorch's hardsigmoid, clamp(x / 6 + 1 / 2, 0, 1): ONNX's
@@ -1421,6 +1437,17 @@ fn map_node_op(
         "GatherND" => Op::GatherND {
             batch_dims: get_attr_int(node, "batch_dims", 0),
         },
+        "ScatterElements" | "ScatterND"
+            if get_attr_string(node, "reduction", "none") != "none" =>
+        {
+            return Err(Error::InvalidModel(format!(
+                "{} '{}' with reduction '{}': only 'none' is supported",
+                node.op_type,
+                node.name,
+                get_attr_string(node, "reduction", "none")
+            ))
+            .into());
+        }
         "ScatterElements" => Op::ScatterElements {
             axis: get_attr_int(node, "axis", 0),
         },

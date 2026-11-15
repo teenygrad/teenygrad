@@ -1700,7 +1700,8 @@ fn binary(args: &[&Value], kind: BinKind) -> Eval {
                     if fmod {
                         x % y
                     } else {
-                        x.rem_euclid(y.abs()) * if y < 0 { -1 } else { 1 }
+                        let r = x % y;
+                        if r != 0 && (r < 0) != (y < 0) { r + y } else { r }
                     }
                 }
                 _ => unreachable!("comparison kind in arithmetic branch"),
@@ -1910,6 +1911,7 @@ fn infer_static_shape(
         | Op::Elu { .. }
         | Op::Selu
         | Op::Gelu
+        | Op::GeluErf
         | Op::Mish
         | Op::Silu
         | Op::Swish
