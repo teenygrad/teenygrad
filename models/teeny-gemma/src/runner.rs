@@ -158,6 +158,8 @@ pub struct Session {
     pub cache: KvCache,
     /// The past length every compiled step reads.
     pub past: PastLen,
+    /// The tokens whose keys and values are in the cache, in order.
+    pub tokens: Vec<u32>,
 }
 
 impl Session {
@@ -168,7 +170,51 @@ impl Session {
             cfg,
             cache,
             past: PastLen::default(),
+            tokens: Vec::new(),
         }
+    }
+
+    /// Brings the cache up to `prompt` and returns its last token's logits. Cached
+    /// tokens that still match `prompt` are kept; the rest are dropped, and the new
+    /// tokens run through `chunk` (a step compiled for several tokens) while a whole
+    /// chunk remains, then through `one` (a one-token step). Re-rendering a whole
+    /// conversation each turn therefore only processes what changed.
+    pub fn feed<'d>(
+        &mut self,
+        device: &runtime::Device<'d>,
+        chunk: &mut CompiledStep<'d>,
+        one: &mut CompiledStep<'d>,
+        prompt: &[u32],
+    ) -> anyhow::Result<Vec<f32>> {
+        anyhow::ensure!(!prompt.is_empty(), "empty prompt");
+        let mut keep = self
+            .tokens
+            .iter()
+            .zip(prompt)
+            .take_while(|(a, b)| a == b)
+            .count();
+        // At least one token must run, to produce the logits.
+        keep = keep.min(prompt.len() - 1);
+        self.cache.len = keep;
+        self.tokens.truncate(keep);
+
+        let mut rest = &prompt[keep..];
+        let mut logits = Vec::new();
+        while !rest.is_empty() {
+            let n = if rest.len() >= chunk.tokens {
+                chunk.tokens
+            } else {
+                1
+            };
+            let step = if n == chunk.tokens {
+                &mut *chunk
+            } else {
+                &mut *one
+            };
+            logits = self.step(device, step, &rest[..n])?;
+            rest = &rest[n..];
+        }
+        Ok(logits)
     }
 
     /// Runs `step` on `ids` (its token count) at the cache's current length, appends
@@ -207,6 +253,7 @@ impl Session {
             .map(|l| out[2 + 2 * l].as_slice())
             .collect();
         self.cache.append(&k, &v)?;
+        self.tokens.extend_from_slice(ids);
         Ok(logits)
     }
 }
