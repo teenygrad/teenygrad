@@ -155,7 +155,7 @@ pub fn simplify_pow(graph: &mut Graph, constants: &BTreeMap<usize, ConstantTenso
     count
 }
 
-/// Makes `And`, `Or`, `Xor` and `Where` operands the output's shape, and a `Where`
+/// Makes `And`, `Or`, `Xor`, comparison and `Where` operands the output's shape, and a `Where`
 /// condition the output's dtype, by inserting `Expand` and `Cast` nodes.
 ///
 /// Their kernels read every operand at the output's own offsets, so ONNX's broadcasting
@@ -173,7 +173,19 @@ pub fn expand_for_broadcast(graph: &mut Graph, constants: &mut ConstantMap) -> u
     let mut inserted = 0;
     for g in 0..graph.nodes.len() {
         let is_where = matches!(graph.nodes[g].op, Op::Where);
-        if !(is_where || matches!(graph.nodes[g].op, Op::And | Op::Or | Op::Xor)) {
+        if !(is_where
+            || matches!(
+                graph.nodes[g].op,
+                Op::And
+                    | Op::Or
+                    | Op::Xor
+                    | Op::Equal
+                    | Op::Greater
+                    | Op::GreaterOrEqual
+                    | Op::Less
+                    | Op::LessOrEqual
+            ))
+        {
             continue;
         }
         let Some(out) = static_shape(&graph.nodes[g].shape) else {
@@ -250,4 +262,69 @@ pub fn expand_for_broadcast(graph: &mut Graph, constants: &mut ConstantMap) -> u
         graph.nodes[g].inputs = inputs;
     }
     inserted
+}
+
+/// Gives each repeated operand of a node (`Mul(x, x)`) its own `Identity` copy.
+///
+/// The lowered DAG keeps one edge per distinct parent, so a node reading the same tensor
+/// twice reaches its kernel with one operand fewer than it takes. Returns how many copies
+/// were inserted.
+pub fn dedupe_operands(graph: &mut Graph) -> usize {
+    let mut inserted = 0;
+    for g in 0..graph.nodes.len() {
+        let mut inputs = graph.nodes[g].inputs.clone();
+        let mut seen = Vec::new();
+        for input in inputs.iter_mut() {
+            if seen.contains(input) {
+                let src = &graph.nodes[*input];
+                let (dtype, shape) = (src.dtype, src.shape.clone());
+                *input = graph.add_node(Op::Identity, vec![*input], dtype, shape);
+                inserted += 1;
+            }
+            seen.push(*input);
+        }
+        graph.nodes[g].inputs = inputs;
+    }
+    inserted
+}
+
+/// Computes each comparison returning Bool at its operands' dtype, then casts to Bool.
+///
+/// ONNX comparisons return bools, but their kernels write `0`/`1` in the operands'
+/// dtype; a node recorded as Bool would give them a one-byte buffer they write four-byte
+/// values into. The comparison becomes a node at the operands' dtype, and the original
+/// node a `Cast` of it to Bool, so consumers keep reading the same node. Returns how many
+/// were rewritten.
+pub fn compare_then_cast(graph: &mut Graph) -> usize {
+    let mut count = 0;
+    for g in 0..graph.nodes.len() {
+        let op = graph.nodes[g].op.clone();
+        if !matches!(
+            op,
+            Op::Equal | Op::Greater | Op::GreaterOrEqual | Op::Less | Op::LessOrEqual
+        ) || graph.nodes[g].dtype != DtypeRepr::Bool
+        {
+            continue;
+        }
+        let Some(&first) = graph.nodes[g].inputs.first() else {
+            continue;
+        };
+        let operand_dtype = graph.nodes[first].dtype;
+        if operand_dtype == DtypeRepr::Bool {
+            continue;
+        }
+        let inputs = graph.nodes[g].inputs.clone();
+        let shape = graph.nodes[g].shape.clone();
+        let cmp = graph.add_node(op, inputs, operand_dtype, shape);
+        if let Some(name) = graph.names.get(&g).cloned() {
+            graph.names.insert(cmp, format!("{name}/compare"));
+        }
+        let node = &mut graph.nodes[g];
+        node.op = Op::Cast {
+            to: DtypeRepr::Bool,
+        };
+        node.inputs = vec![cmp];
+        count += 1;
+    }
+    count
 }

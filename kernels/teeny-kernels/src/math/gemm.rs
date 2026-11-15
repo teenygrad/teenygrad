@@ -27,7 +27,7 @@
 
 #![allow(non_snake_case)]
 
-use teeny_core::dtype::Num;
+use teeny_core::dtype::{AddOffsets, Comparison, Num, Tensor};
 use teeny_core::graph::MatMulPlan;
 use teeny_macros::kernel;
 use teeny_triton::triton::{PaddingOption, *};
@@ -562,5 +562,134 @@ mod k_tail_tests {
             assert_eq!(k_tail_arguments(6, 8), None);
         }
         assert_eq!(k_tail_arguments(8, 8), Some((0, 8)));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Row kernel: any K and N
+// ---------------------------------------------------------------------------
+
+/// A batched `MatMul` without tensor descriptors: each program computes `BLOCK_N`
+/// outputs of one row, lanes along `N`, with a scalar loop over `K` that broadcasts
+/// `a[m, k]` against row `k` of `B`.
+///
+/// [`matmul_forward`]'s descriptors need 16-byte row strides, so on CUDA it is wrong
+/// whenever `K` or `N` is not a multiple of 4 floats (teenygrad#143); the lowering uses
+/// this kernel for those shapes instead. It reads through plain masked pointers, so every
+/// shape is exact on every backend. Batches and shared operands follow [`MatMulPlan`].
+///
+/// Grid: `(M * cdiv(N, BLOCK_N), batch)`.
+#[allow(clippy::too_many_arguments)]
+#[kernel]
+pub fn matmul_rows_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    c_ptr: OutPtr<T::Pointer<D>>,
+    M: i32,
+    N: i32,
+    K: i32,
+    A_BATCH_ROWS: i32,
+    B_BATCH_ROWS: i32,
+) where
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let pid_b = T::program_id(Axis::Y);
+    let tiles = (N + BLOCK_N - 1) / BLOCK_N;
+    let m = pid / tiles;
+    let tile = pid % tiles;
+    let n = T::arange(0, BLOCK_N) + tile * BLOCK_N;
+    let nm = n.lt(N);
+    let izero = T::zeros::<i32>(&[BLOCK_N]);
+    let zeros = T::zeros::<D>(&[BLOCK_N]);
+    let a_row = (pid_b * A_BATCH_ROWS + m) * K;
+    let b_row0 = pid_b * B_BATCH_ROWS;
+    let mut acc = T::zeros::<D>(&[BLOCK_N]);
+    for k in 0..K {
+        let a = T::load(
+            a_ptr.add_offsets(izero + (a_row + k)),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let b = T::load(
+            b_ptr.add_offsets(n + (b_row0 + k) * N),
+            Some(nm),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        acc = acc + a * b;
+    }
+    T::store(
+        c_ptr.add_offsets(n + (pid_b * M + m) * N),
+        acc,
+        Some(nm),
+        &[],
+        None,
+        None,
+    );
+}
+
+/// Runtime dispatch for [`matmul_rows_forward`].
+pub struct MatMulRowsRuntimeOp {
+    plan: MatMulPlan,
+    block_n: i32,
+}
+
+impl MatMulRowsRuntimeOp {
+    /// The op for `plan`.
+    pub fn new(plan: MatMulPlan, block_n: i32) -> Self {
+        Self { plan, block_n }
+    }
+}
+
+impl teeny_core::model::RuntimeOp for MatMulRowsRuntimeOp {
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        _: &[usize],
+        _: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(inputs[1].0);
+        visitor.visit_ptr(output);
+        for v in [
+            self.plan.m,
+            self.plan.n,
+            self.plan.k,
+            self.plan.a_batch_rows,
+            self.plan.b_batch_rows,
+        ] {
+            visitor.visit_i32(v as i32);
+        }
+    }
+
+    fn grid(&self, _: &[usize]) -> [u32; 3] {
+        let tiles = self.plan.n.div_ceil(self.block_n as usize);
+        [(self.plan.m * tiles) as u32, self.plan.batch as u32, 1]
     }
 }

@@ -611,6 +611,30 @@ impl<'a> RuntimeModel<'a> {
             })
     }
 
+    /// Every parameter slot with a slot name, as `(slot name, node_idx, param_idx)`,
+    /// whether or not its node has a name. [`Self::param_info_named`] lists only named
+    /// nodes, which an imported model need not have (ONNX node names are optional).
+    pub fn param_slots(&self) -> impl Iterator<Item = (&'static str, usize, usize)> + '_ {
+        self.nodes
+            .iter()
+            .enumerate()
+            .flat_map(move |(node_idx, node)| {
+                let entries: Vec<(&'static str, usize, usize)> = match &node.op {
+                    Some(op) => {
+                        let slots = op.runtime_op.param_names();
+                        (0..op.param_shapes.len())
+                            .filter_map(|pi| {
+                                let slot = slots.get(pi).copied().unwrap_or("");
+                                (!slot.is_empty()).then_some((slot, node_idx, pi))
+                            })
+                            .collect()
+                    }
+                    None => Vec::new(),
+                };
+                entries
+            })
+    }
+
     /// Uploads `data` into parameter slot `param_idx` of node `node_idx`.
     pub fn load_param_f32(
         &mut self,

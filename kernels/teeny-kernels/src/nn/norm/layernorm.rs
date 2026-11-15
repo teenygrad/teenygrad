@@ -481,22 +481,42 @@ pub fn layer_norm_backward<T: Triton, D: Float, const BLOCK_N: i32>(
 
 /// RuntimeOp for LayerNorm inference.
 ///
-/// Parameter layout (2 params): `[weight, bias]`, each of shape `[N]` where
-/// N is the last (normalized) dimension of the input.
+/// Parameter layout (2 params): `[weight, bias]`, each of shape `[N]`, where N is the
+/// size of the normalized block: every axis from `axis` to the last, which is contiguous
+/// in a row-major tensor, so the kernel's rows of N cover any axis.
 pub struct LayerNormForwardInferenceRuntimeOp<D: Float + Send + Sync + 'static> {
     fwd: LayerNormForwardInference<D>,
     #[allow(dead_code)]
     block_n: i32,
     eps: f32,
+    axis: i64,
 }
 
 impl<D: Float + Send + Sync + 'static> LayerNormForwardInferenceRuntimeOp<D> {
     pub fn new(block_n: i32, eps: f32) -> Self {
+        Self::with_axis(block_n, eps, -1)
+    }
+
+    /// Normalizes over every axis from `axis` (negative counts from the end).
+    pub fn with_axis(block_n: i32, eps: f32, axis: i64) -> Self {
         Self {
             fwd: LayerNormForwardInference::<D>::new(block_n),
             block_n,
             eps,
+            axis,
         }
+    }
+
+    /// Elements per normalized row for an input of `shape`.
+    fn row(&self, shape: &[usize]) -> usize {
+        let rank = shape.len() as i64;
+        let a = if self.axis < 0 {
+            self.axis + rank
+        } else {
+            self.axis
+        }
+        .clamp(0, rank) as usize;
+        shape[a..].iter().product::<usize>().max(1)
     }
 
     pub fn forward_source(&self) -> &str {
@@ -515,8 +535,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     }
 
     fn param_shapes(&self, input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
-        // N = last dim of input
-        let n = *input_shapes[0].last().unwrap();
+        let n = self.row(input_shapes[0]);
         vec![vec![n], vec![n]]
     }
 
@@ -534,7 +553,7 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
         visitor: &mut dyn teeny_core::device::program::ArgVisitor,
     ) {
         let shape = inputs[0].1;
-        let n = *shape.last().unwrap() as i32;
+        let n = self.row(shape) as i32;
         let total: usize = shape.iter().product();
         let m = (total as i32) / n;
 
@@ -548,8 +567,8 @@ impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        // one CTA per row; M = product of all dims except last
-        let n = *output_shape.last().unwrap();
+        // one CTA per normalized row
+        let n = self.row(output_shape);
         let total: usize = output_shape.iter().product();
         let m = total / n;
         [m as u32, 1, 1]

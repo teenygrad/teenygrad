@@ -832,7 +832,8 @@ pub enum ResizeMode {
 pub enum ResizeCoords {
     /// `x = (o + 0.5) / scale - 0.5`, ONNX's default.
     HalfPixel,
-    /// `x = o * (in - 1) / (out - 1)`: the first and last elements line up exactly.
+    /// `x = o * (in - 1) / (len - 1)`, with `len` the resized length (`in * scale` when
+    /// given scales): the first and last elements line up exactly.
     AlignCorners,
     /// `x = o / scale`, which lines up the first element and lets the last drift.
     Asymmetric,
@@ -902,6 +903,9 @@ pub fn resize_axis_plan(
         });
     }
     let taps = resize_taps(mode);
+    // The resized length ONNX's coordinate formulas use: with scales it is the real
+    // `in * scale`, before the output extent is floored from it; with sizes, the extent.
+    let resized_len = scale.map_or(out_ext as f64, |s| in_ext as f64 * s);
     let scale = scale.unwrap_or(out_ext as f64 / in_ext as f64);
     let last = in_ext as i64 - 1;
     let clamp = |i: i64| -> i32 { i.clamp(0, last) as i32 };
@@ -914,10 +918,10 @@ pub fn resize_axis_plan(
         let x = match coords {
             ResizeCoords::HalfPixel => (o as f64 + 0.5) / scale - 0.5,
             ResizeCoords::AlignCorners => {
-                if out_ext == 1 {
+                if resized_len <= 1.0 {
                     0.0
                 } else {
-                    o as f64 * (in_ext as f64 - 1.0) / (out_ext as f64 - 1.0)
+                    o as f64 * (in_ext as f64 - 1.0) / (resized_len - 1.0)
                 }
             }
             ResizeCoords::Asymmetric => o as f64 / scale,
@@ -1316,6 +1320,9 @@ pub enum Op {
     LayerNorm {
         /// Shape of the trailing axes to normalize over.
         normalized_shape: alloc::vec::Vec<usize>,
+        /// The first normalized axis (ONNX's `axis`; negative counts from the end).
+        /// Every axis from it to the last is normalized over together.
+        axis: i64,
         /// Numerical stability constant.
         eps: f64,
         /// Whether to learn per-channel scale/shift parameters.
@@ -3827,6 +3834,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LayerNorm<D, SymTensor, S
     fn call(&self, input: SymTensor) -> SymTensor {
         input.record(Op::LayerNorm {
             normalized_shape: self.normalized_shape.clone(),
+            axis: -(self.normalized_shape.len().max(1) as i64),
             eps: self.eps,
             affine: self.affine,
         })
