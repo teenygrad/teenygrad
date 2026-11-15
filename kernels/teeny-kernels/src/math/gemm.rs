@@ -131,7 +131,10 @@ pub fn matmul_forward<
     for k in 0..FULL_TILES {
         let a = T::load_tensor_descriptor(a_desc, &[a_row0 + pid_m * BLOCK_M, k * BLOCK_K]);
         let b = T::load_tensor_descriptor(b_desc, &[b_row0 + k * BLOCK_K, pid_n * BLOCK_N]);
-        acc = T::dot::<D, D>(a, b, Some(acc), InputPrecision::TF32, None);
+        // IEEE, not TF32: an imported model's MatMul/Gemm must reproduce its FP32 maths.
+        // TF32's 10-bit mantissa put ResNet-18's and MobileNetV3's logits ~1e-3 off
+        // onnxruntime; IEEE brings them to ~1e-6.
+        acc = T::dot::<D, D>(a, b, Some(acc), InputPrecision::IEEE, None);
     }
 
     // The K tail: one more whole tile, read back from TAIL_OFF, which the host
@@ -156,7 +159,13 @@ pub fn matmul_forward<
     );
     let a_tail = T::load_tensor_descriptor(a_desc, &[a_row0 + pid_m * BLOCK_M, TAIL_OFF]);
     let b_tail = T::load_tensor_descriptor(b_desc, &[b_row0 + TAIL_OFF, pid_n * BLOCK_N]);
-    acc = T::dot::<D, D>(a_tail * keep_d, b_tail, Some(acc), InputPrecision::TF32, None);
+    acc = T::dot::<D, D>(
+        a_tail * keep_d,
+        b_tail,
+        Some(acc),
+        InputPrecision::IEEE,
+        None,
+    );
 
     let c_desc = T::make_tensor_descriptor(
         c_ptr,
@@ -368,14 +377,8 @@ pub struct MatMulRuntimeOp<D: Num + Send + Sync + 'static> {
 impl<D: Num + Send + Sync + 'static> MatMulRuntimeOp<D> {
     /// `None` if `block_k` is wider than the plan's contracted extent, which leaves
     /// the forward kernel's last K tile nowhere inside the operands to be read from.
-    pub fn new(
-        block_m: i32,
-        block_n: i32,
-        block_k: i32,
-        plan: MatMulPlan,
-    ) -> Option<Self> {
-        let (tail_off, tail_keep_from) =
-            k_tail_arguments(plan.k, block_k as usize)?;
+    pub fn new(block_m: i32, block_n: i32, block_k: i32, plan: MatMulPlan) -> Option<Self> {
+        let (tail_off, tail_keep_from) = k_tail_arguments(plan.k, block_k as usize)?;
         let full_tiles = plan_k_tiles(&plan, block_k) as i32;
         Some(Self {
             fwd_kernel: MatmulForward::<D>::new(block_m, block_n, block_k, GROUP_M),
@@ -528,7 +531,11 @@ mod k_tail_tests {
             for k in block_k..block_k * 3 + 5 {
                 let (off, _) = k_tail_arguments(k, block_k).expect("fits");
                 if PARTIAL_K_TILE_IS_PADDED {
-                    assert_eq!(off % 4, 0, "k={k} block_k={block_k}: offset {off} unaligned");
+                    assert_eq!(
+                        off % 4,
+                        0,
+                        "k={k} block_k={block_k}: offset {off} unaligned"
+                    );
                 } else {
                     assert!(
                         off + block_k <= k,

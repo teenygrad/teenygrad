@@ -28,3 +28,4 @@ pub use onnx::{Import, Onnx, TensorData};
 /// Constant and shape materialisation for imported graphs.
 pub mod branches;
 pub mod materialize;
+pub mod rewrite;

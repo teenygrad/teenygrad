@@ -1075,12 +1075,12 @@ impl Op {
     ///
     /// Positions are indices into [`GraphNode::inputs`]. Operands that genuinely flow
     /// data are excluded. `Gather`'s indices are included even though they are a
-    /// tensor operand rather than an attribute: an index tensor is integer-typed, and
-    /// a node's buffers are typed from its own dtype, so a lowering has nowhere
-    /// correctly-typed to put one as an activation. The gather kernel therefore reads
-    /// its indices from a parameter slot the lowering fills, which means the operand
-    /// never needs a buffer either. `GatherElements` and `GatherND` are not included,
-    /// since nothing lowers them yet.
+    /// tensor operand rather than an attribute: when they are constant the gather
+    /// kernel reads them from a parameter slot the lowering fills, so the operand needs
+    /// no buffer. Only constants are elided (see `elidable_constants`), so indices
+    /// computed at run time keep their edge and reach the runtime-index kernel as an
+    /// activation. `GatherElements` and `GatherND` are not included, since nothing
+    /// lowers them yet.
     pub fn shape_operand_positions(&self) -> &'static [usize] {
         match self {
             // Reshape(data, shape), Expand(data, shape), Tile(data, repeats)
@@ -1265,8 +1265,12 @@ pub enum Op {
         /// Whether a learned bias is added.
         has_bias: bool,
     },
-    /// Flattens all spatial dimensions into a single feature vector (see `nn::flatten::Flatten`).
-    Flatten,
+    /// Flattens to 2-D: every axis before `axis` into the first output dimension and
+    /// the rest into the second (ONNX `Flatten`; `axis: 1` is `nn::flatten::Flatten`).
+    Flatten {
+        /// The first axis of the second output dimension.
+        axis: usize,
+    },
 
     // --- Normalisation ---
     /// 1-D batch normalization (see `nn::batchnorm::BatchNorm1d`).
@@ -2936,13 +2940,14 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             out
         }
 
-        Op::Flatten => {
-            // [N, C, H, W, ...] → [N, C*H*W*...]
-            let rest = &input[1..];
-            let flat: Option<usize> = rest
-                .iter()
-                .try_fold(1usize, |acc, dim| dim.map(|d| acc * d));
-            vec![input[0], flat]
+        Op::Flatten { axis } => {
+            // [d0 .. d(axis-1), d(axis) ..] → [d0*..*d(axis-1), d(axis)*..]
+            let axis = (*axis).min(input.len());
+            let prod = |dims: &[Option<usize>]| {
+                dims.iter()
+                    .try_fold(1usize, |acc, dim| dim.map(|d| acc * d))
+            };
+            vec![prod(&input[..axis]), prod(&input[axis..])]
         }
 
         // --- Convolution ---
@@ -3772,7 +3777,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Linear<D, SymTensor, SymT
 impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Flatten)
+        input.record(Op::Flatten { axis: 1 })
     }
 }
 

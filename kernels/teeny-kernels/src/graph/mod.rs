@@ -121,7 +121,7 @@ use crate::nn::{
             ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward, ElemwiseSinhForward,
             ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward, ElemwiseTanForward,
         },
-        gather::{GatherForward, GatherRuntimeOp},
+        gather::{GatherDynForward, GatherDynRuntimeOp, GatherForward, GatherRuntimeOp},
         reduction::{
             CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward,
             ReduceL1Forward, ReduceL2Forward, ReduceLogSumExpForward, ReduceLogSumForward,
@@ -509,20 +509,54 @@ impl_stub_runtime_op_num!(CircularPad3dForward);
 // GeluForward, SiluForward, and TanhForward have real RuntimeOp impls in their
 // kernel modules.
 impl_stub_runtime_op_float!(EluForward);
-impl_stub_runtime_op_float!(SeluForward);
 impl_stub_runtime_op_float!(CeluForward);
-impl_stub_runtime_op_float!(MishForward);
 impl_stub_runtime_op_float!(HardtanhForward);
-impl_stub_runtime_op_float!(Relu6Forward);
-impl_stub_runtime_op_float!(HardsigmoidForward);
-impl_stub_runtime_op_float!(HardswishForward);
 impl_stub_runtime_op_float!(HardshrinkForward);
 impl_stub_runtime_op_float!(ThresholdForward);
-impl_stub_runtime_op_float!(SoftsignForward);
 impl_stub_runtime_op_float!(SoftshrinkForward);
 impl_stub_runtime_op_float!(SoftplusForward);
-impl_stub_runtime_op_float!(LogsigmoidForward);
-impl_stub_runtime_op_float!(TanhshrinkForward);
+
+// Element-wise activations of signature `(x, y, n_elements)`: one input, no
+// parameters, a 1-D grid of `BLOCK_SIZE` lanes.
+macro_rules! impl_unary_runtime_op_float {
+    ($T:ident) => {
+        impl<D: teeny_core::dtype::Float + Send + Sync + 'static> RuntimeOp for $T<D> {
+            fn n_activation_inputs(&self) -> usize {
+                1
+            }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+                Vec::new()
+            }
+            fn pack_args(
+                &self,
+                inputs: &[(teeny_core::model::RawPtr, &[usize])],
+                _params: &[teeny_core::model::RawPtr],
+                output: teeny_core::model::RawPtr,
+                output_shape: &[usize],
+                _output_row_stride: i32,
+                visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+            ) {
+                let n: usize = output_shape.iter().product();
+                visitor.visit_ptr(inputs[0].0);
+                visitor.visit_ptr(output);
+                visitor.visit_i32(n as i32);
+            }
+            fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+                let n: usize = output_shape.iter().product();
+                [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+            }
+        }
+    };
+}
+
+impl_unary_runtime_op_float!(SeluForward);
+impl_unary_runtime_op_float!(MishForward);
+impl_unary_runtime_op_float!(Relu6Forward);
+impl_unary_runtime_op_float!(HardsigmoidForward);
+impl_unary_runtime_op_float!(HardswishForward);
+impl_unary_runtime_op_float!(SoftsignForward);
+impl_unary_runtime_op_float!(LogsigmoidForward);
+impl_unary_runtime_op_float!(TanhshrinkForward);
 
 // ---------------------------------------------------------------------------
 // No-op RuntimeOp for Input placeholder nodes
@@ -1515,6 +1549,56 @@ fn gather_executable(
         other => {
             return Err(anyhow::anyhow!(
                 "Op::Gather {what}: {other:?} is not supported; the kernel is generic \
+                 over FloatBytes"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for a `Gather` whose indices are an activation (see
+/// [`GatherDynRuntimeOp`]).
+fn gather_dyn_executable(
+    node: &GraphNode,
+    in_shape: &[usize],
+    axis: i64,
+    n_idx: usize,
+    idx_bytes: usize,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = GatherDynRuntimeOp::<$ty>::new(1024, in_shape, axis, n_idx, idx_bytes)
+                .map_err(|e| anyhow::anyhow!("Op::Gather {what}: {e}"))?;
+            let kernel = GatherDynForward::<$ty>::new(1024);
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Gather {what}: {other:?} data is not supported; the kernel is generic \
                  over FloatBytes"
             ));
         }
@@ -2755,7 +2839,7 @@ impl TritonLowering {
                         node
                     )
                 }
-                Op::Flatten => make_num_kernel!(FlattenForward(32, 256), node),
+                Op::Flatten { .. } => make_num_kernel!(FlattenForward(32, 256), node),
 
                 // --- Normalisation ---
                 Op::BatchNorm1d { .. } | Op::BatchNorm3d { .. } => {
@@ -3916,6 +4000,33 @@ impl TritonLowering {
                 Op::Div => {
                     make_float_kernel!(ElemwiseDivForward(1024), ElemwiseDivBackward(1024), node)
                 }
+                Op::Pow
+                | Op::Mod { .. }
+                | Op::ElemMin
+                | Op::ElemMax
+                | Op::Equal
+                | Op::Greater
+                | Op::GreaterOrEqual
+                | Op::Less
+                | Op::LessOrEqual
+                    if needs_broadcast(graph, node) =>
+                {
+                    // Only Add, Sub, Mul and Div have a broadcasting kernel. The flat
+                    // kernels read every operand at the output's offsets, so a smaller
+                    // operand would be read past its end: refuse instead.
+                    let what = node_label(graph, node_index);
+                    let shapes: Vec<_> = node
+                        .inputs
+                        .iter()
+                        .map(|&i| graph.nodes[i].shape.clone())
+                        .collect();
+                    return Err(anyhow::anyhow!(
+                        "Op::{:?} {what}: operands {shapes:?} differ from the output {:?}, \
+                         and only Add, Sub, Mul and Div have a broadcasting kernel",
+                        node.op,
+                        node.shape
+                    ));
+                }
                 Op::Pow => {
                     make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node)
                 }
@@ -4053,14 +4164,10 @@ impl TritonLowering {
                 }
                 Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
                 Op::CumSum {
-                    exclusive,
-                    reverse,
-                    ..
+                    exclusive, reverse, ..
                 }
                 | Op::CumProd {
-                    exclusive,
-                    reverse,
-                    ..
+                    exclusive, reverse, ..
                 } if *exclusive || *reverse => {
                     // The kernels accumulate inclusively and forwards, and nothing in
                     // them reads these, so either flag would be ignored rather than
@@ -4502,26 +4609,36 @@ impl TritonLowering {
                                 graph.nodes[data].shape
                             )
                         })?;
-                    let indices = self
-                        .constants
-                        .get(&idx_node)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Op::Gather {what}: its indices are computed at runtime. \
-                                 Only constant indices are supported: an index tensor is \
-                                 integer-typed, and an activation buffer is typed from \
-                                 its node's dtype, so a runtime index tensor has nowhere \
-                                 correctly-typed to land. Materialise the indices, or \
-                                 implement integer-typed activation buffers."
-                            )
-                        })?
-                        .as_i64()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Op::Gather {what}: indices operand is not an integer tensor"
-                            )
-                        })?;
-                    gather_executable(node, &in_shape, *axis, &indices, &what)?
+                    match self.constants.get(&idx_node) {
+                        None => {
+                            // Indices known only at run time (token ids into an embedding):
+                            // read from the index tensor's own buffer.
+                            let idx = &graph.nodes[idx_node];
+                            let idx_bytes = match idx.dtype {
+                                DtypeRepr::I64 => 8,
+                                DtypeRepr::I32 => 4,
+                                other => {
+                                    return Err(anyhow::anyhow!(
+                                        "Op::Gather {what}: runtime indices of {other:?}; only \
+                                     I32 and I64 are supported"
+                                    ));
+                                }
+                            };
+                            let n_idx: usize =
+                                concrete_shape(&idx.shape, "Gather", &what, "its indices'")?
+                                    .iter()
+                                    .product();
+                            gather_dyn_executable(node, &in_shape, *axis, n_idx, idx_bytes, &what)?
+                        }
+                        Some(constant) => {
+                            let indices = constant.as_i64().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::Gather {what}: indices operand is not an integer tensor"
+                                )
+                            })?;
+                            gather_executable(node, &in_shape, *axis, &indices, &what)?
+                        }
+                    }
                 }
                 Op::GatherElements { .. } | Op::GatherND { .. } => {
                     return Err(anyhow::anyhow!(
