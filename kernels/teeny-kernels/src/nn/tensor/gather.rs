@@ -122,7 +122,6 @@ pub fn gather_forward<T, D: Num, const BLOCK_SIZE: i32>(
 
 use core::marker::PhantomData;
 use teeny_core::device::program::ArgVisitor;
-use teeny_core::dtype::FloatBytes;
 use teeny_core::model::{RawPtr, RuntimeOp};
 
 /// Why a set of `Gather` arguments cannot be lowered.
@@ -165,7 +164,7 @@ impl core::fmt::Display for GatherError {
 }
 
 /// Runtime dispatch for [`gather_forward`].
-pub struct GatherRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+pub struct GatherRuntimeOp<D: Num + Send + Sync + 'static> {
     block_size: i32,
     inner: i32,
     out_block: i32,
@@ -177,7 +176,7 @@ pub struct GatherRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     _phantom: PhantomData<D>,
 }
 
-impl<D: FloatBytes + Send + Sync + 'static> GatherRuntimeOp<D> {
+impl<D: Num + Send + Sync + 'static> GatherRuntimeOp<D> {
     /// Builds the op for `Gather(data, indices, axis)`.
     ///
     /// `axis` may be negative, as ONNX allows, and so may the indices; both are
@@ -259,7 +258,7 @@ impl<D: FloatBytes + Send + Sync + 'static> GatherRuntimeOp<D> {
     }
 }
 
-impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for GatherRuntimeOp<D> {
+impl<D: Num + Send + Sync + 'static> RuntimeOp for GatherRuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
         1
     }
@@ -376,7 +375,7 @@ pub fn gather_dyn_forward<T, D: Num, const BLOCK_SIZE: i32>(
 
 /// Runtime dispatch for [`gather_dyn_forward`]: activations `(data, indices)`, no
 /// parameters.
-pub struct GatherDynRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+pub struct GatherDynRuntimeOp<D: Num + Send + Sync + 'static> {
     block_size: i32,
     inner: i32,
     out_block: i32,
@@ -386,7 +385,7 @@ pub struct GatherDynRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     _phantom: PhantomData<D>,
 }
 
-impl<D: FloatBytes + Send + Sync + 'static> GatherDynRuntimeOp<D> {
+impl<D: Num + Send + Sync + 'static> GatherDynRuntimeOp<D> {
     /// Builds the op for `Gather(data, indices, axis)` with `n_idx` indices of
     /// `idx_bytes` bytes each (4 or 8).
     pub fn new(
@@ -422,7 +421,7 @@ impl<D: FloatBytes + Send + Sync + 'static> GatherDynRuntimeOp<D> {
     }
 }
 
-impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for GatherDynRuntimeOp<D> {
+impl<D: Num + Send + Sync + 'static> RuntimeOp for GatherDynRuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
         2
     }

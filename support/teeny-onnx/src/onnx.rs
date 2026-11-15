@@ -588,6 +588,18 @@ impl<'a> ImportCtx<'a> {
                     (input_node.dtype, Vec::new())
                 }
             });
+        // A Cast's output has the dtype it casts to, whatever its operand's is. Without
+        // value_info the fallback above copies the operand's, which makes every
+        // converting Cast look like a no-op copy at the wrong width.
+        // Likewise a Where's output has its values' dtype (operand 1), not its
+        // condition's, which is Bool.
+        let dtype = match &op {
+            Op::Cast { to } => *to,
+            Op::Where if dtype == DtypeRepr::Bool => {
+                inputs.get(1).map_or(dtype, |&i| self.graph.nodes[i].dtype)
+            }
+            _ => dtype,
+        };
 
         // A multi-output op cannot be one node: every output name would map to the
         // same node, and so to the same buffer, and a consumer of output 1 would

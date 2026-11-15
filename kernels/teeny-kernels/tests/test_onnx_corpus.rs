@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-use teeny_core::model::{Lowering, LoweringMode};
+use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
 use teeny_onnx::materialize::MaterializeConfig;
 use teeny_onnx::{Onnx, branches::materialize_and_resolve};
@@ -296,6 +296,9 @@ struct Traced {
     name: String,
     dag: usize,
     file: PathBuf,
+    /// Element count and bytes per element, for comparing a non-f32 tensor's bytes.
+    count: usize,
+    width: usize,
 }
 
 fn trace_targets(
@@ -313,15 +316,21 @@ fn trace_targets(
         .filter_map(|line| {
             let mut f = line.split('\t');
             let (name, file) = (f.next()?, f.next()?);
+            let count: usize = f.next()?.parse().ok()?;
+            let width = match f.next().unwrap_or("f32") {
+                "f32" | "i32" => 4,
+                "i64" => 8,
+                "bool" => 1,
+                _ => return None,
+            };
             let g = *import.value_to_node.get(name)?;
-            if import.graph.nodes[g].dtype != teeny_core::graph::DtypeRepr::F32 {
-                return None;
-            }
             let d = *graph_to_dag.get(g)?;
             (d < dag_len && dag_to_graph[d] == g).then(|| Traced {
                 name: name.to_string(),
                 dag: d,
                 file: dir.join("trace").join(file),
+                count,
+                width,
             })
         })
         .collect()
@@ -343,8 +352,25 @@ fn report_first_divergence(
     let mut agreed = 0;
     for (_, i) in rows {
         let t = &traced[i];
-        let want = as_words(&std::fs::read(&t.file).unwrap_or_default());
-        let verdict = rel_diff(&vals[i], &want);
+        let raw = std::fs::read(&t.file).unwrap_or_default();
+        let want = as_words(&raw);
+        let g = dag_to_graph[t.dag];
+        let verdict = if import.graph.nodes[g].dtype == teeny_core::graph::DtypeRepr::F32 {
+            rel_diff(&vals[i], &want)
+        } else {
+            // Integers and bools must match byte for byte.
+            let ours: Vec<u8> = vals[i].iter().flat_map(|w| w.to_ne_bytes()).collect();
+            let n = t.count * t.width;
+            match ours.get(..n) {
+                Some(b) if b == &raw[..n.min(raw.len())] => Ok(0.0),
+                Some(b) => Err(format!(
+                    "bytes differ: ours {:?}.., ort {:?}..",
+                    &b[..b.len().min(16)],
+                    &raw[..raw.len().min(16)]
+                )),
+                None => Err(format!("{} bytes read back, {n} expected", ours.len())),
+            }
+        };
         let bad = match &verdict {
             Ok(d) => *d > TOLERANCE,
             Err(_) => true,
@@ -353,7 +379,6 @@ fn report_first_divergence(
             agreed += 1;
             continue;
         }
-        let g = dag_to_graph[t.dag];
         let node = &import.graph.nodes[g];
         let name_of = |n: usize| {
             import

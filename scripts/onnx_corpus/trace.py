@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Writes onnxruntime's value for every intermediate f32 tensor of a corpus model, for
+"""Writes onnxruntime's value for every intermediate tensor (f32, i64, i32, bool) of a corpus model, for
 test_onnx_corpus.rs to find the first node where teenygrad diverges.
 
     <model dir>/trace/
-        index.tsv               name, file, element count (in graph order)
-        t_<i>.bin               raw little-endian f32
+        index.tsv               name, file, element count, dtype (in graph order)
+        t_<i>.bin               raw little-endian tensor (f32, i64, i32 or bool bytes)
 
 Tensors larger than --max-elems are skipped (a vocabulary-sized logits tensor, say).
 
@@ -54,11 +54,13 @@ def main():
         sess = ort.InferenceSession(mm.SerializeToString(), so, providers=["CPUExecutionProvider"])
         for n, v in zip(want, sess.run(None, feeds)):
             v = np.asarray(v)
-            if v.dtype != np.float32 or v.size == 0 or v.size > a.max_elems:
+            kind = {np.dtype(np.float32): "f32", np.dtype(np.int64): "i64",
+                    np.dtype(np.int32): "i32", np.dtype(np.bool_): "bool"}.get(v.dtype)
+            if kind is None or v.size == 0 or v.size > a.max_elems:
                 continue
             f = f"t_{len(rows)}.bin"
             np.ascontiguousarray(v).tofile(os.path.join(out, f))
-            rows.append((n, f, v.size))
+            rows.append((n, f, v.size, kind))
         print(f"  {min(start + a.chunk, len(names))}/{len(names)}", flush=True)
     with open(os.path.join(out, "index.tsv"), "w") as fh:
         for r in rows:
