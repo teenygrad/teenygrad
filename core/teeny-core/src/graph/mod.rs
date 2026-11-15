@@ -374,6 +374,9 @@ pub enum Op {
     LayerNorm {
         /// Shape of the trailing axes to normalize over.
         normalized_shape: alloc::vec::Vec<usize>,
+        /// The first normalized axis (ONNX's `axis`; negative counts from the end).
+        /// Every axis from it to the last is normalized over together.
+        axis: i64,
         /// Numerical stability constant.
         eps: f64,
         /// Whether to learn per-channel scale/shift parameters.

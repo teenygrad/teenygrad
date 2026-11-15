@@ -520,8 +520,24 @@ pub fn reduce_prod_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
         None,
         false,
     );
-    // exp(sum(log(x))) approximates product for positive x.
-    let val = T::exp(T::sum(T::log(x), Some(0), true));
+    // The product as exp(sum(log|x|)), with the sign from the parity of the negative
+    // elements and 0 if any element is 0: log alone is NaN for a negative x and -inf
+    // for a zero. Lanes past the row load as 1 and count as neither.
+    let zero = T::zeros::<D>(&[BLOCK_INNER]);
+    let one = T::full::<D>(&[BLOCK_INNER], D::from_f64(1.0));
+    let magnitude = T::exp(T::sum(T::log(T::abs(x)), Some(0), true));
+    let negatives = T::sum(T::where_(T::lt(x, zero), one, zero), Some(0), true);
+    let zeros = T::sum(T::where_(T::eq(x, zero), one, zero), Some(0), true);
+    // The reductions are one element wide, so everything combined with them is too:
+    // a BLOCK-wide constant would broadcast the result back out to BLOCK lanes.
+    let zero1 = T::zeros::<D>(&[1]);
+    let one1 = T::full::<D>(&[1], D::from_f64(1.0));
+    let half1 = T::full::<D>(&[1], D::from_f64(0.5));
+    let two1 = T::full::<D>(&[1], D::from_f64(2.0));
+    // (-1)^n as 1 - 2 (n mod 2), with n mod 2 = n - 2 floor(n / 2).
+    let odd = negatives - two1 * T::floor(negatives * half1);
+    let sign = one1 - two1 * odd;
+    let val = T::where_(T::gt(zeros, zero1), zero1, sign * magnitude);
     let row_offsets = T::arange(0, 1) + row;
     T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
 }

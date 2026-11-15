@@ -63,9 +63,7 @@ use crate::nn::{
         conv2d::{Conv2dBackward, Conv2dBiasForward, Conv2dForward},
         conv3d::Conv3dForward,
     },
-    mlp::{
-        linear::{LinearBackward, LinearForward},
-    },
+    mlp::linear::{LinearBackward, LinearForward},
     norm::{
         batchnorm::{BatchNorm2dNchwInferenceRuntimeOp, BatchNormForwardInference},
         groupnorm::GroupNormForwardInference,
@@ -1692,9 +1690,9 @@ fn cast_executable(
     what: &str,
 ) -> Result<Box<dyn ExecutableOp>> {
     use crate::nn::tensor::cast::{
-        CastBoolToF32Forward, CastBoolToWordsForward, CastF32ToBoolForward,
-        CastF32ToWordsForward, CastKind, CastRuntimeOp, CastWordsToBoolForward,
-        CastWordsToF32Forward, CastWordsToWordsForward,
+        CastBoolToF32Forward, CastBoolToWordsForward, CastF32ToBoolForward, CastF32ToWordsForward,
+        CastKind, CastRuntimeOp, CastWordsToBoolForward, CastWordsToF32Forward,
+        CastWordsToWordsForward,
     };
     let words = |d: DtypeRepr| match d {
         DtypeRepr::I32 => Some(1),
@@ -1731,7 +1729,11 @@ fn cast_executable(
     macro_rules! k {
         ($K:ident) => {{
             let k = $K::new(1024);
-            (k.name.to_string(), k.source.clone(), k.kernel_source.clone())
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+            )
         }};
     }
     let (name, kernel_source, kernel_body) = match kind {
@@ -2340,7 +2342,13 @@ impl TritonLowering {
                 && let Some(&data) = node.inputs.first()
                 && !elided[data]
             {
-                if axes.is_empty() && node.inputs.len() > 1 {
+                // An axes operand that is a known constant has been adopted onto the
+                // op, so an empty list then is the file's own (reduce every axis, or
+                // none with noop_with_empty_axes); without a value it is unknown.
+                if axes.is_empty()
+                    && node.inputs.len() > 1
+                    && !self.constants.contains_key(&node.inputs[1])
+                {
                     let what = node_label(graph, node_index);
                     return Err(anyhow::anyhow!(
                         "Op::Reduce {what}: the axes operand was not materialised, and \
@@ -2999,13 +3007,14 @@ impl TritonLowering {
                         runtime_op: rop,
                     })
                 }
-                Op::LayerNorm { eps, .. } => {
+                Op::LayerNorm { eps, axis, .. } => {
                     let eps_f32 = *eps as f32;
                     const LN_BLOCK_N: i32 = 1024;
                     let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
                         DtypeRepr::F32 => {
-                            let r =
-                                LayerNormForwardInferenceRuntimeOp::<f32>::new(LN_BLOCK_N, eps_f32);
+                            let r = LayerNormForwardInferenceRuntimeOp::<f32>::with_axis(
+                                LN_BLOCK_N, eps_f32, *axis,
+                            );
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -3013,8 +3022,9 @@ impl TritonLowering {
                             )
                         }
                         DtypeRepr::F64 => {
-                            let r =
-                                LayerNormForwardInferenceRuntimeOp::<f64>::new(LN_BLOCK_N, eps_f32);
+                            let r = LayerNormForwardInferenceRuntimeOp::<f64>::with_axis(
+                                LN_BLOCK_N, eps_f32, *axis,
+                            );
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -4473,71 +4483,114 @@ impl TritonLowering {
                         matmul_plan(&operand(0, "left operand")?, &operand(1, "right operand")?)
                             .map_err(|e| anyhow::anyhow!("Op::MatMul {what}: {e}"))?;
 
-                    let (block_m, block_n, block_k) =
-                        pick_gemm_tile_sizes(Some(plan.m), plan.n, plan.k);
+                    // The tiled kernel's tensor descriptors need 16-byte row strides, so
+                    // a K or N that is not a multiple of 4 is wrong on CUDA
+                    // (teenygrad#143); the row kernel is exact for any shape.
+                    if plan.k % 4 != 0 || plan.n % 4 != 0 {
+                        use crate::math::gemm::{MatMulRowsRuntimeOp, MatmulRowsForward};
+                        macro_rules! rows {
+                            ($ty:ty) => {{
+                                let k = MatmulRowsForward::<$ty>::new(64);
+                                (
+                                    k.name.to_string(),
+                                    k.source.clone(),
+                                    k.kernel_source.clone(),
+                                )
+                            }};
+                        }
+                        let (name, kernel_source, kernel_body) = match node.dtype {
+                            DtypeRepr::F32 => rows!(f32),
+                            DtypeRepr::F64 => rows!(f64),
+                            DtypeRepr::I32 => rows!(i32),
+                            DtypeRepr::I64 => rows!(i64),
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "{other:?} is not a supported dtype for MatMul"
+                                ));
+                            }
+                        };
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{name}_entry_point"),
+                            name,
+                            kernel_source,
+                            kernel_body,
+                            pointwise_fuse_block_size: None,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: Arc::new(MatMulRowsRuntimeOp::new(plan, 64)),
+                        })
+                    } else {
+                        let (block_m, block_n, block_k) =
+                            pick_gemm_tile_sizes(Some(plan.m), plan.n, plan.k);
 
-                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
-                        DtypeRepr::F32 => {
-                            let r = MatMulRuntimeOp::<f32>::new(
-                                block_m,
-                                block_n,
-                                block_k,
-                                plan.clone(),
-                            )
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Op::MatMul {what}: a K tile of {block_k} does not fit \
-                                     inside a contraction of {}",
-                                    plan.k
+                        let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype
+                        {
+                            DtypeRepr::F32 => {
+                                let r = MatMulRuntimeOp::<f32>::new(
+                                    block_m,
+                                    block_n,
+                                    block_k,
+                                    plan.clone(),
                                 )
-                            })?;
-                            (
-                                r.kernel_name().to_string(),
-                                r.forward_source().to_string(),
-                                Arc::new(r),
-                            )
-                        }
-                        DtypeRepr::F64 => {
-                            let r = MatMulRuntimeOp::<f64>::new(
-                                block_m,
-                                block_n,
-                                block_k,
-                                plan.clone(),
-                            )
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Op::MatMul {what}: a K tile of {block_k} does not fit \
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::MatMul {what}: a K tile of {block_k} does not fit \
                                      inside a contraction of {}",
-                                    plan.k
+                                        plan.k
+                                    )
+                                })?;
+                                (
+                                    r.kernel_name().to_string(),
+                                    r.forward_source().to_string(),
+                                    Arc::new(r),
                                 )
-                            })?;
-                            (
-                                r.kernel_name().to_string(),
-                                r.forward_source().to_string(),
-                                Arc::new(r),
-                            )
-                        }
-                        other => {
-                            return Err(anyhow::anyhow!(
-                                "{:?} is not a Float dtype for MatMul",
-                                other
-                            ));
-                        }
-                    };
-                    Box::new(KernelExecutable {
-                        entry_point: format!("{}_entry_point", name),
-                        name,
-                        kernel_source: ks,
-                        kernel_body: String::new(),
-                        pointwise_fuse_block_size: None,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                        #[cfg(feature = "training")]
-                        backward_kernel_source: String::new(),
-                        #[cfg(feature = "training")]
-                        backward_entry_point: String::new(),
-                        runtime_op: rop,
-                    })
+                            }
+                            DtypeRepr::F64 => {
+                                let r = MatMulRuntimeOp::<f64>::new(
+                                    block_m,
+                                    block_n,
+                                    block_k,
+                                    plan.clone(),
+                                )
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::MatMul {what}: a K tile of {block_k} does not fit \
+                                     inside a contraction of {}",
+                                        plan.k
+                                    )
+                                })?;
+                                (
+                                    r.kernel_name().to_string(),
+                                    r.forward_source().to_string(),
+                                    Arc::new(r),
+                                )
+                            }
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "{:?} is not a Float dtype for MatMul",
+                                    other
+                                ));
+                            }
+                        };
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{}_entry_point", name),
+                            name,
+                            kernel_source: ks,
+                            kernel_body: String::new(),
+                            pointwise_fuse_block_size: None,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    }
                 }
 
                 // ── ONNX ops that cannot be lowered to a single Triton kernel ─

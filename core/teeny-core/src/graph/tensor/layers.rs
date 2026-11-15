@@ -119,6 +119,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LayerNorm<D, SymTensor, S
     fn call(&self, input: SymTensor) -> SymTensor {
         input.record(Op::LayerNorm {
             normalized_shape: self.normalized_shape.clone(),
+            axis: -(self.normalized_shape.len().max(1) as i64),
             eps: self.eps,
             affine: self.affine,
         })
