@@ -203,30 +203,36 @@ fn test_lowering_takes_indices_from_a_materialised_constant() {
     assert_eq!(dag.len(), 2);
 }
 
-/// Runtime indices are refused with a reason, not a bare TODO: the limitation is the
-/// absence of integer-typed activation buffers, not the kernel.
+/// Indices only known at run time lower to the runtime-index kernel, which reads them
+/// from their own buffer rather than a parameter slot.
 #[test]
-fn test_lowering_refuses_runtime_indices_with_a_reason() {
+fn test_lowering_reads_runtime_indices_from_their_buffer() {
+    // An index tensor produced by an op, so no constant value exists for it: an
+    // embedding lookup of token ids. It lowers to the runtime-index kernel, which takes
+    // the indices as a second activation.
+    let (g, _) = runtime_index_graph(&[4, 3], 0, 2);
+    let dag = TritonLowering::new()
+        .lower(&g, LoweringMode::Inference)
+        .expect("runtime indices lower");
+    assert!(dag.len() >= 3, "data, indices and the gather");
+}
+
+/// `Gather(data, Identity(indices), axis)` with `n_idx` int64 indices as a graph input,
+/// so the indices are only known at run time. Returns the graph and its output node.
+fn runtime_index_graph(in_shape: &[usize], axis: i64, n_idx: usize) -> (Graph, usize) {
     let mut g = Graph::new();
-    let data = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4), Some(3)]);
-    // An index tensor produced by an op, so no constant value exists for it.
-    let raw = g.add_node(Op::Input, vec![], DtypeRepr::I64, vec![Some(2)]);
-    let idx = g.add_node(Op::Identity, vec![raw], DtypeRepr::I64, vec![Some(2)]);
-    let _out = g.add_node(
-        Op::Gather { axis: 0 },
+    let shape = |s: &[usize]| s.iter().map(|&d| Some(d)).collect::<Vec<_>>();
+    let data = g.add_node(Op::Input, vec![], DtypeRepr::F32, shape(in_shape));
+    let raw = g.add_node(Op::Input, vec![], DtypeRepr::I64, vec![Some(n_idx)]);
+    let idx = g.add_node(Op::Identity, vec![raw], DtypeRepr::I64, vec![Some(n_idx)]);
+    let out_shape = GatherRuntimeOp::<f32>::output_shape(in_shape, axis, &[n_idx]);
+    let out = g.add_node(
+        Op::Gather { axis },
         vec![data, idx],
         DtypeRepr::F32,
-        vec![Some(2), Some(3)],
+        shape(&out_shape),
     );
-
-    let msg = match TritonLowering::new().lower(&g, LoweringMode::Inference) {
-        Ok(_) => panic!("runtime indices are not supported yet"),
-        Err(e) => e.to_string(),
-    };
-    assert!(
-        msg.contains("computed at runtime") && msg.contains("integer-typed"),
-        "should say what is missing and why: {msg}"
-    );
+    (g, out)
 }
 
 #[test]
@@ -353,6 +359,61 @@ mod execution {
             "gather {in_shape:?} axis {axis} {indices:?} -> {} elements, exact",
             want.len()
         );
+    }
+
+    /// The same gathers with the indices fed at run time as an int64 tensor, which is
+    /// how an embedding reads token ids: negative indices wrap as ONNX defines.
+    fn run_runtime_case(in_shape: &[usize], axis: i64, indices: &[i64]) {
+        let n_in: usize = in_shape.iter().product();
+        let x: Vec<f32> = (0..n_in).map(|i| i as f32 + 0.5).collect();
+        let rank = in_shape.len() as i64;
+        let ax = (if axis < 0 { axis + rank } else { axis }) as usize;
+        let (want, _) = gather_reference(&x, in_shape, ax, indices);
+
+        let (graph, _) = runtime_index_graph(in_shape, axis, indices.len());
+        let (device, target) = device_and_target();
+        let mut model = RuntimeModel::compile(
+            &device,
+            &graph,
+            &TritonLowering::new(),
+            LoweringMode::Inference,
+            &target,
+            1,
+            false,
+        )
+        .expect("compile failed");
+
+        // The executor's buffers are f32 words; an int64 feed travels as its raw bytes.
+        let idx_words: Vec<f32> = indices
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<u8>>()
+            .chunks(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let feeds: Vec<&[f32]> = vec![&x, &idx_words];
+        let outputs = model.terminal_node_indices_sorted_by_size();
+        let got = model.run(&device, &feeds, &outputs).expect("run failed");
+        let out = got
+            .iter()
+            .find(|o| o.len() == want.len())
+            .unwrap_or_else(|| panic!("no output of length {}", want.len()));
+        let wrong = (0..want.len()).filter(|&i| out[i] != want[i]).count();
+        assert_eq!(
+            wrong,
+            0,
+            "runtime {in_shape:?} axis {axis} {indices:?}: {wrong} of {} wrong",
+            want.len()
+        );
+    }
+
+    #[test]
+    fn gather_with_runtime_indices_runs_on_device() {
+        // An embedding lookup: rows of a [vocab, hidden] table by token id.
+        run_runtime_case(&[6, 4], 0, &[5, 0, 3, 3, 1]);
+        run_runtime_case(&[6, 4], 0, &[-1, -6, 2]);
+        run_runtime_case(&[2, 4, 3], 1, &[3, 0]);
+        run_runtime_case(&[2, 4, 3], -1, &[-1, 0]);
     }
 
     #[test]

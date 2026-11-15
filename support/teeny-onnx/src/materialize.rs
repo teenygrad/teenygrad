@@ -841,6 +841,7 @@ fn eval(
         Op::Concat { axis } => eval_concat(args, *axis, config),
         Op::Gather { axis } => eval_gather(args, *axis, config),
         Op::GatherND { batch_dims } => eval_gather_nd(args, *batch_dims, config),
+        Op::GatherElements { axis } => eval_gather_elements(args, *axis, config),
         Op::Slice => eval_slice(args),
         Op::Transpose { perm } => eval_transpose(args, perm),
         Op::Expand => eval_expand(args, config),
@@ -1254,6 +1255,55 @@ fn gather_nd_shape(
 }
 
 /// `GatherND`: each row of `indices` names a position in `data`, and the rest of
+/// `GatherElements(data, indices, axis)`: the output has the indices' shape, and each
+/// element is `data` at its own position with the `axis` coordinate replaced by the
+/// index there.
+fn eval_gather_elements(args: &[&Value], axis: i64, config: &MaterializeConfig) -> Eval {
+    if args.len() != 2 {
+        return Eval::Unsupported;
+    }
+    let (data, indices) = (args[0], args[1]);
+    let rank = data.rank();
+    if indices.rank() != rank {
+        return Eval::Unsupported;
+    }
+    let Some(ax) = norm_axis(axis, rank).filter(|&ax| ax < rank) else {
+        return Eval::Unsupported;
+    };
+    let total: usize = indices.shape.iter().product();
+    if total > config.max_elements {
+        return Eval::TooLarge;
+    }
+    let dim = data.shape[ax] as i64;
+    let idx = indices.as_ints();
+    // Row-major strides of both tensors.
+    let strides = |shape: &[usize]| {
+        let mut st = vec![1usize; shape.len()];
+        for i in (0..shape.len().saturating_sub(1)).rev() {
+            st[i] = st[i + 1] * shape[i + 1];
+        }
+        st
+    };
+    let (ds, is) = (strides(&data.shape), strides(&indices.shape));
+    let mut flat = Vec::with_capacity(total);
+    for (p, &raw) in idx.iter().enumerate() {
+        let i = if raw < 0 { raw + dim } else { raw };
+        if i < 0 || i >= dim {
+            return Eval::OutOfRange;
+        }
+        let mut src = 0;
+        for d in 0..rank {
+            let coord = (p / is[d]) % indices.shape[d];
+            if coord >= data.shape[d] && d != ax {
+                return Eval::OutOfRange;
+            }
+            src += if d == ax { i as usize } else { coord } * ds[d];
+        }
+        flat.push(src);
+    }
+    Eval::Ok(data.gather_flat(&flat, indices.shape.clone()))
+}
+
 /// `data`'s axes come along as a slice.
 fn eval_gather_nd(args: &[&Value], batch_dims: i64, config: &MaterializeConfig) -> Eval {
     if args.len() != 2 {
@@ -1875,10 +1925,45 @@ fn infer_static_shape(
         | Op::ScatterElements { .. }
         | Op::Trilu { .. }
         | Op::CumSum { .. }
-        | Op::ReverseSequence { .. } => first(),
+        | Op::CumProd { .. }
+        | Op::ReverseSequence { .. }
+        // Element-wise activations and maths that keep their input's shape.
+        | Op::Hardswish
+        | Op::Hardsigmoid
+        | Op::Hardtanh { .. }
+        | Op::Relu6
+        | Op::Hardshrink { .. }
+        | Op::Softshrink { .. }
+        | Op::Tanhshrink
+        | Op::Logsigmoid
+        | Op::Celu { .. }
+        | Op::Round
+        | Op::Tan
+        | Op::Asin
+        | Op::Acos
+        | Op::Atan
+        | Op::Sinh
+        | Op::Cosh
+        | Op::Asinh
+        | Op::Acosh
+        | Op::Atanh
+        | Op::IsNaN
+        | Op::IsInf { .. }
+        | Op::BitwiseNot
+        | Op::LogSoftmax { .. }
+        | Op::Hardmax { .. }
+        | Op::LpNormalization { .. }
+        | Op::Dropout { .. } => first(),
 
         // Normalisation keeps its input's shape; the scale and bias operands are
         // per-channel and do not change it.
+        // ONNX Flatten: [d0..d(axis-1), d(axis)..] -> [prod before axis, prod from axis].
+        Op::Flatten { axis } => {
+            let s = first()?;
+            let axis = (*axis).min(s.len());
+            Some(vec![s[..axis].iter().product(), s[axis..].iter().product()])
+        }
+
         Op::BatchNorm1d { .. }
         | Op::BatchNorm2d { .. }
         | Op::BatchNorm3d { .. }
@@ -2053,6 +2138,8 @@ fn infer_static_shape(
             let indices = in_shapes.get(1).cloned().flatten()?;
             Some(gather_nd_shape(&data, &indices, *batch_dims)?.0)
         }
+        // GatherElements: the output takes the indices' shape.
+        Op::GatherElements { .. } => in_shapes.get(1).cloned().flatten(),
         Op::ConstantOfShape { .. } => ints(0)?
             .iter()
             .map(|&d| usize::try_from(d).ok())

@@ -843,7 +843,21 @@ fn map_node_op(
         "Sigmoid" => Op::Sigmoid,
         "Tanh" => Op::Tanh,
         "Add" => Op::Add,
-        "Flatten" => Op::Flatten,
+        "Flatten" => {
+            // A negative axis counts from the end, which needs the input's rank; the
+            // importer has no shapes yet, so refuse it rather than guess.
+            let axis = get_attr_int(node, "axis", 1);
+            if axis < 0 {
+                return Err(Error::InvalidModel(format!(
+                    "Flatten '{}' with negative axis {axis} is not supported",
+                    node.name
+                ))
+                .into());
+            }
+            Op::Flatten {
+                axis: axis as usize,
+            }
+        }
         "Softmax" => {
             // ONNX changed the default in opset 13, from 1 to -1, so the file's own
             // opset decides what an absent attribute means. The axis is kept as
@@ -1176,7 +1190,22 @@ fn map_node_op(
         },
         "Gelu" => Op::Gelu,
         "Mish" => Op::Mish,
-        "HardSigmoid" => Op::Hardsigmoid,
+        "HardSigmoid" => {
+            // The kernel is PyTorch's hardsigmoid, clamp(x / 6 + 1 / 2, 0, 1): ONNX's
+            // alpha = 1/6, beta = 0.5. ONNX's own defaults (0.2, 0.5) differ, so any
+            // other pair is refused rather than computed with PyTorch's.
+            let alpha = get_attr_float(node, "alpha", 0.2);
+            let beta = get_attr_float(node, "beta", 0.5);
+            if (alpha - 1.0 / 6.0).abs() > 1e-6 || (beta - 0.5).abs() > 1e-6 {
+                return Err(Error::InvalidModel(format!(
+                    "HardSigmoid '{}' with alpha {alpha}, beta {beta}: only PyTorch's \
+                     (1/6, 0.5) is supported",
+                    node.name
+                ))
+                .into());
+            }
+            Op::Hardsigmoid
+        }
         "HardSwish" => Op::Hardswish,
         "Swish" => Op::Swish,
         "LeakyRelu" => Op::LeakyRelu {

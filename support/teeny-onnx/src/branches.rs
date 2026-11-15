@@ -204,6 +204,9 @@ pub fn materialize_and_resolve(
     import: &mut Import,
     config: &MaterializeConfig,
 ) -> Result<(ConstantMap, MaterializeReport, BranchReport)> {
+    crate::rewrite::decompose_gemm(&mut import.graph)
+        .map_err(crate::errors::Error::InvalidModel)?;
+    crate::rewrite::simplify_pow(&mut import.graph, &import.tensors);
     let mut folds = ConstantMap::new();
     let mut totals = BranchReport::default();
     // The first round's folding report is the one worth returning: it describes

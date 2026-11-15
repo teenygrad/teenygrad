@@ -31,13 +31,12 @@
 //! fixed rank: collapsing the leading and trailing axes loses nothing, because the
 //! mapping is flat in both.
 //!
-//! What it does need is to *read* an index, which neither of those kernels does. The
-//! indices arrive in a parameter buffer rather than as an activation, for a practical
-//! reason: an index tensor is integer-typed, and a node's buffers are sized and typed
-//! from its own dtype, so an `i64` index tensor flowing in as an activation has nowhere
-//! correctly-typed to land. A parameter slot is raw memory the lowering fills, so the
-//! indices can be written as `i32` regardless of the data's dtype. That covers every
-//! `Gather` whose indices are constant, which in practice is nearly all of them.
+//! What it does need is to *read* an index, which neither of those kernels does. For
+//! constant indices ([`gather_forward`]) the lowering writes them, normalised, as `i32`
+//! into a parameter slot. Indices known only at run time, such as token ids into an
+//! embedding, use [`gather_dyn_forward`], which reads the index tensor's own buffer: the
+//! executor sizes it from the tensor's dtype, and the kernel reads an `int64` index as
+//! the low word of each pair.
 //!
 //! Indices are normalised and range-checked by the runtime op before they reach the
 //! device, so the kernel does no bounds arithmetic: ONNX permits negative indices, and
@@ -291,6 +290,168 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for GatherRuntimeOp<D> {
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
         for v in self.kernel_scalars(n as i32) {
+            visitor.visit_i32(v);
+        }
+    }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Runtime indices
+// ---------------------------------------------------------------------------
+
+/// [`gather_forward`] with its indices read from an activation buffer at run time: an
+/// embedding lookup of token ids, say, which no amount of constant folding can resolve.
+///
+/// The index buffer is the index tensor's own, sized from its dtype by the executor, and
+/// read as `i32` words: `idx_words` is 1 for an `int32` tensor and 2 for an `int64` one,
+/// whose low word (both backends are little-endian) holds the index exactly whenever it
+/// fits in an `i32`, negative ones included. Negative indices wrap by `dim` as ONNX
+/// defines; an index still outside `[0, dim)` is clamped rather than read out of bounds.
+#[allow(clippy::too_many_arguments)]
+#[kernel]
+pub fn gather_dyn_forward<T, D: Num, const BLOCK_SIZE: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    i_ptr: InPtr<T::Pointer<i32>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    n_elements: i32,
+    inner: i32,
+    out_block: i32,
+    outer_stride: i32,
+    dim: i32,
+    idx_words: i32,
+) where
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Add<T::I32Tensor, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Sub<T::I32Tensor, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<T::I32Tensor, Output = T::I32Tensor>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+    T::Pointer<i32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<i32>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let p = T::arange(0, BLOCK_SIZE) + pid * BLOCK_SIZE;
+    let in_bounds = p.lt(n_elements);
+
+    let o = p / out_block;
+    let rest = p - o * out_block;
+    let k = rest / inner;
+    let i = rest - k * inner;
+
+    let raw = T::load(
+        i_ptr.add_offsets(k * idx_words),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let izero = T::zeros::<i32>(&[BLOCK_SIZE]);
+    let wrapped = T::where_(raw.lt(0), raw + dim, raw);
+    let idx = T::maximum(T::minimum(wrapped, izero + (dim - 1)), izero);
+
+    let src = o * outer_stride + idx * inner + i;
+    let v = T::load(
+        x_ptr.add_offsets(src),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    T::store(y_ptr.add_offsets(p), v, Some(in_bounds), &[], None, None);
+}
+
+/// Runtime dispatch for [`gather_dyn_forward`]: activations `(data, indices)`, no
+/// parameters.
+pub struct GatherDynRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+    block_size: i32,
+    inner: i32,
+    out_block: i32,
+    outer_stride: i32,
+    dim: i32,
+    idx_words: i32,
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> GatherDynRuntimeOp<D> {
+    /// Builds the op for `Gather(data, indices, axis)` with `n_idx` indices of
+    /// `idx_bytes` bytes each (4 or 8).
+    pub fn new(
+        block_size: i32,
+        in_shape: &[usize],
+        axis: i64,
+        n_idx: usize,
+        idx_bytes: usize,
+    ) -> Result<Self, GatherError> {
+        let rank = in_shape.len() as i64;
+        let axis_norm = if axis < 0 { axis + rank } else { axis };
+        if axis_norm < 0 || axis_norm >= rank {
+            return Err(GatherError::AxisOutOfRange {
+                axis,
+                rank: rank as usize,
+            });
+        }
+        let ax = axis_norm as usize;
+        let dim = in_shape[ax];
+        if dim == 0 {
+            return Err(GatherError::EmptyAxis);
+        }
+        let inner: usize = in_shape[ax + 1..].iter().product();
+        Ok(Self {
+            block_size,
+            inner: inner as i32,
+            out_block: (n_idx * inner) as i32,
+            outer_stride: (dim * inner) as i32,
+            dim: dim as i32,
+            idx_words: (idx_bytes / 4).max(1) as i32,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for GatherDynRuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(RawPtr, &[usize])],
+        _params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        _: i32,
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(inputs[1].0);
+        visitor.visit_ptr(output);
+        for v in [
+            n as i32,
+            self.inner,
+            self.out_block,
+            self.outer_stride,
+            self.dim,
+            self.idx_words,
+        ] {
             visitor.visit_i32(v);
         }
     }

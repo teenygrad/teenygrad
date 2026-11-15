@@ -131,7 +131,10 @@ pub fn matmul_forward<
     for k in 0..FULL_TILES {
         let a = T::load_tensor_descriptor(a_desc, &[a_row0 + pid_m * BLOCK_M, k * BLOCK_K]);
         let b = T::load_tensor_descriptor(b_desc, &[b_row0 + k * BLOCK_K, pid_n * BLOCK_N]);
-        acc = T::dot::<D, D>(a, b, Some(acc), InputPrecision::TF32, None);
+        // IEEE, not TF32: an imported model's MatMul/Gemm must reproduce its FP32 maths.
+        // TF32's 10-bit mantissa put ResNet-18's and MobileNetV3's logits ~1e-3 off
+        // onnxruntime; IEEE brings them to ~1e-6.
+        acc = T::dot::<D, D>(a, b, Some(acc), InputPrecision::IEEE, None);
     }
 
     // The K tail: one more whole tile, read back from TAIL_OFF, which the host
@@ -160,7 +163,7 @@ pub fn matmul_forward<
         a_tail * keep_d,
         b_tail,
         Some(acc),
-        InputPrecision::TF32,
+        InputPrecision::IEEE,
         None,
     );
 

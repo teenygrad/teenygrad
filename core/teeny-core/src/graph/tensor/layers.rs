@@ -69,7 +69,7 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Linear<D, SymTensor, SymT
 impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
     type Output = SymTensor;
     fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Flatten)
+        input.record(Op::Flatten { axis: 1 })
     }
 }
 
