@@ -92,6 +92,7 @@ impl Op {
                 | Op::Elu { .. }
                 | Op::Selu
                 | Op::Gelu
+                | Op::GeluErf
                 | Op::Mish
                 | Op::Silu
                 | Op::Swish
@@ -796,8 +797,10 @@ pub enum Op {
         /// The `alpha` parameter.
         alpha: f64,
     },
-    /// GELU activation (see `nn::activation::gelu::Gelu`).
+    /// GELU activation (see `nn::activation::gelu::Gelu`): the tanh approximation.
     Gelu,
+    /// Exact GELU, `x * 0.5 * (1 + erf(x / sqrt(2)))`: ONNX's `Gelu` by default.
+    GeluErf,
     /// Mish activation (see `nn::activation::gelu::Mish`).
     Mish,
     /// Hardtanh activation (see `nn::activation::hard::Hardtanh`).
@@ -1967,6 +1970,7 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         | Op::Selu
         | Op::Celu { .. }
         | Op::Gelu
+        | Op::GeluErf
         | Op::Mish
         | Op::Hardtanh { .. }
         | Op::Relu6

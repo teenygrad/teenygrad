@@ -178,7 +178,8 @@ pub fn expand_for_broadcast(graph: &mut Graph, constants: &mut ConstantMap) -> u
         if !(is_where
             || matches!(
                 graph.nodes[g].op,
-                Op::And
+                Op::PRelu
+                    | Op::And
                     | Op::Or
                     | Op::Xor
                     | Op::Equal
@@ -329,4 +330,95 @@ pub fn compare_then_cast(graph: &mut Graph) -> usize {
         count += 1;
     }
     count
+}
+
+/// Splits variadic `Max`, `Min`, `Sum` and `Mean` with more than two operands into a chain
+/// of two-operand nodes, and casts an integer `Pow` exponent to the base's dtype.
+///
+/// The element-wise kernels read exactly two operands, so a third would otherwise be
+/// dropped without a word. `Mean` of `n` becomes a `Sum` chain times a constant `1/n`.
+/// Intermediate shapes are the broadcast of the operands folded so far; a chain whose
+/// shapes are not all static is left alone (and refused by the lowering). The `Pow`
+/// kernel is float-only, so an `int32`/`int64` exponent read as float words gives
+/// garbage; a `Cast` makes it a float operand. Returns how many nodes were inserted.
+pub fn split_variadic(graph: &mut Graph, constants: &mut ConstantMap) -> usize {
+    fn broadcast(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
+        let n = a.len().max(b.len());
+        (0..n)
+            .map(|i| {
+                let x = if i + a.len() >= n { a[i + a.len() - n] } else { 1 };
+                let y = if i + b.len() >= n { b[i + b.len() - n] } else { 1 };
+                match (x, y) {
+                    (x, y) if x == y => Some(x),
+                    (1, y) => Some(y),
+                    (x, 1) => Some(x),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+    let static_shape = |s: &[Option<usize>]| -> Option<Vec<usize>> { s.iter().copied().collect() };
+    let full = |s: &[usize]| -> Vec<Option<usize>> { s.iter().map(|&d| Some(d)).collect() };
+    let mut inserted = 0;
+    for g in 0..graph.nodes.len() {
+        let op = graph.nodes[g].op.clone();
+        if matches!(op, Op::Pow) && graph.nodes[g].inputs.len() == 2 {
+            let (dtype, e) = (graph.nodes[g].dtype, graph.nodes[g].inputs[1]);
+            let edt = graph.nodes[e].dtype;
+            if matches!(dtype, DtypeRepr::F32 | DtypeRepr::F64) && edt != dtype {
+                let shape = graph.nodes[e].shape.clone();
+                let cast = graph.add_node(Op::Cast { to: dtype }, vec![e], dtype, shape);
+                graph.nodes[g].inputs[1] = cast;
+                inserted += 1;
+            }
+            continue;
+        }
+        if !matches!(op, Op::ElemMax | Op::ElemMin | Op::ElemSum | Op::ElemMean) {
+            continue;
+        }
+        let inputs = graph.nodes[g].inputs.clone();
+        if inputs.len() <= 2 && !(matches!(op, Op::ElemMean) && inputs.len() == 1) {
+            continue;
+        }
+        let shapes: Option<Vec<Vec<usize>>> =
+            inputs.iter().map(|&i| static_shape(&graph.nodes[i].shape)).collect();
+        let (Some(shapes), Some(out)) = (shapes, static_shape(&graph.nodes[g].shape)) else {
+            continue;
+        };
+        let dtype = graph.nodes[g].dtype;
+        let pair = if matches!(op, Op::ElemMean) { Op::ElemSum } else { op.clone() };
+        let (mut acc, mut acc_shape) = (inputs[0], shapes[0].clone());
+        let last = if matches!(op, Op::ElemMean) { inputs.len() } else { inputs.len() - 1 };
+        for k in 1..last {
+            let Some(s) = broadcast(&acc_shape, &shapes[k]) else {
+                break;
+            };
+            acc = graph.add_node(pair.clone(), vec![acc, inputs[k]], dtype, full(&s));
+            acc_shape = s;
+            inserted += 1;
+        }
+        if matches!(op, Op::ElemMean) {
+            let n: usize = out.iter().product();
+            let inv = 1.0 / inputs.len() as f64;
+            let bytes = match dtype {
+                DtypeRepr::F64 => inv.to_le_bytes().repeat(n),
+                _ => (inv as f32).to_le_bytes().repeat(n),
+            };
+            let c = graph.add_node(
+                Op::Constant { dtype, shape: full(&out) },
+                vec![],
+                dtype,
+                full(&out),
+            );
+            constants.insert(c, ConstantTensor { dtype, shape: full(&out), bytes });
+            // The sum may be smaller than the output only if every operand is; Mean's
+            // output is their broadcast, so acc_shape == out here.
+            graph.nodes[g].op = Op::Mul;
+            graph.nodes[g].inputs = vec![acc, c];
+        } else {
+            graph.nodes[g].inputs = vec![acc, inputs[inputs.len() - 1]];
+        }
+        inserted += 1;
+    }
+    inserted
 }

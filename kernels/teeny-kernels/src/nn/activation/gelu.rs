@@ -74,6 +74,45 @@ pub fn gelu_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 
 // ANCHOR_END: gelu_forward
 
+/// Forward of the exact GELU, ONNX's default: y = x * 0.5 * (1 + erf(x / sqrt(2))).
+#[kernel]
+pub fn gelu_erf_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    n_elements: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let block_start = pid * BLOCK_SIZE;
+    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
+    let in_bounds = offsets.lt(n_elements);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let half = T::full(&[BLOCK_SIZE], D::from_f64(0.5));
+    let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
+    let rsqrt2 = T::full(&[BLOCK_SIZE], D::from_f64(0.7071067811865476));
+    let y = x * half * (one + T::erf(x * rsqrt2));
+    T::store(
+        y_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+}
+
 /// Backward of the tanh-GELU approximation.
 ///   Let inner = x + a*x³, s = sigmoid(2c*inner), t = tanh(c*inner) = 2s-1
 ///   d/dx = 0.5*(1 + t) + x * 0.5 * sech²(c*inner) * c*(1+3a*x²)
