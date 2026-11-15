@@ -64,7 +64,6 @@ use crate::nn::{
         conv3d::Conv3dForward,
     },
     mlp::{
-        flatten::FlattenForward,
         linear::{LinearBackward, LinearForward},
     },
     norm::{
@@ -165,6 +164,8 @@ use crate::nn::norm::batchnorm::{
 
 /// Dispatch to a D: Num kernel based on `$node.dtype`.
 /// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
+// Bool tensors are one byte per element, so they take the u8 instantiation: sound for
+// the copies and data movement a bool goes through, and ONNX defines no arithmetic on bools.
 macro_rules! make_num_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
         let (name, ks, body, probe_bs, rop) = match $node.dtype {
@@ -174,7 +175,7 @@ macro_rules! make_num_kernel {
             DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U8 | DtypeRepr::Bool => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
@@ -204,7 +205,7 @@ macro_rules! make_num_kernel {
             DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U8 | DtypeRepr::Bool => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
@@ -218,7 +219,7 @@ macro_rules! make_num_kernel {
             DtypeRepr::I16 => { let k = $Bwd::<i16>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::I32 => { let k = $Bwd::<i32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::I64 => { let k = $Bwd::<i64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
-            DtypeRepr::U8  => { let k = $Bwd::<u8>::new($($barg),*);  (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::U8 | DtypeRepr::Bool  => { let k = $Bwd::<u8>::new($($barg),*);  (k.name.to_string(), k.source.clone()) }
             DtypeRepr::U16 => { let k = $Bwd::<u16>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::U32 => { let k = $Bwd::<u32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::U64 => { let k = $Bwd::<u64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
@@ -1546,6 +1547,10 @@ fn gather_executable(
     let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
         DtypeRepr::F32 => build!(f32),
         DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        // One byte per element: a bool is moved exactly as a u8.
+        DtypeRepr::U8 | DtypeRepr::Bool => build!(u8),
         other => {
             return Err(anyhow::anyhow!(
                 "Op::Gather {what}: {other:?} is not supported; the kernel is generic \
@@ -1596,6 +1601,10 @@ fn gather_dyn_executable(
     let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
         DtypeRepr::F32 => build!(f32),
         DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        // One byte per element: a bool is moved exactly as a u8.
+        DtypeRepr::U8 | DtypeRepr::Bool => build!(u8),
         other => {
             return Err(anyhow::anyhow!(
                 "Op::Gather {what}: {other:?} data is not supported; the kernel is generic \
@@ -1617,6 +1626,81 @@ fn gather_dyn_executable(
         #[cfg(feature = "training")]
         backward_entry_point: String::new(),
         runtime_op,
+    }))
+}
+
+/// Builds the executable for a converting `Cast` (see [`crate::nn::tensor::cast`]).
+fn cast_executable(
+    node: &GraphNode,
+    from: DtypeRepr,
+    to: DtypeRepr,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    use crate::nn::tensor::cast::{
+        CastBoolToF32Forward, CastBoolToWordsForward, CastF32ToBoolForward,
+        CastF32ToWordsForward, CastKind, CastRuntimeOp, CastWordsToBoolForward,
+        CastWordsToF32Forward, CastWordsToWordsForward,
+    };
+    let words = |d: DtypeRepr| match d {
+        DtypeRepr::I32 => Some(1),
+        DtypeRepr::I64 => Some(2),
+        _ => None,
+    };
+    let refuse = || {
+        anyhow::anyhow!(
+            "Op::Cast {what}: {from:?} to {to:?} has no kernel; casts between F32, I32, I64 \
+             and Bool are supported"
+        )
+    };
+    let kind = match (from, to) {
+        (_, DtypeRepr::F32) if words(from).is_some() => CastKind::WordsToF32 {
+            in_words: words(from).unwrap(),
+        },
+        (DtypeRepr::Bool, DtypeRepr::F32) => CastKind::BoolToF32,
+        (_, DtypeRepr::Bool) if words(from).is_some() => CastKind::WordsToBool {
+            in_words: words(from).unwrap(),
+        },
+        (DtypeRepr::F32, DtypeRepr::Bool) => CastKind::F32ToBool,
+        (DtypeRepr::F32, _) if words(to).is_some() => CastKind::F32ToWords {
+            out_words: words(to).unwrap(),
+        },
+        (DtypeRepr::Bool, _) if words(to).is_some() => CastKind::BoolToWords {
+            out_words: words(to).unwrap(),
+        },
+        _ if words(from).is_some() && words(to).is_some() => CastKind::WordsToWords {
+            in_words: words(from).unwrap(),
+            out_words: words(to).unwrap(),
+        },
+        _ => return Err(refuse()),
+    };
+    macro_rules! k {
+        ($K:ident) => {{
+            let k = $K::new(1024);
+            (k.name.to_string(), k.source.clone(), k.kernel_source.clone())
+        }};
+    }
+    let (name, kernel_source, kernel_body) = match kind {
+        CastKind::WordsToF32 { .. } => k!(CastWordsToF32Forward),
+        CastKind::BoolToF32 => k!(CastBoolToF32Forward),
+        CastKind::WordsToBool { .. } => k!(CastWordsToBoolForward),
+        CastKind::F32ToBool => k!(CastF32ToBoolForward),
+        CastKind::F32ToWords { .. } => k!(CastF32ToWordsForward),
+        CastKind::BoolToWords { .. } => k!(CastBoolToWordsForward),
+        CastKind::WordsToWords { .. } => k!(CastWordsToWordsForward),
+    };
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op: Arc::new(CastRuntimeOp::new(1024, kind)),
     }))
 }
 
@@ -1989,7 +2073,7 @@ fn strided_copy_executable(
         DtypeRepr::I16 => build!(i16),
         DtypeRepr::I32 => build!(i32),
         DtypeRepr::I64 => build!(i64),
-        DtypeRepr::U8 => build!(u8),
+        DtypeRepr::U8 | DtypeRepr::Bool => build!(u8),
         DtypeRepr::U16 => build!(u16),
         DtypeRepr::U32 => build!(u32),
         DtypeRepr::U64 => build!(u64),
@@ -2839,7 +2923,10 @@ impl TritonLowering {
                         node
                     )
                 }
-                Op::Flatten { .. } => make_num_kernel!(FlattenForward(32, 256), node),
+                // A contiguous tensor flattens to the same elements in the same order, so this
+                // is the element copy Reshape and Identity are (the 2-D tiled FlattenForward
+                // miscopies its u8 instantiation, which bool masks take).
+                Op::Flatten { .. } => make_num_kernel!(ElemwiseCopyForward(1024), node),
 
                 // --- Normalisation ---
                 Op::BatchNorm1d { .. } | Op::BatchNorm3d { .. } => {
@@ -5611,16 +5698,19 @@ impl TritonLowering {
                                 node_label(graph, node_index)
                             )
                         })?;
-                    if from != *to || node.dtype != *to {
+                    if node.dtype != *to {
                         return Err(anyhow::anyhow!(
-                            "TODO: Op::Cast {} from {from:?} to {to:?} (node dtype \
-                             {:?}) — a converting cast needs a kernel; only a cast \
-                             that changes nothing lowers, as a copy",
+                            "Op::Cast {}: casts to {to:?} but the node is {:?}; the \
+                             node's dtype sets its buffer's width",
                             node_label(graph, node_index),
                             node.dtype
                         ));
                     }
-                    make_num_kernel!(ElemwiseCopyForward(1024), node)
+                    if from == *to {
+                        make_num_kernel!(ElemwiseCopyForward(1024), node)
+                    } else {
+                        cast_executable(node, from, *to, &node_label(graph, node_index))?
+                    }
                 }
                 // Pass-through, as Op::Reshape above.
                 Op::Identity => {

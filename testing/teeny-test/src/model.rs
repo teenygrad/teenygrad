@@ -689,7 +689,11 @@ impl<'a> RuntimeModel<'a> {
     /// Copies node `idx`'s most recent output back to the host (assumes an `f32` output).
     pub fn read_output_f32(&self, idx: usize) -> Result<Vec<f32>> {
         let node = &self.nodes[idx];
-        let mut out = vec![0.0f32; node.output_shape.iter().product()];
+        // The buffer's own size in words, which is one per element only for a 4-byte
+        // dtype: a bool output of `n` elements holds `n / 4` words and an I64 one `2n`,
+        // so reading `n` would overrun the first and truncate the second.
+        let n: usize = node.output_shape.iter().product();
+        let mut out = vec![0.0f32; buffer_words(n, node.dtype)];
         self.buffer(idx)?.to_host(&mut out)?;
         Ok(out)
     }

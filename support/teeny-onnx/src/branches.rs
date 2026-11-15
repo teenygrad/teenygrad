@@ -224,7 +224,10 @@ pub fn materialize_and_resolve(
         totals.declined_multi_output = report.declined_multi_output;
 
         if !report.made_progress() {
-            let all = lowering_constants(&import.graph, &seed, &folds);
+            let mut all = lowering_constants(&import.graph, &seed, &folds);
+            // With every shape now known, give the ops that have no broadcasting
+            // kernel operands of their output's shape.
+            crate::rewrite::expand_for_broadcast(&mut import.graph, &mut all);
             return Ok((all, materialize_report, totals));
         }
     }

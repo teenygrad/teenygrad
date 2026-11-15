@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 
-use teeny_core::graph::{ConstantTensor, Graph, Op};
+use teeny_core::graph::{ConstantMap, ConstantTensor, DtypeRepr, Graph, Op};
 
 /// Rewrites every `Gemm(A, B[, C])` as `MatMul(A', B') [+ C]`, where `A'` and `B'` are
 /// `A` and `B` behind a `Transpose` when `transA` / `transB` ask for one.
@@ -153,4 +153,101 @@ pub fn simplify_pow(graph: &mut Graph, constants: &BTreeMap<usize, ConstantTenso
         count += 1;
     }
     count
+}
+
+/// Makes `And`, `Or`, `Xor` and `Where` operands the output's shape, and a `Where`
+/// condition the output's dtype, by inserting `Expand` and `Cast` nodes.
+///
+/// Their kernels read every operand at the output's own offsets, so ONNX's broadcasting
+/// (an attention mask `[1, 1, 1, S]` against `[1, 1, S, S]`) would read past the
+/// smaller operand; `Expand` lowers to a strided copy that does broadcast. The `Where`
+/// kernel also reads its condition in the output's dtype, so a Bool condition (one byte
+/// per element) is cast to it first; arithmetic forms of `Where` are avoided because a
+/// mask of `-inf` turns them into NaN.
+///
+/// Runs after materialising, when shapes are known: an operand or output whose shape is
+/// not fully static is left alone. Each `Expand`'s target shape is a new constant,
+/// added to `constants`. Returns how many nodes were inserted.
+pub fn expand_for_broadcast(graph: &mut Graph, constants: &mut ConstantMap) -> usize {
+    let static_shape = |s: &[Option<usize>]| -> Option<Vec<usize>> { s.iter().copied().collect() };
+    let mut inserted = 0;
+    for g in 0..graph.nodes.len() {
+        let is_where = matches!(graph.nodes[g].op, Op::Where);
+        if !(is_where || matches!(graph.nodes[g].op, Op::And | Op::Or | Op::Xor)) {
+            continue;
+        }
+        let Some(out) = static_shape(&graph.nodes[g].shape) else {
+            continue;
+        };
+        let out_dtype = graph.nodes[g].dtype;
+        let mut inputs = graph.nodes[g].inputs.clone();
+        for (pos, input) in inputs.iter_mut().enumerate() {
+            let src = &graph.nodes[*input];
+            let Some(shape) = static_shape(&src.shape) else {
+                continue;
+            };
+            let dtype = src.dtype;
+            // A rank-0 constant (Where's `0` and `-inf`, say) becomes a constant of the
+            // output's shape outright: Expand cannot take a rank-0 operand, since an
+            // empty shape here also means "unknown".
+            if shape.is_empty() && !out.is_empty() {
+                if let Some(scalar) = constants.get(input).cloned() {
+                    let n: usize = out.iter().product();
+                    let full: Vec<Option<usize>> = out.iter().map(|&d| Some(d)).collect();
+                    let filled = graph.add_node(
+                        Op::Constant {
+                            dtype,
+                            shape: full.clone(),
+                        },
+                        vec![],
+                        dtype,
+                        full.clone(),
+                    );
+                    constants.insert(
+                        filled,
+                        ConstantTensor {
+                            dtype,
+                            shape: full,
+                            bytes: scalar.bytes.repeat(n),
+                        },
+                    );
+                    *input = filled;
+                    inserted += 1;
+                    continue;
+                }
+                continue;
+            }
+            if shape != out {
+                // The target shape, as the constant Expand's second operand.
+                let dims: Vec<u8> = out.iter().flat_map(|&d| (d as i64).to_le_bytes()).collect();
+                let shape_node = graph.add_node(
+                    Op::Constant {
+                        dtype: DtypeRepr::I64,
+                        shape: vec![Some(out.len())],
+                    },
+                    vec![],
+                    DtypeRepr::I64,
+                    vec![Some(out.len())],
+                );
+                constants.insert(
+                    shape_node,
+                    ConstantTensor {
+                        dtype: DtypeRepr::I64,
+                        shape: vec![Some(out.len())],
+                        bytes: dims,
+                    },
+                );
+                let full: Vec<Option<usize>> = out.iter().map(|&d| Some(d)).collect();
+                *input = graph.add_node(Op::Expand, vec![*input, shape_node], dtype, full);
+                inserted += 2;
+            }
+            if is_where && pos == 0 && dtype == DtypeRepr::Bool && out_dtype != DtypeRepr::Bool {
+                let full: Vec<Option<usize>> = out.iter().map(|&d| Some(d)).collect();
+                *input = graph.add_node(Op::Cast { to: out_dtype }, vec![*input], out_dtype, full);
+                inserted += 1;
+            }
+        }
+        graph.nodes[g].inputs = inputs;
+    }
+    inserted
 }
