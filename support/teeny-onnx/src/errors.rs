@@ -24,4 +24,8 @@ pub enum Error {
     /// model (e.g. an unsupported op).
     #[error("Invalid model: {0}")]
     InvalidModel(String),
+    /// The model is valid ONNX, but uses an op, attribute or form the importer deliberately
+    /// refuses rather than import with the wrong meaning.
+    #[error("Unsupported: {0}")]
+    Unsupported(String),
 }

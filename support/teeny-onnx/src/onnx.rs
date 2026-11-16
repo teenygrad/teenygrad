@@ -1002,7 +1002,7 @@ fn map_node_op(
                     has_bias,
                 }
             } else {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "Conv node '{}': unsupported weight rank {}",
                     node.name, ndim
                 ))
@@ -1100,7 +1100,7 @@ fn map_node_op(
             // keeping only the begins would shift the window by the difference and
             // average a different set of pixels with nothing to show it.
             if kernel.len() == 2 && pads.len() == 4 && (pads[0] != pads[2] || pads[1] != pads[3]) {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "Node '{}' (AveragePool) has asymmetric pads {pads:?}; only \
                      symmetric padding is supported, and treating these as symmetric \
                      would average a different window",
@@ -1112,7 +1112,7 @@ fn map_node_op(
             // the far edge whose interaction with `count_include_pad` ONNX does not
             // pin down. Refused rather than guessed at.
             if get_attr_int(node, "ceil_mode", 0) != 0 {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "Node '{}' (AveragePool) sets ceil_mode, which is not supported",
                     node.name
                 ))
@@ -1936,7 +1936,7 @@ fn map_node_op(
         "ImageDecoder" => Op::ImageDecoder,
 
         other => {
-            return Err(Error::InvalidModel(format!(
+            return Err(Error::Unsupported(format!(
                 "Unsupported ONNX op '{}' in node '{}'",
                 other, node.name
             ))
