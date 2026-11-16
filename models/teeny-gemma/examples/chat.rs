@@ -137,10 +137,14 @@ impl Engine<'_> {
         let t1 = Instant::now();
         let mut out = Vec::new();
         let mut shown = 0;
+        // When the first token is out: the rate after it is pure decode (one token per step),
+        // which is what streaming speed feels like.
+        let mut first_at: Option<f64> = None;
         print!("model> ");
         loop {
             let tok = argmax(&logits);
             out.push(tok);
+            first_at.get_or_insert_with(|| t1.elapsed().as_secs_f64());
             let text = visible(&self.chat.decode(&out)?);
             if text.len() > shown && text.is_char_boundary(shown) {
                 print!("{}", &text[shown..]);
@@ -159,12 +163,22 @@ impl Engine<'_> {
         }
         let gen_s = t1.elapsed().as_secs_f64();
         println!();
+        let first = first_at.unwrap_or(0.0);
+        let decode_rate = if out.len() > 1 {
+            (out.len() - 1) as f64 / (gen_s - first).max(1e-9)
+        } else {
+            0.0
+        };
         eprintln!(
-            "  [{} new prompt tokens in {:.2} s; {} tokens at {:.1} tokens/s; context {}/{}]",
+            "  [{} new prompt tokens in {:.2} s ({:.1} tokens/s); first token after {:.2} s; \
+             {} tokens out at {:.1} tokens/s ({:.1} decode); context {}/{}]",
             fresh,
             prompt_s,
+            fresh as f64 / prompt_s.max(1e-9),
+            prompt_s + first,
             out.len(),
             out.len() as f64 / gen_s.max(1e-9),
+            decode_rate,
             self.session.cache.len,
             self.session.cache.capacity
         );
