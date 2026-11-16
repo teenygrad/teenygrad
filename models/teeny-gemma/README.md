@@ -96,9 +96,27 @@ so rough):
 | 4 | 11.2 tokens/s | 3.8 tokens/s | 2.6 s |
 | 8 | 18.7 tokens/s | 4.4 tokens/s | 1.75 s |
 
-Prompt processing scales almost linearly; decode levels off past 4 threads. The K3's 8 A100 AI
-cores (CPUs 8–15) are not used: the kernel refuses to schedule ordinary processes on them
-(`taskset -c 8-15` fails with "Invalid argument").
+Prompt processing scales almost linearly; decode levels off past 4 threads.
+
+#### The A100 AI cores
+
+The K3's other 8 cores (CPUs 8–15) are A100 "AI" cores: in-order, 1.8 GHz, 1024-bit vectors.
+Processes start on the X100 cores, and `taskset -c 8-15` fails with "Invalid argument". To move
+a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children inherit it:
+
+```bash
+ssh -t board 'cd teeny-gemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
+```
+
+The answers are the same, but today's kernels are much slower there:
+
+| | X100, 4 threads | X100, 8 threads | A100, 4 threads | A100, 8 threads |
+|---|---|---|---|---|
+| First-turn prompt | 11.2 tokens/s | 18.7 tokens/s | 1.0 tokens/s | 1.6 tokens/s |
+| Decode | 3.8 tokens/s | 4.4 tokens/s | 0.5 tokens/s | 0.5 tokens/s |
+
+So the X100 cores are the default. Getting speed from the A100 cores needs kernels built for its
+wide vectors and its IME matrix unit; the cause of the slowdown has not been profiled yet.
 
 ## On a CUDA machine
 
