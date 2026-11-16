@@ -29,23 +29,8 @@ The script finds it in `~/.cache/huggingface/hub`; set `GEMMA_MODEL_DIR` to use 
 
 ### 2. SSH access to the board
 
-The script logs in over ssh several times, so use a key without a passphrase or load it into an
-agent first (`ssh-add <key>`). Check that `ssh <board> true` works without a prompt. If the
-board sits behind a jump host, give it a `ProxyJump` entry in `~/.ssh/config`:
-
-```text
-Host jump
-  HostName <jump host address>
-  User <user>
-  IdentityFile ~/.ssh/<key>
-
-Host board
-  HostName localhost
-  Port 2222
-  User <user>
-  IdentityFile ~/.ssh/<key>
-  ProxyJump jump
-```
+The script logs in over ssh several times, so `ssh <board> true` should work without a password
+prompt (a key without a passphrase, or one loaded with `ssh-add`).
 
 ### 3. Build, copy and start the chat
 
