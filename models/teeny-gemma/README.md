@@ -77,13 +77,28 @@ After each reply the chat prints its speed:
 - **first token after**: the wait before the reply starts appearing;
 - **decode**: the streaming speed, one token per step after the first.
 
-Measured on a SpacemiT K3 (8 X100 cores), single-threaded and untuned:
+Measured on a SpacemiT K3 with all 8 X100 cores (the default) and no tuning:
 
 | | First turn (209-token prompt with tool declarations) | Follow-up turn |
 |---|---|---|
 | Prompt | 18.8 tokens/s | 12.1 tokens/s |
 | First token after | 11.1 s | 1.5 s |
 | Decode | 4.5 tokens/s | 4.4 tokens/s |
+
+Each kernel launch spreads its program ids over one thread per available core;
+`TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat (board load average about 2,
+so rough):
+
+| Threads | First-turn prompt | Decode | Follow-up first token after |
+|---|---|---|---|
+| 1 | 3.1 tokens/s | 1.3 tokens/s | 9.2 s |
+| 2 | 5.8 tokens/s | 2.3 tokens/s | 4.9 s |
+| 4 | 11.2 tokens/s | 3.8 tokens/s | 2.6 s |
+| 8 | 18.7 tokens/s | 4.4 tokens/s | 1.75 s |
+
+Prompt processing scales almost linearly; decode levels off past 4 threads. The K3's 8 A100 AI
+cores (CPUs 8–15) are not used: the kernel refuses to schedule ordinary processes on them
+(`taskset -c 8-15` fails with "Invalid argument").
 
 ## On a CUDA machine
 
