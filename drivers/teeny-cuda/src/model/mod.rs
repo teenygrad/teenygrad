@@ -925,8 +925,8 @@ impl LoadedModel {
     pub fn terminal_node_indices(&self) -> Vec<usize> {
         let n = self.nodes.len();
         let mut has_child = vec![false; n];
-        for i in 0..n {
-            for &p in &self.parents[i] {
+        for parents in self.parents.iter().take(n) {
+            for &p in parents {
                 has_child[p] = true;
             }
         }
@@ -1643,8 +1643,8 @@ impl LoadedModel {
         let n = self.nodes.len();
         let mut in_deg: Vec<usize> = (0..n).map(|i| self.parents[i].len()).collect();
         let mut dependents: Vec<Vec<usize>> = vec![vec![]; n];
-        for i in 0..n {
-            for &p in &self.parents[i] {
+        for (i, parents) in self.parents.iter().enumerate().take(n) {
+            for &p in parents {
                 dependents[p].push(i);
             }
         }
