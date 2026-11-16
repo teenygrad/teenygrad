@@ -214,6 +214,9 @@ pub(crate) struct ImportCtx<'a> {
     /// Tensor name -> the index of the node producing it. Doubles as the enclosing
     /// scope when a subgraph is imported.
     pub(crate) value_to_node: BTreeMap<String, usize>,
+    /// Later outputs of multi-output nodes, which are not computed: tensor name -> its
+    /// producer, for the error a consumer of one gets.
+    dropped_outputs: BTreeMap<String, String>,
     pub(crate) value_info_map: BTreeMap<String, (DtypeRepr, Shape)>,
     initializer_map: BTreeMap<&'a str, &'a TensorProto>,
     /// The file's ONNX opset version, which decides what some absent attributes mean.
@@ -339,6 +342,7 @@ impl<'a> ImportCtx<'a> {
             graph: Graph::new(),
             tensors: BTreeMap::new(),
             value_to_node: BTreeMap::new(),
+            dropped_outputs: BTreeMap::new(),
             value_info_map,
             opset,
             initializer_map: onnx_graph
@@ -379,6 +383,7 @@ impl<'a> ImportCtx<'a> {
             graph,
             tensors,
             value_to_node,
+            dropped_outputs: BTreeMap::new(),
             value_info_map,
             opset,
             initializer_map: subgraph
@@ -468,12 +473,24 @@ impl<'a> ImportCtx<'a> {
                 inputs.push(self.omitted_node());
                 continue;
             }
-            let input_id = self.value_to_node.get(input_name).copied().ok_or_else(|| {
-                Error::InvalidModel(format!(
-                    "Node '{}' references unknown input '{}'",
-                    node.name, input_name
-                ))
-            })?;
+            let input_id = match self.value_to_node.get(input_name) {
+                Some(&id) => id,
+                None => {
+                    if let Some(producer) = self.dropped_outputs.get(input_name) {
+                        return Err(Error::Unsupported(format!(
+                            "Node '{}' ({}) reads '{input_name}', a later output of {producer}; \
+                             only a node's first output is computed",
+                            node.name, node.op_type
+                        ))
+                        .into());
+                    }
+                    return Err(Error::InvalidModel(format!(
+                        "Node '{}' references unknown input '{}'",
+                        node.name, input_name
+                    ))
+                    .into());
+                }
+            };
             inputs.push(input_id);
         }
 
@@ -645,6 +662,14 @@ impl<'a> ImportCtx<'a> {
         // is expanded into one node per output above.
         if let Some(first) = node.output.first().filter(|n| !n.is_empty()) {
             self.value_to_node.insert(first.clone(), node_id);
+        }
+        for (k, name) in node.output.iter().enumerate().skip(1) {
+            if !name.is_empty() {
+                self.dropped_outputs.insert(
+                    name.clone(),
+                    format!("node '{}' ({}, output #{k})", node.name, node.op_type),
+                );
+            }
         }
         Ok(node_id)
     }
@@ -879,7 +904,7 @@ fn get_attr_string<'a>(node: &'a NodeProto, name: &str, default: &'a str) -> &'a
 /// pads are asymmetric, any padding at all.
 fn refuse_window_attrs(node: &NodeProto, what: &str, pads_supported: bool) -> Result<()> {
     let refuse = |why: String| -> Result<()> {
-        Err(Error::InvalidModel(format!("Node '{}' ({what}): {why}", node.name)).into())
+        Err(Error::Unsupported(format!("Node '{}' ({what}): {why}", node.name)).into())
     };
     let auto_pad = get_attr_string(node, "auto_pad", "NOTSET");
     if !matches!(auto_pad, "NOTSET" | "VALID" | "") {
@@ -922,7 +947,7 @@ fn map_node_op(
             // importer has no shapes yet, so refuse it rather than guess.
             let axis = get_attr_int(node, "axis", 1);
             if axis < 0 {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "Flatten '{}' with negative axis {axis} is not supported",
                     node.name
                 ))
@@ -1053,7 +1078,7 @@ fn map_node_op(
             let kernel = get_attr_ints(node, "kernel_shape").unwrap_or(&[1, 1]);
             refuse_window_attrs(node, "MaxPool", kernel.len() == 2)?;
             if node.output.len() > 1 && !node.output[1].is_empty() {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "Node '{}' (MaxPool): the Indices output is not supported",
                     node.name
                 ))
@@ -1278,7 +1303,7 @@ fn map_node_op(
             let alpha = get_attr_float(node, "alpha", 1.673_263_2);
             let gamma = get_attr_float(node, "gamma", 1.050_701);
             if (alpha - 1.673_263_2).abs() > 1e-5 || (gamma - 1.050_701).abs() > 1e-5 {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "Selu '{}' with alpha {alpha}, gamma {gamma}: only the defaults \
                      (1.6733, 1.0507) are supported",
                     node.name
@@ -1302,7 +1327,7 @@ fn map_node_op(
             let alpha = get_attr_float(node, "alpha", 0.2);
             let beta = get_attr_float(node, "beta", 0.5);
             if (alpha - 1.0 / 6.0).abs() > 1e-6 || (beta - 0.5).abs() > 1e-6 {
-                return Err(Error::InvalidModel(format!(
+                return Err(Error::Unsupported(format!(
                     "HardSigmoid '{}' with alpha {alpha}, beta {beta}: only PyTorch's \
                      (1/6, 0.5) is supported",
                     node.name
@@ -1440,7 +1465,7 @@ fn map_node_op(
         "ScatterElements" | "ScatterND"
             if get_attr_string(node, "reduction", "none") != "none" =>
         {
-            return Err(Error::InvalidModel(format!(
+            return Err(Error::Unsupported(format!(
                 "{} '{}' with reduction '{}': only 'none' is supported",
                 node.op_type,
                 node.name,
@@ -1658,7 +1683,7 @@ fn map_node_op(
                 || get_attr_float(node, "extrapolation_value", 0.0) != 0.0
                 || get_attr_string(node, "keep_aspect_ratio_policy", "stretch") != "stretch" =>
         {
-            return Err(Error::InvalidModel(format!(
+            return Err(Error::Unsupported(format!(
                 "Node '{}' (Resize): cubic_coeff_a other than -0.75, exclude_outside, \
                  extrapolation_value and keep_aspect_ratio_policy are not supported",
                 node.name
