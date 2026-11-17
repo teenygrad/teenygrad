@@ -50,7 +50,13 @@ use crate::kernels::{
 };
 
 /// Lanes along `K` in the linear kernel.
-const LINEAR_BLOCK: i32 = 128;
+///
+/// On RISC-V the loop's six live tensors (`x`, a weight row, four accumulators) must fit
+/// in the 32 vector registers, which kernels are compiled to assume are 128 bits wide: 16
+/// lanes is 4 registers per tensor. At 128 lanes every iteration spills; 16 made decode
+/// on a SpacemiT K3 13% faster and prompt processing 35% faster. CUDA keeps 128 lanes
+/// (16 is unmeasured there).
+const LINEAR_BLOCK: i32 = if cfg!(feature = "cuda") { 128 } else { 16 };
 
 fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
     SymTensor {
