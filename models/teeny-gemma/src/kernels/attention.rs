@@ -100,7 +100,10 @@ pub fn gemma_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
     let mut m_run = T::full(&[1], D::from_f64(-1.0e30));
     let mut l_run = T::zeros::<D>(&[1]);
     let mut acc = T::zeros::<D>(&[BLOCK]);
-    for j in LO..(qpos + 1) {
+    // A loop from 0: for `LO..qpos + 1`, teenyc runs `qpos + 1` iterations starting at
+    // `LO`, overrunning the query's own key once `LO > 0` (past the window).
+    for jj in 0..(qpos + 1 - LO) {
+        let j = LO + jj;
         let jt = izero + j;
         let from_cache = jt.lt(P);
         let from_new = jt.ge(P);
