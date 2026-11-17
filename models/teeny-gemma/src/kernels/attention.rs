@@ -27,9 +27,9 @@
 //! ```
 //!
 //! `P` is a launch argument read from a shared [`PastLen`] the host sets before each
-//! run, so the key loop covers only `P + T` keys however large the cache buffer is.
-//! The softmax is online (running max and sum), one program per `(t, h)`, lanes on
-//! `head_dim`.
+//! run. Each query loops only over the keys it can see (causal, and inside the
+//! window). The softmax is online, with a one-element running max and sum so each key
+//! costs one `exp`; one program per `(t, h)`, lanes on `head_dim`.
 //!
 //! **Layout**: `q` `[T, H * HD]`; `k_new`, `v_new` `[T, KVH * HD]`; `k_cache`,
 //! `v_cache` `[S, KVH * HD]` with rows `0 .. P` valid; output `[T, H * HD]`.
@@ -53,7 +53,7 @@ pub fn gemma_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
     KVH: i32,
     HD: i32,
     P: i32,
-    TT: i32,
+    LO: i32,
     W: i32,
     scale: f32,
 ) where
@@ -75,7 +75,6 @@ pub fn gemma_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
     let d = T::arange(0, BLOCK);
     let dm = d.lt(HD);
     let zeros = T::zeros::<D>(&[BLOCK]);
-    let izero = T::zeros::<i32>(&[BLOCK]);
     let q = T::load(
         q_ptr.add_offsets(d + (t * H + h) * HD),
         Some(dm),
@@ -87,17 +86,25 @@ pub fn gemma_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
         false,
     ) * T::full(&[BLOCK], D::from_f64(scale as f64));
 
-    let mut m_run = T::full(&[BLOCK], D::from_f64(-1.0e30));
-    let mut l_run = T::zeros::<D>(&[BLOCK]);
+    // Keys this query sees: causal (j <= qpos) and inside the window (qpos - j < W).
+    // `LO` (from the host) is the first key query 0 sees; later queries of a prompt
+    // chunk start up to `T - 1` keys later, and those keys are masked. Keys `j < P` come
+    // from the cache, the rest from this step's `k_new` / `v_new`; the other load is
+    // masked off. (One loop: teenyc's RISC-V codegen mishandles two in a row here.)
+    let first = qpos - W;
+    let ione = T::zeros::<i32>(&[1]);
+    let izero = T::zeros::<i32>(&[BLOCK]);
+
+    // Online softmax with a one-element running max and sum: one exp per key, not one
+    // per lane.
+    let mut m_run = T::full(&[1], D::from_f64(-1.0e30));
+    let mut l_run = T::zeros::<D>(&[1]);
     let mut acc = T::zeros::<D>(&[BLOCK]);
-    for j in 0..P + TT {
+    for j in LO..(qpos + 1) {
         let jt = izero + j;
-        // Key j from the cache (j < P) or this step's new keys (j >= P); the other
-        // load is masked off and contributes zero.
         let from_cache = jt.lt(P);
         let from_new = jt.ge(P);
         let jc = T::minimum(jt, izero + (P - 1));
-        let jc = T::maximum(jc, izero);
         let jn = T::maximum(jt + (-P), izero);
         let k = T::load(
             kc_ptr.add_offsets(d + jc * kv_row + kvh * HD),
@@ -137,21 +144,18 @@ pub fn gemma_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             false,
         );
-        let s = T::sum(q * k, Some(0), true) + zeros;
-        // Causal (dist = qpos - j >= 0) and window (dist < W, i.e. W - 1 - dist >= 0),
-        // folded into one comparison: min(dist, W - 1 - dist) >= 0.
-        let dist = jt * (-1) + qpos;
-        let valid = T::minimum(dist, dist * (-1) + (W - 1)).ge(0);
-        let m_new = T::maximum(m_run, T::where_(valid, s, m_run));
-        let p = T::where_(valid, T::exp(s - m_new), zeros);
+        let s = T::sum(q * k, Some(0), true);
+        let seen = (ione + j).gt(first);
+        let m_new = T::maximum(m_run, T::where_(seen, s, m_run));
+        let p = T::where_(seen, T::exp(s - m_new), T::zeros::<D>(&[1]));
         let alpha = T::exp(m_run - m_new);
         l_run = l_run * alpha + p;
-        acc = acc * alpha + p * v;
+        acc = acc * (alpha + zeros) + (p + zeros) * v;
         m_run = m_new;
     }
     T::store(
         o_ptr.add_offsets(d + (t * H + h) * HD),
-        acc / l_run,
+        acc / (l_run + zeros),
         Some(dm),
         &[],
         None,
@@ -299,8 +303,15 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for GemmaAttentionRuntimeO
         visitor.visit_i32(s.kv_heads as i32);
         visitor.visit_i32(s.head_dim as i32);
         visitor.visit_i32(past as i32);
-        visitor.visit_i32(output_shape[0] as i32);
-        visitor.visit_i32(s.window.map_or(i32::MAX / 2, |w| w as i32));
+        let window = s.window.map_or(i32::MAX / 2, |w| w as i32);
+        assert!(
+            output_shape[0] <= window as usize,
+            "attention: a {}-token step is longer than the {window}-token window",
+            output_shape[0]
+        );
+        // The first key query 0 (position `past`) sees.
+        visitor.visit_i32((past as i64 - window as i64 + 1).max(0) as i32);
+        visitor.visit_i32(window);
         visitor.visit_f32(s.scale);
     }
 
