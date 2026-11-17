@@ -21,9 +21,12 @@
 //! cargo run --release -p teeny-gemma --example chat -- --model <hf-model-folder> [--tools tools.json]
 //! ```
 //!
-//! Type a request. When the model calls a function, you play the tool: type its
-//! result (JSON, or plain text) and the model answers from it; an empty line skips the
-//! call. Commands: `/reset` clears the conversation, `/quit` exits.
+//! Type a request. When the model calls a demo tool, the chat runs it: `get_weather`
+//! asks Open-Meteo (needs `curl` and internet), `set_timer` counts down and says when it
+//! is done, and `send_message` appends to `~/teeny-gemma-outbox.txt`. For any other tool,
+//! or with `--manual-tools`, you play the tool: type its result (JSON, or plain text) and
+//! the model answers from it; an empty line skips the call. Commands: `/reset` clears the
+//! conversation, `/quit` exits.
 //!
 //! Each turn re-renders the whole conversation with the model's chat template, and the
 //! KV cache keeps every token that still matches, so a turn only processes what is new.
@@ -49,6 +52,9 @@ struct Args {
     /// tools: weather, timer, messaging.
     #[arg(long)]
     tools: Option<PathBuf>,
+    /// Type each tool's result yourself, rather than running the demo tools for real.
+    #[arg(long)]
+    manual_tools: bool,
     /// An optional system prompt.
     #[arg(long)]
     system: Option<String>,
@@ -85,6 +91,111 @@ fn demo_tools() -> Value {
                     "text": {"type": "string", "description": "Message body"}},
                 "required": ["to", "text"]}}}
     ])
+}
+
+/// Runs a demo tool for real: `get_weather` asks Open-Meteo (through `curl`), `set_timer`
+/// starts a countdown that prints when it ends, and `send_message` appends to
+/// `~/teeny-gemma-outbox.txt` (there is no messaging service to send through). `None` for
+/// any other tool, which the user then answers.
+fn run_tool(name: &str, args: &Value) -> Option<Value> {
+    let text = |key: &str| {
+        args.get(key)
+            .map(|v| v.as_str().map_or(v.to_string(), str::to_string))
+    };
+    Some(match name {
+        "get_weather" => {
+            weather(&text("city")?).unwrap_or_else(|e| json!({"error": e.to_string()}))
+        }
+        "set_timer" => {
+            let minutes: f64 = text("minutes")?.trim().parse().ok()?;
+            let label = text("label").unwrap_or_else(|| "timer".into());
+            let secs = (minutes * 60.0).max(0.0) as u64;
+            let ends = std::time::SystemTime::now() + std::time::Duration::from_secs(secs);
+            let ends = ends.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() % 86400;
+            let ends = format!("{:02}:{:02} UTC", ends / 3600, ends / 60 % 60);
+            let l = label.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(secs));
+                println!("\n  [timer '{l}' ({minutes} min) is done]");
+            });
+            json!({"status": "started", "minutes": minutes, "label": label, "ends_at": ends})
+        }
+        "send_message" => {
+            let (to, body) = (text("to")?, text("text").unwrap_or_default());
+            let path = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join("teeny-gemma-outbox.txt");
+            let saved = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut f| writeln!(f, "to {to}: {body}"));
+            match saved {
+                Ok(()) => json!({"status": "sent", "to": to, "text": body}),
+                Err(e) => json!({"status": "failed", "error": e.to_string()}),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// Current weather for `city` from Open-Meteo: geocoding, then the forecast API.
+fn weather(city: &str) -> anyhow::Result<Value> {
+    let get = |url: &str, query: &[(&str, &str)]| -> anyhow::Result<Value> {
+        let mut cmd = std::process::Command::new("curl");
+        cmd.args(["-sfG", "-m", "10", url]);
+        for (k, v) in query {
+            cmd.arg("--data-urlencode").arg(format!("{k}={v}"));
+        }
+        let out = cmd.output()?;
+        anyhow::ensure!(out.status.success(), "weather service unreachable");
+        Ok(serde_json::from_slice(&out.stdout)?)
+    };
+    let places = get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        &[("name", city), ("count", "1")],
+    )?;
+    let place = places["results"]
+        .get(0)
+        .ok_or_else(|| anyhow::anyhow!("no place called {city}"))?;
+    let (lat, lon) = (
+        place["latitude"].to_string(),
+        place["longitude"].to_string(),
+    );
+    let w = get(
+        "https://api.open-meteo.com/v1/forecast",
+        &[
+            ("latitude", &lat),
+            ("longitude", &lon),
+            (
+                "current",
+                "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+            ),
+        ],
+    )?;
+    let now = &w["current"];
+    let conditions = match now["weather_code"].as_u64().unwrap_or(999) {
+        0 => "clear sky",
+        1 | 2 => "partly cloudy",
+        3 => "overcast",
+        45 | 48 => "fog",
+        51..=57 => "drizzle",
+        61..=67 => "rain",
+        71..=77 => "snow",
+        80..=82 => "rain showers",
+        85 | 86 => "snow showers",
+        95..=99 => "thunderstorm",
+        _ => "unknown",
+    };
+    Ok(json!({
+        "city": format!("{}, {}", place["name"].as_str().unwrap_or(city),
+                        place["country"].as_str().unwrap_or("")),
+        "temperature_c": now["temperature_2m"],
+        "conditions": conditions,
+        "humidity_percent": now["relative_humidity_2m"],
+        "wind_kmh": now["wind_speed_10m"],
+    }))
 }
 
 /// Model text with FunctionGemma's markers and end-of-turn tokens removed.
@@ -258,7 +369,7 @@ fn main() -> anyhow::Result<()> {
         messages.push(json!({"role": "user", "content": line}));
         let mut reply = engine.reply(&Value::Array(messages.clone()), &tools)?;
 
-        // Function calls: the user plays the tool, then the model answers from it.
+        // Function calls: run the tool (or the user plays it), then the model answers.
         let mut rounds = 0;
         loop {
             let calls = parse_calls(&reply)?;
@@ -275,6 +386,15 @@ fn main() -> anyhow::Result<()> {
             let mut answered = false;
             for c in &calls {
                 println!("  call: {}({})", c.name, c.args);
+                if let Some(result) = (!args.manual_tools)
+                    .then(|| run_tool(&c.name, &c.args))
+                    .flatten()
+                {
+                    println!("  {} -> {result}", c.name);
+                    messages.push(json!({"role": "tool", "name": c.name, "content": result}));
+                    answered = true;
+                    continue;
+                }
                 let Some(result) = read_line(&format!("  {} result> ", c.name))? else {
                     return Ok(());
                 };

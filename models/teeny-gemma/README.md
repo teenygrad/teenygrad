@@ -62,8 +62,12 @@ ssh -t board 'cd teeny-gemma-chat && TEENYC_PATH=/nonexistent/teenyc TEENYC_CACH
 
 ### 4. Using the chat
 
-The demo tools are `get_weather`, `set_timer` and `send_message` (`--tools <file.json>` for your
-own, OpenAI style). When the model calls a tool, you play the tool: type its result at the
+The demo tools run for real: `get_weather` fetches current conditions from
+[Open-Meteo](https://open-meteo.com) (needs `curl` and internet on the board; the city names
+you ask about go to open-meteo.com), `set_timer` counts down and prints when it is done, and
+`send_message` appends the message to `~/teeny-gemma-outbox.txt` (there is no messaging service
+to send through). Each call and its result are printed. For your own tools (`--tools
+<file.json>`, OpenAI style), or with `--manual-tools`, you play the tool: type its result at the
 `<tool> result>` prompt and the model answers from it. `/reset` starts a new conversation and
 `/quit` exits.
 
