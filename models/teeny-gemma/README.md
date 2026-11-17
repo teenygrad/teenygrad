@@ -77,17 +77,21 @@ After each reply the chat prints its speed:
 - **first token after**: the wait before the reply starts appearing;
 - **decode**: the streaming speed, one token per step after the first.
 
-Measured on a SpacemiT K3 with all 8 X100 cores (the default) and no tuning:
+Measured on a SpacemiT K3 with all 8 X100 cores (the default):
 
 | | First turn (209-token prompt with tool declarations) | Follow-up turn |
 |---|---|---|
-| Prompt | 18.8 tokens/s | 12.1 tokens/s |
-| First token after | 11.1 s | 1.5 s |
-| Decode | 4.5 tokens/s | 4.4 tokens/s |
+| Prompt | 25.4 tokens/s | 13.3 tokens/s |
+| First token after | 8.2 s | 1.4 s |
+| Decode | 5.1 tokens/s | 5.0 tokens/s |
+
+That is with 16-lane linear blocks on RISC-V; 128-lane blocks spilled vector registers every
+loop iteration and gave 18.9 tokens/s prompt, 11.0 s to the first token and 4.5 tokens/s
+decode. `examples/matmul_bench.rs` times the linear kernel alone for a list of block sizes.
 
 Each kernel launch spreads its program ids over one thread per available core;
-`TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat (board load average about 2,
-so rough):
+`TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat, measured with 128-lane
+blocks (board load average about 2, so rough):
 
 | Threads | First-turn prompt | Decode | Follow-up first token after |
 |---|---|---|---|
@@ -108,15 +112,17 @@ a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children
 ssh -t board 'cd teeny-gemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
 ```
 
-The answers are the same, but today's kernels are much slower there:
+The answers are the same, but today's kernels are much slower there (8 threads each):
 
-| | X100, 4 threads | X100, 8 threads | A100, 4 threads | A100, 8 threads |
+| | X100, 128-lane blocks | X100, 16-lane blocks | A100, 128-lane blocks | A100, 16-lane blocks |
 |---|---|---|---|---|
-| First-turn prompt | 11.2 tokens/s | 18.7 tokens/s | 1.0 tokens/s | 1.6 tokens/s |
-| Decode | 3.8 tokens/s | 4.4 tokens/s | 0.5 tokens/s | 0.5 tokens/s |
+| First-turn prompt | 18.9 tokens/s | 25.4 tokens/s | 1.6 tokens/s | 2.0 tokens/s |
+| Decode | 4.5 tokens/s | 5.1 tokens/s | 0.5 tokens/s | 0.6 tokens/s |
 
-So the X100 cores are the default. Getting speed from the A100 cores needs kernels built for its
-wide vectors and its IME matrix unit; the cause of the slowdown has not been profiled yet.
+So the X100 cores are the default. Kernels are compiled for 128-bit vectors and f32, which uses
+a quarter of the A100's 1024-bit registers and none of its IME matrix unit. 16-lane blocks made
+the lm_head matmul 3.4x faster on the A100, but the chat barely moved, so the rest of its decode
+time is in other kernels or per-launch overhead; that has not been profiled yet.
 
 ## On a CUDA machine
 
