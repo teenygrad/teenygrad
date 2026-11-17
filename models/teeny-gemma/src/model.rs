@@ -94,11 +94,15 @@ fn linear<D: FloatBytes + Send + Sync + 'static>(
     n: usize,
 ) -> SymTensor {
     let _g = name_scope(name);
-    x.record_custom(
-        CustomData::new(Linear4Op::<D>::new(k, n, LINEAR_BLOCK)),
-        &[],
-        None,
-    )
+    let op = Linear4Op::<D>::new(k, n, LINEAR_BLOCK);
+    // On RISC-V, number programs down the rows so a prompt chunk's rows reuse each
+    // weight from cache (1.5-1.9x faster at 16-64 rows on a K3); a GPU wants the default.
+    let op = if cfg!(feature = "cuda") {
+        op
+    } else {
+        op.with_weight_reuse()
+    };
+    x.record_custom(CustomData::new(op), &[], None)
 }
 
 fn rmsnorm<D: FloatBytes + Send + Sync + 'static>(

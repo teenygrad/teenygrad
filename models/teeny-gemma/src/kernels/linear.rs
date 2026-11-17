@@ -152,6 +152,135 @@ pub fn linear4_forward<T: Triton, D: Float, const BLOCK: i32>(
     );
 }
 
+/// [`linear4_forward`] with program ids numbered down the rows: consecutive ids compute
+/// the same four outputs for consecutive rows. The launcher hands each thread a run of
+/// consecutive ids, so a thread reuses those outputs' weights (`4 * K` values) from
+/// cache across rows instead of reading them from memory once per row.
+///
+/// Grid: `M * N / 4`.
+#[allow(clippy::multiple_bound_locations)]
+#[kernel]
+pub fn linear4_rows_forward<T: Triton, D: Float, const BLOCK: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    M: i32,
+    N: i32,
+    K: i32,
+) where
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let m = pid % M;
+    let n = (pid / M) * 4;
+
+    let offs = T::arange(0, BLOCK);
+    let zeros = T::zeros::<D>(&[BLOCK]);
+    let mut a0 = T::zeros::<D>(&[BLOCK]);
+    let mut a1 = T::zeros::<D>(&[BLOCK]);
+    let mut a2 = T::zeros::<D>(&[BLOCK]);
+    let mut a3 = T::zeros::<D>(&[BLOCK]);
+    let n_chunks = (K + BLOCK - 1) / BLOCK;
+    for i in 0..n_chunks {
+        let k = offs + i * BLOCK;
+        let km = k.lt(K);
+        let x = T::load(
+            x_ptr.add_offsets(k + m * K),
+            Some(km),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let w0 = T::load(
+            w_ptr.add_offsets(k + n * K),
+            Some(km),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        a0 = a0 + x * w0;
+        let w1 = T::load(
+            w_ptr.add_offsets(k + (n + 1) * K),
+            Some(km),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        a1 = a1 + x * w1;
+        let w2 = T::load(
+            w_ptr.add_offsets(k + (n + 2) * K),
+            Some(km),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        a2 = a2 + x * w2;
+        let w3 = T::load(
+            w_ptr.add_offsets(k + (n + 3) * K),
+            Some(km),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        a3 = a3 + x * w3;
+    }
+    // Each sum is a one-element tensor; store it through a one-lane mask.
+    let one = offs.lt(1);
+    let base = m * N + n;
+    T::store(
+        y_ptr.add_offsets(offs + base),
+        T::sum(a0, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        y_ptr.add_offsets(offs + (base + 1)),
+        T::sum(a1, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        y_ptr.add_offsets(offs + (base + 2)),
+        T::sum(a2, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        y_ptr.add_offsets(offs + (base + 3)),
+        T::sum(a3, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Graph-level op
 // ---------------------------------------------------------------------------
@@ -173,10 +302,19 @@ pub struct Linear4Op<D: FloatBytes + Send + Sync + 'static> {
     pub n: usize,
     /// Lanes along `K`.
     pub block: i32,
+    /// Number program ids down the rows ([`linear4_rows_forward`]) rather than along
+    /// them, so weights are reused from cache across rows.
+    pub weight_reuse: bool,
     _phantom: PhantomData<D>,
 }
 
 impl<D: FloatBytes + Send + Sync + 'static> Linear4Op<D> {
+    /// The op with [`Self::weight_reuse`] set.
+    pub fn with_weight_reuse(mut self) -> Self {
+        self.weight_reuse = true;
+        self
+    }
+
     /// Creates the op.
     pub fn new(k: usize, n: usize, block: i32) -> Self {
         assert!(
@@ -187,6 +325,7 @@ impl<D: FloatBytes + Send + Sync + 'static> Linear4Op<D> {
             k,
             n,
             block,
+            weight_reuse: false,
             _phantom: PhantomData,
         }
     }
@@ -206,14 +345,25 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for Linear4Op<D> {
     }
 
     fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
-        let kernel = Linear4Forward::<D>::new(self.block);
+        let (name, source) = if self.weight_reuse {
+            (
+                "linear4_rows_forward",
+                Linear4RowsForward::<D>::new(self.block).source,
+            )
+        } else {
+            (
+                "linear4_forward",
+                Linear4Forward::<D>::new(self.block).source,
+            )
+        };
         Some((
-            "linear4_forward".to_string(),
-            kernel.source,
+            name.to_string(),
+            source,
             "entry_point".to_string(),
             Arc::new(Linear4RuntimeOp::<D> {
                 k: self.k,
                 n: self.n,
+                weight_reuse: self.weight_reuse,
                 _phantom: PhantomData,
             }),
         ))
@@ -224,6 +374,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for Linear4Op<D> {
 pub struct Linear4RuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     k: usize,
     n: usize,
+    weight_reuse: bool,
     _phantom: PhantomData<D>,
 }
 
@@ -245,7 +396,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for Linear4RuntimeOp<D> {
         inputs: &[(RawPtr, &[usize])],
         params: &[RawPtr],
         output: RawPtr,
-        _output_shape: &[usize],
+        output_shape: &[usize],
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
@@ -253,6 +404,9 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for Linear4RuntimeOp<D> {
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
+        if self.weight_reuse {
+            visitor.visit_i32(output_shape[0] as i32);
+        }
         visitor.visit_i32(self.n as i32);
         visitor.visit_i32(self.k as i32);
     }
