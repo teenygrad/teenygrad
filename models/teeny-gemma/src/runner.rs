@@ -82,6 +82,13 @@ impl Weights {
     }
 }
 
+/// Whether to print every node's time and each step's total to stderr
+/// (`TEENY_GEMMA_TRACE=1`).
+fn trace() -> bool {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TRACE.get_or_init(|| std::env::var_os("TEENY_GEMMA_TRACE").is_some_and(|v| v != "0"))
+}
+
 /// A step graph for a fixed token count, compiled and loaded.
 pub struct CompiledStep<'d> {
     model: RuntimeModel<'d>,
@@ -114,6 +121,7 @@ impl<'d> CompiledStep<'d> {
             tokens,
             false,
         )?;
+        model.set_trace(trace());
         let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
         let mut used = std::collections::HashSet::new();
         for (slot, node, idx) in &slots {
@@ -146,7 +154,17 @@ impl<'d> CompiledStep<'d> {
         device: &runtime::Device<'d>,
         inputs: &[&[f32]],
     ) -> anyhow::Result<Vec<Vec<f32>>> {
-        self.model.run(device, inputs, &self.out_idx)
+        if !trace() {
+            return self.model.run(device, inputs, &self.out_idx);
+        }
+        let started = std::time::Instant::now();
+        let out = self.model.run(device, inputs, &self.out_idx);
+        eprintln!(
+            "[step {} tokens] total {:.2?}",
+            self.tokens,
+            started.elapsed()
+        );
+        out
     }
 }
 
