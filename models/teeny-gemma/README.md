@@ -81,13 +81,21 @@ Measured on a SpacemiT K3 with all 8 X100 cores (the default):
 
 | | First turn (209-token prompt with tool declarations) | Follow-up turn |
 |---|---|---|
-| Prompt | 25.4 tokens/s | 13.3 tokens/s |
-| First token after | 8.2 s | 1.4 s |
-| Decode | 5.1 tokens/s | 5.0 tokens/s |
+| Prompt | 33.6 tokens/s | 18.8 tokens/s |
+| First token after | 6.2 s | 1.0 s |
+| Decode | 5.9 tokens/s | 5.9 tokens/s |
 
-That is with 16-lane linear blocks on RISC-V; 128-lane blocks spilled vector registers every
-loop iteration and gave 18.9 tokens/s prompt, 11.0 s to the first token and 4.5 tokens/s
-decode. `examples/matmul_bench.rs` times the linear kernel alone for a list of block sizes.
+How it got there (first-turn prompt / first token / decode):
+
+| Change | Prompt | First token after | Decode |
+|---|---|---|---|
+| Start: 128-lane linear blocks, 256-lane softmax state | 18.9 tokens/s | 11.0 s | 4.5 tokens/s |
+| 16-lane linear blocks on RISC-V (no register spills) | 25.4 tokens/s | 8.2 s | 5.1 tokens/s |
+| Attention: one-element softmax state, window bounds | 33.6 tokens/s | 6.2 s | 5.9 tokens/s |
+
+A decode step now takes about 170 ms, of which lm_head is 42 ms, attention 14 ms and host-side
+copies 22 ms. `TEENY_GEMMA_TRACE=1` prints every kernel's time and each step's total, and
+`examples/matmul_bench.rs` times the linear kernel alone for a list of block sizes.
 
 Each kernel launch spreads its program ids over one thread per available core;
 `TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat, measured with 128-lane
@@ -112,17 +120,20 @@ a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children
 ssh -t board 'cd teeny-gemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
 ```
 
-The answers are the same, but today's kernels are much slower there (8 threads each):
+The answers are the same, but slower (8 threads each):
 
-| | X100, 128-lane blocks | X100, 16-lane blocks | A100, 128-lane blocks | A100, 16-lane blocks |
-|---|---|---|---|---|
-| First-turn prompt | 18.9 tokens/s | 25.4 tokens/s | 1.6 tokens/s | 2.0 tokens/s |
-| Decode | 4.5 tokens/s | 5.1 tokens/s | 0.5 tokens/s | 0.6 tokens/s |
+| | X100 | A100 |
+|---|---|---|
+| First-turn prompt | 33.6 tokens/s | 11.5 tokens/s |
+| First token after | 6.2 s | 18.2 s |
+| Decode | 5.9 tokens/s | 2.9 tokens/s |
+| Decode step: total / attention / lm_head | 169 / 14 / 42 ms | 345 / 44 / 87 ms |
 
-So the X100 cores are the default. Kernels are compiled for 128-bit vectors and f32, which uses
-a quarter of the A100's 1024-bit registers and none of its IME matrix unit. 16-lane blocks made
-the lm_head matmul 3.4x faster on the A100, but the chat barely moved, so the rest of its decode
-time is in other kernels or per-launch overhead; that has not been profiled yet.
+Before the attention change the A100 decoded at 0.6 tokens/s: attention took 1.5 s of its
+1.8 s step, mostly 256-lane `exp` calls, which an in-order core cannot hide. So the X100 cores
+stay the default. Kernels are compiled for 128-bit vectors and f32, which uses a quarter of the
+A100's 1024-bit registers and none of its IME matrix unit; that is where the A100 would have to
+gain.
 
 ## On a CUDA machine
 
