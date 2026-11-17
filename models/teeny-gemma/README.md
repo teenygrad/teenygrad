@@ -81,8 +81,8 @@ Measured on a SpacemiT K3 with all 8 X100 cores (the default):
 
 | | First turn (209-token prompt with tool declarations) | Follow-up turn |
 |---|---|---|
-| Prompt | 34.9 tokens/s | 20.2 tokens/s |
-| First token after | 6.0 s | 0.9 s |
+| Prompt | 43.5 tokens/s | 22.4 tokens/s |
+| First token after | 4.8 s | 0.85 s |
 | Decode | 6.5 tokens/s | 6.5 tokens/s |
 
 How it got there (first-turn prompt / first token / decode):
@@ -92,10 +92,12 @@ How it got there (first-turn prompt / first token / decode):
 | Start: 128-lane linear blocks, 256-lane softmax state | 18.9 tokens/s | 11.0 s | 4.5 tokens/s |
 | 16-lane linear blocks on RISC-V (no register spills) | 25.4 tokens/s | 8.2 s | 5.1 tokens/s |
 | Attention: one-element softmax state, window bounds | 34.9 tokens/s | 6.0 s | 6.5 tokens/s |
+| Linear weights reused from cache across a chunk's rows | 43.5 tokens/s | 4.8 s | 6.5 tokens/s |
 
 A decode step now takes about 155 ms. With `TEENY_GEMMA_TRACE=1`, which prints every kernel's
 time and each step's total (and slows each step to about 170 ms), lm_head is 42 ms, attention
-14 ms and host-side copies 22 ms. `examples/matmul_bench.rs` times the linear kernel alone for a list of block sizes.
+14 ms and host-side copies 22 ms. `examples/matmul_bench.rs` times the linear kernel alone,
+for a list of block sizes and both program orderings.
 
 Each kernel launch spreads its program ids over one thread per available core;
 `TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat, measured with 128-lane
@@ -120,15 +122,14 @@ a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children
 ssh -t board 'cd teeny-gemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
 ```
 
-The answers are the same, but slower (8 threads each; both measured with `TEENY_GEMMA_TRACE=1`,
-which slows them a little):
+The answers are the same, but slower (8 threads each):
 
 | | X100 | A100 |
 |---|---|---|
-| First-turn prompt | 33.6 tokens/s | 11.5 tokens/s |
-| First token after | 6.2 s | 18.2 s |
-| Decode | 5.9 tokens/s | 2.9 tokens/s |
-| Decode step: total / attention / lm_head | 169 / 14 / 42 ms | 345 / 44 / 87 ms |
+| First-turn prompt | 43.5 tokens/s | 13.9 tokens/s |
+| First token after | 4.8 s | 14.9 s |
+| Decode | 6.5 tokens/s | 3.1 tokens/s |
+| Decode step with `TEENY_GEMMA_TRACE=1`: total / attention / lm_head | 169 / 14 / 42 ms | 345 / 44 / 87 ms |
 
 Before the attention change the A100 decoded at 0.6 tokens/s: attention took 1.5 s of its
 1.8 s step, mostly 256-lane `exp` calls, which an in-order core cannot hide. So the X100 cores
