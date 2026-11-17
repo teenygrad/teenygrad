@@ -81,9 +81,9 @@ Measured on a SpacemiT K3 with all 8 X100 cores (the default):
 
 | | First turn (209-token prompt with tool declarations) | Follow-up turn |
 |---|---|---|
-| Prompt | 43.5 tokens/s | 22.4 tokens/s |
-| First token after | 4.8 s | 0.85 s |
-| Decode | 6.5 tokens/s | 6.5 tokens/s |
+| Prompt | 66.7 tokens/s | 36.1 tokens/s |
+| First token after | 3.1 s | 0.53 s |
+| Decode | 11.3 tokens/s | 11.3 tokens/s |
 
 How it got there (first-turn prompt / first token / decode):
 
@@ -93,15 +93,17 @@ How it got there (first-turn prompt / first token / decode):
 | 16-lane linear blocks on RISC-V (no register spills) | 25.4 tokens/s | 8.2 s | 5.1 tokens/s |
 | Attention: one-element softmax state, window bounds | 34.9 tokens/s | 6.0 s | 6.5 tokens/s |
 | Linear weights reused from cache across a chunk's rows | 43.5 tokens/s | 4.8 s | 6.5 tokens/s |
+| Persistent launcher thread pool (no thread start per kernel) | 66.7 tokens/s | 3.1 s | 11.3 tokens/s |
 
-A decode step now takes about 155 ms. With `TEENY_GEMMA_TRACE=1`, which prints every kernel's
-time and each step's total (and slows each step to about 170 ms), lm_head is 42 ms, attention
-14 ms and host-side copies 22 ms. `examples/matmul_bench.rs` times the linear kernel alone,
+A decode step now takes about 90 ms. Before the thread pool, `TEENY_GEMMA_TRACE=1` (which
+prints every kernel's time and each step's total) showed lm_head at 42 ms, attention at 14 ms
+and host-side copies at 22 ms of a 170 ms step; a step launches about 390 kernels, and starting
+threads for each was most of the rest. `examples/matmul_bench.rs` times the linear kernel alone,
 for a list of block sizes and both program orderings.
 
-Each kernel launch spreads its program ids over one thread per available core;
+Each kernel launch spreads its program ids over a pool of threads, one per available core;
 `TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat, measured with 128-lane
-blocks (board load average about 2, so rough):
+blocks and no pool (board load average about 2, so rough):
 
 | Threads | First-turn prompt | Decode | Follow-up first token after |
 |---|---|---|---|
@@ -122,7 +124,7 @@ a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children
 ssh -t board 'cd teeny-gemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
 ```
 
-The answers are the same, but slower (8 threads each):
+The answers are the same, but slower (8 threads each, before the thread pool):
 
 | | X100 | A100 |
 |---|---|---|
@@ -136,6 +138,25 @@ Before the attention change the A100 decoded at 0.6 tokens/s: attention took 1.5
 stay the default. Kernels are compiled for 128-bit vectors and f32, which uses a quarter of the
 A100's 1024-bit registers and none of its IME matrix unit; that is where the A100 would have to
 gain.
+
+#### All 16 cores in one chat
+
+`TEENY_RISCV_AI_THREADS=<n>` moves the launcher pool's last `n` threads to the A100 cores at
+startup, so one chat uses both clusters; slower A100 threads simply take fewer chunks of work:
+
+```bash
+ssh -t board 'cd teeny-gemma-chat && TEENY_RISCV_THREADS=16 TEENY_RISCV_AI_THREADS=8 TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model model'
+```
+
+| | 8 X100 cores | 16 cores (8 X100 + 8 A100) |
+|---|---|---|
+| First-turn prompt | 66.7 tokens/s | 61.4 tokens/s |
+| First token after | 3.1 s | 3.4 s |
+| Decode | 11.3 tokens/s | 12.6 tokens/s |
+
+Decode gains about 11%; prompt processing loses a little. Both clusters share one memory bus
+(about 21 GB/s for either alone, 24 GB/s together), and decode reads every weight for every
+token, so extra cores add little.
 
 ## On a CUDA machine
 
