@@ -81,9 +81,9 @@ Measured on a SpacemiT K3 with all 8 X100 cores (the default):
 
 | | First turn (209-token prompt with tool declarations) | Follow-up turn |
 |---|---|---|
-| Prompt | 33.6 tokens/s | 18.8 tokens/s |
-| First token after | 6.2 s | 1.0 s |
-| Decode | 5.9 tokens/s | 5.9 tokens/s |
+| Prompt | 34.9 tokens/s | 20.2 tokens/s |
+| First token after | 6.0 s | 0.9 s |
+| Decode | 6.5 tokens/s | 6.5 tokens/s |
 
 How it got there (first-turn prompt / first token / decode):
 
@@ -91,11 +91,11 @@ How it got there (first-turn prompt / first token / decode):
 |---|---|---|---|
 | Start: 128-lane linear blocks, 256-lane softmax state | 18.9 tokens/s | 11.0 s | 4.5 tokens/s |
 | 16-lane linear blocks on RISC-V (no register spills) | 25.4 tokens/s | 8.2 s | 5.1 tokens/s |
-| Attention: one-element softmax state, window bounds | 33.6 tokens/s | 6.2 s | 5.9 tokens/s |
+| Attention: one-element softmax state, window bounds | 34.9 tokens/s | 6.0 s | 6.5 tokens/s |
 
-A decode step now takes about 170 ms, of which lm_head is 42 ms, attention 14 ms and host-side
-copies 22 ms. `TEENY_GEMMA_TRACE=1` prints every kernel's time and each step's total, and
-`examples/matmul_bench.rs` times the linear kernel alone for a list of block sizes.
+A decode step now takes about 155 ms. With `TEENY_GEMMA_TRACE=1`, which prints every kernel's
+time and each step's total (and slows each step to about 170 ms), lm_head is 42 ms, attention
+14 ms and host-side copies 22 ms. `examples/matmul_bench.rs` times the linear kernel alone for a list of block sizes.
 
 Each kernel launch spreads its program ids over one thread per available core;
 `TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat, measured with 128-lane
@@ -120,7 +120,8 @@ a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children
 ssh -t board 'cd teeny-gemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
 ```
 
-The answers are the same, but slower (8 threads each):
+The answers are the same, but slower (8 threads each; both measured with `TEENY_GEMMA_TRACE=1`,
+which slows them a little):
 
 | | X100 | A100 |
 |---|---|---|
