@@ -1,0 +1,19 @@
+[package]
+name = "teeny-llm-core"
+version.workspace = true
+edition.workspace = true
+description = "Core LLM inference engine for teenygrad: chat types, sampling parameters and the Engine trait shared by teeny-llm-server and teeny-llm-chat."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_llm_core/"
+keywords = ["llm", "inference", "teenygrad"]
+categories = ["science"]
+
+[dependencies]
+futures = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

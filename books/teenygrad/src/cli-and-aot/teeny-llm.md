@@ -1,17 +1,23 @@
 # `teeny-llm`
 
-`teeny-llm` is the workspace's LLM inference application — vLLM-style serving, aimed at 2x the
-throughput (see the [roadmap](../appendix/faq-and-roadmap.md)).
+`teeny-llm` is the workspace's LLM inference stack, aiming for vLLM-style serving with 2x the
+throughput (see the [roadmap](../appendix/faq-and-roadmap.md)). It is split into three crates
+under `apps/teeny-llm/`:
 
-> ⚠️ **Early scaffolding.** The `teeny-llm` binary currently only prints a placeholder banner.
-> The planned direction is a single binary offering both an interactive mode and an
-> OpenAPI-compatible HTTP server mode — earlier separate `agent`/`console` binaries were dropped
-> in favor of this single-binary design.
+| Crate              | Kind      | Role                                                                    |
+| ------------------ | --------- | ----------------------------------------------------------------------- |
+| `teeny-llm-core`   | library   | Chat/sampling types and the `Engine` trait inference backends implement |
+| `teeny-llm-server` | lib + bin | OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`) |
+| `teeny-llm-chat`   | binary    | Interactive terminal chat, running the engine in-process                |
+
+> ⚠️ **Early scaffolding.** No real model execution yet: both binaries run the placeholder
+> `EchoEngine` (model `teeny-echo`), which echoes the last user message back.
 
 ```bash
-cargo install teeny-llm
-teeny-llm
+cargo install teeny-llm-server teeny-llm-chat
+teeny-llm-server --port 8000     # OpenAI-compatible API
+teeny-llm-chat                   # interactive chat
 ```
 
-> **TODO**: fill this chapter in as `teeny-llm` gains real functionality — request/response API
-> shape, model loading, batching/scheduling behavior.
+> **TODO**: fill this chapter in as the stack gains real functionality: model loading,
+> batching/scheduling behavior.
