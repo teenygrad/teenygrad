@@ -69,6 +69,71 @@ fn only_a_non_trailing_axis_gains_a_transpose() {
     }
 }
 
+/// A reduction of `input` over `axes` (keepdims), recording the shape that gives.
+fn reduce_sum_graph(input: &[Option<usize>], axes: &[i64]) -> Graph {
+    let rank = input.len() as i64;
+    let output = (0..input.len())
+        .map(|a| {
+            let reduced = axes.is_empty() || axes.iter().any(|&r| (r + rank) % rank == a as i64);
+            if reduced { Some(1) } else { input[a] }
+        })
+        .collect();
+    let mut g = Graph::new();
+    let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, input.to_vec());
+    g.add_node(
+        Op::ReduceSum {
+            axes: axes.to_vec(),
+            keepdims: true,
+            noop_with_empty_axes: false,
+        },
+        vec![x],
+        DtypeRepr::F32,
+        output,
+    );
+    g
+}
+
+fn lowering_error(g: &Graph) -> Option<String> {
+    TritonLowering::new()
+        .lower(g, LoweringMode::Inference)
+        .err()
+        .map(|e| e.to_string())
+}
+
+/// The kernels reduce one block of 1024 elements per output and drop the rest, so a
+/// longer row is refused rather than truncated.
+#[test]
+fn a_row_longer_than_the_kernel_block_is_refused() {
+    let known = |d: &[usize]| d.iter().map(|&x| Some(x)).collect::<Vec<_>>();
+    assert_eq!(
+        lowering_error(&reduce_sum_graph(&known(&[2, 1024]), &[-1])),
+        None
+    );
+    for (shape, axes) in [
+        (known(&[2, 1025]), vec![-1]),
+        // Reducing every axis of an image, which a global average pool exported as
+        // ReduceMean does.
+        (known(&[1, 3, 224, 224]), vec![]),
+        // Two axes that fit alone but not together.
+        (known(&[40, 40, 3]), vec![0, 1]),
+    ] {
+        let err = lowering_error(&reduce_sum_graph(&shape, &axes))
+            .unwrap_or_else(|| panic!("{shape:?} over {axes:?} lowered"));
+        assert!(err.contains("at most 1024"), "{err}");
+    }
+}
+
+/// A dynamic axis that stays is fine; a dynamic one that is reduced cannot be checked
+/// against the block, so it is refused.
+#[test]
+fn only_a_reduced_axis_needs_a_known_extent() {
+    let g = reduce_sum_graph(&[None, Some(4), Some(10)], &[-1]);
+    assert_eq!(lowering_error(&g), None);
+    let g = reduce_sum_graph(&[Some(2), Some(4), None], &[-1]);
+    let err = lowering_error(&g).expect("an unknown reduced extent");
+    assert!(err.contains("unknown extent"), "{err}");
+}
+
 #[cfg(feature = "hardware")]
 mod execution {
     use super::*;
@@ -153,6 +218,155 @@ mod execution {
                     );
                 }
             }
+        }
+    }
+
+    // ── Every reduction against PyTorch (fixtures from reduce_axes/generate.py) ──
+
+    /// As in `generate.py`.
+    const AXES: &[&[i64]] = &[&[0], &[1], &[2], &[0, 2], &[1, 3], &[0, 1, 2], &[0, 3]];
+    const RTOL: f32 = 1e-4;
+    const ATOL: f32 = 1e-5;
+
+    type MakeOp = fn(Vec<i64>, bool) -> Op;
+
+    macro_rules! reduce_op {
+        ($v:ident) => {
+            |axes, keepdims| Op::$v {
+                axes,
+                keepdims,
+                noop_with_empty_axes: false,
+            }
+        };
+    }
+
+    const OPS: &[(&str, MakeOp)] = &[
+        ("reduce_sum", reduce_op!(ReduceSum)),
+        ("reduce_mean", reduce_op!(ReduceMean)),
+        ("reduce_max", reduce_op!(ReduceMax)),
+        ("reduce_min", reduce_op!(ReduceMin)),
+        ("reduce_prod", reduce_op!(ReduceProd)),
+        ("reduce_l1", reduce_op!(ReduceL1)),
+        ("reduce_l2", reduce_op!(ReduceL2)),
+        ("reduce_log_sum", reduce_op!(ReduceLogSum)),
+        ("reduce_log_sum_exp", reduce_op!(ReduceLogSumExp)),
+        ("reduce_sum_square", reduce_op!(ReduceSumSquare)),
+    ];
+
+    fn close(got: f32, want: f32) -> bool {
+        (got - want).abs() <= ATOL + RTOL * want.abs()
+    }
+
+    /// Compiles `op` over an input of `input` and runs it on `x`.
+    fn run_reduce(
+        device: &teeny_runtime::Device<'_>,
+        target: &Target,
+        op: Op,
+        input: &[usize],
+        axes: &[i64],
+        keepdims: bool,
+        x: &[f32],
+    ) -> Vec<f32> {
+        let rank = input.len() as i64;
+        let reduced = |a: usize| axes.iter().any(|&r| (r + rank) % rank == a as i64);
+        let output: Vec<Option<usize>> = (0..input.len())
+            .filter_map(|a| match (reduced(a), keepdims) {
+                (true, true) => Some(Some(1)),
+                (true, false) => None,
+                (false, _) => Some(Some(input[a])),
+            })
+            .collect();
+        let mut g = Graph::new();
+        let xi = g.add_node(
+            Op::Input,
+            vec![],
+            DtypeRepr::F32,
+            input.iter().map(|d| Some(*d)).collect(),
+        );
+        g.add_node(op, vec![xi], DtypeRepr::F32, output);
+        let mut model = RuntimeModel::compile(
+            device,
+            &g,
+            &TritonLowering::new(),
+            LoweringMode::Inference,
+            target,
+            1,
+            false,
+        )
+        .expect("compile");
+        let outputs = model.terminal_node_indices_sorted_by_size();
+        model
+            .run(device, &[x], &outputs)
+            .expect("run")
+            .pop()
+            .expect("an output")
+    }
+
+    /// Every reduction over every axis set, with and without `keepdims`, matches
+    /// PyTorch. `keepdims` changes only the recorded shape, so both are checked
+    /// against the same values.
+    #[test]
+    fn every_reduction_over_any_axes_matches_torch() {
+        dotenv::dotenv().ok();
+        let (device, target) = device_and_target();
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let x = teeny_test::load_fixture(dir, "reduce_axes/x.bin");
+        let mut failures = Vec::new();
+        for &(name, make) in OPS {
+            let expected =
+                teeny_test::load_fixture(dir, &format!("reduce_axes/expected_{name}.bin"));
+            let mut offset = 0;
+            for &axes in AXES {
+                let n_out: usize = (0..SHAPE.len())
+                    .filter(|a| !axes.contains(&(*a as i64)))
+                    .map(|a| SHAPE[a])
+                    .product();
+                let want = &expected[offset..offset + n_out];
+                offset += n_out;
+                for keepdims in [true, false] {
+                    let op = make(axes.to_vec(), keepdims);
+                    let got = run_reduce(&device, &target, op, &SHAPE, axes, keepdims, &x);
+                    if got.len() != n_out {
+                        failures.push(format!(
+                            "{name} axes {axes:?} keepdims {keepdims}: {} values, want {n_out}",
+                            got.len()
+                        ));
+                    } else if let Some(i) = (0..n_out).find(|&i| !close(got[i], want[i])) {
+                        failures.push(format!(
+                            "{name} axes {axes:?} keepdims {keepdims}: [{i}] got {}, want {}",
+                            got[i], want[i]
+                        ));
+                    }
+                }
+            }
+            assert_eq!(offset, expected.len(), "{name}: fixture size");
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// teenygrad#151's repro: an L2 norm over axis 2 of `[1, 2, 5, 3, 4]`, the layout
+    /// of FoundationStereo's feature normalization.
+    #[test]
+    fn l2norm5d_matches_torch() {
+        dotenv::dotenv().ok();
+        let (device, target) = device_and_target();
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let x = teeny_test::load_fixture(dir, "reduce_axes/x_l2norm5d.bin");
+        let want = teeny_test::load_fixture(dir, "reduce_axes/expected_l2norm5d.bin");
+        let op = Op::ReduceL2 {
+            axes: vec![2],
+            keepdims: true,
+            noop_with_empty_axes: false,
+        };
+        let got = run_reduce(&device, &target, op, &[1, 2, 5, 3, 4], &[2], true, &x);
+        assert_eq!(got.len(), want.len());
+        for i in 0..want.len() {
+            assert!(
+                close(got[i], want[i]),
+                "[{i}] got {}, want {}",
+                got[i],
+                want[i]
+            );
         }
     }
 }

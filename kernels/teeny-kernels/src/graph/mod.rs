@@ -1782,6 +1782,10 @@ enum AxisOp {
     CumProd,
 }
 
+/// The elements per output the reduction kernels reduce: one block, with no loop over a
+/// longer row, so the lowering refuses a reduction past it rather than truncate it.
+const REDUCE_BLOCK_INNER: i32 = 1024;
+
 fn reduce_parts(op: &Op) -> Option<(&[i64], bool, bool)> {
     match op {
         Op::ReduceSum {
@@ -2207,6 +2211,31 @@ impl TritonLowering {
                          {rank} axes of {data_shape:?}"
                     ));
                 };
+                // The kernels reduce one block of REDUCE_BLOCK_INNER elements per output,
+                // with no loop over a longer row, so past that they silently drop the
+                // rest. The reduced extents are the ones the kernel walks, so they must
+                // be known even where the axes that stay may be dynamic.
+                let inner: Option<usize> = reduced.iter().map(|&axis| data_shape[axis]).product();
+                match inner {
+                    Some(inner) if inner <= REDUCE_BLOCK_INNER as usize => {}
+                    Some(inner) => {
+                        return Err(anyhow::anyhow!(
+                            "Op::Reduce {what}: reducing {inner} elements per output over \
+                             axes {axes:?} of {data_shape:?}, but the kernel reduces at most \
+                             {REDUCE_BLOCK_INNER} and would silently drop the rest. See \
+                             teenygrad#151."
+                        ));
+                    }
+                    None => {
+                        return Err(anyhow::anyhow!(
+                            "Op::Reduce {what}: a reduced axis of {data_shape:?} (axes \
+                             {axes:?}) has an unknown extent, so it cannot be checked \
+                             against the kernel's limit of {REDUCE_BLOCK_INNER} elements \
+                             per output. Give the input a static shape, or run \
+                             teeny_onnx::materialize first."
+                        ));
+                    }
+                }
                 if let Some(perm) = reduce_transpose_perm(&reduced, rank) {
                     let in_shape = concrete_shape(data_shape, "Reduce", &what, "its input's")?;
                     let transposed: Vec<Option<usize>> =
@@ -4044,18 +4073,34 @@ impl TritonLowering {
                 }
 
                 // ── ONNX reduction ops ────────────────────────────────────────
-                Op::ReduceSum { .. } => make_num_kernel!(ReduceSumForward(1024), node),
-                Op::ReduceMean { .. } => make_float_kernel!(ReduceMeanForward(1024), node),
-                Op::ReduceMax { .. } => make_num_kernel!(ReduceMaxForward(1024), node),
-                Op::ReduceMin { .. } => make_num_kernel!(ReduceMinForward(1024), node),
-                Op::ReduceProd { .. } => make_float_kernel!(ReduceProdForward(1024), node),
-                Op::ReduceL1 { .. } => make_num_kernel!(ReduceL1Forward(1024), node),
-                Op::ReduceL2 { .. } => make_float_kernel!(ReduceL2Forward(1024), node),
-                Op::ReduceLogSum { .. } => make_float_kernel!(ReduceLogSumForward(1024), node),
-                Op::ReduceLogSumExp { .. } => {
-                    make_float_kernel!(ReduceLogSumExpForward(1024), node)
+                Op::ReduceSum { .. } => {
+                    make_num_kernel!(ReduceSumForward(REDUCE_BLOCK_INNER), node)
                 }
-                Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
+                Op::ReduceMean { .. } => {
+                    make_float_kernel!(ReduceMeanForward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceMax { .. } => {
+                    make_num_kernel!(ReduceMaxForward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceMin { .. } => {
+                    make_num_kernel!(ReduceMinForward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceProd { .. } => {
+                    make_float_kernel!(ReduceProdForward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceL1 { .. } => make_num_kernel!(ReduceL1Forward(REDUCE_BLOCK_INNER), node),
+                Op::ReduceL2 { .. } => {
+                    make_float_kernel!(ReduceL2Forward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceLogSum { .. } => {
+                    make_float_kernel!(ReduceLogSumForward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceLogSumExp { .. } => {
+                    make_float_kernel!(ReduceLogSumExpForward(REDUCE_BLOCK_INNER), node)
+                }
+                Op::ReduceSumSquare { .. } => {
+                    make_num_kernel!(ReduceSumSquareForward(REDUCE_BLOCK_INNER), node)
+                }
                 Op::CumSum {
                     exclusive, reverse, ..
                 }
