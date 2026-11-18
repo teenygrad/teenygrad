@@ -181,7 +181,14 @@ pub fn grid_sample_forward<T, D: Float, const BLOCK_SIZE: i32>(
     );
 
     let acc = v00 * wy0 * wx0 + v01 * wy0 * wx1 + v10 * wy1 * wx0 + v11 * wy1 * wx1;
-    T::store(out_ptr.add_offsets(p), acc, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(p),
+        acc,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Dispatch for [`grid_sample_forward`].

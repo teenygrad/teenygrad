@@ -133,7 +133,10 @@ fn materialize_shrinks_a_real_export() {
     keys.sort();
     keys.dedup();
     for k in keys {
-        let (b, a) = (before.get(k).copied().unwrap_or(0), after.get(k).copied().unwrap_or(0));
+        let (b, a) = (
+            before.get(k).copied().unwrap_or(0),
+            after.get(k).copied().unwrap_or(0),
+        );
         if b != a {
             println!("  {k:<22} {b:>6} -> {a:>6}");
         }

@@ -156,7 +156,13 @@ pub fn matmul_forward<
     );
     let a_tail = T::load_tensor_descriptor(a_desc, &[a_row0 + pid_m * BLOCK_M, TAIL_OFF]);
     let b_tail = T::load_tensor_descriptor(b_desc, &[b_row0 + TAIL_OFF, pid_n * BLOCK_N]);
-    acc = T::dot::<D, D>(a_tail * keep_d, b_tail, Some(acc), InputPrecision::TF32, None);
+    acc = T::dot::<D, D>(
+        a_tail * keep_d,
+        b_tail,
+        Some(acc),
+        InputPrecision::TF32,
+        None,
+    );
 
     let c_desc = T::make_tensor_descriptor(
         c_ptr,
@@ -368,14 +374,8 @@ pub struct MatMulRuntimeOp<D: Num + Send + Sync + 'static> {
 impl<D: Num + Send + Sync + 'static> MatMulRuntimeOp<D> {
     /// `None` if `block_k` is wider than the plan's contracted extent, which leaves
     /// the forward kernel's last K tile nowhere inside the operands to be read from.
-    pub fn new(
-        block_m: i32,
-        block_n: i32,
-        block_k: i32,
-        plan: MatMulPlan,
-    ) -> Option<Self> {
-        let (tail_off, tail_keep_from) =
-            k_tail_arguments(plan.k, block_k as usize)?;
+    pub fn new(block_m: i32, block_n: i32, block_k: i32, plan: MatMulPlan) -> Option<Self> {
+        let (tail_off, tail_keep_from) = k_tail_arguments(plan.k, block_k as usize)?;
         let full_tiles = plan_k_tiles(&plan, block_k) as i32;
         Some(Self {
             fwd_kernel: MatmulForward::<D>::new(block_m, block_n, block_k, GROUP_M),
@@ -528,7 +528,11 @@ mod k_tail_tests {
             for k in block_k..block_k * 3 + 5 {
                 let (off, _) = k_tail_arguments(k, block_k).expect("fits");
                 if PARTIAL_K_TILE_IS_PADDED {
-                    assert_eq!(off % 4, 0, "k={k} block_k={block_k}: offset {off} unaligned");
+                    assert_eq!(
+                        off % 4,
+                        0,
+                        "k={k} block_k={block_k}: offset {off} unaligned"
+                    );
                 } else {
                     assert!(
                         off + block_k <= k,

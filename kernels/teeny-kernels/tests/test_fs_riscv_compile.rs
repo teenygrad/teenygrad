@@ -92,7 +92,9 @@ fn which_kernels_have_no_runtime_dispatch() {
             continue;
         }
         let Some(runtime_op) = op.runtime_op() else {
-            *stubs.entry(format!("{} (no runtime op)", op.name())).or_insert(0) += 1;
+            *stubs
+                .entry(format!("{} (no runtime op)", op.name()))
+                .or_insert(0) += 1;
             continue;
         };
         // The stubs panic rather than returning, so each one is asked in isolation.
@@ -157,7 +159,11 @@ fn every_kernel_in_the_export_compiles_for_riscv() {
             Ok(_) => {}
             Err(e) => failures.push((
                 op.name().to_string(),
-                e.to_string().lines().take(2).collect::<Vec<_>>().join(" | "),
+                e.to_string()
+                    .lines()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" | "),
             )),
         }
         if n % 25 == 0 {
@@ -177,5 +183,9 @@ fn every_kernel_in_the_export_compiles_for_riscv() {
     for (name, why) in &failures {
         println!("  FAILED {name}: {why}");
     }
-    assert!(failures.is_empty(), "{} kernels did not compile", failures.len());
+    assert!(
+        failures.is_empty(),
+        "{} kernels did not compile",
+        failures.len()
+    );
 }

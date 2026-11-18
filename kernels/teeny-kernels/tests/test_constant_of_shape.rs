@@ -66,7 +66,10 @@ fn lower(dtype: DtypeRepr, shape: &[usize], fill: &[u8]) -> anyhow::Result<usize
 /// left is the fill alone, with nothing carrying the dims to the device.
 #[test]
 fn the_shape_operand_is_elided() {
-    assert_eq!(lower(DtypeRepr::F32, &[2, 3, 4], &0.0f32.to_le_bytes()).expect("f32"), 1);
+    assert_eq!(
+        lower(DtypeRepr::F32, &[2, 3, 4], &0.0f32.to_le_bytes()).expect("f32"),
+        1
+    );
 }
 
 #[test]

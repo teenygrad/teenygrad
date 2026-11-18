@@ -75,7 +75,10 @@ fn which_terminals_could_be_the_disparity() {
     let candidates: Vec<usize> = terminals
         .iter()
         .copied()
-        .filter(|&d| dag_to_graph[d] != usize::MAX && len_of(&import.graph.nodes[dag_to_graph[d]].shape) == want)
+        .filter(|&d| {
+            dag_to_graph[d] != usize::MAX
+                && len_of(&import.graph.nodes[dag_to_graph[d]].shape) == want
+        })
         .collect();
     println!(
         "\nterminals of length {want}: {} -- the run picks the first of these",

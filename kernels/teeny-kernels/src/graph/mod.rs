@@ -2197,16 +2197,18 @@ impl TritonLowering {
                     ));
                 }
                 let what = node_label(graph, node_index);
-                let in_shape =
-                    concrete_shape(&graph.nodes[data].shape, "Reduce", &what, "its input's")?;
-                let Some(reduced) = reduce_axes(axes, in_shape.len(), noop_with_empty_axes) else {
+                // The axes depend only on the rank, so a dynamic extent (a batch axis,
+                // say) is fine until a transpose actually has to copy the tensor.
+                let data_shape = &graph.nodes[data].shape;
+                let rank = data_shape.len();
+                let Some(reduced) = reduce_axes(axes, rank, noop_with_empty_axes) else {
                     return Err(anyhow::anyhow!(
                         "Op::Reduce {what}: axes {axes:?} are not all within the \
-                         {} axes of {in_shape:?}",
-                        in_shape.len()
+                         {rank} axes of {data_shape:?}"
                     ));
                 };
-                if let Some(perm) = reduce_transpose_perm(&reduced, in_shape.len()) {
+                if let Some(perm) = reduce_transpose_perm(&reduced, rank) {
+                    let in_shape = concrete_shape(data_shape, "Reduce", &what, "its input's")?;
                     let transposed: Vec<Option<usize>> =
                         perm.iter().map(|&a| Some(in_shape[a])).collect();
                     // A stand-in for the transpose's own output, which no graph node
@@ -2247,16 +2249,18 @@ impl TritonLowering {
                 && !elided[data]
             {
                 let what = node_label(graph, node_index);
-                let in_shape =
-                    concrete_shape(&graph.nodes[data].shape, "Softmax", &what, "its input's")?;
-                let rank = in_shape.len();
+                // As for a reduction: only a transpose needs every extent, so a dynamic
+                // batch axis in front of an innermost softmax still lowers.
+                let data_shape = &graph.nodes[data].shape;
+                let rank = data_shape.len();
                 let Some(axes) = reduce_axes(&[dim], rank, false) else {
                     return Err(anyhow::anyhow!(
                         "Op::Softmax {what}: axis {dim} is outside the {rank} axes of \
-                         {in_shape:?}"
+                         {data_shape:?}"
                     ));
                 };
                 if let Some(perm) = reduce_transpose_perm(&axes, rank) {
+                    let in_shape = concrete_shape(data_shape, "Softmax", &what, "its input's")?;
                     let axis = axes[0];
                     let permuted: Vec<usize> = perm.iter().map(|&a| in_shape[a]).collect();
                     let transposed: Shape = permuted.iter().map(|&d| Some(d)).collect();
@@ -4053,14 +4057,10 @@ impl TritonLowering {
                 }
                 Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
                 Op::CumSum {
-                    exclusive,
-                    reverse,
-                    ..
+                    exclusive, reverse, ..
                 }
                 | Op::CumProd {
-                    exclusive,
-                    reverse,
-                    ..
+                    exclusive, reverse, ..
                 } if *exclusive || *reverse => {
                     // The kernels accumulate inclusively and forwards, and nothing in
                     // them reads these, so either flag would be ignored rather than

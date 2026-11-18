@@ -37,7 +37,10 @@ fn reference(
         if let Some(i) = a_labels.iter().position(|&l| l == label) {
             a_shape[i]
         } else {
-            b_shape[b_labels.iter().position(|&l| l == label).expect("known label")]
+            b_shape[b_labels
+                .iter()
+                .position(|&l| l == label)
+                .expect("known label")]
         }
     };
 
@@ -81,7 +84,10 @@ fn reference(
                 if let Some(i) = out_labels.iter().position(|&x| x == l) {
                     oc[i]
                 } else {
-                    sc[sum_labels.iter().position(|&x| x == l).expect("summed label")]
+                    sc[sum_labels
+                        .iter()
+                        .position(|&x| x == l)
+                        .expect("summed label")]
                 }
             };
             acc += a[index(&a_labels, a_shape, &coord)] * b[index(&b_labels, b_shape, &coord)];

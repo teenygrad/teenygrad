@@ -34,12 +34,7 @@ fn device_and_target<'a>() -> (teeny_runtime::Device<'a>, Target) {
 /// A chain of `n` unary ops over one input, each reading only the one before it.
 fn chain(n: usize, elements: usize) -> Graph {
     let mut g = Graph::new();
-    let mut last = g.add_node(
-        Op::Input,
-        vec![],
-        DtypeRepr::F32,
-        vec![Some(elements)],
-    );
+    let mut last = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(elements)]);
     for _ in 0..n {
         last = g.add_node(Op::Relu, vec![last], DtypeRepr::F32, vec![Some(elements)]);
     }

@@ -31,7 +31,6 @@
 //!
 //! Not reported upstream yet.
 
-use teeny_core::device::program::Kernel;
 use teeny_kernels::nn::tensor::elemwise_binary::{ElemwiseEqualForward, ElemwiseMulForward};
 
 const BLOCK_SIZE: i32 = 1024;

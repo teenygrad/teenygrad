@@ -254,8 +254,8 @@ fn every_reduction_and_softmax_agrees_with_the_host() {
             continue;
         }
         let op = &import.graph.nodes[g].op;
-        let interesting = reduce_kind(op).is_some()
-            || matches!(op, Op::Softmax { .. } | Op::LogSoftmax { .. });
+        let interesting =
+            reduce_kind(op).is_some() || matches!(op, Op::Softmax { .. } | Op::LogSoftmax { .. });
         if interesting {
             wanted.push(d);
             // The graph's own data input, not the DAG parent: where the lowering had to
@@ -275,8 +275,12 @@ fn every_reduction_and_softmax_agrees_with_the_host() {
 
     let refs: Vec<&[f32]> = feeds.iter().map(|v| v.as_slice()).collect();
     let got = model.run(&device, &refs, &wanted).expect("run");
-    let slot_of: BTreeMap<usize, usize> =
-        wanted.iter().copied().enumerate().map(|(i, d)| (d, i)).collect();
+    let slot_of: BTreeMap<usize, usize> = wanted
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, d)| (d, i))
+        .collect();
 
     let mut checked = 0usize;
     let mut wrong = 0usize;

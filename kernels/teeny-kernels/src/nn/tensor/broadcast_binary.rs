@@ -524,8 +524,16 @@ impl<K, D: Num + Send + Sync + 'static> BroadcastBinaryRuntimeOp<K, D> {
             }
             meta.push(out_shape[ax] as i32);
             // A length-1 axis is read at the same element whatever the coordinate.
-            meta.push(if a_shape[ax] == 1 { 0 } else { a_strides[ax] as i32 });
-            meta.push(if b_shape[ax] == 1 { 0 } else { b_strides[ax] as i32 });
+            meta.push(if a_shape[ax] == 1 {
+                0
+            } else {
+                a_strides[ax] as i32
+            });
+            meta.push(if b_shape[ax] == 1 {
+                0
+            } else {
+                b_strides[ax] as i32
+            });
         }
 
         Some(Self {

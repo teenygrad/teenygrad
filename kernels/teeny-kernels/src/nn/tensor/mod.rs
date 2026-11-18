@@ -16,15 +16,15 @@
 
 pub mod broadcast_binary;
 pub mod channel_bias_add;
-pub mod constant;
 pub mod channel_cat;
 pub mod channel_chunk;
 pub mod concat;
+pub mod constant;
 pub mod elemwise_add;
-pub mod fill;
-pub mod gather;
 pub mod elemwise_binary;
 pub mod elemwise_unary;
+pub mod fill;
+pub mod gather;
 pub mod grid_sample;
 pub mod logical;
 pub mod reduction;

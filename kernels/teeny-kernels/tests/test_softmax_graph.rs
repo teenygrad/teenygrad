@@ -90,7 +90,8 @@ fn a_softmax_sums_to_one_along_its_axis() {
     // A softmax is strictly positive: every element is exp of something finite over a
     // positive sum, so an exact zero means the kernel never wrote there.
     assert_eq!(
-        zeros, 0,
+        zeros,
+        0,
         "{zeros} of {} elements are exactly zero, so they were never written",
         out.len()
     );

@@ -178,7 +178,10 @@ pub fn materialize_constants(
         let Some(v) = Value::decode(td) else {
             continue;
         };
-        if matches!(graph.nodes.get(id).map(|n| &n.op), Some(Op::ConstantOfShape { .. })) {
+        if matches!(
+            graph.nodes.get(id).map(|n| &n.op),
+            Some(Op::ConstantOfShape { .. })
+        ) {
             fills.insert(id, v);
         } else {
             values.insert(id, v);
@@ -255,8 +258,7 @@ pub fn materialize_constants(
                 .collect();
             let needs_shape = graph.nodes[id].shape.is_empty()
                 || graph.nodes[id].shape.iter().any(Option::is_none);
-            if let Some(inferred) =
-                infer_static_shape(&graph.nodes[id].op, &in_static, &in_values)
+            if let Some(inferred) = infer_static_shape(&graph.nodes[id].op, &in_static, &in_values)
             {
                 if needs_shape {
                     graph.nodes[id].shape = inferred.into_iter().map(Some).collect();
@@ -280,11 +282,8 @@ pub fn materialize_constants(
         }
 
         let node = &graph.nodes[id];
-        let input_shapes: Vec<&Shape> = node
-            .inputs
-            .iter()
-            .map(|&i| &graph.nodes[i].shape)
-            .collect();
+        let input_shapes: Vec<&Shape> =
+            node.inputs.iter().map(|&i| &graph.nodes[i].shape).collect();
 
         // `Shape` reads its operand's *shape*, not its value, so it folds over a
         // live activation. It is the root of nearly every plumbing chain, so this
@@ -318,7 +317,10 @@ pub fn materialize_constants(
                 folded.insert(id, td);
 
                 let node = &mut graph.nodes[id];
-                node.op = Op::Constant { dtype, shape: shape.clone() };
+                node.op = Op::Constant {
+                    dtype,
+                    shape: shape.clone(),
+                };
                 node.inputs.clear();
                 node.dtype = dtype;
                 node.shape = shape;
@@ -328,10 +330,7 @@ pub fn materialize_constants(
             Eval::UnknownRank => report.shape_of_unknown_rank += 1,
             Eval::OutOfRange => report.declined_out_of_range += 1,
             Eval::Unsupported => {
-                *report
-                    .unsupported
-                    .entry(op_label(&node.op))
-                    .or_insert(0) += 1;
+                *report.unsupported.entry(op_label(&node.op)).or_insert(0) += 1;
             }
         }
     }
@@ -462,7 +461,11 @@ fn reduce_axes_mut(op: &mut Op) -> Option<&mut Vec<i64>> {
 ///
 /// Only [`Op::Constant`] nodes are collected, so the weights are not copied: an
 /// initializer is an [`Op::Input`] and is bound by name from a checkpoint instead.
-pub fn lowering_constants(graph: &Graph, tensors: &ConstantMap, folded: &ConstantMap) -> ConstantMap {
+pub fn lowering_constants(
+    graph: &Graph,
+    tensors: &ConstantMap,
+    folded: &ConstantMap,
+) -> ConstantMap {
     let mut out = ConstantMap::new();
     for (id, node) in graph.nodes.iter().enumerate() {
         if !matches!(node.op, Op::Constant { .. }) {
@@ -825,9 +828,7 @@ fn eval(
     match op {
         // --- plumbing sources ---
         Op::ShapeOf { start, end } => eval_shape_of(*start, *end, input_shapes),
-        Op::ConstantOfShape { dtype, .. } => {
-            eval_constant_of_shape(*dtype, args, fill, config)
-        }
+        Op::ConstantOfShape { dtype, .. } => eval_constant_of_shape(*dtype, args, fill, config),
         Op::Range => eval_range(args, config),
 
         // --- pure reshapes: element order never changes ---
@@ -894,7 +895,11 @@ fn eval_shape_of(start: i64, end: i64, input_shapes: &[&Shape]) -> Eval {
         return Eval::Unsupported;
     }
     // A dynamic dim has no single answer, so the whole `Shape` stays unfolded.
-    let Some(dims) = shape[lo..hi].iter().copied().collect::<Option<Vec<usize>>>() else {
+    let Some(dims) = shape[lo..hi]
+        .iter()
+        .copied()
+        .collect::<Option<Vec<usize>>>()
+    else {
         return Eval::Unsupported;
     };
     Eval::Ok(Value {
@@ -1188,10 +1193,7 @@ fn eval_concat(args: &[&Value], axis: i64, config: &MaterializeConfig) -> Eval {
 
     for flat in 0..total {
         let mut c = coords_of(flat, &out_shape);
-        let which = offsets
-            .iter()
-            .rposition(|&o| o <= c[ax])
-            .unwrap_or(0);
+        let which = offsets.iter().rposition(|&o| o <= c[ax]).unwrap_or(0);
         c[ax] -= offsets[which];
         let src = args[which];
         let off: usize = c
@@ -1383,7 +1385,11 @@ fn eval_slice(args: &[&Value]) -> Eval {
         if step == 0 {
             return Eval::Unsupported;
         }
-        let mut s = if starts[k] < 0 { starts[k] + dim } else { starts[k] };
+        let mut s = if starts[k] < 0 {
+            starts[k] + dim
+        } else {
+            starts[k]
+        };
         let mut e = if ends[k] < 0 { ends[k] + dim } else { ends[k] };
         let mut out = Vec::new();
         if step > 0 {
@@ -1656,7 +1662,10 @@ fn binary(args: &[&Value], kind: BinKind) -> Eval {
     let (dtype, data) = if kind.is_comparison() || kind.is_logical() {
         (DtypeRepr::Bool, Data::Bool(bools))
     } else if float_math {
-        (if a.is_float() { a.dtype } else { b.dtype }, Data::Float(floats))
+        (
+            if a.is_float() { a.dtype } else { b.dtype },
+            Data::Float(floats),
+        )
     } else {
         (a.dtype, Data::Int(ints))
     };
@@ -1709,7 +1718,11 @@ fn unary(args: &[&Value], kind: UnKind) -> Eval {
             // A NaN here means a negative `Sqrt`; leave the node for the runtime.
             return Eval::Unsupported;
         }
-        let dtype = if v.is_float() { v.dtype } else { DtypeRepr::F32 };
+        let dtype = if v.is_float() {
+            v.dtype
+        } else {
+            DtypeRepr::F32
+        };
         return Eval::Ok(Value {
             dtype,
             shape: v.shape.clone(),
@@ -2183,20 +2196,8 @@ fn infer_static_shape(
             }
             // A transposed convolution runs the forward extent formula backwards:
             // (in - 1) * stride - 2 * pad + kernel + output_pad.
-            let oh = conv_transpose_out(
-                x[2],
-                *kernel_h,
-                *stride_h,
-                *padding_h,
-                *output_padding_h,
-            )?;
-            let ow = conv_transpose_out(
-                x[3],
-                *kernel_w,
-                *stride_w,
-                *padding_w,
-                *output_padding_w,
-            )?;
+            let oh = conv_transpose_out(x[2], *kernel_h, *stride_h, *padding_h, *output_padding_h)?;
+            let ow = conv_transpose_out(x[3], *kernel_w, *stride_w, *padding_w, *output_padding_w)?;
             Some(vec![x[0], *out_channels, oh, ow])
         }
         Op::MaxPool2d {
@@ -2348,8 +2349,7 @@ fn infer_static_shape(
             // Planned by the same function the lowering uses, so the extents recorded
             // here and the strides the contraction runs under come from one reading of
             // the equation.
-            let plan =
-                teeny_core::graph::einsum_plan(equation, &first()?, &shape_at(1)?).ok()?;
+            let plan = teeny_core::graph::einsum_plan(equation, &first()?, &shape_at(1)?).ok()?;
             Some(plan.out_shape)
         }
 
@@ -2625,7 +2625,10 @@ mod tests {
 
         let data = val(&[2, 3], &[0, 1, 2, 3, 4, 5]);
         let wrong_batch = val(&[3, 1, 1], &[0, 0, 0]);
-        assert!(matches!(gather_nd(&data, &wrong_batch, 1), Eval::Unsupported));
+        assert!(matches!(
+            gather_nd(&data, &wrong_batch, 1),
+            Eval::Unsupported
+        ));
     }
 
     /// Inference and folding read the shapes through the same function, so a node that
@@ -2802,7 +2805,10 @@ mod tests {
             panic!("expected a folded sqrt");
         };
         assert_eq!(r.dtype, DtypeRepr::F32);
-        assert_eq!((0..2).map(|i| r.float_at(i)).collect::<Vec<_>>(), vec![2.0, 3.0]);
+        assert_eq!(
+            (0..2).map(|i| r.float_at(i)).collect::<Vec<_>>(),
+            vec![2.0, 3.0]
+        );
     }
 
     #[test]
@@ -2898,7 +2904,12 @@ mod tests {
             DtypeRepr::I64,
             vec![Some(2)],
         );
-        let rs = g.add_node(Op::Reshape, vec![cat, tgt], DtypeRepr::I64, vec![Some(4), Some(2)]);
+        let rs = g.add_node(
+            Op::Reshape,
+            vec![cat, tgt],
+            DtypeRepr::I64,
+            vec![Some(4), Some(2)],
+        );
 
         let mut tensors = BTreeMap::new();
         tensors.insert(shape_c, int_td(&[1], &[2]));
@@ -2965,7 +2976,10 @@ mod tests {
         // Either side, and for every broadcasting op.
         let other = [Some(vec![3072]), None];
         assert_eq!(infer_static_shape(&Op::Mul, &other, &[None, None]), None);
-        assert_eq!(infer_static_shape(&Op::Where, &[None, None, None], &[None; 3]), None);
+        assert_eq!(
+            infer_static_shape(&Op::Where, &[None, None, None], &[None; 3]),
+            None
+        );
 
         // A genuine rank-0 scalar still broadcasts, which is why the two cases have to
         // be told apart rather than both refused.
@@ -3010,10 +3024,7 @@ mod tests {
             noop_with_empty_axes: false,
             axes: vec![0, -1],
         };
-        assert_eq!(
-            infer_static_shape(&op, &shapes, &[None]),
-            Some(vec![8, 12])
-        );
+        assert_eq!(infer_static_shape(&op, &shapes, &[None]), Some(vec![8, 12]));
 
         // An axis outside the rank has no answer.
         let op = Op::ReduceSum {
@@ -3035,7 +3046,10 @@ mod tests {
             noop_with_empty_axes: false,
             axes: vec![],
         };
-        assert_eq!(infer_static_shape(&reduce_all, &shapes, &[None]), Some(vec![]));
+        assert_eq!(
+            infer_static_shape(&reduce_all, &shapes, &[None]),
+            Some(vec![])
+        );
 
         let reduce_all_keepdims = Op::ReduceSum {
             keepdims: true,
@@ -3192,10 +3206,18 @@ mod tests {
 
     #[test]
     fn matmul_contracts_and_broadcasts_the_batch() {
-        let m = infer_static_shape(&Op::MatMul, &[stat(&[2, 3, 4]), stat(&[2, 4, 5])], &[None, None]);
+        let m = infer_static_shape(
+            &Op::MatMul,
+            &[stat(&[2, 3, 4]), stat(&[2, 4, 5])],
+            &[None, None],
+        );
         assert_eq!(m, Some(vec![2, 3, 5]));
         // The batch dimensions broadcast.
-        let b = infer_static_shape(&Op::MatMul, &[stat(&[1, 3, 4]), stat(&[5, 4, 2])], &[None, None]);
+        let b = infer_static_shape(
+            &Op::MatMul,
+            &[stat(&[1, 3, 4]), stat(&[5, 4, 2])],
+            &[None, None],
+        );
         assert_eq!(b, Some(vec![5, 3, 2]));
         // A 1-D operand is promoted for the contraction, then its axis removed.
         let v = infer_static_shape(&Op::MatMul, &[stat(&[3, 4]), stat(&[4])], &[None, None]);
@@ -3247,7 +3269,11 @@ mod tests {
             align_corners: false,
         };
         assert_eq!(
-            infer_static_shape(&op, &[stat(&[2, 8, 30, 40]), stat(&[2, 60, 80, 2])], &[None, None]),
+            infer_static_shape(
+                &op,
+                &[stat(&[2, 8, 30, 40]), stat(&[2, 60, 80, 2])],
+                &[None, None]
+            ),
             Some(vec![2, 8, 60, 80])
         );
     }
@@ -3278,7 +3304,10 @@ mod tests {
         // NonZero's output extent depends on the data, so no inference can resolve it.
         // Evaluating the node is the only thing that can, which is what the pass does
         // when the operand is known: see `nonzero_resolves_what_inference_cannot`.
-        assert_eq!(infer_static_shape(&Op::NonZero, &[stat(&[4, 4])], &[None]), None);
+        assert_eq!(
+            infer_static_shape(&Op::NonZero, &[stat(&[4, 4])], &[None]),
+            None
+        );
     }
 
     /// A `NonZero` whose operand is known, and a consumer that could not be shaped
@@ -3323,7 +3352,10 @@ mod tests {
 
         // Three non-zero positions, reported as one row of coordinates.
         assert_eq!(g.nodes[nz].shape, vec![Some(1), Some(3)]);
-        assert_eq!(folded.get(&nz).map(|v| v.shape.clone()), Some(vec![Some(1), Some(3)]));
+        assert_eq!(
+            folded.get(&nz).map(|v| v.shape.clone()),
+            Some(vec![Some(1), Some(3)])
+        );
         // And the consumer is shaped, which it could not be before.
         assert_eq!(g.nodes[t].shape, vec![Some(3), Some(1)]);
     }
@@ -3343,19 +3375,30 @@ mod tests {
             vec![Some(2), Some(3), Some(4)],
         );
         let shape = g.add_node(
-            Op::ShapeOf { start: 0, end: i64::MAX },
+            Op::ShapeOf {
+                start: 0,
+                end: i64::MAX,
+            },
             vec![x],
             DtypeRepr::I64,
             vec![],
         );
         let idx = g.add_node(
-            Op::Constant { dtype: DtypeRepr::I64, shape: vec![] },
+            Op::Constant {
+                dtype: DtypeRepr::I64,
+                shape: vec![],
+            },
             vec![],
             DtypeRepr::I64,
             vec![],
         );
         // Pick dimension 0 (= 2).
-        let dim = g.add_node(Op::Gather { axis: 0 }, vec![shape, idx], DtypeRepr::I64, vec![]);
+        let dim = g.add_node(
+            Op::Gather { axis: 0 },
+            vec![shape, idx],
+            DtypeRepr::I64,
+            vec![],
+        );
         let unsq = g.add_node(
             Op::Unsqueeze { axes: vec![0] },
             vec![dim],
@@ -3363,12 +3406,20 @@ mod tests {
             vec![],
         );
         let tail = g.add_node(
-            Op::Constant { dtype: DtypeRepr::I64, shape: vec![Some(1)] },
+            Op::Constant {
+                dtype: DtypeRepr::I64,
+                shape: vec![Some(1)],
+            },
             vec![],
             DtypeRepr::I64,
             vec![Some(1)],
         );
-        let target = g.add_node(Op::Concat { axis: 0 }, vec![unsq, tail], DtypeRepr::I64, vec![]);
+        let target = g.add_node(
+            Op::Concat { axis: 0 },
+            vec![unsq, tail],
+            DtypeRepr::I64,
+            vec![],
+        );
         // Reshape the activation to [2, -1], with the target computed above. Imported
         // with no shape at all, as an exporter leaves it.
         let rs = g.add_node(Op::Reshape, vec![x, target], DtypeRepr::F32, vec![]);
@@ -3419,21 +3470,36 @@ mod tests {
             DtypeRepr::I64,
             vec![Some(4)],
         );
-        let idx = g.add_node(Op::Constant {
-            dtype: DtypeRepr::I64,
-            shape: vec![],
-        }, vec![], DtypeRepr::I64, vec![]);
-        let dim = g.add_node(Op::Gather { axis: 0 }, vec![shape, idx], DtypeRepr::I64, vec![]);
+        let idx = g.add_node(
+            Op::Constant {
+                dtype: DtypeRepr::I64,
+                shape: vec![],
+            },
+            vec![],
+            DtypeRepr::I64,
+            vec![],
+        );
+        let dim = g.add_node(
+            Op::Gather { axis: 0 },
+            vec![shape, idx],
+            DtypeRepr::I64,
+            vec![],
+        );
         let unsq = g.add_node(
             Op::Unsqueeze { axes: vec![0] },
             vec![dim],
             DtypeRepr::I64,
             vec![Some(1)],
         );
-        let tail = g.add_node(Op::Constant {
-            dtype: DtypeRepr::I64,
-            shape: vec![Some(1)],
-        }, vec![], DtypeRepr::I64, vec![Some(1)]);
+        let tail = g.add_node(
+            Op::Constant {
+                dtype: DtypeRepr::I64,
+                shape: vec![Some(1)],
+            },
+            vec![],
+            DtypeRepr::I64,
+            vec![Some(1)],
+        );
         let cat = g.add_node(
             Op::Concat { axis: 0 },
             vec![unsq, tail],
@@ -3445,7 +3511,8 @@ mod tests {
         tensors.insert(idx, int_td(&[], &[2])); // gather dim 2 (= 480)
         tensors.insert(tail, int_td(&[1], &[-1]));
 
-        let (folded, report) = materialize_constants(&mut g, &tensors, &MaterializeConfig::default());
+        let (folded, report) =
+            materialize_constants(&mut g, &tensors, &MaterializeConfig::default());
 
         assert_eq!(report.folded, 4, "Shape, Gather, Unsqueeze and Concat fold");
         assert!(

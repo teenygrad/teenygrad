@@ -76,9 +76,7 @@ fn materialised_constants_clear_the_shape_operands() {
                 _ => dynamic_idx += 1,
             }
         }
-        println!(
-            "Gather nodes: {const_idx} with materialised indices, {dynamic_idx} dynamic"
-        );
+        println!("Gather nodes: {const_idx} with materialised indices, {dynamic_idx} dynamic");
         println!("  constant index counts: {idx_lens:?}");
     }
 
@@ -152,8 +150,8 @@ fn the_operand_driven_ops_lower() {
 
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
-    let (all, _, _) = materialize_and_resolve(&mut import, &MaterializeConfig::default())
-        .expect("resolve");
+    let (all, _, _) =
+        materialize_and_resolve(&mut import, &MaterializeConfig::default()).expect("resolve");
     let graph = &import.graph;
 
     let mut totals: std::collections::BTreeMap<&str, (usize, usize)> = Default::default();
@@ -253,9 +251,7 @@ fn the_operand_driven_ops_lower() {
                         "  e.g. {op} {:?} dtype {:?} in {:?} -> out {:?} operands {:?}",
                         graph.names.get(&i),
                         node.dtype,
-                        node.inputs
-                            .first()
-                            .map(|&s| graph.nodes[s].shape.clone()),
+                        node.inputs.first().map(|&s| graph.nodes[s].shape.clone()),
                         node.shape,
                         operands
                     );
@@ -301,8 +297,8 @@ fn the_operand_driven_ops_lower() {
 fn where_the_shapes_are_lost() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
-    let (_, _, _) = materialize_and_resolve(&mut import, &MaterializeConfig::default())
-        .expect("resolve");
+    let (_, _, _) =
+        materialize_and_resolve(&mut import, &MaterializeConfig::default()).expect("resolve");
     let graph = &import.graph;
 
     let label = |i: usize| -> String {
@@ -320,8 +316,9 @@ fn where_the_shapes_are_lost() {
 
     // The frontier: nodes with no shape whose inputs all have one. That is where
     // inference stopped, as opposed to everything downstream of it.
-    let has_shape =
-        |i: usize| !graph.nodes[i].shape.is_empty() && graph.nodes[i].shape.iter().all(Option::is_some);
+    let has_shape = |i: usize| {
+        !graph.nodes[i].shape.is_empty() && graph.nodes[i].shape.iter().all(Option::is_some)
+    };
     let mut frontier: std::collections::BTreeMap<String, usize> = Default::default();
     let mut examples: std::collections::BTreeMap<String, usize> = Default::default();
     for (i, node) in graph.nodes.iter().enumerate() {
@@ -353,7 +350,10 @@ fn where_the_shapes_are_lost() {
         .enumerate()
         .filter(|&(i, n)| !has_shape(i) && !n.inputs.is_empty())
         .count();
-    println!("nodes with no usable shape: {total_missing} of {}", graph.nodes.len());
+    println!(
+        "nodes with no usable shape: {total_missing} of {}",
+        graph.nodes.len()
+    );
 }
 
 /// The ranks `MatMul` is asked to handle.
@@ -367,8 +367,8 @@ fn where_the_shapes_are_lost() {
 fn matmul_ranks() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
-    let (_, _, _) = materialize_and_resolve(&mut import, &MaterializeConfig::default())
-        .expect("resolve");
+    let (_, _, _) =
+        materialize_and_resolve(&mut import, &MaterializeConfig::default()).expect("resolve");
     let graph = &import.graph;
 
     let mut by_rank: std::collections::BTreeMap<String, usize> = Default::default();
@@ -399,9 +399,8 @@ fn matmul_ranks() {
         if !matches!(node.op, Op::MatMul | Op::Gemm { .. }) {
             continue;
         }
-        let shape = |i: usize| -> Option<Vec<usize>> {
-            graph.nodes[i].shape.iter().copied().collect()
-        };
+        let shape =
+            |i: usize| -> Option<Vec<usize>> { graph.nodes[i].shape.iter().copied().collect() };
         let (Some(a), Some(b)) = (shape(node.inputs[0]), shape(node.inputs[1])) else {
             continue;
         };
@@ -437,14 +436,22 @@ fn matmul_ranks() {
             if s.is_empty() {
                 "?".to_string()
             } else {
-                format!("{:?}", s.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>())
+                format!(
+                    "{:?}",
+                    s.iter()
+                        .map(|d| d.map_or(-1i64, |v| v as i64))
+                        .collect::<Vec<_>>()
+                )
             }
         };
         let key = format!(
             "{} x {} -> {:?} {:?}",
             show(node.inputs[0]),
             show(node.inputs[1]),
-            node.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            node.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             node.op,
         );
         *shapes.entry(key).or_insert(0) += 1;
@@ -478,7 +485,9 @@ fn constant_of_shape_nodes() {
             .first()
             .map(|&s| format!("{:?}", graph.nodes[s].op))
             .unwrap_or_else(|| "none".into());
-        let operand = operand.split_once([' ', '{']).map_or(operand.clone(), |(h, _)| h.to_string());
+        let operand = operand
+            .split_once([' ', '{'])
+            .map_or(operand.clone(), |(h, _)| h.to_string());
         let key = format!(
             "folded={folded} dtype={dtype:?} shape={:?} elems={elems:?} fill={fill:?} ({fill_bytes}B) from={operand}",
             shape
@@ -527,7 +536,10 @@ fn logical_nodes() {
         let key = format!(
             "{op} out={:?} shape={:?} folded={} operands={operands:?}",
             node.dtype,
-            node.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            node.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             all.contains_key(&i)
         );
         *kinds.entry(key).or_insert(0) += 1;
@@ -558,10 +570,15 @@ fn nonzero_nodes() {
     let brief = |i: usize| -> String {
         let n = &graph.nodes[i];
         let op = format!("{:?}", n.op);
-        let op = op.split_once([' ', '{']).map_or(op.clone(), |(h, _)| h.to_string());
+        let op = op
+            .split_once([' ', '{'])
+            .map_or(op.clone(), |(h, _)| h.to_string());
         format!(
             "{op}[{:?}]{}",
-            n.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            n.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             if all.contains_key(&i) { "(const)" } else { "" }
         )
     };
@@ -570,7 +587,11 @@ fn nonzero_nodes() {
         if !matches!(node.op, Op::NonZero) {
             continue;
         }
-        let operand = node.inputs.first().copied().expect("NonZero has an operand");
+        let operand = node
+            .inputs
+            .first()
+            .copied()
+            .expect("NonZero has an operand");
         println!(
             "NonZero {} dtype={:?}  <- {}  -> {:?}",
             graph.names.get(&i).cloned().unwrap_or_default(),
@@ -622,10 +643,15 @@ fn gathernd_nodes() {
     let brief = |i: usize| -> String {
         let n = &graph.nodes[i];
         let op = format!("{:?}", n.op);
-        let op = op.split_once([' ', '{']).map_or(op.clone(), |(h, _)| h.to_string());
+        let op = op
+            .split_once([' ', '{'])
+            .map_or(op.clone(), |(h, _)| h.to_string());
         format!(
             "{op}{:?}{}",
-            n.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            n.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             if all.contains_key(&i) { "(const)" } else { "" }
         )
     };
@@ -651,7 +677,9 @@ fn gathernd_nodes() {
             "batch_dims={batch_dims} dtype={:?} operands={:?} values={values:?} -> {:?}",
             node.dtype,
             node.inputs.iter().map(|&s| brief(s)).collect::<Vec<_>>(),
-            readers.get(&i).map(|r| r.iter().map(|&c| brief(c)).collect::<Vec<_>>()),
+            readers
+                .get(&i)
+                .map(|r| r.iter().map(|&c| brief(c)).collect::<Vec<_>>()),
         );
         *kinds.entry(key).or_insert(0) += 1;
     }
@@ -674,7 +702,10 @@ fn remaining_nodes() {
         format!(
             "{:?}{:?}{}",
             n.dtype,
-            n.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            n.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             if all.contains_key(&i) { "(c)" } else { "" }
         )
     };
@@ -690,7 +721,10 @@ fn remaining_nodes() {
         let key = format!(
             "{tag}\n        operands={:?} out={:?}",
             node.inputs.iter().map(|&s| brief(s)).collect::<Vec<_>>(),
-            node.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            node.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
         );
         *kinds.entry(key).or_insert(0) += 1;
     }
@@ -726,11 +760,18 @@ fn split_nodes() {
                 .map(|&s| format!(
                     "{:?}{:?}{}",
                     graph.nodes[s].dtype,
-                    graph.nodes[s].shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+                    graph.nodes[s]
+                        .shape
+                        .iter()
+                        .map(|d| d.map_or(-1i64, |v| v as i64))
+                        .collect::<Vec<_>>(),
                     if all.contains_key(&s) { "(const)" } else { "" }
                 ))
                 .collect::<Vec<_>>(),
-            node.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            node.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             readers.get(&i).copied().unwrap_or(0),
         );
         *kinds.entry(key).or_insert(0) += 1;
@@ -754,7 +795,10 @@ fn scatter_nodes() {
         format!(
             "{:?}{:?}{}",
             n.dtype,
-            n.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            n.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             if all.contains_key(&i) { "(const)" } else { "" }
         )
     };
@@ -768,7 +812,10 @@ fn scatter_nodes() {
         let key = format!(
             "{tag} out={:?}{:?} operands={:?}",
             node.dtype,
-            node.shape.iter().map(|d| d.map_or(-1i64, |v| v as i64)).collect::<Vec<_>>(),
+            node.shape
+                .iter()
+                .map(|d| d.map_or(-1i64, |v| v as i64))
+                .collect::<Vec<_>>(),
             node.inputs.iter().map(|&s| brief(s)).collect::<Vec<_>>(),
         );
         *kinds.entry(key).or_insert(0) += 1;
@@ -826,7 +873,9 @@ fn what_still_does_not_lower() {
             continue;
         }
         let kind = format!("{:?}", node.op);
-        let kind = kind.split_once([' ', '{', '(']).map_or(kind.clone(), |(h, _)| h.to_string());
+        let kind = kind
+            .split_once([' ', '{', '('])
+            .map_or(kind.clone(), |(h, _)| h.to_string());
 
         let mut g = teeny_core::graph::Graph::new();
         let mut constants = ConstantMap::new();
@@ -928,8 +977,14 @@ fn which_elementwise_nodes_broadcast() {
         let operands: Vec<Vec<usize>> = node
             .inputs
             .iter()
-            .map(|&s| graph.nodes[s].shape.iter().copied().collect::<Option<Vec<_>>>()
-                .unwrap_or_default())
+            .map(|&s| {
+                graph.nodes[s]
+                    .shape
+                    .iter()
+                    .copied()
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap_or_default()
+            })
             .collect();
         if operands.iter().all(|s| *s == out) {
             continue;
@@ -1013,8 +1068,7 @@ fn what_a_run_would_cost() {
         }
     }
     let bytes_of = |i: usize| -> usize {
-        let Some(shape): Option<Vec<usize>> = graph.nodes[i].shape.iter().copied().collect()
-        else {
+        let Some(shape): Option<Vec<usize>> = graph.nodes[i].shape.iter().copied().collect() else {
             return 0;
         };
         shape.iter().product::<usize>() * width(graph.nodes[i].dtype)

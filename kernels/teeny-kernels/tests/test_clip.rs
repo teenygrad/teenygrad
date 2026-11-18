@@ -146,8 +146,14 @@ fn clip_lowers_with_operand_bounds() {
 
 #[test]
 fn clip_lowers_with_an_omitted_bound() {
-    assert_eq!(lower(Bounds::Operands(None, Some(6.0))).expect("max only"), 2);
-    assert_eq!(lower(Bounds::Operands(Some(0.0), None)).expect("min only"), 2);
+    assert_eq!(
+        lower(Bounds::Operands(None, Some(6.0))).expect("max only"),
+        2
+    );
+    assert_eq!(
+        lower(Bounds::Operands(Some(0.0), None)).expect("min only"),
+        2
+    );
     assert_eq!(lower(Bounds::Operands(None, None)).expect("neither"), 2);
 }
 

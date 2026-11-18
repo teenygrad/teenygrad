@@ -31,7 +31,10 @@ fn lower(op: Op, dtype: DtypeRepr, n: usize) -> anyhow::Result<usize> {
 fn all_three_lower_over_bools() {
     for op in [Op::And, Op::Or, Op::Xor] {
         let name = format!("{op:?}");
-        assert_eq!(lower(op, DtypeRepr::Bool, 8).unwrap_or_else(|e| panic!("{name}: {e}")), 3);
+        assert_eq!(
+            lower(op, DtypeRepr::Bool, 8).unwrap_or_else(|e| panic!("{name}: {e}")),
+            3
+        );
     }
 }
 
@@ -179,7 +182,9 @@ mod execution {
     fn a_longer_tensor_is_handled_whole() {
         let a: Vec<u8> = (0..3000).map(|i| u8::from(i % 3 == 0)).collect();
         let b: Vec<u8> = (0..3000).map(|i| u8::from(i % 5 == 0)).collect();
-        let want: Vec<u8> = (0..3000).map(|i| u8::from(i % 3 == 0 && i % 5 == 0)).collect();
+        let want: Vec<u8> = (0..3000)
+            .map(|i| u8::from(i % 3 == 0 && i % 5 == 0))
+            .collect();
         assert_eq!(run(Op::And, &a, &b), want);
     }
 }

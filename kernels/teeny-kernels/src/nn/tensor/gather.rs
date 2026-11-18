@@ -193,7 +193,10 @@ impl<D: FloatBytes + Send + Sync + 'static> GatherRuntimeOp<D> {
         let rank = in_shape.len() as i64;
         let axis_norm = if axis < 0 { axis + rank } else { axis };
         if axis_norm < 0 || axis_norm >= rank {
-            return Err(GatherError::AxisOutOfRange { axis, rank: rank as usize });
+            return Err(GatherError::AxisOutOfRange {
+                axis,
+                rank: rank as usize,
+            });
         }
         let ax = axis_norm as usize;
         let dim = in_shape[ax];

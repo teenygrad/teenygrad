@@ -121,11 +121,7 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
         );
         let coord = T::cast::<i64, i32>(coord, None, false);
         // ONNX counts a negative coordinate from the end of its own axis.
-        let wrapped = T::where_(
-            coord.lt(0),
-            extent,
-            T::full::<i32>(&[BLOCK_SIZE], 0),
-        );
+        let wrapped = T::where_(coord.lt(0), extent, T::full::<i32>(&[BLOCK_SIZE], 0));
         dst = dst + (coord + wrapped) * stride;
     }
 
@@ -139,7 +135,14 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(out_ptr.add_offsets(dst), v, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(dst),
+        v,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Forward: `ScatterElements`, one index per element along a single axis.
@@ -215,7 +218,14 @@ pub fn scatter_elements_forward<T, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(out_ptr.add_offsets(dst), v, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(dst),
+        v,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Dispatch for [`scatter_elements_forward`]: the copy pass, then the scatter pass.
@@ -414,7 +424,9 @@ impl<D: Num + Send + Sync + 'static> RuntimeOp for ScatterNdRuntimeOp<D> {
         // those elements however wide they are, while what goes in it here is i32.
         // Rounding up keeps the slot at least as large as the bytes written to it: an
         // I64 node would otherwise be handed half the bytes its slot expects.
-        vec![vec![self.meta_bytes().len().div_ceil(core::mem::size_of::<D>())]]
+        vec![vec![
+            self.meta_bytes().len().div_ceil(core::mem::size_of::<D>()),
+        ]]
     }
 
     fn param_names(&self) -> &'static [&'static str] {

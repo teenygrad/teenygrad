@@ -6,11 +6,11 @@
 
 #![cfg(feature = "cuda")]
 
+use teeny_core::device::Device as _;
+use teeny_core::device::buffer::Buffer;
 use teeny_core::model::RuntimeOp;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_cuda::errors::Result;
-use teeny_core::device::buffer::Buffer;
-use teeny_core::device::Device as _;
 use teeny_kernels::nn::tensor::tile::{TileForward, TileRuntimeOp};
 use teeny_test::cuda as testing;
 
@@ -106,9 +106,18 @@ fn check(in_shape: &[usize], repeats: &[i64]) -> Result<usize> {
 
     let bad: Vec<usize> = (0..n).filter(|&i| got[i] != want[i]).collect();
     if !bad.is_empty() {
-        println!("tile {in_shape:?} x {repeats:?}: {} of {n} wrong at {bad:?}", bad.len());
-        println!("  device idx = {:?}", got.iter().map(|v| v - 0.5).collect::<Vec<_>>());
-        println!("  want   idx = {:?}", want.iter().map(|v| v - 0.5).collect::<Vec<_>>());
+        println!(
+            "tile {in_shape:?} x {repeats:?}: {} of {n} wrong at {bad:?}",
+            bad.len()
+        );
+        println!(
+            "  device idx = {:?}",
+            got.iter().map(|v| v - 0.5).collect::<Vec<_>>()
+        );
+        println!(
+            "  want   idx = {:?}",
+            want.iter().map(|v| v - 0.5).collect::<Vec<_>>()
+        );
     } else {
         println!("tile {in_shape:?} x {repeats:?}: {n} elements exact");
     }
@@ -126,10 +135,7 @@ fn sweep_innermost_extent() -> Result<()> {
         let repeats = [2i64, 1];
         let n = 4 * inner;
         let wrong = check_quiet(&in_shape, &repeats)?;
-        println!(
-            "{inner:>12}  {n:>10}  {wrong:>5}   inner%4={}",
-            inner % 4
-        );
+        println!("{inner:>12}  {n:>10}  {wrong:>5}   inner%4={}", inner % 4);
     }
     Ok(())
 }
@@ -148,15 +154,41 @@ fn check_quiet(in_shape: &[usize], repeats: &[i64]) -> Result<usize> {
     let out_buf = device.buffer::<f32>(n)?;
     x_buf.to_device(&x)?;
     let kernel = TileForward::<f32>::new(BLOCK);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<TileForward<f32>>(&ptx)?;
     let grid = op.grid(&out_shape);
     let cfg = testing::launch_config_with_grid(grid[0] as usize, &program);
-    device.launch(&program, &cfg, (
-        x_buf.as_device_ptr(), out_buf.as_device_ptr(),
-        a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-        a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-    ))?;
+    device.launch(
+        &program,
+        &cfg,
+        (
+            x_buf.as_device_ptr(),
+            out_buf.as_device_ptr(),
+            a[0],
+            a[1],
+            a[2],
+            a[3],
+            a[4],
+            a[5],
+            a[6],
+            a[7],
+            a[8],
+            a[9],
+            a[10],
+            a[11],
+            a[12],
+            a[13],
+            a[14],
+            a[15],
+            a[16],
+            a[17],
+        ),
+    )?;
     let mut got = vec![0.0f32; n];
     out_buf.to_host(&mut got)?;
     Ok((0..n).filter(|&i| got[i] != want[i]).count())

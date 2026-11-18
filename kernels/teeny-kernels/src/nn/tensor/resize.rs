@@ -191,7 +191,14 @@ pub fn resize_forward<T, D: Num, const BLOCK_SIZE: i32>(
         acc = acc + v * w_a * w_b * w_c;
     }
 
-    T::store(out_ptr.add_offsets(p), acc, Some(in_bounds), &[], None, None);
+    T::store(
+        out_ptr.add_offsets(p),
+        acc,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// One resized axis, as the kernel reads it.

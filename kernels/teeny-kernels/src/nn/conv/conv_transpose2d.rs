@@ -121,10 +121,7 @@ pub fn conv_transpose2d_forward<T, D: Num, const BLOCK_SIZE: i32>(
             T::full::<i32>(&[BLOCK_SIZE], 1),
             T::full::<i32>(&[BLOCK_SIZE], 0),
         );
-        let ok = T::ne(
-            exact_h * exact_w,
-            T::full::<i32>(&[BLOCK_SIZE], 0),
-        );
+        let ok = T::ne(exact_h * exact_w, T::full::<i32>(&[BLOCK_SIZE], 0));
         let take = in_bounds
             .bitand(ok)
             .bitand(ih.ge(0))

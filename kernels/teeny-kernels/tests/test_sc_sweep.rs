@@ -1,6 +1,6 @@
 #![cfg(feature = "cuda")]
-use teeny_core::device::buffer::Buffer;
 use teeny_core::device::Device as _;
+use teeny_core::device::buffer::Buffer;
 use teeny_core::model::RuntimeOp;
 use teeny_cuda::compiler::{compile_kernel, target::Target};
 use teeny_cuda::errors::Result;
@@ -24,7 +24,12 @@ fn strided_copy_transpose_sweep() -> Result<()> {
     let env = testing::setup_cuda_env()?;
     let device = env.device;
     let kernel = StridedCopyForward::<f32>::new(1024);
-    let ptx = std::fs::read(compile_kernel(&kernel, &Target::new(env.capability), true, false)?)?;
+    let ptx = std::fs::read(compile_kernel(
+        &kernel,
+        &Target::new(env.capability),
+        true,
+        false,
+    )?)?;
     let program = testing::load_program_from_ptx::<StridedCopyForward<f32>>(&ptx)?;
 
     println!("rows(=inner out extent)  wrong");
@@ -43,11 +48,28 @@ fn strided_copy_transpose_sweep() -> Result<()> {
         x_buf.to_device(&x)?;
         let grid = op.grid(&out_shape);
         let cfg = testing::launch_config_with_grid(grid[0] as usize, &program);
-        device.launch(&program, &cfg, (
-            x_buf.as_device_ptr(), out_buf.as_device_ptr(),
-            a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7],
-            a[8], a[9], a[10], a[11], a[12], a[13],
-        ))?;
+        device.launch(
+            &program,
+            &cfg,
+            (
+                x_buf.as_device_ptr(),
+                out_buf.as_device_ptr(),
+                a[0],
+                a[1],
+                a[2],
+                a[3],
+                a[4],
+                a[5],
+                a[6],
+                a[7],
+                a[8],
+                a[9],
+                a[10],
+                a[11],
+                a[12],
+                a[13],
+            ),
+        )?;
         let mut got = vec![0.0f32; n];
         out_buf.to_host(&mut got)?;
         let wrong = (0..n).filter(|&i| got[i] != want[i]).count();

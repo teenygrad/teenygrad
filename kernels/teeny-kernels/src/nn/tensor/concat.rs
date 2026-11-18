@@ -82,10 +82,7 @@ impl<D: Num + Send + Sync + 'static> ConcatRuntimeOp<D> {
         let inner: usize = shape[self.axis + 1..].iter().product();
         let chunk = shape[self.axis] * inner;
         let total: usize = shapes.iter().map(|s| s[self.axis] * inner).sum();
-        let offset: usize = shapes[..which]
-            .iter()
-            .map(|s| s[self.axis] * inner)
-            .sum();
+        let offset: usize = shapes[..which].iter().map(|s| s[self.axis] * inner).sum();
         Block {
             outer,
             chunk,

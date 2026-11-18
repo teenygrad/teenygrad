@@ -78,12 +78,7 @@ fn a_bound_constant_reaches_the_output() {
         vec![Some(N)],
     );
     graph.names.insert(c_node, "folded_bias".to_string());
-    let _add = graph.add_node(
-        Op::Add,
-        vec![x_node, c_node],
-        DtypeRepr::F32,
-        vec![Some(N)],
-    );
+    let _add = graph.add_node(Op::Add, vec![x_node, c_node], DtypeRepr::F32, vec![Some(N)]);
 
     let mut constants = ConstantMap::new();
     constants.insert(c_node, f32_tensor(&[N], &c));
@@ -103,10 +98,7 @@ fn a_bound_constant_reaches_the_output() {
     // The constant is a real DAG node with a parameter slot, already populated from
     // `param_init_data`. Nothing binds it by hand, which is the point: it is visible
     // as a parameter but needs no checkpoint.
-    let slots: Vec<String> = model
-        .param_info_named()
-        .map(|(name, _, _)| name)
-        .collect();
+    let slots: Vec<String> = model.param_info_named().map(|(name, _, _)| name).collect();
     assert!(
         slots.iter().any(|s| s == "folded_bias.value"),
         "the constant should expose a named slot, got {slots:?}"
@@ -131,7 +123,10 @@ fn a_bound_constant_reaches_the_output() {
         }
     }
     println!("x + c: max |device - host| = {max:e}");
-    assert!(max < 1e-6, "constant did not arrive intact: {max:e}, got {out:?}");
+    assert!(
+        max < 1e-6,
+        "constant did not arrive intact: {max:e}, got {out:?}"
+    );
 }
 
 /// A constant whose bytes do not fill its shape is caught at lowering, not on the

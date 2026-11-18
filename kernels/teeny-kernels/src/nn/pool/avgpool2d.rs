@@ -133,10 +133,7 @@ pub fn avgpool2d_forward<
         T::minimum(
             ow_range * STRIDE_W - PAD_W + KW,
             T::full::<i32>(&[BLOCK_OW], W),
-        ) - T::maximum(
-            ow_range * STRIDE_W - PAD_W,
-            T::full::<i32>(&[BLOCK_OW], 0),
-        ),
+        ) - T::maximum(ow_range * STRIDE_W - PAD_W, T::full::<i32>(&[BLOCK_OW], 0)),
         T::full::<i32>(&[BLOCK_OW], 0),
     );
     let rows = T::maximum(
