@@ -19,6 +19,11 @@
 //! It is the one demo tool that reads from the outside world and writes nothing, so it is
 //! the only one the public demo exposes. [`declaration`] is what the model is told about
 //! it; [`weather`] is what actually runs when the model calls it.
+//!
+//! [`weather`] returns one more field than the model should see: `scene`, which carries what
+//! the web demo needs to paint the sky (local time, day or night, wind bearing, cloud cover).
+//! Pass the result through [`model_view`] before putting it in a `tool` message, or the model
+//! reads those numbers out loud.
 
 use serde_json::{Value, json};
 
@@ -68,8 +73,10 @@ pub fn weather(city: &str) -> anyhow::Result<Value> {
             ("longitude", &lon),
             (
                 "current",
-                "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+                "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,\
+                 weather_code,is_day,cloud_cover",
             ),
+            ("timezone", "auto"),
         ],
     )?;
     let now = &w["current"];
@@ -80,7 +87,31 @@ pub fn weather(city: &str) -> anyhow::Result<Value> {
         "conditions": conditions(now["weather_code"].as_u64().unwrap_or(999)),
         "humidity_percent": now["relative_humidity_2m"],
         "wind_kmh": now["wind_speed_10m"],
+        // Not for the model; see `model_view`.
+        "scene": {
+            "weather_code": now["weather_code"],
+            "is_day": now["is_day"],
+            "cloud_cover": now["cloud_cover"],
+            "wind_kmh": now["wind_speed_10m"],
+            "wind_from_deg": now["wind_direction_10m"],
+            // Local wall-clock at the city, e.g. "2026-11-18T05:00". The sky is painted from
+            // its hour, so a 5am answer about Hawaii gets a sunrise and not our own midnight.
+            "local_time": now["time"],
+            "utc_offset_seconds": w["utc_offset_seconds"],
+        },
     }))
+}
+
+/// The same result with `scene` removed: what goes back to the model.
+///
+/// The scene fields exist for the browser. Handing them to a 270M model just invites it to
+/// recite a wind bearing and a cloud-cover percentage nobody asked for.
+pub fn model_view(result: &Value) -> Value {
+    let mut v = result.clone();
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("scene");
+    }
+    v
 }
 
 /// A WMO weather code in words. The web demo also keys its icon off this text, so the

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FunctionGemma on RISC-V</title>
+<title>RISC-V Weather Station</title>
 <style>
   :root {
     --bg: #faf7f2;
@@ -32,9 +32,15 @@
       --good: #4ade80;
     }
   }
+  /* The sky sits behind everything and never takes a click. */
+  #sky {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    z-index: -1; pointer-events: none; display: block;
+  }
+
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
+    margin: 0; background: transparent; color: var(--ink);
     font-family: var(--sans); line-height: 1.5;
     display: flex; flex-direction: column; height: 100dvh;
   }
@@ -134,6 +140,35 @@
     font-family: var(--mono); font-size: 0.71rem; color: var(--ink-soft);
     display: flex; gap: 16px; flex-wrap: wrap; min-height: 1.1em;
   }
+  /* The sky decides the chrome, not the operating system: a page over a midnight blizzard
+     needs light text even if the visitor is in light mode, and vice versa. These come after
+     the dark-mode block on purpose, so they win. */
+  :root[data-sky="light"] {
+    --surface: rgba(255, 255, 255, 0.78);
+    --surface-2: rgba(255, 255, 255, 0.55);
+    --ink: #1b1915; --ink-soft: #5d5648;
+    --accent: #b23c08; --accent-ink: #ffffff;
+    --line: rgba(32, 28, 20, 0.14);
+    --good: #15803d;
+  }
+  :root[data-sky="dark"] {
+    --surface: rgba(16, 18, 26, 0.62);
+    --surface-2: rgba(255, 255, 255, 0.09);
+    --ink: #f4f1ea; --ink-soft: #bcb4a4;
+    --accent: #ffa64d; --accent-ink: #191410;
+    --line: rgba(255, 255, 255, 0.16);
+    --good: #6ee7a0;
+  }
+  header, footer, .bubble, .tool, .input-bar, .chip {
+    -webkit-backdrop-filter: blur(14px) saturate(1.1);
+    backdrop-filter: blur(14px) saturate(1.1);
+  }
+  header, footer { background: var(--surface); }
+  .empty h2, .empty p, .title { text-shadow: 0 1px 14px rgba(0, 0, 0, 0.18); }
+  :root[data-sky="light"] .empty h2,
+  :root[data-sky="light"] .empty p,
+  :root[data-sky="light"] .title { text-shadow: 0 1px 14px rgba(255, 255, 255, 0.5); }
+
   @media (max-width: 560px) {
     .bubble, .tool { max-width: 90%; }
     .subtitle { display: none; }
@@ -141,10 +176,11 @@
 </style>
 </head>
 <body>
+<canvas id="sky" aria-hidden="true"></canvas>
 <header>
   <div>
-    <div class="title">FunctionGemma on RISC-V</div>
-    <div class="subtitle">A 270M model running on a {{BOARD}} board, calling a real weather API</div>
+    <div class="title">RISC-V Weather Station</div>
+    <div class="subtitle">A 270M model on a {{BOARD}} board, calling a real weather API. The sky behind is the one it found.</div>
   </div>
   <div class="pill"><span class="dot" id="dot"></span><span id="status">checking the board</span></div>
 </header>
@@ -172,6 +208,512 @@
   </div>
   <div class="stats" id="stats"></div>
 </footer>
+
+<script>
+// The sky behind the page: a painted gradient for the hour and the weather, plus whatever is
+// falling out of it. Everything is driven by the `scene` block the board sends back with a
+// weather result, so what you see is the real sky over the city you asked about.
+//
+// One wind vector feeds every layer. A gale bends rain to a slant, drives snow sideways into a
+// whiteout, and tears clouds across the frame, without any layer knowing about the others.
+window.Sky = (function () {
+  "use strict";
+  var canvas = document.getElementById("sky");
+  var ctx = canvas.getContext("2d");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var W = 0, H = 0, area = 1;
+
+  // ---------------------------------------------------------------- palette
+
+  // Sky colours through the day as [hour, [top, middle, horizon]]. Between two entries we
+  // interpolate, so 05:00 in Hawaii really does land between pre-dawn and sunrise.
+  var HOURS = [
+    [0,    [[8, 12, 30],    [14, 20, 44],    [22, 28, 58]]],
+    [4.5,  [[18, 24, 56],   [48, 46, 86],    [104, 78, 102]]],
+    [6.5,  [[60, 86, 150],  [214, 126, 110], [250, 180, 120]]],
+    [8.5,  [[84, 140, 210], [150, 190, 235], [214, 228, 246]]],
+    [12,   [[58, 124, 208], [116, 176, 232], [196, 222, 246]]],
+    [16,   [[72, 130, 206], [142, 186, 232], [228, 224, 212]]],
+    [18.5, [[52, 74, 140],  [226, 122, 92],  [250, 176, 104]]],
+    [20.5, [[24, 32, 76],   [68, 58, 104],   [120, 78, 94]]],
+    [24,   [[8, 12, 30],    [14, 20, 44],    [22, 28, 58]]]
+  ];
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function mixRgb(a, b, t) {
+    return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+  }
+  function css(c, alpha) {
+    var s = Math.round(c[0]) + "," + Math.round(c[1]) + "," + Math.round(c[2]);
+    return alpha === undefined ? "rgb(" + s + ")" : "rgba(" + s + "," + alpha + ")";
+  }
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function smooth(e0, e1, x) {
+    var t = clamp((x - e0) / (e1 - e0), 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  function hourColors(hour) {
+    for (var i = 1; i < HOURS.length; i++) {
+      if (hour <= HOURS[i][0]) {
+        var a = HOURS[i - 1], b = HOURS[i];
+        var t = (hour - a[0]) / (b[0] - a[0]);
+        return [mixRgb(a[1][0], b[1][0], t), mixRgb(a[1][1], b[1][1], t), mixRgb(a[1][2], b[1][2], t)];
+      }
+    }
+    return HOURS[0][1];
+  }
+
+  // ------------------------------------------------------------------ state
+
+  // What the sky is currently doing. `cur` chases `target`, so a new city arrives as a
+  // dissolve rather than a cut.
+  var target = defaultScene();
+  var cur = {
+    top: [0, 0, 0], mid: [0, 0, 0], bot: [0, 0, 0],
+    rain: 0, snow: 0, fog: 0, cloud: 0, stars: 0, veil: 0, wind: 0, flash: 0
+  };
+  var started = false;
+
+  function defaultScene() {
+    // Before anyone has asked anything, show the visitor's own hour under a mild sky.
+    var d = new Date();
+    return build({ hour: d.getHours() + d.getMinutes() / 60, code: 1, isDay: null,
+                   cloud: 25, wind: 8, from: 240 });
+  }
+
+  // Turns the board's `scene` block into the numbers the layers actually use.
+  function build(s) {
+    var code = s.code;
+    var kind = "clear";
+    if (code >= 95) kind = "thunder";
+    else if (code >= 85 || (code >= 71 && code <= 77)) kind = "snow";
+    else if (code >= 80 || (code >= 61 && code <= 67)) kind = "rain";
+    else if (code >= 51) kind = "drizzle";
+    else if (code === 45 || code === 48) kind = "fog";
+    else if (code === 3) kind = "overcast";
+    else if (code >= 1) kind = "cloudy";
+
+    var hour = s.hour;
+    // Sun height from the hour, then corrected by the board's day/night flag, which knows
+    // about latitude and season in a way a bare clock does not.
+    var elev = Math.sin((hour - 6) / 12 * Math.PI);
+    if (s.isDay === 0 && elev > -0.05) elev = -0.05;
+    if (s.isDay === 1 && elev < 0.05) elev = 0.05;
+    var night = 1 - smooth(-0.06, 0.16, elev);
+
+    var cloud = clamp(s.cloud / 100, 0, 1);
+    if (kind === "overcast" || kind === "rain" || kind === "snow") cloud = Math.max(cloud, 0.85);
+    if (kind === "thunder") cloud = 1;
+    if (kind === "fog") cloud = Math.max(cloud, 0.7);
+
+    var c = hourColors(((hour % 24) + 24) % 24);
+    // Thick cloud flattens the gradient toward grey: slate by day, near-black at night.
+    var grey = mixRgb([142, 146, 152], [26, 28, 36], night);
+    var w = cloud * (kind === "thunder" ? 0.9 : 0.72);
+    var top = mixRgb(c[0], mixRgb(grey, [0, 0, 0], 0.15), w);
+    var mid = mixRgb(c[1], grey, w);
+    var bot = mixRgb(c[2], mixRgb(grey, [255, 255, 255], 0.12 * (1 - night)), w * 0.9);
+    if (kind === "thunder") { top = mixRgb(top, [18, 18, 28], 0.4); mid = mixRgb(mid, [34, 34, 46], 0.35); }
+    if (kind === "snow") {
+      top = mixRgb(top, [104, 112, 130], 0.45);
+      mid = mixRgb(mid, [132, 140, 156], 0.35);
+      bot = mixRgb(bot, [186, 192, 204], 0.3);
+    }
+    if (kind === "fog") {
+      var f = mixRgb([196, 200, 204], [40, 42, 50], night);
+      top = mixRgb(top, f, 0.6); mid = mixRgb(mid, f, 0.75); bot = mixRgb(bot, f, 0.85);
+    }
+
+    // Wind as a signed horizontal push. The API reports the bearing the wind comes from, so
+    // the direction it blows toward is that plus 180 degrees, and its eastward component
+    // decides which way everything leans.
+    //
+    // Taken literally, a wind blowing due north has no sideways component at all and a gale
+    // would fall straight down, which looks like a bug. So the bearing picks the side and
+    // most of the strength, and a share of the speed always leans the weather over.
+    var toward = (s.from + 180) * Math.PI / 180;
+    var east = Math.sin(toward);
+    var side = east >= 0 ? 1 : -1;
+    var push = side * s.wind * (0.45 + 0.55 * Math.abs(east));
+
+    return {
+      kind: kind, hour: hour, night: night, elev: elev,
+      top: top, mid: mid, bot: bot,
+      rain: kind === "rain" ? 1 : kind === "drizzle" ? 0.45 : kind === "thunder" ? 1 : 0,
+      snow: kind === "snow" ? 1 : 0,
+      fog: kind === "fog" ? 1 : 0,
+      cloud: cloud,
+      stars: night * (1 - cloud) * (1 - clamp(s.cloud / 100, 0, 1) * 0.5),
+      // A storm you can barely see through: wind plus falling snow takes the view away.
+      veil: kind === "snow" ? clamp(Math.abs(s.wind) / 90, 0, 1) * 0.26 : 0,
+      wind: push, gust: Math.abs(push),
+      thunder: kind === "thunder"
+    };
+  }
+
+  // ------------------------------------------------------------- particles
+
+  var rain = [], snow = [], fogs = [], clouds = [], stars = [], gusts = [];
+
+  function seed() {
+    var n = function (per, cap) { return Math.min(Math.round(per * area), cap); };
+    rain = []; snow = []; fogs = []; clouds = []; stars = []; gusts = [];
+    var i;
+    for (i = 0; i < n(760, 1300); i++) rain.push(newDrop(true));
+    for (i = 0; i < n(620, 1200); i++) snow.push(newFlake(true));
+    for (i = 0; i < n(14, 26); i++) fogs.push(newFog());
+    for (i = 0; i < n(9, 16); i++) clouds.push(newCloud(true));
+    for (i = 0; i < n(130, 260); i++) {
+      stars.push({ x: Math.random() * W, y: Math.random() * H * 0.72,
+                   r: Math.random() * 1.1 + 0.3, p: Math.random() * 6.28,
+                   s: 0.6 + Math.random() * 1.6 });
+    }
+    for (i = 0; i < n(26, 48); i++) gusts.push(newGust());
+  }
+
+  // Puts a particle back into play. Leaving the bottom means a new one at the top; leaving
+  // the side means one entering from the windward edge, which is what keeps a sideways
+  // blizzard looking continuous instead of draining away downwind.
+  function recycle(p, vx, m) {
+    if (p.y > H + m) { p.y = -m; p.x = Math.random() * W; return; }
+    p.y = Math.random() * H;
+    p.x = vx >= 0 ? -m - Math.random() * W * 0.1 : W + m + Math.random() * W * 0.1;
+  }
+
+  function newDrop(anywhere) {
+    return { x: Math.random() * W * 1.6 - W * 0.3,
+             y: anywhere ? Math.random() * H : -20,
+             v: 760 + Math.random() * 620, len: 0.012 + Math.random() * 0.016,
+             a: 0.22 + Math.random() * 0.4 };
+  }
+  function newFlake(anywhere) {
+    return { x: Math.random() * W * 1.6 - W * 0.3,
+             y: anywhere ? Math.random() * H : -14,
+             v: 34 + Math.random() * 86, r: 0.7 + Math.random() * 1.9,
+             p: Math.random() * 6.28, sway: 8 + Math.random() * 22,
+             a: 0.45 + Math.random() * 0.5 };
+  }
+  function newFog() {
+    return { x: Math.random() * W * 1.4 - W * 0.2, y: H * (0.3 + Math.random() * 0.8),
+             r: H * (0.18 + Math.random() * 0.3), a: 0.05 + Math.random() * 0.1,
+             v: 0.3 + Math.random() * 0.9 };
+  }
+  function newCloud(anywhere) {
+    var puffs = [], n = 4 + Math.floor(Math.random() * 4);
+    for (var i = 0; i < n; i++) {
+      puffs.push({ dx: (Math.random() - 0.5) * 1.8, dy: (Math.random() - 0.5) * 0.5,
+                   r: 0.45 + Math.random() * 0.6 });
+    }
+    return { x: anywhere ? Math.random() * W * 1.4 - W * 0.2 : -W * 0.3,
+             y: H * (0.02 + Math.random() * 0.42),
+             s: H * (0.06 + Math.random() * 0.11), a: 0.3 + Math.random() * 0.5,
+             v: 0.05 + Math.random() * 0.1, puffs: puffs };
+  }
+  function newGust() {
+    return { x: Math.random() * W, y: Math.random() * H * 0.9,
+             len: 40 + Math.random() * 180, a: 0.02 + Math.random() * 0.06,
+             v: 0.9 + Math.random() * 0.8 };
+  }
+
+  // ---------------------------------------------------------------- drawing
+
+  function resize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    area = (W * H) / (1280 * 720);
+    seed();
+  }
+
+  function drawSky() {
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, css(cur.top));
+    g.addColorStop(0.55, css(cur.mid));
+    g.addColorStop(1, css(cur.bot));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawStars(t) {
+    if (cur.stars < 0.02) return;
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      var tw = 0.55 + 0.45 * Math.sin(t * s.s + s.p);
+      ctx.fillStyle = "rgba(255,255,255," + (cur.stars * tw * 0.9).toFixed(3) + ")";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  // The sun, or the moon after it sets, tracked along the hour arc and dimmed by cloud.
+  function drawDisc() {
+    var hour = target.hour;
+    var day = target.elev > -0.02;
+    var h = day ? hour : (hour + 12) % 24;
+    var frac = (h - 6) / 12;
+    if (frac < -0.08 || frac > 1.08) return;
+    var x = W * clamp(frac, -0.05, 1.05);
+    var y = H * 0.82 - Math.sin(clamp(frac, 0, 1) * Math.PI) * H * 0.66;
+    // Gone well before full overcast: a hard-edged disc behind a rain sky looks wrong.
+    var vis = clamp(1 - cur.cloud * 1.3, 0, 1) * clamp(1 - cur.fog * 1.4, 0, 1);
+    if (vis < 0.03) return;
+    var r = day ? H * 0.045 : H * 0.03;
+    var warm = day && (frac < 0.14 || frac > 0.86);
+    var body = day ? (warm ? [255, 198, 128] : [255, 246, 214]) : [226, 230, 244];
+
+    var glow = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * (day ? 8 : 4.5));
+    glow.addColorStop(0, css(body, 0.5 * vis));
+    glow.addColorStop(0.35, css(body, 0.14 * vis));
+    glow.addColorStop(1, css(body, 0));
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = css(body, clamp(vis * 1.5, 0, 0.95));
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 6.2832);
+    ctx.fill();
+  }
+
+  function drawClouds(dt, windPx) {
+    if (cur.cloud < 0.03) return;
+    var lit = 1 - target.night;
+    var body = mixRgb([48, 50, 60], [252, 252, 255], lit);
+    var dark = mixRgb([22, 24, 32], [196, 202, 214], lit);
+    // A full deck is a rain cloud, not a fair-weather one.
+    var heavy = mixRgb([38, 40, 48], [122, 126, 136], lit);
+    body = mixRgb(body, heavy, cur.cloud * 0.7);
+    dark = mixRgb(dark, mixRgb(heavy, [0, 0, 0], 0.3), cur.cloud * 0.6);
+    for (var i = 0; i < clouds.length; i++) {
+      var c = clouds[i];
+      c.x += (windPx * 0.1 + 6 * (windPx >= 0 ? 1 : -1)) * c.v * dt;
+      var span = c.s * 2.6;
+      if (c.x > W + span) c.x = -span;
+      if (c.x < -span) c.x = W + span;
+      var a = c.a * cur.cloud;
+      for (var j = 0; j < c.puffs.length; j++) {
+        var p = c.puffs[j];
+        var px = c.x + p.dx * c.s, py = c.y + p.dy * c.s, pr = p.r * c.s;
+        var g = ctx.createRadialGradient(px, py - pr * 0.3, pr * 0.1, px, py, pr);
+        g.addColorStop(0, css(body, a * 0.55));
+        g.addColorStop(0.6, css(mixRgb(body, dark, 0.5), a * 0.3));
+        g.addColorStop(1, css(dark, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, pr, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawRain(dt, windPx) {
+    if (cur.rain < 0.02) return;
+    var count = Math.round(rain.length * cur.rain);
+    ctx.lineCap = "round";
+    for (var i = 0; i < count; i++) {
+      var d = rain[i];
+      var vx = windPx * 1.5, vy = d.v;
+      d.x += vx * dt; d.y += vy * dt;
+      if (d.y > H + 20 || d.x < -W * 0.1 || d.x > W * 1.1) { recycle(d, vx, 20); continue; }
+      ctx.strokeStyle = "rgba(196,214,238," + (d.a * cur.rain).toFixed(3) + ")";
+      ctx.lineWidth = 1 + d.len * 20;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - vx * d.len, d.y - vy * d.len);
+      ctx.stroke();
+    }
+  }
+
+  function drawSnow(dt, windPx, t) {
+    if (cur.snow < 0.02) return;
+    var count = Math.round(snow.length * cur.snow);
+    for (var i = 0; i < count; i++) {
+      var f = snow[i];
+      // Flakes are light, so they take the wind almost completely, and wander besides.
+      var vx = windPx * 1.25 + Math.sin(t * 1.4 + f.p) * f.sway;
+      f.x += vx * dt; f.y += f.v * dt;
+      if (f.y > H + 12 || f.x < -W * 0.1 || f.x > W * 1.1) { recycle(f, vx, 12); continue; }
+      ctx.fillStyle = "rgba(255,255,255," + (f.a * cur.snow).toFixed(3) + ")";
+      // Past a certain speed a flake is a streak, not a dot. This is most of what makes a
+      // blizzard read as a blizzard.
+      var smear = clamp((Math.abs(vx) - 150) / 700, 0, 1);
+      if (smear > 0.05) {
+        // Thin and uneven: a fat uniform dash reads as a row of pills, not as driven snow.
+        var trail = 0.028 + f.r * 0.016;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "rgba(255,255,255," + (f.a * cur.snow * 0.8).toFixed(3) + ")";
+        ctx.lineWidth = Math.max(0.7, f.r * 0.8);
+        ctx.beginPath();
+        ctx.moveTo(f.x, f.y);
+        ctx.lineTo(f.x - vx * trail * smear, f.y - f.v * trail * smear);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawFog(dt, windPx) {
+    if (cur.fog < 0.02) return;
+    var tone = mixRgb([214, 218, 222], [44, 48, 58], target.night);
+    for (var i = 0; i < fogs.length; i++) {
+      var f = fogs[i];
+      f.x += (windPx * 0.3 + 8 * (windPx >= 0 ? 1 : -1)) * f.v * dt;
+      if (f.x > W + f.r) f.x = -f.r;
+      if (f.x < -f.r) f.x = W + f.r;
+      var g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+      g.addColorStop(0, css(tone, f.a * cur.fog * 2.2));
+      g.addColorStop(1, css(tone, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  // Above about 35 km/h the air itself becomes visible: thin streaks tearing past.
+  function drawGusts(dt, windPx) {
+    var strength = clamp((Math.abs(cur.wind) - 25) / 45, 0, 1);
+    if (strength < 0.02) return;
+    var lum = (cur.mid[0] * 0.299 + cur.mid[1] * 0.587 + cur.mid[2] * 0.114) / 255;
+    var tone = lum > 0.55 ? "90,96,110" : "255,255,255";
+    for (var i = 0; i < gusts.length; i++) {
+      var g = gusts[i];
+      g.x += windPx * 1.6 * g.v * dt;
+      if (g.x > W + g.len) { g.x = -g.len; g.y = Math.random() * H * 0.9; }
+      if (g.x < -g.len) { g.x = W + g.len; g.y = Math.random() * H * 0.9; }
+      ctx.strokeStyle = "rgba(" + tone + "," + (g.a * strength).toFixed(3) + ")";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(g.x, g.y);
+      ctx.lineTo(g.x - Math.sign(windPx || 1) * g.len, g.y);
+      ctx.stroke();
+    }
+  }
+
+  var nextBolt = 2 + Math.random() * 5;
+  function drawLightning(dt) {
+    if (target.thunder && !reduce) {
+      nextBolt -= dt;
+      if (nextBolt <= 0) { cur.flash = 1; nextBolt = 2.5 + Math.random() * 7; }
+    }
+    if (cur.flash <= 0.01) { cur.flash = 0; return; }
+    cur.flash = Math.max(0, cur.flash - dt * 3.2);
+    // Two quick pulses, the way real lightning reads on a cloudy sky.
+    var pulse = cur.flash * (0.55 + 0.45 * Math.sin(cur.flash * 22));
+    ctx.fillStyle = "rgba(226,234,255," + (pulse * 0.4).toFixed(3) + ")";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawVeil() {
+    if (cur.veil < 0.01) return;
+    ctx.fillStyle = "rgba(236,240,248," + cur.veil.toFixed(3) + ")";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ------------------------------------------------------------------- loop
+
+  function chase(dt) {
+    var k = 1 - Math.exp(-dt * 1.6);
+    cur.top = mixRgb(cur.top, target.top, k);
+    cur.mid = mixRgb(cur.mid, target.mid, k);
+    cur.bot = mixRgb(cur.bot, target.bot, k);
+    ["rain", "snow", "fog", "cloud", "stars", "veil", "wind"].forEach(function (f) {
+      cur[f] = lerp(cur[f], target[f], k);
+    });
+  }
+
+  function render(dt, t) {
+    // One wind number for every layer, in pixels per second, with slow gusting on top.
+    var gust = 1 + 0.3 * Math.sin(t * 0.37) + 0.16 * Math.sin(t * 1.13 + 1.7);
+    var windPx = cur.wind * 9 * gust;
+
+    drawSky();
+    drawStars(t);
+    drawDisc();
+    drawClouds(dt, windPx);
+    drawFog(dt, windPx);
+    drawRain(dt, windPx);
+    drawSnow(dt, windPx, t);
+    drawGusts(dt, windPx);
+    drawVeil();
+    drawLightning(dt);
+  }
+
+  var last = 0;
+  function frame(now) {
+    var t = now / 1000;
+    var dt = Math.min(last ? t - last : 0.016, 0.05);
+    last = t;
+    chase(dt);
+    render(dt, t);
+    requestAnimationFrame(frame);
+  }
+
+  // Reduced motion gets the same sky, held still: the weather is information, not decoration,
+  // so it still has to change when a new city arrives. It just never moves.
+  function still() {
+    cur.top = target.top.slice(); cur.mid = target.mid.slice(); cur.bot = target.bot.slice();
+    ["rain", "snow", "fog", "cloud", "stars", "veil", "wind"].forEach(function (f) {
+      cur[f] = target[f];
+    });
+    cur.flash = 0;
+    render(0, 6);
+    applyContrast();
+  }
+
+  // Keeps the page chrome readable: the tokens flip with the sky, not with the OS theme.
+  function applyContrast() {
+    var lum = (cur.mid[0] * 0.299 + cur.mid[1] * 0.587 + cur.mid[2] * 0.114) / 255;
+    document.documentElement.setAttribute("data-sky", lum < 0.5 ? "dark" : "light");
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    resize();
+    if (reduce) { still(); return; }
+    cur.top = target.top.slice(); cur.mid = target.mid.slice(); cur.bot = target.bot.slice();
+    cur.cloud = target.cloud; cur.stars = target.stars;
+    applyContrast();
+    setInterval(applyContrast, 400);
+    requestAnimationFrame(frame);
+  }
+
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { resize(); if (reduce && started) still(); }, 160);
+  });
+
+  return {
+    start: start,
+    // Called with the whole tool result. A result without a scene block (an error, say)
+    // leaves the sky as it is.
+    apply: function (data) {
+      if (!data || !data.scene) return;
+      var s = data.scene;
+      var hour = 12;
+      var m = /T(\d{2}):(\d{2})/.exec(s.local_time || "");
+      if (m) hour = Number(m[1]) + Number(m[2]) / 60;
+      target = build({
+        hour: hour,
+        code: Number(s.weather_code),
+        isDay: s.is_day === null || s.is_day === undefined ? null : Number(s.is_day),
+        cloud: Number(s.cloud_cover) || 0,
+        wind: Number(s.wind_kmh) || 0,
+        from: Number(s.wind_from_deg) || 0
+      });
+      nextBolt = 0.6;
+      if (reduce) { if (started) still(); } 
+    }
+  };
+})();
+
+</script>
 
 <script>
 (function () {
@@ -315,7 +857,11 @@
 
     const grid = document.createElement("div");
     grid.className = "result-grid";
-    [["humidity", data.humidity_percent + "%"], ["wind", data.wind_kmh + " km/h"]]
+    const metrics = [["humidity", data.humidity_percent + "%"],
+                     ["wind", data.wind_kmh + " km/h" + bearing(data)]];
+    const clock = localClock(data);
+    if (clock) metrics.push(["local time", clock]);
+    metrics
       .forEach(function (pair) {
         const m = document.createElement("div");
         m.className = "metric";
@@ -331,6 +877,22 @@
       });
     card.result.appendChild(grid);
     scroll();
+  }
+
+  // "2026-11-18T05:00" as it reads on a clock in that city. This is why the sky looks the
+  // way it does, so it is worth showing next to the temperature.
+  function localClock(data) {
+    const t = data.scene && data.scene.local_time;
+    const m = t && /T(\d{2}:\d{2})/.exec(t);
+    return m ? m[1] : "";
+  }
+
+  // The compass point the wind blows from, for the card.
+  function bearing(data) {
+    const deg = data.scene && data.scene.wind_from_deg;
+    if (deg === undefined || deg === null) return "";
+    const pts = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    return " from " + pts[Math.round(Number(deg) / 45) % 8];
   }
 
   function showStats(s) {
@@ -406,6 +968,8 @@
             card = addToolCard(ev.name, ev.args);
           } else if (ev.type === "tool_result") {
             if (card) fillResult(card, ev.result);
+            // The whole point of the page: repaint the sky as the city the model just looked up.
+            window.Sky.apply(ev.result);
           } else if (ev.type === "reply_start") {
             bubble = null;
             reply = "";
@@ -451,6 +1015,7 @@
     dot.className = "dot off";
   });
   q.focus();
+  window.Sky.start();
 })();
 </script>
 </body>

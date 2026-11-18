@@ -404,7 +404,12 @@ fn handle_chat(
                 stream,
                 &json!({"type": "tool_result", "name": call.name, "result": result}),
             )?;
-            messages.push(json!({"role": "tool", "name": call.name, "content": result}));
+            // The browser got the whole result above, scene and all; the model gets the
+            // visitor-facing fields only.
+            messages.push(json!({
+                "role": "tool", "name": call.name,
+                "content": teeny_gemma::tools::model_view(&result),
+            }));
         }
         event(stream, &json!({"type": "reply_start"}))?;
     }

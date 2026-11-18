@@ -104,6 +104,7 @@ fn run_tool(name: &str, args: &Value) -> Option<Value> {
     };
     Some(match name {
         "get_weather" => teeny_gemma::tools::weather(&text("city")?)
+            .map(|r| teeny_gemma::tools::model_view(&r))
             .unwrap_or_else(|e| json!({"error": e.to_string()})),
         "set_timer" => {
             let minutes: f64 = text("minutes")?.trim().parse().ok()?;
