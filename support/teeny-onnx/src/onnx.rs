@@ -22,7 +22,7 @@ use std::{
 };
 
 use protobuf::{CodedInputStream, Enum, Message};
-use teeny_core::graph::{DtypeRepr, Graph, Op, Shape};
+use teeny_core::graph::{DtypeRepr, Graph, Op, Shape, SoftmaxAxis};
 
 use crate::{
     errors::{Error, Result},
@@ -810,6 +810,22 @@ fn get_attr_string<'a>(node: &'a NodeProto, name: &str, default: &'a str) -> &'a
         .unwrap_or(default)
 }
 
+/// A `Softmax`/`LogSoftmax` node's axis and what it means, which both depend on the
+/// file's opset.
+///
+/// Opset 13 changed the default axis from 1 to -1, and changed what the axis names:
+/// before it, everything from the axis on was flattened into one row and normalized
+/// together; from it, only the named axis is, as in PyTorch. Reading an older file the
+/// new way normalizes over the wrong elements, and only a last-axis softmax, where the
+/// two agree, would show nothing.
+fn softmax_axis(node: &NodeProto, opset: i64) -> (i64, SoftmaxAxis) {
+    if opset >= 13 {
+        (get_attr_int(node, "axis", -1), SoftmaxAxis::Single)
+    } else {
+        (get_attr_int(node, "axis", 1), SoftmaxAxis::FlattenFrom)
+    }
+}
+
 fn map_node_op(
     node: &NodeProto,
     initializers: &BTreeMap<&str, &TensorProto>,
@@ -825,14 +841,11 @@ fn map_node_op(
         "Add" => Op::Add,
         "Flatten" => Op::Flatten,
         "Softmax" => {
-            // ONNX changed the default in opset 13, from 1 to -1, so the file's own
-            // opset decides what an absent attribute means. The axis is kept as
-            // written: a negative one is resolved against the rank at lowering, where
-            // the rank is known, and clamping it to 0 normalized the wrong axis.
-            let default = if opset >= 13 { -1 } else { 1 };
-            Op::Softmax {
-                dim: get_attr_int(node, "axis", default),
-            }
+            // The axis is kept as written: a negative one is resolved against the rank
+            // at lowering, where the rank is known, and clamping it to 0 normalized the
+            // wrong axis.
+            let (dim, mode) = softmax_axis(node, opset);
+            Op::Softmax { dim, mode }
         }
 
         "Conv" => {
@@ -1167,9 +1180,10 @@ fn map_node_op(
             threshold: 20.0,
         },
         "Softsign" => Op::Softsign,
-        "LogSoftmax" => Op::LogSoftmax {
-            axis: get_attr_int(node, "axis", -1),
-        },
+        "LogSoftmax" => {
+            let (axis, mode) = softmax_axis(node, opset);
+            Op::LogSoftmax { axis, mode }
+        }
         "Hardmax" => Op::Hardmax {
             axis: get_attr_int(node, "axis", -1),
         },
@@ -2112,5 +2126,79 @@ mod split_expansion_tests {
         );
         assert_eq!(import.graph.nodes[a].shape, vec![Some(2), Some(1)]);
         assert_eq!(import.graph.nodes[b].shape, vec![Some(2), Some(4)]);
+    }
+}
+
+#[cfg(test)]
+mod softmax_import_tests {
+    use super::*;
+    use crate::onnx::onnx_proto3::AttributeProto;
+
+    fn node(op_type: &str, axis: Option<i64>) -> NodeProto {
+        let mut n = NodeProto::new();
+        n.op_type = op_type.to_string();
+        n.input.push("x".to_string());
+        n.output.push("y".to_string());
+        if let Some(axis) = axis {
+            let mut a = AttributeProto::new();
+            a.name = "axis".to_string();
+            a.i = axis;
+            n.attribute.push(a);
+        }
+        n
+    }
+
+    /// `(axis, mode)` of the op `op_type` maps to at `opset`.
+    fn softmax_of(op_type: &str, axis: Option<i64>, opset: i64) -> (i64, SoftmaxAxis) {
+        match map_node_op(&node(op_type, axis), &BTreeMap::new(), opset).unwrap() {
+            Op::Softmax { dim, mode } => (dim, mode),
+            Op::LogSoftmax { axis, mode } => (axis, mode),
+            other => panic!("{op_type} mapped to {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opset_13_and_later_default_to_the_last_axis_alone() {
+        for op in ["Softmax", "LogSoftmax"] {
+            assert_eq!(softmax_of(op, None, 13), (-1, SoftmaxAxis::Single), "{op}");
+            assert_eq!(softmax_of(op, None, 21), (-1, SoftmaxAxis::Single), "{op}");
+        }
+    }
+
+    #[test]
+    fn before_opset_13_the_default_is_axis_1_flattened() {
+        for op in ["Softmax", "LogSoftmax"] {
+            assert_eq!(
+                softmax_of(op, None, 11),
+                (1, SoftmaxAxis::FlattenFrom),
+                "{op}"
+            );
+            assert_eq!(
+                softmax_of(op, None, 12),
+                (1, SoftmaxAxis::FlattenFrom),
+                "{op}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_written_axis_is_kept_negative_included() {
+        for op in ["Softmax", "LogSoftmax"] {
+            assert_eq!(
+                softmax_of(op, Some(-2), 17),
+                (-2, SoftmaxAxis::Single),
+                "{op}"
+            );
+            assert_eq!(
+                softmax_of(op, Some(2), 17),
+                (2, SoftmaxAxis::Single),
+                "{op}"
+            );
+            assert_eq!(
+                softmax_of(op, Some(-1), 9),
+                (-1, SoftmaxAxis::FlattenFrom),
+                "{op}"
+            );
+        }
     }
 }

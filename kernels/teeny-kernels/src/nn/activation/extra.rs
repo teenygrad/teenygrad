@@ -775,10 +775,16 @@ pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
     let row_offset = pid * n_cols;
     let col_offsets = T::arange(0, BLOCK_SIZE);
     let offsets = col_offsets + row_offset;
+
+    // As in the forward pass, the lanes past `n_cols` belong to the next row, or to
+    // nothing on the last one. They load as zero, which adds nothing to the row's sum,
+    // and are never stored.
+    let in_row = col_offsets.lt(n_cols);
+    let zero = T::full(&[BLOCK_SIZE], 0.0f32);
     let dy = T::load(
         dy_ptr.add_offsets(offsets),
-        None,
-        None,
+        Some(in_row),
+        Some(zero),
         &[],
         None,
         None,
@@ -787,8 +793,8 @@ pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
     );
     let y = T::load(
         y_ptr.add_offsets(offsets),
-        None,
-        None,
+        Some(in_row),
+        Some(zero),
         &[],
         None,
         None,
@@ -799,7 +805,14 @@ pub fn log_softmax_backward<T: Triton, const BLOCK_SIZE: i32>(
     let sm = T::exp(y);
     let sum_dy = T::sum(dy, Some(0), true);
     let dx = dy - sm * sum_dy;
-    T::store(dx_ptr.add_offsets(offsets), dx, None, &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_row),
+        &[],
+        None,
+        None,
+    );
 }
 
 impl teeny_core::model::RuntimeOp for LogSoftmaxForward {

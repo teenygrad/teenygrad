@@ -19,7 +19,7 @@
 //! transpose needs every extent, because it has to copy the tensor. The traced MNIST
 //! graph, `[None, 10]` into a softmax, was refused before this.
 
-use teeny_core::graph::{DtypeRepr, Graph, Op, Shape};
+use teeny_core::graph::{DtypeRepr, Graph, Op, Shape, SoftmaxAxis};
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
 
@@ -37,7 +37,16 @@ fn lower(g: &Graph) -> anyhow::Result<usize> {
 
 #[test]
 fn an_innermost_softmax_lowers_with_a_dynamic_batch() {
-    for op in [Op::Softmax { dim: -1 }, Op::LogSoftmax { axis: 1 }] {
+    for op in [
+        Op::Softmax {
+            dim: -1,
+            mode: SoftmaxAxis::Single,
+        },
+        Op::LogSoftmax {
+            axis: 1,
+            mode: SoftmaxAxis::Single,
+        },
+    ] {
         let shape: Shape = vec![None, Some(10)];
         let g = unary(op.clone(), shape.clone(), shape);
         // The input and the softmax: no transposes around it.
@@ -62,7 +71,14 @@ fn an_innermost_reduction_lowers_with_a_dynamic_batch() {
 #[test]
 fn an_outer_softmax_with_a_dynamic_extent_still_asks_for_one() {
     let shape: Shape = vec![None, Some(3), Some(10)];
-    let g = unary(Op::Softmax { dim: 1 }, shape.clone(), shape);
+    let g = unary(
+        Op::Softmax {
+            dim: 1,
+            mode: SoftmaxAxis::Single,
+        },
+        shape.clone(),
+        shape,
+    );
     let err = lower(&g)
         .map(|_| ())
         .expect_err("the transpose needs every extent");

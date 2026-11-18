@@ -1247,6 +1247,22 @@ impl core::fmt::Debug for CustomData {
     }
 }
 
+/// How a softmax-family op's axis picks the elements normalized together.
+///
+/// ONNX changed this in opset 13. Before it, `Softmax`/`LogSoftmax` coerced the input to
+/// `[prod(shape[..axis]), prod(shape[axis..])]` and normalized each row, so everything
+/// from `axis` on was one group. From opset 13, as in PyTorch, only the named axis is.
+/// The two agree when `axis` is the last one and differ everywhere else, so an importer
+/// has to say which it read.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum SoftmaxAxis {
+    /// Normalize along the named axis alone (PyTorch; ONNX opset 13 and later).
+    #[default]
+    Single,
+    /// Normalize everything from the named axis on as one row (ONNX before opset 13).
+    FlattenFrom,
+}
+
 /// A single computational-graph operation. Each variant corresponds to one `nn` layer or
 /// primitive op; variant fields are that op's configuration (mirroring the corresponding
 /// `nn::*` layer struct's fields).
@@ -1798,6 +1814,9 @@ pub enum Op {
         /// rank is known. Clamping a negative axis to 0 would silently normalize the
         /// wrong axis.
         dim: i64,
+        /// Whether `dim` names one axis or the first of a flattened row; see
+        /// [`SoftmaxAxis`].
+        mode: SoftmaxAxis,
     },
 
     // --- Attention ---
@@ -2420,8 +2439,11 @@ pub enum Op {
     // --- Additional activations ---
     /// Log-softmax along an axis (ONNX `LogSoftmax`).
     LogSoftmax {
-        /// The axis to operate along.
+        /// The axis to operate along, negative counting from the end.
         axis: i64,
+        /// Whether `axis` names one axis or the first of a flattened row; see
+        /// [`SoftmaxAxis`].
+        mode: SoftmaxAxis,
     },
     /// One-hot of the argmax along an axis (ONNX `Hardmax`).
     Hardmax {
@@ -4411,6 +4433,7 @@ impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RAN
     fn call(&self, input: SymTensor) -> SymTensor {
         input.record(Op::Softmax {
             dim: self.dim as i64,
+            mode: SoftmaxAxis::Single,
         })
     }
 }
@@ -4472,7 +4495,7 @@ mod tests {
         ));
         assert_eq!(g.nodes[3].shape, vec![None, Some(10)]);
 
-        assert!(matches!(g.nodes[4].op, Op::Softmax { dim: 1 }));
+        assert!(matches!(g.nodes[4].op, Op::Softmax { dim: 1, .. }));
         assert_eq!(g.nodes[4].shape, vec![None, Some(10)]);
     }
 

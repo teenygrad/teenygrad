@@ -18,8 +18,8 @@ use std::sync::Arc;
 use teeny_core::{
     graph::{
         ConstantMap, ConstantTensor, DtypeRepr, EINSUM_MAX_RANK, EinsumPlan, Graph, GraphNode, Op,
-        ResizeCoords, ResizeMode, ResizeNearest, Shape, SlicePlan, einsum_plan, matmul_plan,
-        reduce_axes, reduce_transpose_perm, resize_axis_plan, slice_plan,
+        ResizeCoords, ResizeMode, ResizeNearest, Shape, SlicePlan, SoftmaxAxis, einsum_plan,
+        matmul_plan, reduce_axes, reduce_transpose_perm, resize_axis_plan, slice_plan,
     },
     model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
@@ -55,7 +55,7 @@ use crate::nn::{
             LogsigmoidForward, LogsigmoidForwardDispatch, SigmoidForwardDispatch,
             SiluForwardDispatch,
         },
-        softmax::SoftmaxForward,
+        softmax::{SoftmaxForward, rows_and_cols_from},
         tanh::{TanhForwardDispatch, TanhshrinkForward, TanhshrinkForwardDispatch},
     },
     conv::{
@@ -1752,20 +1752,17 @@ impl CopyMapping<'_> {
 /// [`MAX_RANK`] and *truncates* anything longer, which would drop the fastest-varying
 /// dimensions and copy the wrong elements with no error. Refusing here turns that into
 /// a lowering failure naming the op.
-/// A reduction's axes, keepdims and empty-axes rule, or `None` for anything else.
+/// A softmax-family or cumulative op's axis, which op it is, and what the axis names,
+/// or `None` for anything else.
 ///
-/// Grouped because the reduction kernels treat them all the same way, and so does the
-/// transpose that has to come first.
-/// A softmax's axis, and whether it is the log form, or `None` for anything else.
-///
-/// `Op::Softmax` names it `dim` and `Op::LogSoftmax` names it `axis`; both count
-/// negative from the end.
-fn softmax_axis(op: &Op) -> Option<(i64, AxisOp)> {
+/// `Op::Softmax` names it `dim` and the rest `axis`; all count negative from the end.
+/// A cumulative op always works along its one axis.
+fn softmax_axis(op: &Op) -> Option<(i64, AxisOp, SoftmaxAxis)> {
     match op {
-        Op::Softmax { dim } => Some((*dim, AxisOp::Softmax)),
-        Op::LogSoftmax { axis } => Some((*axis, AxisOp::LogSoftmax)),
-        Op::CumSum { axis, .. } => Some((*axis, AxisOp::CumSum)),
-        Op::CumProd { axis, .. } => Some((*axis, AxisOp::CumProd)),
+        Op::Softmax { dim, mode } => Some((*dim, AxisOp::Softmax, *mode)),
+        Op::LogSoftmax { axis, mode } => Some((*axis, AxisOp::LogSoftmax, *mode)),
+        Op::CumSum { axis, .. } => Some((*axis, AxisOp::CumSum, SoftmaxAxis::Single)),
+        Op::CumProd { axis, .. } => Some((*axis, AxisOp::CumProd, SoftmaxAxis::Single)),
         _ => None,
     }
 }
@@ -1786,6 +1783,239 @@ enum AxisOp {
 /// longer row, so the lowering refuses a reduction past it rather than truncate it.
 const REDUCE_BLOCK_INNER: i32 = 1024;
 
+/// Where a softmax's rows start when it runs in place: at its axis. Everything from
+/// there on is one row, which is what the pre-opset-13 meaning asks for, and is the
+/// named axis alone when it is innermost or has only extent-1 axes after it. A single
+/// axis anywhere else was transposed innermost before the op's arm, so it never gets
+/// here. An axis outside the rank was refused already; it is clamped only to keep this
+/// total.
+fn softmax_row_start(axis: i64, shape: &Shape) -> usize {
+    let rank = shape.len();
+    let resolved = if axis < 0 { axis + rank as i64 } else { axis };
+    (resolved.max(0) as usize).min(rank.saturating_sub(1))
+}
+
+/// `BLOCK_SIZE` for a softmax-family kernel whose rows start at `row_start`: the row
+/// width rounded up to a power of two. A dynamic extent in the row falls back to 1024.
+fn softmax_block_size(shape: &Shape, row_start: usize) -> i32 {
+    let n_cols: Option<usize> = shape[row_start..].iter().copied().product();
+    n_cols.unwrap_or(1024).next_power_of_two() as i32
+}
+
+/// Wraps `inner` so it sees the `[rows, cols]` view that starts its rows at
+/// `row_start`, unless that is the innermost axis, which is the view it already takes.
+fn with_rows_from(inner: Arc<dyn RuntimeOp>, row_start: usize, rank: usize) -> Arc<dyn RuntimeOp> {
+    if row_start + 1 >= rank {
+        inner
+    } else {
+        Arc::new(FlattenedRows { inner, row_start })
+    }
+}
+
+/// Runs a row-wise kernel (softmax, log-softmax) over the `[rows, cols]` view in which
+/// everything from `row_start` on is one row, which is how ONNX read a softmax's axis
+/// before opset 13.
+///
+/// The kernels take their row count and width from the shape they are handed, and a
+/// contiguous tensor's elements are already in that view's order, so handing them the
+/// 2-D shape is the whole of it. Buffer sizing still sees the real shape.
+struct FlattenedRows {
+    inner: Arc<dyn RuntimeOp>,
+    row_start: usize,
+}
+
+impl FlattenedRows {
+    fn view(&self, shape: &[usize]) -> [usize; 2] {
+        let (rows, cols) = rows_and_cols_from(shape, self.row_start);
+        [rows, cols]
+    }
+
+    fn view_inputs(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+    ) -> Vec<(teeny_core::model::RawPtr, [usize; 2])> {
+        inputs.iter().map(|(p, s)| (*p, self.view(s))).collect()
+    }
+}
+
+impl RuntimeOp for FlattenedRows {
+    fn n_activation_inputs(&self) -> usize {
+        self.inner.n_activation_inputs()
+    }
+    fn param_shapes(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> Vec<Vec<usize>> {
+        self.inner.param_shapes(input_shapes, output_shape)
+    }
+    fn param_names(&self) -> &'static [&'static str] {
+        self.inner.param_names()
+    }
+    fn forward_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        self.inner.forward_output_row_stride(output_shape)
+    }
+    fn forward_output_row_elems(&self, output_shape: &[usize]) -> usize {
+        self.inner.forward_output_row_elems(output_shape)
+    }
+    fn param_init_data(&self, param_idx: usize) -> Option<Vec<u8>> {
+        self.inner.param_init_data(param_idx)
+    }
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        resolved: &[usize],
+    ) -> Vec<usize> {
+        self.inner
+            .compute_concrete_output_shape(input_shapes, resolved)
+    }
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let viewed = self.view_inputs(inputs);
+        let viewed: Vec<_> = viewed.iter().map(|(p, s)| (*p, &s[..])).collect();
+        self.inner.pack_args(
+            &viewed,
+            params,
+            output,
+            &self.view(output_shape),
+            output_row_stride,
+            visitor,
+        );
+    }
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        self.inner.grid(&self.view(output_shape))
+    }
+    fn n_launches(&self) -> usize {
+        self.inner.n_launches()
+    }
+    fn pack_args_for_launch(
+        &self,
+        launch_idx: usize,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        output_row_stride: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let viewed = self.view_inputs(inputs);
+        let viewed: Vec<_> = viewed.iter().map(|(p, s)| (*p, &s[..])).collect();
+        self.inner.pack_args_for_launch(
+            launch_idx,
+            &viewed,
+            params,
+            output,
+            &self.view(output_shape),
+            output_row_stride,
+            visitor,
+        );
+    }
+    fn grid_for_launch(
+        &self,
+        launch_idx: usize,
+        input_shapes: &[&[usize]],
+        output_shape: &[usize],
+    ) -> [u32; 3] {
+        let viewed: Vec<[usize; 2]> = input_shapes.iter().map(|s| self.view(s)).collect();
+        let viewed: Vec<&[usize]> = viewed.iter().map(|s| &s[..]).collect();
+        self.inner
+            .grid_for_launch(launch_idx, &viewed, &self.view(output_shape))
+    }
+    #[cfg(feature = "training")]
+    fn has_backward(&self) -> bool {
+        self.inner.has_backward()
+    }
+    #[cfg(feature = "training")]
+    fn backward_grad_output_row_stride(&self, output_shape: &[usize]) -> usize {
+        self.inner.backward_grad_output_row_stride(output_shape)
+    }
+    #[cfg(feature = "training")]
+    fn pack_backward_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let viewed = self.view_inputs(inputs);
+        let viewed: Vec<_> = viewed.iter().map(|(p, s)| (*p, &s[..])).collect();
+        self.inner.pack_backward_args(
+            &viewed,
+            params,
+            output,
+            &self.view(output_shape),
+            grad_output,
+            grad_output_row_stride,
+            grad_inputs,
+            grad_params,
+            visitor,
+        );
+    }
+    #[cfg(feature = "training")]
+    fn backward_grid(&self, input_shapes: &[&[usize]], output_shape: &[usize]) -> [u32; 3] {
+        let viewed: Vec<[usize; 2]> = input_shapes.iter().map(|s| self.view(s)).collect();
+        let viewed: Vec<&[usize]> = viewed.iter().map(|s| &s[..]).collect();
+        self.inner.backward_grid(&viewed, &self.view(output_shape))
+    }
+    #[cfg(feature = "training")]
+    fn n_backward_launches(&self) -> usize {
+        self.inner.n_backward_launches()
+    }
+    #[cfg(feature = "training")]
+    fn pack_backward_args_for_launch(
+        &self,
+        launch_idx: usize,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        params: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        grad_output: teeny_core::model::RawPtr,
+        grad_output_row_stride: i32,
+        grad_inputs: &[teeny_core::model::RawPtr],
+        grad_params: &[teeny_core::model::RawPtr],
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let viewed = self.view_inputs(inputs);
+        let viewed: Vec<_> = viewed.iter().map(|(p, s)| (*p, &s[..])).collect();
+        self.inner.pack_backward_args_for_launch(
+            launch_idx,
+            &viewed,
+            params,
+            output,
+            &self.view(output_shape),
+            grad_output,
+            grad_output_row_stride,
+            grad_inputs,
+            grad_params,
+            visitor,
+        );
+    }
+    #[cfg(feature = "training")]
+    fn backward_grid_for_launch(
+        &self,
+        launch_idx: usize,
+        input_shapes: &[&[usize]],
+        output_shape: &[usize],
+    ) -> [u32; 3] {
+        let viewed: Vec<[usize; 2]> = input_shapes.iter().map(|s| self.view(s)).collect();
+        let viewed: Vec<&[usize]> = viewed.iter().map(|s| &s[..]).collect();
+        self.inner
+            .backward_grid_for_launch(launch_idx, &viewed, &self.view(output_shape))
+    }
+}
+
+/// A reduction's axes, keepdims and empty-axes rule, or `None` for anything else.
+///
+/// Grouped because the reduction kernels treat them all the same way, and so does the
+/// transpose that has to come first.
 fn reduce_parts(op: &Op) -> Option<(&[i64], bool, bool)> {
     match op {
         Op::ReduceSum {
@@ -2273,7 +2503,7 @@ impl TritonLowering {
             // A cumulative op carries its axis as a second operand, which
             // `Op::shape_operand_positions` marks as metadata, so only the first input
             // is data. Matching on exactly one input skipped those entirely.
-            if let Some((dim, axis_op)) = softmax_axis(&node.op)
+            if let Some((dim, axis_op, axis_mode)) = softmax_axis(&node.op)
                 && let Some(&data) = node.inputs.first()
                 && !elided[data]
             {
@@ -2288,7 +2518,29 @@ impl TritonLowering {
                          {data_shape:?}"
                     ));
                 };
-                if let Some(perm) = reduce_transpose_perm(&axes, rank) {
+                // The pre-opset-13 meaning, everything from the axis on as one row, needs
+                // no transpose: a contiguous tensor is already in that row order, and the
+                // op's own arm below hands the kernel the flattened view. Nor does an axis
+                // with only extent-1 axes after it, whose elements are already a row.
+                let already_a_row = axis_mode == SoftmaxAxis::FlattenFrom
+                    || data_shape[axes[0] + 1..].iter().all(|d| *d == Some(1));
+                if !already_a_row && let Some(perm) = reduce_transpose_perm(&axes, rank) {
+                    // A transpose has no backward program, and the backward pass skips a
+                    // node without one, so the gradient would silently stop here.
+                    if mode == LoweringMode::Training {
+                        return Err(anyhow::anyhow!(
+                            "{} {what}: training along axis {dim} of {data_shape:?} needs \
+                             the axis moved innermost by a transpose, which has no backward \
+                             kernel, so the gradient would stop there. Move the axis \
+                             innermost in the model, or lower for inference.",
+                            match axis_op {
+                                AxisOp::Softmax => "Op::Softmax",
+                                AxisOp::LogSoftmax => "Op::LogSoftmax",
+                                AxisOp::CumSum => "Op::CumSum",
+                                AxisOp::CumProd => "Op::CumProd",
+                            }
+                        ));
+                    }
                     let in_shape = concrete_shape(data_shape, "Softmax", &what, "its input's")?;
                     let axis = axes[0];
                     let permuted: Vec<usize> = perm.iter().map(|&a| in_shape[a]).collect();
@@ -3526,11 +3778,14 @@ impl TritonLowering {
                 ),
 
                 // --- Activation (D: Float) ---
-                Op::Softmax { .. } => {
-                    // BLOCK_SIZE must be >= n_cols (the last dim), rounded up to next power of 2.
-                    let n_cols = node.shape.last().and_then(|d| *d).unwrap_or(1024);
-                    let block_size = n_cols.next_power_of_two() as i32;
-                    make_float_kernel!(SoftmaxForward(block_size), node)
+                Op::Softmax { dim, .. } => {
+                    // The kernel normalizes the rows of a `[rows, cols]` view. A single
+                    // axis that is not innermost was transposed there above.
+                    let row_start = softmax_row_start(*dim, &node.shape);
+                    let block_size = softmax_block_size(&node.shape, row_start);
+                    let mut exec = make_float_kernel!(SoftmaxForward(block_size), node);
+                    exec.runtime_op = with_rows_from(exec.runtime_op, row_start, node.shape.len());
+                    exec
                 }
 
                 // --- Upsample ---
@@ -4179,15 +4434,16 @@ impl TritonLowering {
                         runtime_op: rop,
                     })
                 }
-                Op::LogSoftmax { .. } => {
-                    let n_cols = node.shape.last().and_then(|d| *d).unwrap_or(1024);
-                    let block_size = n_cols.next_power_of_two() as i32;
+                Op::LogSoftmax { axis, .. } => {
+                    // As `Op::Softmax` above.
+                    let row_start = softmax_row_start(*axis, &node.shape);
+                    let block_size = softmax_block_size(&node.shape, row_start);
                     let fwd = LogSoftmaxForward::new(block_size);
                     let nm = fwd.name.to_string();
                     let fwd_src = fwd.source.clone();
                     #[cfg(feature = "training")]
                     let bwd_src = LogSoftmaxBackward::new(block_size).source.clone();
-                    let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                    let rop = with_rows_from(Arc::new(fwd), row_start, node.shape.len());
                     Box::new(KernelExecutable {
                         entry_point: format!("{}_entry_point", nm),
                         name: nm,

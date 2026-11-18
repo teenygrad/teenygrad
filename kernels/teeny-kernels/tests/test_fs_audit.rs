@@ -321,8 +321,8 @@ fn every_reduction_and_softmax_agrees_with_the_host() {
             reduce_on_host(x, &in_shape, &resolved, kind)
         } else {
             let (dim, log) = match op {
-                Op::Softmax { dim } => (*dim, false),
-                Op::LogSoftmax { axis } => (*axis, true),
+                Op::Softmax { dim, .. } => (*dim, false),
+                Op::LogSoftmax { axis, .. } => (*axis, true),
                 _ => continue,
             };
             let rank = in_shape.len();

@@ -31,9 +31,8 @@ use teeny_triton::triton::{
 /// numerically-stable `softmax` builtin (`max`-subtraction + exp + normalise),
 /// and stores the result.
 ///
-/// **Constraint**: `BLOCK_SIZE` must equal `n_cols` for this kernel; the caller
-/// is responsible for rounding `n_cols` up to the next power of two and passing
-/// that as `BLOCK_SIZE`.  No masking is needed when `BLOCK_SIZE == n_cols`.
+/// **Constraint**: `BLOCK_SIZE` must be at least `n_cols`; the caller rounds
+/// `n_cols` up to the next power of two. The lanes past `n_cols` are masked.
 // ANCHOR: softmax_forward
 #[kernel]
 pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
@@ -98,7 +97,7 @@ pub fn softmax_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 /// The dot product `sum(y * dy)` is a row-scalar that is broadcast back to the
 /// full row when computing `dy - dot`.
 ///
-/// **Constraint**: `BLOCK_SIZE` must equal `n_cols` (same as the forward pass).
+/// **Constraint**: `BLOCK_SIZE` must be at least `n_cols` (same as the forward pass).
 #[kernel]
 pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     dy_ptr: InPtr<T::Pointer<D>>,
@@ -116,10 +115,16 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     let col_offsets = T::arange(0, BLOCK_SIZE);
     let offsets = col_offsets + row_offset;
 
+    // As in the forward pass, the lanes past `n_cols` belong to the next row, or to
+    // nothing on the last one. They load as zero, which adds nothing to the row's sum,
+    // and are never stored.
+    let in_row = col_offsets.lt(n_cols);
+    let zero = T::full(&[BLOCK_SIZE], D::from_f64(0.0));
+
     let dy = T::load(
         dy_ptr.add_offsets(offsets),
-        None,
-        None,
+        Some(in_row),
+        Some(zero),
         &[],
         None,
         None,
@@ -128,8 +133,8 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
     let y = T::load(
         y_ptr.add_offsets(offsets),
-        None,
-        None,
+        Some(in_row),
+        Some(zero),
         &[],
         None,
         None,
@@ -143,7 +148,14 @@ pub fn softmax_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     // dx_i = y_i * (dy_i - dot)  — broadcast dot across the row.
     let dx = y * (dy - dot);
 
-    T::store(dx_ptr.add_offsets(offsets), dx, None, &[], None, None);
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dx,
+        Some(in_row),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// A tensor's `[rows, cols]` view for a softmax over its innermost axis: the last
@@ -156,6 +168,20 @@ pub(crate) fn rows_and_cols(shape: &[usize]) -> (usize, usize) {
         Some((&cols, outer)) => (outer.iter().product::<usize>().max(1), cols),
         None => (1, 1),
     }
+}
+
+/// A tensor's `[rows, cols]` view when everything from `axis` on is one row, which is
+/// how ONNX `Softmax`/`LogSoftmax` before opset 13 read their axis: the input is coerced
+/// to `[prod(shape[..axis]), prod(shape[axis..])]` and each row is normalized.
+///
+/// `axis == shape.len() - 1` is the same view as [`rows_and_cols`]. An `axis` past the
+/// rank is clamped to it, which leaves one-element rows.
+pub(crate) fn rows_and_cols_from(shape: &[usize], axis: usize) -> (usize, usize) {
+    let (outer, inner) = shape.split_at(axis.min(shape.len()));
+    (
+        outer.iter().product::<usize>().max(1),
+        inner.iter().product::<usize>().max(1),
+    )
 }
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for SoftmaxForward<D> {
