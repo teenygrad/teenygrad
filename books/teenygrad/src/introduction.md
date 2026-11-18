@@ -35,7 +35,7 @@ Goals:
   device code.
 - **Compiler Internals** goes under the hood of the FXGraph compiler.
 - **PyTorch Interop** covers `teeny-torch`, the PyO3-based Python bridge.
-- **CLI & AOT Compilation** covers `teeny-cli` and `teeny-llm`.
+- **CLI & AOT Compilation** covers `teeny-cli` and the `teeny-llm` inference stack.
 - **Deployment** covers `teeny-quant`, weight-only model quantization for deployment.
 
 This book is a guide and mental model; it deliberately doesn't duplicate API reference material —
