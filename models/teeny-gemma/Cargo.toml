@@ -1,0 +1,37 @@
+[package]
+name = "teeny-gemma"
+version.workspace = true
+edition.workspace = true
+description = "Gemma 3 text models (FunctionGemma) on teenygrad"
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+publish = false
+readme = "README.md"
+
+[features]
+default = ["cuda"]
+cuda = ["teeny-test/cuda", "teeny-kernels/cuda"]
+riscv = ["teeny-test/riscv", "teeny-kernels/riscv"]
+qemu = ["riscv", "teeny-test/qemu", "teeny-kernels/qemu"]
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+teeny-core = { workspace = true, features = ["std"] }
+teeny-macros.workspace = true
+teeny-triton.workspace = true
+# The runner compiles and runs step graphs with teeny-test's `RuntimeModel`, on whichever
+# backend the features select.
+teeny-kernels = { path = "../../kernels/teeny-kernels", version = "0.3.2", default-features = false }
+teeny-test = { workspace = true }
+safetensors.workspace = true
+half.workspace = true
+# Pure-Rust regex backend, so the crate cross-compiles for riscv64 without a C toolchain.
+tokenizers = { version = "0.22.2", default-features = false, features = ["fancy-regex"] }
+minijinja.workspace = true
+minijinja-contrib.workspace = true
+
+[dev-dependencies]
+clap.workspace = true
