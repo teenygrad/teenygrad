@@ -1,0 +1,23 @@
+[package]
+name = "teeny-llm-chat"
+version.workspace = true
+edition.workspace = true
+description = "Interactive command-line chat with a teenygrad LLM, running the model in-process."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_llm_chat/"
+keywords = ["llm", "inference", "chat", "cli", "teenygrad"]
+categories = ["science", "command-line-utilities"]
+
+[[bin]]
+name = "teeny-llm-chat"
+path = "src/main.rs"
+
+[dependencies]
+teeny-llm-core = { workspace = true }
+anyhow = { workspace = true, features = ["std"] }
+clap = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
