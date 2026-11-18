@@ -1,0 +1,76 @@
+//! OpenAI API wire types, following `openai-openapi.yaml` (spec v2.3.0).
+//!
+//! Only the inference endpoints are modelled. Request structs deliberately don't use
+//! `deny_unknown_fields`: clients send many optional fields we don't act on yet, and OpenAI-
+//! compatible servers conventionally ignore them.
+
+pub mod chat;
+pub mod completions;
+pub mod embeddings;
+pub mod error;
+pub mod models;
+
+use serde::{Deserialize, Serialize};
+
+/// A field the spec types as `string | string[]` (e.g. `stop`, `prompt`, `input`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OneOrMany {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl OneOrMany {
+    pub fn into_vec(self) -> Vec<String> {
+        match self {
+            OneOrMany::One(s) => vec![s],
+            OneOrMany::Many(v) => v,
+        }
+    }
+}
+
+/// `CompletionUsage`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+}
+
+impl From<teeny_llm_core::Usage> for Usage {
+    fn from(u: teeny_llm_core::Usage) -> Self {
+        Self {
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens(),
+        }
+    }
+}
+
+/// `ChatCompletionStreamOptions`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamOptions {
+    /// Send a final chunk with empty `choices` carrying the request's `usage`.
+    #[serde(default)]
+    pub include_usage: Option<bool>,
+}
+
+/// The `finish_reason` enum shared by chat and legacy completions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    Stop,
+    Length,
+    ToolCalls,
+    ContentFilter,
+    FunctionCall,
+}
+
+impl From<teeny_llm_core::FinishReason> for FinishReason {
+    fn from(r: teeny_llm_core::FinishReason) -> Self {
+        match r {
+            teeny_llm_core::FinishReason::Stop => FinishReason::Stop,
+            teeny_llm_core::FinishReason::Length => FinishReason::Length,
+        }
+    }
+}

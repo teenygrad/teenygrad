@@ -71,7 +71,7 @@ The codebase is organized as a Cargo workspace with resolver "3":
 - **drivers/** - Hardware backends: teeny-cpu, teeny-cuda, teeny-vulkan
 - **torch/teeny-torch** - PyO3 Python bindings for PyTorch interoperability
 - **models/** - teeny-hf (Hugging Face integration), teeny-samples
-- **apps/teeny-llm** - LLM inference application (binaries: tllm, tllm-agent, tllm-console)
+- **apps/teeny-llm/** - LLM inference stack: teeny-llm-core (engine library), teeny-llm-server (OpenAI-compatible HTTP API, `teeny-llm-server` bin), teeny-llm-chat (`teeny-llm-chat` CLI)
 - **utilities/** - Helper crates: teeny-cli (AOT compilation helpers), teeny-data (dataset/safetensors loading), teeny-quant (model quantization)
 - **macros/teeny-macros** - Procedural macros (Edition 2021 for macro crate compatibility)
 - **support/teeny-onnx** - ONNX model format support
