@@ -26,6 +26,7 @@ pub mod config;
 pub mod kernels;
 pub mod model;
 pub mod runner;
+pub mod tools;
 
 pub use config::GemmaConfig;
 pub use kernels::attention::PastLen;

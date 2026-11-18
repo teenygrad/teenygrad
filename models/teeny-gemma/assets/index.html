@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FunctionGemma on RISC-V</title>
+<style>
+  :root {
+    --bg: #faf7f2;
+    --surface: #ffffff;
+    --surface-2: #f1ece4;
+    --ink: #221f1a;
+    --ink-soft: #6b6456;
+    --accent: #c2410c;
+    --accent-ink: #ffffff;
+    --line: #e4ddd1;
+    --good: #15803d;
+    --radius: 16px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17150f;
+      --surface: #201d16;
+      --surface-2: #2a261d;
+      --ink: #f2ede3;
+      --ink-soft: #a89f8d;
+      --accent: #fb923c;
+      --accent-ink: #1a1710;
+      --line: #342f24;
+      --good: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5;
+    display: flex; flex-direction: column; height: 100dvh;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .title { font-weight: 650; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .subtitle { color: var(--ink-soft); font-size: 0.82rem; }
+  .pill {
+    margin-left: auto; display: flex; align-items: center; gap: 7px;
+    font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap;
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+  .dot.off { background: var(--ink-soft); }
+
+  main { flex: 1; overflow-y: auto; }
+  .thread { max-width: 760px; margin: 0 auto; padding: 24px 16px 8px; }
+
+  .empty { text-align: center; padding: 56px 8px; color: var(--ink-soft); }
+  .empty h2 { color: var(--ink); font-size: 1.3rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .empty p { margin: 0 auto; max-width: 44ch; }
+
+  .row { display: flex; margin-bottom: 14px; }
+  .row.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 78%; padding: 10px 14px; border-radius: var(--radius);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .user .bubble { background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 5px; }
+  .model .bubble { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+  .bubble ul { margin: 6px 0; padding-left: 20px; }
+  .bubble li { margin: 2px 0; }
+  .bubble br { line-height: 0.4; }
+  .caret::after {
+    content: "▍"; margin-left: 1px; color: var(--accent);
+    animation: blink 1.05s steps(2, start) infinite;
+  }
+  @keyframes blink { to { visibility: hidden; } }
+  @media (prefers-reduced-motion: reduce) { .caret::after { animation: none; } }
+
+  .tool {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--surface-2); padding: 12px 14px; margin: 0 0 14px;
+    max-width: 78%;
+  }
+  .tool-head { display: flex; align-items: center; gap: 9px; font-family: var(--mono); font-size: 0.82rem; }
+  .tool-head .icon { font-size: 1rem; }
+  .tool-name { color: var(--ink); overflow-wrap: anywhere; }
+  .spinner {
+    width: 13px; height: 13px; border-radius: 50%; flex: none;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; margin-left: auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .result { display: none; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line); }
+  .result.show { display: block; }
+  .result-main { display: flex; align-items: center; gap: 11px; }
+  .result-icon { font-size: 1.7rem; line-height: 1; }
+  .result-temp { font-size: 1.25rem; font-weight: 650; letter-spacing: -0.02em; }
+  .result-place { color: var(--ink-soft); font-size: 0.84rem; }
+  .result-grid { display: flex; gap: 22px; margin-top: 9px; }
+  .metric .label { color: var(--ink-soft); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .metric .value { font-family: var(--mono); font-size: 0.88rem; }
+  .tool-error { color: var(--accent); font-size: 0.85rem; margin-top: 9px; }
+
+  footer { border-top: 1px solid var(--line); background: var(--surface); }
+  .composer { max-width: 760px; margin: 0 auto; padding: 12px 16px 10px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip {
+    font: inherit; font-size: 0.82rem; color: var(--ink-soft); cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 13px;
+  }
+  .chip:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
+  .chip:disabled { opacity: 0.5; cursor: default; }
+  .input-bar {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 5px 5px 17px;
+  }
+  .input-bar:focus-within { border-color: var(--accent); }
+  #q {
+    flex: 1; font: inherit; color: var(--ink);
+    background: none; border: 0; outline: none; padding: 8px 0;
+  }
+  #send {
+    width: 38px; height: 38px; flex: none; border: 0; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 1.05rem; cursor: pointer; display: grid; place-items: center;
+  }
+  #send:disabled { opacity: 0.45; cursor: default; }
+  .stats {
+    max-width: 760px; margin: 0 auto; padding: 0 16px 11px;
+    font-family: var(--mono); font-size: 0.71rem; color: var(--ink-soft);
+    display: flex; gap: 16px; flex-wrap: wrap; min-height: 1.1em;
+  }
+  @media (max-width: 560px) {
+    .bubble, .tool { max-width: 90%; }
+    .subtitle { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="title">FunctionGemma on RISC-V</div>
+    <div class="subtitle">A 270M model running on a {{BOARD}} board, calling a real weather API</div>
+  </div>
+  <div class="pill"><span class="dot" id="dot"></span><span id="status">checking the board</span></div>
+</header>
+
+<main id="main">
+  <div class="thread" id="thread">
+    <div class="empty" id="empty">
+      <h2>Ask about the weather</h2>
+      <p>This little model decides on its own when to look the weather up. Ask about your city and watch it call the tool.</p>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="composer">
+    <div class="chips" id="chips">
+      <button class="chip">Weather in Lisbon?</button>
+      <button class="chip">Is it raining in Tokyo?</button>
+      <button class="chip">How warm is it in Cairo?</button>
+    </div>
+    <form class="input-bar" id="form">
+      <input id="q" autocomplete="off" placeholder="Ask about the weather anywhere" maxlength="500">
+      <button id="send" type="submit" title="Send">&#8593;</button>
+    </form>
+  </div>
+  <div class="stats" id="stats"></div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const thread = document.getElementById("thread");
+  const empty = document.getElementById("empty");
+  const form = document.getElementById("form");
+  const q = document.getElementById("q");
+  const send = document.getElementById("send");
+  const statsEl = document.getElementById("stats");
+  const dot = document.getElementById("dot");
+  const status = document.getElementById("status");
+  const chips = document.getElementById("chips");
+
+  // The conversation, as the server wants it back. The server keeps no per-visitor state.
+  let history = [];
+  let busy = false;
+
+  function scroll() {
+    const main = document.getElementById("main");
+    main.scrollTop = main.scrollHeight;
+  }
+
+  // The model answers in light Markdown: **bold** and "* " bullets. Render just those two,
+  // by building nodes rather than assigning HTML, so model output is never parsed as markup.
+  function renderRich(el, text) {
+    el.textContent = "";
+    const lines = text.split("\n");
+    let list = null;
+    lines.forEach(function (line) {
+      const item = /^\s*[*-]\s+(.*)$/.exec(line);
+      if (item) {
+        if (!list) { list = document.createElement("ul"); el.appendChild(list); }
+        const li = document.createElement("li");
+        bold(li, item[1]);
+        list.appendChild(li);
+        return;
+      }
+      list = null;
+      if (!line.trim()) { el.appendChild(document.createElement("br")); return; }
+      const p = document.createElement("div");
+      bold(p, line);
+      el.appendChild(p);
+    });
+  }
+
+  // Writes `text` into `el`, turning **runs** into <strong>.
+  function bold(el, text) {
+    text.split(/\*\*/).forEach(function (part, i) {
+      if (!part) return;
+      if (i % 2 === 1) {
+        const b = document.createElement("strong");
+        b.textContent = part;
+        el.appendChild(b);
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
+  function addBubble(role, text) {
+    empty.style.display = "none";
+    const row = document.createElement("div");
+    row.className = "row " + role;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    thread.appendChild(row);
+    scroll();
+    return bubble;
+  }
+
+  // Keep these in step with `conditions` in src/tools.rs, which produces the text.
+  function conditionIcon(c) {
+    c = (c || "").toLowerCase();
+    if (c.includes("thunder")) return "⛈️";
+    if (c.includes("snow")) return "❄️";
+    if (c.includes("rain") || c.includes("drizzle")) return "🌧️";
+    if (c.includes("fog")) return "🌫️";
+    if (c.includes("overcast")) return "☁️";
+    if (c.includes("partly")) return "⛅";
+    if (c.includes("clear")) return "☀️";
+    return "🌡️";
+  }
+
+  function addToolCard(name, args) {
+    empty.style.display = "none";
+    const card = document.createElement("div");
+    card.className = "tool";
+    const pretty = Object.entries(args || {})
+      .map(([k, v]) => k + ": " + JSON.stringify(v))
+      .join(", ");
+    const head = document.createElement("div");
+    head.className = "tool-head";
+    head.innerHTML = '<span class="icon">🔧</span>';
+    const nameEl = document.createElement("span");
+    nameEl.className = "tool-name";
+    nameEl.textContent = name + "(" + pretty + ")";
+    head.appendChild(nameEl);
+    const spin = document.createElement("span");
+    spin.className = "spinner";
+    head.appendChild(spin);
+    card.appendChild(head);
+    const result = document.createElement("div");
+    result.className = "result";
+    card.appendChild(result);
+    thread.appendChild(card);
+    scroll();
+    return { card: card, spinner: spin, result: result };
+  }
+
+  function fillResult(card, data) {
+    card.spinner.remove();
+    card.result.classList.add("show");
+    if (!data || data.error) {
+      const err = document.createElement("div");
+      err.className = "tool-error";
+      err.textContent = (data && data.error) || "the tool returned nothing";
+      card.result.appendChild(err);
+      scroll();
+      return;
+    }
+    const main = document.createElement("div");
+    main.className = "result-main";
+    const icon = document.createElement("div");
+    icon.className = "result-icon";
+    icon.textContent = conditionIcon(data.conditions);
+    const text = document.createElement("div");
+    const temp = document.createElement("div");
+    temp.className = "result-temp";
+    temp.textContent = data.temperature_c + " °C, " + data.conditions;
+    const place = document.createElement("div");
+    place.className = "result-place";
+    place.textContent = data.city || "";
+    text.appendChild(temp);
+    text.appendChild(place);
+    main.appendChild(icon);
+    main.appendChild(text);
+    card.result.appendChild(main);
+
+    const grid = document.createElement("div");
+    grid.className = "result-grid";
+    [["humidity", data.humidity_percent + "%"], ["wind", data.wind_kmh + " km/h"]]
+      .forEach(function (pair) {
+        const m = document.createElement("div");
+        m.className = "metric";
+        const l = document.createElement("div");
+        l.className = "label";
+        l.textContent = pair[0];
+        const v = document.createElement("div");
+        v.className = "value";
+        v.textContent = pair[1];
+        m.appendChild(l);
+        m.appendChild(v);
+        grid.appendChild(m);
+      });
+    card.result.appendChild(grid);
+    scroll();
+  }
+
+  function showStats(s) {
+    if (!s) { statsEl.textContent = ""; return; }
+    statsEl.textContent = [
+      s.prompt_per_s.toFixed(1) + " prompt tokens/s",
+      s.decode_per_s.toFixed(1) + " tokens/s decode",
+      "first token " + s.first_token_s.toFixed(1) + " s",
+      "context " + s.context_used + "/" + s.context_total
+    ].join("   ");
+  }
+
+  function setBusy(on) {
+    busy = on;
+    send.disabled = on;
+    q.disabled = on;
+    Array.prototype.forEach.call(chips.children, function (c) { c.disabled = on; });
+    status.textContent = on ? "thinking on the board" : "board online";
+    dot.className = on ? "dot off" : "dot";
+  }
+
+  async function ask(message) {
+    if (busy || !message) return;
+    addBubble("user", message);
+    q.value = "";
+    setBusy(true);
+    statsEl.textContent = "waiting for the board";
+
+    let bubble = null;
+    let reply = "";
+    let card = null;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message, history: history })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(function () { return {}; });
+        throw new Error(body.error || ("the server said " + res.status));
+      }
+
+      // Read the event stream by hand: one JSON object per "data:" line.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        let cut;
+        while ((cut = buffer.indexOf("\n\n")) >= 0) {
+          const line = buffer.slice(0, cut).trim();
+          buffer = buffer.slice(cut + 2);
+          if (!line.startsWith("data:")) continue;
+          const ev = JSON.parse(line.slice(5).trim());
+
+          if (ev.type === "token") {
+            if (!bubble) {
+              bubble = addBubble("model", "");
+              bubble.classList.add("caret");
+            }
+            reply += ev.text;
+            renderRich(bubble, reply);
+            scroll();
+          } else if (ev.type === "tool_call") {
+            // The call itself is the model's turn, not something to show as prose.
+            if (bubble) { bubble.classList.remove("caret"); }
+            if (bubble && !bubble.textContent.trim()) { bubble.parentNode.remove(); }
+            bubble = null;
+            reply = "";
+            card = addToolCard(ev.name, ev.args);
+          } else if (ev.type === "tool_result") {
+            if (card) fillResult(card, ev.result);
+          } else if (ev.type === "reply_start") {
+            bubble = null;
+            reply = "";
+          } else if (ev.type === "done") {
+            if (bubble) bubble.classList.remove("caret");
+            showStats(ev.stats);
+          } else if (ev.type === "error") {
+            throw new Error(ev.message);
+          }
+        }
+      }
+
+      if (reply.trim()) {
+        history.push({ role: "user", content: message });
+        history.push({ role: "assistant", content: reply });
+        history = history.slice(-10);
+      }
+    } catch (e) {
+      if (bubble) bubble.classList.remove("caret");
+      const row = addBubble("model", "");
+      row.style.color = "var(--accent)";
+      row.textContent = "Sorry, that did not work: " + e.message;
+      statsEl.textContent = "";
+    } finally {
+      setBusy(false);
+      q.focus();
+    }
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    ask(q.value.trim());
+  });
+  chips.addEventListener("click", function (e) {
+    if (e.target.classList.contains("chip")) ask(e.target.textContent);
+  });
+
+  fetch("/api/health").then(function (r) { return r.json(); }).then(function (h) {
+    status.textContent = h.busy ? "board busy" : "board online";
+    dot.className = h.busy ? "dot off" : "dot";
+  }).catch(function () {
+    status.textContent = "board unreachable";
+    dot.className = "dot off";
+  });
+  q.focus();
+})();
+</script>
+</body>
+</html>

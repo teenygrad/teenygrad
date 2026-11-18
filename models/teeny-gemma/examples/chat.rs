@@ -103,9 +103,8 @@ fn run_tool(name: &str, args: &Value) -> Option<Value> {
             .map(|v| v.as_str().map_or(v.to_string(), str::to_string))
     };
     Some(match name {
-        "get_weather" => {
-            weather(&text("city")?).unwrap_or_else(|e| json!({"error": e.to_string()}))
-        }
+        "get_weather" => teeny_gemma::tools::weather(&text("city")?)
+            .unwrap_or_else(|e| json!({"error": e.to_string()})),
         "set_timer" => {
             let minutes: f64 = text("minutes")?.trim().parse().ok()?;
             let label = text("label").unwrap_or_else(|| "timer".into());
@@ -138,64 +137,6 @@ fn run_tool(name: &str, args: &Value) -> Option<Value> {
         }
         _ => return None,
     })
-}
-
-/// Current weather for `city` from Open-Meteo: geocoding, then the forecast API.
-fn weather(city: &str) -> anyhow::Result<Value> {
-    let get = |url: &str, query: &[(&str, &str)]| -> anyhow::Result<Value> {
-        let mut cmd = std::process::Command::new("curl");
-        cmd.args(["-sfG", "-m", "10", url]);
-        for (k, v) in query {
-            cmd.arg("--data-urlencode").arg(format!("{k}={v}"));
-        }
-        let out = cmd.output()?;
-        anyhow::ensure!(out.status.success(), "weather service unreachable");
-        Ok(serde_json::from_slice(&out.stdout)?)
-    };
-    let places = get(
-        "https://geocoding-api.open-meteo.com/v1/search",
-        &[("name", city), ("count", "1")],
-    )?;
-    let place = places["results"]
-        .get(0)
-        .ok_or_else(|| anyhow::anyhow!("no place called {city}"))?;
-    let (lat, lon) = (
-        place["latitude"].to_string(),
-        place["longitude"].to_string(),
-    );
-    let w = get(
-        "https://api.open-meteo.com/v1/forecast",
-        &[
-            ("latitude", &lat),
-            ("longitude", &lon),
-            (
-                "current",
-                "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
-            ),
-        ],
-    )?;
-    let now = &w["current"];
-    let conditions = match now["weather_code"].as_u64().unwrap_or(999) {
-        0 => "clear sky",
-        1 | 2 => "partly cloudy",
-        3 => "overcast",
-        45 | 48 => "fog",
-        51..=57 => "drizzle",
-        61..=67 => "rain",
-        71..=77 => "snow",
-        80..=82 => "rain showers",
-        85 | 86 => "snow showers",
-        95..=99 => "thunderstorm",
-        _ => "unknown",
-    };
-    Ok(json!({
-        "city": format!("{}, {}", place["name"].as_str().unwrap_or(city),
-                        place["country"].as_str().unwrap_or("")),
-        "temperature_c": now["temperature_2m"],
-        "conditions": conditions,
-        "humidity_percent": now["relative_humidity_2m"],
-        "wind_kmh": now["wind_speed_10m"],
-    }))
 }
 
 /// Model text with FunctionGemma's markers and end-of-turn tokens removed.
