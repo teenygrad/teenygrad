@@ -31,11 +31,27 @@ use serde_json::{Value, json};
 const TIMEOUT_SECS: &str = "10";
 
 /// `get_weather`'s declaration, in the OpenAI style the chat template expects.
+///
+/// The description is doing real work, so do not trim it back to "get the weather". The
+/// template puts declarations in the `developer` turn, and for this 270M model that turn is
+/// the only place a role sticks: a plain system prompt in the same turn, which the template
+/// does support, stopped it answering at all. Here the wording stays in distribution, and
+/// naming the ways people actually ask is what gets the tool called for a question like
+/// "what is it like in Tokyo?" instead of a paragraph about the city.
+///
+/// Measured on the board over five phrasings: three of five called the tool with the one-line
+/// description, five of five with this one. It also stopped the model agreeing with a false
+/// premise, so "is it raining in Tokyo?" now answers "clear sky" instead of "it is raining".
 pub fn declaration() -> Value {
     json!({"type": "function", "function": {
-        "name": "get_weather", "description": "Get current weather for a city",
+        "name": "get_weather",
+        "description": "Get the current weather at a place: temperature, humidity, wind and \
+                        conditions such as rain, snow, fog or clear sky. Use this for any \
+                        question that names a place, including what it is like there, how \
+                        warm or cold it is, or whether it is raining or snowing.",
         "parameters": {"type": "object",
-            "properties": {"city": {"type": "string", "description": "City name"}},
+            "properties": {"city": {"type": "string",
+                "description": "The place to look up, for example Tokyo or Lisbon"}},
             "required": ["city"]}}})
 }
 

@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RISC-V Weather Station</title>
+<!-- Inline so the page stays one file and the server needs no second route. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='s' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%233d7fc1'/><stop offset='1' stop-color='%239ec9ef'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23s)'/><circle cx='11.5' cy='12' r='5.5' fill='%23ffd166'/><g fill='%23fff'><circle cx='12' cy='22' r='4.4'/><circle cx='17.5' cy='19.4' r='6'/><circle cx='23' cy='22.4' r='4'/><rect x='11.5' y='22' width='12' height='4.6' rx='2.3'/></g></svg>">
 <style>
   :root {
     --bg: #faf7f2;
@@ -197,15 +199,13 @@
 <footer>
   <div class="composer">
     <div class="chips" id="chips">
-      <!-- Neutral phrasings on purpose. Asked a leading question ("is it raining in X?") this
-           270M model tends to agree with the premise in its opening sentence and then
-           contradict itself from the tool result a clause later. A system prompt telling it
-           not to made no difference to the greedy output, so the demo does not hand visitors
-           the phrasing that provokes it. The tool card above the answer is the ground truth
-           either way. -->
+      <!-- Three phrasings the model used to get wrong and now does not: a plain request it
+           once refused, a leading question whose premise it once agreed with before
+           contradicting itself, and a vague one it once answered with a paragraph about the
+           city. See `declaration` in src/tools.rs for what fixed them. -->
       <button class="chip">Weather in Lisbon?</button>
-      <button class="chip">What is it like in Tokyo?</button>
-      <button class="chip">How warm is it in Cairo?</button>
+      <button class="chip">Is it raining in Tokyo?</button>
+      <button class="chip">What is it like in Cairo?</button>
     </div>
     <form class="input-bar" id="form">
       <input id="q" autocomplete="off" placeholder="Ask about the weather anywhere" maxlength="500">
