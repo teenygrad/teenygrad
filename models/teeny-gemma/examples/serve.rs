@@ -324,15 +324,46 @@ fn parse_body(body: &[u8]) -> anyhow::Result<(String, Vec<Value>)> {
         history.len()
     );
     // Keep only what the template needs, so a client cannot inject other fields.
-    let history = history
+    //
+    // The tool exchange has to survive the round trip. Without it the model sees a past turn
+    // where it answered a weather question without ever calling a tool, concludes it has no
+    // such tool, and refuses the next one.
+    let history: Vec<Value> = history
         .iter()
-        .filter_map(|m| {
-            let role = m["role"].as_str()?;
-            let content = m["content"].as_str()?;
-            matches!(role, "user" | "assistant").then(|| json!({"role": role, "content": content}))
+        .filter_map(|m| match m["role"].as_str()? {
+            role @ ("user" | "assistant") if m["content"].is_string() => {
+                Some(json!({"role": role, "content": m["content"].as_str()?}))
+            }
+            "assistant" => {
+                let calls: Vec<Value> = m["tool_calls"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|c| {
+                        let f = c.get("function")?;
+                        Some(json!({"type": "function", "function": {
+                            "name": f["name"].as_str()?, "arguments": f["arguments"].clone(),
+                        }}))
+                    })
+                    .collect();
+                (!calls.is_empty()).then(|| json!({"role": "assistant", "tool_calls": calls}))
+            }
+            "tool" => Some(json!({
+                "role": "tool", "name": m["name"].as_str()?, "content": m["content"].clone(),
+            })),
+            _ => None,
         })
         .collect();
-    Ok((message, history))
+    // A `tool` message with nothing to answer confuses the template, so drop any that lost
+    // its call to trimming.
+    let mut pruned: Vec<Value> = Vec::with_capacity(history.len());
+    for m in history {
+        let orphan = m["role"] == "tool"
+            && !matches!(pruned.last(), Some(p) if p["tool_calls"].is_array() || p["role"] == "tool");
+        if !orphan {
+            pruned.push(m);
+        }
+    }
+    Ok((message, pruned))
 }
 
 /// Runs one conversation turn, streaming events to the browser: the model's reply, and if

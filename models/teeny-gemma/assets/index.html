@@ -189,7 +189,7 @@
   <div class="thread" id="thread">
     <div class="empty" id="empty">
       <h2>Ask about the weather</h2>
-      <p>This little model decides on its own when to look the weather up. Ask about your city and watch it call the tool.</p>
+      <p>This little model decides on its own when to look the weather up. Ask about your city and watch it call the tool. Each question is answered on its own, so name the place every time.</p>
     </div>
   </div>
 </main>
@@ -197,8 +197,14 @@
 <footer>
   <div class="composer">
     <div class="chips" id="chips">
+      <!-- Neutral phrasings on purpose. Asked a leading question ("is it raining in X?") this
+           270M model tends to agree with the premise in its opening sentence and then
+           contradict itself from the tool result a clause later. A system prompt telling it
+           not to made no difference to the greedy output, so the demo does not hand visitors
+           the phrasing that provokes it. The tool card above the answer is the ground truth
+           either way. -->
       <button class="chip">Weather in Lisbon?</button>
-      <button class="chip">Is it raining in Tokyo?</button>
+      <button class="chip">What is it like in Tokyo?</button>
       <button class="chip">How warm is it in Cairo?</button>
     </div>
     <form class="input-bar" id="form">
@@ -728,9 +734,25 @@ window.Sky = (function () {
   const status = document.getElementById("status");
   const chips = document.getElementById("chips");
 
-  // The conversation, as the server wants it back. The server keeps no per-visitor state.
-  let history = [];
+  // How many past turns to replay to the model. Zero: every question is answered on its own.
+  //
+  // This is measured, not a guess. Asking a 270M model the same four questions on the board:
+  // with three turns of history it called the tool twice in three, with one turn three times
+  // in four, and with none four times in four. When it stops calling the tool it does not say
+  // so, it invents the numbers, which is the worst thing a weather demo can do. Replaying only
+  // the prose was worse still: having seemingly answered a weather question without a tool, it
+  // concluded it had none and refused outright.
+  //
+  // Turns are collected in the order the chat template wants (question, call, result, answer),
+  // so raising this is the only change needed if a larger model goes behind the page.
+  const MEMORY_TURNS = 0;
+  let turns = [];
   let busy = false;
+
+  function flatHistory() {
+    if (!MEMORY_TURNS) return [];
+    return turns.slice(-MEMORY_TURNS).reduce(function (all, t) { return all.concat(t); }, []);
+  }
 
   function scroll() {
     const main = document.getElementById("main");
@@ -924,12 +946,35 @@ window.Sky = (function () {
     let bubble = null;
     let reply = "";
     let card = null;
+    // This turn's tool exchange, collected as it streams.
+    const toolMsgs = [];
+    let roundCalls = [];
+    let roundResults = [];
+
+    // One round is the model's call or calls plus their results. The scene block is dropped
+    // here: it is for the sky, and replaying it would just teach the model to recite it.
+    function flushRound() {
+      if (!roundCalls.length) return;
+      toolMsgs.push({
+        role: "assistant",
+        tool_calls: roundCalls.map(function (c) {
+          return { type: "function", function: { name: c.name, arguments: c.args } };
+        })
+      });
+      roundResults.forEach(function (r) {
+        const content = Object.assign({}, r.content);
+        delete content.scene;
+        toolMsgs.push({ role: "tool", name: r.name, content: content });
+      });
+      roundCalls = [];
+      roundResults = [];
+    }
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: message, history: history })
+        body: JSON.stringify({ message: message, history: flatHistory() })
       });
       if (!res.ok) {
         const body = await res.json().catch(function () { return {}; });
@@ -966,11 +1011,14 @@ window.Sky = (function () {
             bubble = null;
             reply = "";
             card = addToolCard(ev.name, ev.args);
+            roundCalls.push({ name: ev.name, args: ev.args });
           } else if (ev.type === "tool_result") {
             if (card) fillResult(card, ev.result);
             // The whole point of the page: repaint the sky as the city the model just looked up.
             window.Sky.apply(ev.result);
+            roundResults.push({ name: ev.name, content: ev.result || {} });
           } else if (ev.type === "reply_start") {
+            flushRound();
             bubble = null;
             reply = "";
           } else if (ev.type === "done") {
@@ -983,9 +1031,10 @@ window.Sky = (function () {
       }
 
       if (reply.trim()) {
-        history.push({ role: "user", content: message });
-        history.push({ role: "assistant", content: reply });
-        history = history.slice(-10);
+        flushRound();
+        turns.push([{ role: "user", content: message }]
+          .concat(toolMsgs, [{ role: "assistant", content: reply }]));
+        turns = turns.slice(-6);
       }
     } catch (e) {
       if (bubble) bubble.classList.remove("caret");
