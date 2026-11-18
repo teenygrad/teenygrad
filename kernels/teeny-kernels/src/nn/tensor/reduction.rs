@@ -474,18 +474,10 @@ pub fn reduce_log_sum_exp_forward<T: Triton, D: Float, const BLOCK_INNER: i32>(
     // Numerically stable: log(sum(exp(x))) = m + log(sum(exp(x - m)))
     // where m = max(x)
     let m = T::max(x, Some(0), true); // [1]
-    let fill = T::cast::<f32, D>(T::full::<f32>(&[BLOCK_INNER], 0.0_f32), None, false);
-    let x_adj = T::load(
-        x_ptr.add_offsets(offsets),
-        Some(mask),
-        Some(fill),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let sum_exp = T::sum(T::exp(x_adj - m), Some(0), true);
+    // The masked lanes hold the most negative finite value, so exp(x - m) is 0 there
+    // and they add nothing. Filling them with 0 instead added exp(-m) per lane past
+    // n_inner.
+    let sum_exp = T::sum(T::exp(x - m), Some(0), true);
     let val = m + T::log(sum_exp);
     let row_offsets = T::arange(0, 1) + row;
     T::store(y_ptr.add_offsets(row_offsets), val, None, &[], None, None);
