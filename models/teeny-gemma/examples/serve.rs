@@ -491,10 +491,9 @@ fn handle_chat(
             &json!({"type": "token",
                     "text": "I looked that up, but could not put it into words."}),
         )?;
-    } else if reading
-        .as_ref()
-        .is_some_and(|r| teeny_gemma::tools::contradicts(&words, r))
-    {
+    } else if reading.as_ref().is_some_and(|r| {
+        teeny_gemma::tools::contradicts(&words, r) || teeny_gemma::tools::misquotes(&words, r)
+    }) {
         // The words have already been streamed, so the browser is told to take them back.
         // The reading itself stands: it is the part that was never in doubt.
         event(stream, &json!({"type": "retract"}))?;

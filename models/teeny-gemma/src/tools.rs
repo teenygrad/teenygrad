@@ -70,6 +70,10 @@ pub fn declaration() -> Value {
 /// failure comes back as an error rather than a panic, and the caller hands the model
 /// `{"error": ...}` so it can say so in words.
 pub fn weather(city: &str) -> anyhow::Result<Value> {
+    // The model sometimes puts the space inside the string: `<escape> Ibarreta<escape>`. That
+    // reaches the geocoder as `%20Ibarreta`, which it happens to forgive, and reads as
+    // `" Ibarreta"` on the card. Neither is worth passing on.
+    let city = city.trim();
     let get = |url: &str, query: &[(&str, &str)]| -> anyhow::Result<Value> {
         let mut cmd = std::process::Command::new("curl");
         cmd.args(["-sfG", "-m", TIMEOUT_SECS, url]);
@@ -125,6 +129,75 @@ pub fn weather(city: &str) -> anyhow::Result<Value> {
             "utc_offset_seconds": w["utc_offset_seconds"],
         },
     }))
+}
+
+/// Does `reply` quote a measurement the tool did not return?
+///
+/// The guard above catches a claim about rain where the reading says clear. This catches the
+/// quieter failure: numbers that sound right and are not. Asked about two cities at once the
+/// model looks one up and then blends both readings, reporting 16.3 C and 79% where the tool
+/// returned 17.7 and 40, with nothing about the sky to give it away.
+///
+/// Only figures written with a unit the tool itself reports are judged, so a model converting
+/// to Fahrenheit or mentioning a year is left alone, and a figure counts as sourced if it
+/// matches any of the three readings rather than the one its label claims. The question is
+/// whether the number came from the tool at all.
+pub fn misquotes(reply: &str, result: &Value) -> bool {
+    let known: Vec<f64> = ["temperature_c", "humidity_percent", "wind_kmh"]
+        .iter()
+        .filter_map(|f| result[*f].as_f64())
+        .collect();
+    if known.is_empty() {
+        return false;
+    }
+    measurements(reply)
+        .iter()
+        .any(|q| !known.iter().any(|k| (k - q).abs() <= 0.6))
+}
+
+/// Every number in `text` written with a unit this tool reports: `17.7 °C`, `40%`, `8.6 km/h`.
+fn measurements(text: &str) -> Vec<f64> {
+    let lower = text.to_lowercase();
+    let bytes = lower.as_bytes();
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let start = if i > 0 && bytes[i - 1] == b'-' {
+            i - 1
+        } else {
+            i
+        };
+        let mut end = i;
+        while end < bytes.len() && (bytes[end].is_ascii_digit() || bytes[end] == b'.') {
+            end += 1;
+        }
+        let number = lower[start..end].trim_end_matches('.');
+        let after = lower[end..].trim_start();
+        // `°c` and `c` only when the `c` is not the start of a word like "cloud".
+        let celsius = after.starts_with("°c")
+            || after.starts_with("degrees c")
+            || after.starts_with("degree c")
+            || (after.starts_with('c')
+                && !after[1..].starts_with(|c: char| c.is_ascii_alphabetic()));
+        let unit = celsius
+            || after.starts_with('%')
+            || after.starts_with("percent")
+            || after.starts_with("km/h")
+            || after.starts_with("kph")
+            || after.starts_with("kilometres per hour")
+            || after.starts_with("kilometers per hour");
+        if unit {
+            if let Ok(v) = number.parse::<f64>() {
+                found.push(v);
+            }
+        }
+        i = end;
+    }
+    found
 }
 
 /// The same result with `scene` removed: what goes back to the model.
@@ -381,6 +454,8 @@ mod tests {
             (86, "snow showers"),
             (95, "thunderstorm"),
             (96, "thunderstorm"),
+            (97, "thunderstorm"),
+            (98, "thunderstorm"),
             (99, "thunderstorm"),
             (4, "unknown"),
             (44, "unknown"),
@@ -410,6 +485,37 @@ mod tests {
     }
 
     #[test]
+    fn a_hailstorm_is_reported_as_a_thunderstorm() {
+        // 96 and 99 are "thunderstorm with slight hail" and "with heavy hail", and Open-Meteo
+        // will also sell us hail by the millimetre as its own variable. The demo wants neither:
+        // every storm reads as one word and the page draws one storm for it, so folding the
+        // hail codes in is the decision, not an oversight. This test is here so that splitting
+        // them out later is a deliberate act with a failing test to notice, rather than a
+        // quiet change that leaves the page drawing rain at a hailstorm.
+        for code in [95, 96, 97, 98, 99] {
+            assert_eq!(conditions(code), "thunderstorm", "code {code}");
+        }
+    }
+
+    #[test]
+    fn a_storm_claimed_over_a_clear_sky_is_caught_however_it_is_worded() {
+        // `conditions` never says "hail" or "sleet", but a model is free to, and the guard has
+        // to catch it like any other claim that something is falling.
+        for claim in [
+            "There is hail in Tokyo.",
+            "Expect thunderstorms this afternoon.",
+            "Hail and sleet are falling.",
+            "A thunderstorm is passing over.",
+        ] {
+            assert!(contradicts(claim, &reading("clear sky")), "{claim:?}");
+        }
+        // And must not fire when the reading agrees that a storm is happening.
+        for claim in ["There is hail.", "A thunderstorm is overhead."] {
+            assert!(!contradicts(claim, &reading("thunderstorm")), "{claim:?}");
+        }
+    }
+
+    #[test]
     fn the_declaration_names_no_example_cities() {
         // Naming two cities in the `city` description taught the model that those were the
         // only ones it had: asked about Smolensk it answered that its tools covered "cities
@@ -432,6 +538,51 @@ mod tests {
             city_param.contains("world") || city_param.contains("any"),
             "the city parameter should say that anywhere counts: {city_param:?}"
         );
+    }
+
+    fn full_reading() -> Value {
+        json!({"city": "Lisbon, Portugal", "temperature_c": 17.7, "conditions": "overcast",
+               "humidity_percent": 40, "wind_kmh": 8.6})
+    }
+
+    #[test]
+    fn catches_numbers_blended_from_another_city() {
+        // The real one: "Weather in Tokyo and Lisbon?" looked up one and reported both.
+        let reply = "The current weather is 16.3°C with 79% humidity and wind at 10.8 km/h.";
+        assert!(misquotes(reply, &full_reading()));
+    }
+
+    #[test]
+    fn allows_the_numbers_the_tool_returned() {
+        let replies = [
+            "17.7°C, 40% humidity, 8.6 km/h",
+            "It is 17.7 degrees C with a humidity of 40 percent.",
+            "*   **Temperature:** 17.7°C\n*   **Wind:** 8.6 km/h",
+            // Rounded a little, and labels swapped around: still the tool's numbers.
+            "About 18 C, wind 8.6 kph.",
+        ];
+        for reply in replies {
+            assert!(!misquotes(reply, &full_reading()), "{reply:?}");
+        }
+    }
+
+    #[test]
+    fn ignores_figures_that_are_not_its_units() {
+        let replies = [
+            "17.7°C, which is 63.9°F.",
+            "Checked at 22:45 on 2026-11-19.",
+            "Cloud cover is heavy and there are 3 layers.",
+            "17.7°C under 100 metres of cloud.",
+        ];
+        for reply in replies {
+            assert!(!misquotes(reply, &full_reading()), "{reply:?}");
+        }
+    }
+
+    #[test]
+    fn says_nothing_when_there_is_no_reading_to_check_against() {
+        assert!(!misquotes("It is 99°C.", &json!({"error": "unreachable"})));
+        assert!(!misquotes("", &full_reading()));
     }
 
     #[test]

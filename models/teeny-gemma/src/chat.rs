@@ -168,6 +168,11 @@ impl Parser<'_> {
     }
 
     fn value(&mut self) -> anyhow::Result<Value> {
+        // The model puts a space after the colon often enough to matter, and without this the
+        // value falls through to the bare-scalar arm and the `<escape>` markers end up inside
+        // the string.
+        let skip = self.rest().len() - self.rest().trim_start().len();
+        self.pos += skip;
         let r = self.rest();
         if r.starts_with(Self::ESC) {
             self.pos += Self::ESC.len();
@@ -186,7 +191,10 @@ impl Parser<'_> {
                     .rest()
                     .find(':')
                     .ok_or_else(|| anyhow::anyhow!("key without value at {:?}", self.rest()))?;
+                // Keys pick up the space after a comma the same way values pick up the one
+                // after a colon.
                 let key = self.rest()[..colon]
+                    .trim()
                     .trim_start_matches(Self::ESC)
                     .trim_end_matches(Self::ESC)
                     .to_string();
@@ -238,6 +246,15 @@ mod tests {
                 }),
             }]
         );
+    }
+
+    #[test]
+    fn parses_values_written_with_a_space_after_the_colon() {
+        let text = "<start_function_call>call:get_weather{city: <escape>Ibarreta<escape>, \
+                    days: 3}<end_function_call>";
+        let calls = parse_calls(text).unwrap();
+        assert_eq!(calls[0].args["city"], "Ibarreta");
+        assert_eq!(calls[0].args["days"], 3);
     }
 
     #[test]
