@@ -282,7 +282,7 @@ window.Sky = (function () {
   var target = defaultScene();
   var cur = {
     top: [0, 0, 0], mid: [0, 0, 0], bot: [0, 0, 0],
-    rain: 0, snow: 0, fog: 0, cloud: 0, stars: 0, veil: 0, wind: 0, flash: 0
+    rain: 0, snow: 0, fog: 0, cloud: 0, stars: 0, veil: 0, wind: 0, flash: 0, freeze: 0
   };
   var started = false;
 
@@ -359,6 +359,9 @@ window.Sky = (function () {
       // A storm you can barely see through: wind plus falling snow takes the view away.
       veil: kind === "snow" ? clamp(Math.abs(s.wind) / 90, 0, 1) * 0.26 : 0,
       wind: push, gust: Math.abs(push),
+      // Below freezing the window ices over, which has nothing to do with what is falling:
+      // it happens under a clear sky as readily as under snow. Full by about -15.
+      freeze: clamp(-(s.temp === undefined || s.temp === null ? 10 : s.temp) / 15, 0, 1),
       thunder: kind === "thunder"
     };
   }
@@ -435,6 +438,7 @@ window.Sky = (function () {
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     area = (W * H) / (1280 * 720);
+    frost = null;
     seed();
   }
 
@@ -619,6 +623,110 @@ window.Sky = (function () {
     ctx.fillRect(0, 0, W, H);
   }
 
+  // ------------------------------------------------------------------- frost
+
+  // Ice is grown once into its own canvas and composited each frame, because branching
+  // crystals are far too expensive to redraw at sixty frames a second and they do not move:
+  // what changes is how much of them you can see.
+  var frost = null;
+
+  function growFrost() {
+    frost = document.createElement("canvas");
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    frost.width = Math.round(W * dpr);
+    frost.height = Math.round(H * dpr);
+    var f = frost.getContext("2d");
+    f.setTransform(dpr, 0, 0, dpr, 0, 0);
+    f.lineCap = "round";
+    f.strokeStyle = "rgba(255,255,255,0.75)";
+
+    // One crystal: a stem that wanders inward, throwing shorter branches off at an angle,
+    // each of which does the same. Three levels is enough to read as frost and cheap enough
+    // to grow a few hundred of them.
+    function branch(x, y, angle, len, width, depth) {
+      if (depth <= 0 || len < 2) return;
+      var steps = 3 + Math.floor(Math.random() * 3);
+      f.lineWidth = width;
+      f.beginPath();
+      f.moveTo(x, y);
+      for (var i = 0; i < steps; i++) {
+        angle += (Math.random() - 0.5) * 0.5;
+        x += Math.cos(angle) * (len / steps);
+        y += Math.sin(angle) * (len / steps);
+        f.lineTo(x, y);
+        if (Math.random() < 0.55) {
+          var side = Math.random() < 0.5 ? 1 : -1;
+          branch(x, y, angle + side * (0.7 + Math.random() * 0.6),
+                 len * (0.3 + Math.random() * 0.25), width * 0.6, depth - 1);
+        }
+      }
+      f.stroke();
+    }
+
+    var reach = Math.min(W, H) * 0.26;
+    var seeds = Math.round(Math.min(W, H) / 4);
+    var edges = [
+      [function (u) { return [u * W, 0]; }, Math.PI / 2],
+      [function (u) { return [u * W, H]; }, -Math.PI / 2],
+      [function (u) { return [0, u * H]; }, 0],
+      [function (u) { return [W, u * H]; }, Math.PI]
+    ];
+    for (var e = 0; e < edges.length; e++) {
+      for (var i = 0; i < seeds; i++) {
+        var at = edges[e][0](Math.random());
+        branch(at[0], at[1], edges[e][1] + (Math.random() - 0.5) * 0.9,
+               reach * (0.35 + Math.random() * 0.65), 1.6, 3);
+      }
+    }
+
+    // A soft frosted band along each edge, under the crystals, so the glass looks iced and
+    // not merely scratched.
+    var band = Math.min(W, H) * 0.3;
+    var bands = [[0, 0, 0, band], [0, H, 0, H - band], [0, 0, band, 0], [W, 0, W - band, 0]];
+    for (var b = 0; b < bands.length; b++) {
+      var g = f.createLinearGradient(bands[b][0], bands[b][1], bands[b][2], bands[b][3]);
+      g.addColorStop(0, "rgba(235,245,255,0.22)");
+      g.addColorStop(1, "rgba(235,245,255,0)");
+      f.fillStyle = g;
+      f.fillRect(0, 0, W, H);
+    }
+
+    // Keep the ice against the frame. A circle would leave the long edges bare and crowd the
+    // corners, so the mask is the union of four edge gradients: opaque at the glass, gone by
+    // `band` inwards, and still opaque where two of them meet in a corner.
+    var mask = document.createElement("canvas");
+    mask.width = frost.width;
+    mask.height = frost.height;
+    var m = mask.getContext("2d");
+    m.setTransform(dpr, 0, 0, dpr, 0, 0);
+    m.globalCompositeOperation = "lighter";
+    for (var k = 0; k < bands.length; k++) {
+      var mg = m.createLinearGradient(bands[k][0], bands[k][1], bands[k][2], bands[k][3]);
+      mg.addColorStop(0, "rgba(255,255,255,1)");
+      mg.addColorStop(0.45, "rgba(255,255,255,0.45)");
+      mg.addColorStop(1, "rgba(255,255,255,0)");
+      m.fillStyle = mg;
+      m.fillRect(0, 0, W, H);
+    }
+    f.globalCompositeOperation = "destination-in";
+    f.drawImage(mask, 0, 0, W, H);
+    f.globalCompositeOperation = "source-over";
+  }
+
+  function drawFrost(t) {
+    if (cur.freeze < 0.02) return;
+    // A cold cast over the whole scene first: the light itself goes blue below zero.
+    ctx.fillStyle = "rgba(188,214,240," + (cur.freeze * 0.1).toFixed(3) + ")";
+    ctx.fillRect(0, 0, W, H);
+    if (!frost) growFrost();
+    // The ice breathes a little rather than sitting perfectly still.
+    var alpha = cur.freeze * (0.82 + 0.18 * Math.sin(t * 0.33));
+    ctx.save();
+    ctx.globalAlpha = clamp(alpha, 0, 1);
+    ctx.drawImage(frost, 0, 0, W, H);
+    ctx.restore();
+  }
+
   function drawVeil() {
     if (cur.veil < 0.01) return;
     ctx.fillStyle = "rgba(236,240,248," + cur.veil.toFixed(3) + ")";
@@ -632,7 +740,7 @@ window.Sky = (function () {
     cur.top = mixRgb(cur.top, target.top, k);
     cur.mid = mixRgb(cur.mid, target.mid, k);
     cur.bot = mixRgb(cur.bot, target.bot, k);
-    ["rain", "snow", "fog", "cloud", "stars", "veil", "wind"].forEach(function (f) {
+    ["rain", "snow", "fog", "cloud", "stars", "veil", "wind", "freeze"].forEach(function (f) {
       cur[f] = lerp(cur[f], target[f], k);
     });
   }
@@ -651,6 +759,7 @@ window.Sky = (function () {
     drawSnow(dt, windPx, t);
     drawGusts(dt, windPx);
     drawVeil();
+    drawFrost(t);
     drawLightning(dt);
   }
 
@@ -668,7 +777,7 @@ window.Sky = (function () {
   // so it still has to change when a new city arrives. It just never moves.
   function still() {
     cur.top = target.top.slice(); cur.mid = target.mid.slice(); cur.bot = target.bot.slice();
-    ["rain", "snow", "fog", "cloud", "stars", "veil", "wind"].forEach(function (f) {
+    ["rain", "snow", "fog", "cloud", "stars", "veil", "wind", "freeze"].forEach(function (f) {
       cur[f] = target[f];
     });
     cur.flash = 0;
@@ -716,7 +825,10 @@ window.Sky = (function () {
         isDay: s.is_day === null || s.is_day === undefined ? null : Number(s.is_day),
         cloud: Number(s.cloud_cover) || 0,
         wind: Number(s.wind_kmh) || 0,
-        from: Number(s.wind_from_deg) || 0
+        from: Number(s.wind_from_deg) || 0,
+        // The card carries the temperature, not the scene block.
+        temp: data.temperature_c === null || data.temperature_c === undefined
+          ? null : Number(data.temperature_c)
       });
       nextBolt = 0.6;
       if (reduce) { if (started) still(); } 
