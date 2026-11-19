@@ -392,6 +392,8 @@ fn handle_chat(
     let mut stats;
     let (mut used, mut total);
     let mut round = 0;
+    // The last reading the tool returned, kept to check the model's words against.
+    let mut reading: Option<Value> = None;
     loop {
         let (text, s) = engine.reply(&json!(messages), &tools, |piece| {
             event(stream, &json!({"type": "token", "text": piece}))?;
@@ -425,8 +427,10 @@ fn handle_chat(
             )?;
             let result = if call.name == "get_weather" {
                 let city = args["city"].as_str().unwrap_or_default().to_string();
-                teeny_gemma::tools::weather(&city)
-                    .unwrap_or_else(|e| json!({"error": e.to_string()}))
+                let w = teeny_gemma::tools::weather(&city)
+                    .unwrap_or_else(|e| json!({"error": e.to_string()}));
+                reading = Some(w.clone());
+                w
             } else {
                 // Only the weather tool is declared, so this is the model inventing one.
                 json!({"error": format!("no tool called {}", call.name)})
@@ -446,12 +450,20 @@ fn handle_chat(
     }
 
     // A reply that was nothing but a tool call leaves the visitor with no words at all.
-    if speech(&raw).is_empty() {
+    let words = speech(&raw);
+    if words.is_empty() {
         event(
             stream,
             &json!({"type": "token",
                     "text": "I looked that up, but could not put it into words."}),
         )?;
+    } else if reading
+        .as_ref()
+        .is_some_and(|r| teeny_gemma::tools::contradicts(&words, r))
+    {
+        // The words have already been streamed, so the browser is told to take them back.
+        // The reading itself stands: it is the part that was never in doubt.
+        event(stream, &json!({"type": "retract"}))?;
     }
     event(
         stream,

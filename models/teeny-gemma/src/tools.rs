@@ -148,3 +148,280 @@ pub fn conditions(code: u64) -> &'static str {
         _ => "unknown",
     }
 }
+
+/// Which way the sky is, as far as a sentence can contradict it.
+enum Sky {
+    /// Something is falling out of it.
+    Wet,
+    /// Nothing is, and you can see the sun.
+    Clear,
+    /// Nothing is, but you cannot.
+    Dim,
+}
+
+/// Does `reply` claim weather that `result` says is not happening?
+///
+/// The model is 270M parameters and, asked a leading question, will sometimes agree with the
+/// premise and then contradict itself from the tool result a clause later: "It is currently
+/// raining in Tokyo. The conditions are clear sky." The reading is ground truth and is already
+/// on screen, so a sentence that disagrees with it is worse than no sentence, and the caller
+/// drops it.
+///
+/// This only judges whether it rains or shines, since that is the claim that misleads. Being
+/// a word or two off about the temperature is not worth suppressing an answer over.
+pub fn contradicts(reply: &str, result: &Value) -> bool {
+    let sky = match result["conditions"].as_str() {
+        Some("drizzle" | "rain" | "rain showers" | "snow" | "snow showers" | "thunderstorm") => {
+            Sky::Wet
+        }
+        Some("clear sky") => Sky::Clear,
+        Some("partly cloudy" | "overcast" | "fog") => Sky::Dim,
+        // "unknown", or no reading at all: nothing to contradict.
+        _ => return false,
+    };
+    const FALLING: &[&str] = &[
+        "rain", "drizzl", "snow", "thunder", "sleet", "hail", "storm",
+    ];
+    const SHINING: &[&str] = &["clear sky", "sunny", "cloudless"];
+    let text = reply.to_lowercase();
+    let claims = |words: &[&str]| words.iter().any(|w| claimed(&text, w));
+    match sky {
+        Sky::Wet => claims(SHINING),
+        Sky::Clear => claims(FALLING),
+        Sky::Dim => claims(FALLING) || claims(SHINING),
+    }
+}
+
+/// Is `needle` asserted anywhere in `text`, rather than denied?
+///
+/// "It is not raining" and "no snow today" agree with a dry reading, so they must not count
+/// as claims that it rains.
+fn claimed(text: &str, needle: &str) -> bool {
+    text.match_indices(needle).any(|(at, _)| !denied(text, at))
+}
+
+/// Does a denial sit just before the word at `at`?
+fn denied(text: &str, at: usize) -> bool {
+    // Enough room for "there is no " and the like, moved up to a character boundary so a
+    // degree sign earlier in the sentence cannot panic the slice.
+    let mut start = at.saturating_sub(20);
+    while start < at && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let before = &text[start..at];
+    ["not ", "no ", "n't ", "without ", "isn", "aren"]
+        .iter()
+        .any(|d| before.contains(d))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reading(conditions: &str) -> Value {
+        json!({"conditions": conditions, "temperature_c": 15})
+    }
+
+    /// Every condition the tool can report, and whether it counts as wet.
+    const ALL: &[(&str, bool)] = &[
+        ("clear sky", false),
+        ("partly cloudy", false),
+        ("overcast", false),
+        ("fog", false),
+        ("drizzle", true),
+        ("rain", true),
+        ("snow", true),
+        ("rain showers", true),
+        ("snow showers", true),
+        ("thunderstorm", true),
+    ];
+
+    #[test]
+    fn catches_the_leading_question_contradiction() {
+        // Word for word off the board, which is what this guard exists for.
+        let reply = "It is currently raining in Tokyo, Japan. The conditions are clear sky, \
+                     with a humidity of 46%, and a wind speed of 7.7 km/h.";
+        assert!(contradicts(reply, &reading("clear sky")));
+    }
+
+    #[test]
+    fn every_dry_reading_rejects_every_claim_of_falling_weather() {
+        let claims = [
+            "It is raining there.",
+            "There is heavy rain.",
+            "It is drizzling.",
+            "It is snowing right now.",
+            "Expect thunderstorms.",
+            "There is sleet.",
+            "A storm is passing through.",
+        ];
+        for (conditions, wet) in ALL.iter().filter(|(_, wet)| !wet) {
+            assert!(!wet);
+            for claim in claims {
+                assert!(
+                    contradicts(claim, &reading(conditions)),
+                    "{claim:?} should contradict {conditions:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_wet_reading_rejects_every_claim_of_sunshine() {
+        let claims = [
+            "The sky is clear sky.",
+            "It is sunny.",
+            "A cloudless afternoon.",
+        ];
+        for (conditions, wet) in ALL.iter().filter(|(_, wet)| *wet) {
+            assert!(wet);
+            for claim in claims {
+                assert!(
+                    contradicts(claim, &reading(conditions)),
+                    "{claim:?} should contradict {conditions:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_reading_never_contradicts_its_own_wording() {
+        for (conditions, _) in ALL {
+            let reply = format!("The current weather is:\n*   Conditions: {conditions}");
+            assert!(
+                !contradicts(&reply, &reading(conditions)),
+                "{conditions:?} contradicted itself"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_a_denial() {
+        let dry = [
+            "It is not raining in Tokyo.",
+            "There is no snow today.",
+            "It isn't raining.",
+            "A day without rain.",
+            "There are no thunderstorms.",
+        ];
+        for reply in dry {
+            assert!(!contradicts(reply, &reading("clear sky")), "{reply:?}");
+            assert!(!contradicts(reply, &reading("overcast")), "{reply:?}");
+        }
+    }
+
+    #[test]
+    fn cloud_and_fog_reject_claims_in_both_directions() {
+        for conditions in ["partly cloudy", "overcast", "fog"] {
+            assert!(contradicts("It is snowing.", &reading(conditions)));
+            assert!(contradicts("It is sunny.", &reading(conditions)));
+        }
+    }
+
+    #[test]
+    fn says_nothing_about_a_result_it_cannot_read() {
+        let unreadable = [
+            json!({"error": "weather service unreachable"}),
+            json!({"conditions": "unknown"}),
+            json!({}),
+            json!({"conditions": 7}),
+        ];
+        for result in unreadable {
+            assert!(!contradicts("It is raining.", &result), "{result}");
+        }
+    }
+
+    #[test]
+    fn survives_wording_it_was_not_designed_for() {
+        // Must not panic on a multi-byte character sitting in the window before a claim.
+        assert!(contradicts(
+            "Es regnet. 15 °C and raining.",
+            &reading("clear sky")
+        ));
+        assert!(!contradicts("", &reading("clear sky")));
+        assert!(!contradicts("15 °C", &reading("clear sky")));
+    }
+
+    #[test]
+    fn maps_every_wmo_code_the_api_can_send() {
+        let expected: &[(u64, &str)] = &[
+            (0, "clear sky"),
+            (1, "partly cloudy"),
+            (2, "partly cloudy"),
+            (3, "overcast"),
+            (45, "fog"),
+            (48, "fog"),
+            (51, "drizzle"),
+            (53, "drizzle"),
+            (55, "drizzle"),
+            (56, "drizzle"),
+            (57, "drizzle"),
+            (61, "rain"),
+            (63, "rain"),
+            (65, "rain"),
+            (66, "rain"),
+            (67, "rain"),
+            (71, "snow"),
+            (73, "snow"),
+            (75, "snow"),
+            (77, "snow"),
+            (80, "rain showers"),
+            (81, "rain showers"),
+            (82, "rain showers"),
+            (85, "snow showers"),
+            (86, "snow showers"),
+            (95, "thunderstorm"),
+            (96, "thunderstorm"),
+            (99, "thunderstorm"),
+            (4, "unknown"),
+            (44, "unknown"),
+            (100, "unknown"),
+            (999, "unknown"),
+        ];
+        for (code, want) in expected {
+            assert_eq!(conditions(*code), *want, "code {code}");
+        }
+    }
+
+    #[test]
+    fn the_declaration_says_enough_to_get_itself_called() {
+        let d = declaration();
+        let f = &d["function"];
+        assert_eq!(f["name"], "get_weather");
+        assert_eq!(f["parameters"]["required"][0], "city");
+        let description = f["description"].as_str().unwrap().to_lowercase();
+        // The one-line version left the model guessing; these are the askings it needs to
+        // recognise. See the note on `declaration`.
+        for cue in ["what it is like", "warm", "raining", "snowing"] {
+            assert!(
+                description.contains(cue),
+                "declaration never mentions {cue:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_view_hides_the_scene_and_keeps_the_rest() {
+        let full = json!({
+            "city": "Tokyo, Japan", "temperature_c": 15, "conditions": "clear sky",
+            "humidity_percent": 46, "wind_kmh": 7.7,
+            "scene": {"weather_code": 0, "cloud_cover": 5},
+        });
+        let seen = model_view(&full);
+        assert!(
+            seen.get("scene").is_none(),
+            "the model can still see the scene"
+        );
+        for kept in [
+            "city",
+            "temperature_c",
+            "conditions",
+            "humidity_percent",
+            "wind_kmh",
+        ] {
+            assert_eq!(seen[kept], full[kept], "model_view dropped {kept}");
+        }
+        // The original is untouched, since the browser still needs it.
+        assert!(full.get("scene").is_some());
+    }
+}
