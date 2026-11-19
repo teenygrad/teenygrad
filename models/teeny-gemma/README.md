@@ -163,6 +163,25 @@ Decode gains about 11%; prompt processing loses a little. Both clusters share on
 (about 21 GB/s for either alone, 24 GB/s together), and decode reads every weight for every
 token, so extra cores add little.
 
+## The weather demo in a browser
+
+The same model and the same `get_weather` tool, with a page in front of them: the model decides
+on its own to look a city up, and the sky behind the page is painted from what it finds, down to
+the local hour, so five in the morning in Hawaii is a sunrise while you are at midnight.
+
+```bash
+models/teeny-gemma/scripts/board-serve.sh -H board     # build, copy, start
+ssh -N -L 8080:127.0.0.1:8080 board                    # reach it at http://127.0.0.1:8080
+```
+
+It binds loopback, speaks plain HTTP with no authentication and answers one visitor at a time, so
+put it behind a TLS-terminating proxy before it faces anything wider. A turn takes about ten
+seconds on a K3, and the page reports the same per-turn numbers as the chat.
+
+`scripts/check-demo.py` checks a running demo: 118 cases that verify the model's answers against
+Open-Meteo rather than merely checking that it called something. See
+[REPRODUCE.md](REPRODUCE.md#7-the-weather-web-demo).
+
 ## teenyc issues found along the way
 
 Five teenyc bugs shaped the RISC-V kernels here. Each has a workaround in place; they are worth
