@@ -40,18 +40,27 @@ const TIMEOUT_SECS: &str = "10";
 /// "what is it like in Tokyo?" instead of a paragraph about the city.
 ///
 /// Measured on the board over five phrasings: three of five called the tool with the one-line
-/// description, five of five with this one. It also stopped the model agreeing with a false
-/// premise, so "is it raining in Tokyo?" now answers "clear sky" instead of "it is raining".
+/// description, five of five with this one.
+///
+/// Every word here is load-bearing in a way that is easy to get wrong. An earlier version
+/// named two example cities in the `city` description and the model began refusing everywhere
+/// else, telling a visitor its tools covered "cities like Tokyo and Lisbon". Say what the tool
+/// can do, never what a value might look like.
 pub fn declaration() -> Value {
     json!({"type": "function", "function": {
         "name": "get_weather",
-        "description": "Get the current weather at a place: temperature, humidity, wind and \
-                        conditions such as rain, snow, fog or clear sky. Use this for any \
-                        question that names a place, including what it is like there, how \
-                        warm or cold it is, or whether it is raining or snowing.",
+        "description": "Get the current weather anywhere in the world: temperature, humidity, \
+                        wind and conditions such as rain, snow, fog or clear sky. Use this for \
+                        every question that names a place, however it is asked: what it is \
+                        like there, how warm or cold it is, whether it is raining or snowing, \
+                        or whether someone needs an umbrella or a coat.",
         "parameters": {"type": "object",
             "properties": {"city": {"type": "string",
-                "description": "The place to look up, for example Tokyo or Lisbon"}},
+                // Deliberately no example cities. With "for example Tokyo or Lisbon" here,
+                // the model read the examples as the whole list and told a visitor asking
+                // about Smolensk that its tools only covered "cities like Tokyo and Lisbon".
+                "description": "Any city, town or village in the world, named as the \
+                                visitor wrote it"}},
             "required": ["city"]}}})
 }
 
@@ -392,12 +401,37 @@ mod tests {
         let description = f["description"].as_str().unwrap().to_lowercase();
         // The one-line version left the model guessing; these are the askings it needs to
         // recognise. See the note on `declaration`.
-        for cue in ["what it is like", "warm", "raining", "snowing"] {
+        for cue in ["what it is like", "warm", "raining", "snowing", "umbrella"] {
             assert!(
                 description.contains(cue),
                 "declaration never mentions {cue:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_declaration_names_no_example_cities() {
+        // Naming two cities in the `city` description taught the model that those were the
+        // only ones it had: asked about Smolensk it answered that its tools covered "cities
+        // like Tokyo and Lisbon". An example of a value reads as the whole set of values.
+        let d = declaration();
+        let text = d.to_string().to_lowercase();
+        for city in [
+            "tokyo", "lisbon", "cairo", "paris", "london", "new york", "berlin",
+        ] {
+            assert!(
+                !text.contains(city),
+                "the declaration names {city:?}; the model will treat it as the whole list"
+            );
+        }
+        let city_param = d["function"]["parameters"]["properties"]["city"]["description"]
+            .as_str()
+            .unwrap()
+            .to_lowercase();
+        assert!(
+            city_param.contains("world") || city_param.contains("any"),
+            "the city parameter should say that anywhere counts: {city_param:?}"
+        );
     }
 
     #[test]

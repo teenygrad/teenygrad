@@ -113,6 +113,18 @@ fn visible(text: &str) -> String {
 
 /// The part of a reply meant for a reader. A function call is the model addressing the
 /// runtime, not the visitor, so it is shown as a tool card instead and never as prose.
+/// `text` cut to `limit` bytes on a character boundary, for a log line.
+fn truncate(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut end = limit;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
 fn speech(text: &str) -> String {
     let t = visible(text);
     match t.find("<start_function_call>") {
@@ -415,17 +427,31 @@ fn handle_chat(
         // template expects; anything else and the model just calls the tool again.
         let tool_calls: Vec<Value> = calls
             .iter()
-            .map(|c| json!({"type": "function", "function": {"name": c.name, "arguments": c.args}}))
+            .map(|c| {
+                let name = if c.name.is_empty() {
+                    "get_weather"
+                } else {
+                    c.name.as_str()
+                };
+                json!({"type": "function", "function": {"name": name, "arguments": c.args}})
+            })
             .collect();
         messages.push(json!({"role": "assistant", "tool_calls": tool_calls}));
 
         for call in &calls {
             let args = &call.args;
+            // An empty name means the model called without saying what. Only one function is
+            // declared, so there is no ambiguity about which it meant.
+            let name = if call.name.is_empty() {
+                "get_weather"
+            } else {
+                call.name.as_str()
+            };
             event(
                 stream,
-                &json!({"type": "tool_call", "name": call.name, "args": args}),
+                &json!({"type": "tool_call", "name": name, "args": args}),
             )?;
-            let result = if call.name == "get_weather" {
+            let result = if name == "get_weather" {
                 let city = args["city"].as_str().unwrap_or_default().to_string();
                 let w = teeny_gemma::tools::weather(&city)
                     .unwrap_or_else(|e| json!({"error": e.to_string()}));
@@ -433,16 +459,16 @@ fn handle_chat(
                 w
             } else {
                 // Only the weather tool is declared, so this is the model inventing one.
-                json!({"error": format!("no tool called {}", call.name)})
+                json!({"error": format!("no tool called {name}")})
             };
             event(
                 stream,
-                &json!({"type": "tool_result", "name": call.name, "result": result}),
+                &json!({"type": "tool_result", "name": name, "result": result}),
             )?;
             // The browser got the whole result above, scene and all; the model gets the
             // visitor-facing fields only.
             messages.push(json!({
-                "role": "tool", "name": call.name,
+                "role": "tool", "name": name,
                 "content": teeny_gemma::tools::model_view(&result),
             }));
         }
@@ -452,6 +478,14 @@ fn handle_chat(
     // A reply that was nothing but a tool call leaves the visitor with no words at all.
     let words = speech(&raw);
     if words.is_empty() {
+        // The model meant to call something and the parser would not have it. Nothing of this
+        // reaches the browser, because the markup is special tokens that decode to nothing,
+        // so without this line the failure is invisible and unfixable.
+        eprintln!(
+            "unparsable reply ({} bytes): {:?}",
+            raw.len(),
+            truncate(&raw, 400)
+        );
         event(
             stream,
             &json!({"type": "token",
