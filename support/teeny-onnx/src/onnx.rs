@@ -119,7 +119,8 @@ fn tensor_data(t: &TensorProto, what: &str) -> Result<TensorData> {
 pub type TensorData = teeny_core::graph::ConstantTensor;
 
 /// Reads a Squeeze/Unsqueeze `axes` operand (input 1) out of the constants seen so
-/// far, or `None` if it is not a constant.
+/// far, `None` if it is not a constant, or an error if it is a constant that cannot be
+/// read as integers.
 ///
 /// Opset 13 moved `axes` from an attribute to an operand. Almost always that operand
 /// is a `Constant` or an initializer, and resolving it is what keeps the op's meaning
@@ -128,8 +129,22 @@ pub type TensorData = teeny_core::graph::ConstantTensor;
 /// this graph IR records statically and so cannot represent. `None` reports that, and
 /// the node keeps an empty `axes` as it did before; `crate::materialize` refuses to
 /// fold an `Unsqueeze` in that state rather than treat it as an identity.
-fn axes_operand(inputs: &[usize], tensors: &BTreeMap<usize, TensorData>) -> Option<Vec<i64>> {
-    tensors.get(inputs.get(1)?)?.as_i64()
+fn axes_operand(
+    inputs: &[usize],
+    tensors: &BTreeMap<usize, TensorData>,
+    node: &str,
+) -> Result<Option<Vec<i64>>> {
+    let Some(&src) = inputs.get(1) else {
+        return Ok(None);
+    };
+    let Some(t) = tensors.get(&src) else {
+        return Ok(None);
+    };
+    let axes = t.to_i64_vec().map_err(|reason| Error::UnreadableConstant {
+        context: format!("node '{node}': axes operand (node {src})"),
+        reason,
+    })?;
+    Ok(Some(axes))
 }
 
 /// Everything an ONNX import produced.
@@ -242,7 +257,12 @@ impl<'a> ImportCtx<'a> {
         let explicit: Option<Vec<usize>> = inputs
             .get(1)
             .and_then(|src| self.tensors.get(src))
-            .and_then(|td| td.as_i64())
+            .map(|td| td.to_i64_vec())
+            .transpose()
+            .map_err(|reason| Error::UnreadableConstant {
+                context: format!("Split '{name}': split sizes operand"),
+                reason,
+            })?
             .filter(|values| !values.is_empty())
             .and_then(|values| values.iter().map(|&v| usize::try_from(v).ok()).collect());
 
@@ -518,10 +538,10 @@ impl<'a> ImportCtx<'a> {
         // operation at all.
         let op = match op {
             Op::Squeeze { axes } if axes.is_empty() && node.input.len() > 1 => Op::Squeeze {
-                axes: axes_operand(&inputs, &self.tensors).unwrap_or(axes),
+                axes: axes_operand(&inputs, &self.tensors, &node.name)?.unwrap_or(axes),
             },
             Op::Unsqueeze { axes } if axes.is_empty() && node.input.len() > 1 => Op::Unsqueeze {
-                axes: axes_operand(&inputs, &self.tensors).unwrap_or(axes),
+                axes: axes_operand(&inputs, &self.tensors, &node.name)?.unwrap_or(axes),
             },
             other => other,
         };
@@ -1782,7 +1802,7 @@ mod tensor_data_tests {
         let td = tensor_data(&t, "mask").expect("a bool tensor should decode");
         assert_eq!(td.dtype, DtypeRepr::Bool);
         assert_eq!(td.bytes, vec![1u8, 0, 1, 1]);
-        assert_eq!(td.as_i64(), Some(vec![1i64, 0, 1, 1]));
+        assert_eq!(td.to_i64_vec(), Ok(vec![1i64, 0, 1, 1]));
     }
 
     /// The same field carries the small integer types, which narrow the same way.
@@ -1797,12 +1817,12 @@ mod tensor_data_tests {
             "three int16s are six bytes: {:?}",
             td.bytes
         );
-        assert_eq!(td.as_i64(), Some(vec![1i64, -2, 300]));
+        assert_eq!(td.to_i64_vec(), Ok(vec![1i64, -2, 300]));
 
         let mut t = proto(tensor_proto::DataType::INT8 as i32, &[3]);
         t.int32_data = vec![7, -1, 0];
         let td = tensor_data(&t, "i8").expect("an int8 tensor should decode");
-        assert_eq!(td.as_i64(), Some(vec![7i64, -1, 0]));
+        assert_eq!(td.to_i64_vec(), Ok(vec![7i64, -1, 0]));
     }
 
     /// `uint64_data` carries uint32 as well, which narrows to four bytes.
@@ -1812,7 +1832,7 @@ mod tensor_data_tests {
         t.uint64_data = vec![5, 4_000_000_000];
         let td = tensor_data(&t, "u32").expect("a uint32 tensor should decode");
         assert_eq!(td.bytes.len(), 8);
-        assert_eq!(td.as_i64(), Some(vec![5i64, 4_000_000_000]));
+        assert_eq!(td.to_i64_vec(), Ok(vec![5i64, 4_000_000_000]));
     }
 
     /// A dtype stored at its natural width in its own field is unaffected.
@@ -1821,13 +1841,13 @@ mod tensor_data_tests {
         let mut t = proto(tensor_proto::DataType::INT64 as i32, &[2]);
         t.int64_data = vec![-1, 1 << 40];
         let td = tensor_data(&t, "i64").expect("an int64 tensor should decode");
-        assert_eq!(td.as_i64(), Some(vec![-1i64, 1 << 40]));
+        assert_eq!(td.to_i64_vec(), Ok(vec![-1i64, 1 << 40]));
 
         let mut t = proto(tensor_proto::DataType::INT32 as i32, &[2]);
         t.int32_data = vec![-1, 70_000];
         let td = tensor_data(&t, "i32").expect("an int32 tensor should decode");
         assert_eq!(td.bytes.len(), 8);
-        assert_eq!(td.as_i64(), Some(vec![-1i64, 70_000]));
+        assert_eq!(td.to_i64_vec(), Ok(vec![-1i64, 70_000]));
     }
 
     /// `raw_data` is already at the dtype's width, so it is passed through untouched

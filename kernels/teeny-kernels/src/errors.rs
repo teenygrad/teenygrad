@@ -20,4 +20,12 @@ pub type Result<T> = anyhow::Result<T>;
 pub enum Error {
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
+    /// A constant operand's bytes cannot be read as the values the op needs.
+    #[error("{context}: {reason}")]
+    UnreadableConstant {
+        /// Which operand of which node.
+        context: String,
+        /// Why it cannot be read.
+        reason: teeny_core::graph::ConstantReadError,
+    },
 }

@@ -47,7 +47,7 @@ use std::collections::BTreeMap;
 
 use teeny_core::graph::{ConstantMap, Op};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::materialize::{
     MaterializeConfig, MaterializeReport, lowering_constants, materialize_constants,
 };
@@ -111,7 +111,12 @@ pub fn resolve_if_branches(import: &mut Import, folded: &ConstantMap) -> Result<
         let cond = folded
             .get(&cond_id)
             .or_else(|| import.tensors.get(&cond_id))
-            .and_then(|t| t.as_i64())
+            .map(|t| t.to_i64_vec())
+            .transpose()
+            .map_err(|reason| Error::UnreadableConstant {
+                context: format!("If node {if_id}: condition operand (node {cond_id})"),
+                reason,
+            })?
             .and_then(|v| v.first().copied());
         let Some(cond) = cond else {
             report.unresolved_condition += 1;

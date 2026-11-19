@@ -46,11 +46,11 @@ fn what_the_fold_made_of_these_operands() {
         );
         match folded.get(&idx) {
             Some(c) => {
-                let as_i64 = c.as_i64();
-                let as_f64 = c.as_f64();
+                let ints = c.to_i64_vec();
+                let floats = c.to_f64_vec();
                 println!(
                     "\n  folded: dtype {:?} shape {:?} i64 {:?} f64 {:?}",
-                    c.dtype, c.shape, as_i64, as_f64
+                    c.dtype, c.shape, ints, floats
                 );
             }
             None => println!("\n  not folded"),
@@ -60,7 +60,7 @@ fn what_the_fold_made_of_these_operands() {
             println!(
                 "    from graph {input} {:?} {iname} folded {:?}",
                 import.graph.nodes[input].op,
-                folded.get(&input).and_then(|c| c.as_i64())
+                folded.get(&input).map(|c| c.to_i64_vec())
             );
         }
     }

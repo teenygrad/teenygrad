@@ -5,6 +5,7 @@
 
 use teeny_core::graph::Op;
 use teeny_core::model::{Lowering, LoweringMode};
+use teeny_kernels::errors::Error;
 use teeny_kernels::graph::{TritonLowering, elidable_constants};
 use teeny_onnx::Onnx;
 use teeny_onnx::branches::materialize_and_resolve;
@@ -145,7 +146,7 @@ fn count_constants(graph: &teeny_core::graph::Graph, elide: &[bool]) -> Counts {
 /// limit, a dynamic extent or a missing operand.
 #[test]
 #[ignore = "needs a large external .onnx export via FS_ONNX"]
-fn the_operand_driven_ops_lower() {
+fn the_operand_driven_ops_lower() -> Result<(), Error> {
     use teeny_core::graph::ConstantMap;
 
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
@@ -241,12 +242,19 @@ fn the_operand_driven_ops_lower() {
                 let seen = reasons.entry(key).or_insert(0);
                 *seen += 1;
                 if *seen <= 3 {
-                    let operands: Vec<Option<Vec<i64>>> = node
-                        .inputs
-                        .iter()
-                        .skip(1)
-                        .map(|src| all.get(src).and_then(|t| t.as_i64()))
-                        .collect();
+                    let operands =
+                        node.inputs
+                            .iter()
+                            .skip(1)
+                            .map(|&src| {
+                                all.get(&src).map(|t| t.to_i64_vec()).transpose().map_err(
+                                    |reason| Error::UnreadableConstant {
+                                        context: format!("{op} node {i}: operand {src}"),
+                                        reason,
+                                    },
+                                )
+                            })
+                            .collect::<Result<Vec<Option<Vec<i64>>>, Error>>()?;
                     println!(
                         "  e.g. {op} {:?} dtype {:?} in {:?} -> out {:?} operands {:?}",
                         graph.names.get(&i),
@@ -289,6 +297,7 @@ fn the_operand_driven_ops_lower() {
         totals.values().map(|(ok, _)| ok).sum::<usize>() > 0,
         "at least some strided copies should lower"
     );
+    Ok(())
 }
 
 /// Walks back from the nodes whose shapes are missing, to find where the rank is lost.
@@ -627,7 +636,7 @@ fn nonzero_nodes() {
 /// The export's `GatherND` nodes: their operands, batch_dims and consumers.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn gathernd_nodes() {
+fn gathernd_nodes() -> Result<(), Error> {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -661,18 +670,20 @@ fn gathernd_nodes() {
         let Op::GatherND { batch_dims } = &node.op else {
             continue;
         };
-        let values: Vec<String> = node
+        let values = node
             .inputs
             .iter()
-            .map(|&s| {
-                all.get(&s)
-                    .map(|v| {
-                        let ints = v.as_i64().unwrap_or_default();
-                        format!("{:?}", &ints[..ints.len().min(14)])
-                    })
-                    .unwrap_or_else(|| "-".into())
+            .map(|&s| -> Result<String, Error> {
+                let Some(v) = all.get(&s) else {
+                    return Ok("-".into());
+                };
+                let ints = v.to_i64_vec().map_err(|reason| Error::UnreadableConstant {
+                    context: format!("GatherND node {i}: operand {s}"),
+                    reason,
+                })?;
+                Ok(format!("{:?}", &ints[..ints.len().min(14)]))
             })
-            .collect();
+            .collect::<Result<Vec<String>, Error>>()?;
         let key = format!(
             "batch_dims={batch_dims} dtype={:?} operands={:?} values={values:?} -> {:?}",
             node.dtype,
@@ -686,6 +697,7 @@ fn gathernd_nodes() {
     for (k, n) in &kinds {
         println!("{n:3}  {k}");
     }
+    Ok(())
 }
 
 /// The export's Pad, Resize, GridSample, ConvTranspose and ScatterElements nodes.

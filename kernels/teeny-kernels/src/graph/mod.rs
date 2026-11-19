@@ -145,7 +145,7 @@ use crate::nn::tensor::logical::{LogicalAndForward, LogicalOrForward, LogicalXor
 use crate::nn::tensor::resize::{MAX_AXES as RESIZE_MAX_AXES, ResizeAxis, ResizeRuntimeOp};
 use crate::nn::tensor::scatter::{ScatterElementsRuntimeOp, ScatterNdRuntimeOp};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 
 #[cfg(feature = "training")]
 use crate::nn::norm::batchnorm::{
@@ -3959,10 +3959,17 @@ impl TritonLowering {
                             // attribute form, or no bound on this side.
                             None => attr,
                             Some(&id) if matches!(graph.nodes[id].op, Op::Omitted) => attr,
-                            Some(&id) => match self.constants.get(&id).and_then(|t| t.as_f64()) {
+                            Some(&id) => match self.constants.get(&id).map(|t| t.to_f64_vec()) {
                                 // An empty tensor is how some exporters write "no
                                 // bound" without omitting the operand.
-                                Some(v) => v.first().copied(),
+                                Some(Ok(v)) => v.first().copied(),
+                                Some(Err(reason)) => {
+                                    return Err(Error::UnreadableConstant {
+                                        context: format!("Op::Clip {what}: operand {pos}"),
+                                        reason,
+                                    }
+                                    .into());
+                                }
                                 None => {
                                     return Err(anyhow::anyhow!(
                                         "Op::Clip {what}: operand {pos} has no value, so \
@@ -4439,8 +4446,13 @@ impl TritonLowering {
                             }
                             return Ok(None);
                         };
-                        match self.constants.get(&id).and_then(|t| t.as_i64()) {
-                            Some(v) => Ok(Some(v)),
+                        match self.constants.get(&id).map(|t| t.to_i64_vec()) {
+                            Some(Ok(v)) => Ok(Some(v)),
+                            Some(Err(e)) => Err(Error::UnreadableConstant {
+                                context: format!("Op::Slice {what}: operand {pos}"),
+                                reason: e,
+                            }
+                            .into()),
                             None => Err(anyhow::anyhow!(
                                 "Op::Slice {what}: operand {pos} has no integer value; \
                                  materialise it and pass it via \
@@ -4515,11 +4527,10 @@ impl TritonLowering {
                                  implement integer-typed activation buffers."
                             )
                         })?
-                        .as_i64()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Op::Gather {what}: indices operand is not an integer tensor"
-                            )
+                        .to_i64_vec()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Gather {what}: indices operand"),
+                            reason: e,
                         })?;
                     gather_executable(node, &in_shape, *axis, &indices, &what)?
                 }
@@ -4582,11 +4593,10 @@ impl TritonLowering {
                                  TritonLowering::with_constants"
                             )
                         })?
-                        .as_i64()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Op::Tile {what}: repeats operand is not an integer tensor"
-                            )
+                        .to_i64_vec()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Tile {what}: repeats operand"),
+                            reason: e,
                         })?;
                     tile_executable(node, &in_shape, &repeats, &what)?
                 }
@@ -4738,30 +4748,37 @@ impl TritonLowering {
                         .inputs
                         .get(1)
                         .and_then(|id| self.constants.get(id))
-                        .and_then(|t| t.as_i64())
                         .ok_or_else(|| {
                             anyhow::anyhow!(
-                                "Op::Pad {what}: its pads have no integer value; \
+                                "Op::Pad {what}: its pads have no value; \
                                  materialise them and pass them via \
                                  TritonLowering::with_constants"
                             )
+                        })?
+                        .to_i64_vec()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Pad {what}: its pads"),
+                            reason: e,
                         })?;
                     let axes: Vec<i64> = match node
                         .inputs
                         .get(3)
                         .filter(|&&id| !matches!(graph.nodes[id].op, Op::Omitted))
                     {
-                        Some(id) => {
-                            self.constants
-                                .get(id)
-                                .and_then(|t| t.as_i64())
-                                .ok_or_else(|| {
-                                    anyhow::anyhow!(
-                                        "Op::Pad {what}: it names its axes with an operand \
-                                     that has no integer value"
-                                    )
-                                })?
-                        }
+                        Some(id) => self
+                            .constants
+                            .get(id)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::Pad {what}: it names its axes with an operand \
+                                         that has no value"
+                                )
+                            })?
+                            .to_i64_vec()
+                            .map_err(|e| Error::UnreadableConstant {
+                                context: format!("Op::Pad {what}: its axes operand"),
+                                reason: e,
+                            })?,
                         None => (0..rank as i64).collect(),
                     };
                     if pads.len() != axes.len() * 2 {
@@ -5127,7 +5144,12 @@ impl TritonLowering {
                         .get(2)
                         .filter(|&&id| !matches!(graph.nodes[id].op, Op::Omitted))
                         .and_then(|id| self.constants.get(id))
-                        .and_then(|t| t.as_f64());
+                        .map(|t| t.to_f64_vec())
+                        .transpose()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Resize {what}: its scales"),
+                            reason: e,
+                        })?;
 
                     // Only the trailing axes may be resized, and at most three of them.
                     let first_resized = (0..rank)
