@@ -110,6 +110,7 @@
   .metric .label { color: var(--ink-soft); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .metric .value { font-family: var(--mono); font-size: 0.88rem; }
   .tool-error { color: var(--accent); font-size: 0.85rem; margin-top: 9px; }
+  .corrected { font-style: italic; opacity: 0.8; }
   .retracted {
     max-width: 78%; margin: 0 0 14px; padding: 9px 13px;
     border: 1px dashed var(--line); border-radius: var(--radius);
@@ -319,6 +320,17 @@ window.Sky = (function () {
     if (kind === "fog") cloud = Math.max(cloud, 0.7);
 
     var c = hourColors(((hour % 24) + 24) % 24);
+    // The palette assumes the sun rises near half past six, which is wrong by hours at a
+    // high latitude in winter. Novosibirsk at 09:00 in November is still dark, and the board
+    // says so, so when the clock and `is_day` disagree, borrow the twilight from the correct
+    // side of noon rather than painting a bright morning over a dark city.
+    var byClock = Math.sin((hour - 6) / 12 * Math.PI);
+    if (s.isDay === 0 && byClock > 0.05) {
+      c = hourColors(hour < 12 ? 4.8 : 20.3);
+    } else if (s.isDay === 1 && byClock < -0.05) {
+      // The other way about: daylight at an hour the clock calls night, as in a polar summer.
+      c = hourColors(hour < 12 ? 7.5 : 16.5);
+    }
     // Thick cloud flattens the gradient toward grey: slate by day, near-black at night.
     var grey = mixRgb([142, 146, 152], [26, 28, 36], night);
     var w = cloud * (kind === "thunder" ? 0.9 : 0.72);
@@ -988,6 +1000,14 @@ window.Sky = (function () {
     const place = document.createElement("div");
     place.className = "result-place";
     place.textContent = data.city || "";
+    if (data.asked_for) {
+      // The model garbled the name and the visitor's own spelling was used instead. Say so,
+      // rather than letting the card look like it answered the question it was asked.
+      const note = document.createElement("span");
+      note.className = "corrected";
+      note.textContent = " (the model asked for \u201c" + data.asked_for + "\u201d)";
+      place.appendChild(note);
+    }
     text.appendChild(temp);
     text.appendChild(place);
     main.appendChild(icon);

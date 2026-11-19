@@ -386,6 +386,14 @@ EDGE_CASES = [
      "message": "Weather in Burnaby, Canada?", "city": "Burnaby", "tool": "required"},
     {"group": "edges", "name": "non-ascii city", "message": "Weather in Zürich?",
      "city": "Zurich", "tool": "required"},
+    # The model drops syllables in long names: typing "Novosibirsk" produced a lookup for
+    # "Novibirsk" and an apology. The card must still end up at the right city.
+    {"group": "edges", "name": "name the model garbles", "message": "Novosibirsk",
+     "city": "Novosibirsk", "tool": "required"},
+    {"group": "edges", "name": "long name in a sentence",
+     "message": "What is the weather in Novosibirsk, Russia?", "city": "Novosibirsk",
+     "tool": "required"},
+
     # The failure this list exists for: a place no example would ever name.
     {"group": "edges", "name": "unfamiliar town", "message": "Do I need an umbrella in Smolensk?",
      "city": "Smolensk", "tool": "required"},
@@ -554,6 +562,12 @@ notes = []
 
 def run_answer_case(url, c, timeout):
     t = ask(url, c["message"], timeout)
+    # The board's own call to Open-Meteo fails occasionally. That is the network, not the
+    # demo, and one retry tells the two apart.
+    if any("unreachable" in str((r.get("result") or {}).get("error", ""))
+           for r in t["results"]):
+        time.sleep(3)
+        t = ask(url, c["message"], timeout)
     bad = general(t)
     called = bool(t["calls"])
 

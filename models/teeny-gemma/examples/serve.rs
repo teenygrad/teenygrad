@@ -453,8 +453,23 @@ fn handle_chat(
             )?;
             let result = if name == "get_weather" {
                 let city = args["city"].as_str().unwrap_or_default().to_string();
-                let w = teeny_gemma::tools::weather(&city)
+                let mut w = teeny_gemma::tools::weather(&city)
                     .unwrap_or_else(|e| json!({"error": e.to_string()}));
+                // The model drops syllables: "Novosibirsk" went out as "Novibirsk". When no
+                // such place exists, try the name the visitor actually typed, which is better
+                // evidence of what was meant than the model's transcription of it.
+                if w["error"]
+                    .as_str()
+                    .is_some_and(|e| e.starts_with("no place called"))
+                {
+                    if let Some(meant) = teeny_gemma::tools::nearest_from(&message, &city) {
+                        if let Ok(second) = teeny_gemma::tools::weather(&meant) {
+                            w = second;
+                            // Say so, rather than quietly answering about somewhere else.
+                            w["asked_for"] = json!(city);
+                        }
+                    }
+                }
                 reading = Some(w.clone());
                 w
             } else {

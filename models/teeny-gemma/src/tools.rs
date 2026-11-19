@@ -131,6 +131,64 @@ pub fn weather(city: &str) -> anyhow::Result<Value> {
     }))
 }
 
+/// The place the visitor actually named, when the model garbled it.
+///
+/// Typing "Novosibirsk" got `get_weather(city: "Novibirsk")`, a syllable short, and the
+/// geocoder rightly found nothing. The visitor's own words are the better evidence of what
+/// was meant, so when a lookup finds no such place this looks through what they typed for a
+/// word or short phrase close enough to be the same name misspelled.
+///
+/// Deliberately conservative: it only ever returns text the visitor themself wrote, and only
+/// when it is a near miss, so a model that invents a city outright is still refused rather
+/// than quietly answered about somewhere else.
+pub fn nearest_from(message: &str, attempted: &str) -> Option<String> {
+    let want = attempted.trim().to_lowercase();
+    if want.len() < 4 {
+        return None;
+    }
+    let words: Vec<&str> = message
+        .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '\'')
+        .filter(|w| !w.is_empty())
+        .collect();
+    // A name can be two or three words ("New York", "Rio de Janeiro").
+    let mut best: Option<(usize, String)> = None;
+    for n in 1..=3 {
+        for start in 0..words.len().saturating_sub(n - 1) {
+            let phrase = words[start..start + n].join(" ");
+            let lower = phrase.to_lowercase();
+            if lower == want {
+                return None; // the model copied it correctly; the place really is unknown
+            }
+            let d = edit_distance(&lower, &want);
+            if best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+                best = Some((d, phrase));
+            }
+        }
+    }
+    // Within a quarter of the name's length, which catches a dropped syllable and little else.
+    let allowed = (want.chars().count() / 4).max(1);
+    best.filter(|(d, _)| *d <= allowed).map(|(_, p)| p)
+}
+
+/// Levenshtein distance, two rows at a time.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a.is_empty() || b.is_empty() {
+        return a.len().max(b.len());
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut row = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            row[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(row[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut row);
+    }
+    prev[b.len()]
+}
+
 /// Does `reply` quote a measurement the tool did not return?
 ///
 /// The guard above catches a claim about rain where the reading says clear. This catches the
@@ -208,6 +266,9 @@ pub fn model_view(result: &Value) -> Value {
     let mut v = result.clone();
     if let Some(obj) = v.as_object_mut() {
         obj.remove("scene");
+        // The visitor should see that their spelling was used instead; the model telling them
+        // about its own misspelling would only confuse matters.
+        obj.remove("asked_for");
     }
     v
 }
@@ -586,6 +647,52 @@ mod tests {
     }
 
     #[test]
+    fn recovers_a_city_the_model_misspelled() {
+        // Word for word off the board: the visitor typed Novosibirsk, the model dropped a
+        // syllable, and the geocoder found nothing.
+        assert_eq!(
+            nearest_from("Novosibirsk", "Novibirsk").as_deref(),
+            Some("Novosibirsk")
+        );
+        assert_eq!(
+            nearest_from("What is the weather in Reykjavik?", "Reykavik").as_deref(),
+            Some("Reykjavik")
+        );
+        assert_eq!(
+            nearest_from("weather in Rio de Janeiro please", "Rio de Janero").as_deref(),
+            Some("Rio de Janeiro")
+        );
+    }
+
+    #[test]
+    fn leaves_a_place_that_simply_does_not_exist() {
+        // The model copied the visitor faithfully; the place is the problem, not the spelling,
+        // and answering about somewhere else would be worse than saying so.
+        assert_eq!(nearest_from("Weather in Zzyzxville?", "Zzyzxville"), None);
+        // Nothing in the message is close, so there is nothing to fall back to.
+        assert_eq!(nearest_from("Tell me about the sea", "Atlantis"), None);
+        // Too short to judge: "Ise" and "Oslo" should not swap places.
+        assert_eq!(nearest_from("Oslo", "Ise"), None);
+    }
+
+    #[test]
+    fn never_invents_a_name_the_visitor_did_not_type() {
+        for (message, attempted) in [
+            ("Weather in Paris?", "Berlin"),
+            ("How warm is it in Cairo?", "Tokyo"),
+            ("", "Lisbon"),
+        ] {
+            let got = nearest_from(message, attempted);
+            if let Some(found) = got {
+                assert!(
+                    message.to_lowercase().contains(&found.to_lowercase()),
+                    "{found:?} is not in {message:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn model_view_hides_the_scene_and_keeps_the_rest() {
         let full = json!({
             "city": "Tokyo, Japan", "temperature_c": 15, "conditions": "clear sky",
@@ -596,6 +703,11 @@ mod tests {
         assert!(
             seen.get("scene").is_none(),
             "the model can still see the scene"
+        );
+        let corrected = json!({"city": "Novosibirsk, Russia", "asked_for": "Novibirsk"});
+        assert!(
+            model_view(&corrected).get("asked_for").is_none(),
+            "the model can see the correction"
         );
         for kept in [
             "city",
