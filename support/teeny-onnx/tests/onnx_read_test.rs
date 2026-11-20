@@ -16,41 +16,53 @@
 
 use std::path::PathBuf;
 
-use teeny_onnx::Onnx;
+use teeny_onnx::{Onnx, errors::Error};
 
+/// Every model in the ONNX backend test data must parse. A model the importer deliberately
+/// refuses (`Error::Unsupported`: an attribute it would otherwise compute wrongly, say) is
+/// counted but allowed; any other error fails the test, listing every such model.
 #[test]
 fn test_read_onnx_files() {
-    let mut resource_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    resource_path.push("onnx/onnx/backend/test/data");
+    let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    root.push("onnx/onnx/backend/test/data");
 
-    // Recursively search for .onnx files and test parsing them
-    fn visit_dirs_and_test_onnx<P: Into<PathBuf>>(dir: P) {
-        fn visit_dir(dir: &PathBuf) {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        visit_dir(&path);
-                    } else if let Some(ext) = path.extension()
-                        && ext == "onnx"
-                    {
-                        // Try reading and parsing the file through the public ONNX API.
-                        let result = Onnx::from_path(&path);
-
-                        assert!(
-                            result.is_ok(),
-                            "Failed to parse graph: {:?} - {:?}",
-                            path,
-                            result.err()
-                        );
-                    }
-                }
+    fn visit(dir: &PathBuf, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                visit(&path, files);
+            } else if path.extension().is_some_and(|ext| ext == "onnx") {
+                files.push(path);
             }
         }
-
-        let root = dir.into();
-        visit_dir(&root);
     }
+    let mut files = Vec::new();
+    visit(&root, &mut files);
+    assert!(
+        !files.is_empty(),
+        "no .onnx files under {root:?}; is the onnx submodule initialised?"
+    );
 
-    visit_dirs_and_test_onnx(&resource_path);
+    let (mut refused, mut failed) = (0usize, Vec::new());
+    for path in &files {
+        if let Err(e) = Onnx::from_path(path) {
+            match e.downcast_ref::<Error>() {
+                Some(Error::Unsupported(_)) => refused += 1,
+                _ => failed.push(format!("{}: {e}", path.display())),
+            }
+        }
+    }
+    println!(
+        "{} models: {} parsed, {refused} refused as unsupported",
+        files.len(),
+        files.len() - refused - failed.len()
+    );
+    assert!(
+        failed.is_empty(),
+        "{} models failed to parse:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
 }

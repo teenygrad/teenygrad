@@ -31,15 +31,25 @@ use teeny_triton::triton::{
 /// Each CTA accumulates a BLOCK_OW-wide strip of output columns via a flat
 /// loop over all KH×KW kernel positions (avoids nested scf.for).
 ///
-/// **Constraints**: no padding; `OH = (H - KH) / STRIDE_H + 1`, `OW = (W - KW) / STRIDE_W + 1`.
+/// Padding is symmetric, and `OH = (H + 2*PAD_H - KH) / STRIDE_H + 1`,
+/// `OW = (W + 2*PAD_W - KW) / STRIDE_W + 1`.
+///
+/// `COUNT_INCLUDE_PAD` picks the denominator, and it is not a detail: ONNX defaults it
+/// to 0, meaning a window overlapping the padding divides by however many real
+/// elements it covers, while 1 divides by the whole `KH*KW` window and so pulls edge
+/// outputs toward zero. The two differ at every border pixel of every padded pool, so
+/// the kernel computes the per-position count either way rather than assuming one.
 #[kernel]
 pub fn avgpool2d_forward<
-    T: Triton,
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     D: Num,
     const KH: i32,
     const KW: i32,
     const STRIDE_H: i32,
     const STRIDE_W: i32,
+    const PAD_H: i32,
+    const PAD_W: i32,
+    const COUNT_INCLUDE_PAD: i32,
     const BLOCK_OW: i32,
 >(
     input_ptr: InPtr<T::Pointer<D>>,
@@ -53,12 +63,18 @@ pub fn avgpool2d_forward<
 ) where
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Sub<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Add<T::I32Tensor, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Sub<T::I32Tensor, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<T::I32Tensor, Output = T::I32Tensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
     let num_ow_tiles = T::cdiv(OW, BLOCK_OW);
 
-    // Decode flat pid → (b, c, oh, ow_tile).
+    // Decode flat pid -> (b, c, oh, ow_tile).
     let ow_tile = pid % num_ow_tiles;
     let bco = pid / num_ow_tiles;
     let oh = bco % OH;
@@ -80,12 +96,21 @@ pub fn avgpool2d_forward<
     for idx in 0..loop_bound {
         let kw = idx % KW;
         let kh = idx / KW;
-        let ih = oh * STRIDE_H + kh;
-        let iw_range = ow_range * STRIDE_W + kw;
+        let ih = oh * STRIDE_H + kh - PAD_H;
+        let iw_range = ow_range * STRIDE_W + kw - PAD_W;
+        // Row validity is one condition for the whole tile and column validity is per
+        // lane, but both are folded into the lane mask rather than branched on: a
+        // scalar `if` around a vector body is what the Triton frontend mis-lowers (see
+        // the note in `maxpool2d`), and a masked load of an out-of-range address never
+        // dereferences it.
+        let ih_i = T::full::<i32>(&[BLOCK_OW], ih);
+        let row_valid = ih_i.ge(0) & ih_i.lt(H);
+        let col_valid = iw_range.ge(0) & iw_range.lt(W);
+        let mask = ow_mask & row_valid & col_valid;
         let in_offsets = iw_range + (in_bc_base + ih * W);
         let tile = T::load(
             input_ptr.add_offsets(in_offsets),
-            Some(ow_mask),
+            Some(mask),
             Some(T::zeros::<D>(&[BLOCK_OW])),
             &[],
             None,
@@ -96,11 +121,46 @@ pub fn avgpool2d_forward<
         acc = acc + tile;
     }
 
-    // Scale by 1/(KH*KW): build [1] i32 tensor from arange then broadcast.
-    let ksize_1 = T::full::<i32>(&[1], KH * KW);
-    let ksize_f_1 = T::cast::<i32, D>(ksize_1, None, false);
-    let ksize = T::broadcast_to(ksize_f_1, &[BLOCK_OW]);
-    let result = acc / ksize;
+    // How many real elements this window covers, per lane. The window is contiguous on
+    // each axis, so the count is the intersection of `[start, start + K)` with
+    // `[0, extent)` and needs no second pass over the kernel positions.
+    //
+    // Every intermediate is built inline rather than bound and reused: the kernel
+    // compiler does not yet lower a `clone` of a tensor, which appears in MIR as a
+    // shared borrow, so reusing a value that way fails to compile rather than running
+    // slowly.
+    let cols = T::maximum(
+        T::minimum(
+            ow_range * STRIDE_W - PAD_W + KW,
+            T::full::<i32>(&[BLOCK_OW], W),
+        ) - T::maximum(ow_range * STRIDE_W - PAD_W, T::full::<i32>(&[BLOCK_OW], 0)),
+        T::full::<i32>(&[BLOCK_OW], 0),
+    );
+    let rows = T::maximum(
+        T::minimum(
+            T::full::<i32>(&[BLOCK_OW], oh * STRIDE_H - PAD_H + KH),
+            T::full::<i32>(&[BLOCK_OW], H),
+        ) - T::maximum(
+            T::full::<i32>(&[BLOCK_OW], oh * STRIDE_H - PAD_H),
+            T::full::<i32>(&[BLOCK_OW], 0),
+        ),
+        T::full::<i32>(&[BLOCK_OW], 0),
+    );
+
+    // Pick the denominator without branching and without using either term twice:
+    // COUNT_INCLUDE_PAD is 0 or 1, so this is the count when it is 0 and the full
+    // window when it is 1.
+    let denom_i = rows * cols * (1 - COUNT_INCLUDE_PAD)
+        + T::full::<i32>(&[BLOCK_OW], KH * KW * COUNT_INCLUDE_PAD);
+    // A window lying entirely in the padding covers nothing. ONNX leaves that case
+    // unspecified and it needs pads at least as large as the kernel to arise at all,
+    // but the divide has to be defined on those lanes regardless.
+    let denom = T::cast::<i32, D>(
+        T::maximum(denom_i, T::full::<i32>(&[BLOCK_OW], 1)),
+        None,
+        false,
+    );
+    let result = acc / denom;
 
     let out_offsets = ow_range + (out_bc_base + oh * OW);
     T::store(
@@ -120,8 +180,14 @@ pub fn avgpool2d_forward<
 /// spread uniformly across the KH×KW input window via `atomic_add` so that
 /// overlapping pooling windows (stride < kernel size) are handled correctly.
 ///
-/// **Constraints**: `dx` must be zero-initialised before launch; same spatial
-/// constraints as `avgpool2d_forward`.
+/// **Constraints**: `dx` must be zero-initialised before launch.
+///
+/// This pass takes no padding and no `COUNT_INCLUDE_PAD`, so it does not match a
+/// forward pass that uses either: the gradient would be spread over the wrong window
+/// and divided by the wrong denominator. Graph lowering never builds it, since
+/// `Op::AvgPool2d` lowers to the forward kernel alone, so nothing can pair them
+/// today. Wiring a training path for padded average pooling means adding both here
+/// first.
 #[kernel]
 pub fn avgpool2d_backward<
     T: Triton,

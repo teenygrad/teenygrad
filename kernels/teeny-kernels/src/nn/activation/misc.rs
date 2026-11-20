@@ -533,3 +533,66 @@ pub struct SoftplusOp<D: Float> {
     pub forward: SoftplusForward<D>,
     pub backward: SoftplusBackward<D>,
 }
+
+/// Runtime dispatch for [`leaky_relu_forward`].
+///
+/// The generated kernel struct carries the block size but not the slope, which is a
+/// runtime argument, so this wraps it with the one value the op has to supply. Without
+/// it `Op::LeakyRelu` lowered to a kernel that compiled and then panicked the moment
+/// the executor asked it for its argument count.
+pub struct LeakyReluRuntimeOp<D: teeny_core::dtype::Float + Send + Sync + 'static> {
+    kernel: LeakyReluForward<D>,
+    negative_slope: f32,
+}
+
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> LeakyReluRuntimeOp<D> {
+    /// `negative_slope` is what the op applies below zero; ONNX's default is 0.01.
+    pub fn new(block_size: i32, negative_slope: f32) -> Self {
+        Self {
+            kernel: LeakyReluForward::<D>::new(block_size),
+            negative_slope,
+        }
+    }
+
+    /// The generated kernel, for its name and source.
+    pub fn kernel(&self) -> &LeakyReluForward<D> {
+        &self.kernel
+    }
+}
+
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
+    for LeakyReluRuntimeOp<D>
+{
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(n as i32);
+        visitor.visit_f32(self.negative_slope);
+    }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [
+            (n.div_ceil(self.kernel.block_size as usize) as u32).max(1),
+            1,
+            1,
+        ]
+    }
+}
