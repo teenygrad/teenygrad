@@ -36,7 +36,7 @@ pub mod resize;
 /// How a `Slice` maps output coordinates onto its input.
 pub mod slice;
 /// A symbolic tensor that records each operation into a [`Graph`].
-pub mod sym_tensor;
+pub mod tensor;
 
 pub use einsum::{EINSUM_MAX_RANK, EinsumError, EinsumPlan, einsum_plan};
 pub use matmul::{MatMulError, MatMulPlan, matmul_plan};
@@ -46,7 +46,7 @@ pub use resize::{
     resize_taps,
 };
 pub use slice::{SlicePlan, slice_plan};
-pub use sym_tensor::SymTensor;
+pub use tensor::SymTensor;
 
 // ---------------------------------------------------------------------------
 // Shape — dynamic tensor shape used throughout the graph IR
