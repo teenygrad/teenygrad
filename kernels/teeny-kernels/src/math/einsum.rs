@@ -172,8 +172,19 @@ fn pad_left(values: &[i64], fill: i64) -> [i32; MAX_RANK] {
 }
 
 /// Runtime dispatch for [`einsum_forward`].
+///
+/// The extents and strides are fixed by the plan at lowering time, so the plan's
+/// output shape is the only one the kernel can index correctly. The op therefore
+/// reports that shape as the concrete output, and launches over the plan's element
+/// count rather than whatever shape the executor resolved: a larger resolved shape
+/// (a dynamic dimension filled in with the batch size, say) would otherwise run lanes
+/// past the plan's end, and those compute operand offsets beyond the real tensors.
 pub struct EinsumRuntimeOp<D: Num + Send + Sync + 'static> {
     block_size: i32,
+    /// The plan's output shape, unclamped: what the kernel actually writes.
+    out_dims: Vec<usize>,
+    /// Elements in `out_dims`, the count the launch covers.
+    n_elements: usize,
     k: i32,
     a_step: i32,
     b_step: i32,
@@ -195,6 +206,8 @@ impl<D: Num + Send + Sync + 'static> EinsumRuntimeOp<D> {
         let shape: Vec<i64> = plan.out_shape.iter().map(|&d| d as i64).collect();
         Some(Self {
             block_size,
+            out_dims: plan.out_shape.clone(),
+            n_elements: plan.out_shape.iter().product(),
             k: plan.k as i32,
             a_step: plan.a_contract_stride as i32,
             b_step: plan.b_contract_stride as i32,
@@ -234,26 +247,154 @@ impl<D: Num + Send + Sync + 'static> RuntimeOp for EinsumRuntimeOp<D> {
         Vec::new()
     }
 
+    /// The plan's output shape, whatever the executor resolved, so the buffer it
+    /// allocates is exactly the one the kernel writes.
+    fn compute_concrete_output_shape(&self, _: &[&[usize]], _: &[usize]) -> Vec<usize> {
+        self.out_dims.clone()
+    }
+
+    // The output shape is ignored here and in `grid` in favour of the plan's element
+    // count; see the struct's documentation.
     fn pack_args(
         &self,
         inputs: &[(RawPtr, &[usize])],
         _: &[RawPtr],
         output: RawPtr,
-        output_shape: &[usize],
+        _: &[usize],
         _: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
-        let n: usize = output_shape.iter().product();
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(inputs[1].0);
         visitor.visit_ptr(output);
-        for v in self.kernel_scalars(n as i32) {
+        for v in self.kernel_scalars(self.n_elements as i32) {
             visitor.visit_i32(v);
         }
     }
 
-    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        let n: usize = output_shape.iter().product();
-        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    fn grid(&self, _: &[usize]) -> [u32; 3] {
+        [
+            self.n_elements.div_ceil(self.block_size as usize) as u32,
+            1,
+            1,
+        ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EinsumRuntimeOp, MAX_RANK};
+    use teeny_core::device::program::ArgVisitor;
+    use teeny_core::graph::einsum_plan;
+    use teeny_core::model::{RawPtr, RuntimeOp};
+
+    /// Records the `i32` scalars `pack_args` emits, and counts the pointers.
+    #[derive(Default)]
+    struct Scalars {
+        ptrs: usize,
+        i32s: Vec<i32>,
+    }
+
+    impl ArgVisitor for Scalars {
+        fn visit_ptr(&mut self, _: *mut core::ffi::c_void) {
+            self.ptrs += 1;
+        }
+        fn visit_i32(&mut self, val: i32) {
+            self.i32s.push(val);
+        }
+        fn visit_bool(&mut self, _: bool) {
+            unreachable!("einsum passes no bool")
+        }
+        fn visit_i8(&mut self, _: i8) {
+            unreachable!("einsum passes no i8")
+        }
+        fn visit_i16(&mut self, _: i16) {
+            unreachable!("einsum passes no i16")
+        }
+        fn visit_i64(&mut self, _: i64) {
+            unreachable!("einsum passes no i64")
+        }
+        fn visit_u8(&mut self, _: u8) {
+            unreachable!("einsum passes no u8")
+        }
+        fn visit_u16(&mut self, _: u16) {
+            unreachable!("einsum passes no u16")
+        }
+        fn visit_u32(&mut self, _: u32) {
+            unreachable!("einsum passes no u32")
+        }
+        fn visit_u64(&mut self, _: u64) {
+            unreachable!("einsum passes no u64")
+        }
+        fn visit_f32(&mut self, _: f32) {
+            unreachable!("einsum passes no f32")
+        }
+        fn visit_f64(&mut self, _: f64) {
+            unreachable!("einsum passes no f64")
+        }
+    }
+
+    fn op(equation: &str, a: &[usize], b: &[usize]) -> EinsumRuntimeOp<f32> {
+        let plan = einsum_plan(equation, a, b).expect("plans");
+        EinsumRuntimeOp::new(1024, &plan).expect("within MAX_RANK")
+    }
+
+    fn pack(op: &EinsumRuntimeOp<f32>, output_shape: &[usize]) -> Scalars {
+        let null: RawPtr = core::ptr::null_mut();
+        let (a, b) = ([2usize, 3], [3usize, 4]);
+        let mut v = Scalars::default();
+        op.pack_args(
+            &[(null, &a), (null, &b)],
+            &[],
+            null,
+            output_shape,
+            0,
+            &mut v,
+        );
+        v
+    }
+
+    /// The executor allocates what `compute_concrete_output_shape` returns, so it
+    /// must be the plan's shape even when the resolved one differs.
+    #[test]
+    fn test_the_concrete_output_shape_is_the_plans() {
+        let op = op("bij,bjk->bik", &[4, 2, 3], &[4, 3, 5]);
+        assert_eq!(
+            op.compute_concrete_output_shape(&[], &[4, 2, 5]),
+            vec![4, 2, 5]
+        );
+        // A dynamic batch axis filled in with some other batch size.
+        assert_eq!(
+            op.compute_concrete_output_shape(&[], &[9, 2, 5]),
+            vec![4, 2, 5]
+        );
+    }
+
+    /// The launch covers the plan's elements, not the resolved shape's. Lanes past the
+    /// plan's end would index the operands beyond their real extent, because the masks
+    /// test against the element count passed here.
+    #[test]
+    fn test_launches_over_the_plans_elements_not_the_resolved_shape() {
+        let op = op("ij,jk->ik", &[2, 3], &[3, 4]);
+        let plan_elems = 2 * 4;
+
+        for resolved in [vec![2, 4], vec![64, 4], vec![]] {
+            let v = pack(&op, &resolved);
+            assert_eq!(v.ptrs, 3);
+            assert_eq!(v.i32s.len(), 4 + 3 * MAX_RANK);
+            assert_eq!(v.i32s[0], plan_elems, "n_elements for {resolved:?}");
+            assert_eq!(op.grid(&resolved), [1, 1, 1], "grid for {resolved:?}");
+        }
+    }
+
+    /// The grid is the plan's element count in blocks, rounded up.
+    #[test]
+    fn test_the_grid_rounds_the_plans_elements_up_to_whole_blocks() {
+        // 1 * 120 * 160 * 160 = 3,072,000 elements, 3000 blocks of 1024.
+        let large = op("aijk,aijh->ajkh", &[1, 4, 120, 160], &[1, 4, 120, 160]);
+        assert_eq!(large.grid(&[]), [3000, 1, 1]);
+        // 2 * 5 = 10 elements, one partly filled block.
+        let small = op("ij,jk->ik", &[2, 3], &[3, 5]);
+        assert_eq!(small.grid(&[]), [1, 1, 1]);
     }
 }
