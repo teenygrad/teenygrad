@@ -253,6 +253,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for ExpertGatherNvfp4Op<D> 
             kernel.source,
             "entry_point".to_string(),
             Arc::new(ExpertGatherNvfp4RuntimeOp::<D> {
+                experts: self.experts,
                 n: self.n,
                 k: self.k,
                 top_k: self.top_k,
@@ -264,6 +265,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for ExpertGatherNvfp4Op<D> 
 
 /// Runtime dispatch for [`ExpertGatherNvfp4Op`].
 pub struct ExpertGatherNvfp4RuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+    experts: usize,
     n: usize,
     k: usize,
     top_k: usize,
@@ -272,33 +274,43 @@ pub struct ExpertGatherNvfp4RuntimeOp<D: FloatBytes + Send + Sync + 'static> {
 
 impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherNvfp4RuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
-        // x, packed bytes, E4M3 scales, per-expert scale2, the router's row.
-        5
+        // x and the router's packed row; the weights are parameters.
+        2
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
-        Vec::new()
+        vec![
+            vec![self.experts, self.n, self.k / 2],
+            vec![self.experts, self.n, self.k / 16],
+            vec![self.experts],
+        ]
+    }
+
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight", "scale", "scale2"]
     }
 
     fn pack_args(
         &self,
         inputs: &[(RawPtr, &[usize])],
-        _params: &[RawPtr],
+        params: &[RawPtr],
         output: RawPtr,
         _output_shape: &[usize],
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
         assert_eq!(inputs[0].1[1], self.k, "expert gather: input width");
-        let ids_stride = inputs[4].1[1];
+        let ids_stride = inputs[1].1[1];
         assert!(
             ids_stride >= self.top_k,
             "expert gather: router row of {ids_stride} cannot hold {} ids",
             self.top_k
         );
-        for (ptr, _) in &inputs[..5] {
-            visitor.visit_ptr(*ptr);
-        }
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(params[1]);
+        visitor.visit_ptr(params[2]);
+        visitor.visit_ptr(inputs[1].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(self.n as i32);
         visitor.visit_i32(self.k as i32);
