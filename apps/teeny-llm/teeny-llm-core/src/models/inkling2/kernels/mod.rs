@@ -20,5 +20,7 @@ pub mod expert_gather;
 pub mod l2_clip;
 pub mod rel_bias;
 pub mod router;
+pub mod scatter_add;
 pub mod sconv;
 pub mod softcap;
+pub mod swiglu;
