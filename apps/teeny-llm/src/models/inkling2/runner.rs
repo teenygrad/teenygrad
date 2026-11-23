@@ -139,6 +139,11 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
             format!("{prefix}{head}.{last}_weight")
         }
         "attn.rel_logits_proj.weight" => format!("{prefix}attn.rel_logits_proj.proj"),
+        // The dynamic convolutions of the last layer of each block: the projection's
+        // slot gains a `.weight` the checkpoint does not have, and `static_w` is
+        // stored under the convolution rather than beside it.
+        "attn.k_sconv.weight_proj.weight" => format!("{prefix}attn.k_sconv.weight_proj"),
+        "attn.v_sconv.weight_proj.weight" => format!("{prefix}attn.v_sconv.weight_proj"),
         "mlp.experts.weight" => format!("{prefix}mlp.experts.w13_weight"),
         "mlp.experts_down.weight" => format!("{prefix}mlp.experts.w2_weight"),
         // attn_res queries live at the top level, one tensor per layer, and every
