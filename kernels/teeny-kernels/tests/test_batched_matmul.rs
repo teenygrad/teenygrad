@@ -130,7 +130,7 @@ fn lower(a_shape: &[usize], b_shape: &[usize]) -> anyhow::Result<usize> {
 }
 
 #[test]
-fn the_export_s_shapes_lower() {
+fn test_the_export_s_shapes_lower() {
     // A weight multiply, batch and spatial axes in front of the rows.
     assert_eq!(lower(&[2, 1921, 1024], &[1024, 1024]).expect("weight"), 3);
     assert_eq!(lower(&[1, 120, 160, 128], &[128, 512]).expect("spatial"), 3);
@@ -144,7 +144,7 @@ fn the_export_s_shapes_lower() {
 /// The whole point of the plan: the leading axes of a batched product are not rows of
 /// one matrix, and reading `m` off the front of the shape would make them so.
 #[test]
-fn the_rows_come_from_the_plan_and_not_from_the_shape_s_front() {
+fn test_the_rows_come_from_the_plan_and_not_from_the_shape_s_front() {
     let plan = matmul_plan(&[2, 1921, 1024], &[1024, 1024]).expect("plan");
     assert_ne!(plan.m, 2, "2 is the batch, not the row count");
     assert_eq!(plan.m, 2 * 1921);
@@ -155,7 +155,7 @@ fn the_rows_come_from_the_plan_and_not_from_the_shape_s_front() {
 }
 
 #[test]
-fn an_unplannable_product_says_why() {
+fn test_an_unplannable_product_says_why() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(3), Some(4)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(5), Some(2)]);
@@ -175,7 +175,7 @@ fn an_unplannable_product_says_why() {
 /// An operand with no usable shape cannot be planned, and guessing would put every
 /// element in the wrong place.
 #[test]
-fn an_unshaped_operand_is_refused() {
+fn test_an_unshaped_operand_is_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4), Some(2)]);
@@ -402,7 +402,7 @@ mod execution {
     #[cfg(feature = "cuda")]
     #[test]
     #[ignore = "CUDA is wrong for ragged k or n, teenygrad#143"]
-    fn a_short_k_tail_on_cuda() {
+    fn test_a_short_k_tail_on_cuda() {
         run(&[64, 6], &[6, 64]);
         run(&[64, 257], &[257, 64]);
     }

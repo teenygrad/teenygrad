@@ -28,7 +28,7 @@ fn read_f32(path: &str) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs RSUM_ONNX and RSUM_DATA"]
-fn the_axes_operand_decides_what_is_reduced() {
+fn test_the_axes_operand_decides_what_is_reduced() {
     let path = std::env::var("RSUM_ONNX").expect("set RSUM_ONNX");
     let data = std::env::var("RSUM_DATA").expect("set RSUM_DATA");
     let x = read_f32(&format!("{data}/rsum_operand_x.f32"));

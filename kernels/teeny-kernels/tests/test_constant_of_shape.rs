@@ -65,7 +65,7 @@ fn lower(dtype: DtypeRepr, shape: &[usize], fill: &[u8]) -> anyhow::Result<usize
 /// The shape operand is metadata, so lowering reads it and elides the node: what is
 /// left is the fill alone, with nothing carrying the dims to the device.
 #[test]
-fn the_shape_operand_is_elided() {
+fn test_the_shape_operand_is_elided() {
     assert_eq!(
         lower(DtypeRepr::F32, &[2, 3, 4], &0.0f32.to_le_bytes()).expect("f32"),
         1
@@ -73,7 +73,7 @@ fn the_shape_operand_is_elided() {
 }
 
 #[test]
-fn every_buffer_dtype_fills() {
+fn test_every_buffer_dtype_fills() {
     for (dtype, width) in [
         (DtypeRepr::F32, 4),
         (DtypeRepr::F64, 8),
@@ -98,14 +98,14 @@ fn every_buffer_dtype_fills() {
 /// ONNX fills with zero when the node has no `value` attribute, which the importer
 /// records as no bytes at all rather than as a zero of some guessed width.
 #[test]
-fn an_absent_value_fills_with_zero() {
+fn test_an_absent_value_fills_with_zero() {
     assert_eq!(lower(DtypeRepr::F32, &[3], &[]).expect("default fill"), 1);
 }
 
 /// A fill that is not one element wide would be read past the end of its slot on the
 /// device, so it is refused at lowering with the widths named.
 #[test]
-fn a_fill_that_is_not_one_element_is_refused() {
+fn test_a_fill_that_is_not_one_element_is_refused() {
     let msg = match lower(DtypeRepr::F32, &[3], &[1, 2]) {
         Ok(_) => panic!("two bytes should not fill an f32"),
         Err(e) => e.to_string(),
@@ -117,7 +117,7 @@ fn a_fill_that_is_not_one_element_is_refused() {
 /// Without a shape there is nothing to allocate or fill. The shapes that get here are
 /// large, so guessing would mean a buffer of the wrong size rather than a small slip.
 #[test]
-fn an_unshaped_fill_is_refused() {
+fn test_an_unshaped_fill_is_refused() {
     let mut g = Graph::new();
     g.add_node(
         Op::ConstantOfShape {
@@ -196,7 +196,7 @@ mod execution {
     /// A value that is neither zero nor round: a byte-order mistake or a slot read at
     /// the wrong offset would show up rather than passing by coincidence.
     #[test]
-    fn the_value_reaches_every_element() {
+    fn test_the_value_reaches_every_element() {
         let out = run(&[3, 5], -2.359375);
         assert_eq!(out.len(), 15);
         for (i, v) in out.iter().enumerate() {
@@ -205,14 +205,14 @@ mod execution {
     }
 
     #[test]
-    fn a_zero_fill_is_zero_everywhere() {
+    fn test_a_zero_fill_is_zero_everywhere() {
         assert!(run(&[2, 2, 2], 0.0).iter().all(|&v| v == 0.0));
     }
 
     /// More elements than one block of lanes, and not a multiple of one either, so the
     /// last block is partly masked off.
     #[test]
-    fn an_output_longer_than_a_block_is_filled_whole() {
+    fn test_an_output_longer_than_a_block_is_filled_whole() {
         let out = run(&[3000], 1.25);
         assert_eq!(out.len(), 3000);
         assert!(out.iter().all(|&v| v == 1.25), "the tail was not filled");

@@ -13,7 +13,7 @@ use teeny_onnx::materialize::{MaterializeConfig, materialize_constants};
 
 #[test]
 #[ignore = "needs a large external .onnx export via FS_ONNX"]
-fn materialize_shrinks_a_real_export() {
+fn test_materialize_shrinks_a_real_export() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
 
     let t0 = Instant::now();

@@ -57,7 +57,7 @@ fn reshape_graph() -> (Graph, usize, usize, usize) {
 }
 
 #[test]
-fn a_shape_operand_constant_is_left_out_of_the_dag() {
+fn test_a_shape_operand_constant_is_left_out_of_the_dag() {
     let (graph, _x, _target, _rs) = reshape_graph();
 
     let mut constants = ConstantMap::new();
@@ -80,7 +80,7 @@ fn a_shape_operand_constant_is_left_out_of_the_dag() {
 /// The elision is about how the operand is *consumed*, not about having its value:
 /// a shape operand is metadata whether or not a value was supplied for it.
 #[test]
-fn a_shape_operand_is_elided_even_without_a_supplied_value() {
+fn test_a_shape_operand_is_elided_even_without_a_supplied_value() {
     let (graph, ..) = reshape_graph();
 
     let lowering = TritonLowering::new();
@@ -94,7 +94,7 @@ fn a_shape_operand_is_elided_even_without_a_supplied_value() {
 /// not implemented, and the error should say which node and why, rather than pointing
 /// at a materialisation pass that already ran.
 #[test]
-fn a_data_constant_reports_itself_by_name() {
+fn test_a_data_constant_reports_itself_by_name() {
     let mut g = Graph::new();
     let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4)]);
     let bias = g.add_node(
@@ -120,7 +120,7 @@ fn a_data_constant_reports_itself_by_name() {
 /// A constant used in both a shape position and a data position cannot be elided:
 /// something reads it as a buffer.
 #[test]
-fn a_constant_used_as_both_shape_and_data_is_kept() {
+fn test_a_constant_used_as_both_shape_and_data_is_kept() {
     let mut g = Graph::new();
     let x = g.add_node(Op::Input, vec![], DtypeRepr::I64, vec![Some(2)]);
     let shared = g.add_node(
@@ -149,7 +149,7 @@ fn a_constant_used_as_both_shape_and_data_is_kept() {
 /// A `Squeeze`/`Unsqueeze` axes operand is metadata too: the importer lifts it into
 /// the op, leaving the edge redundant.
 #[test]
-fn an_axes_operand_is_elided() {
+fn test_an_axes_operand_is_elided() {
     let mut g = Graph::new();
     let x = g.add_node(
         Op::Input,
@@ -185,7 +185,7 @@ fn an_axes_operand_is_elided() {
 
 /// The graph's result is kept even when nothing consumes it, so it can be read back.
 #[test]
-fn a_constant_that_is_the_graphs_result_is_kept() {
+fn test_a_constant_that_is_the_graphs_result_is_kept() {
     let mut g = Graph::new();
     let only = g.add_node(
         Op::Constant {

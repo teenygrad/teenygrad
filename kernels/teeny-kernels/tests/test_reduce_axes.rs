@@ -53,7 +53,7 @@ fn graph_reducing(axis: i64, keepdims: bool) -> Graph {
 
 /// The innermost axis needs no transpose; anything else gets one.
 #[test]
-fn only_a_non_trailing_axis_gains_a_transpose() {
+fn test_only_a_non_trailing_axis_gains_a_transpose() {
     for (axis, extra) in [(3i64, 0usize), (2, 1), (1, 1), (0, 1)] {
         let dag = TritonLowering::new()
             .lower(&graph_reducing(axis, true), LoweringMode::Inference)
@@ -118,7 +118,7 @@ mod execution {
     }
 
     #[test]
-    fn a_reduction_over_every_axis_matches_the_host() {
+    fn test_a_reduction_over_every_axis_matches_the_host() {
         let (device, target) = device_and_target();
         let x = values();
 

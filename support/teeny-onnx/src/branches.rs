@@ -394,7 +394,7 @@ mod tests {
 
     /// With a unit axis 1, the condition is true and the squeeze is real code.
     #[test]
-    fn a_true_guard_resolves_to_the_then_branch() {
+    fn test_a_true_guard_resolves_to_the_then_branch() {
         let (import, report) = import_and_resolve(&guard_model(&[2, 1, 3]));
         assert_eq!(report.resolved, 1, "{report:?}");
         assert_eq!(report.unresolved_condition, 0);
@@ -417,7 +417,7 @@ mod tests {
     /// graph at all: it would be an error on this path, which is the whole reason both
     /// branches cannot be imported and selected afterwards.
     #[test]
-    fn a_false_guard_resolves_to_the_else_branch_and_omits_the_squeeze() {
+    fn test_a_false_guard_resolves_to_the_else_branch_and_omits_the_squeeze() {
         let (import, report) = import_and_resolve(&guard_model(&[2, 4, 3]));
         assert_eq!(report.resolved, 1, "{report:?}");
 
@@ -441,7 +441,7 @@ mod tests {
     /// The branch body's `Squeeze` reads `x` from the enclosing graph, which is the
     /// scoping rule that makes importing a subgraph work at all.
     #[test]
-    fn a_branch_body_captures_from_the_enclosing_scope() {
+    fn test_a_branch_body_captures_from_the_enclosing_scope() {
         let (import, _) = import_and_resolve(&guard_model(&[2, 1, 3]));
         let squeeze = import
             .graph
@@ -468,7 +468,7 @@ mod tests {
     /// The graph stays acyclic and sortable even though the branch nodes are appended
     /// after the consumer that reads them.
     #[test]
-    fn the_resolved_graph_still_sorts_topologically() {
+    fn test_the_resolved_graph_still_sorts_topologically() {
         let (import, _) = import_and_resolve(&guard_model(&[2, 1, 3]));
         let order = import.graph.topological_sort();
         assert_eq!(order.len(), import.graph.nodes.len());
@@ -488,7 +488,7 @@ mod tests {
     /// backend suite's own `test_if` has `cond` as a graph input, so nothing can fold
     /// it.
     #[test]
-    fn a_dynamic_condition_is_left_unresolved() {
+    fn test_a_dynamic_condition_is_left_unresolved() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("onnx/onnx/backend/test/data/node/test_if/model.onnx");
         if !path.exists() {
@@ -519,7 +519,7 @@ mod tests {
     /// in `tensors`. Seeding the second round from `tensors` alone drops them, and
     /// lowering then meets a constant with no value.
     #[test]
-    fn every_constant_in_the_resolved_graph_has_a_value() {
+    fn test_every_constant_in_the_resolved_graph_has_a_value() {
         let (import, all, _) = resolve_to_fixpoint(&guard_model(&[2, 1, 3]));
         for (i, node) in import.graph.nodes.iter().enumerate() {
             if matches!(node.op, Op::Constant { .. }) {
@@ -536,7 +536,7 @@ mod tests {
     /// which is why [`resolve_to_fixpoint`] threads the merged map through. Stated as
     /// a test so the ordering cannot be quietly broken.
     #[test]
-    fn a_second_round_seeded_from_tensors_alone_loses_folded_values() {
+    fn test_a_second_round_seeded_from_tensors_alone_loses_folded_values() {
         let (mut import, _) = import_and_resolve(&guard_model(&[2, 1, 3]));
         let tensors = import.tensors.clone();
         let (folded, _) =

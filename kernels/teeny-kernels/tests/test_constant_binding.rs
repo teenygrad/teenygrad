@@ -58,7 +58,7 @@ fn device_and_target<'a>() -> (teeny_runtime::Device<'a>, Target) {
 /// up as a mismatch rather than coincidentally passing.
 #[test]
 #[cfg(feature = "hardware")]
-fn a_bound_constant_reaches_the_output() {
+fn test_a_bound_constant_reaches_the_output() {
     dotenv::dotenv().ok();
     let (device, target) = device_and_target();
 
@@ -132,7 +132,7 @@ fn a_bound_constant_reaches_the_output() {
 /// A constant whose bytes do not fill its shape is caught at lowering, not on the
 /// device, where it would read past the end of its slot.
 #[test]
-fn a_constant_with_short_bytes_is_rejected() {
+fn test_a_constant_with_short_bytes_is_rejected() {
     use teeny_core::model::Lowering;
 
     let mut graph = Graph::new();
@@ -178,7 +178,7 @@ fn lens(v: &[Vec<f32>]) -> Vec<usize> {
 /// byte per element, and this kernel only moves bytes, so the `u8` instantiation copies
 /// the mask verbatim and the node keeps its Bool dtype for its consumers.
 #[test]
-fn a_bool_constant_lowers() {
+fn test_a_bool_constant_lowers() {
     use teeny_core::model::Lowering;
 
     const N: usize = 5;
@@ -213,7 +213,7 @@ fn a_bool_constant_lowers() {
 /// The byte count is still checked for Bool: one byte per element, not the four a
 /// carrier-field decode would have produced.
 #[test]
-fn a_bool_constant_is_sized_at_one_byte_per_element() {
+fn test_a_bool_constant_is_sized_at_one_byte_per_element() {
     use teeny_core::model::Lowering;
 
     let mut graph = Graph::new();

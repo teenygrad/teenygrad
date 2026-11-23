@@ -167,7 +167,7 @@ fn transpose_case(in_shape: &[usize], perm: &[usize]) {
 }
 
 #[test]
-fn the_mapping_matches_onnx_transpose() {
+fn test_the_mapping_matches_onnx_transpose() {
     // The plain 2-D swap.
     transpose_case(&[2, 3], &[1, 0]);
     // The identity permutation is a contiguous copy.
@@ -217,7 +217,7 @@ fn slice_case(
 }
 
 #[test]
-fn the_mapping_matches_onnx_slice() {
+fn test_the_mapping_matches_onnx_slice() {
     // A plain contiguous window.
     slice_case(&[6], &[1], &[4], None, None);
     // The whole axis, and a start beyond the end (empty is legal).
@@ -243,7 +243,7 @@ fn the_mapping_matches_onnx_slice() {
 /// A negative step reverses an axis, which the affine mapping handles as a negative
 /// stride with the offset at the far end.
 #[test]
-fn a_negative_step_reverses_an_axis() {
+fn test_a_negative_step_reverses_an_axis() {
     slice_case(&[6], &[5], &[-7], None, Some(&[-1]));
     slice_case(&[6], &[4], &[0], None, Some(&[-2]));
     slice_case(&[3, 4], &[3], &[-5], Some(&[1]), Some(&[-1]));
@@ -263,7 +263,7 @@ fn expand_case(in_shape: &[usize], out_shape: &[usize]) {
 }
 
 #[test]
-fn the_mapping_matches_onnx_expand() {
+fn test_the_mapping_matches_onnx_expand() {
     // A unit axis grows.
     expand_case(&[1], &[4]);
     expand_case(&[1, 3], &[2, 3]);
@@ -330,7 +330,7 @@ fn lowering_error(graph: &Graph, constants: ConstantMap) -> String {
 }
 
 #[test]
-fn transpose_lowers() {
+fn test_transpose_lowers() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[2, 3, 4]);
     g.add_node(
@@ -349,7 +349,7 @@ fn transpose_lowers() {
 /// reverse, not identity: the two differ for every rank above 1, and reading it as
 /// identity would silently produce a contiguous copy.
 #[test]
-fn an_empty_perm_means_the_reversed_axis_order() {
+fn test_an_empty_perm_means_the_reversed_axis_order() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[2, 3, 4]);
     g.add_node(
@@ -371,7 +371,7 @@ fn an_empty_perm_means_the_reversed_axis_order() {
 }
 
 #[test]
-fn a_perm_that_is_not_a_permutation_is_rejected() {
+fn test_a_perm_that_is_not_a_permutation_is_rejected() {
     for perm in [vec![0, 0], vec![0, 5]] {
         let mut g = Graph::new();
         let x = input_node(&mut g, &[2, 3]);
@@ -393,7 +393,7 @@ fn a_perm_that_is_not_a_permutation_is_rejected() {
 /// which would drop the fastest-varying axes and copy the wrong elements with no
 /// error at all. Lowering has to refuse it.
 #[test]
-fn a_rank_beyond_the_kernels_reach_is_refused() {
+fn test_a_rank_beyond_the_kernels_reach_is_refused() {
     let dims = vec![2usize; MAX_RANK + 1];
     let perm: Vec<usize> = (0..MAX_RANK + 1).rev().collect();
     let mut g = Graph::new();
@@ -411,7 +411,7 @@ fn a_rank_beyond_the_kernels_reach_is_refused() {
 /// A perm of the wrong length is reported as a shape problem, not a perm problem: an
 /// exporter writes one entry per axis, so the recorded shape is what is usually wrong.
 #[test]
-fn a_perm_of_the_wrong_length_points_at_the_shape() {
+fn test_a_perm_of_the_wrong_length_points_at_the_shape() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[128]);
     g.add_node(
@@ -432,7 +432,7 @@ fn a_perm_of_the_wrong_length_points_at_the_shape() {
 /// An empty shape means either a rank-0 scalar or a shape nobody worked out, and the
 /// IR cannot tell them apart, so it is refused rather than read as rank 0.
 #[test]
-fn an_empty_shape_is_refused_as_ambiguous() {
+fn test_an_empty_shape_is_refused_as_ambiguous() {
     let mut g = Graph::new();
     let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![]);
     g.add_node(
@@ -449,7 +449,7 @@ fn an_empty_shape_is_refused_as_ambiguous() {
 /// what most of an export's `Expand` nodes do, so a float-only copy would leave them
 /// unlowerable.
 #[test]
-fn an_integer_tensor_copies() {
+fn test_an_integer_tensor_copies() {
     for dtype in [DtypeRepr::I64, DtypeRepr::I32, DtypeRepr::U8] {
         let mut g = Graph::new();
         let x = g.add_node(Op::Input, vec![], dtype, shape_of(&[1, 3]));
@@ -463,7 +463,7 @@ fn an_integer_tensor_copies() {
 }
 
 #[test]
-fn slice_lowers_from_materialised_operands() {
+fn test_slice_lowers_from_materialised_operands() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[6, 4]);
     let starts = i64_constant(&mut g, &[1]);
@@ -482,7 +482,7 @@ fn slice_lowers_from_materialised_operands() {
 }
 
 #[test]
-fn slice_lowers_with_axes_and_steps() {
+fn test_slice_lowers_with_axes_and_steps() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[6, 8]);
     let starts = i64_constant(&mut g, &[0]);
@@ -504,7 +504,7 @@ fn slice_lowers_with_axes_and_steps() {
 }
 
 #[test]
-fn slice_without_its_operands_says_so() {
+fn test_slice_without_its_operands_says_so() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[6, 4]);
     let starts = i64_constant(&mut g, &[1]);
@@ -521,7 +521,7 @@ fn slice_without_its_operands_says_so() {
 
 /// A zero step is not an empty slice, it is a meaningless one.
 #[test]
-fn a_zero_step_is_rejected() {
+fn test_a_zero_step_is_rejected() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[6]);
     let starts = i64_constant(&mut g, &[0]);
@@ -550,7 +550,7 @@ fn a_zero_step_is_rejected() {
 /// This is not hypothetical: it is what a `Slice` graph built with a `steps` operand
 /// but no `axes` does, since the operands are positional and `steps` is the fourth.
 #[test]
-fn a_mapping_that_disagrees_with_the_recorded_shape_is_refused() {
+fn test_a_mapping_that_disagrees_with_the_recorded_shape_is_refused() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[8]);
     let starts = i64_constant(&mut g, &[0]);
@@ -574,7 +574,7 @@ fn a_mapping_that_disagrees_with_the_recorded_shape_is_refused() {
 }
 
 #[test]
-fn expand_lowers_and_needs_no_operand_value() {
+fn test_expand_lowers_and_needs_no_operand_value() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[1, 3, 1, 1]);
     let target = i64_constant(&mut g, &[2, 3, 4, 5]);
@@ -590,7 +590,7 @@ fn expand_lowers_and_needs_no_operand_value() {
 }
 
 #[test]
-fn an_expand_that_is_not_a_broadcast_is_rejected() {
+fn test_an_expand_that_is_not_a_broadcast_is_rejected() {
     let mut g = Graph::new();
     let x = input_node(&mut g, &[2, 3]);
     let target = i64_constant(&mut g, &[2, 4]);
@@ -607,7 +607,7 @@ fn an_expand_that_is_not_a_broadcast_is_rejected() {
 /// A dynamic extent cannot be copied under a static mapping, and the error says what
 /// to do about it rather than reporting an unsupported op.
 #[test]
-fn a_dynamic_extent_is_refused_with_advice() {
+fn test_a_dynamic_extent_is_refused_with_advice() {
     let mut g = Graph::new();
     let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![None, Some(3)]);
     g.add_node(
@@ -684,7 +684,7 @@ mod execution {
 
     /// The mapping is also checked against a reference above with no device at all.
     #[test]
-    fn transpose_runs_on_device() {
+    fn test_transpose_runs_on_device() {
         for (dims, perm) in [
             (vec![2usize, 3], vec![1usize, 0]),
             (vec![2, 3, 4], vec![2, 0, 1]),
@@ -712,7 +712,7 @@ mod execution {
     }
 
     #[test]
-    fn slice_runs_on_device() {
+    fn test_slice_runs_on_device() {
         for (dims, starts, ends, axes, steps) in [
             (vec![6usize], vec![1i64], vec![4i64], None, None),
             // `steps` is operand 4, so supplying it means supplying `axes` too.
@@ -766,7 +766,7 @@ mod execution {
     }
 
     #[test]
-    fn expand_runs_on_device() {
+    fn test_expand_runs_on_device() {
         for (in_dims, out_dims) in [
             (vec![1usize], vec![4usize]),
             (vec![1, 3], vec![2, 3]),

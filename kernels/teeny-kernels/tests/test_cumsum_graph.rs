@@ -28,7 +28,7 @@ fn read_f32(path: &str) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs CUMSUM_ONNX and CUMSUM_DATA"]
-fn a_cumulative_sum_follows_its_axis() {
+fn test_a_cumulative_sum_follows_its_axis() {
     let path = std::env::var("CUMSUM_ONNX").expect("set CUMSUM_ONNX");
     let data = std::env::var("CUMSUM_DATA").expect("set CUMSUM_DATA");
     let stem = std::path::Path::new(&path)

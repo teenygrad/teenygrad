@@ -304,7 +304,7 @@ mod tests {
     /// The equation the FoundationStereo export uses: a batch pair, one free label on
     /// each side and one contracted label.
     #[test]
-    fn plans_a_batched_outer_contraction() {
+    fn test_plans_a_batched_outer_contraction() {
         let plan = einsum_plan("aijk,aijh->ajkh", &[1, 224, 120, 160], &[1, 224, 120, 160])
             .expect("should plan");
         assert_eq!(plan.out_shape, vec![1, 120, 160, 160]);
@@ -323,7 +323,7 @@ mod tests {
     /// A batched matrix multiply is one instance of the same plan, which is the point
     /// of planning rather than special-casing.
     #[test]
-    fn plans_a_batched_matmul() {
+    fn test_plans_a_batched_matmul() {
         let plan = einsum_plan("bij,bjk->bik", &[4, 2, 3], &[4, 3, 5]).expect("should plan");
         assert_eq!(plan.out_shape, vec![4, 2, 5]);
         assert_eq!(plan.k, 3);
@@ -337,7 +337,7 @@ mod tests {
 
     /// Plain 2-D matmul, and the transposed forms, which differ only in the strides.
     #[test]
-    fn plans_the_plain_and_transposed_matmuls() {
+    fn test_plans_the_plain_and_transposed_matmuls() {
         let plan = einsum_plan("ij,jk->ik", &[2, 3], &[3, 4]).expect("ij,jk");
         assert_eq!(plan.out_shape, vec![2, 4]);
         assert_eq!((plan.a_contract_stride, plan.b_contract_stride), (1, 4));
@@ -351,7 +351,7 @@ mod tests {
 
     /// The output may name its labels in any order, and the strides follow it.
     #[test]
-    fn the_output_order_drives_the_strides() {
+    fn test_the_output_order_drives_the_strides() {
         let forward = einsum_plan("ij,jk->ik", &[2, 3], &[3, 4]).expect("ik");
         let swapped = einsum_plan("ij,jk->ki", &[2, 3], &[3, 4]).expect("ki");
         assert_eq!(swapped.out_shape, vec![4, 2]);
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_what_it_cannot_express() {
+    fn test_rejects_what_it_cannot_express() {
         // No contraction at all: elementwise or an outer product.
         assert_eq!(
             einsum_plan("ij,ij->ij", &[2, 3], &[2, 3]),
@@ -435,7 +435,7 @@ mod tests {
     /// Whitespace is not significant, and an output label neither operand has is an
     /// error rather than an axis of extent 1.
     #[test]
-    fn tolerates_spacing_and_catches_an_unknown_output_label() {
+    fn test_tolerates_spacing_and_catches_an_unknown_output_label() {
         assert_eq!(
             einsum_plan(" ij , jk -> ik ", &[2, 3], &[3, 4])
                 .expect("spaces are not significant")

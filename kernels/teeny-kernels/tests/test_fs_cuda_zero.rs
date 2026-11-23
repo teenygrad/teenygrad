@@ -87,7 +87,7 @@ fn as_words(bytes: &[u8]) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs FS96_ONNX and FS96_DATA"]
-fn where_the_output_goes_to_zero() {
+fn test_where_the_output_goes_to_zero() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let data = std::env::var("FS96_DATA").expect("set FS96_DATA");
 

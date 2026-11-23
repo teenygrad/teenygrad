@@ -39,7 +39,7 @@ fn read_f32(path: &str) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs L2NORM_ONNX and L2NORM_DATA"]
-fn a_normalized_tensor_has_no_element_above_one() {
+fn test_a_normalized_tensor_has_no_element_above_one() {
     let path = std::env::var("L2NORM_ONNX").expect("set L2NORM_ONNX");
     let data = std::env::var("L2NORM_DATA").expect("set L2NORM_DATA");
     let x = read_f32(&format!("{data}/l2norm5d_x.f32"));

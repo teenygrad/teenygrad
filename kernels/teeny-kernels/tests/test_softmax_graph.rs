@@ -26,7 +26,7 @@ fn read_f32(path: &str) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs SOFTMAX_ONNX and SOFTMAX_DATA"]
-fn a_softmax_sums_to_one_along_its_axis() {
+fn test_a_softmax_sums_to_one_along_its_axis() {
     let path = std::env::var("SOFTMAX_ONNX").expect("set SOFTMAX_ONNX");
     let data = std::env::var("SOFTMAX_DATA").expect("set SOFTMAX_DATA");
     let stem = std::path::Path::new(&path)

@@ -19,7 +19,7 @@ fn len_of(shape: &[Option<usize>]) -> usize {
 
 #[test]
 #[ignore = "needs FS96_ONNX"]
-fn which_terminals_could_be_the_disparity() {
+fn test_which_terminals_could_be_the_disparity() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let mut import = Onnx::import_from_path(&path).expect("import");
 

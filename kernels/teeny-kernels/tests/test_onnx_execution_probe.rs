@@ -28,7 +28,7 @@ fn floats(path: &str) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs TINY_DIR with tiny_conv_relu.onnx, x.bin and y.bin"]
-fn probe_onnx_execution() {
+fn test_probe_onnx_execution() {
     dotenv::dotenv().ok();
     let dir = std::env::var("TINY_DIR").unwrap_or_else(|_| "/tmp/tiny".to_string());
     let model_path = format!("{dir}/tiny_conv_relu.onnx");

@@ -19,7 +19,7 @@ fn ref_transpose(x: &[f32], r: usize, c: usize) -> Vec<f32> {
 }
 
 #[test]
-fn strided_copy_transpose_sweep() -> Result<()> {
+fn test_strided_copy_transpose_sweep() -> Result<()> {
     dotenv::dotenv().ok();
     let env = testing::setup_cuda_env()?;
     let device = env.device;

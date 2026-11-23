@@ -44,7 +44,7 @@ fn chain(n: usize, elements: usize) -> Graph {
 /// In a chain, only one intermediate is ever live, so every buffer after the first two
 /// comes back from the pool rather than from the device.
 #[test]
-fn a_chain_reuses_one_buffer() {
+fn test_a_chain_reuses_one_buffer() {
     let n = 8usize;
     let elements = 64usize;
     let graph = chain(n, elements);
@@ -92,7 +92,7 @@ fn a_chain_reuses_one_buffer() {
 /// What the caller asks for is kept, whatever else happens to it: an intermediate that
 /// is also an output stays readable after the run.
 #[test]
-fn a_pinned_output_is_not_recycled() {
+fn test_a_pinned_output_is_not_recycled() {
     let elements = 32usize;
     let mut graph = Graph::new();
     let x = graph.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(elements)]);
@@ -130,7 +130,7 @@ fn a_pinned_output_is_not_recycled() {
 /// An intermediate nothing asked for is gone once nothing reads it, and says so rather
 /// than handing back whatever tensor the buffer now holds.
 #[test]
-fn a_released_buffer_says_it_was_released() {
+fn test_a_released_buffer_says_it_was_released() {
     let elements = 16usize;
     let mut graph = Graph::new();
     let x = graph.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(elements)]);
@@ -169,7 +169,7 @@ fn a_released_buffer_says_it_was_released() {
 /// much as the counts, since a node served by a larger buffer must still read back
 /// exactly its own elements.
 #[test]
-fn a_narrowing_chain_reuses_the_largest_buffer() {
+fn test_a_narrowing_chain_reuses_the_largest_buffer() {
     let (device, target) = device_and_target();
 
     // Slice each step down by one element: 64, 63, 62, ...

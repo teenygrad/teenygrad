@@ -48,7 +48,7 @@ fn lower(x: &[usize], grid: &[usize]) -> anyhow::Result<usize> {
 }
 
 #[test]
-fn the_export_s_shapes_lower() {
+fn test_the_export_s_shapes_lower() {
     // The export's own form: a single row sampled at nine positions, 19200 of them.
     assert_eq!(
         lower(&[19200, 28, 1, 104], &[19200, 1, 9, 2]).expect("export"),
@@ -57,7 +57,7 @@ fn the_export_s_shapes_lower() {
 }
 
 #[test]
-fn another_padding_mode_is_refused_by_name() {
+fn test_another_padding_mode_is_refused_by_name() {
     let msg = match TritonLowering::new().lower(
         &sample_graph(&[1, 1, 4, 4], &[1, 2, 2, 2], "bilinear", "border", true),
         LoweringMode::Inference,
@@ -69,7 +69,7 @@ fn another_padding_mode_is_refused_by_name() {
 }
 
 #[test]
-fn a_grid_that_is_not_two_wide_is_refused() {
+fn test_a_grid_that_is_not_two_wide_is_refused() {
     let mut g = Graph::new();
     let x = g.add_node(
         Op::Input,
@@ -222,7 +222,7 @@ mod execution {
     /// Positions between elements, at the edges, and outside: the last of those is
     /// where zero padding has to apply rather than the nearest element.
     #[test]
-    fn sampling_inside_and_outside() {
+    fn test_sampling_inside_and_outside() {
         let grid = vec![
             -1.0, -1.0, // the first element exactly
             0.0, 0.0, // the middle
@@ -237,7 +237,7 @@ mod execution {
     /// Without aligned corners the edges mean something else, and the first and last
     /// positions fall half an element outside the input.
     #[test]
-    fn sampling_without_aligned_corners() {
+    fn test_sampling_without_aligned_corners() {
         let grid = vec![-1.0, -1.0, 0.0, 0.0, 0.25, 0.75, 1.0, 1.0];
         run(&[1, 1, 4, 4], &[1, 2, 2, 2], &grid, false);
     }
@@ -245,7 +245,7 @@ mod execution {
     /// A single row, which is the export's shape: the y coordinate has one element to
     /// land on, so a mistake in the row arithmetic shows up as zeros.
     #[test]
-    fn sampling_a_single_row() {
+    fn test_sampling_a_single_row() {
         // Five positions per batch, and the two batches look at different places.
         let grid = vec![
             -1.0, 0.0, -0.5, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0, 0.0, //
@@ -257,7 +257,7 @@ mod execution {
     /// Several batches and channels: the grid is shared across channels but not
     /// across batches, which is the indexing most easily got wrong.
     #[test]
-    fn the_grid_is_per_batch_and_shared_across_channels() {
+    fn test_the_grid_is_per_batch_and_shared_across_channels() {
         let grid = vec![
             // batch 0 looks at the top-left corner
             -1.0, -1.0, -0.5, -0.5, //

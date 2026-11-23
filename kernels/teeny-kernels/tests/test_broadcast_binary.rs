@@ -44,7 +44,7 @@ fn lower(op: Op, a: &[usize], b: &[usize]) -> anyhow::Result<usize> {
 }
 
 #[test]
-fn the_shapes_the_export_broadcasts_lower() {
+fn test_the_shapes_the_export_broadcasts_lower() {
     for (a, b) in [
         // A bias added along the last axis.
         (vec![2usize, 129, 1024], vec![1024usize]),
@@ -68,7 +68,7 @@ fn the_shapes_the_export_broadcasts_lower() {
 /// Equal shapes still take the flat kernels, which are cheaper: no table, no
 /// per-lane coordinate arithmetic.
 #[test]
-fn equal_shapes_do_not_go_through_the_broadcast_kernel() {
+fn test_equal_shapes_do_not_go_through_the_broadcast_kernel() {
     let graph = binary_graph(Op::Add, &[2, 3], &[2, 3]);
     let dag = TritonLowering::new()
         .lower(&graph, LoweringMode::Inference)
@@ -89,7 +89,7 @@ fn equal_shapes_do_not_go_through_the_broadcast_kernel() {
 /// Extents that are neither equal nor 1 are not a broadcast, and are refused rather
 /// than read at some stride that happens to fit.
 #[test]
-fn shapes_that_do_not_broadcast_are_refused() {
+fn test_shapes_that_do_not_broadcast_are_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(5)]);
@@ -208,7 +208,7 @@ mod execution {
 
     /// A bias along the last axis, which is the export's commonest broadcast.
     #[test]
-    fn a_bias_along_the_last_axis() {
+    fn test_a_bias_along_the_last_axis() {
         run(Op::Add, &[2, 3, 4], &[4]);
         run(Op::Mul, &[2, 3, 4], &[4]);
     }
@@ -216,7 +216,7 @@ mod execution {
     /// A scalar on either side, including the subtraction and division where the order
     /// matters.
     #[test]
-    fn a_scalar_on_either_side() {
+    fn test_a_scalar_on_either_side() {
         run(Op::Div, &[2, 3, 4], &[]);
         run(Op::Sub, &[], &[2, 3, 4]);
         run(Op::Sub, &[2, 3, 4], &[1]);
@@ -224,7 +224,7 @@ mod execution {
 
     /// A per-channel scale, where the broadcast axes are in the middle of the shape.
     #[test]
-    fn a_per_channel_scale() {
+    fn test_a_per_channel_scale() {
         run(Op::Mul, &[2, 3, 4, 5], &[1, 3, 1, 1]);
         run(Op::Add, &[2, 3, 4, 5], &[1, 3, 1, 1]);
     }
@@ -232,14 +232,14 @@ mod execution {
     /// Both operands short on different axes, which only the general strides handle:
     /// neither operand is simply the output's shape.
     #[test]
-    fn both_operands_broadcast_at_once() {
+    fn test_both_operands_broadcast_at_once() {
         run(Op::Add, &[4, 1, 3], &[1, 5, 3]);
         run(Op::Mul, &[2, 1], &[1, 6]);
     }
 
     /// More elements than one block of lanes.
     #[test]
-    fn an_output_longer_than_a_block() {
+    fn test_an_output_longer_than_a_block() {
         run(Op::Add, &[3, 500], &[500]);
     }
 }

@@ -2038,23 +2038,23 @@ mod pick_gemm_tile_sizes_tests {
     use super::pick_gemm_tile_sizes;
 
     #[test]
-    fn small_shape_gets_smallest_tiles() {
+    fn test_small_shape_gets_smallest_tiles() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
     }
 
     #[test]
-    fn large_m_and_n_get_the_largest_tile() {
+    fn test_large_m_and_n_get_the_largest_tile() {
         // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
         assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
     }
 
     #[test]
-    fn large_m_only_widens_block_m_not_block_n() {
+    fn test_large_m_only_widens_block_m_not_block_n() {
         assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
     }
 
     #[test]
-    fn large_n_only_widens_block_n_not_block_m() {
+    fn test_large_n_only_widens_block_n_not_block_m() {
         assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
     }
 
@@ -2063,7 +2063,7 @@ mod pick_gemm_tile_sizes_tests {
     /// read from.
     #[test]
     #[cfg_attr(feature = "cuda", ignore = "a partial K tile loads on CUDA")]
-    fn block_k_never_exceeds_the_contracted_extent() {
+    fn test_block_k_never_exceeds_the_contracted_extent() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 4).2, 4);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 6).2, 4);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1).2, 1);
@@ -2071,13 +2071,13 @@ mod pick_gemm_tile_sizes_tests {
 
     /// A contraction wide enough for the tile is left alone on every backend.
     #[test]
-    fn block_k_is_untouched_when_the_contraction_is_wider() {
+    fn test_block_k_is_untouched_when_the_contraction_is_wider() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 12).2, 8);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1921).2, 32);
     }
 
     #[test]
-    fn unknown_dynamic_batch_treated_as_small() {
+    fn test_unknown_dynamic_batch_treated_as_small() {
         // m=None should behave the same as an explicit small m, not a large one.
         assert_eq!(
             pick_gemm_tile_sizes(None, 64, 16),
@@ -2090,7 +2090,7 @@ mod pick_gemm_tile_sizes_tests {
     /// one whole K tile to exist. Correctness wins: a contraction of 1 gets a tile
     /// of 1, and the few shapes that narrow are small ones anyway.
     #[test]
-    fn block_k_stays_at_eight_unless_the_contraction_is_narrower() {
+    fn test_block_k_stays_at_eight_unless_the_contraction_is_narrower() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
         let narrow = pick_gemm_tile_sizes(Some(64), 64, 1).2;
         if crate::math::gemm::PARTIAL_K_TILE_IS_PADDED {
@@ -2101,7 +2101,7 @@ mod pick_gemm_tile_sizes_tests {
     }
 
     #[test]
-    fn block_k_grows_with_k() {
+    fn test_block_k_grows_with_k() {
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
         assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);

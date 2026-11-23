@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn aligned_and_null_pointers_pass() {
+    fn test_aligned_and_null_pointers_pass() {
         assert!(
             packed(&[0, 0x7f00_0000, 0x7f00_0010])
                 .check_pointer_alignment()
@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn first_misaligned_pointer_is_reported_with_its_index() {
+    fn test_first_misaligned_pointer_is_reported_with_its_index() {
         let err = packed(&[0x7f00_0000, 0x7f00_0004, 0x7f00_0008])
             .check_pointer_alignment()
             .expect_err("0x7f000004 is not 16-byte aligned");

@@ -2934,7 +2934,7 @@ mod tests {
     }
 
     #[test]
-    fn a_kept_reduction_sets_its_axes_to_one() {
+    fn test_a_kept_reduction_sets_its_axes_to_one() {
         let op = Op::ReduceL2 {
             axes: vec![2],
             keepdims: true,
@@ -2948,7 +2948,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dropped_reduction_removes_its_axes() {
+    fn test_a_dropped_reduction_removes_its_axes() {
         let op = Op::ReduceSum {
             axes: vec![0, 2],
             keepdims: false,
@@ -2959,7 +2959,7 @@ mod tests {
     }
 
     #[test]
-    fn reducing_everything_gives_ones_or_a_scalar() {
+    fn test_reducing_everything_gives_ones_or_a_scalar() {
         let shape = vec![Some(2), Some(3)];
         let kept = Op::ReduceMean {
             axes: vec![],

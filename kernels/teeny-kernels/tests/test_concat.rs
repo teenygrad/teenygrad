@@ -50,7 +50,7 @@ fn lower(shapes: &[Vec<usize>], axis: i64) -> anyhow::Result<usize> {
 }
 
 #[test]
-fn every_axis_and_rank_lowers() {
+fn test_every_axis_and_rank_lowers() {
     for (shapes, axis) in [
         (vec![vec![3usize], vec![2]], 0i64),
         (vec![vec![2, 3], vec![2, 4]], 1),
@@ -71,12 +71,12 @@ fn every_axis_and_rank_lowers() {
 /// One input is a copy, and the single-launch path has to get the same grid the
 /// multi-launch one would.
 #[test]
-fn a_single_operand_lowers() {
+fn test_a_single_operand_lowers() {
     assert_eq!(lower(&[vec![2, 3]], 1).expect("one operand"), 2);
 }
 
 #[test]
-fn an_axis_outside_the_rank_is_refused() {
+fn test_an_axis_outside_the_rank_is_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(4)]);
@@ -96,7 +96,7 @@ fn an_axis_outside_the_rank_is_refused() {
 /// An operand that differs on an axis other than the concatenated one would be copied
 /// into the wrong place, element by element, with no error on the device.
 #[test]
-fn an_operand_that_differs_off_axis_is_refused() {
+fn test_an_operand_that_differs_off_axis_is_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4), Some(5)]);
@@ -116,7 +116,7 @@ fn an_operand_that_differs_off_axis_is_refused() {
 /// Extents that do not add up to the output's leave part of it unwritten, or run past
 /// its end.
 #[test]
-fn operands_that_do_not_add_up_are_refused() {
+fn test_operands_that_do_not_add_up_are_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(4)]);
@@ -239,14 +239,14 @@ mod execution {
     }
 
     #[test]
-    fn concatenating_vectors() {
+    fn test_concatenating_vectors() {
         run(&[vec![3], vec![2], vec![4]], 0);
     }
 
     /// The innermost axis: every operand's block is one contiguous run per row, and
     /// the runs interleave in the output.
     #[test]
-    fn concatenating_the_innermost_axis() {
+    fn test_concatenating_the_innermost_axis() {
         run(&[vec![3, 2], vec![3, 5]], 1);
     }
 
@@ -254,21 +254,21 @@ mod execution {
     /// the case a wrong `inner` would still get right, so it is checked alongside the
     /// others rather than on its own.
     #[test]
-    fn concatenating_the_outermost_axis() {
+    fn test_concatenating_the_outermost_axis() {
         run(&[vec![2, 4], vec![3, 4]], 0);
     }
 
     /// A middle axis of a rank-4 tensor, which is where both `outer` and `inner` are
     /// greater than one and an arithmetic mistake has nowhere to hide.
     #[test]
-    fn concatenating_a_middle_axis() {
+    fn test_concatenating_a_middle_axis() {
         run(&[vec![2, 3, 2, 3], vec![2, 1, 2, 3], vec![2, 4, 2, 3]], 1);
     }
 
     /// More elements than one block of lanes, so the last tile of a chunk is partly
     /// masked off.
     #[test]
-    fn a_chunk_longer_than_a_block() {
+    fn test_a_chunk_longer_than_a_block() {
         run(&[vec![2, 300], vec![2, 101]], 1);
     }
 }

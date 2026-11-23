@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn every_integer_dtype_widens_to_i64() {
+    fn test_every_integer_dtype_widens_to_i64() {
         let cases = [
             (DtypeRepr::Bool, vec![1u8, 0], vec![1i64, 0]),
             (DtypeRepr::U8, vec![255, 7], vec![255, 7]),
@@ -243,7 +243,7 @@ mod tests {
     /// A `u64` above `i64::MAX` used to wrap to a negative number, which in a shape or
     /// pad list reads as a nonsense dimension rather than an error.
     #[test]
-    fn a_u64_above_i64_max_is_out_of_range_not_wrapped() {
+    fn test_a_u64_above_i64_max_is_out_of_range_not_wrapped() {
         let t = constant(
             DtypeRepr::U64,
             &[Some(2)],
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn floats_are_refused_as_i64() {
+    fn test_floats_are_refused_as_i64() {
         for dtype in [
             DtypeRepr::F16,
             DtypeRepr::BF16,
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn floats_and_integers_read_as_f64_but_half_floats_do_not() {
+    fn test_floats_and_integers_read_as_f64_but_half_floats_do_not() {
         let f32s = constant(
             DtypeRepr::F32,
             &[Some(2)],
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn short_bytes_are_refused_with_the_counts() {
+    fn test_short_bytes_are_refused_with_the_counts() {
         let t = constant(DtypeRepr::I32, &[Some(2), Some(2)], vec![0; 12]);
         assert_eq!(
             t.to_i64_vec(),
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dynamic_shape_is_refused_and_has_no_len() {
+    fn test_a_dynamic_shape_is_refused_and_has_no_len() {
         let t = constant(DtypeRepr::I64, &[None, Some(2)], vec![0; 16]);
         assert_eq!(
             t.to_i64_vec(),
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn an_overflowing_element_count_is_refused() {
+    fn test_an_overflowing_element_count_is_refused() {
         let t = constant(DtypeRepr::U8, &[Some(usize::MAX), Some(2)], vec![]);
         assert_eq!(
             t.to_i64_vec(),
@@ -349,14 +349,14 @@ mod tests {
 
     /// A rank-0 tensor is a scalar: one element, not none.
     #[test]
-    fn a_scalar_has_one_element() {
+    fn test_a_scalar_has_one_element() {
         let t = constant(DtypeRepr::I64, &[], 42i64.to_le_bytes().to_vec());
         assert_eq!(t.len(), Some(1));
         assert_eq!(t.to_i64_vec(), Ok(vec![42]));
     }
 
     #[test]
-    fn errors_name_the_values_involved() {
+    fn test_errors_name_the_values_involved() {
         let e = ConstantReadError::TooFewBytes {
             dtype: DtypeRepr::I32,
             shape: vec![Some(4)],

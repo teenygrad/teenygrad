@@ -52,7 +52,7 @@ fn as_words(bytes: &[u8]) -> Vec<f32> {
 
 #[test]
 #[ignore = "needs FS96_ONNX, FS96_DATA, and a long time under qemu"]
-fn the_export_runs_on_riscv_and_matches_pytorch() {
+fn test_the_export_runs_on_riscv_and_matches_pytorch() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let data = std::env::var("FS96_DATA").expect("set FS96_DATA");
 

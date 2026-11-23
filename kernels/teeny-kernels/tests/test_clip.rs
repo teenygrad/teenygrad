@@ -135,7 +135,7 @@ fn lower(bounds: Bounds) -> anyhow::Result<usize> {
 
 /// Both bounds supplied as operands, which is what an opset-11-or-later export writes.
 #[test]
-fn clip_lowers_with_operand_bounds() {
+fn test_clip_lowers_with_operand_bounds() {
     // The bounds are read on the host and packed as kernel arguments, so they get no
     // DAG node: the input and the clip are all that remain.
     assert_eq!(
@@ -145,7 +145,7 @@ fn clip_lowers_with_operand_bounds() {
 }
 
 #[test]
-fn clip_lowers_with_an_omitted_bound() {
+fn test_clip_lowers_with_an_omitted_bound() {
     assert_eq!(
         lower(Bounds::Operands(None, Some(6.0))).expect("max only"),
         2
@@ -158,7 +158,7 @@ fn clip_lowers_with_an_omitted_bound() {
 }
 
 #[test]
-fn clip_lowers_with_attribute_bounds() {
+fn test_clip_lowers_with_attribute_bounds() {
     assert_eq!(
         lower(Bounds::Attributes(Some(0.0), Some(6.0))).expect("opset 6 form"),
         2
@@ -169,7 +169,7 @@ fn clip_lowers_with_attribute_bounds() {
 /// A bound the lowering cannot see is an error, not an infinity. Silently substituting
 /// no bound is exactly the behaviour this change removes.
 #[test]
-fn a_bound_with_no_value_is_refused() {
+fn test_a_bound_with_no_value_is_refused() {
     let mut g = Graph::new();
     let x = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(N)]);
     // A bound computed at runtime, which the kernel cannot take: it packs its bounds
@@ -192,7 +192,7 @@ fn a_bound_with_no_value_is_refused() {
 }
 
 #[test]
-fn an_inverted_range_is_refused() {
+fn test_an_inverted_range_is_refused() {
     let msg = match lower(Bounds::Operands(Some(1.0), Some(-1.0))) {
         Ok(_) => panic!("min above max should not lower"),
         Err(e) => e.to_string(),
@@ -204,7 +204,7 @@ fn an_inverted_range_is_refused() {
 /// overflows f32 would become infinity, which is not a near-miss but the absence of a
 /// bound, so it is refused.
 #[test]
-fn a_bound_outside_f32_range_is_refused() {
+fn test_a_bound_outside_f32_range_is_refused() {
     let mut g = Graph::new();
     let x = g.add_node(Op::Input, vec![], DtypeRepr::F64, vec![Some(N)]);
     let hi = g.add_node(
@@ -313,7 +313,7 @@ mod execution {
     /// The test this change exists for. The input spans far outside both bounds, so a
     /// Clip that does not clamp returns its input and fails here.
     #[test]
-    fn clip_actually_clamps_on_device() {
+    fn test_clip_actually_clamps_on_device() {
         run(
             Bounds::Operands(Some(-1.0), Some(1.0)),
             -1.0,
@@ -326,7 +326,7 @@ mod execution {
     /// reading the upper bound as the lower one, which is what dropping an omitted
     /// operand did, clamps everything to a single value.
     #[test]
-    fn a_one_sided_clamp_leaves_the_other_side_alone() {
+    fn test_a_one_sided_clamp_leaves_the_other_side_alone() {
         run(
             Bounds::Operands(Some(0.0), None),
             0.0,
@@ -345,7 +345,7 @@ mod execution {
     /// lower bound with the upper one omitted, guarding a later division or square
     /// root against zero. Unclamped, the zero in the input reaches that guard.
     #[test]
-    fn a_tiny_lower_bound_guard_clamps() {
+    fn test_a_tiny_lower_bound_guard_clamps() {
         const FLOOR: f32 = 1e-12;
         let x = input();
         assert!(
@@ -361,7 +361,7 @@ mod execution {
     }
 
     #[test]
-    fn attribute_bounds_clamp_too() {
+    fn test_attribute_bounds_clamp_too() {
         run(
             Bounds::Attributes(Some(-6.0), Some(6.0)),
             -6.0,
@@ -373,7 +373,7 @@ mod execution {
     /// With no bounds at all a Clip is genuinely a pass-through, which is the one case
     /// the old behaviour got right.
     #[test]
-    fn no_bounds_passes_values_through() {
+    fn test_no_bounds_passes_values_through() {
         run(Bounds::None, f32::NEG_INFINITY, f32::INFINITY, "no bounds");
         run(
             Bounds::EmptyOperands,

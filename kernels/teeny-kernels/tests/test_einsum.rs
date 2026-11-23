@@ -131,7 +131,7 @@ fn lower(equation: &str, a_shape: &[usize], b_shape: &[usize]) -> anyhow::Result
 }
 
 #[test]
-fn a_contraction_lowers() {
+fn test_a_contraction_lowers() {
     assert_eq!(lower("ij,jk->ik", &[2, 3], &[3, 4]).expect("matmul"), 3);
     assert_eq!(
         lower("bij,bjk->bik", &[2, 3, 4], &[2, 4, 5]).expect("batched matmul"),
@@ -146,7 +146,7 @@ fn a_contraction_lowers() {
 /// An equation the plan cannot express fails at lowering with the reason, rather than
 /// as an unsupported op.
 #[test]
-fn an_unplannable_equation_says_why() {
+fn test_an_unplannable_equation_says_why() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(3), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(3), Some(4)]);
@@ -169,7 +169,7 @@ fn an_unplannable_equation_says_why() {
 /// If the equation and the recorded shape disagree, the output buffer and the
 /// contraction describe different tensors, so lowering refuses.
 #[test]
-fn a_shape_that_disagrees_with_the_equation_is_refused() {
+fn test_a_shape_that_disagrees_with_the_equation_is_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(2), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(3), Some(4)]);
@@ -274,14 +274,14 @@ mod execution {
 
     /// The export's own equation, at a size that keeps the reference cheap.
     #[test]
-    fn the_foundationstereo_equation_matches_the_reference() {
+    fn test_the_foundationstereo_equation_matches_the_reference() {
         run("aijk,aijh->ajkh", &[1, 4, 3, 5], &[1, 4, 3, 2]);
         run("aijk,aijh->ajkh", &[2, 3, 2, 4], &[2, 3, 2, 3]);
     }
 
     /// A matrix multiply is the same kernel, which is the claim the module docs make.
     #[test]
-    fn matmul_is_one_instance_of_the_same_kernel() {
+    fn test_matmul_is_one_instance_of_the_same_kernel() {
         run("ij,jk->ik", &[2, 3], &[3, 4]);
         run("ij,jk->ik", &[5, 7], &[7, 3]);
         // Contracting the other axis of the left operand.
@@ -289,7 +289,7 @@ mod execution {
     }
 
     #[test]
-    fn a_batched_matmul_is_too() {
+    fn test_a_batched_matmul_is_too() {
         run("bij,bjk->bik", &[2, 3, 4], &[2, 4, 5]);
         // Rank 4, the shape attention takes.
         run("bhij,bhjk->bhik", &[2, 2, 3, 4], &[2, 2, 4, 3]);
@@ -298,7 +298,7 @@ mod execution {
     /// The output may name its labels in any order, and a transposed output is the
     /// case a stride mistake would most easily survive.
     #[test]
-    fn a_transposed_output_is_indexed_correctly() {
+    fn test_a_transposed_output_is_indexed_correctly() {
         run("ij,jk->ki", &[2, 3], &[3, 4]);
         run("bij,bjk->bki", &[2, 3, 4], &[2, 4, 5]);
     }
@@ -306,7 +306,7 @@ mod execution {
     /// A contraction of length 1 still multiplies, and one of length 1 on a unit batch
     /// exercises the extent clamping in the index peel.
     #[test]
-    fn degenerate_extents_still_work() {
+    fn test_degenerate_extents_still_work() {
         run("ij,jk->ik", &[1, 1], &[1, 1]);
         run("bij,bjk->bik", &[1, 2, 1], &[1, 1, 3]);
     }

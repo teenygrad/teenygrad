@@ -114,7 +114,7 @@ fn agrees(ours: &Stats, theirs: &Stats) -> bool {
 
 #[test]
 #[ignore = "needs FS96_ONNX, FS96_DATA and ORT_STATS"]
-fn every_node_agrees_with_onnxruntime() {
+fn test_every_node_agrees_with_onnxruntime() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let data = std::env::var("FS96_DATA").expect("set FS96_DATA");
     let stats_path = std::env::var("ORT_STATS").expect("set ORT_STATS");

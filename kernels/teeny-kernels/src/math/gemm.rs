@@ -497,7 +497,7 @@ mod k_tail_tests {
     /// end of the contracted axis and start no later than the lanes the loop
     /// already summed, or terms go missing.
     #[test]
-    fn the_tail_tile_reaches_the_end_without_leaving_a_gap() {
+    fn test_the_tail_tile_reaches_the_end_without_leaving_a_gap() {
         for block_k in [1usize, 2, 4, 8, 16, 32] {
             for k in block_k..block_k * 4 + 7 {
                 // k >= block_k throughout, so both placements are available.
@@ -523,7 +523,7 @@ mod k_tail_tests {
 
     /// A tile is either whole or aligned, as the backend requires.
     #[test]
-    fn the_tail_tile_suits_the_backend() {
+    fn test_the_tail_tile_suits_the_backend() {
         for block_k in [4usize, 8, 16, 32] {
             for k in block_k..block_k * 3 + 5 {
                 let (off, _) = k_tail_arguments(k, block_k).expect("fits");
@@ -544,7 +544,7 @@ mod k_tail_tests {
     }
 
     #[test]
-    fn an_exact_multiple_has_a_tail_that_adds_nothing() {
+    fn test_an_exact_multiple_has_a_tail_that_adds_nothing() {
         let (off, keep_from) = k_tail_arguments(64, 32).expect("fits");
         assert_eq!((off, keep_from), (32, 32));
     }
@@ -552,7 +552,7 @@ mod k_tail_tests {
     /// A tile wider than the contraction can only be a partial one, so it is the
     /// backends that pad it that take it.
     #[test]
-    fn a_tile_wider_than_the_contraction_needs_padding() {
+    fn test_a_tile_wider_than_the_contraction_needs_padding() {
         if PARTIAL_K_TILE_IS_PADDED {
             assert_eq!(k_tail_arguments(6, 8), Some((0, 0)));
         } else {

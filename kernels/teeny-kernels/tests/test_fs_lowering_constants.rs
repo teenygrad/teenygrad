@@ -13,7 +13,7 @@ use teeny_onnx::materialize::MaterializeConfig;
 
 #[test]
 #[ignore = "needs a large external .onnx export via FS_ONNX"]
-fn materialised_constants_clear_the_shape_operands() {
+fn test_materialised_constants_clear_the_shape_operands() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     println!("unresolved If nodes at import: {}", import.branches.len());
@@ -146,7 +146,7 @@ fn count_constants(graph: &teeny_core::graph::Graph, elide: &[bool]) -> Counts {
 /// limit, a dynamic extent or a missing operand.
 #[test]
 #[ignore = "needs a large external .onnx export via FS_ONNX"]
-fn the_operand_driven_ops_lower() -> Result<(), Error> {
+fn test_the_operand_driven_ops_lower() -> Result<(), Error> {
     use teeny_core::graph::ConstantMap;
 
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
@@ -303,7 +303,7 @@ fn the_operand_driven_ops_lower() -> Result<(), Error> {
 /// Walks back from the nodes whose shapes are missing, to find where the rank is lost.
 #[test]
 #[ignore = "needs a large external .onnx export via FS_ONNX"]
-fn where_the_shapes_are_lost() {
+fn test_where_the_shapes_are_lost() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (_, _, _) =
@@ -373,7 +373,7 @@ fn where_the_shapes_are_lost() {
 /// of a real model's matmuls are batched before trusting any of them.
 #[test]
 #[ignore = "needs a large external .onnx export via FS_ONNX"]
-fn matmul_ranks() {
+fn test_matmul_ranks() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (_, _, _) =
@@ -473,7 +473,7 @@ fn matmul_ranks() {
 /// What the export's remaining `ConstantOfShape` nodes look like after folding.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn constant_of_shape_nodes() {
+fn test_constant_of_shape_nodes() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -511,7 +511,7 @@ fn constant_of_shape_nodes() {
 /// The export's boolean logical nodes, with the dtypes they and their operands carry.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn logical_nodes() {
+fn test_logical_nodes() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -561,7 +561,7 @@ fn logical_nodes() {
 /// What feeds the export's `NonZero` nodes, and what consumes them.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn nonzero_nodes() {
+fn test_nonzero_nodes() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -636,7 +636,7 @@ fn nonzero_nodes() {
 /// The export's `GatherND` nodes: their operands, batch_dims and consumers.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn gathernd_nodes() -> Result<(), Error> {
+fn test_gathernd_nodes() -> Result<(), Error> {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -703,7 +703,7 @@ fn gathernd_nodes() -> Result<(), Error> {
 /// The export's Pad, Resize, GridSample, ConvTranspose and ScatterElements nodes.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn remaining_nodes() {
+fn test_remaining_nodes() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -748,7 +748,7 @@ fn remaining_nodes() {
 /// The export's `Split` nodes: axis, how many outputs, and who reads them.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn split_nodes() {
+fn test_split_nodes() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -796,7 +796,7 @@ fn split_nodes() {
 /// What the export's scatter nodes look like: shapes, dtypes, constant or not.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn scatter_nodes() {
+fn test_scatter_nodes() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -840,7 +840,7 @@ fn scatter_nodes() {
 /// Which dtype pairs the export's `Cast` nodes ask for.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn cast_pairs() {
+fn test_cast_pairs() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (_, _, _) =
@@ -865,10 +865,10 @@ fn cast_pairs() {
 ///
 /// The whole-graph lowering reports only the first stop, so clearing one blocker tells
 /// you nothing about what is behind it. This rebuilds each node on its own, the way
-/// `the_operand_driven_ops_lower` does, and tallies what fails.
+/// `test_the_operand_driven_ops_lower` does, and tallies what fails.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn what_still_does_not_lower() {
+fn test_what_still_does_not_lower() {
     use teeny_core::graph::ConstantMap;
 
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
@@ -954,7 +954,7 @@ fn what_still_does_not_lower() {
 /// segfault rather than a wrong answer, so this counts them by op and by shape.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn which_elementwise_nodes_broadcast() {
+fn test_which_elementwise_nodes_broadcast() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =
@@ -1018,7 +1018,7 @@ fn which_elementwise_nodes_broadcast() {
 /// run, so this is the floor on memory for a single forward pass as things stand.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn what_a_run_would_cost() {
+fn test_what_a_run_would_cost() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (all, _, _) =

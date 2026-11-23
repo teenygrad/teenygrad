@@ -28,7 +28,7 @@ fn lower(op: Op, dtype: DtypeRepr, n: usize) -> anyhow::Result<usize> {
 }
 
 #[test]
-fn all_three_lower_over_bools() {
+fn test_all_three_lower_over_bools() {
     for op in [Op::And, Op::Or, Op::Xor] {
         let name = format!("{op:?}");
         assert_eq!(
@@ -43,7 +43,7 @@ fn all_three_lower_over_bools() {
 /// non-bool one is a mistake that actually happens, and reading a wider tensor a byte
 /// at a time would be silent.
 #[test]
-fn a_non_bool_operand_is_refused() {
+fn test_a_non_bool_operand_is_refused() {
     let msg = match lower(Op::And, DtypeRepr::I64, 8) {
         Ok(_) => panic!("an I64 And should not lower"),
         Err(e) => e.to_string(),
@@ -53,7 +53,7 @@ fn a_non_bool_operand_is_refused() {
 
 /// Mixed dtypes: the output says Bool but an operand does not.
 #[test]
-fn a_bool_output_over_non_bool_operands_is_refused() {
+fn test_a_bool_output_over_non_bool_operands_is_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::Bool, vec![Some(4)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::I32, vec![Some(4)]);
@@ -68,7 +68,7 @@ fn a_bool_output_over_non_bool_operands_is_refused() {
 /// ONNX broadcasts these; this kernel reads both operands at the output's offsets, so
 /// a mismatch is refused rather than read past the shorter operand's end.
 #[test]
-fn operands_that_would_broadcast_are_refused() {
+fn test_operands_that_would_broadcast_are_refused() {
     let mut g = Graph::new();
     let a = g.add_node(Op::Input, vec![], DtypeRepr::Bool, vec![Some(4), Some(3)]);
     let b = g.add_node(Op::Input, vec![], DtypeRepr::Bool, vec![Some(1), Some(3)]);
@@ -161,25 +161,25 @@ mod execution {
     const B: [u8; 6] = [0, 1, 0, 1, 1, 2];
 
     #[test]
-    fn and_is_true_only_when_both_are() {
+    fn test_and_is_true_only_when_both_are() {
         assert_eq!(run(Op::And, &A, &B), vec![0, 0, 0, 1, 1, 0]);
     }
 
     #[test]
-    fn or_is_true_when_either_is() {
+    fn test_or_is_true_when_either_is() {
         assert_eq!(run(Op::Or, &A, &B), vec![0, 1, 1, 1, 1, 1]);
     }
 
     /// A true byte of 2 against a true byte of 1 is false: both are normalised before
     /// they are compared, so `Xor` is a logical operator and not a bitwise one.
     #[test]
-    fn xor_is_true_when_exactly_one_is() {
+    fn test_xor_is_true_when_exactly_one_is() {
         assert_eq!(run(Op::Xor, &A, &B), vec![0, 1, 1, 0, 0, 1]);
     }
 
     /// More elements than one block of lanes, so the last block is partly masked off.
     #[test]
-    fn a_longer_tensor_is_handled_whole() {
+    fn test_a_longer_tensor_is_handled_whole() {
         let a: Vec<u8> = (0..3000).map(|i| u8::from(i % 3 == 0)).collect();
         let b: Vec<u8> = (0..3000).map(|i| u8::from(i % 5 == 0)).collect();
         let want: Vec<u8> = (0..3000)

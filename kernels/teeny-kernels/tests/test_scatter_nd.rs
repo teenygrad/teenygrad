@@ -33,7 +33,7 @@ fn lower(data: &[usize], indices: &[usize], updates: &[usize]) -> anyhow::Result
 }
 
 #[test]
-fn the_export_s_shapes_lower() {
+fn test_the_export_s_shapes_lower() {
     // A full coordinate into a rank-5 tensor, which is the export's own form.
     assert_eq!(
         lower(
@@ -49,7 +49,7 @@ fn the_export_s_shapes_lower() {
 }
 
 #[test]
-fn updates_that_do_not_match_the_shapes_are_refused() {
+fn test_updates_that_do_not_match_the_shapes_are_refused() {
     let msg = match lower(&[4, 3], &[2, 1], &[2, 4]) {
         Ok(_) => panic!("mismatched updates should not lower"),
         Err(e) => e.to_string(),
@@ -58,7 +58,7 @@ fn updates_that_do_not_match_the_shapes_are_refused() {
 }
 
 #[test]
-fn a_coordinate_wider_than_the_rank_is_refused() {
+fn test_a_coordinate_wider_than_the_rank_is_refused() {
     let msg = match lower(&[4, 3], &[2, 3], &[2]) {
         Ok(_) => panic!("a width-3 coordinate into a rank-2 tensor should not lower"),
         Err(e) => e.to_string(),
@@ -69,7 +69,7 @@ fn a_coordinate_wider_than_the_rank_is_refused() {
 /// The kernel reads the coordinates as I64, which is what ONNX gives; anything else
 /// would be read at the wrong width.
 #[test]
-fn non_i64_indices_are_refused() {
+fn test_non_i64_indices_are_refused() {
     let mut g = Graph::new();
     let d = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4)]);
     let i = g.add_node(Op::Input, vec![], DtypeRepr::I32, vec![Some(2), Some(1)]);
@@ -103,7 +103,7 @@ fn elements_graph(data: &[usize], along: usize, axis: i64) -> Graph {
 }
 
 #[test]
-fn scatter_elements_lowers() {
+fn test_scatter_elements_lowers() {
     // The export's own form: rank 5, axis 2, fewer rows than the data has.
     let g = elements_graph(&[1, 112, 26, 30, 40], 13, 2);
     assert_eq!(
@@ -117,7 +117,7 @@ fn scatter_elements_lowers() {
 
 /// Indices that disagree with the data off-axis would be read in the wrong order.
 #[test]
-fn scatter_elements_refuses_an_off_axis_mismatch() {
+fn test_scatter_elements_refuses_an_off_axis_mismatch() {
     let mut g = Graph::new();
     let d = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4), Some(3)]);
     let i = g.add_node(Op::Input, vec![], DtypeRepr::I64, vec![Some(2), Some(5)]);
@@ -255,34 +255,34 @@ mod execution {
 
     /// A full coordinate names one element, so the updates are scalars.
     #[test]
-    fn scattering_single_elements() {
+    fn test_scattering_single_elements() {
         run(&[3, 4], &[0, 1, 2, 3, 1, 0], 2);
     }
 
     /// A coordinate narrower than the rank scatters whole slices, which is where a
     /// wrong slice length shows up.
     #[test]
-    fn scattering_slices() {
+    fn test_scattering_slices() {
         run(&[4, 3], &[2, 0], 1);
     }
 
     /// Nothing scattered at all: the output still has to be the data, which is the
     /// pass a scatter-only kernel would get wrong.
     #[test]
-    fn scattering_nothing_still_copies() {
+    fn test_scattering_nothing_still_copies() {
         run(&[2, 3], &[], 2);
     }
 
     /// A negative coordinate counts from the end of its own axis.
     #[test]
-    fn a_negative_coordinate_counts_from_the_end() {
+    fn test_a_negative_coordinate_counts_from_the_end() {
         run(&[3, 4], &[-1, -1, 0, -2], 2);
     }
 
     /// A rank-3 tensor with both a partial coordinate and more elements than one block
     /// of lanes, so the copy pass spans several tiles.
     #[test]
-    fn a_larger_tensor_with_slices() {
+    fn test_a_larger_tensor_with_slices() {
         run(&[8, 5, 40], &[3, 0, 7], 1);
     }
 
@@ -355,7 +355,7 @@ mod execution {
     /// Fewer rows than the axis has, which is the export's case: the output keeps the
     /// data wherever no index pointed.
     #[test]
-    fn scattering_elements_along_a_middle_axis() {
+    fn test_scattering_elements_along_a_middle_axis() {
         // shape [2, 4, 3], axis 1, two rows of indices per (outer, inner).
         run_elements(&[2, 4, 3], 1, 2, &[0, 3, 1, 2, 0, 3, 3, 1, 2, 0, 2, 1]);
     }
@@ -363,13 +363,13 @@ mod execution {
     /// The innermost axis, where `inner` is 1 and a wrong stride would still land
     /// inside the tensor.
     #[test]
-    fn scattering_elements_along_the_last_axis() {
+    fn test_scattering_elements_along_the_last_axis() {
         run_elements(&[3, 4], 1, 2, &[0, 3, 2, 1, 3, 0]);
     }
 
     /// A negative index counts from the end of the axis.
     #[test]
-    fn a_negative_element_index_counts_from_the_end() {
+    fn test_a_negative_element_index_counts_from_the_end() {
         run_elements(&[2, 4], 1, 2, &[-1, -4, -2, 0]);
     }
 }

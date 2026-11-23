@@ -11,7 +11,7 @@ use teeny_kernels::graph::TritonLowering;
 
 #[test]
 #[ignore = "needs FS_ONNX pointing at a FoundationStereo .onnx export"]
-fn probe_fs_lowering() {
+fn test_probe_fs_lowering() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to a FoundationStereo .onnx");
     let (graph, tensors) = teeny_onnx::Onnx::from_path_with_tensors(&path).expect("import failed");
     let total: usize = tensors.values().map(|t| t.bytes.len()).sum();

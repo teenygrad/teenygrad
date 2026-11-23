@@ -13,7 +13,7 @@ use teeny_onnx::{Onnx, branches::materialize_and_resolve};
 
 #[test]
 #[ignore = "needs FS96_ONNX and FS_FOLD_NAMES"]
-fn what_the_fold_made_of_these_operands() {
+fn test_what_the_fold_made_of_these_operands() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let names: Vec<String> = std::env::var("FS_FOLD_NAMES")
         .expect("set FS_FOLD_NAMES")

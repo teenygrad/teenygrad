@@ -93,7 +93,7 @@ fn lower(shape: &[usize], pads: &[i64], value: Option<f32>) -> anyhow::Result<us
 }
 
 #[test]
-fn the_export_s_shapes_lower() {
+fn test_the_export_s_shapes_lower() {
     // A middle axis of a rank-5 tensor, which is the export's own form.
     assert_eq!(
         lower(
@@ -110,12 +110,12 @@ fn the_export_s_shapes_lower() {
 
 /// Cropping, which is what a negative pad means, and the output extents say so.
 #[test]
-fn a_negative_pad_lowers() {
+fn test_a_negative_pad_lowers() {
     assert_eq!(lower(&[4, 4], &[-1, 0, 0, -2], Some(0.0)).expect("crop"), 2);
 }
 
 #[test]
-fn pads_that_do_not_give_the_output_extent_are_refused() {
+fn test_pads_that_do_not_give_the_output_extent_are_refused() {
     let (mut graph, constants) = pad_graph(&[2, 3], &[1, 1, 1, 1], Some(0.0));
     // Claim an output one element wider than the pads call for.
     let last = graph.nodes.len() - 1;
@@ -133,7 +133,7 @@ fn pads_that_do_not_give_the_output_extent_are_refused() {
 /// Only a constant pad is implemented, and the other modes each need their own
 /// coordinate mapping rather than a different fill.
 #[test]
-fn another_mode_is_refused_by_name() {
+fn test_another_mode_is_refused_by_name() {
     let (mut graph, constants) = pad_graph(&[2, 3], &[1, 1, 1, 1], Some(0.0));
     let last = graph.nodes.len() - 1;
     graph.nodes[last].op = Op::Pad {
@@ -245,27 +245,27 @@ mod execution {
     /// Padding both ends of both axes, with a value that is not zero so an unwritten
     /// element and a padded one are different things.
     #[test]
-    fn padding_a_matrix_on_every_side() {
+    fn test_padding_a_matrix_on_every_side() {
         run(&[3, 4], &[1, 2, 2, 1], -7.5);
     }
 
     /// One axis only, which is the export's case: the others have to come through
     /// untouched.
     #[test]
-    fn padding_a_middle_axis_of_a_rank_four_tensor() {
+    fn test_padding_a_middle_axis_of_a_rank_four_tensor() {
         run(&[2, 3, 2, 3], &[0, 1, 0, 0, 0, 2, 0, 0], 100.0);
     }
 
     /// A negative pad crops, and a mix of cropping and padding on the same tensor is
     /// where a shift applied in the wrong direction shows up.
     #[test]
-    fn a_negative_pad_crops() {
+    fn test_a_negative_pad_crops() {
         run(&[4, 5], &[-1, 2, 0, -1], 0.25);
     }
 
     /// More elements than one block of lanes.
     #[test]
-    fn a_tensor_longer_than_a_block() {
+    fn test_a_tensor_longer_than_a_block() {
         run(&[40, 40], &[1, 1, 1, 1], -1.0);
     }
 }

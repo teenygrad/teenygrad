@@ -2484,7 +2484,7 @@ mod tests {
 
     /// One row per axis: a vector reports a single row of positions.
     #[test]
-    fn nonzero_folds_a_vector() {
+    fn test_nonzero_folds_a_vector() {
         let v = nonzero(&bools(&[5], &[false, true, false, true, true]));
         assert_eq!(v.dtype, DtypeRepr::I64);
         assert_eq!(v.shape, vec![1, 3]);
@@ -2494,7 +2494,7 @@ mod tests {
     /// A matrix reports a row of row-indices and a row of column-indices, in the order
     /// the elements appear row-major, which is the order ONNX specifies.
     #[test]
-    fn nonzero_folds_a_matrix_in_row_major_order() {
+    fn test_nonzero_folds_a_matrix_in_row_major_order() {
         //  0 1 0
         //  1 0 1
         let v = nonzero(&val(&[2, 3], &[0, 1, 0, 1, 0, 1]));
@@ -2506,7 +2506,7 @@ mod tests {
     /// Nothing found is an empty result, not an absent one: the shape is still known,
     /// which is what lets the nodes downstream of it resolve.
     #[test]
-    fn nonzero_of_all_zeros_is_empty_but_shaped() {
+    fn test_nonzero_of_all_zeros_is_empty_but_shaped() {
         let v = nonzero(&val(&[2, 2], &[0, 0, 0, 0]));
         assert_eq!(v.shape, vec![2, 0]);
         assert!(ints(&v).is_empty());
@@ -2514,7 +2514,7 @@ mod tests {
 
     /// Floats count by value, so a negative or fractional element is non-zero.
     #[test]
-    fn nonzero_reads_a_float_against_zero() {
+    fn test_nonzero_reads_a_float_against_zero() {
         let v = Value {
             dtype: DtypeRepr::F32,
             shape: vec![4],
@@ -2525,7 +2525,7 @@ mod tests {
 
     /// A scalar has no axes to report coordinates along.
     #[test]
-    fn nonzero_declines_a_scalar() {
+    fn test_nonzero_declines_a_scalar() {
         let v = Value {
             dtype: DtypeRepr::I64,
             shape: vec![],
@@ -2540,7 +2540,7 @@ mod tests {
     /// The result is as large as the data makes it, so it is held to the same size
     /// limit as every other folded value.
     #[test]
-    fn nonzero_declines_a_result_above_the_limit() {
+    fn test_nonzero_declines_a_result_above_the_limit() {
         let v = val(&[4], &[1, 1, 1, 1]);
         let config = MaterializeConfig { max_elements: 3 };
         assert!(matches!(eval_nonzero(&[&v], &config), Eval::TooLarge));
@@ -2559,7 +2559,7 @@ mod tests {
 
     /// The export's own form: a vector of values and a column of positions into it.
     #[test]
-    fn gather_nd_folds_a_column_of_positions() {
+    fn test_gather_nd_folds_a_column_of_positions() {
         let data = val(&[5], &[10, 11, 12, 13, 14]);
         let indices = val(&[3, 1], &[4, 0, 2]);
         let v = folded(gather_nd(&data, &indices, 0));
@@ -2570,7 +2570,7 @@ mod tests {
     /// A coordinate narrower than the data's rank gathers whole slices: the axes it
     /// does not name come along.
     #[test]
-    fn gather_nd_gathers_slices_when_the_coordinate_is_short() {
+    fn test_gather_nd_gathers_slices_when_the_coordinate_is_short() {
         //  data[2][3] = [[0,1,2],[3,4,5]]
         let data = val(&[2, 3], &[0, 1, 2, 3, 4, 5]);
         let indices = val(&[2, 1], &[1, 0]);
@@ -2581,7 +2581,7 @@ mod tests {
 
     /// A full coordinate names one element, so nothing comes along.
     #[test]
-    fn gather_nd_with_a_full_coordinate_picks_elements() {
+    fn test_gather_nd_with_a_full_coordinate_picks_elements() {
         let data = val(&[2, 3], &[0, 1, 2, 3, 4, 5]);
         let indices = val(&[2, 2], &[0, 2, 1, 1]);
         let v = folded(gather_nd(&data, &indices, 0));
@@ -2592,7 +2592,7 @@ mod tests {
     /// With a batch axis the two operands walk it together: row 0 of the indices
     /// addresses row 0 of the data, and never another row.
     #[test]
-    fn gather_nd_keeps_its_batch_axes_aligned() {
+    fn test_gather_nd_keeps_its_batch_axes_aligned() {
         //  data[2][3] = [[0,1,2],[3,4,5]], one index per batch row
         let data = val(&[2, 3], &[0, 1, 2, 3, 4, 5]);
         let indices = val(&[2, 1, 1], &[2, 0]);
@@ -2602,14 +2602,14 @@ mod tests {
     }
 
     #[test]
-    fn gather_nd_counts_a_negative_index_from_the_end() {
+    fn test_gather_nd_counts_a_negative_index_from_the_end() {
         let data = val(&[4], &[7, 8, 9, 10]);
         let indices = val(&[2, 1], &[-1, -4]);
         assert_eq!(ints(&folded(gather_nd(&data, &indices, 0))), vec![10, 7]);
     }
 
     #[test]
-    fn gather_nd_declines_an_index_past_the_end() {
+    fn test_gather_nd_declines_an_index_past_the_end() {
         let data = val(&[4], &[7, 8, 9, 10]);
         let indices = val(&[1, 1], &[4]);
         assert!(matches!(gather_nd(&data, &indices, 0), Eval::OutOfRange));
@@ -2618,7 +2618,7 @@ mod tests {
     /// Shapes that do not describe a GatherND are declined rather than read anyway: a
     /// coordinate wider than the axes left to address, and batch axes that disagree.
     #[test]
-    fn gather_nd_declines_shapes_it_cannot_mean() {
+    fn test_gather_nd_declines_shapes_it_cannot_mean() {
         let data = val(&[4], &[7, 8, 9, 10]);
         let too_wide = val(&[1, 2], &[0, 0]);
         assert!(matches!(gather_nd(&data, &too_wide, 0), Eval::Unsupported));
@@ -2634,7 +2634,7 @@ mod tests {
     /// Inference and folding read the shapes through the same function, so a node that
     /// folds and a node that only gets a shape agree on what that shape is.
     #[test]
-    fn gather_nd_infers_the_shape_it_folds_to() {
+    fn test_gather_nd_infers_the_shape_it_folds_to() {
         let data = val(&[2, 3, 4], &[0; 24]);
         let indices = val(&[5, 2], &[0; 10]);
         let folded_shape = folded(gather_nd(&data, &indices, 0)).shape;
@@ -2650,7 +2650,7 @@ mod tests {
     }
 
     #[test]
-    fn shape_of_folds_a_static_shape() {
+    fn test_shape_of_folds_a_static_shape() {
         let shapes = [vec![Some(1), Some(3), Some(480), Some(640)]];
         let refs: Vec<&Shape> = shapes.iter().collect();
         let Eval::Ok(v) = eval_shape_of(0, i64::MAX, &refs) else {
@@ -2661,7 +2661,7 @@ mod tests {
     }
 
     #[test]
-    fn shape_of_declines_a_dynamic_dim() {
+    fn test_shape_of_declines_a_dynamic_dim() {
         let shapes = [vec![None, Some(3)]];
         let refs: Vec<&Shape> = shapes.iter().collect();
         assert!(matches!(
@@ -2673,7 +2673,7 @@ mod tests {
     /// An empty recorded shape is ambiguous — a real rank-0 tensor, or one the
     /// importer never inferred — so folding it would risk an empty shape vector.
     #[test]
-    fn shape_of_refuses_an_unknown_rank() {
+    fn test_shape_of_refuses_an_unknown_rank() {
         let shapes = [Shape::new()];
         let refs: Vec<&Shape> = shapes.iter().collect();
         assert!(matches!(
@@ -2684,7 +2684,7 @@ mod tests {
 
     /// Exporters concatenate scalars to build a shape vector; rank-0 reads as `[1]`.
     #[test]
-    fn concat_promotes_scalar_operands() {
+    fn test_concat_promotes_scalar_operands() {
         let a = val(&[], &[1]);
         let b = val(&[], &[64]);
         let c = val(&[1], &[-1]);
@@ -2696,7 +2696,7 @@ mod tests {
     }
 
     #[test]
-    fn gather_reports_an_out_of_range_index() {
+    fn test_gather_reports_an_out_of_range_index() {
         let data = val(&[4], &[1, 3, 480, 640]);
         let idx = val(&[], &[4]);
         assert!(matches!(
@@ -2706,7 +2706,7 @@ mod tests {
     }
 
     #[test]
-    fn gather_picks_one_dim_out_of_a_shape_vector() {
+    fn test_gather_picks_one_dim_out_of_a_shape_vector() {
         let data = val(&[4], &[1, 3, 480, 640]);
         let idx = val(&[], &[2]);
         let Eval::Ok(v) = eval_gather(&[&data, &idx], 0, &MaterializeConfig::default()) else {
@@ -2717,7 +2717,7 @@ mod tests {
     }
 
     #[test]
-    fn concat_builds_a_reshape_target() {
+    fn test_concat_builds_a_reshape_target() {
         let a = val(&[1], &[1]);
         let b = val(&[1], &[-1]);
         let c = val(&[2], &[480, 640]);
@@ -2728,7 +2728,7 @@ mod tests {
     }
 
     #[test]
-    fn binary_ops_broadcast_and_divide_toward_zero() {
+    fn test_binary_ops_broadcast_and_divide_toward_zero() {
         let a = val(&[3], &[7, -7, 9]);
         let b = val(&[], &[2]);
         let Eval::Ok(v) = binary(&[&a, &b], BinKind::Div) else {
@@ -2739,7 +2739,7 @@ mod tests {
     }
 
     #[test]
-    fn slice_handles_negative_and_stepped_ranges() {
+    fn test_slice_handles_negative_and_stepped_ranges() {
         let data = val(&[6], &[0, 1, 2, 3, 4, 5]);
         let starts = val(&[1], &[1]);
         let ends = val(&[1], &[-1]);
@@ -2752,7 +2752,7 @@ mod tests {
     }
 
     #[test]
-    fn transpose_moves_elements() {
+    fn test_transpose_moves_elements() {
         let data = val(&[2, 3], &[0, 1, 2, 3, 4, 5]);
         let Eval::Ok(v) = eval_transpose(&[&data], &[1, 0]) else {
             panic!("expected a folded transpose");
@@ -2762,7 +2762,7 @@ mod tests {
     }
 
     #[test]
-    fn reshape_resolves_a_wildcard() {
+    fn test_reshape_resolves_a_wildcard() {
         let data = val(&[6], &[0, 1, 2, 3, 4, 5]);
         let target = val(&[2], &[3, -1]);
         let Eval::Ok(v) = eval_reshape(&[&data, &target]) else {
@@ -2772,7 +2772,7 @@ mod tests {
     }
 
     #[test]
-    fn range_counts_up_and_down() {
+    fn test_range_counts_up_and_down() {
         let cfg = MaterializeConfig::default();
         let (s, l, d) = (val(&[], &[0]), val(&[], &[5]), val(&[], &[2]));
         let Eval::Ok(v) = eval_range(&[&s, &l, &d], &cfg) else {
@@ -2788,7 +2788,7 @@ mod tests {
     }
 
     #[test]
-    fn expand_stretches_size_one_axes() {
+    fn test_expand_stretches_size_one_axes() {
         let data = val(&[1, 3], &[7, 8, 9]);
         let target = val(&[2], &[2, 3]);
         let Eval::Ok(v) = eval_expand(&[&data, &target], &MaterializeConfig::default()) else {
@@ -2799,7 +2799,7 @@ mod tests {
     }
 
     #[test]
-    fn unary_sqrt_promotes_integers_to_float() {
+    fn test_unary_sqrt_promotes_integers_to_float() {
         let v = val(&[2], &[4, 9]);
         let Eval::Ok(r) = unary(&[&v], UnKind::Sqrt) else {
             panic!("expected a folded sqrt");
@@ -2812,7 +2812,7 @@ mod tests {
     }
 
     #[test]
-    fn unary_neg_stays_integral() {
+    fn test_unary_neg_stays_integral() {
         let v = val(&[2], &[4, -9]);
         let Eval::Ok(r) = unary(&[&v], UnKind::Neg) else {
             panic!("expected a folded neg");
@@ -2825,7 +2825,7 @@ mod tests {
     /// with its `value` attribute. Standing a scalar fill in for the whole tensor
     /// is what made exporter-emitted pad lists come out one element short.
     #[test]
-    fn constant_of_shape_expands_to_its_shape_operand() {
+    fn test_constant_of_shape_expands_to_its_shape_operand() {
         let shape = val(&[1], &[2]);
         let fill = val(&[1], &[0]);
         let Eval::Ok(v) = eval_constant_of_shape(
@@ -2841,7 +2841,7 @@ mod tests {
     }
 
     #[test]
-    fn constant_of_shape_honours_a_non_zero_fill() {
+    fn test_constant_of_shape_honours_a_non_zero_fill() {
         let shape = val(&[1], &[3]);
         let fill = val(&[1], &[7]);
         let Eval::Ok(v) = eval_constant_of_shape(
@@ -2859,7 +2859,7 @@ mod tests {
     /// `ConstantOfShape` tail, reshaped into (begin, end) pairs. The whole chain
     /// must fold, and the pad list must come out even.
     #[test]
-    fn folds_an_exporter_pad_list() {
+    fn test_folds_an_exporter_pad_list() {
         let mut g = Graph::new();
         let shape_c = g.add_node(
             Op::Constant {
@@ -2932,7 +2932,7 @@ mod tests {
     /// An `Unsqueeze` whose axes never made it into the IR must not fold: passing
     /// the value through would silently drop an axis.
     #[test]
-    fn unsqueeze_refuses_empty_axes() {
+    fn test_unsqueeze_refuses_empty_axes() {
         let v = val(&[2], &[1, 2]);
         assert!(matches!(eval_unsqueeze(&[&v], &[]), Eval::Unsupported));
     }
@@ -2944,7 +2944,7 @@ mod tests {
     }
 
     #[test]
-    fn broadcasting_shapes_are_inferred() {
+    fn test_broadcasting_shapes_are_inferred() {
         let shapes = [stat(&[1, 3, 1]), stat(&[4, 1, 5])];
         assert_eq!(
             infer_static_shape(&Op::Add, &shapes, &[None, None]),
@@ -2970,7 +2970,7 @@ mod tests {
     /// confusion put the qkv bias's shape, rank-1 [3072], on the transformer's
     /// attention output and left 10,000 downstream nodes unshaped.
     #[test]
-    fn a_broadcast_against_an_unknown_rank_has_no_answer() {
+    fn test_a_broadcast_against_an_unknown_rank_has_no_answer() {
         let bias = [None, Some(vec![3072])];
         assert_eq!(infer_static_shape(&Op::Add, &bias, &[None, None]), None);
         // Either side, and for every broadcasting op.
@@ -2993,7 +2993,7 @@ mod tests {
     /// Reductions drop or keep the axes they reduce, and read their axes from either
     /// the attribute or the operand depending on the opset.
     #[test]
-    fn reductions_drop_or_keep_the_reduced_axes() {
+    fn test_reductions_drop_or_keep_the_reduced_axes() {
         let shapes = [stat(&[2, 8, 12, 4800])];
 
         // keepdims, the default, leaves a unit axis behind.
@@ -3038,7 +3038,7 @@ mod tests {
     /// An empty axes list means every axis, or none, depending on the op's own flag.
     /// Reading it the wrong way turns a full reduction into the identity or back.
     #[test]
-    fn an_empty_axes_list_follows_the_noop_flag() {
+    fn test_an_empty_axes_list_follows_the_noop_flag() {
         let shapes = [stat(&[2, 3, 4])];
 
         let reduce_all = Op::ReduceSum {
@@ -3075,7 +3075,7 @@ mod tests {
     /// Opset 13 moved some reductions' axes to an operand and opset 18 the rest, so an
     /// export states it either way. The operand wins when supplied.
     #[test]
-    fn a_reduction_reads_its_axes_from_the_operand_too() {
+    fn test_a_reduction_reads_its_axes_from_the_operand_too() {
         let shapes = [stat(&[2, 3, 4]), stat(&[1])];
         let op = Op::ReduceSum {
             keepdims: false,
@@ -3091,7 +3091,7 @@ mod tests {
     }
 
     #[test]
-    fn reshape_resolves_its_target_from_a_value() {
+    fn test_reshape_resolves_its_target_from_a_value() {
         let shapes = [stat(&[2, 3, 4]), stat(&[2])];
         let target = val(&[2], &[4, -1]);
         assert_eq!(
@@ -3112,7 +3112,7 @@ mod tests {
     }
 
     #[test]
-    fn conv_and_pool_extents_follow_the_window() {
+    fn test_conv_and_pool_extents_follow_the_window() {
         let conv = Op::Conv2d {
             in_channels: 3,
             out_channels: 16,
@@ -3156,7 +3156,7 @@ mod tests {
     /// replaces a test that asserted it had to decline, which was right while the IR
     /// dropped the padding and would have been wrong to keep afterwards.
     #[test]
-    fn avg_pool_accounts_for_its_padding() {
+    fn test_avg_pool_accounts_for_its_padding() {
         let padded = Op::AvgPool2d {
             kernel_h: 3,
             kernel_w: 3,
@@ -3205,7 +3205,7 @@ mod tests {
     }
 
     #[test]
-    fn matmul_contracts_and_broadcasts_the_batch() {
+    fn test_matmul_contracts_and_broadcasts_the_batch() {
         let m = infer_static_shape(
             &Op::MatMul,
             &[stat(&[2, 3, 4]), stat(&[2, 4, 5])],
@@ -3230,7 +3230,7 @@ mod tests {
     }
 
     #[test]
-    fn slice_extents_account_for_steps_and_clamping() {
+    fn test_slice_extents_account_for_steps_and_clamping() {
         let shapes = [stat(&[10]), stat(&[1]), stat(&[1]), stat(&[1]), stat(&[1])];
         let (starts, ends, axes, steps) = (
             val(&[1], &[1]),
@@ -3262,7 +3262,7 @@ mod tests {
     }
 
     #[test]
-    fn grid_sample_takes_its_extent_from_the_grid() {
+    fn test_grid_sample_takes_its_extent_from_the_grid() {
         let op = Op::GridSample {
             mode: "bilinear".to_string(),
             padding_mode: "zeros".to_string(),
@@ -3279,7 +3279,7 @@ mod tests {
     }
 
     #[test]
-    fn split_describes_its_first_output() {
+    fn test_split_describes_its_first_output() {
         let op = Op::Split {
             axis: 1,
             num_outputs: 3,
@@ -3300,10 +3300,10 @@ mod tests {
     }
 
     #[test]
-    fn an_unimplemented_op_declines_rather_than_guessing() {
+    fn test_an_unimplemented_op_declines_rather_than_guessing() {
         // NonZero's output extent depends on the data, so no inference can resolve it.
         // Evaluating the node is the only thing that can, which is what the pass does
-        // when the operand is known: see `nonzero_resolves_what_inference_cannot`.
+        // when the operand is known: see `test_nonzero_resolves_what_inference_cannot`.
         assert_eq!(
             infer_static_shape(&Op::NonZero, &[stat(&[4, 4])], &[None]),
             None
@@ -3319,7 +3319,7 @@ mod tests {
     /// being a mystery. This is the shape of the whole tail of the FoundationStereo
     /// export, where a chain of constants runs And -> NonZero -> Transpose.
     #[test]
-    fn nonzero_resolves_what_inference_cannot() {
+    fn test_nonzero_resolves_what_inference_cannot() {
         let mut g = Graph::new();
         let mask = g.add_node(
             Op::Constant {
@@ -3365,7 +3365,7 @@ mod tests {
     /// because its target is computed; constant folding alone cannot fold the Shape,
     /// because the activation's shape is what it needs. Interleaved, both resolve.
     #[test]
-    fn interleaving_resolves_what_neither_pass_can_alone() {
+    fn test_interleaving_resolves_what_neither_pass_can_alone() {
         let mut g = Graph::new();
         // An activation whose shape is known but whose values are not.
         let x = g.add_node(
@@ -3444,7 +3444,7 @@ mod tests {
     }
 
     #[test]
-    fn values_round_trip_through_encode() {
+    fn test_values_round_trip_through_encode() {
         let v = val(&[2, 2], &[1, -2, 3, -4]);
         let decoded = Value::decode(&v.encode()).expect("i64 decodes");
         assert_eq!(decoded, v);
@@ -3453,7 +3453,7 @@ mod tests {
     /// The pass folds a whole `Shape -> Gather -> Unsqueeze -> Concat` chain, the
     /// shape of exporter-emitted plumbing, and leaves the weight input alone.
     #[test]
-    fn folds_an_exporter_shape_chain_end_to_end() {
+    fn test_folds_an_exporter_shape_chain_end_to_end() {
         let mut g = Graph::new();
         let x = g.add_node(
             Op::Input,
@@ -3530,7 +3530,7 @@ mod tests {
     }
 
     #[test]
-    fn large_tensors_are_never_decoded() {
+    fn test_large_tensors_are_never_decoded() {
         let mut g = Graph::new();
         let w = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(1024)]);
         let id = g.add_node(Op::Identity, vec![w], DtypeRepr::F32, vec![Some(1024)]);

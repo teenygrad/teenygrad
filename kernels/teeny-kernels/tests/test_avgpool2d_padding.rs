@@ -114,7 +114,7 @@ const FS: Pool = Pool {
 };
 
 #[test]
-fn a_padded_pool_lowers() {
+fn test_a_padded_pool_lowers() {
     let (graph, _) = pool_graph(&[1, 2, 8, 8], FS);
     let dag = TritonLowering::new()
         .lower(&graph, LoweringMode::Inference)
@@ -123,7 +123,7 @@ fn a_padded_pool_lowers() {
 }
 
 #[test]
-fn both_denominators_lower() {
+fn test_both_denominators_lower() {
     for count_include_pad in [true, false] {
         let p = Pool {
             count_include_pad,
@@ -216,7 +216,7 @@ mod execution {
 
     /// The export's own configuration, which the kernel could not express at all.
     #[test]
-    fn the_foundationstereo_pool_matches_the_reference() {
+    fn test_the_foundationstereo_pool_matches_the_reference() {
         run(&[1, 2, 8, 8], FS, "3x3 s2 p1 include_pad");
         run(&[1, 3, 12, 16], FS, "3x3 s2 p1 include_pad, larger");
     }
@@ -225,7 +225,7 @@ mod execution {
     /// border output while leaving the interior and the extent alone. A kernel that
     /// always divides by the full window passes the extent check and fails here.
     #[test]
-    fn excluding_the_padding_changes_the_border_values() {
+    fn test_excluding_the_padding_changes_the_border_values() {
         let p = Pool {
             count_include_pad: false,
             ..FS
@@ -244,7 +244,7 @@ mod execution {
 
     /// Padding has to leave an unpadded pool exactly as it was.
     #[test]
-    fn an_unpadded_pool_is_unchanged() {
+    fn test_an_unpadded_pool_is_unchanged() {
         let p = Pool {
             pad_h: 0,
             pad_w: 0,
@@ -267,7 +267,7 @@ mod execution {
     /// Padding on one axis only, and a window larger than the stride so the pools
     /// overlap.
     #[test]
-    fn asymmetric_between_axes_and_overlapping_windows() {
+    fn test_asymmetric_between_axes_and_overlapping_windows() {
         run(
             &[1, 2, 8, 8],
             Pool {

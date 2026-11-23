@@ -14,7 +14,7 @@ use teeny_onnx::{Onnx, branches::materialize_and_resolve};
 
 #[test]
 #[ignore = "needs FS96_ONNX"]
-fn no_node_should_have_a_zero_extent() {
+fn test_no_node_should_have_a_zero_extent() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (folded, _, _) =

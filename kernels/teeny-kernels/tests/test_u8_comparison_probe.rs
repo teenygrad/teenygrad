@@ -37,7 +37,7 @@ const BLOCK_SIZE: i32 = 1024;
 
 #[test]
 #[ignore = "teenyc splats an i32 scalar into an i8 tensor; see the module note"]
-fn a_byte_wide_comparison_compiles() -> anyhow::Result<()> {
+fn test_a_byte_wide_comparison_compiles() -> anyhow::Result<()> {
     let target = teeny_runtime::reference_target();
 
     // The control: byte-wide arithmetic has always compiled.

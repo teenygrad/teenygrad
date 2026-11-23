@@ -71,44 +71,44 @@ mod tests {
     use alloc::vec;
 
     #[test]
-    fn negative_axes_count_from_the_end() {
+    fn test_negative_axes_count_from_the_end() {
         assert_eq!(reduce_axes(&[-1], 4, false), Some(vec![3]));
         assert_eq!(reduce_axes(&[-4], 4, false), Some(vec![0]));
         assert_eq!(reduce_axes(&[-2, 1], 4, false), Some(vec![1, 2]));
     }
 
     #[test]
-    fn axes_come_back_sorted_and_deduplicated() {
+    fn test_axes_come_back_sorted_and_deduplicated() {
         assert_eq!(reduce_axes(&[3, 1, 3, -3], 4, false), Some(vec![1, 3]));
     }
 
     #[test]
-    fn an_empty_list_means_every_axis_or_none() {
+    fn test_an_empty_list_means_every_axis_or_none() {
         assert_eq!(reduce_axes(&[], 3, false), Some(vec![0, 1, 2]));
         assert_eq!(reduce_axes(&[], 3, true), Some(vec![]));
     }
 
     #[test]
-    fn an_axis_outside_the_rank_is_refused() {
+    fn test_an_axis_outside_the_rank_is_refused() {
         assert_eq!(reduce_axes(&[4], 4, false), None);
         assert_eq!(reduce_axes(&[-5], 4, false), None);
     }
 
     #[test]
-    fn a_scalar_has_nothing_to_reduce() {
+    fn test_a_scalar_has_nothing_to_reduce() {
         assert_eq!(reduce_axes(&[], 0, false), Some(vec![]));
         assert_eq!(reduce_axes(&[0], 0, false), None);
     }
 
     #[test]
-    fn trailing_axes_need_no_transpose() {
+    fn test_trailing_axes_need_no_transpose() {
         assert_eq!(reduce_transpose_perm(&[3], 4), None);
         assert_eq!(reduce_transpose_perm(&[2, 3], 4), None);
         assert_eq!(reduce_transpose_perm(&[0, 1, 2, 3], 4), None);
     }
 
     #[test]
-    fn a_middle_axis_moves_to_the_end_and_the_rest_keep_their_order() {
+    fn test_a_middle_axis_moves_to_the_end_and_the_rest_keep_their_order() {
         // FoundationStereo's normalization: [1, 8, 28, 120, 155] reducing axis 2.
         assert_eq!(reduce_transpose_perm(&[2], 5), Some(vec![0, 1, 3, 4, 2]));
         assert_eq!(reduce_transpose_perm(&[0], 3), Some(vec![1, 2, 0]));
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn nothing_to_move_gives_no_permutation() {
+    fn test_nothing_to_move_gives_no_permutation() {
         assert_eq!(reduce_transpose_perm(&[], 4), None);
     }
 }

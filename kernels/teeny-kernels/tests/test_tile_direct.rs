@@ -127,7 +127,7 @@ fn check(in_shape: &[usize], repeats: &[i64]) -> Result<usize> {
 /// Sweeps the innermost output extent, holding everything else fixed, to test whether
 /// divisibility by 4 is what separates the passing cases from the failing ones.
 #[test]
-fn sweep_innermost_extent() -> Result<()> {
+fn test_sweep_innermost_extent() -> Result<()> {
     println!("inner_extent  n_elements  wrong");
     for inner in 2..=13usize {
         // in = [2, inner], repeats = [2, 1] -> out = [4, inner].
@@ -195,7 +195,7 @@ fn check_quiet(in_shape: &[usize], repeats: &[i64]) -> Result<usize> {
 }
 
 #[test]
-fn direct_launch_matches_the_reference() -> Result<()> {
+fn test_direct_launch_matches_the_reference() -> Result<()> {
     let mut total = 0;
     total += check(&[3], &[4])?;
     total += check(&[2, 3], &[2, 2])?;

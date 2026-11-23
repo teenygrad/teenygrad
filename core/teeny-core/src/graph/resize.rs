@@ -234,7 +234,7 @@ mod tests {
     /// Doubling with aligned corners: the ends land exactly on the ends, and every
     /// other output coordinate falls halfway between two inputs.
     #[test]
-    fn linear_with_aligned_corners_pins_the_ends() {
+    fn test_linear_with_aligned_corners_pins_the_ends() {
         let (idx, w) = plan(ResizeMode::Linear, ResizeCoords::AlignCorners, 3, 5);
         // x = o * 2 / 4 = 0, 0.5, 1, 1.5, 2
         assert_eq!(idx, vec![0, 1, 0, 1, 1, 2, 1, 2, 2, 2]);
@@ -247,7 +247,7 @@ mod tests {
     /// Half-pixel puts the first output coordinate inside the first input element, so
     /// the taps clamp at the edge rather than running off it.
     #[test]
-    fn linear_with_half_pixel_clamps_at_the_edges() {
+    fn test_linear_with_half_pixel_clamps_at_the_edges() {
         let (idx, w) = plan(ResizeMode::Linear, ResizeCoords::HalfPixel, 2, 4);
         // x = (o + 0.5) / 2 - 0.5 = -0.25, 0.25, 0.75, 1.25
         assert_eq!(idx, vec![0, 0, 0, 1, 0, 1, 1, 1]);
@@ -260,7 +260,7 @@ mod tests {
     /// Nearest rounds a half down, which is ONNX's default and the opposite of what
     /// `floor(x + 0.5)` would do.
     #[test]
-    fn nearest_rounds_a_half_down() {
+    fn test_nearest_rounds_a_half_down() {
         let (idx, w) = plan(
             ResizeMode::Nearest(ResizeNearest::RoundPreferFloor),
             ResizeCoords::Asymmetric,
@@ -276,7 +276,7 @@ mod tests {
     /// element and ONNX's default rounding does not, so reading one for the other
     /// shifts the whole axis.
     #[test]
-    fn the_nearest_rounding_decides_whether_a_whole_factor_repeats() {
+    fn test_the_nearest_rounding_decides_whether_a_whole_factor_repeats() {
         let (floor, _) = plan(
             ResizeMode::Nearest(ResizeNearest::Floor),
             ResizeCoords::Asymmetric,
@@ -305,7 +305,7 @@ mod tests {
     /// Cubic takes four taps whose weights sum to one, and at an exact integer
     /// coordinate it is the identity: weight 1 on that element and 0 on its neighbours.
     #[test]
-    fn cubic_sums_to_one_and_is_exact_on_an_integer() {
+    fn test_cubic_sums_to_one_and_is_exact_on_an_integer() {
         let p = resize_axis_plan(ResizeMode::Cubic, ResizeCoords::AlignCorners, 5, 9, None)
             .expect("plannable");
         assert_eq!(p.taps, 4);
@@ -329,14 +329,14 @@ mod tests {
     /// One output element from one input element is still a resize, and aligned
     /// corners would otherwise divide by zero.
     #[test]
-    fn a_single_output_coordinate_is_the_first_input() {
+    fn test_a_single_output_coordinate_is_the_first_input() {
         let (idx, w) = plan(ResizeMode::Linear, ResizeCoords::AlignCorners, 4, 1);
         assert_eq!(idx, vec![0, 1]);
         assert_eq!(w, vec![1.0, 0.0]);
     }
 
     #[test]
-    fn an_empty_axis_is_refused() {
+    fn test_an_empty_axis_is_refused() {
         assert_eq!(
             resize_axis_plan(ResizeMode::Linear, ResizeCoords::HalfPixel, 0, 4, None),
             Err(ResizeError::EmptyAxis {
@@ -349,7 +349,7 @@ mod tests {
     /// Downsampling: the taps still come from inside the axis, and the weights still
     /// sum to one, which is what makes an average rather than a dimming.
     #[test]
-    fn downsampling_stays_inside_the_axis_and_sums_to_one() {
+    fn test_downsampling_stays_inside_the_axis_and_sums_to_one() {
         let p = resize_axis_plan(ResizeMode::Linear, ResizeCoords::HalfPixel, 8, 3, None)
             .expect("plannable");
         for (i, &idx) in p.indices.iter().enumerate() {

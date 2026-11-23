@@ -1795,7 +1795,7 @@ mod tensor_data_tests {
     /// and false decodes as all-false past the first element. Alternating values are
     /// what make that failure visible.
     #[test]
-    fn bools_in_the_int32_carrier_field_narrow_to_one_byte() {
+    fn test_bools_in_the_int32_carrier_field_narrow_to_one_byte() {
         let mut t = proto(tensor_proto::DataType::BOOL as i32, &[4]);
         t.int32_data = vec![1, 0, 1, 1];
 
@@ -1807,7 +1807,7 @@ mod tensor_data_tests {
 
     /// The same field carries the small integer types, which narrow the same way.
     #[test]
-    fn small_ints_in_the_int32_carrier_field_narrow_to_their_own_width() {
+    fn test_small_ints_in_the_int32_carrier_field_narrow_to_their_own_width() {
         let mut t = proto(tensor_proto::DataType::INT16 as i32, &[3]);
         t.int32_data = vec![1, -2, 300];
         let td = tensor_data(&t, "i16").expect("an int16 tensor should decode");
@@ -1827,7 +1827,7 @@ mod tensor_data_tests {
 
     /// `uint64_data` carries uint32 as well, which narrows to four bytes.
     #[test]
-    fn uint32_in_the_uint64_carrier_field_narrows_to_four_bytes() {
+    fn test_uint32_in_the_uint64_carrier_field_narrows_to_four_bytes() {
         let mut t = proto(tensor_proto::DataType::UINT32 as i32, &[2]);
         t.uint64_data = vec![5, 4_000_000_000];
         let td = tensor_data(&t, "u32").expect("a uint32 tensor should decode");
@@ -1837,7 +1837,7 @@ mod tensor_data_tests {
 
     /// A dtype stored at its natural width in its own field is unaffected.
     #[test]
-    fn int64_and_int32_keep_their_full_width() {
+    fn test_int64_and_int32_keep_their_full_width() {
         let mut t = proto(tensor_proto::DataType::INT64 as i32, &[2]);
         t.int64_data = vec![-1, 1 << 40];
         let td = tensor_data(&t, "i64").expect("an int64 tensor should decode");
@@ -1853,7 +1853,7 @@ mod tensor_data_tests {
     /// `raw_data` is already at the dtype's width, so it is passed through untouched
     /// even for the dtypes the carrier fields narrow.
     #[test]
-    fn raw_data_is_passed_through_for_bools() {
+    fn test_raw_data_is_passed_through_for_bools() {
         let mut t = proto(tensor_proto::DataType::BOOL as i32, &[3]);
         t.raw_data = vec![1, 0, 1];
         let td = tensor_data(&t, "mask").expect("a bool tensor should decode");
@@ -1926,7 +1926,7 @@ mod omitted_operand_tests {
     /// `sizes` where `roi` belongs, so nothing can work out the output shape; for
     /// `Clip(x, "", max)` it would put the upper bound where the lower one belongs.
     #[test]
-    fn an_omitted_operand_keeps_its_position() {
+    fn test_an_omitted_operand_keeps_its_position() {
         let bytes = resize_model();
         let import = Onnx::import_from_reader(&mut &bytes[..]).expect("import");
 
@@ -1955,7 +1955,7 @@ mod omitted_operand_tests {
     /// One node serves every omitted operand, so a model with hundreds does not grow
     /// hundreds of nodes.
     #[test]
-    fn omitted_operands_share_one_node() {
+    fn test_omitted_operands_share_one_node() {
         let bytes = resize_model();
         let import = Onnx::import_from_reader(&mut &bytes[..]).expect("import");
         let omitted: Vec<usize> = import
@@ -1972,7 +1972,7 @@ mod omitted_operand_tests {
     /// With the positions right, the shape follows from the operand the model actually
     /// supplied. This is the end the whole mechanism exists for.
     #[test]
-    fn a_resize_with_omitted_operands_gets_its_shape() {
+    fn test_a_resize_with_omitted_operands_gets_its_shape() {
         let bytes = resize_model();
         let mut import = Onnx::import_from_reader(&mut &bytes[..]).expect("import");
         let tensors = import.tensors.clone();
@@ -2075,7 +2075,7 @@ mod split_expansion_tests {
     /// same node, and so to the same buffer, and a consumer of output 1 would read
     /// output 0 with nothing to show that it had.
     #[test]
-    fn each_split_output_becomes_its_own_node() {
+    fn test_each_split_output_becomes_its_own_node() {
         let bytes = split_model(1, &[2, 3]);
         let import = Onnx::import_from_reader(&mut &bytes[..]).expect("import");
 
@@ -2103,7 +2103,7 @@ mod split_expansion_tests {
     /// each one's extent is. Uneven sizes are the case that tells a real split from a
     /// guess at equal shares.
     #[test]
-    fn the_slices_get_the_extents_the_sizes_asked_for() {
+    fn test_the_slices_get_the_extents_the_sizes_asked_for() {
         let bytes = split_model(1, &[2, 3]);
         let mut import = Onnx::import_from_reader(&mut &bytes[..]).expect("import");
         let a = import.value_to_node["out0"];
@@ -2120,7 +2120,7 @@ mod split_expansion_tests {
     /// A negative axis is recorded as given and resolved later, which is what keeps
     /// the rewrite from needing a rank it does not have during import.
     #[test]
-    fn a_negative_axis_resolves_later() {
+    fn test_a_negative_axis_resolves_later() {
         let bytes = split_model(-1, &[1, 4]);
         let mut import = Onnx::import_from_reader(&mut &bytes[..]).expect("import");
         let a = import.value_to_node["out0"];

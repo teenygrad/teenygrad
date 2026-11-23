@@ -95,7 +95,7 @@ fn case(in_shape: &[usize], axis: i64, indices: &[i64]) {
 }
 
 #[test]
-fn the_index_mapping_matches_onnx_gather() {
+fn test_the_index_mapping_matches_onnx_gather() {
     // 1-D: a plain select, and a permutation with repeats.
     case(&[5], 0, &[0]);
     case(&[5], 0, &[4, 0, 2, 2]);
@@ -118,7 +118,7 @@ fn the_index_mapping_matches_onnx_gather() {
 }
 
 #[test]
-fn an_out_of_range_index_is_rejected() {
+fn test_an_out_of_range_index_is_rejected() {
     assert_eq!(
         GatherRuntimeOp::<f32>::new(1024, &[4, 3], 0, &[4]).err(),
         Some(GatherError::IndexOutOfRange { index: 4, dim: 4 })
@@ -133,7 +133,7 @@ fn an_out_of_range_index_is_rejected() {
 }
 
 #[test]
-fn an_out_of_range_axis_is_rejected() {
+fn test_an_out_of_range_axis_is_rejected() {
     assert_eq!(
         GatherRuntimeOp::<f32>::new(1024, &[4, 3], 2, &[0]).err(),
         Some(GatherError::AxisOutOfRange { axis: 2, rank: 2 })
@@ -145,7 +145,7 @@ fn an_out_of_range_axis_is_rejected() {
 }
 
 #[test]
-fn an_empty_gathered_axis_is_rejected() {
+fn test_an_empty_gathered_axis_is_rejected() {
     assert_eq!(
         GatherRuntimeOp::<f32>::new(1024, &[0, 3], 0, &[0]).err(),
         Some(GatherError::EmptyAxis)
@@ -156,7 +156,7 @@ fn an_empty_gathered_axis_is_rejected() {
 /// the case that dominates real models: 611 of the 613 constant-index Gather nodes in
 /// the FoundationStereo export select a single slice.
 #[test]
-fn a_scalar_index_removes_the_axis() {
+fn test_a_scalar_index_removes_the_axis() {
     assert_eq!(
         GatherRuntimeOp::<f32>::output_shape(&[2, 4, 3], 1, &[]),
         vec![2, 3]
@@ -171,7 +171,7 @@ fn a_scalar_index_removes_the_axis() {
 /// it has to be long enough whatever the dtype, and its byte count has to match the
 /// slot exactly: that is `param_init_data`'s contract.
 #[test]
-fn the_index_slot_fits_whatever_the_data_dtype() {
+fn test_the_index_slot_fits_whatever_the_data_dtype() {
     for n_idx in [1usize, 2, 3, 7, 8] {
         let indices: Vec<i64> = (0..n_idx as i64).map(|i| i % 4).collect();
 
@@ -190,7 +190,7 @@ fn the_index_slot_fits_whatever_the_data_dtype() {
 }
 
 #[test]
-fn lowering_takes_indices_from_a_materialised_constant() {
+fn test_lowering_takes_indices_from_a_materialised_constant() {
     let (graph, idx_node) = gather_graph(&[4, 3], 0, &[2, 0]);
     let mut constants = ConstantMap::new();
     constants.insert(idx_node, i64_tensor(&[2], &[2, 0]));
@@ -206,7 +206,7 @@ fn lowering_takes_indices_from_a_materialised_constant() {
 /// Runtime indices are refused with a reason, not a bare TODO: the limitation is the
 /// absence of integer-typed activation buffers, not the kernel.
 #[test]
-fn lowering_refuses_runtime_indices_with_a_reason() {
+fn test_lowering_refuses_runtime_indices_with_a_reason() {
     let mut g = Graph::new();
     let data = g.add_node(Op::Input, vec![], DtypeRepr::F32, vec![Some(4), Some(3)]);
     // An index tensor produced by an op, so no constant value exists for it.
@@ -230,7 +230,7 @@ fn lowering_refuses_runtime_indices_with_a_reason() {
 }
 
 #[test]
-fn lowering_reports_a_bad_index() {
+fn test_lowering_reports_a_bad_index() {
     let (graph, idx_node) = gather_graph(&[4, 3], 0, &[2]);
     let mut constants = ConstantMap::new();
     constants.insert(idx_node, i64_tensor(&[1], &[9]));
@@ -356,7 +356,7 @@ mod execution {
     }
 
     #[test]
-    fn gather_runs_on_device() {
+    fn test_gather_runs_on_device() {
         run_case(&[5], 0, &[4, 0, 2, 2]);
         run_case(&[4, 3], 0, &[3, 1, 0]);
         run_case(&[4, 3], 1, &[2, 0]);

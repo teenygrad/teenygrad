@@ -32,7 +32,7 @@ use teeny_test::ExecKernel;
 /// just on the graph's liveness, so this is the number that says whether a pass fits.
 #[test]
 #[ignore = "needs FS_ONNX and a few minutes to compile"]
-fn what_a_pass_would_hold() {
+fn test_what_a_pass_would_hold() {
     use teeny_test::model::RuntimeModel;
 
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
@@ -75,7 +75,7 @@ fn what_a_pass_would_hold() {
 /// executor does, and reports the ones that refuse.
 #[test]
 #[ignore = "needs FS_ONNX"]
-fn which_kernels_have_no_runtime_dispatch() {
+fn test_which_kernels_have_no_runtime_dispatch() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let mut import = Onnx::import_from_path(&path).expect("import");
     let (folded, _, _) =
@@ -117,7 +117,7 @@ fn which_kernels_have_no_runtime_dispatch() {
 /// Every distinct kernel the export lowers to, compiled for riscv64.
 #[test]
 #[ignore = "needs FS_ONNX and a few minutes"]
-fn every_kernel_in_the_export_compiles_for_riscv() {
+fn test_every_kernel_in_the_export_compiles_for_riscv() {
     let path = std::env::var("FS_ONNX").expect("set FS_ONNX to an .onnx path");
     let started = Instant::now();
     let mut import = Onnx::import_from_path(&path).expect("import");

@@ -36,7 +36,7 @@ fn lower(g: &Graph) -> anyhow::Result<usize> {
 }
 
 #[test]
-fn an_innermost_softmax_lowers_with_a_dynamic_batch() {
+fn test_an_innermost_softmax_lowers_with_a_dynamic_batch() {
     for op in [Op::Softmax { dim: -1 }, Op::LogSoftmax { axis: 1 }] {
         let shape: Shape = vec![None, Some(10)];
         let g = unary(op.clone(), shape.clone(), shape);
@@ -46,7 +46,7 @@ fn an_innermost_softmax_lowers_with_a_dynamic_batch() {
 }
 
 #[test]
-fn an_innermost_reduction_lowers_with_a_dynamic_batch() {
+fn test_an_innermost_reduction_lowers_with_a_dynamic_batch() {
     let g = unary(
         Op::ReduceMean {
             axes: vec![-1],
@@ -60,7 +60,7 @@ fn an_innermost_reduction_lowers_with_a_dynamic_batch() {
 }
 
 #[test]
-fn an_outer_softmax_with_a_dynamic_extent_still_asks_for_one() {
+fn test_an_outer_softmax_with_a_dynamic_extent_still_asks_for_one() {
     let shape: Shape = vec![None, Some(3), Some(10)];
     let g = unary(Op::Softmax { dim: 1 }, shape.clone(), shape);
     let err = lower(&g)

@@ -101,7 +101,7 @@ fn case(in_shape: &[usize], repeats: &[i64]) {
 }
 
 #[test]
-fn the_index_mapping_matches_onnx_tile() {
+fn test_the_index_mapping_matches_onnx_tile() {
     // 1-D, the simplest wrap.
     case(&[3], &[4]);
     // Repeating only the inner axis, only the outer, and both.
@@ -120,7 +120,7 @@ fn the_index_mapping_matches_onnx_tile() {
 }
 
 #[test]
-fn invalid_repeats_are_rejected() {
+fn test_invalid_repeats_are_rejected() {
     // One repeat per dimension is required.
     assert!(TileRuntimeOp::<f32>::new(1024, &[2, 3], &[2]).is_none());
     assert!(TileRuntimeOp::<f32>::new(1024, &[2, 3], &[2, 2, 2]).is_none());
@@ -135,7 +135,7 @@ fn invalid_repeats_are_rejected() {
 /// A repeat of 0 makes the output empty. Nothing is stored, and the kernel must not
 /// divide by the zero extent while computing indices for masked lanes.
 #[test]
-fn a_zero_repeat_gives_an_empty_output() {
+fn test_a_zero_repeat_gives_an_empty_output() {
     let rop = TileRuntimeOp::<f32>::new(1024, &[2, 3], &[0, 1]).expect("0 is a valid repeat");
     assert_eq!(rop.output_shape(2), vec![0, 3]);
     assert_eq!(rop.grid(&[0, 3]), [0, 1, 1]);
@@ -151,7 +151,7 @@ fn a_zero_repeat_gives_an_empty_output() {
 /// Lowering reads the repeats from the materialised constant rather than from a
 /// buffer, which is the whole point of eliding shape operands.
 #[test]
-fn lowering_takes_repeats_from_a_materialised_constant() {
+fn test_lowering_takes_repeats_from_a_materialised_constant() {
     let (graph, repeats_node) = tile_graph(&[2, 3], &[2, 2]);
     let mut constants = ConstantMap::new();
     constants.insert(repeats_node, i64_tensor(&[2], &[2, 2]));
@@ -165,7 +165,7 @@ fn lowering_takes_repeats_from_a_materialised_constant() {
 }
 
 #[test]
-fn lowering_without_the_repeats_says_so() {
+fn test_lowering_without_the_repeats_says_so() {
     let (graph, _) = tile_graph(&[2, 3], &[2, 2]);
     let msg = match TritonLowering::new().lower(&graph, LoweringMode::Inference) {
         Ok(_) => panic!("Tile cannot lower without its repeats"),
@@ -178,7 +178,7 @@ fn lowering_without_the_repeats_says_so() {
 }
 
 #[test]
-fn lowering_rejects_repeats_that_do_not_match_the_input() {
+fn test_lowering_rejects_repeats_that_do_not_match_the_input() {
     let (graph, repeats_node) = tile_graph(&[2, 3], &[2, 2]);
     let mut constants = ConstantMap::new();
     // Three repeats for a rank-2 input.
@@ -309,7 +309,7 @@ mod execution {
 
     /// The index mapping is also checked against a reference above without a device.
     #[test]
-    fn tile_runs_on_device() {
+    fn test_tile_runs_on_device() {
         run_case(&[3], &[4]);
         run_case(&[2, 3], &[2, 2]);
         run_case(&[2, 3], &[1, 3]);

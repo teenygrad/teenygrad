@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_matrix_product_has_no_batch() {
+    fn test_a_plain_matrix_product_has_no_batch() {
         let p = plan(&[128, 64], &[64, 32]);
         assert_eq!(p.batch, 1);
         assert_eq!((p.m, p.k, p.n), (128, 64, 32));
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_weight_folds_the_batch_into_the_rows() {
+    fn test_a_shared_weight_folds_the_batch_into_the_rows() {
         // [2, 1921, 1024] @ [1024, 1024]: the left operand's rows run contiguously
         // across the batch, so this is one 3842-row GEMM rather than two.
         let p = plan(&[2, 1921, 1024], &[1024, 1024]);
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn two_batched_operands_keep_their_batch() {
+    fn test_two_batched_operands_keep_their_batch() {
         // Attention: [2, 16, 1921, 64] @ [2, 16, 64, 1921], 32 independent products.
         let p = plan(&[2, 16, 1921, 64], &[2, 16, 64, 1921]);
         assert_eq!(p.batch, 32);
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_left_operand_gets_a_zero_stride() {
+    fn test_a_shared_left_operand_gets_a_zero_stride() {
         let p = plan(&[1, 4, 8], &[3, 8, 5]);
         assert_eq!(p.batch, 3);
         assert_eq!((p.m, p.k, p.n), (4, 8, 5));
@@ -260,14 +260,14 @@ mod tests {
     }
 
     #[test]
-    fn a_prefix_shorter_than_the_other_broadcasts_from_the_right() {
+    fn test_a_prefix_shorter_than_the_other_broadcasts_from_the_right() {
         let p = plan(&[4, 8], &[3, 8, 5]);
         assert_eq!(p.batch, 3);
         assert_eq!(p.a_batch_rows, 0);
     }
 
     #[test]
-    fn a_vector_operand_is_refused_rather_than_promoted() {
+    fn test_a_vector_operand_is_refused_rather_than_promoted() {
         assert_eq!(
             matmul_plan(&[3, 4], &[4]),
             Err(MatMulError::OperandRankTooLow {
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn the_contracted_extents_must_agree() {
+    fn test_the_contracted_extents_must_agree() {
         assert_eq!(
             matmul_plan(&[3, 4], &[5, 2]),
             Err(MatMulError::ContractionMismatch { a: 4, b: 5 })
@@ -286,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn a_prefix_that_does_not_broadcast_is_refused() {
+    fn test_a_prefix_that_does_not_broadcast_is_refused() {
         assert!(matches!(
             matmul_plan(&[2, 3, 4], &[3, 4, 5]),
             Err(MatMulError::BatchBroadcast { .. })
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_that_one_row_stride_cannot_address_is_refused() {
+    fn test_a_batch_that_one_row_stride_cannot_address_is_refused() {
         // [2, 1] against [1, 3] broadcasts to a batch of 6, but neither operand holds
         // all six nor just one: reaching an element needs a stride per batch axis.
         let err = matmul_plan(&[2, 1, 4, 8], &[1, 3, 8, 5]).expect_err("not one stride");

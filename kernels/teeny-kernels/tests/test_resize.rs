@@ -57,7 +57,7 @@ fn lower(
 }
 
 #[test]
-fn the_export_s_shapes_lower() {
+fn test_the_export_s_shapes_lower() {
     // Two spatial axes, linear with aligned corners: the export's commonest resize.
     assert_eq!(
         lower(
@@ -100,7 +100,7 @@ fn the_export_s_shapes_lower() {
 /// More resized axes than the kernel indexes, named as such rather than silently
 /// resizing the trailing three.
 #[test]
-fn too_many_resized_axes_are_refused() {
+fn test_too_many_resized_axes_are_refused() {
     let msg = match lower(&[2, 3, 4, 5], &[4, 6, 8, 10], "linear", "half_pixel") {
         Ok(_) => panic!("four resized axes should not lower"),
         Err(e) => e.to_string(),
@@ -109,7 +109,7 @@ fn too_many_resized_axes_are_refused() {
 }
 
 #[test]
-fn an_unimplemented_mode_is_refused_by_name() {
+fn test_an_unimplemented_mode_is_refused_by_name() {
     let msg = match lower(
         &[1, 1, 4, 4],
         &[1, 1, 8, 8],
@@ -274,7 +274,7 @@ mod execution {
     }
 
     #[test]
-    fn linear_over_two_axes() {
+    fn test_linear_over_two_axes() {
         run(
             &[1, 2, 3, 4],
             &[1, 2, 6, 8],
@@ -286,7 +286,7 @@ mod execution {
 
     /// Downsampling as well as up, since the plan's taps move in the other direction.
     #[test]
-    fn linear_downsampling() {
+    fn test_linear_downsampling() {
         run(
             &[1, 1, 8, 6],
             &[1, 1, 3, 4],
@@ -298,7 +298,7 @@ mod execution {
 
     /// Three resized axes, which is where a stride taken from the wrong axis shows up.
     #[test]
-    fn linear_over_three_axes() {
+    fn test_linear_over_three_axes() {
         run(
             &[1, 2, 2, 3, 2],
             &[1, 2, 4, 6, 4],
@@ -310,7 +310,7 @@ mod execution {
 
     /// Nearest with floor, which is what the export asks for: a whole-factor repeat.
     #[test]
-    fn nearest_repeats_each_element() {
+    fn test_nearest_repeats_each_element() {
         run(
             &[1, 3, 2, 3],
             &[1, 3, 8, 12],
@@ -323,14 +323,14 @@ mod execution {
     /// Cubic's four taps per axis, sixteen per output element, including the negative
     /// weights that make it a sharpening filter rather than an average.
     #[test]
-    fn cubic_over_two_axes() {
+    fn test_cubic_over_two_axes() {
         run(&[1, 1, 5, 6], &[1, 1, 7, 9], "cubic", "half_pixel", "floor");
     }
 
     /// An uneven ratio, where every output coordinate has a different fractional
     /// offset and a mistake in one does not repeat into the others.
     #[test]
-    fn an_uneven_ratio() {
+    fn test_an_uneven_ratio() {
         run(
             &[1, 1, 37, 37],
             &[1, 1, 40, 48],

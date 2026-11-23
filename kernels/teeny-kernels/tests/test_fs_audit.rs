@@ -152,7 +152,7 @@ fn softmax_on_host(x: &[f32], in_shape: &[usize], axis: usize, log: bool) -> Vec
 
 #[test]
 #[ignore = "needs FS96_ONNX and FS96_DATA"]
-fn every_reduction_and_softmax_agrees_with_the_host() {
+fn test_every_reduction_and_softmax_agrees_with_the_host() {
     let path = std::env::var("FS96_ONNX").expect("set FS96_ONNX");
     let data = std::env::var("FS96_DATA").expect("set FS96_DATA");
 
