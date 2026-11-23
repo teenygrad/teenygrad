@@ -44,9 +44,9 @@
 //! to 3.
 //!
 //! Shape refinement only ever replaces a shape that has an unknown dimension, so it
-//! cannot degrade one the model already stated. Where an op's own IR fields do not
-//! determine the answer it declines rather than inventing one: `AvgPool2d` has no
-//! padding fields, for instance, and padding changes the output extent.
+//! cannot degrade one the model already stated. Where the op's fields and the operands
+//! known so far do not determine the answer it declines rather than inventing one: a
+//! `Reshape` whose target operand did not fold, for instance, has no shape to give.
 
 use std::collections::{BTreeMap, BTreeSet};
 
