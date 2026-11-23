@@ -21,7 +21,9 @@ jobs:
   #     the publishable Rust SDK; Python packaging is a separate concern.
   build-test-clippy:
     name: Build, test, clippy
-    runs-on: ubuntu-latest
+    # Pinned to match the ubuntu2404 CUDA apt repository installed below, so a
+    # change to what ubuntu-latest points at cannot break the toolkit install.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,6 +39,10 @@ jobs:
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Keyed on the image so artifacts built against one Ubuntu's glibc are
+          # never restored onto another; change it along with runs-on.
+          key: ubuntu-24.04
 
       # teeny-cuda's build.rs unconditionally runs bindgen against the CUDA
       # toolkit headers (no feature gate to skip it); teeny-kernels' default
@@ -120,7 +126,7 @@ jobs:
   #   cargo run -p teeny-triton --features cuda --example vector_add
   book-includes:
     name: Book stays in step with the code
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
