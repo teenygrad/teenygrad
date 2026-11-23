@@ -33,8 +33,9 @@ cargo run --release -p teeny-llm-core --example functiongemma -- --model <model 
 ```
 
 > ⚠️ The models are not yet served through `Engine`: `teeny-llm-server` and `teeny-llm-chat`
-> still run `EchoEngine`. Use the `functiongemma` example to chat with FunctionGemma (`--mode chat`, the default)
-> or to see the function calls it picks for one request (`--mode tool --prompt ...`).
+> still run `EchoEngine`. Use the `functiongemma` example to chat with FunctionGemma (`--mode chat`,
+> the default) or to see the function calls it picks for one request (`--mode tool --prompt ...`),
+> and `functiongemma_serve` for the weather web demo.
 
 ## License
 

@@ -70,6 +70,10 @@ tokio = { workspace = true }
 name = "functiongemma"
 required-features = ["functiongemma"]
 
+[[example]]
+name = "functiongemma_serve"
+required-features = ["functiongemma"]
+
 [[test]]
 name = "test_functiongemma"
 required-features = ["functiongemma"]
