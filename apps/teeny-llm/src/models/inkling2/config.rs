@@ -154,7 +154,8 @@ impl Inkling2TextConfig {
             self.num_hidden_layers
         );
         anyhow::ensure!(
-            self.num_attention_heads % self.num_key_value_heads == 0,
+            self.num_attention_heads
+                .is_multiple_of(self.num_key_value_heads),
             "{} query heads do not group evenly over {} kv heads",
             self.num_attention_heads,
             self.num_key_value_heads

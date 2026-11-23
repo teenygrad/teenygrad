@@ -36,6 +36,11 @@
 //!   on the MLP gate and up projections, the final logits, and the query and relative
 //!   terms.
 
+// The kernel tests lower through teeny-kernels, and the runner will once it exists;
+// without this the crate lints as not using the dependency its feature pulls in.
+use teeny_kernels as _;
+
 pub mod config;
+pub mod kernels;
 
 pub use config::{Inkling2Config, Inkling2TextConfig, LoopConfig};

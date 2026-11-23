@@ -17,6 +17,8 @@
 //! Checks `Inkling2Config` against the real `config.json` of
 //! `thinkingmachines/Inkling-2-Mini`, committed as a fixture.
 
+#![cfg(feature = "inkling2")]
+
 use std::path::Path;
 
 use teeny_llm_core::models::inkling2::Inkling2Config;
