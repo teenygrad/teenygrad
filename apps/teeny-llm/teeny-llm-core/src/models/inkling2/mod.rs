@@ -84,5 +84,6 @@ use teeny_test as _;
 pub mod config;
 pub mod kernels;
 pub mod model;
+pub mod runner;
 
 pub use config::{Inkling2Config, Inkling2TextConfig, LoopConfig};
