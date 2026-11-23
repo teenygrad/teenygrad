@@ -27,8 +27,14 @@ use teeny_core::model::LoweringMode;
 use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::kernels::{
-    expert_gather::ExpertGatherOp, l2_clip::ScaledL2ClipOp, rel_bias::RelBiasOp,
-    router::TopKRouterOp, scatter_add::ExpertScatterAddOp, sconv::SconvOp, softcap::SoftcapOp,
+    attention::{AttentionSpec, PastLen, SinkAttentionOp},
+    expert_gather::ExpertGatherOp,
+    l2_clip::ScaledL2ClipOp,
+    rel_bias::RelBiasOp,
+    router::TopKRouterOp,
+    scatter_add::ExpertScatterAddOp,
+    sconv::SconvOp,
+    softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
 use teeny_test::model::{RuntimeModel, runtime};
@@ -812,4 +818,238 @@ fn test_router_gather_swiglu_scatter_compose() {
         }
     }
     assert_close("moe block", &got, &want, 2e-3);
+}
+
+/// Attention with a relative position bias and a valueless per-query sink.
+#[allow(clippy::too_many_arguments)]
+fn sink_attention_reference(
+    q: &[f32],
+    kc: &[f32],
+    vc: &[f32],
+    kn: &[f32],
+    vn: &[f32],
+    bias: &[f32],
+    sinks: &[f32],
+    t: usize,
+    h: usize,
+    kvh: usize,
+    hd: usize,
+    past: usize,
+    window: Option<usize>,
+) -> Vec<f32> {
+    let kv = past + t;
+    let scale = (hd as f32).powf(-0.5);
+    let mut out = vec![0.0f32; t * h * hd];
+    for tok in 0..t {
+        let qpos = past + tok;
+        for head in 0..h {
+            let g = head / (h / kvh);
+            let mut logits = Vec::new();
+            let mut keys = Vec::new();
+            for j in 0..=qpos {
+                if window.is_some_and(|w| qpos - j >= w) {
+                    continue;
+                }
+                let krow: Vec<f32> = (0..hd)
+                    .map(|d| {
+                        if j < past {
+                            kc[j * kvh * hd + g * hd + d]
+                        } else {
+                            kn[(j - past) * kvh * hd + g * hd + d]
+                        }
+                    })
+                    .collect();
+                let dot: f32 = (0..hd)
+                    .map(|d| q[(tok * h + head) * hd + d] * krow[d])
+                    .sum();
+                logits.push(dot * scale + bias[(tok * h + head) * kv + j]);
+                keys.push(j);
+            }
+            // The sink joins the softmax but has no value vector.
+            let sink = sinks[tok * h + head];
+            let m = logits.iter().cloned().fold(sink, f32::max);
+            let denom: f32 = logits.iter().map(|l| (l - m).exp()).sum::<f32>() + (sink - m).exp();
+            for (idx, &j) in keys.iter().enumerate() {
+                let p = (logits[idx] - m).exp() / denom;
+                for d in 0..hd {
+                    let v = if j < past {
+                        vc[j * kvh * hd + g * hd + d]
+                    } else {
+                        vn[(j - past) * kvh * hd + g * hd + d]
+                    };
+                    out[(tok * h + head) * hd + d] += p * v;
+                }
+            }
+        }
+    }
+    out
+}
+
+struct AttnCase {
+    t: usize,
+    h: usize,
+    kvh: usize,
+    hd: usize,
+    past: usize,
+    cache: usize,
+    window: Option<usize>,
+}
+
+fn run_sink_attention(c: &AttnCase, sinks: &[f32], seed: u64) -> (Vec<f32>, Vec<f32>) {
+    let kv = c.past + c.t;
+    let q = values(c.t * c.h * c.hd, seed);
+    let kn = values(c.t * c.kvh * c.hd, seed + 1);
+    let vn = values(c.t * c.kvh * c.hd, seed + 2);
+    let kc_full = values(c.cache * c.kvh * c.hd, seed + 3);
+    let vc_full = values(c.cache * c.kvh * c.hd, seed + 4);
+    let bias = values(c.t * c.h * kv, seed + 5);
+
+    let want = sink_attention_reference(
+        &q, &kc_full, &vc_full, &kn, &vn, &bias, sinks, c.t, c.h, c.kvh, c.hd, c.past, c.window,
+    );
+
+    let g = OneOp::new(&[c.t, c.h * c.hd]);
+    let kn_in = g.input(&[c.t, c.kvh * c.hd]);
+    let vn_in = g.input(&[c.t, c.kvh * c.hd]);
+    let kc_in = g.input(&[c.cache, c.kvh * c.hd]);
+    let vc_in = g.input(&[c.cache, c.kvh * c.hd]);
+    let b_in = g.input(&[c.t * c.h, kv]);
+    let s_in = g.input(&[c.t, c.h]);
+    let past = PastLen::default();
+    past.set(c.past);
+    let spec = AttentionSpec {
+        heads: c.h,
+        kv_heads: c.kvh,
+        head_dim: c.hd,
+        window: c.window,
+        scale: (c.hd as f32).powf(-0.5),
+    };
+    let got = g.run(
+        SinkAttentionOp::<f32>::new(spec, past),
+        &[&kn_in, &vn_in, &kc_in, &vc_in, &b_in, &s_in],
+        &[&q, &kn, &vn, &kc_full, &vc_full, &bias, sinks],
+        &[],
+    );
+    (got, want)
+}
+
+#[test]
+fn test_sink_attention_matches_the_reference() {
+    let c = AttnCase {
+        t: 3,
+        h: 4,
+        kvh: 2,
+        hd: 16,
+        past: 5,
+        cache: 16,
+        window: None,
+    };
+    let sinks = values(c.t * c.h, 91);
+    let (got, want) = run_sink_attention(&c, &sinks, 90);
+    assert_close("sink attention", &got, &want, 1e-4);
+}
+
+#[test]
+fn test_sink_attention_respects_the_sliding_window() {
+    let c = AttnCase {
+        t: 2,
+        h: 2,
+        kvh: 1,
+        hd: 8,
+        past: 9,
+        cache: 16,
+        window: Some(4),
+    };
+    let sinks = values(c.t * c.h, 93);
+    let (got, want) = run_sink_attention(&c, &sinks, 92);
+    assert_close("sink attention windowed", &got, &want, 1e-4);
+}
+
+/// A very negative sink takes almost no mass, so the output matches ordinary
+/// attention; a very positive one takes nearly all of it and the output collapses
+/// towards zero. This is the sink's whole purpose and it must be visible.
+#[test]
+fn test_sink_absorbs_probability_mass() {
+    let c = AttnCase {
+        t: 1,
+        h: 1,
+        kvh: 1,
+        hd: 8,
+        past: 3,
+        cache: 8,
+        window: None,
+    };
+    let (quiet, _) = run_sink_attention(&c, &[-60.0], 94);
+    let (greedy, _) = run_sink_attention(&c, &[60.0], 94);
+    let mag = |v: &[f32]| v.iter().map(|a| a.abs()).sum::<f32>();
+    assert!(
+        mag(&greedy) < mag(&quiet) * 0.01,
+        "a dominant sink should leave almost nothing: {} vs {}",
+        mag(&greedy),
+        mag(&quiet)
+    );
+    // With the sink out of the way the weights sum to one, so the result is a convex
+    // combination of the values and cannot be tiny.
+    assert!(
+        mag(&quiet) > 1e-3,
+        "a negligible sink should leave ordinary attention"
+    );
+}
+
+/// The bias actually reaches the logits: changing one entry changes the output.
+#[test]
+fn test_bias_changes_the_attention() {
+    let c = AttnCase {
+        t: 1,
+        h: 1,
+        kvh: 1,
+        hd: 8,
+        past: 3,
+        cache: 8,
+        window: None,
+    };
+    let sinks = vec![-60.0f32];
+    let (base, _) = run_sink_attention(&c, &sinks, 95);
+    // Same seed, but the reference is recomputed with a biased key, so a mismatch
+    // here would mean the kernel ignored the bias.
+    let kv = c.past + c.t;
+    let mut bias = values(c.t * c.h * kv, 95 + 5);
+    bias[0] += 20.0; // make key 0 dominate
+    let q = values(c.t * c.h * c.hd, 95);
+    let kn = values(c.t * c.kvh * c.hd, 96);
+    let vn = values(c.t * c.kvh * c.hd, 97);
+    let kc = values(c.cache * c.kvh * c.hd, 98);
+    let vc = values(c.cache * c.kvh * c.hd, 99);
+    let want = sink_attention_reference(
+        &q, &kc, &vc, &kn, &vn, &bias, &sinks, c.t, c.h, c.kvh, c.hd, c.past, None,
+    );
+    let g = OneOp::new(&[c.t, c.h * c.hd]);
+    let kn_in = g.input(&[c.t, c.kvh * c.hd]);
+    let vn_in = g.input(&[c.t, c.kvh * c.hd]);
+    let kc_in = g.input(&[c.cache, c.kvh * c.hd]);
+    let vc_in = g.input(&[c.cache, c.kvh * c.hd]);
+    let b_in = g.input(&[c.t * c.h, kv]);
+    let s_in = g.input(&[c.t, c.h]);
+    let past = PastLen::default();
+    past.set(c.past);
+    let spec = AttentionSpec {
+        heads: c.h,
+        kv_heads: c.kvh,
+        head_dim: c.hd,
+        window: None,
+        scale: (c.hd as f32).powf(-0.5),
+    };
+    let got = g.run(
+        SinkAttentionOp::<f32>::new(spec, past),
+        &[&kn_in, &vn_in, &kc_in, &vc_in, &b_in, &s_in],
+        &[&q, &kn, &vn, &kc, &vc, &bias, &sinks],
+        &[],
+    );
+    assert_close("biased attention", &got, &want, 1e-4);
+    // With key 0 strongly favoured the result must differ from the unbiased run.
+    let diff: f32 = got.iter().zip(&base).map(|(a, b)| (a - b).abs()).sum();
+    assert!(
+        diff > 1e-3,
+        "the bias did not change the output (diff {diff})"
+    );
 }
