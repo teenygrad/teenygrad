@@ -25,6 +25,8 @@ use crate::{Error, Result};
 
 #[cfg(feature = "functiongemma3")]
 pub mod functiongemma;
+#[cfg(feature = "inkling2")]
+pub mod inkling2;
 mod load;
 // Only model graph builders use it.
 #[cfg(feature = "functiongemma3")]
