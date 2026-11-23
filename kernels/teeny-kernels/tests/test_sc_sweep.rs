@@ -1,4 +1,4 @@
-#![cfg(feature = "cuda")]
+#![cfg(all(feature = "cuda", feature = "hardware"))]
 use teeny_core::device::Device as _;
 use teeny_core::device::buffer::Buffer;
 use teeny_core::model::RuntimeOp;

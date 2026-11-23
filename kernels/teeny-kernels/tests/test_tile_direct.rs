@@ -4,7 +4,7 @@
 // diverges on CUDA for specific lanes. This isolates which layer is responsible: the
 // same kernel, the same scalars from the same RuntimeOp, launched by hand.
 
-#![cfg(feature = "cuda")]
+#![cfg(all(feature = "cuda", feature = "hardware"))]
 
 use teeny_core::device::Device as _;
 use teeny_core::device::buffer::Buffer;

@@ -11,6 +11,8 @@
 //   TINY_DIR=/tmp/tiny cargo test -p teeny-kernels --test test_onnx_execution_probe \
 //       -- --nocapture --ignored
 
+#![cfg(feature = "hardware")]
+
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
 use teeny_runtime::Target;
