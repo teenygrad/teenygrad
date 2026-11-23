@@ -54,6 +54,7 @@ use super::kernels::{
     block_attn::BlockAttnOp,
     cat2::Cat2Op,
     dyn_sconv::DynSconvOp,
+    embed::EmbedOp,
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
@@ -63,6 +64,7 @@ use super::kernels::{
     norm::{RmsNormOp, UnweightedRmsNormOp},
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
+    scale::ScaleOp,
     scatter_add::ExpertScatterAddOp,
     sconv::SconvOp,
     slot_ids::SlotIdsOp,
@@ -70,6 +72,7 @@ use super::kernels::{
     swiglu::SwigluOp,
 };
 use super::runner::Quant;
+use crate::kernels::last_row::LastRowOp;
 use crate::kernels::linear::Linear4Op;
 
 /// Block width for the linear kernel, as in the Gemma port.
@@ -684,4 +687,59 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         )
     };
     add(&residual, &m)
+}
+
+// ---------------------------------------------------------------------------
+// The two ends of the model
+// ---------------------------------------------------------------------------
+
+/// Records the embedding: a lookup, then `embed_norm`.
+///
+/// `Inkling2LoopNormedEmbedding` does not scale the lookup the way Gemma does; the
+/// norm is a separate weight (`model.llm.embed_norm`).
+pub fn build_embed<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    ids: &SymTensor,
+) -> SymTensor {
+    let e = {
+        let _g = name_scope("embed");
+        ids.record_custom(
+            CustomData::new(EmbedOp::<D>::new(cfg.vocab_size, cfg.hidden_size)),
+            &[],
+            None,
+        )
+    };
+    build_norm::<D>("embed_norm", &e, cfg.hidden_size)
+}
+
+/// Records the head: final norm, the last token's row, the unembedding, the muP
+/// width scaling, and the logit softcap.
+///
+/// Three details, all from the config rather than from the reference's defaults:
+/// `logits_mup_width_multiplier` divides the logits, `final_logit_softcapping` caps
+/// them, and only the LAST row is projected, since a step needs one distribution and
+/// the vocabulary is 201024 wide.
+pub fn build_head<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    x: &SymTensor,
+    mup_width_multiplier: f64,
+) -> SymTensor {
+    let x = build_norm::<D>("norm", x, cfg.hidden_size);
+    let last = x.record_custom(CustomData::new(LastRowOp::<D>::default()), &[], None);
+    let logits = {
+        let _g = name_scope("unembed");
+        linear::<D>(&last, cfg.hidden_size, cfg.vocab_size)
+    };
+    // muP: the trained width multiplier divides the logits before the cap.
+    let scaled = logits.record_custom(
+        CustomData::new(ScaleOp::<D>::new(1.0 / mup_width_multiplier as f32)),
+        &[],
+        None,
+    );
+    match cfg.final_logit_softcapping {
+        Some(cap) => {
+            scaled.record_custom(CustomData::new(SoftcapOp::<D>::new(cap as f32)), &[], None)
+        }
+        None => scaled,
+    }
 }

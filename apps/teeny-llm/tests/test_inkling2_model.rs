@@ -33,7 +33,7 @@ use teeny_kernels::graph::TritonLowering;
 use teeny_llm::models::inkling2::config::Inkling2TextConfig;
 use teeny_llm::models::inkling2::kernels::attention::PastLen;
 use teeny_llm::models::inkling2::model::{
-    LayerInputs, build_controller, build_layer, build_moe, build_router,
+    LayerInputs, build_controller, build_embed, build_head, build_layer, build_moe, build_router,
 };
 use teeny_llm::models::inkling2::runner::{Quant, quant_of};
 use teeny_test::model::{RuntimeModel, runtime};
@@ -503,4 +503,84 @@ fn test_the_last_layers_use_the_mxfp8_gather() {
             "only NVFP4 has a per-expert scale (layer {layer})"
         );
     }
+}
+
+/// The embedding is a plain lookup followed by `embed_norm`, NOT Gemma's
+/// sqrt(hidden) scaling.
+#[test]
+fn test_embedding_looks_up_and_norms_without_scaling() {
+    let mut cfg = test_config();
+    cfg.vocab_size = 8;
+    cfg.hidden_size = 4;
+    let (vocab, hid) = (cfg.vocab_size, cfg.hidden_size);
+    let table = values(vocab * hid, 171);
+    let w = values(hid, 172);
+    let ids = [3.0f32, 0.0, 7.0];
+
+    let g = GraphRun::new(&[ids.len()]);
+    let out = build_embed::<f32>(&cfg, &g.first);
+    let got = g.run(
+        &out,
+        &[&ids],
+        &[("embed.weight", &table), ("embed_norm.weight", &w)],
+    );
+
+    let want: Vec<f32> = ids
+        .iter()
+        .flat_map(|id| {
+            let row = &table[*id as usize * hid..(*id as usize + 1) * hid];
+            let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+            (0..hid).map(|i| row[i] / rms * w[i]).collect::<Vec<_>>()
+        })
+        .collect();
+    assert_close("embed", &got, &want, 1e-4);
+
+    // Gemma would have multiplied by sqrt(hidden); this must not.
+    let scaled: Vec<f32> = want.iter().map(|v| v * (hid as f32).sqrt()).collect();
+    assert!(
+        got.iter().zip(&scaled).any(|(a, b)| (a - b).abs() > 1e-3),
+        "the embedding must not be scaled by sqrt(hidden)"
+    );
+}
+
+/// The head takes only the LAST row, divides by the muP multiplier, then softcaps.
+#[test]
+fn test_head_scales_by_mup_and_softcaps() {
+    let mut cfg = test_config();
+    // Linear4Op needs out features divisible by 4; the real vocab, 201024, is.
+    cfg.vocab_size = 8;
+    cfg.hidden_size = 4;
+    cfg.final_logit_softcapping = Some(30.0);
+    let (vocab, hid, t) = (cfg.vocab_size, cfg.hidden_size, 3usize);
+    let mup = 16.0f64;
+
+    let x = values(t * hid, 173);
+    let norm_w = values(hid, 174);
+    // Large enough that the softcap bites.
+    let unembed: Vec<f32> = values(vocab * hid, 175).iter().map(|v| v * 300.0).collect();
+
+    let g = GraphRun::new(&[t, hid]);
+    let out = build_head::<f32>(&cfg, &g.first, mup);
+    let got = g.run(
+        &out,
+        &[&x],
+        &[("norm.weight", &norm_w), ("unembed.weight", &unembed)],
+    );
+    assert_eq!(got.len(), vocab, "a step produces one distribution");
+
+    let last = &x[(t - 1) * hid..];
+    let rms = (last.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+    let normed: Vec<f32> = (0..hid).map(|i| last[i] / rms * norm_w[i]).collect();
+    let want: Vec<f32> = (0..vocab)
+        .map(|n| {
+            let dot: f32 = (0..hid).map(|k| normed[k] * unembed[n * hid + k]).sum();
+            let scaled = dot / mup as f32;
+            (scaled / 30.0).tanh() * 30.0
+        })
+        .collect();
+    assert_close("head", &got, &want, 1e-3);
+    assert!(
+        got.iter().all(|v| v.abs() <= 30.0 + 1e-3),
+        "every logit must sit inside the cap"
+    );
 }
