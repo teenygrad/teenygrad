@@ -604,7 +604,7 @@ fn report_first_divergence(
 
 #[test]
 #[ignore = "needs ONNX_CORPUS (built by scripts/onnx_corpus/export.py)"]
-fn onnx_corpus_matches_onnxruntime() {
+fn test_onnx_corpus_matches_onnxruntime() {
     let root = PathBuf::from(std::env::var("ONNX_CORPUS").expect("set ONNX_CORPUS"));
     let only: Vec<String> = std::env::var("ONNX_CORPUS_ONLY")
         .map(|s| s.split(',').map(str::to_string).collect())
@@ -719,7 +719,7 @@ fn conformance_case(dir: &Path) -> Result<Outcome, Outcome> {
 /// ONNX_CONFORMANCE_STRICT: fail the test if any case fails.
 #[test]
 #[ignore = "runs the ONNX backend conformance suite (slow: ~1,800 models)"]
-fn onnx_node_conformance() {
+fn test_onnx_node_conformance() {
     let root = conformance_root().join("node");
     let filter: Vec<String> = std::env::var("ONNX_CONFORMANCE_FILTER")
         .map(|s| s.split(',').map(str::to_string).collect())

@@ -408,7 +408,7 @@ mod execution {
     }
 
     #[test]
-    fn gather_with_runtime_indices_runs_on_device() {
+    fn test_gather_with_runtime_indices_runs_on_device() {
         // An embedding lookup: rows of a [vocab, hidden] table by token id.
         run_runtime_case(&[6, 4], 0, &[5, 0, 3, 3, 1]);
         run_runtime_case(&[6, 4], 0, &[-1, -6, 2]);

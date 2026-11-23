@@ -147,7 +147,7 @@ mod execution {
     const IDS: [i64; 6] = [0, 1, -3, 7, 0, 30521];
 
     #[test]
-    fn i64_to_f32_on_device() {
+    fn test_i64_to_f32_on_device() {
         let n = IDS.len();
         let f = run(DtypeRepr::I64, DtypeRepr::F32, &i64s(&IDS), n);
         let f: Vec<f32> = f
@@ -159,14 +159,14 @@ mod execution {
     }
 
     #[test]
-    fn i64_to_bool_on_device() {
+    fn test_i64_to_bool_on_device() {
         let n = IDS.len();
         let b = run(DtypeRepr::I64, DtypeRepr::Bool, &i64s(&IDS), n);
         assert_eq!(&b[..n], &[0, 1, 1, 1, 0, 1], "I64 to Bool");
     }
 
     #[test]
-    fn bool_to_f32_on_device() {
+    fn test_bool_to_f32_on_device() {
         let n = 6;
         let bf = run(DtypeRepr::Bool, DtypeRepr::F32, &[1, 0, 1, 1, 0, 0], n);
         let bf: Vec<f32> = bf
@@ -178,7 +178,7 @@ mod execution {
     }
 
     #[test]
-    fn f32_to_i64_on_device() {
+    fn test_f32_to_i64_on_device() {
         let n = 6;
         let src: Vec<u8> = [2.9f32, -2.9, 0.0, 41.0, -1.0, 7.5]
             .iter()
@@ -194,7 +194,7 @@ mod execution {
     }
 
     #[test]
-    fn bool_to_i64_on_device() {
+    fn test_bool_to_i64_on_device() {
         let n = 6;
         let bi = run(DtypeRepr::Bool, DtypeRepr::I64, &[1, 0, 1, 1, 0, 0], n);
         let bi: Vec<i64> = bi
@@ -206,7 +206,7 @@ mod execution {
     }
 
     #[test]
-    fn i32_to_i64_on_device() {
+    fn test_i32_to_i64_on_device() {
         let n = 6;
         let i32s: Vec<u8> = [5i32, -6, 0, 1, -1, 9]
             .iter()
