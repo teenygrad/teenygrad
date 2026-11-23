@@ -45,7 +45,7 @@
 //! not simply chain.
 
 use teeny_core::dtype::FloatBytes;
-use teeny_core::graph::{CustomData, SymTensor};
+use teeny_core::graph::{CustomData, Op, Shape, SymTensor};
 use teeny_core::name_scope::name_scope;
 
 use super::config::Inkling2TextConfig;
@@ -69,6 +69,25 @@ use crate::kernels::linear::Linear4Op;
 
 /// Block width for the linear kernel, as in the Gemma port.
 const LINEAR_BLOCK: i32 = 16;
+
+fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
+    SymTensor {
+        node_id,
+        graph: like.graph.clone(),
+        dtype: like.dtype,
+        shape,
+    }
+}
+
+fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
+    assert_eq!(a.shape, b.shape, "add: operand shapes differ");
+    let shape = a.shape.clone();
+    let node_id =
+        a.graph
+            .borrow_mut()
+            .add_node(Op::Add, vec![a.node_id, b.node_id], a.dtype, shape.clone());
+    wrap(a, node_id, shape)
+}
 
 /// Records a bias-free linear in the current scope, naming its slot `weight`.
 fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
@@ -224,25 +243,26 @@ pub fn build_q_proj<D: FloatBytes + Send + Sync + 'static>(
 /// The two differ only in that norm: keys take an **unscaled** L2 clip, values an
 /// unweighted RMS norm. Neither has a learned scale, unlike the query's clip.
 ///
-/// `x_hist` carries the convolution's `K - 1` rows of history, as
-/// [`super::kernels::sconv`] expects, so the caller keeps the conv state the same way
-/// it keeps the KV cache.
+/// `hist` carries the convolution's `K - 1` rows of state, which the caller keeps the
+/// same way it keeps the KV cache. The convolution runs on the PROJECTED states, so
+/// the history is of those, not of `x`.
 pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
-    x_hist: &SymTensor,
+    x: &SymTensor,
+    hist: &SymTensor,
     is_key: bool,
 ) -> SymTensor {
     let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
     let name = if is_key { "wk_dv" } else { "wv_dv" };
     let proj = {
         let _g = name_scope(name);
-        linear::<D>(x_hist, cfg.hidden_size, nkv * hd)
+        linear::<D>(x, cfg.hidden_size, nkv * hd)
     };
     let conv = {
         let _g = name_scope(if is_key { "k_sconv" } else { "v_sconv" });
-        proj.record_custom(
+        hist.record_custom(
             CustomData::new(SconvOp::<D>::new(nkv * hd, cfg.sconv_kernel_size)),
-            &[],
+            &[&proj],
             None,
         )
     };
@@ -330,14 +350,17 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
 /// Records the attention half of a decoder layer: norm, the three projections, the
 /// relative bias, attention with sinks, and the gated output projection.
 ///
-/// `x` is the layer input `[T, hidden]`; `x_hist` is the same with the short
-/// convolution's `K - 1` rows of history prepended. The remaining inputs are the KV
-/// cache and this step's keys and values, as [`super::kernels::attention`] takes them.
+/// The query, key and value inputs are separate: the looped core gates them
+/// differently, and the checkpoint's three `attn_queries` produce three states. The
+/// two `_hist` tensors are the key and value convolutions' state.
 #[allow(clippy::too_many_arguments)]
 pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
-    x: &SymTensor,
-    x_hist: &SymTensor,
+    q_in: &SymTensor,
+    k_in: &SymTensor,
+    v_in: &SymTensor,
+    k_hist: &SymTensor,
+    v_hist: &SymTensor,
     k_cache: &SymTensor,
     v_cache: &SymTensor,
     past: usize,
@@ -351,13 +374,14 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         cfg.num_key_value_heads,
         cfg.head_dim,
     );
-    let q = build_q_proj::<D>(cfg, x);
-    let k = build_kv_proj::<D>(cfg, x_hist, true);
-    let v = build_kv_proj::<D>(cfg, x_hist, false);
-    let bias = build_rel_bias::<D>(cfg, x, past, kv_len);
+    let q = build_q_proj::<D>(cfg, q_in);
+    let k = build_kv_proj::<D>(cfg, k_in, k_hist, true);
+    let v = build_kv_proj::<D>(cfg, v_in, v_hist, false);
+    // The bias and the sinks are conditioned on the query's hidden states.
+    let bias = build_rel_bias::<D>(cfg, q_in, past, kv_len);
     let sinks = {
         let _g = name_scope("attn_sink_proj");
-        linear::<D>(x, cfg.hidden_size, nh)
+        linear::<D>(q_in, cfg.hidden_size, nh)
     };
     let spec = AttentionSpec {
         heads: nh,
@@ -371,7 +395,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         &[&k, &v, k_cache, v_cache, &bias, &sinks],
         None,
     );
-    build_o_proj::<D>(cfg, &attn, x)
+    build_o_proj::<D>(cfg, &attn, q_in)
 }
 
 // ---------------------------------------------------------------------------
@@ -394,19 +418,27 @@ pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
     states: &SymTensor,
     n_states: usize,
     queries: usize,
-) -> SymTensor {
+) -> Vec<SymTensor> {
     let _a = name_scope("attn_res");
     let normed = states.record_custom(
         CustomData::new(UnweightedRmsNormOp::<D>::new(cfg.hidden_size)),
         &[],
         None,
     );
-    let _g = name_scope(name);
-    normed.record_custom(
-        CustomData::new(BlockAttnOp::<D>::new(n_states, cfg.hidden_size, queries)),
-        &[],
-        None,
-    )
+    // One op per query. They share the checkpoint's `[queries, hidden]` tensor, so
+    // it loads into each of their slots; at 3 x 2304 floats that is ~27 KB, which is
+    // cheaper than the alternatives (slicing the output needs a strided view the
+    // graph has no op for).
+    (0..queries)
+        .map(|q| {
+            let _g = name_scope(format!("{name}_{q}"));
+            normed.record_custom(
+                CustomData::new(BlockAttnOp::<D>::new(n_states, cfg.hidden_size, queries, q)),
+                &[],
+                None,
+            )
+        })
+        .collect()
 }
 
 /// Records one `controllers.*` gate (`Inkling2LoopMessageGate`):
@@ -463,4 +495,145 @@ pub fn build_controller<D: FloatBytes + Send + Sync + 'static>(
         &[message, &forget, &gain],
         None,
     )
+}
+
+// ---------------------------------------------------------------------------
+// The decoder layer
+// ---------------------------------------------------------------------------
+
+/// What a layer needs from the host that is not a tensor: the cache geometry and,
+/// on the looped core's later passes, the messages from the previous pass.
+pub struct LayerInputs<'a> {
+    /// The layer's input, `[T, hidden]`.
+    pub x: &'a SymTensor,
+    /// The block states of each token, `[T * n_states, hidden]`, the current partial
+    /// block last.
+    pub block_states: &'a SymTensor,
+    /// How many states that is per token.
+    pub n_states: usize,
+    /// The key convolution's `K - 1` rows of state, of the PROJECTED keys.
+    pub k_hist: &'a SymTensor,
+    /// As `k_hist`, for values.
+    pub v_hist: &'a SymTensor,
+    /// The attention output with the same history, for `attn_sconv`.
+    pub attn_hist: &'a SymTensor,
+    /// The MoE output with the same history, for `mlp_sconv`.
+    pub mlp_hist: &'a SymTensor,
+    /// Keys and values already cached.
+    pub k_cache: &'a SymTensor,
+    /// As `k_cache`.
+    pub v_cache: &'a SymTensor,
+    /// The router's packed row and its re-packed ids, which the host computes
+    /// between the two halves of the layer (see [`build_router`] and [`slot_ids`]).
+    pub routed: &'a SymTensor,
+    /// As `routed`.
+    pub ids: &'a SymTensor,
+    /// On passes after the first through the looped core, the previous pass's
+    /// messages for the query, key, value and MLP inputs, in that order.
+    pub messages: Option<[&'a SymTensor; 4]>,
+}
+
+/// Records one decoder layer.
+///
+/// ```text
+/// block_residual = x
+/// qh, kh, vh     = attn_res(block_states, x, attn_queries)   three learned queries
+/// (looping)      = controllers.q/k/v(qh|kh|vh, message)
+/// h              = attn(attn_norm(qh), attn_norm(kh), attn_norm(vh))
+/// h              = attn_sconv(h)
+/// residual       = h                       at a block boundary
+///                = block_residual + h      otherwise
+/// m              = attn_res(block_states, h, mlp_queries)    one learned query
+/// (looping)      = controllers.mlp(m, message)
+/// m              = mlp_sconv(moe(mlp_norm(m)))
+/// out            = residual + m
+/// ```
+///
+/// **The block boundary.** Every `n_layers_per_attn_res_block` layers the layer's
+/// own input joins the block states instead of being added back as a residual. The
+/// host appends it to `block_states` for the next layer; here the difference is only
+/// whether `residual` is the attention output alone or the sum.
+///
+/// **Three queries, not one.** The checkpoint's `attn_res.attn_queries.{layer}` is
+/// `[3, hidden]`, so the block attention yields three different states, one each for
+/// the query, key and value projections. The reference's `num_queries = 1` form
+/// feeds the same state to all three; the shipped weights say otherwise, and the
+/// looped layer's separate q/k/v message gates agree with three.
+#[allow(clippy::too_many_arguments)]
+pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    layer: usize,
+    inputs: &LayerInputs<'_>,
+    past: usize,
+    kv_len: usize,
+    past_len: PastLen,
+) -> SymTensor {
+    let hid = cfg.hidden_size;
+    let is_boundary = layer.is_multiple_of(cfg.n_layers_per_attn_res_block);
+    let window = if cfg.is_sliding(layer) {
+        Some(cfg.sliding_window_size)
+    } else {
+        None
+    };
+
+    // Three states out of the block attention, one per projection.
+    let qkv = build_attn_res::<D>(cfg, "attn_queries", inputs.block_states, inputs.n_states, 3);
+    let gated: Vec<SymTensor> = match inputs.messages {
+        None => qkv,
+        Some(msgs) => ["q", "k", "v"]
+            .iter()
+            .enumerate()
+            .map(|(i, which)| build_controller::<D>(cfg, which, &qkv[i], msgs[i]))
+            .collect(),
+    };
+    let normed: Vec<SymTensor> = gated
+        .iter()
+        .map(|g| build_norm::<D>("attn_norm", g, hid))
+        .collect();
+
+    let attn = build_attention::<D>(
+        cfg,
+        &normed[0],
+        &normed[1],
+        &normed[2],
+        inputs.k_hist,
+        inputs.v_hist,
+        inputs.k_cache,
+        inputs.v_cache,
+        past,
+        kv_len,
+        past_len,
+        window,
+    );
+    let h = {
+        let _g = name_scope("attn_sconv");
+        inputs.attn_hist.record_custom(
+            CustomData::new(SconvOp::<D>::new(hid, cfg.sconv_kernel_size)),
+            &[&attn],
+            None,
+        )
+    };
+    let residual = if is_boundary {
+        h.clone()
+    } else {
+        add(inputs.x, &h)
+    };
+
+    let m =
+        build_attn_res::<D>(cfg, "mlp_queries", inputs.block_states, inputs.n_states, 1).remove(0);
+    let m = match inputs.messages {
+        None => m,
+        Some(msgs) => build_controller::<D>(cfg, "mlp", &m, msgs[3]),
+    };
+    let m = build_norm::<D>("mlp_norm", &m, hid);
+    let moe = build_moe::<D>(cfg, &m, inputs.routed, inputs.ids);
+    let m = {
+        let _g = name_scope("mlp_sconv");
+        inputs.mlp_hist.record_custom(
+            CustomData::new(SconvOp::<D>::new(hid, cfg.sconv_kernel_size)),
+            &[&moe],
+            None,
+        )
+    };
+    add(&residual, &m)
 }

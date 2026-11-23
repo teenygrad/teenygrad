@@ -25,11 +25,14 @@
 //! y[t, c] = sum(k in 0..K) w[c, k] * x[t + k, c]
 //! ```
 //!
-//! **History lives on the host.** The input is `[T + K - 1, C]`: the caller prepends
-//! the `K - 1` tokens that came before, or zeros at the start of a sequence, the same
-//! way the KV cache is kept host-side. That keeps the kernel stateless and makes
-//! prompt processing and single-token decoding the same code path, with `T` the only
-//! difference.
+//! **History is a second input, not a prefix.** The convolution takes `hist` of
+//! `[K - 1, C]` and `x` of `[T, C]` separately, and reads
+//! `[hist; x]` as one `[T + K - 1, C]` stack. The caller keeps `hist` the way it
+//! keeps the KV cache, with zeros at the start of a sequence.
+//!
+//! Taking them apart matters: inside a decoder layer the convolution's input is
+//! produced by the graph itself (the attention output, the MoE output), so it cannot
+//! be a host tensor with history already glued on. Only the history is host-side.
 //!
 //! Grid: `ceil(C / BLOCK)` by `T`.
 
@@ -41,6 +44,7 @@ use teeny_triton::triton::*;
 #[allow(clippy::multiple_bound_locations)]
 #[kernel]
 pub fn sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
+    h_ptr: InPtr<T::Pointer<D>>,
     x_ptr: InPtr<T::Pointer<D>>,
     w_ptr: InPtr<T::Pointer<D>>,
     y_ptr: OutPtr<T::Pointer<D>>,
@@ -62,16 +66,35 @@ pub fn sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
     let mut acc = T::zeros::<D>(&[BLOCK]);
     // K is a const generic, so this unrolls: K loads and K multiply-adds per channel.
     for k in 0..K {
-        let x = T::load(
-            x_ptr.add_offsets(offs + (t + k) * C),
-            Some(m),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
+        // Row `t + k` of the virtual [hist; x] stack: the first K - 1 rows are
+        // history, the rest are this step's tokens.
+        let row = t + k;
+        let in_hist = row < K - 1;
+        let hrow = if in_hist { row } else { 0 };
+        let xrow = if in_hist { 0 } else { row - (K - 1) };
+        let x = if in_hist {
+            T::load(
+                h_ptr.add_offsets(offs + hrow * C),
+                Some(m),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            )
+        } else {
+            T::load(
+                x_ptr.add_offsets(offs + xrow * C),
+                Some(m),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            )
+        };
         let w = T::load(
             w_ptr.add_offsets(offs * K + k),
             Some(m),
@@ -108,7 +131,8 @@ use teeny_core::model::{RawPtr, RuntimeOp};
 
 const BLOCK: i32 = 256;
 
-/// Graph-level short convolution: `[T + K - 1, C]` to `[T, C]`.
+/// Graph-level short convolution: inputs `hist` `[K - 1, C]` and `x` `[T, C]`,
+/// output `[T, C]`.
 pub struct SconvOp<D: FloatBytes + Send + Sync + 'static> {
     /// Channels.
     pub channels: usize,
@@ -135,9 +159,8 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for SconvOp<D> {
     }
 
     fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
-        // The caller's K-1 rows of history are consumed, not emitted.
-        let rows = input_shapes[0][0].map(|t| t + 1 - self.width);
-        vec![rows, Some(self.channels)]
+        // Shaped by `x`, the second input; the history adds no rows of its own.
+        vec![input_shapes[1][0], Some(self.channels)]
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -168,7 +191,7 @@ pub struct SconvRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
 
 impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for SconvRuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
-        1
+        2
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
@@ -184,19 +207,20 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for SconvRuntimeOp<D> {
         inputs: &[(RawPtr, &[usize])],
         params: &[RawPtr],
         output: RawPtr,
-        output_shape: &[usize],
+        _output_shape: &[usize],
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
-        assert_eq!(inputs[0].1[1], self.channels, "sconv: input channels");
+        assert_eq!(inputs[1].1[1], self.channels, "sconv: input channels");
         assert_eq!(
             inputs[0].1[0],
-            output_shape[0] + self.width - 1,
-            "sconv: input needs {} rows of history before the {} it emits",
             self.width - 1,
-            output_shape[0]
+            "sconv: history must be {} rows, not {}",
+            self.width - 1,
+            inputs[0].1[0]
         );
         visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(inputs[1].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
         visitor.visit_i32(self.channels as i32);

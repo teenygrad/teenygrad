@@ -158,8 +158,10 @@ fn test_sconv_matches_a_host_convolution() {
             (0..K).map(|k| w[ch * K + k] * x[(row + k) * c + ch]).sum()
         })
         .collect();
-    let g = OneOp::new(&[t + K - 1, c]);
-    let got = g.run(SconvOp::<f32>::new(c, K), &[], &[&x], &[&w]);
+    let (hist, cur) = x.split_at((K - 1) * c);
+    let g = OneOp::new(&[K - 1, c]);
+    let x_in = g.input(&[t, c]);
+    let got = g.run(SconvOp::<f32>::new(c, K), &[&x_in], &[hist, cur], &[&w]);
     assert_close("sconv", &got, &want, 1e-5);
 }
 
@@ -174,8 +176,10 @@ fn test_sconv_with_zero_history_keeps_only_the_last_tap() {
     x[(K - 1) * c..].copy_from_slice(&row); // the only non-zero token
     let w = values(c * K, 14);
     let want: Vec<f32> = (0..c).map(|ch| w[ch * K + (K - 1)] * row[ch]).collect();
-    let g = OneOp::new(&[K, c]);
-    let got = g.run(SconvOp::<f32>::new(c, K), &[], &[&x], &[&w]);
+    let (hist, cur) = x.split_at((K - 1) * c);
+    let g = OneOp::new(&[K - 1, c]);
+    let x_in = g.input(&[1, c]);
+    let got = g.run(SconvOp::<f32>::new(c, K), &[&x_in], &[hist, cur], &[&w]);
     assert_close("sconv first token", &got, &want, 1e-5);
 }
 
@@ -192,8 +196,10 @@ fn test_sconv_masks_a_ragged_channel_tail() {
             (0..K).map(|k| w[ch * K + k] * x[(row + k) * c + ch]).sum()
         })
         .collect();
-    let g = OneOp::new(&[t + K - 1, c]);
-    let got = g.run(SconvOp::<f32>::new(c, K), &[], &[&x], &[&w]);
+    let (hist, cur) = x.split_at((K - 1) * c);
+    let g = OneOp::new(&[K - 1, c]);
+    let x_in = g.input(&[t, c]);
+    let got = g.run(SconvOp::<f32>::new(c, K), &[&x_in], &[hist, cur], &[&w]);
     assert_close("sconv ragged", &got, &want, 1e-5);
 }
 
@@ -1222,14 +1228,29 @@ fn test_block_attn_matches_a_host_reference() {
             }
         }
     }
-    let g = OneOp::new(&[t * st, hid]);
-    let got = g.run(
-        BlockAttnOp::<f32>::new(st, hid, q),
-        &[],
-        &[&states],
-        &[&query],
-    );
-    assert_close("block attn", &got, &want, 1e-4);
+    // One op per query: each reads its own row of the shared [Q, hidden] parameter.
+    let got: Vec<Vec<f32>> = (0..q)
+        .map(|qi| {
+            let gi = OneOp::new(&[t * st, hid]);
+            gi.run(
+                BlockAttnOp::<f32>::new(st, hid, q, qi),
+                &[],
+                &[&states],
+                &[&query],
+            )
+        })
+        .collect();
+    // `want` is token-major; the ops are query-major, so compare per (token, query).
+    for tok in 0..t {
+        for qi in 0..q {
+            assert_close(
+                "block attn",
+                &got[qi][tok * hid..(tok + 1) * hid],
+                &want[(tok * q + qi) * hid..(tok * q + qi + 1) * hid],
+                1e-4,
+            );
+        }
+    }
 }
 
 /// With one state the softmax is trivial and every query returns that state, which
@@ -1239,18 +1260,18 @@ fn test_block_attn_with_one_state_returns_it() {
     let (t, hid, q) = (2usize, 32usize, 3usize);
     let states = values(t * hid, 123);
     let query = values(q * hid, 124);
-    let g = OneOp::new(&[t, hid]);
-    let got = g.run(
-        BlockAttnOp::<f32>::new(1, hid, q),
-        &[],
-        &[&states],
-        &[&query],
-    );
-    for tok in 0..t {
-        for qi in 0..q {
+    for qi in 0..q {
+        let g = OneOp::new(&[t, hid]);
+        let got = g.run(
+            BlockAttnOp::<f32>::new(1, hid, q, qi),
+            &[],
+            &[&states],
+            &[&query],
+        );
+        for tok in 0..t {
             assert_close(
                 "single state",
-                &got[(tok * q + qi) * hid..(tok * q + qi + 1) * hid],
+                &got[tok * hid..(tok + 1) * hid],
                 &states[tok * hid..(tok + 1) * hid],
                 1e-5,
             );
