@@ -641,6 +641,42 @@ pub mod core {
             }
         }
 
+        // Just a dummy, the compiler will generate the correct implementation
+        impl BitAnd for i32 {
+            type Output = i32;
+            fn bitand(self, rhs: i32) -> Self::Output {
+                0
+            }
+        }
+
+        #[lang = "shr"]
+        pub trait Shr<RHS = Self> {
+            type Output;
+            fn shr(self, rhs: RHS) -> Self::Output;
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Shr for i32 {
+            type Output = i32;
+            fn shr(self, rhs: i32) -> Self::Output {
+                0
+            }
+        }
+
+        #[lang = "shl"]
+        pub trait Shl<RHS = Self> {
+            type Output;
+            fn shl(self, rhs: RHS) -> Self::Output;
+        }
+
+        // Just a dummy, the compiler will generate the correct implementation
+        impl Shl for i32 {
+            type Output = i32;
+            fn shl(self, rhs: i32) -> Self::Output {
+                0
+            }
+        }
+
         #[lang = "bitor"]
         pub trait BitOr<RHS = Self> {
             type Output;

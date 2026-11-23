@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use core::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Sub};
+use core::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Shl, Shr, Sub};
 
 use super::super::super::types::{self as ty};
 
@@ -208,6 +208,46 @@ impl Mul<i32> for LlvmI32Tensor {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn mul(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shr<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shr(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shl<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shl(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitAnd<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitand(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitOr<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitor(self, _rhs: i32) -> Self::Output {
         LlvmTensor(0 as *mut i32)
     }
 }

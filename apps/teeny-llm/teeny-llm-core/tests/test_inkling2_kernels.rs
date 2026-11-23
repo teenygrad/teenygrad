@@ -36,7 +36,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
-    nvfp4::Nvfp4DequantOp,
+    nvfp4::{Nvfp4DequantOp, UnpackByteOp},
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
     scatter_add::ExpertScatterAddOp,
@@ -1440,5 +1440,47 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
     assert!(
         plain.iter().any(|v| v.abs() > 1e-6),
         "the comparison is only meaningful on non-zero output"
+    );
+}
+
+/// What teenyc does and does not do with integer bit operations, pinned so a
+/// toolchain change shows up here.
+///
+/// Three findings, all from probing the installed toolchain rather than reading it:
+///
+/// 1. `BitAnd` on an integer tensor **lowers and computes correctly**. It is new in
+///    this branch (`impl BitAnd<i32> for LlvmI32Tensor`).
+/// 2. `Shr` **does not lower**. It is implemented on the Rust side, but teenyc's
+///    MLIR backend yields an unshaped `tensor<?xf32>` and the store then fails
+///    `'tt.store' op failed to verify that value type matches ptr type`. There is no
+///    test for it here because it crashes the compiler rather than failing a run.
+/// 3. `T::cast`'s `bitcast` flag is **ignored**: the cast converts by value. That is
+///    what this test shows, and it is the reason NVFP4 weights cannot yet be
+///    bit-packed four to an f32.
+#[test]
+fn test_bitand_works_and_bitcast_is_ignored() {
+    let raw = nvfp4_fixture("w13_rows.bin");
+    let n = 64usize;
+    let words: Vec<f32> = (0..n)
+        .map(|i| f32::from_le_bytes([raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]]))
+        .collect();
+
+    let got = {
+        let g = OneOp::new(&[n]);
+        g.run(UnpackByteOp::<f32>::new(0), &[], &[&words], &[])
+    };
+
+    // (1) and (3): the kernel asks for a bitcast and masks the low byte. What comes
+    // back is the low byte of the VALUE, so the mask worked and the bitcast did not.
+    let by_value: Vec<f32> = words.iter().map(|w| ((*w as i32) & 0xFF) as f32).collect();
+    assert_close("mask of the value-cast word", &got, &by_value, 0.0);
+
+    // If the bitcast were honoured these would be the packed bytes instead, and for
+    // this fixture the two readings genuinely differ.
+    let by_bits: Vec<f32> = (0..n).map(|i| raw[i * 4] as f32).collect();
+    let differing = got.iter().zip(&by_bits).filter(|(a, b)| a != b).count();
+    assert!(
+        differing > n / 2,
+        "the two readings must differ for this test to mean anything ({differing} of {n})"
     );
 }
