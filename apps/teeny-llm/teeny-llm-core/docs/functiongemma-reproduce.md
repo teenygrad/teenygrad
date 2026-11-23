@@ -149,30 +149,7 @@ for k, t in per_op.most_common(8):
 PY
 ```
 
-## 4. The linear kernel alone
-
-`examples/matmul_bench.rs` times `linear4` at FunctionGemma's decode and prompt-chunk shapes, for
-a list of block sizes and both program orderings (`rows`, the original; `reuse`, ids down the
-rows), after checking two outputs against the host. Its kernels are compiled under qemu on the
-host and copied:
-
-```bash
-CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc CARGO_TARGET_DIR=target/riscv64-native \
-  cargo build --release --target riscv64gc-unknown-linux-gnu -p teeny-llm-core --example matmul_bench \
-  --no-default-features --features functiongemma,riscv
-mkdir -p /tmp/matmul-stage && cp target/riscv64-native/riscv64gc-unknown-linux-gnu/release/examples/matmul_bench /tmp/matmul-stage/
-(cd /tmp/matmul-stage && TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 \
-  qemu-riscv64-static -cpu max -L /usr/riscv64-linux-gnu ./matmul_bench 1 16,32,64,128 rows,reuse)
-rsync -a /tmp/matmul-stage/ board:matmul-bench/
-ssh board 'cd matmul-bench && env TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./matmul_bench 10 16,32,64,128 rows,reuse'
-```
-
-Arguments: iterations, block sizes, kernels. Add `TEENY_RISCV_THREADS=1` for one core, or run
-under `/proc/set_ai_thread` for the A100. On the 8 X100 cores, block 16, expect lm_head about
-41 ms, and `gate/up x64` about 12 ms with `rows` and 8.6 ms with `reuse`. (functiongemma.md's
-block-size sweep was measured before the thread pool, when `rows` took 15 ms here.)
-
-## 5. Memory bandwidth
+## 4. Memory bandwidth
 
 The "shared memory bus" numbers (about 21 GB/s for either cluster alone, 24 GB/s together) come
 from this stand-alone program, not part of the workspace:
@@ -209,7 +186,7 @@ ssh board './bw 8 12 > x.out & bash -c "echo \$\$ > /proc/set_ai_thread; exec ./
 
 The first line gives the X100 and A100 clusters alone, the second both at once (add the two).
 
-## 6. Temperature
+## 5. Temperature
 
 None of the runs throttled (72–80 °C, full clocks). To check during a run:
 
