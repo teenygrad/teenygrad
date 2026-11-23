@@ -36,9 +36,11 @@
 //!   on the MLP gate and up projections, the final logits, and the query and relative
 //!   terms.
 
-// The kernel tests lower through teeny-kernels, and the runner will once it exists;
-// without this the crate lints as not using the dependency its feature pulls in.
+// The kernel tests lower through teeny-kernels and run through teeny-test, and the
+// runner will use both once it exists; without this the crate lints as not using the
+// dependencies its feature pulls in.
 use teeny_kernels as _;
+use teeny_test as _;
 
 pub mod config;
 pub mod kernels;

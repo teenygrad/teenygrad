@@ -26,7 +26,9 @@ use teeny_core::graph::{CustomData, CustomOp, DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
 use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
-use teeny_llm_core::models::inkling2::kernels::sconv::SconvOp;
+use teeny_llm_core::models::inkling2::kernels::{
+    l2_clip::ScaledL2ClipOp, sconv::SconvOp, softcap::SoftcapOp,
+};
 use teeny_test::model::{RuntimeModel, runtime};
 
 /// Deterministic values in `[-1, 1)`.
@@ -183,4 +185,132 @@ fn test_sconv_masks_a_ragged_channel_tail() {
     let g = OneOp::new(&[t + K - 1, c]);
     let got = g.run(SconvOp::<f32>::new(c, K), &[], &[&x], &[&w]);
     assert_close("sconv ragged", &got, &want, 1e-5);
+}
+
+/// `y = tanh(x / cap) * cap`, at each of the three caps the model ships with.
+#[test]
+fn test_softcap_matches_a_host_tanh() {
+    let n = 1500usize;
+    // Scaled well past each cap, so the saturating part of tanh is exercised.
+    let x: Vec<f32> = values(n, 21).iter().map(|v| v * 60.0).collect();
+    for cap in [4.0f32, 25.0, 30.0] {
+        let want: Vec<f32> = x.iter().map(|v| (v / cap).tanh() * cap).collect();
+        let g = OneOp::new(&[n]);
+        let got = g.run(SoftcapOp::<f32>::new(cap), &[], &[&x], &[]);
+        assert_close(&format!("softcap {cap}"), &got, &want, 1e-5);
+    }
+}
+
+/// Far outside the cap the output is the cap itself, with the sign of the input.
+#[test]
+fn test_softcap_saturates_at_the_cap() {
+    let x = vec![-1.0e4f32, -500.0, 0.0, 500.0, 1.0e4];
+    let cap = 4.0f32;
+    let want: Vec<f32> = x.iter().map(|v| (v / cap).tanh() * cap).collect();
+    let g = OneOp::new(&[x.len()]);
+    let got = g.run(SoftcapOp::<f32>::new(cap), &[], &[&x], &[]);
+    assert_close("softcap saturation", &got, &want, 1e-5);
+    assert!(
+        (got[0] + cap).abs() < 1e-4,
+        "large negative should sit at -cap: {}",
+        got[0]
+    );
+    assert!(
+        (got[4] - cap).abs() < 1e-4,
+        "large positive should sit at +cap: {}",
+        got[4]
+    );
+    assert_eq!(got[2], 0.0, "zero should stay zero");
+}
+
+/// `v = x * scale[head]; y = v * min(threshold / (|v| + 1e-6), 1)`.
+fn l2_clip_reference(x: &[f32], scale: &[f32], heads: usize, hd: usize, thr: f32) -> Vec<f32> {
+    let mut y = vec![0.0f32; x.len()];
+    for row in 0..x.len() / (heads * hd) {
+        for h in 0..heads {
+            let base = row * heads * hd + h * hd;
+            let v: Vec<f32> = (0..hd).map(|i| x[base + i] * scale[h * hd + i]).collect();
+            let norm = v.iter().map(|a| a * a).sum::<f32>().sqrt();
+            let ratio = (thr / (norm + 1e-6)).min(1.0);
+            for i in 0..hd {
+                y[base + i] = v[i] * ratio;
+            }
+        }
+    }
+    y
+}
+
+#[test]
+fn test_scaled_l2_clip_matches_the_reference() {
+    let (t, heads, hd) = (4usize, 6usize, 128usize);
+    let thr = 22.627_417f32; // the model's qk_l2_clip_threshold
+    // Big enough that some head vectors clip and others do not.
+    let x: Vec<f32> = values(t * heads * hd, 22).iter().map(|v| v * 5.0).collect();
+    let scale: Vec<f32> = values(heads * hd, 23).iter().map(|v| v + 1.0).collect();
+    let want = l2_clip_reference(&x, &scale, heads, hd, thr);
+    let g = OneOp::new(&[t, heads * hd]);
+    let got = g.run(
+        ScaledL2ClipOp::<f32>::new(heads, hd, thr),
+        &[],
+        &[&x],
+        &[&scale],
+    );
+    assert_close("scaled l2 clip", &got, &want, 1e-4);
+}
+
+/// A short vector keeps the scale applied to it and is NOT stretched up to the
+/// threshold: that is what clamping the ratio at 1 means.
+#[test]
+fn test_scaled_l2_clip_leaves_short_vectors_alone() {
+    let (heads, hd) = (2usize, 64usize);
+    let thr = 100.0f32; // far longer than anything here
+    let x: Vec<f32> = values(heads * hd, 24).iter().map(|v| v * 0.01).collect();
+    let scale = vec![1.0f32; heads * hd];
+    let g = OneOp::new(&[1, heads * hd]);
+    let got = g.run(
+        ScaledL2ClipOp::<f32>::new(heads, hd, thr),
+        &[],
+        &[&x],
+        &[&scale],
+    );
+    assert_close("l2 clip passthrough", &got, &x, 1e-6);
+}
+
+/// A long vector comes out at exactly the threshold.
+#[test]
+fn test_scaled_l2_clip_shortens_to_the_threshold() {
+    let (heads, hd) = (1usize, 32usize);
+    let thr = 3.0f32;
+    let x = vec![1.0f32; hd]; // norm sqrt(32) = 5.66, well over
+    let scale = vec![1.0f32; hd];
+    let g = OneOp::new(&[1, hd]);
+    let got = g.run(
+        ScaledL2ClipOp::<f32>::new(heads, hd, thr),
+        &[],
+        &[&x],
+        &[&scale],
+    );
+    let norm = got.iter().map(|a| a * a).sum::<f32>().sqrt();
+    assert!(
+        (norm - thr).abs() < 1e-3,
+        "clipped norm {norm} should be {thr}"
+    );
+}
+
+/// A head_dim that is not a power of two, so the block is padded and masked.
+#[test]
+fn test_scaled_l2_clip_masks_a_ragged_head() {
+    let (t, heads, hd) = (2usize, 3usize, 100usize);
+    let thr = 8.0f32; // the model's rel_l2_clip_threshold
+    let x: Vec<f32> = values(t * heads * hd, 25).iter().map(|v| v * 3.0).collect();
+    let scale: Vec<f32> = values(heads * hd, 26).iter().map(|v| v + 1.0).collect();
+    let want = l2_clip_reference(&x, &scale, heads, hd, thr);
+    let g = OneOp::new(&[t, heads * hd]);
+    let got = g.run(
+        ScaledL2ClipOp::<f32>::new(heads, hd, thr),
+        &[],
+        &[&x],
+        &[&scale],
+    );
+    assert_close("l2 clip ragged", &got, &want, 1e-4);
 }
