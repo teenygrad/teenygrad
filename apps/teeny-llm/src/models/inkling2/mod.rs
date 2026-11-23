@@ -17,9 +17,22 @@
 //! Inkling-2 (`Inkling2LoopForConditionalGeneration`), starting with Thinking
 //! Machines' Inkling-2-Mini (`thinkingmachines/Inkling-2-Mini`).
 //!
-//! **Status: config only.** The step graph, runner and kernels are not written yet.
-//! What is here parses and validates `config.json` and records what the rest of the
-//! port has to account for.
+//! **Status: the MoE block runs; attention does not.** [`model::build_router`] and
+//! [`model::build_moe`] lower and run as graphs, and the seven kernels in [`kernels`]
+//! are tested one by one against the reference. A whole step graph is blocked on
+//! attention, which needs two things [`crate::kernels::attention::AttentionSpec`]
+//! does not have:
+//!
+//! - a **relative position bias** added to the attention logits before the softmax
+//!   ([`kernels::rel_bias`] produces it, but nothing consumes it yet);
+//! - a per-query **attention sink**, one extra logit with a zero value that absorbs
+//!   probability mass, so the attention weights deliberately do not sum to one. This
+//!   is why the reference sets `_supports_sdpa = False` and cannot use flash
+//!   attention.
+//!
+//! Also still to come: the gated output projection (`o_proj` is gated by the layer
+//! input), the loop gate that mixes the three passes of the core, the runner, and
+//! NVFP4 dequantisation inside the expert gather's inner loop.
 //!
 //! Four things make this a larger job than the Gemma port, which is why they are
 //! named in [`config`] rather than discovered later:
@@ -44,5 +57,6 @@ use teeny_test as _;
 
 pub mod config;
 pub mod kernels;
+pub mod model;
 
 pub use config::{Inkling2Config, Inkling2TextConfig, LoopConfig};
