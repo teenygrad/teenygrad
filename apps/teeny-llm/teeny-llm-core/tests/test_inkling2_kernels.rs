@@ -1452,42 +1452,45 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
     );
 }
 
-/// What teenyc does and does not do with integer bit operations, pinned so a
-/// toolchain change shows up here.
+/// Four bytes unpack from one bit-packed f32, which is what the 0.5-bytes-per-weight
+/// NVFP4 encoding needs.
 ///
-/// Three findings, all from probing the installed toolchain rather than reading it:
-///
-/// 1. `BitAnd` on an integer tensor **lowers and computes correctly**. It is new in
-///    this branch (`impl BitAnd<i32> for LlvmI32Tensor`).
-/// 2. `Shr` **does not lower**. It is implemented on the Rust side, but teenyc's
-///    MLIR backend yields an unshaped `tensor<?xf32>` and the store then fails
-///    `'tt.store' op failed to verify that value type matches ptr type`. There is no
-///    test for it here because it crashes the compiler rather than failing a run.
-/// 3. `T::cast`'s `bitcast` flag is **ignored**: the cast converts by value. That is
-///    what this test shows, and it is the reason NVFP4 weights cannot yet be
-///    bit-packed four to an f32.
+/// Both halves of this were broken in the shipped toolchain and are fixed in the
+/// local build (teenygrad#170): `T::cast`'s `bitcast` flag was ignored, so the cast
+/// converted by value. `BitAnd` on an integer tensor was simply missing and is added
+/// in this branch. `Shr` is still not lowered, so the unpacking masks first and
+/// divides second, which also keeps every intermediate non-negative - `Div`
+/// truncates towards zero, so the top byte has to be masked before it is shifted
+/// down, and its sign bit put back by hand.
 #[test]
-fn test_bitand_works_and_bitcast_is_ignored() {
+fn test_four_bytes_unpack_from_one_packed_word() {
     let raw = nvfp4_fixture("w13_rows.bin");
     let n = 64usize;
     let words: Vec<f32> = (0..n)
         .map(|i| f32::from_le_bytes([raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]]))
         .collect();
+    let negatives = words.iter().filter(|w| w.to_bits() >> 31 == 1).count();
+    assert!(
+        negatives > 0,
+        "the fixture must include words with the top bit set"
+    );
 
-    let got = {
+    for which in 0..4 {
+        let want: Vec<f32> = (0..n).map(|i| raw[i * 4 + which] as f32).collect();
         let g = OneOp::new(&[n]);
-        g.run(UnpackByteOp::<f32>::new(0), &[], &[&words], &[])
-    };
+        let got = g.run(UnpackByteOp::<f32>::new(which), &[], &[&words], &[]);
+        assert_close(&format!("byte {which}"), &got, &want, 0.0);
+    }
 
-    // (1) and (3): the kernel asks for a bitcast and masks the low byte. What comes
-    // back is the low byte of the VALUE, so the mask worked and the bitcast did not.
+    // The bitcast is doing real work: a value conversion would give something else
+    // entirely for most of these words.
     let by_value: Vec<f32> = words.iter().map(|w| ((*w as i32) & 0xFF) as f32).collect();
-    assert_close("mask of the value-cast word", &got, &by_value, 0.0);
-
-    // If the bitcast were honoured these would be the packed bytes instead, and for
-    // this fixture the two readings genuinely differ.
     let by_bits: Vec<f32> = (0..n).map(|i| raw[i * 4] as f32).collect();
-    let differing = got.iter().zip(&by_bits).filter(|(a, b)| a != b).count();
+    let differing = by_value
+        .iter()
+        .zip(&by_bits)
+        .filter(|(a, b)| a != b)
+        .count();
     assert!(
         differing > n / 2,
         "the two readings must differ for this test to mean anything ({differing} of {n})"
