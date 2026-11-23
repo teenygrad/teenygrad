@@ -40,7 +40,9 @@ teeny-vision = { path = "models/teeny-vision", version = "0.3.2" }
 # dev-dependency, which `cargo publish` then strips, so it never has to be released before them.
 teeny-test = { path = "testing/teeny-test" }
 teeny-runtime = { path = "runtime/teeny-runtime", version = "0.3.2" }
-teeny-llm-core = { path = "apps/teeny-llm/teeny-llm-core", version = "0.3.2" }
+# Without its default features (FunctionGemma on CUDA): teeny-llm-server and teeny-llm-chat
+# serve no model yet, so they do not pull in the model and backend stack.
+teeny-llm-core = { path = "apps/teeny-llm/teeny-llm-core", version = "0.3.2", default-features = false }
 
 anyhow = { version = "1.0.100", default-features = false }
 thiserror = { version = "2.0.18", default-features = false }
