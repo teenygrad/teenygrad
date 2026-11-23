@@ -38,6 +38,7 @@ pub mod kernels;
 pub mod model;
 #[cfg(any(feature = "cuda", feature = "riscv"))]
 pub mod runner;
+pub mod tools;
 
 pub use crate::kernels::attention::PastLen;
 pub use config::GemmaConfig;

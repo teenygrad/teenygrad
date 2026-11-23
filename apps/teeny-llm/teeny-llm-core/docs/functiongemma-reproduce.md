@@ -197,3 +197,78 @@ ssh board 'for z in 3 4 5 6; do echo "$(cat /sys/class/thermal/thermal_zone$z/ty
 ```
 
 Expect 2200 / 1800 MHz and throttle states 0 / 0 (X100 / A100).
+
+## 6. The weather web demo
+
+`examples/functiongemma_serve.rs` is the `functiongemma` example's chat mode with a browser in front of it: the same model and the
+same `get_weather` tool, reached over HTTP, with the sky behind the page painted from whatever
+the tool just returned. Deploying it is one command, and it shares `board-chat.sh`'s kernel
+cache, so if you have run the chat already this only cross-compiles the binary:
+
+```bash
+apps/teeny-llm/teeny-llm-core/scripts/functiongemma-board-serve.sh -H board
+```
+
+It stages into `~/functiongemma-serve` and starts the server on the board's loopback. Reach it by
+forwarding the port, which keeps it off the network:
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 board
+```
+
+Then open <http://127.0.0.1:8080>. **The server speaks plain HTTP with no authentication and
+answers one visitor at a time.** `--listen 0.0.0.0:8080` exists, but only put it behind a
+reverse proxy that terminates TLS.
+
+A turn takes about ten seconds end to end. The page's footer reports the numbers per turn, and on
+an idle K3 they should land near the chat mode's: 55–65 prompt tokens/s, 11.3 tokens/s decode,
+first token after about 0.8 s.
+
+### Checking it
+
+`scripts/check-demo.py` puts 118 cases through a running server. Eleven need no generation (the
+page, the health endpoint, the message, history and body limits) and finish in seconds:
+
+```bash
+apps/teeny-llm/teeny-llm-core/scripts/functiongemma-check-demo.py --url http://127.0.0.1:8080 --quick
+```
+
+The rest ask real questions, so the full run is about eighteen minutes on one board. What it
+checks is not that the model called something: for each answer it fetches the reading from
+Open-Meteo itself, then compares the card against that live reading, every temperature, humidity
+and wind figure in the model's prose against the card, and the model's wording against the sky it
+just reported. A model that invents a plausible temperature fails here even though it called the
+tool and sounded fine.
+
+```bash
+apps/teeny-llm/teeny-llm-core/scripts/functiongemma-check-demo.py --url http://127.0.0.1:8080 \
+  --source-via 'ssh -o ControlPath=/tmp/cm-board -o BatchMode=yes board'
+```
+
+`--source-via` matters more than it looks. **Open-Meteo is not client-independent**: asked for
+Jakarta at the same instant from the same URL, an x86-64 host here was told 28.1 °C at 78% while
+the board was told 26.2 °C at 87%, repeatably, with the timestamp, elevation, cloud cover and
+weather code identical in both. Lisbon matched to the decimal. So for some regions a reading
+fetched on the host is not evidence about a reading fetched on the board, and without
+`--source-via` the numeric comparison is widened to survive that (the run says so at the end).
+With it, the lookups run on the board and the comparison is exact. Open a shared connection
+first, or every lookup dials out again and the jump host will start refusing:
+
+```bash
+ssh -o ControlMaster=auto -o ControlPath=/tmp/cm-board -o ControlPersist=4h -N -f board
+```
+
+Expect every case to pass. Three phrasings are there because they failed once and the fix is
+easy to undo by accident:
+
+| Case | What broke |
+|---|---|
+| `* / umbrella`, `* / trailing` | the `city` parameter named two example cities, and the model began refusing everywhere else, telling a visitor its tools covered "cities like Tokyo and Lisbon" |
+| `* / imperative` | the model emits `call{city:…}` without the function name; the parser used to drop the turn |
+| `two cities at once` | the model mixes the two readings, which the retraction guard catches |
+
+The unit tests need no board and cover the same ground in milliseconds:
+
+```bash
+./scripts/test.sh -p teeny-llm-core --lib
+```

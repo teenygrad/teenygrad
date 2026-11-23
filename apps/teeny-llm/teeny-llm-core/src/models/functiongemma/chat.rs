@@ -100,7 +100,7 @@ impl Chat {
 /// A function call parsed from FunctionGemma's output.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FunctionCall {
-    /// The function name.
+    /// The function name, empty when the model left it out. See [`parse_calls`].
     pub name: String,
     /// The arguments, as JSON.
     pub args: Value,
@@ -109,8 +109,14 @@ pub struct FunctionCall {
 /// Parses every `<start_function_call>call:NAME{ARGS}<end_function_call>` in `text`.
 /// Arguments use FunctionGemma's syntax: `key:value` pairs, strings wrapped in
 /// `<escape>`, nested `{...}` objects and `[...]` lists.
+///
+/// The name is sometimes missing. Asked "tell me the temperature in Lisbon", the 270M model
+/// emits `call{city:<escape>Lisbon<escape>}`: it has decided to call, and with the right
+/// argument, but left out which function. That parses here with an empty [`FunctionCall::name`]
+/// rather than being thrown away, because a caller that declared one function knows what was
+/// meant. Refusing it loses the turn, and the visitor sees nothing at all.
 pub fn parse_calls(text: &str) -> anyhow::Result<Vec<FunctionCall>> {
-    const START: &str = "<start_function_call>call:";
+    const START: &str = "<start_function_call>call";
     const END: &str = "<end_function_call>";
     let mut calls = Vec::new();
     let mut rest = text;
@@ -123,13 +129,15 @@ pub fn parse_calls(text: &str) -> anyhow::Result<Vec<FunctionCall>> {
         let brace = call
             .find('{')
             .ok_or_else(|| anyhow::anyhow!("function call without arguments: {call:?}"))?;
+        // `call:name{...}` and `call{...}` both arrive here; the colon is not part of a name.
+        let name = call[..brace].trim().trim_start_matches(':').trim();
         let mut p = Parser {
             s: &call[brace..],
             pos: 0,
         };
         let args = p.value()?;
         calls.push(FunctionCall {
-            name: call[..brace].to_string(),
+            name: name.to_string(),
             args,
         });
         rest = &body[j + END.len()..];
@@ -160,6 +168,11 @@ impl Parser<'_> {
     }
 
     fn value(&mut self) -> anyhow::Result<Value> {
+        // The model puts a space after the colon often enough to matter, and without this the
+        // value falls through to the bare-scalar arm and the `<escape>` markers end up inside
+        // the string.
+        let skip = self.rest().len() - self.rest().trim_start().len();
+        self.pos += skip;
         let r = self.rest();
         if r.starts_with(Self::ESC) {
             self.pos += Self::ESC.len();
@@ -178,7 +191,10 @@ impl Parser<'_> {
                     .rest()
                     .find(':')
                     .ok_or_else(|| anyhow::anyhow!("key without value at {:?}", self.rest()))?;
+                // Keys pick up the space after a comma the same way values pick up the one
+                // after a colon.
                 let key = self.rest()[..colon]
+                    .trim()
                     .trim_start_matches(Self::ESC)
                     .trim_end_matches(Self::ESC)
                     .to_string();
@@ -230,5 +246,47 @@ mod tests {
                 }),
             }]
         );
+    }
+
+    #[test]
+    fn test_parses_values_written_with_a_space_after_the_colon() {
+        let text = "<start_function_call>call:get_weather{city: <escape>Ibarreta<escape>, \
+                    days: 3}<end_function_call>";
+        let calls = parse_calls(text).unwrap();
+        assert_eq!(calls[0].args["city"], "Ibarreta");
+        assert_eq!(calls[0].args["days"], 3);
+    }
+
+    #[test]
+    fn test_parses_a_call_that_left_out_its_name() {
+        // Exactly what the board emitted for "Tell me the temperature in Lisbon."
+        let text = "<start_function_call>call{city:<escape>Lisbon<escape>}\
+                    <end_function_call><start_function_response>";
+        let calls = parse_calls(text).unwrap();
+        assert_eq!(
+            calls,
+            vec![FunctionCall {
+                name: String::new(),
+                args: serde_json::json!({"city": "Lisbon"}),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_parses_both_forms_in_one_reply() {
+        let text = "<start_function_call>call:get_weather{city:<escape>Oslo<escape>}\
+                    <end_function_call>\
+                    <start_function_call>call{city:<escape>Lima<escape>}<end_function_call>";
+        let calls = parse_calls(text).unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].name, "get_weather");
+        assert_eq!(calls[1].name, "");
+        assert_eq!(calls[1].args["city"], "Lima");
+    }
+
+    #[test]
+    fn test_still_refuses_a_call_with_no_arguments() {
+        let text = "<start_function_call>call:get_weather<end_function_call>";
+        assert!(parse_calls(text).is_err());
     }
 }
