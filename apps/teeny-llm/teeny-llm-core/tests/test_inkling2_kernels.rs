@@ -27,7 +27,8 @@ use teeny_core::model::LoweringMode;
 use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::kernels::{
-    l2_clip::ScaledL2ClipOp, rel_bias::RelBiasOp, sconv::SconvOp, softcap::SoftcapOp,
+    expert_gather::ExpertGatherOp, l2_clip::ScaledL2ClipOp, rel_bias::RelBiasOp,
+    router::TopKRouterOp, sconv::SconvOp, softcap::SoftcapOp,
 };
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -59,9 +60,6 @@ impl OneOp {
         Self { graph, first }
     }
 
-    // Used by the multi-input kernels this file will grow; kept so the harness
-    // stays identical to test_llm_kernels.rs.
-    #[allow(dead_code)]
     fn input(&self, shape: &[usize]) -> SymTensor {
         let shape: Vec<Option<usize>> = shape.iter().map(|&d| Some(d)).collect();
         let node_id =
@@ -414,4 +412,209 @@ fn test_rel_bias_masks_a_ragged_kv_tail() {
         &[],
     );
     assert_close("rel bias ragged", &got, &want, 0.0);
+}
+
+/// The router, as `Inkling2LoopTopKRouter` does it: the bias steers the choice, the
+/// weights come from the unbiased scores.
+fn router_reference(
+    logits: &[f32],
+    bias: &[f32],
+    t: usize,
+    e: usize,
+    k: usize,
+    scale: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let (mut w_out, mut i_out) = (vec![0.0f32; t * k], vec![0.0f32; t * k]);
+    for row in 0..t {
+        let scores: Vec<f32> = (0..e)
+            .map(|j| 1.0 / (1.0 + (-logits[row * e + j]).exp()))
+            .collect();
+        let mut pool: Vec<f32> = (0..e).map(|j| scores[j] + bias[j]).collect();
+        let mut picked = Vec::new();
+        for _ in 0..k {
+            let mut best = 0usize;
+            for j in 1..e {
+                if pool[j] > pool[best] {
+                    best = j;
+                }
+            }
+            picked.push(best);
+            pool[best] = f32::NEG_INFINITY;
+        }
+        let total: f32 = picked.iter().map(|&j| scores[j]).sum();
+        for (slot, &j) in picked.iter().enumerate() {
+            w_out[row * k + slot] = scores[j] / (total + 1e-20) * scale;
+            i_out[row * k + slot] = j as f32;
+        }
+    }
+    (w_out, i_out)
+}
+
+#[test]
+fn test_router_picks_and_weights_like_the_reference() {
+    let (t, e, k) = (5usize, 128usize, 8usize); // the model's own shape
+    let scale = 8.0f32; // route_scale
+    let logits: Vec<f32> = values(t * e, 41).iter().map(|v| v * 4.0).collect();
+    let bias: Vec<f32> = values(e, 42).iter().map(|v| v * 0.1).collect();
+    let (want_w, want_i) = router_reference(&logits, &bias, t, e, k, scale);
+    let g = OneOp::new(&[t, e]);
+    let got = g.run(
+        TopKRouterOp::<f32>::new(e, k, scale),
+        &[],
+        &[&logits],
+        &[&bias],
+    );
+    for row in 0..t {
+        let w = &got[row * 2 * k..row * 2 * k + k];
+        let i = &got[row * 2 * k + k..(row + 1) * 2 * k];
+        assert_close(
+            &format!("router weights row {row}"),
+            w,
+            &want_w[row * k..(row + 1) * k],
+            1e-5,
+        );
+        assert_eq!(i, &want_i[row * k..(row + 1) * k], "router ids row {row}");
+    }
+}
+
+/// The weights of each token sum to `route_scale`, since they are normalised first.
+#[test]
+fn test_router_weights_sum_to_the_scale() {
+    let (t, e, k) = (3usize, 64usize, 4usize);
+    let scale = 8.0f32;
+    let logits: Vec<f32> = values(t * e, 43).iter().map(|v| v * 3.0).collect();
+    let bias = vec![0.0f32; e];
+    let g = OneOp::new(&[t, e]);
+    let got = g.run(
+        TopKRouterOp::<f32>::new(e, k, scale),
+        &[],
+        &[&logits],
+        &[&bias],
+    );
+    for row in 0..t {
+        let sum: f32 = got[row * 2 * k..row * 2 * k + k].iter().sum();
+        assert!(
+            (sum - scale).abs() < 1e-3,
+            "row {row} weights sum to {sum}, not {scale}"
+        );
+    }
+}
+
+/// A bias large enough to force one expert in must change the CHOICE but leave the
+/// chosen expert's weight at its unbiased score. This is the detail that would be
+/// invisible if the weights were gathered from the biased scores instead.
+#[test]
+fn test_router_bias_steers_the_choice_but_not_the_weight() {
+    let (t, e, k) = (1usize, 32usize, 2usize);
+    let scale = 1.0f32;
+    let logits: Vec<f32> = (0..e).map(|j| 3.0 - 0.1 * j as f32).collect(); // expert 0 best
+    let mut bias = vec![0.0f32; e];
+    bias[e - 1] = 10.0; // force the worst expert to be picked first
+    let g = OneOp::new(&[t, e]);
+    let got = g.run(
+        TopKRouterOp::<f32>::new(e, k, scale),
+        &[],
+        &[&logits],
+        &[&bias],
+    );
+    assert_eq!(
+        got[k] as usize,
+        e - 1,
+        "the biased expert should be chosen first"
+    );
+    let (want_w, _) = router_reference(&logits, &bias, t, e, k, scale);
+    assert_close("biased router weights", &got[..k], &want_w, 1e-5);
+    // Its weight is its own sigmoid score, nowhere near the 10.0 bias.
+    let s_last = 1.0 / (1.0 + (-logits[e - 1]).exp());
+    let s_first = 1.0 / (1.0 + (-logits[0]).exp());
+    assert!(
+        (got[0] - s_last / (s_last + s_first)).abs() < 1e-5,
+        "weight came from the biased score"
+    );
+}
+
+/// `y[s, n] = sum_k x[token(s), k] * W[expert(s), n, k]`.
+#[test]
+fn test_expert_gather_uses_the_routed_weight_matrix() {
+    let (t, e, n, k, top_k) = (3usize, 6usize, 12usize, 40usize, 2usize);
+    let x = values(t * k, 51);
+    let w = values(e * n * k, 52);
+    // A router row: top_k weights (unused here) then top_k ids, as floats.
+    let ids = [1usize, 4, 0, 5, 3, 2];
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + top_k + slot] = ids[tok * top_k + slot] as f32;
+        }
+    }
+    let want: Vec<f32> = (0..t * top_k * n)
+        .map(|i| {
+            let (slot, col) = (i / n, i % n);
+            let (tok, which) = (slot / top_k, slot % top_k);
+            let ex = ids[tok * top_k + which];
+            (0..k)
+                .map(|j| x[tok * k + j] * w[(ex * n + col) * k + j])
+                .sum()
+        })
+        .collect();
+    let g = OneOp::new(&[t, k]);
+    let ids_in = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_in],
+        &[&x, &packed],
+        &[&w],
+    );
+    assert_close("expert gather", &got, &want, 1e-4);
+}
+
+/// Two slots of the same token pointing at the same expert must give the same row:
+/// the gather reads the parameter, it does not consume it.
+#[test]
+fn test_expert_gather_repeats_an_expert_consistently() {
+    let (t, e, n, k, top_k) = (1usize, 4usize, 8usize, 32usize, 2usize);
+    let x = values(t * k, 53);
+    let w = values(e * n * k, 54);
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    packed[top_k] = 2.0; // both slots choose expert 2
+    packed[top_k + 1] = 2.0;
+    let g = OneOp::new(&[t, k]);
+    let ids_in = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_in],
+        &[&x, &packed],
+        &[&w],
+    );
+    assert_close("repeated expert", &got[n..], &got[..n], 0.0);
+}
+
+/// A reduction width that is not a multiple of the block, so the tail is masked.
+#[test]
+fn test_expert_gather_masks_a_ragged_reduction() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 5usize, 300usize, 1usize); // BLOCK is 256
+    let x = values(t * k, 55);
+    let w = values(e * n * k, 56);
+    let ids = [2usize, 0];
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        packed[tok * 2 * top_k + top_k] = ids[tok] as f32;
+    }
+    let want: Vec<f32> = (0..t * n)
+        .map(|i| {
+            let (tok, col) = (i / n, i % n);
+            (0..k)
+                .map(|j| x[tok * k + j] * w[(ids[tok] * n + col) * k + j])
+                .sum()
+        })
+        .collect();
+    let g = OneOp::new(&[t, k]);
+    let ids_in = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_in],
+        &[&x, &packed],
+        &[&w],
+    );
+    assert_close("expert gather ragged", &got, &want, 1e-4);
 }
