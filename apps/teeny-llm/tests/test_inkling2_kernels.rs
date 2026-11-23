@@ -28,7 +28,8 @@ use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::kernels::{
     expert_gather::ExpertGatherOp, l2_clip::ScaledL2ClipOp, rel_bias::RelBiasOp,
-    router::TopKRouterOp, sconv::SconvOp, softcap::SoftcapOp,
+    router::TopKRouterOp, scatter_add::ExpertScatterAddOp, sconv::SconvOp, softcap::SoftcapOp,
+    swiglu::SwigluOp,
 };
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -617,4 +618,198 @@ fn test_expert_gather_masks_a_ragged_reduction() {
         &[&w],
     );
     assert_close("expert gather ragged", &got, &want, 1e-4);
+}
+
+/// `y = softcap(gate) * sigmoid(gate) * softcap(up)`, gate first in the row.
+fn swiglu_reference(x: &[f32], s: usize, i: usize, gcap: f32, ucap: f32) -> Vec<f32> {
+    let cap = |v: f32, c: f32| (v / c).tanh() * c;
+    (0..s * i)
+        .map(|idx| {
+            let (row, col) = (idx / i, idx % i);
+            let g = x[row * 2 * i + col];
+            let u = x[row * 2 * i + i + col];
+            cap(g, gcap) * (1.0 / (1.0 + (-g).exp())) * cap(u, ucap)
+        })
+        .collect()
+}
+
+#[test]
+fn test_swiglu_matches_the_reference() {
+    let (s, i) = (4usize, 300usize); // not a multiple of the 256 block
+    let (gcap, ucap) = (4.0f32, 25.0f32); // the model's caps
+    // Well outside both caps, so the saturating region is exercised.
+    let x: Vec<f32> = values(s * 2 * i, 61).iter().map(|v| v * 40.0).collect();
+    let want = swiglu_reference(&x, s, i, gcap, ucap);
+    let g = OneOp::new(&[s, 2 * i]);
+    let got = g.run(SwigluOp::<f32>::new(i, gcap, ucap), &[], &[&x], &[]);
+    assert_close("swiglu", &got, &want, 1e-4);
+}
+
+/// The sigmoid sees the RAW gate, not the capped one. With a gate far past its cap
+/// the two differ sharply: sigmoid(40) is ~1 while sigmoid(softcap(40, 4)) is ~0.98.
+#[test]
+fn test_swiglu_sigmoid_sees_the_uncapped_gate() {
+    let (s, i) = (1usize, 1usize);
+    let (gcap, ucap) = (4.0f32, 25.0f32);
+    let x = vec![40.0f32, 1.0]; // gate 40, up 1
+    let g = OneOp::new(&[s, 2 * i]);
+    let got = g.run(SwigluOp::<f32>::new(i, gcap, ucap), &[], &[&x], &[]);
+    let cap = |v: f32, c: f32| (v / c).tanh() * c;
+    let right = cap(40.0, gcap) * (1.0 / (1.0 + (-40.0f32).exp())) * cap(1.0, ucap);
+    let wrong = cap(40.0, gcap) * (1.0 / (1.0 + (-cap(40.0, gcap)).exp())) * cap(1.0, ucap);
+    assert!(
+        (got[0] - right).abs() < 1e-4,
+        "got {}, want {right}",
+        got[0]
+    );
+    assert!(
+        (right - wrong).abs() > 0.05,
+        "the test is only meaningful if the two readings differ"
+    );
+}
+
+/// `out[t, n] = sum(slot) weight[t, slot] * y[t * top_k + slot, n]`.
+#[test]
+fn test_scatter_add_combines_the_expert_outputs() {
+    let (t, top_k, n) = (3usize, 4usize, 300usize);
+    let y = values(t * top_k * n, 62);
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    let w = values(t * top_k, 63);
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + slot] = w[tok * top_k + slot];
+        }
+    }
+    let want: Vec<f32> = (0..t * n)
+        .map(|idx| {
+            let (tok, col) = (idx / n, idx % n);
+            (0..top_k)
+                .map(|slot| w[tok * top_k + slot] * y[(tok * top_k + slot) * n + col])
+                .sum()
+        })
+        .collect();
+    let g = OneOp::new(&[t * top_k, n]);
+    let win = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertScatterAddOp::<f32>::new(n, top_k),
+        &[&win],
+        &[&y, &packed],
+        &[],
+    );
+    assert_close("scatter add", &got, &want, 1e-4);
+}
+
+/// Zero weights contribute nothing, so a token whose router row is zero comes out
+/// zero however large its expert outputs are.
+#[test]
+fn test_scatter_add_zero_weights_contribute_nothing() {
+    let (t, top_k, n) = (2usize, 2usize, 16usize);
+    let y: Vec<f32> = values(t * top_k * n, 64)
+        .iter()
+        .map(|v| v * 1000.0)
+        .collect();
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    // Token 0 has all-zero weights; token 1 puts everything on its second slot.
+    packed[2 * top_k + 1] = 1.0;
+    let g = OneOp::new(&[t * top_k, n]);
+    let win = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertScatterAddOp::<f32>::new(n, top_k),
+        &[&win],
+        &[&y, &packed],
+        &[],
+    );
+    assert_close("zero-weight token", &got[..n], &vec![0.0f32; n], 0.0);
+    assert_close("single-slot token", &got[n..], &y[3 * n..4 * n], 1e-5);
+}
+
+/// The router and the two MoE kernels compose: route, gather, activate, combine.
+#[test]
+fn test_router_gather_swiglu_scatter_compose() {
+    let (t, e, hidden, inter, top_k) = (2usize, 8usize, 24usize, 10usize, 3usize);
+    let (gcap, ucap, scale) = (4.0f32, 25.0f32, 8.0f32);
+    let x = values(t * hidden, 71);
+    let bias = vec![0.0f32; e];
+    let logits = values(t * e, 72);
+    let w13 = values(e * 2 * inter * hidden, 73);
+    let w2 = values(e * hidden * inter, 74);
+
+    // 1. route
+    let gr = OneOp::new(&[t, e]);
+    let routed = gr.run(
+        TopKRouterOp::<f32>::new(e, top_k, scale),
+        &[],
+        &[&logits],
+        &[&bias],
+    );
+    // 2. gather the fused gate-and-up projection
+    let gg = OneOp::new(&[t, hidden]);
+    let ids_in = gg.input(&[t, 2 * top_k]);
+    let gate_up = gg.run(
+        ExpertGatherOp::<f32>::new(e, 2 * inter, hidden, top_k),
+        &[&ids_in],
+        &[&x, &routed],
+        &[&w13],
+    );
+    // 3. activate
+    let ga = OneOp::new(&[t * top_k, 2 * inter]);
+    let act = ga.run(
+        SwigluOp::<f32>::new(inter, gcap, ucap),
+        &[],
+        &[&gate_up],
+        &[],
+    );
+    // 4. gather the down projection, one slot each this time
+    let gd = OneOp::new(&[t * top_k, inter]);
+    let id2 = gd.input(&[t * top_k, 2]);
+    let flat_ids: Vec<f32> = (0..t * top_k)
+        .flat_map(|s| [0.0, routed[(s / top_k) * 2 * top_k + top_k + s % top_k]])
+        .collect();
+    let down = gd.run(
+        ExpertGatherOp::<f32>::new(e, hidden, inter, 1),
+        &[&id2],
+        &[&act, &flat_ids],
+        &[&w2],
+    );
+    // 5. combine
+    let gs = OneOp::new(&[t * top_k, hidden]);
+    let win = gs.input(&[t, 2 * top_k]);
+    let got = gs.run(
+        ExpertScatterAddOp::<f32>::new(hidden, top_k),
+        &[&win],
+        &[&down, &routed],
+        &[],
+    );
+
+    // Host reference of the whole block.
+    let (rw, ri) = router_reference(&logits, &bias, t, e, top_k, scale);
+    let cap = |v: f32, c: f32| (v / c).tanh() * c;
+    let mut want = vec![0.0f32; t * hidden];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            let ex = ri[tok * top_k + slot] as usize;
+            let gu: Vec<f32> = (0..2 * inter)
+                .map(|r| {
+                    (0..hidden)
+                        .map(|c| x[tok * hidden + c] * w13[(ex * 2 * inter + r) * hidden + c])
+                        .sum()
+                })
+                .collect();
+            let a: Vec<f32> = (0..inter)
+                .map(|r| {
+                    cap(gu[r], gcap) * (1.0 / (1.0 + (-gu[r]).exp())) * cap(gu[inter + r], ucap)
+                })
+                .collect();
+            for (c, slot_out) in want[tok * hidden..(tok + 1) * hidden]
+                .iter_mut()
+                .enumerate()
+            {
+                let d: f32 = (0..inter)
+                    .map(|r| a[r] * w2[(ex * hidden + c) * inter + r])
+                    .sum();
+                *slot_out += rw[tok * top_k + slot] * d;
+            }
+        }
+    }
+    assert_close("moe block", &got, &want, 2e-3);
 }
