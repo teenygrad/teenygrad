@@ -17,5 +17,6 @@
 //! Kernels specific to Inkling-2, alongside the shared ones in [`crate::kernels`].
 
 pub mod l2_clip;
+pub mod rel_bias;
 pub mod sconv;
 pub mod softcap;

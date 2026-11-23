@@ -27,7 +27,7 @@ use teeny_core::model::LoweringMode;
 use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::kernels::{
-    l2_clip::ScaledL2ClipOp, sconv::SconvOp, softcap::SoftcapOp,
+    l2_clip::ScaledL2ClipOp, rel_bias::RelBiasOp, sconv::SconvOp, softcap::SoftcapOp,
 };
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -313,4 +313,105 @@ fn test_scaled_l2_clip_masks_a_ragged_head() {
         &[&scale],
     );
     assert_close("l2 clip ragged", &got, &want, 1e-4);
+}
+
+/// `bias[t, h, j] = logits[t, h, (past + t) - j]` inside `0 <= dist < extent`, else 0.
+fn rel_bias_reference(
+    logits: &[f32],
+    t: usize,
+    heads: usize,
+    extent: usize,
+    past: usize,
+    kv: usize,
+) -> Vec<f32> {
+    let mut out = vec![0.0f32; t * heads * kv];
+    for tok in 0..t {
+        for h in 0..heads {
+            let row = tok * heads + h;
+            for j in 0..kv {
+                let dist = (past + tok) as isize - j as isize;
+                if dist >= 0 && (dist as usize) < extent {
+                    out[row * kv + j] = logits[row * extent + dist as usize];
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn test_rel_bias_gathers_by_backward_distance() {
+    let (t, heads, extent, past) = (4usize, 3usize, 64usize, 10usize);
+    let kv = past + t;
+    let logits = values(t * heads * extent, 31);
+    let want = rel_bias_reference(&logits, t, heads, extent, past, kv);
+    let g = OneOp::new(&[t * heads, extent]);
+    let got = g.run(
+        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        &[],
+        &[&logits],
+        &[],
+    );
+    assert_close("rel bias", &got, &want, 0.0);
+}
+
+/// Beyond `rel_extent` the bias is exactly zero, which is what bounds the scheme.
+#[test]
+fn test_rel_bias_is_zero_past_the_extent() {
+    let (t, heads, extent, past) = (2usize, 1usize, 8usize, 40usize);
+    let kv = past + t;
+    let logits: Vec<f32> = (0..t * heads * extent).map(|i| 1.0 + i as f32).collect();
+    let g = OneOp::new(&[t * heads, extent]);
+    let got = g.run(
+        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        &[],
+        &[&logits],
+        &[],
+    );
+    // Query 0 sits at absolute position 40, so keys 0..=32 are further back than 8.
+    for (j, &b) in got.iter().enumerate().take(past - extent + 1) {
+        assert_eq!(b, 0.0, "key {j} is beyond the extent and must be zero");
+    }
+    // The nearest key is distance 0, the first entry of the profile.
+    assert_eq!(
+        got[past], logits[0],
+        "distance 0 should read the profile head"
+    );
+}
+
+/// Keys after the query give a negative distance and must be zero, not wrap round.
+#[test]
+fn test_rel_bias_zeroes_future_keys() {
+    let (t, heads, extent, past) = (3usize, 2usize, 32usize, 0usize);
+    let kv = t; // no cache, so queries and keys are the same positions
+    let logits = values(t * heads * extent, 32);
+    let want = rel_bias_reference(&logits, t, heads, extent, past, kv);
+    let g = OneOp::new(&[t * heads, extent]);
+    let got = g.run(
+        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        &[],
+        &[&logits],
+        &[],
+    );
+    assert_close("rel bias future", &got, &want, 0.0);
+    // Query 0, head 0 attends to keys 1 and 2, both in the future.
+    assert_eq!(got[1], 0.0);
+    assert_eq!(got[2], 0.0);
+}
+
+/// A kv length that is not a multiple of the block, so the tail is masked.
+#[test]
+fn test_rel_bias_masks_a_ragged_kv_tail() {
+    let (t, heads, extent, past) = (2usize, 2usize, 1024usize, 255usize);
+    let kv = past + t; // 257, against a block of 256
+    let logits = values(t * heads * extent, 33);
+    let want = rel_bias_reference(&logits, t, heads, extent, past, kv);
+    let g = OneOp::new(&[t * heads, extent]);
+    let got = g.run(
+        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        &[],
+        &[&logits],
+        &[],
+    );
+    assert_close("rel bias ragged", &got, &want, 0.0);
 }
