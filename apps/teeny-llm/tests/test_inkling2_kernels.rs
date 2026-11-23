@@ -18,7 +18,10 @@
 //! device (CUDA, or RISC-V under qemu) and compared with a host reference of the
 //! formula in the kernel's module docs. Needs no model weights.
 
-#![cfg(all(feature = "inkling2", any(feature = "cuda", feature = "qemu")))]
+#![cfg(all(
+    feature = "inkling2",
+    any(feature = "cuda", feature = "qemu", feature = "riscv")
+))]
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -26,7 +29,7 @@ use teeny_core::graph::{CustomData, CustomOp, DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
 use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
-use teeny_llm_core::models::inkling2::kernels::{
+use teeny_llm::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
     cat2::Cat2Op,
@@ -1284,9 +1287,11 @@ fn test_block_attn_with_one_state_returns_it() {
 /// Real NVFP4 bytes from `thinkingmachines/Inkling-2-Mini`'s expert weights, the
 /// same 19 KB the RVV work in `experiments/nvfp4-riscv` is tested against.
 fn nvfp4_fixture(name: &str) -> Vec<u8> {
-    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/nvfp4")
-        .join(name);
+    // `INKLING2_FIXTURES` lets the cross-built binary find its data when it runs
+    // somewhere the build directory does not exist, which is the case on a board.
+    let base = std::env::var("INKLING2_FIXTURES")
+        .unwrap_or_else(|_| format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR")));
+    let p = std::path::Path::new(&base).join("nvfp4").join(name);
     std::fs::read(&p).unwrap_or_else(|e| panic!("reading {}: {e}", p.display()))
 }
 

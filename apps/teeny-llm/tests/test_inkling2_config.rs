@@ -21,7 +21,7 @@
 
 use std::path::Path;
 
-use teeny_llm_core::models::inkling2::Inkling2Config;
+use teeny_llm::models::inkling2::Inkling2Config;
 
 fn fixture() -> Inkling2Config {
     let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inkling2-mini-config.json");

@@ -19,7 +19,10 @@
 //! `test_inkling2_kernels.rs`; this checks that they compose and that the weight
 //! slots carry the checkpoint's names.
 
-#![cfg(all(feature = "inkling2", any(feature = "cuda", feature = "qemu")))]
+#![cfg(all(
+    feature = "inkling2",
+    any(feature = "cuda", feature = "qemu", feature = "riscv")
+))]
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,9 +30,9 @@ use std::rc::Rc;
 use teeny_core::graph::{DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
-use teeny_llm_core::models::inkling2::config::Inkling2TextConfig;
-use teeny_llm_core::models::inkling2::kernels::attention::PastLen;
-use teeny_llm_core::models::inkling2::model::{
+use teeny_llm::models::inkling2::config::Inkling2TextConfig;
+use teeny_llm::models::inkling2::kernels::attention::PastLen;
+use teeny_llm::models::inkling2::model::{
     LayerInputs, build_controller, build_layer, build_moe, build_router,
 };
 use teeny_test::model::{RuntimeModel, runtime};
@@ -157,9 +160,10 @@ impl GraphRun {
 }
 
 fn test_config() -> Inkling2TextConfig {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/inkling2-mini-config.json");
-    let mut cfg = teeny_llm_core::models::inkling2::Inkling2Config::load(&path)
+    let base = std::env::var("INKLING2_FIXTURES")
+        .unwrap_or_else(|_| format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR")));
+    let path = std::path::Path::new(&base).join("inkling2-mini-config.json");
+    let mut cfg = teeny_llm::models::inkling2::Inkling2Config::load(&path)
         .expect("the shipped config")
         .text_config;
     // The real widths are far too large to run under qemu; the structure is what is
