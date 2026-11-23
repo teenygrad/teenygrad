@@ -280,3 +280,155 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for Nvfp4DequantRuntimeOp<
         ]
     }
 }
+
+/// Extracts byte `WHICH` of a bit-packed word, which is how the packed NVFP4
+/// encoding is unpacked.
+///
+/// `x` is bitcast to an i32 and one of its four bytes is returned. There is no shift:
+/// `Shr` is implemented for `LlvmI32Tensor` but **teenyc's MLIR backend does not
+/// lower it** (it yields an unshaped `tensor<?xf32>` and the store then fails to
+/// verify), whereas `BitAnd` lowers correctly. Masking first and dividing second
+/// gives the same answer and keeps every intermediate non-negative, which matters
+/// because `Div` truncates towards zero.
+///
+/// The top byte carries the sign bit, so it is masked to seven bits and 128 added
+/// back when the word is negative.
+#[allow(clippy::multiple_bound_locations)]
+#[kernel]
+pub fn unpack_byte_forward<T: Triton, D: Float, const BLOCK: i32, const WHICH: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    N: i32,
+) where
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let i = T::arange(0, BLOCK) + pid * BLOCK;
+    let m = i.lt(N);
+    let zeros = T::zeros::<D>(&[BLOCK]);
+    // Bitcast, not a value conversion: the f32 is a container for four bytes.
+    let w = T::cast::<D, i32>(
+        T::load(
+            x_ptr.add_offsets(i),
+            Some(m),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
+        None,
+        true,
+    );
+    let byte = if WHICH == 0 {
+        w & 0xFF
+    } else if WHICH == 1 {
+        (w & 0xFF00) / 256
+    } else if WHICH == 2 {
+        (w & 0x00FF_0000) / 65536
+    } else {
+        // Bits 24..31, with bit 31 put back by hand.
+        let low7 = (w & 0x7F00_0000) / 16_777_216;
+        T::where_(w.lt(0), low7 + 128, low7 + 0)
+    };
+    T::store(
+        y_ptr.add_offsets(i),
+        T::cast::<i32, D>(byte, None, false),
+        Some(m),
+        &[],
+        None,
+        None,
+    );
+}
+
+/// Graph-level byte extraction from a bit-packed f32: `y = byte WHICH of x`.
+pub struct UnpackByteOp<D: FloatBytes + Send + Sync + 'static> {
+    /// Which byte, 0 (lowest) to 3 (the one holding the sign bit).
+    pub which: usize,
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> UnpackByteOp<D> {
+    /// Extracts byte `which` of each word.
+    pub fn new(which: usize) -> Self {
+        assert!(which < 4, "unpack: byte {which} is outside a 32-bit word");
+        Self {
+            which,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> CustomOp for UnpackByteOp<D> {
+    fn name(&self) -> &str {
+        "llm.unpack_byte"
+    }
+
+    fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
+        input_shapes[0].to_vec()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
+        let kernel = UnpackByteForward::<D>::new(BLOCK, self.which as i32);
+        Some((
+            "unpack_byte_forward".to_string(),
+            kernel.source,
+            "entry_point".to_string(),
+            Arc::new(UnpackByteRuntimeOp::<D> {
+                _phantom: PhantomData,
+            }),
+        ))
+    }
+}
+
+/// Runtime dispatch for [`UnpackByteOp`].
+pub struct UnpackByteRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for UnpackByteRuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+
+    fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(RawPtr, &[usize])],
+        _params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(output_shape.iter().product::<usize>() as i32);
+    }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        [
+            output_shape
+                .iter()
+                .product::<usize>()
+                .div_ceil(BLOCK as usize) as u32,
+            1,
+            1,
+        ]
+    }
+}
