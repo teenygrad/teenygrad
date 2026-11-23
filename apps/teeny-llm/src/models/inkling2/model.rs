@@ -50,13 +50,30 @@ use teeny_core::name_scope::name_scope;
 
 use super::config::Inkling2TextConfig;
 use super::kernels::{
-    expert_gather::ExpertGatherOp, router::TopKRouterOp, scatter_add::ExpertScatterAddOp,
+    attention::{AttentionSpec, PastLen, SinkAttentionOp},
+    expert_gather::ExpertGatherOp,
+    gated_mul::GatedMulOp,
+    l2_clip::{L2ClipOp, ScaledL2ClipOp},
+    norm::{RmsNormOp, UnweightedRmsNormOp},
+    rel_bias::RelBiasOp,
+    router::TopKRouterOp,
+    scatter_add::ExpertScatterAddOp,
+    sconv::SconvOp,
     swiglu::SwigluOp,
 };
 use crate::kernels::linear::Linear4Op;
 
 /// Block width for the linear kernel, as in the Gemma port.
 const LINEAR_BLOCK: i32 = 16;
+
+/// Records a bias-free linear in the current scope, naming its slot `weight`.
+fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
+    x.record_custom(
+        CustomData::new(Linear4Op::<D>::new(k, n, LINEAR_BLOCK)),
+        &[],
+        None,
+    )
+}
 
 /// Re-packs the router's ids so the down projection can be gathered with `top_k = 1`.
 ///
@@ -138,8 +155,7 @@ pub fn build_router<D: FloatBytes + Send + Sync + 'static>(
     // Both slots live under `mlp.gate`: the projection's `weight` and the router's
     // `bias`, matching the checkpoint's mlp.gate.weight and mlp.gate.bias.
     let _g = name_scope("gate");
-    let op = Linear4Op::<D>::new(cfg.hidden_size, cfg.n_routed_experts, LINEAR_BLOCK);
-    let logits = x.record_custom(CustomData::new(op), &[], None);
+    let logits = linear::<D>(x, cfg.hidden_size, cfg.n_routed_experts);
     logits.record_custom(
         CustomData::new(TopKRouterOp::<D>::new(
             cfg.n_routed_experts,
@@ -149,4 +165,207 @@ pub fn build_router<D: FloatBytes + Send + Sync + 'static>(
         &[],
         None,
     )
+}
+
+// ---------------------------------------------------------------------------
+// Attention projections
+// ---------------------------------------------------------------------------
+//
+// The slot names below are the CHECKPOINT's, not the reference implementation's.
+// `thinkingmachines/Inkling-2-Mini` ships the original names, which transformers
+// renames on load:
+//
+// | checkpoint                 | reference                          |
+// |---|---|
+// | `attn.wq_du.weight`        | `self_attn.q_proj.linear`          |
+// | `attn.wk_dv.weight`        | `self_attn.k_proj.linear`          |
+// | `attn.wv_dv.weight`        | `self_attn.v_proj.linear`          |
+// | `attn.wo_ud.weight`        | `self_attn.o_proj.linear`          |
+// | `attn.gate_attn.weight`    | `self_attn.o_proj.gate_proj`       |
+// | `attn.wr_du.weight`        | `relative_position_bias.linear`    |
+// | `attn.q_l2_clip.scale`     | `q_proj.norm.scale`                |
+// | `attn_norm.weight`         | `input_layernorm`                  |
+//
+// Loading by the shipped names avoids a rename pass, and the weight shapes confirm
+// the mapping: wq_du is [24 * 128, 2304], wk_dv and wv_dv are [8 * 128, 2304],
+// wo_ud is [2304, 24 * 128], wr_du is [24 * 16, 2304].
+
+/// Records the query projection: linear, then the scaled L2 clip, per head.
+///
+/// `Inkling2LoopQueryProjection` with `log_scaling = false`, which is what the
+/// sliding layers use.
+pub fn build_q_proj<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    x: &SymTensor,
+) -> SymTensor {
+    let (nh, hd) = (cfg.num_attention_heads, cfg.head_dim);
+    let q = {
+        let _g = name_scope("wq_du");
+        linear::<D>(x, cfg.hidden_size, nh * hd)
+    };
+    let _g = name_scope("q_l2_clip");
+    q.record_custom(
+        CustomData::new(ScaledL2ClipOp::<D>::new(
+            nh,
+            hd,
+            cfg.qk_l2_clip_threshold as f32,
+        )),
+        &[],
+        None,
+    )
+}
+
+/// Records the key or value projection: linear, short convolution, then the norm.
+///
+/// The two differ only in that norm: keys take an **unscaled** L2 clip, values an
+/// unweighted RMS norm. Neither has a learned scale, unlike the query's clip.
+///
+/// `x_hist` carries the convolution's `K - 1` rows of history, as
+/// [`super::kernels::sconv`] expects, so the caller keeps the conv state the same way
+/// it keeps the KV cache.
+pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    x_hist: &SymTensor,
+    is_key: bool,
+) -> SymTensor {
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let name = if is_key { "wk_dv" } else { "wv_dv" };
+    let proj = {
+        let _g = name_scope(name);
+        linear::<D>(x_hist, cfg.hidden_size, nkv * hd)
+    };
+    let conv = {
+        let _g = name_scope(if is_key { "k_sconv" } else { "v_sconv" });
+        proj.record_custom(
+            CustomData::new(SconvOp::<D>::new(nkv * hd, cfg.sconv_kernel_size)),
+            &[],
+            None,
+        )
+    };
+    if is_key {
+        conv.record_custom(
+            CustomData::new(L2ClipOp::<D>::new(hd, cfg.qk_l2_clip_threshold as f32)),
+            &[],
+            None,
+        )
+    } else {
+        conv.record_custom(
+            CustomData::new(UnweightedRmsNormOp::<D>::new(hd)),
+            &[],
+            None,
+        )
+    }
+}
+
+/// Records the gated output projection.
+///
+/// `Inkling2LoopGatedOutputProjection`: the attention output is multiplied by a
+/// sigmoid gate computed from the **layer input**, not from the attention output,
+/// and only then projected back to the model width.
+pub fn build_o_proj<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    attn: &SymTensor,
+    x: &SymTensor,
+) -> SymTensor {
+    let (nh, hd) = (cfg.num_attention_heads, cfg.head_dim);
+    let gate = {
+        let _g = name_scope("gate_attn");
+        linear::<D>(x, cfg.hidden_size, nh * hd)
+    };
+    let gated = attn.record_custom(CustomData::new(GatedMulOp::<D>::default()), &[&gate], None);
+    let _g = name_scope("wo_ud");
+    linear::<D>(&gated, nh * hd, cfg.hidden_size)
+}
+
+/// Records the layer's RMS norm (`attn_norm` or `mlp_norm`).
+pub fn build_norm<D: FloatBytes + Send + Sync + 'static>(
+    name: &str,
+    x: &SymTensor,
+    width: usize,
+) -> SymTensor {
+    let _g = name_scope(name);
+    x.record_custom(CustomData::new(RmsNormOp::<D>::new(width)), &[], None)
+}
+
+/// Records the relative position bias: linear, scaled clip, profile projection, then
+/// the gather onto key positions.
+pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    x: &SymTensor,
+    past: usize,
+    kv_len: usize,
+) -> SymTensor {
+    let (nh, dr) = (cfg.num_attention_heads, cfg.d_rel);
+    let rel = {
+        let _g = name_scope("wr_du");
+        linear::<D>(x, cfg.hidden_size, nh * dr)
+    };
+    let rel = {
+        let _g = name_scope("rel_l2_clip");
+        rel.record_custom(
+            CustomData::new(ScaledL2ClipOp::<D>::new(
+                nh,
+                dr,
+                cfg.rel_l2_clip_threshold as f32,
+            )),
+            &[],
+            None,
+        )
+    };
+    let logits = {
+        let _g = name_scope("rel_logits_proj");
+        linear::<D>(&rel, dr, cfg.rel_extent)
+    };
+    logits.record_custom(
+        CustomData::new(RelBiasOp::<D>::new(nh, cfg.rel_extent, past, kv_len)),
+        &[],
+        None,
+    )
+}
+
+/// Records the attention half of a decoder layer: norm, the three projections, the
+/// relative bias, attention with sinks, and the gated output projection.
+///
+/// `x` is the layer input `[T, hidden]`; `x_hist` is the same with the short
+/// convolution's `K - 1` rows of history prepended. The remaining inputs are the KV
+/// cache and this step's keys and values, as [`super::kernels::attention`] takes them.
+#[allow(clippy::too_many_arguments)]
+pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    x: &SymTensor,
+    x_hist: &SymTensor,
+    k_cache: &SymTensor,
+    v_cache: &SymTensor,
+    past: usize,
+    kv_len: usize,
+    past_len: PastLen,
+    window: Option<usize>,
+) -> SymTensor {
+    let _a = name_scope("attn");
+    let (nh, nkv, hd) = (
+        cfg.num_attention_heads,
+        cfg.num_key_value_heads,
+        cfg.head_dim,
+    );
+    let q = build_q_proj::<D>(cfg, x);
+    let k = build_kv_proj::<D>(cfg, x_hist, true);
+    let v = build_kv_proj::<D>(cfg, x_hist, false);
+    let bias = build_rel_bias::<D>(cfg, x, past, kv_len);
+    let sinks = {
+        let _g = name_scope("attn_sink_proj");
+        linear::<D>(x, cfg.hidden_size, nh)
+    };
+    let spec = AttentionSpec {
+        heads: nh,
+        kv_heads: nkv,
+        head_dim: hd,
+        window,
+        scale: (hd as f32).powf(-0.5),
+    };
+    let attn = q.record_custom(
+        CustomData::new(SinkAttentionOp::<D>::new(spec, past_len)),
+        &[&k, &v, k_cache, v_cache, &bias, &sinks],
+        None,
+    );
+    build_o_proj::<D>(cfg, &attn, x)
 }

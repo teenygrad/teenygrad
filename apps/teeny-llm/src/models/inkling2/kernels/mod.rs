@@ -18,7 +18,9 @@
 
 pub mod attention;
 pub mod expert_gather;
+pub mod gated_mul;
 pub mod l2_clip;
+pub mod norm;
 pub mod rel_bias;
 pub mod router;
 pub mod scatter_add;
