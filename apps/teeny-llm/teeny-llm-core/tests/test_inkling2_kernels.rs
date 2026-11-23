@@ -28,9 +28,12 @@ use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
+    block_attn::BlockAttnOp,
+    cat2::Cat2Op,
     expert_gather::ExpertGatherOp,
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
+    mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
@@ -1121,4 +1124,136 @@ fn test_gated_mul_applies_a_sigmoid_gate() {
     let gin = g.input(&[n]);
     let got = g.run(GatedMulOp::<f32>::default(), &[&gin], &[&x, &gate], &[]);
     assert_close("gated mul", &got, &want, 1e-5);
+}
+
+/// `[T, A]` and `[T, B]` to `[T, A + B]`.
+#[test]
+fn test_cat2_joins_two_rows() {
+    let (t, a, b) = (3usize, 300usize, 140usize); // a crosses the 256 block
+    let xa = values(t * a, 111);
+    let xb = values(t * b, 112);
+    let mut want = Vec::with_capacity(t * (a + b));
+    for row in 0..t {
+        want.extend_from_slice(&xa[row * a..(row + 1) * a]);
+        want.extend_from_slice(&xb[row * b..(row + 1) * b]);
+    }
+    let g = OneOp::new(&[t, a]);
+    let bin = g.input(&[t, b]);
+    let got = g.run(Cat2Op::<f32>::new(a, b), &[&bin], &[&xa, &xb], &[]);
+    assert_close("cat2", &got, &want, 0.0);
+}
+
+/// `out = (1 - forget) * hidden + gain * message`.
+#[test]
+fn test_message_mix_combines_with_both_gates() {
+    let n = 500usize;
+    let h = values(n, 113);
+    let msg = values(n, 114);
+    let f = values(n, 115);
+    let gn = values(n, 116);
+    let want: Vec<f32> = (0..n)
+        .map(|i| (1.0 - f[i]) * h[i] + gn[i] * msg[i])
+        .collect();
+    let g = OneOp::new(&[n]);
+    let (m_in, f_in, g_in) = (g.input(&[n]), g.input(&[n]), g.input(&[n]));
+    let got = g.run(
+        MessageMixOp::<f32>::default(),
+        &[&m_in, &f_in, &g_in],
+        &[&h, &msg, &f, &gn],
+        &[],
+    );
+    assert_close("message mix", &got, &want, 1e-5);
+}
+
+/// A forget gate of 1 and a gain of 0 discards the hidden state entirely; the
+/// reverse keeps it untouched. These are the ends of the gate's range.
+#[test]
+fn test_message_mix_gates_reach_both_extremes() {
+    let n = 32usize;
+    let h = values(n, 117);
+    let msg = values(n, 118);
+    let ones = vec![1.0f32; n];
+    let zeros = vec![0.0f32; n];
+    let g = OneOp::new(&[n]);
+    let (m_in, f_in, g_in) = (g.input(&[n]), g.input(&[n]), g.input(&[n]));
+    let forget_all = g.run(
+        MessageMixOp::<f32>::default(),
+        &[&m_in, &f_in, &g_in],
+        &[&h, &msg, &ones, &zeros],
+        &[],
+    );
+    assert_close("forget everything", &forget_all, &vec![0.0f32; n], 0.0);
+    let g2 = OneOp::new(&[n]);
+    let (m2, f2, g2i) = (g2.input(&[n]), g2.input(&[n]), g2.input(&[n]));
+    let keep = g2.run(
+        MessageMixOp::<f32>::default(),
+        &[&m2, &f2, &g2i],
+        &[&h, &msg, &zeros, &zeros],
+        &[],
+    );
+    assert_close("keep everything", &keep, &h, 0.0);
+}
+
+/// `out[t, q] = sum_s softmax_s(query[q] . states[t, s] * hidden^-0.5) states[t, s]`.
+#[test]
+fn test_block_attn_matches_a_host_reference() {
+    let (t, st, hid, q) = (3usize, 4usize, 64usize, 3usize); // 3 queries, as attn_queries
+    let states = values(t * st * hid, 121);
+    let query = values(q * hid, 122);
+    let scale = (hid as f32).powf(-0.5);
+    let mut want = vec![0.0f32; t * q * hid];
+    for tok in 0..t {
+        for qi in 0..q {
+            let logits: Vec<f32> = (0..st)
+                .map(|si| {
+                    (0..hid)
+                        .map(|d| query[qi * hid + d] * states[(tok * st + si) * hid + d])
+                        .sum::<f32>()
+                        * scale
+                })
+                .collect();
+            let m = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let den: f32 = logits.iter().map(|l| (l - m).exp()).sum();
+            for si in 0..st {
+                let p = (logits[si] - m).exp() / den;
+                for d in 0..hid {
+                    want[(tok * q + qi) * hid + d] += p * states[(tok * st + si) * hid + d];
+                }
+            }
+        }
+    }
+    let g = OneOp::new(&[t * st, hid]);
+    let got = g.run(
+        BlockAttnOp::<f32>::new(st, hid, q),
+        &[],
+        &[&states],
+        &[&query],
+    );
+    assert_close("block attn", &got, &want, 1e-4);
+}
+
+/// With one state the softmax is trivial and every query returns that state, which
+/// is what the first block boundary of a sequence looks like.
+#[test]
+fn test_block_attn_with_one_state_returns_it() {
+    let (t, hid, q) = (2usize, 32usize, 3usize);
+    let states = values(t * hid, 123);
+    let query = values(q * hid, 124);
+    let g = OneOp::new(&[t, hid]);
+    let got = g.run(
+        BlockAttnOp::<f32>::new(1, hid, q),
+        &[],
+        &[&states],
+        &[&query],
+    );
+    for tok in 0..t {
+        for qi in 0..q {
+            assert_close(
+                "single state",
+                &got[(tok * q + qi) * hid..(tok * q + qi + 1) * hid],
+                &states[tok * hid..(tok + 1) * hid],
+                1e-5,
+            );
+        }
+    }
 }

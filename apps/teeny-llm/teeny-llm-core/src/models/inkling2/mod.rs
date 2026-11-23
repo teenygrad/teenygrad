@@ -38,21 +38,27 @@
 //! `mlp_norm` the two layer norms. [`model`] names its slots the checkpoint's way,
 //! so weights load without a rename pass. The shapes confirm the mapping.
 //!
-//! **A whole decoder layer needs two mechanisms that are not built yet**, and
-//! neither appears in the part of the reference the kernels were written from:
+//! **Slots that need renaming at load.** Most match the checkpoint exactly
+//! (`attn.wq_du.weight`, `attn.q_l2_clip.scale`, `mlp.gate.weight`,
+//! `mlp.gate.bias`, `attn_norm.weight`). These do not, because `Linear4Op` always
+//! names its parameter `weight` and `ExpertGatherOp` likewise:
 //!
-//! - **`attn_res`** (`Inkling2LoopBlockAttentionResidual`): attention from learned
-//!   queries over the block states accumulated every `n_layers_per_attn_res_block`
-//!   layers. The checkpoint holds `attn_res.attn_queries.{layer}` of `[3, 2304]` and
-//!   `attn_res.mlp_queries.{layer}` of `[2304]`, so three learned queries before
-//!   attention and one before the MLP.
-//! - **`controllers`**: a rank-64 gate per layer, with `down_weight` `[64, 4608]`
-//!   and `forget_weight` / `gain_weight` `[2304, 64]`, for `attn`, `k`, `v` and
-//!   `mlp`. The 64 is `loop_config.gate_rank` and the 4608 is two hidden widths, so
-//!   this is what mixes the three passes of the looped core.
+//! | graph slot | checkpoint |
+//! |---|---|
+//! | `controllers.<x>.down.weight` | `controllers.<x>.down_weight` |
+//! | `controllers.<x>.forget.weight` | `controllers.<x>.forget_weight` |
+//! | `controllers.<x>.gain.weight` | `controllers.<x>.gain_weight` |
+//! | `attn.rel_logits_proj.weight` | `attn.rel_logits_proj.proj` |
+//! | `mlp.experts.weight` | `mlp.experts.w13_weight` |
+//! | `mlp.experts_down.weight` | `mlp.experts.w2_weight` |
+//! | `attn_res.<x>_queries.query` | `attn_res.<x>_queries.{layer}` |
 //!
-//! Also still to come: the runner, and NVFP4 dequantisation inside the expert
-//! gather's inner loop.
+//! `test_controller_slot_names` pins the first three, so the map cannot drift
+//! unnoticed.
+//!
+//! Still to come: the decoder layer that puts attention, the MoE block, `attn_res`
+//! and the controllers together with the block-state bookkeeping; the runner; and
+//! NVFP4 dequantisation inside the expert gather's inner loop.
 //!
 //! Four things make this a larger job than the Gemma port, which is why they are
 //! named in [`config`] rather than discovered later:

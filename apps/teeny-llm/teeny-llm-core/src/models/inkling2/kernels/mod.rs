@@ -17,9 +17,12 @@
 //! Kernels specific to Inkling-2, alongside the shared ones in [`crate::kernels`].
 
 pub mod attention;
+pub mod block_attn;
+pub mod cat2;
 pub mod expert_gather;
 pub mod gated_mul;
 pub mod l2_clip;
+pub mod mix;
 pub mod norm;
 pub mod rel_bias;
 pub mod router;

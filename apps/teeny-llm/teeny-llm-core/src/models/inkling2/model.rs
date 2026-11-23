@@ -51,14 +51,18 @@ use teeny_core::name_scope::name_scope;
 use super::config::Inkling2TextConfig;
 use super::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
+    block_attn::BlockAttnOp,
+    cat2::Cat2Op,
     expert_gather::ExpertGatherOp,
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
+    mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
     scatter_add::ExpertScatterAddOp,
     sconv::SconvOp,
+    softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
 use crate::kernels::linear::Linear4Op;
@@ -368,4 +372,95 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         None,
     );
     build_o_proj::<D>(cfg, &attn, x)
+}
+
+// ---------------------------------------------------------------------------
+// The looped core's two mechanisms
+// ---------------------------------------------------------------------------
+
+/// Records `attn_res`: each token retrieves a message from its block states using
+/// learned queries.
+///
+/// `states` is `[T * S, hidden]`, the `S` block states of each token with the current
+/// partial block last, as the reference's `cat([block_states, partial], dim=-2)`
+/// builds it. The states are normalised here, once, and used as both keys and values.
+///
+/// `name` picks the query slot: `attn_queries` before attention (three queries) or
+/// `mlp_queries` before the MLP (one). The checkpoint stores them per layer under
+/// `attn_res`.
+pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    name: &str,
+    states: &SymTensor,
+    n_states: usize,
+    queries: usize,
+) -> SymTensor {
+    let _a = name_scope("attn_res");
+    let normed = states.record_custom(
+        CustomData::new(UnweightedRmsNormOp::<D>::new(cfg.hidden_size)),
+        &[],
+        None,
+    );
+    let _g = name_scope(name);
+    normed.record_custom(
+        CustomData::new(BlockAttnOp::<D>::new(n_states, cfg.hidden_size, queries)),
+        &[],
+        None,
+    )
+}
+
+/// Records one `controllers.*` gate (`Inkling2LoopMessageGate`):
+///
+/// ```text
+/// g      = down(cat(norm(hidden), norm(message)))
+/// out    = (1 - tanh(forget(g))) * hidden + tanh(gain(g)) * message
+/// ```
+///
+/// `which` is `attn`, `k`, `v` or `mlp`, matching the checkpoint's four controllers.
+/// The gates are computed from the normalised inputs but applied to the raw ones.
+///
+/// `tanh` is [`super::kernels::softcap::SoftcapOp`] with a cap of 1, since
+/// `tanh(x / 1) * 1` is `tanh(x)`; no separate kernel is needed for it.
+pub fn build_controller<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    which: &str,
+    hidden: &SymTensor,
+    message: &SymTensor,
+) -> SymTensor {
+    let _c = name_scope("controllers");
+    let _w = name_scope(which);
+    let hid = cfg.hidden_size;
+    let rank = cfg.loop_config.gate_rank;
+
+    let norm = |x: &SymTensor| {
+        x.record_custom(
+            CustomData::new(UnweightedRmsNormOp::<D>::new(hid)),
+            &[],
+            None,
+        )
+    };
+    let joined = norm(hidden).record_custom(
+        CustomData::new(Cat2Op::<D>::new(hid, hid)),
+        &[&norm(message)],
+        None,
+    );
+    let g = {
+        let _d = name_scope("down");
+        linear::<D>(&joined, 2 * hid, rank)
+    };
+    let tanh =
+        |x: &SymTensor| x.record_custom(CustomData::new(SoftcapOp::<D>::new(1.0)), &[], None);
+    let forget = {
+        let _f = name_scope("forget");
+        tanh(&linear::<D>(&g, rank, hid))
+    };
+    let gain = {
+        let _g2 = name_scope("gain");
+        tanh(&linear::<D>(&g, rank, hid))
+    };
+    hidden.record_custom(
+        CustomData::new(MessageMixOp::<D>::default()),
+        &[message, &forget, &gain],
+        None,
+    )
 }
