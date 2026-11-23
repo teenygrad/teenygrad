@@ -109,8 +109,7 @@ How it got there (first-turn prompt / first token / decode):
 A decode step now takes about 90 ms. Before the thread pool, `TEENY_GEMMA_TRACE=1` (which
 prints every kernel's time and each step's total) showed lm_head at 42 ms, attention at 14 ms
 and host-side copies at 22 ms of a 170 ms step; a step launches about 390 kernels, and starting
-threads for each was most of the rest. `examples/matmul_bench.rs` times the linear kernel alone,
-for a list of block sizes and both program orderings.
+threads for each was most of the rest.
 
 Each kernel launch spreads its program ids over a pool of threads, one per available core;
 `TEENY_RISCV_THREADS=<n>` overrides the count. With the same chat, measured with 128-lane
