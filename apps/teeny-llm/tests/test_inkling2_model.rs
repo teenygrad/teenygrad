@@ -28,7 +28,9 @@ use teeny_core::graph::{DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::config::Inkling2TextConfig;
-use teeny_llm_core::models::inkling2::model::{build_moe, build_router, slot_ids};
+use teeny_llm_core::models::inkling2::model::{
+    build_controller, build_moe, build_router, slot_ids,
+};
 use teeny_test::model::{RuntimeModel, runtime};
 
 /// Deterministic values in `[-1, 1)`.
@@ -229,4 +231,36 @@ fn test_moe_block_matches_a_host_reference() {
             );
         }
     }
+}
+
+/// Pins the controller's slot names. Three of them differ from the checkpoint's by
+/// a dot where it has an underscore (`down.weight` against `down_weight`), because
+/// Linear4Op always names its parameter `weight`. The loader has to map these three;
+/// the attention slots need no mapping. This test is what tells us if that changes.
+#[test]
+fn test_controller_slot_names() {
+    let cfg = test_config();
+    let t = 2usize;
+    let g = GraphRun::new(&[t, cfg.hidden_size]);
+    let msg = g.input(&[t, cfg.hidden_size]);
+    let out = build_controller::<f32>(&cfg, "attn", &g.first, &msg);
+    let h = values(t * cfg.hidden_size, 131);
+    let m = values(t * cfg.hidden_size, 132);
+    let rank = cfg.loop_config.gate_rank;
+    let down = values(rank * 2 * cfg.hidden_size, 133);
+    let fw = values(cfg.hidden_size * rank, 134);
+    let gw = values(cfg.hidden_size * rank, 135);
+    let got = g.run(
+        &out,
+        &[&h, &m],
+        &[
+            // checkpoint: controllers.attn.down_weight
+            ("controllers.attn.down.weight", &down),
+            // checkpoint: controllers.attn.forget_weight
+            ("controllers.attn.forget.weight", &fw),
+            // checkpoint: controllers.attn.gain_weight
+            ("controllers.attn.gain.weight", &gw),
+        ],
+    );
+    assert_eq!(got.len(), t * cfg.hidden_size);
 }
