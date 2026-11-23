@@ -267,10 +267,9 @@ impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool2d<D, SymTensor, S
             kernel_w: self.kernel_w,
             stride_h: self.stride_h,
             stride_w: self.stride_w,
-            // The eager `AvgPool2d` layer has no padding, so a traced graph has none.
-            pad_h: 0,
-            pad_w: 0,
-            count_include_pad: false,
+            pad_h: self.padding_h,
+            pad_w: self.padding_w,
+            count_include_pad: self.count_include_pad,
         })
     }
 }

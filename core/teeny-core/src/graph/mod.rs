@@ -2767,6 +2767,55 @@ mod tests {
         assert_eq!(g.nodes[4].shape, vec![None, Some(10)]);
     }
 
+    /// A padded `AvgPool2d` used to be traced as unpadded, which recorded the wrong
+    /// output extent and silently pooled a different window.
+    #[test]
+    fn test_traced_avgpool2d_records_padding() {
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(8), Some(8)]);
+        let pool = crate::nn::pool::AvgPool2d::<f32, SymTensor, SymTensor, 4>::with_padding(
+            (3, 3),
+            (1, 1),
+            (1, 2),
+        );
+        let out = Layer::call(&pool, input);
+
+        let g = graph.borrow();
+        assert!(matches!(
+            g.nodes[out.node_id].op,
+            Op::AvgPool2d {
+                pad_h: 1,
+                pad_w: 2,
+                ..
+            }
+        ));
+        // (8 + 2*1 - 3) / 1 + 1 = 8 and (8 + 2*2 - 3) / 1 + 1 = 10.
+        assert_eq!(out.shape, vec![Some(1), Some(3), Some(8), Some(10)]);
+    }
+
+    /// `count_include_pad` defaults to PyTorch's true, and the builder overrides it.
+    #[test]
+    fn test_traced_avgpool2d_records_count_include_pad() {
+        use crate::nn::pool::AvgPool2d;
+        let traced = |pool: AvgPool2d<f32, SymTensor, SymTensor, 4>| -> bool {
+            let (input, graph) =
+                SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(1), Some(4), Some(4)]);
+            let out = Layer::call(&pool, input);
+            match graph.borrow().nodes[out.node_id].op {
+                Op::AvgPool2d {
+                    count_include_pad, ..
+                } => count_include_pad,
+                ref other => panic!("expected AvgPool2d, recorded {other:?}"),
+            }
+        };
+
+        assert!(traced(AvgPool2d::with_padding((3, 3), (1, 1), (1, 1))));
+        assert!(traced(AvgPool2d::new((2, 2), (2, 2))));
+        assert!(!traced(
+            AvgPool2d::with_padding((3, 3), (1, 1), (1, 1)).count_include_pad(false)
+        ));
+    }
+
     #[test]
     fn test_topological_sort_linear_chain() {
         let (input, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(784)]);
