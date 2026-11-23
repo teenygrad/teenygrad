@@ -2033,81 +2033,6 @@ fn pick_gemm_tile_sizes(m: Option<usize>, n: usize, k: usize) -> (i32, i32, i32)
     (block_m, block_n, block_k)
 }
 
-#[cfg(test)]
-mod pick_gemm_tile_sizes_tests {
-    use super::pick_gemm_tile_sizes;
-
-    #[test]
-    fn test_small_shape_gets_smallest_tiles() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
-    }
-
-    #[test]
-    fn test_large_m_and_n_get_the_largest_tile() {
-        // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
-        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
-    }
-
-    #[test]
-    fn test_large_m_only_widens_block_m_not_block_n() {
-        assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
-    }
-
-    #[test]
-    fn test_large_n_only_widens_block_n_not_block_m() {
-        assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
-    }
-
-    /// Where the backend needs `matmul_forward` to read its last K tile back from
-    /// inside the operands, a tile wider than the contracted axis has nowhere to be
-    /// read from.
-    #[test]
-    #[cfg_attr(feature = "cuda", ignore = "a partial K tile loads on CUDA")]
-    fn test_block_k_never_exceeds_the_contracted_extent() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 4).2, 4);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 6).2, 4);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1).2, 1);
-    }
-
-    /// A contraction wide enough for the tile is left alone on every backend.
-    #[test]
-    fn test_block_k_is_untouched_when_the_contraction_is_wider() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 12).2, 8);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1921).2, 32);
-    }
-
-    #[test]
-    fn test_unknown_dynamic_batch_treated_as_small() {
-        // m=None should behave the same as an explicit small m, not a large one.
-        assert_eq!(
-            pick_gemm_tile_sizes(None, 64, 16),
-            pick_gemm_tile_sizes(Some(64), 64, 16)
-        );
-    }
-
-    /// 8 is the narrowest tile worth giving the `dot`, but a tile wider than the
-    /// contracted axis has nowhere to be read back from, and `matmul_forward` needs
-    /// one whole K tile to exist. Correctness wins: a contraction of 1 gets a tile
-    /// of 1, and the few shapes that narrow are small ones anyway.
-    #[test]
-    fn test_block_k_stays_at_eight_unless_the_contraction_is_narrower() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
-        let narrow = pick_gemm_tile_sizes(Some(64), 64, 1).2;
-        if crate::math::gemm::PARTIAL_K_TILE_IS_PADDED {
-            assert_eq!(narrow, 8);
-        } else {
-            assert_eq!(narrow, 1);
-        }
-    }
-
-    #[test]
-    fn test_block_k_grows_with_k() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);
-    }
-}
-
 impl TritonLowering {
     /// Lower a single unary `op` through the same Op→kernel table as
     /// [`Self::lower_with_mapping`], without running a graph optimizer.
@@ -5646,5 +5571,80 @@ impl<'a> Lowering<'a> for TritonLowering {
             }
         }
         extra
+    }
+}
+
+#[cfg(test)]
+mod pick_gemm_tile_sizes_tests {
+    use super::pick_gemm_tile_sizes;
+
+    #[test]
+    fn test_small_shape_gets_smallest_tiles() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
+    }
+
+    #[test]
+    fn test_large_m_and_n_get_the_largest_tile() {
+        // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
+    }
+
+    #[test]
+    fn test_large_m_only_widens_block_m_not_block_n() {
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
+    }
+
+    #[test]
+    fn test_large_n_only_widens_block_n_not_block_m() {
+        assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
+    }
+
+    /// Where the backend needs `matmul_forward` to read its last K tile back from
+    /// inside the operands, a tile wider than the contracted axis has nowhere to be
+    /// read from.
+    #[test]
+    #[cfg_attr(feature = "cuda", ignore = "a partial K tile loads on CUDA")]
+    fn test_block_k_never_exceeds_the_contracted_extent() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 4).2, 4);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 6).2, 4);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1).2, 1);
+    }
+
+    /// A contraction wide enough for the tile is left alone on every backend.
+    #[test]
+    fn test_block_k_is_untouched_when_the_contraction_is_wider() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 12).2, 8);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1921).2, 32);
+    }
+
+    #[test]
+    fn test_unknown_dynamic_batch_treated_as_small() {
+        // m=None should behave the same as an explicit small m, not a large one.
+        assert_eq!(
+            pick_gemm_tile_sizes(None, 64, 16),
+            pick_gemm_tile_sizes(Some(64), 64, 16)
+        );
+    }
+
+    /// 8 is the narrowest tile worth giving the `dot`, but a tile wider than the
+    /// contracted axis has nowhere to be read back from, and `matmul_forward` needs
+    /// one whole K tile to exist. Correctness wins: a contraction of 1 gets a tile
+    /// of 1, and the few shapes that narrow are small ones anyway.
+    #[test]
+    fn test_block_k_stays_at_eight_unless_the_contraction_is_narrower() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
+        let narrow = pick_gemm_tile_sizes(Some(64), 64, 1).2;
+        if crate::math::gemm::PARTIAL_K_TILE_IS_PADDED {
+            assert_eq!(narrow, 8);
+        } else {
+            assert_eq!(narrow, 1);
+        }
+    }
+
+    #[test]
+    fn test_block_k_grows_with_k() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);
     }
 }
