@@ -20,6 +20,7 @@ pub mod circular_pad3d;
 pub mod constant_pad1d;
 pub mod constant_pad2d;
 pub mod constant_pad3d;
+pub mod pad_nd;
 pub mod reflection_pad1d;
 pub mod reflection_pad2d;
 pub mod reflection_pad3d;

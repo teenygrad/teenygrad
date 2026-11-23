@@ -14,5 +14,6 @@
  * limitations under the License.
  */
 
+pub mod einsum;
 pub mod gemm;
 pub mod matmul;

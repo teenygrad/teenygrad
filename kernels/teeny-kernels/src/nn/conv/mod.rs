@@ -17,3 +17,4 @@
 pub mod conv1d;
 pub mod conv2d;
 pub mod conv3d;
+pub mod conv_transpose2d;

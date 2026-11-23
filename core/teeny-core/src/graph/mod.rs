@@ -14,47 +14,39 @@
  * limitations under the License.
  */
 
-use alloc::{collections::BTreeMap, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
-use core::{any::Any, cell::RefCell};
-
-use crate::{
-    dtype::{Dtype, Float, RankedTensor, Tensor},
-    nn::{
-        Layer,
-        activation::{
-            elu::{Celu, Elu, Selu},
-            gelu::{Gelu, Mish},
-            hard::{Hardshrink, Hardsigmoid, Hardswish, Hardtanh, Relu6},
-            misc::{LeakyRelu, Softplus, Softshrink, Softsign, Threshold},
-            relu::Relu,
-            sigmoid::{Logsigmoid, Sigmoid, Silu},
-            softmax::Softmax,
-            tanh::{Tanh, Tanhshrink},
-        },
-        batchnorm::{BatchNorm1d, BatchNorm2d, BatchNorm3d},
-        conv1d::Conv1d,
-        conv2d::Conv2d,
-        conv3d::Conv3d,
-        flatten::Flatten,
-        groupnorm::GroupNorm,
-        instancenorm::{InstanceNorm1d, InstanceNorm2d, InstanceNorm3d},
-        layernorm::LayerNorm,
-        linear::Linear,
-        pad::{
-            CircularPad1d, CircularPad2d, CircularPad3d, ConstantPad1d, ConstantPad2d,
-            ConstantPad3d, ReflectionPad1d, ReflectionPad2d, ReflectionPad3d, ReplicationPad1d,
-            ReplicationPad2d, ReplicationPad3d,
-        },
-        pool::{
-            AvgPool1d, AvgPool2d, AvgPool3d, LpPool1d, LpPool2d, LpPool3d, MaxPool1d, MaxPool2d,
-            MaxPool3d,
-        },
-        rmsnorm::RmsNorm,
-    },
-};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec, vec::Vec};
+use core::any::Any;
 
 /// Graph-to-FXGraph lowering.
 pub mod compiler;
+
+/// Materialised constant values carried alongside the graph.
+pub mod constant;
+
+pub use constant::{ConstantMap, ConstantReadError, ConstantTensor};
+
+/// How an `Einsum` maps onto a strided contraction.
+pub mod einsum;
+/// How a `MatMul` maps onto the batched GEMM kernel.
+pub mod matmul;
+/// Which axes a reduction reduces, and the transpose that gathers them.
+pub mod reduce;
+/// How a `Resize` maps output coordinates onto input taps.
+pub mod resize;
+/// How a `Slice` maps output coordinates onto its input.
+pub mod slice;
+/// A symbolic tensor that records each operation into a [`Graph`].
+pub mod tensor;
+
+pub use einsum::{EINSUM_MAX_RANK, EinsumError, EinsumPlan, einsum_plan};
+pub use matmul::{MatMulError, MatMulPlan, matmul_plan};
+pub use reduce::{reduce_axes, reduce_transpose_perm};
+pub use resize::{
+    ResizeAxisPlan, ResizeCoords, ResizeError, ResizeMode, ResizeNearest, resize_axis_plan,
+    resize_taps,
+};
+pub use slice::{SlicePlan, slice_plan};
+pub use tensor::SymTensor;
 
 // ---------------------------------------------------------------------------
 // Shape — dynamic tensor shape used throughout the graph IR
@@ -64,6 +56,143 @@ pub mod compiler;
 /// dynamic/unknown dimension (`None`), e.g. a batch axis whose size is determined
 /// at runtime.
 pub type Shape = Vec<Option<usize>>;
+
+impl Op {
+    /// Whether this op's output has the same shape as its first input.
+    ///
+    /// An importer that cannot determine a node's shape has two options: leave it
+    /// unknown, or copy its first input's. The copy is right for the elementwise and
+    /// normalisation ops and wrong for everything else, and a wrong shape is worse
+    /// than an absent one because nothing downstream can tell it is wrong. This says
+    /// which ops the copy is actually valid for.
+    pub fn preserves_input_shape(&self) -> bool {
+        matches!(
+            self,
+            Op::Identity
+                | Op::Relu
+                | Op::Sigmoid
+                | Op::Tanh
+                | Op::Erf
+                | Op::Softmax { .. }
+                | Op::LogSoftmax { .. }
+                | Op::Clip { .. }
+                | Op::Neg
+                | Op::Abs
+                | Op::Sqrt
+                | Op::Exp
+                | Op::Log
+                | Op::Sin
+                | Op::Cos
+                | Op::Floor
+                | Op::Ceil
+                | Op::Reciprocal
+                | Op::Not
+                | Op::Sign
+                | Op::LeakyRelu { .. }
+                | Op::Elu { .. }
+                | Op::Selu
+                | Op::Gelu
+                | Op::Mish
+                | Op::Silu
+                | Op::Swish
+                | Op::Softsign
+                | Op::Softplus { .. }
+                | Op::PRelu
+                | Op::ThresholdedRelu { .. }
+                | Op::Shrink { .. }
+                | Op::Cast { .. }
+                | Op::CastLike
+                | Op::BitCast { .. }
+                | Op::Dropout { .. }
+                | Op::BatchNorm1d { .. }
+                | Op::BatchNorm2d { .. }
+                | Op::BatchNorm3d { .. }
+                | Op::InstanceNorm1d { .. }
+                | Op::InstanceNorm2d { .. }
+                | Op::InstanceNorm3d { .. }
+                | Op::LayerNorm { .. }
+                | Op::GroupNorm { .. }
+                | Op::ScatterND
+                | Op::ScatterElements { .. }
+                | Op::Trilu { .. }
+                | Op::CumSum { .. }
+                | Op::ReverseSequence { .. }
+        )
+    }
+
+    /// Which of this op's operand positions carry *shape metadata* rather than
+    /// tensor data.
+    ///
+    /// ONNX moved many attributes to operands over successive opsets, so an op's
+    /// reshape target, pad list, slice bounds or axes arrive as ordinary graph edges
+    /// even though nothing computes them at runtime. A lowering pass reads such an
+    /// operand's value to pick its output shape and kernel parameters, and never
+    /// needs it as a buffer. That makes the distinction load-bearing: a constant
+    /// consumed only in these positions does not have to be materialised into memory
+    /// at all, and the edge can be dropped.
+    ///
+    /// Positions are indices into [`GraphNode::inputs`]. Operands that genuinely flow
+    /// data are excluded. `Gather`'s indices are included even though they are a
+    /// tensor operand rather than an attribute: an index tensor is integer-typed, and
+    /// a node's buffers are typed from its own dtype, so a lowering has nowhere
+    /// correctly-typed to put one as an activation. The gather kernel therefore reads
+    /// its indices from a parameter slot the lowering fills, which means the operand
+    /// never needs a buffer either. `GatherElements` and `GatherND` are not included,
+    /// since nothing lowers them yet.
+    pub fn shape_operand_positions(&self) -> &'static [usize] {
+        match self {
+            // Reshape(data, shape), Expand(data, shape), Tile(data, repeats)
+            Op::Reshape | Op::Expand | Op::Tile => &[1],
+            // ConstantOfShape(shape)
+            Op::ConstantOfShape { .. } => &[0],
+            // Range(start, limit, delta) — all three are scalars that set the extent.
+            Op::Range => &[0, 1, 2],
+            // Slice(data, starts, ends, axes, steps)
+            Op::Slice => &[1, 2, 3, 4],
+            // Pad(data, pads, constant_value, axes) — slot 2 is a fill value, data.
+            // Pad(data, pads, constant_value, axes). The value is not shape
+            // metadata, but it belongs here for the same reason Clip's bounds do:
+            // lowering reads it and hands it to the kernel in a parameter slot, so it
+            // never needs a buffer of its own.
+            Op::Pad { .. } => &[1, 2, 3],
+            // Resize(x, roi, scales, sizes)
+            Op::Resize { .. } => &[1, 2, 3],
+            // Squeeze(data, axes), Unsqueeze(data, axes). The importer lifts these
+            // into the op itself, so the operand is redundant by the time we lower.
+            Op::Squeeze { .. } | Op::Unsqueeze { .. } => &[1],
+            // Gather(data, indices): read from a parameter slot, see above.
+            Op::Gather { .. } => &[1],
+            // A reduction's axes, where the file wrote them as an operand rather than
+            // an attribute. `teeny_onnx::materialize` moves the value onto the op, so
+            // by lowering time this operand only needs eliding.
+            Op::ReduceSum { .. }
+            | Op::ReduceMean { .. }
+            | Op::ReduceMax { .. }
+            | Op::ReduceMin { .. }
+            | Op::ReduceProd { .. }
+            | Op::ReduceL1 { .. }
+            | Op::ReduceL2 { .. }
+            | Op::ReduceLogSum { .. }
+            | Op::ReduceLogSumExp { .. }
+            | Op::ReduceSumSquare { .. } => &[1],
+            // `Clip`'s bounds are scalars the lowering reads on the host and packs as
+            // kernel arguments, so like a shape operand they never need a device
+            // buffer of their own.
+            Op::Clip { .. } => &[1, 2],
+            // Split(data, split), TopK(x, k), OneHot(indices, depth, values),
+            // Trilu(x, k), CumSum(x, axis), CumProd(x, axis),
+            // Compress(data, condition)
+            Op::Split { .. }
+            | Op::TopK { .. }
+            | Op::OneHot { .. }
+            | Op::Trilu { .. }
+            | Op::CumSum { .. }
+            | Op::CumProd { .. }
+            | Op::Compress { .. } => &[1],
+            _ => &[],
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Runtime dtype tag — used in the graph since D is erased at the node level
@@ -391,6 +520,17 @@ pub enum Op {
         stride_h: usize,
         /// Horizontal stride.
         stride_w: usize,
+        /// Vertical padding, applied symmetrically.
+        pad_h: usize,
+        /// Horizontal padding, applied symmetrically.
+        pad_w: usize,
+        /// Whether padded positions count toward the average's denominator.
+        ///
+        /// ONNX defaults this to false, so a window overlapping the padding divides by
+        /// the real elements it covers; true divides by the whole window and pulls
+        /// edge outputs toward zero. The two differ at every border pixel of every
+        /// padded pool, which is why it is carried rather than assumed.
+        count_include_pad: bool,
     },
     /// 3-D average pooling (see `nn::pool::AvgPool3d`).
     AvgPool3d {
@@ -709,8 +849,13 @@ pub enum Op {
     Tanhshrink,
     /// Softmax activation (see `nn::activation::softmax::Softmax`).
     Softmax {
-        /// The dimension to operate along.
-        dim: usize,
+        /// The axis to normalize along, negative counting from the end.
+        ///
+        /// ONNX's default is -1 from opset 13 and 1 before it, and an exporter may write
+        /// either, so this is kept as written and resolved against the rank where the
+        /// rank is known. Clamping a negative axis to 0 would silently normalize the
+        /// wrong axis.
+        dim: i64,
     },
 
     // --- Attention ---
@@ -941,6 +1086,19 @@ pub enum Op {
     },
     /// Returns the total number of elements (ONNX `Size`).
     SizeOf,
+    /// An optional operand the model did not supply.
+    ///
+    /// ONNX marks an omitted optional operand with an empty input name, keeping the
+    /// positions of the operands after it. Those positions are load-bearing: `Clip`'s
+    /// operands are `(input, min, max)`, so dropping an omitted `min` turns `max` into
+    /// `min` and silently clamps the wrong way, and `Resize`'s are
+    /// `(X, roi, scales, sizes)`, so dropping two leaves `sizes` where `roi` belongs.
+    /// This variant occupies the position instead, so an op that reads operand `k`
+    /// reads the operand the model put there.
+    ///
+    /// It never reaches a device: it produces no value, and lowering an op that does
+    /// not account for one is an error rather than a wrong answer.
+    Omitted,
     /// Passes the input through unchanged (ONNX `Identity`).
     Identity,
     /// Casts a tensor to another dtype (ONNX `Cast`).
@@ -970,6 +1128,15 @@ pub enum Op {
     ConstantOfShape {
         /// The dtype to use.
         dtype: DtypeRepr,
+        /// One element's little-endian bytes: the value every slot is filled with.
+        ///
+        /// Empty means zero, which is what ONNX fills with when the node has no
+        /// `value` attribute. The value lives in the op rather than beside the
+        /// graph because it is not the node's contents: the output can be far too
+        /// large to hold as data, which is the whole reason the op exists, so
+        /// nothing will ever put this node in a constant map unless it was small
+        /// enough to fold, and then the map holds the whole tensor instead.
+        fill: alloc::vec::Vec<u8>,
     },
     /// Extracts the upper or lower triangular part of a matrix (ONNX `Trilu`).
     Trilu {
@@ -1091,6 +1258,15 @@ pub enum Op {
     // --- Reductions ---
     /// Sum reduction along axes (ONNX `ReduceSum`).
     ReduceSum {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1098,6 +1274,15 @@ pub enum Op {
     },
     /// Mean reduction along axes (ONNX `ReduceMean`).
     ReduceMean {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1105,6 +1290,15 @@ pub enum Op {
     },
     /// Max reduction along axes (ONNX `ReduceMax`).
     ReduceMax {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1112,6 +1306,15 @@ pub enum Op {
     },
     /// Min reduction along axes (ONNX `ReduceMin`).
     ReduceMin {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1119,6 +1322,15 @@ pub enum Op {
     },
     /// Product reduction along axes (ONNX `ReduceProd`).
     ReduceProd {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1126,6 +1338,15 @@ pub enum Op {
     },
     /// L1-norm reduction along axes (ONNX `ReduceL1`).
     ReduceL1 {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1133,6 +1354,15 @@ pub enum Op {
     },
     /// L2-norm reduction along axes (ONNX `ReduceL2`).
     ReduceL2 {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1140,6 +1370,15 @@ pub enum Op {
     },
     /// Log-sum reduction along axes (ONNX `ReduceLogSum`).
     ReduceLogSum {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1147,6 +1386,15 @@ pub enum Op {
     },
     /// Log-sum-exp reduction along axes (ONNX `ReduceLogSumExp`).
     ReduceLogSumExp {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1154,6 +1402,15 @@ pub enum Op {
     },
     /// Sum-of-squares reduction along axes (ONNX `ReduceSumSquare`).
     ReduceSumSquare {
+        /// The axes to reduce along, negative counting from the end.
+        ///
+        /// Empty means every axis, unless `noop_with_empty_axes` says otherwise.
+        /// ONNX moved this from an attribute to an operand, in opset 13 for some
+        /// of these ops and opset 18 for the rest, so an export may state it
+        /// either way and a reader has to accept both. It is kept here because a
+        /// reduction over the wrong axes is a wrong answer and not merely an
+        /// unknown shape: dropping it leaves nothing to notice that from.
+        axes: alloc::vec::Vec<i64>,
         /// Whether to retain reduced dimensions with length 1.
         keepdims: bool,
         /// Whether an empty `axes` list means "no-op" instead of "reduce all".
@@ -1161,6 +1418,13 @@ pub enum Op {
     },
     /// Cumulative sum along an axis (ONNX `CumSum`).
     CumSum {
+        /// The axis to accumulate along, negative counting from the end.
+        ///
+        /// ONNX carries this as an operand rather than an attribute, so
+        /// `teeny_onnx::materialize` moves the value here once it is known. It is kept
+        /// because accumulating along the wrong axis is a wrong answer of the right
+        /// shape.
+        axis: i64,
         /// Whether to exclude the current element from the cumulative result.
         exclusive: bool,
         /// Whether to accumulate in reverse order.
@@ -1168,6 +1432,9 @@ pub enum Op {
     },
     /// Cumulative product along an axis (ONNX `CumProd`).
     CumProd {
+        /// The axis to accumulate along, negative counting from the end. As
+        /// [`Op::CumSum`]'s.
+        axis: i64,
         /// Whether to exclude the current element from the cumulative result.
         exclusive: bool,
         /// Whether to accumulate in reverse order.
@@ -1234,7 +1501,17 @@ pub enum Op {
         bias: f64,
     },
     /// Clamps values to a `[min, max]` range (ONNX `Clip`).
-    Clip,
+    Clip {
+        /// Lower bound from the opset-6 `min` attribute, if the model used it.
+        ///
+        /// Opset 11 moved both bounds to optional operands, so a modern export leaves
+        /// these `None` and supplies operands 1 and 2 instead. The attribute form is
+        /// kept because the alternative is an export that silently does not clamp:
+        /// nothing in a graph shows that a bound went missing.
+        min: Option<f64>,
+        /// Upper bound from the opset-6 `max` attribute, if the model used it.
+        max: Option<f64>,
+    },
     /// Swish/SiLU activation (ONNX `Swish`).
     Swish,
     /// Multi-head attention (ONNX `MultiHeadAttention`).
@@ -1313,6 +1590,14 @@ pub enum Op {
         mode: alloc::string::String,
         /// How resized coordinates map back to the input (ONNX `Resize` mode string).
         coordinate_transformation_mode: alloc::string::String,
+        /// How a nearest-mode resize rounds a coordinate that falls between two
+        /// elements (ONNX `nearest_mode`): `floor`, `ceil`, `round_prefer_floor` or
+        /// `round_prefer_ceil`.
+        ///
+        /// It decides which element every output element of a nearest resize reads,
+        /// and the default is not the obvious one: ONNX rounds, where an exporter
+        /// writing out a plain upsample asks for `floor`.
+        nearest_mode: alloc::string::String,
         /// Whether to apply an anti-aliasing filter when downsampling.
         antialias: bool,
     },
@@ -1658,13 +1943,16 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
     if let Op::Constant { shape, .. } = op {
         return shape.clone();
     }
-    // Zero-input ops that produce no tensor output.
-    if matches!(op, Op::SequenceEmpty | Op::OptionalHasElement) {
+    // Zero-input ops that produce no tensor output. `Omitted` is one: it stands for an
+    // operand the model did not supply, so it has no shape of its own.
+    if matches!(op, Op::SequenceEmpty | Op::OptionalHasElement | Op::Omitted) {
         return vec![];
     }
     let input = inputs[0];
     match op {
         Op::Input => input.clone(),
+        // Handled above, but the match must be exhaustive.
+        Op::Omitted => vec![],
 
         // Element-wise / shape-preserving — output shape = input shape
         Op::Relu
@@ -1782,9 +2070,12 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             kernel_w,
             stride_h,
             stride_w,
+            pad_h,
+            pad_w,
+            ..
         } => {
-            let h_out = input[2].map(|h| (h - kernel_h) / stride_h + 1);
-            let w_out = input[3].map(|w| (w - kernel_w) / stride_w + 1);
+            let h_out = input[2].map(|h| (h + 2 * pad_h - kernel_h) / stride_h + 1);
+            let w_out = input[3].map(|w| (w + 2 * pad_w - kernel_w) / stride_w + 1);
             vec![input[0], input[1], h_out, w_out]
         }
 
@@ -2008,7 +2299,7 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         | Op::PRelu
         | Op::ThresholdedRelu { .. }
         | Op::Shrink { .. }
-        | Op::Clip
+        | Op::Clip { .. }
         | Op::Swish
         | Op::LogSoftmax { .. }
         | Op::Hardmax { .. }
@@ -2191,22 +2482,80 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             vec![input[0], Some(*out_channels), h_out, w_out]
         }
 
-        Op::ReduceSum { keepdims, .. }
-        | Op::ReduceMean { keepdims, .. }
-        | Op::ReduceMax { keepdims, .. }
-        | Op::ReduceMin { keepdims, .. }
-        | Op::ReduceProd { keepdims, .. }
-        | Op::ReduceL1 { keepdims, .. }
-        | Op::ReduceL2 { keepdims, .. }
-        | Op::ReduceLogSum { keepdims, .. }
-        | Op::ReduceLogSumExp { keepdims, .. }
-        | Op::ReduceSumSquare { keepdims, .. } => {
-            // Without axis info at static-inference time, approximate:
-            // keepdims=true → same rank, keepdims=false → reduce all → scalar.
+        Op::ReduceSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMean {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMax {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMin {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceProd {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL1 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL2 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSumExp {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceSumSquare {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        } => {
+            // The axes are on the op, so the reduced extents are known: a kept axis
+            // becomes 1 and a dropped one goes away. Reducing every axis with
+            // `keepdims` gives all 1s, and without it a scalar, which an empty shape
+            // is. An axis outside the rank leaves the shape unknown rather than
+            // guessed.
+            let Some(reduced) = reduce_axes(axes, input.len(), *noop_with_empty_axes) else {
+                return vec![];
+            };
+            if reduced.is_empty() {
+                return input.clone();
+            }
             if *keepdims {
-                input.clone()
+                let mut out = input.clone();
+                for &axis in &reduced {
+                    out[axis] = Some(1);
+                }
+                out
             } else {
-                vec![Some(1)]
+                input
+                    .iter()
+                    .enumerate()
+                    .filter(|(axis, _)| !reduced.contains(axis))
+                    .map(|(_, dim)| *dim)
+                    .collect()
             }
         }
 
@@ -2356,769 +2705,6 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
 }
 
 // ---------------------------------------------------------------------------
-// SymTensor — a tensor that writes to the graph on every operation
-// ---------------------------------------------------------------------------
-
-/// A symbolic tensor handle. Every layer operation on a `SymTensor` records
-/// itself in the shared `Graph` and returns a new `SymTensor` pointing to
-/// the new node. Cloning is cheap — it shares the graph via `Rc`.
-#[derive(Clone)]
-pub struct SymTensor {
-    /// This tensor's node index in `graph`.
-    pub node_id: usize,
-    /// The shared graph this tensor's operations record into.
-    pub graph: Rc<RefCell<Graph>>,
-    /// This tensor's dtype.
-    pub dtype: DtypeRepr,
-    /// Output shape of this tensor. `None` in a slot means a dynamic/unknown
-    /// dimension (e.g. the batch axis).
-    pub shape: Shape,
-}
-
-// SymTensor satisfies Tensor<D, RANK> for any D and RANK — shape is tracked
-// dynamically at runtime; the compile-time SHAPE constant is zeroed (unused).
-impl<D: Dtype, const RANK: usize> RankedTensor<D, RANK> for SymTensor {
-    const SHAPE: [usize; RANK] = [0; RANK];
-}
-impl<D: Dtype, const RANK: usize> Tensor<D, RANK> for SymTensor {}
-
-impl SymTensor {
-    /// Create an input placeholder, returning both the tensor and the shared
-    /// graph handle. Keep the graph handle to inspect the result after tracing.
-    ///
-    /// Use `None` for dynamic dimensions (e.g. the batch axis):
-    /// ```ignore
-    /// SymTensor::input(DtypeRepr::F32, vec![None, Some(784)])
-    /// ```
-    pub fn input(dtype: DtypeRepr, shape: Shape) -> (Self, Rc<RefCell<Graph>>) {
-        let graph = Rc::new(RefCell::new(Graph::new()));
-        let node_id = graph
-            .borrow_mut()
-            .add_node(Op::Input, vec![], dtype, shape.clone());
-        let tensor = Self {
-            node_id,
-            graph: graph.clone(),
-            dtype,
-            shape,
-        };
-        (tensor, graph)
-    }
-
-    /// Number of dimensions of this tensor.
-    pub fn rank(&self) -> usize {
-        self.shape.len()
-    }
-
-    fn record(&self, op: Op) -> Self {
-        let output_shape = infer_output_shape(&op, &[&self.shape]);
-        self.record_with_shape(op, output_shape)
-    }
-
-    fn record_with_shape(&self, op: Op, shape: Shape) -> Self {
-        let node_id =
-            self.graph
-                .borrow_mut()
-                .add_node(op, vec![self.node_id], self.dtype, shape.clone());
-        Self {
-            node_id,
-            graph: self.graph.clone(),
-            dtype: self.dtype,
-            shape,
-        }
-    }
-
-    /// Record a custom op whose output shape is determined by [`CustomOp::infer_output_shape`].
-    ///
-    /// `self` is the primary (first) input.  Pass additional inputs via
-    /// `other_inputs`.  Pass `dtype` to override the output element type;
-    /// defaults to the primary input's dtype.
-    pub fn record_custom(
-        &self,
-        data: CustomData,
-        other_inputs: &[&SymTensor],
-        dtype: Option<DtypeRepr>,
-    ) -> Self {
-        let mut shapes: Vec<&Shape> = vec![&self.shape];
-        shapes.extend(other_inputs.iter().map(|t| &t.shape));
-        let output_shape = data.infer_output_shape(&shapes);
-
-        let mut input_ids: Vec<usize> = vec![self.node_id];
-        input_ids.extend(other_inputs.iter().map(|t| t.node_id));
-
-        let out_dtype = dtype.unwrap_or(self.dtype);
-        let node_id = self.graph.borrow_mut().add_node(
-            Op::Custom { data },
-            input_ids,
-            out_dtype,
-            output_shape.clone(),
-        );
-        Self {
-            node_id,
-            graph: self.graph.clone(),
-            dtype: out_dtype,
-            shape: output_shape,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Layer<SymTensor> impls — record op instead of computing
-// ---------------------------------------------------------------------------
-
-// --- Linear / MLP ---
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Linear<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Linear {
-            in_features: self.in_features,
-            out_features: self.out_features,
-            has_bias: self.has_bias,
-        })
-    }
-}
-
-impl<D: Dtype> Layer<SymTensor> for Flatten<D, SymTensor, SymTensor> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Flatten)
-    }
-}
-
-// --- Normalisation ---
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm1d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::BatchNorm1d {
-            num_features: self.num_features,
-            eps: self.eps,
-            momentum: self.momentum,
-            affine: self.affine,
-            track_running_stats: self.track_running_stats,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm2d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::BatchNorm2d {
-            num_features: self.num_features,
-            eps: self.eps,
-            momentum: self.momentum,
-            affine: self.affine,
-            track_running_stats: self.track_running_stats,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for BatchNorm3d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::BatchNorm3d {
-            num_features: self.num_features,
-            eps: self.eps,
-            momentum: self.momentum,
-            affine: self.affine,
-            track_running_stats: self.track_running_stats,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LayerNorm<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LayerNorm {
-            normalized_shape: self.normalized_shape.clone(),
-            eps: self.eps,
-            affine: self.affine,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for RmsNorm<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::RmsNorm {
-            normalized_shape: self.normalized_shape.clone(),
-            eps: self.eps,
-            affine: self.affine,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for GroupNorm<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::GroupNorm {
-            num_groups: self.num_groups,
-            num_channels: self.num_channels,
-            eps: self.eps,
-            affine: self.affine,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for InstanceNorm1d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::InstanceNorm1d {
-            num_features: self.num_features,
-            eps: self.eps,
-            momentum: self.momentum,
-            affine: self.affine,
-            track_running_stats: self.track_running_stats,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for InstanceNorm2d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::InstanceNorm2d {
-            num_features: self.num_features,
-            eps: self.eps,
-            momentum: self.momentum,
-            affine: self.affine,
-            track_running_stats: self.track_running_stats,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for InstanceNorm3d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::InstanceNorm3d {
-            num_features: self.num_features,
-            eps: self.eps,
-            momentum: self.momentum,
-            affine: self.affine,
-            track_running_stats: self.track_running_stats,
-        })
-    }
-}
-
-// --- Convolution ---
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv1d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Conv1d {
-            in_channels: self.in_channels,
-            out_channels: self.out_channels,
-            kernel_l: self.kernel_l,
-            stride: self.stride,
-            padding: self.padding,
-            has_bias: self.has_bias,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv2d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Conv2d {
-            in_channels: self.in_channels,
-            out_channels: self.out_channels,
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-            padding_h: self.padding_h,
-            padding_w: self.padding_w,
-            groups: self.groups,
-            has_bias: self.has_bias,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Conv3d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Conv3d {
-            in_channels: self.in_channels,
-            out_channels: self.out_channels,
-            kernel_d: self.kernel_d,
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_d: self.stride_d,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-            padding_d: self.padding_d,
-            padding_h: self.padding_h,
-            padding_w: self.padding_w,
-            has_bias: self.has_bias,
-        })
-    }
-}
-
-// --- Pooling ---
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool1d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::AvgPool1d {
-            kernel_l: self.kernel_l,
-            stride: self.stride,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool2d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::AvgPool2d {
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for AvgPool3d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::AvgPool3d {
-            kernel_d: self.kernel_d,
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_d: self.stride_d,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool1d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::MaxPool1d {
-            kernel_l: self.kernel_l,
-            stride: self.stride,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool2d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::MaxPool2d {
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-            pad_h: self.padding_h,
-            pad_w: self.padding_w,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for MaxPool3d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::MaxPool3d {
-            kernel_d: self.kernel_d,
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_d: self.stride_d,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool1d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LpPool1d {
-            kernel_l: self.kernel_l,
-            stride: self.stride,
-            p: self.p,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool2d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LpPool2d {
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-            p: self.p,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for LpPool3d<D, SymTensor, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LpPool3d {
-            kernel_d: self.kernel_d,
-            kernel_h: self.kernel_h,
-            kernel_w: self.kernel_w,
-            stride_d: self.stride_d,
-            stride_h: self.stride_h,
-            stride_w: self.stride_w,
-            p: self.p,
-        })
-    }
-}
-
-// --- Padding ---
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ConstantPad1d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ConstantPad1d {
-            pad_left: self.pad_left,
-            pad_right: self.pad_right,
-            value: self.value,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ConstantPad2d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ConstantPad2d {
-            pad_l: self.pad_l,
-            pad_r: self.pad_r,
-            pad_t: self.pad_t,
-            pad_b: self.pad_b,
-            value: self.value,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ConstantPad3d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ConstantPad3d {
-            pad_d1: self.pad_d1,
-            pad_d2: self.pad_d2,
-            pad_h1: self.pad_h1,
-            pad_h2: self.pad_h2,
-            pad_w1: self.pad_w1,
-            pad_w2: self.pad_w2,
-            value: self.value,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ReflectionPad1d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReflectionPad1d {
-            pad_left: self.pad_left,
-            pad_right: self.pad_right,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ReflectionPad2d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReflectionPad2d {
-            pad_l: self.pad_l,
-            pad_r: self.pad_r,
-            pad_t: self.pad_t,
-            pad_b: self.pad_b,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ReflectionPad3d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReflectionPad3d {
-            pad_d1: self.pad_d1,
-            pad_d2: self.pad_d2,
-            pad_h1: self.pad_h1,
-            pad_h2: self.pad_h2,
-            pad_w1: self.pad_w1,
-            pad_w2: self.pad_w2,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ReplicationPad1d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReplicationPad1d {
-            pad_left: self.pad_left,
-            pad_right: self.pad_right,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ReplicationPad2d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReplicationPad2d {
-            pad_l: self.pad_l,
-            pad_r: self.pad_r,
-            pad_t: self.pad_t,
-            pad_b: self.pad_b,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for ReplicationPad3d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::ReplicationPad3d {
-            pad_d1: self.pad_d1,
-            pad_d2: self.pad_d2,
-            pad_h1: self.pad_h1,
-            pad_h2: self.pad_h2,
-            pad_w1: self.pad_w1,
-            pad_w2: self.pad_w2,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for CircularPad1d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::CircularPad1d {
-            pad_left: self.pad_left,
-            pad_right: self.pad_right,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for CircularPad2d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::CircularPad2d {
-            pad_l: self.pad_l,
-            pad_r: self.pad_r,
-            pad_t: self.pad_t,
-            pad_b: self.pad_b,
-        })
-    }
-}
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor>
-    for CircularPad3d<D, SymTensor, SymTensor, RANK>
-{
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::CircularPad3d {
-            pad_d1: self.pad_d1,
-            pad_d2: self.pad_d2,
-            pad_h1: self.pad_h1,
-            pad_h2: self.pad_h2,
-            pad_w1: self.pad_w1,
-            pad_w2: self.pad_w2,
-        })
-    }
-}
-
-// --- Activation ---
-
-impl<D: Dtype, const RANK: usize> Layer<SymTensor> for Relu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Relu)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Elu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Elu { alpha: self.alpha })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Selu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Selu)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Celu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Celu { alpha: self.alpha })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Gelu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Gelu)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Mish<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Mish)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardtanh<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Hardtanh {
-            min_val: self.min_val,
-            max_val: self.max_val,
-        })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Relu6<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Relu6)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardsigmoid<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Hardsigmoid)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardswish<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Hardswish)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Hardshrink<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Hardshrink {
-            lambda: self.lambda,
-        })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for LeakyRelu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::LeakyRelu {
-            negative_slope: self.negative_slope,
-        })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Threshold<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Threshold {
-            threshold: self.threshold,
-            value: self.value,
-        })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Softsign<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softsign)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Softshrink<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softshrink {
-            lambda: self.lambda,
-        })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Softplus<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softplus {
-            beta: self.beta,
-            threshold: self.threshold,
-        })
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Sigmoid<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Sigmoid)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Silu<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Silu)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Logsigmoid<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Logsigmoid)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Tanh<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Tanh)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Tanhshrink<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Tanhshrink)
-    }
-}
-
-impl<D: Float, const RANK: usize> Layer<SymTensor> for Softmax<D, SymTensor, RANK> {
-    type Output = SymTensor;
-    fn call(&self, input: SymTensor) -> SymTensor {
-        input.record(Op::Softmax { dim: self.dim })
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -3127,12 +2713,14 @@ mod tests {
     use super::*;
     use crate::{
         nn::{
+            Layer,
             activation::{relu::Relu, softmax::Softmax},
             conv2d::Conv2d,
             linear::Linear,
         },
         sequential,
     };
+    use alloc::rc::Rc;
 
     #[test]
     fn test_sequential_graph_extraction() {
@@ -3177,6 +2765,55 @@ mod tests {
 
         assert!(matches!(g.nodes[4].op, Op::Softmax { dim: 1 }));
         assert_eq!(g.nodes[4].shape, vec![None, Some(10)]);
+    }
+
+    /// A padded `AvgPool2d` used to be traced as unpadded, which recorded the wrong
+    /// output extent and silently pooled a different window.
+    #[test]
+    fn test_traced_avgpool2d_records_padding() {
+        let (input, graph) =
+            SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(3), Some(8), Some(8)]);
+        let pool = crate::nn::pool::AvgPool2d::<f32, SymTensor, SymTensor, 4>::with_padding(
+            (3, 3),
+            (1, 1),
+            (1, 2),
+        );
+        let out = Layer::call(&pool, input);
+
+        let g = graph.borrow();
+        assert!(matches!(
+            g.nodes[out.node_id].op,
+            Op::AvgPool2d {
+                pad_h: 1,
+                pad_w: 2,
+                ..
+            }
+        ));
+        // (8 + 2*1 - 3) / 1 + 1 = 8 and (8 + 2*2 - 3) / 1 + 1 = 10.
+        assert_eq!(out.shape, vec![Some(1), Some(3), Some(8), Some(10)]);
+    }
+
+    /// `count_include_pad` defaults to PyTorch's true, and the builder overrides it.
+    #[test]
+    fn test_traced_avgpool2d_records_count_include_pad() {
+        use crate::nn::pool::AvgPool2d;
+        let traced = |pool: AvgPool2d<f32, SymTensor, SymTensor, 4>| -> bool {
+            let (input, graph) =
+                SymTensor::input(DtypeRepr::F32, vec![Some(1), Some(1), Some(4), Some(4)]);
+            let out = Layer::call(&pool, input);
+            match graph.borrow().nodes[out.node_id].op {
+                Op::AvgPool2d {
+                    count_include_pad, ..
+                } => count_include_pad,
+                ref other => panic!("expected AvgPool2d, recorded {other:?}"),
+            }
+        };
+
+        assert!(traced(AvgPool2d::with_padding((3, 3), (1, 1), (1, 1))));
+        assert!(traced(AvgPool2d::new((2, 2), (2, 2))));
+        assert!(!traced(
+            AvgPool2d::with_padding((3, 3), (1, 1), (1, 1)).count_include_pad(false)
+        ));
     }
 
     #[test]
@@ -3294,5 +2931,47 @@ mod tests {
         assert_eq!(g.nodes[11].shape, vec![None, Some(84)]);
         assert_eq!(g.nodes[12].shape, vec![None, Some(10)]);
         assert_eq!(g.nodes[13].shape, vec![None, Some(10)]);
+    }
+
+    #[test]
+    fn test_a_kept_reduction_sets_its_axes_to_one() {
+        let op = Op::ReduceL2 {
+            axes: vec![2],
+            keepdims: true,
+            noop_with_empty_axes: false,
+        };
+        let shape = vec![Some(1), Some(8), Some(28), Some(120), Some(155)];
+        assert_eq!(
+            infer_output_shape(&op, &[&shape]),
+            vec![Some(1), Some(8), Some(1), Some(120), Some(155)]
+        );
+    }
+
+    #[test]
+    fn test_a_dropped_reduction_removes_its_axes() {
+        let op = Op::ReduceSum {
+            axes: vec![0, 2],
+            keepdims: false,
+            noop_with_empty_axes: false,
+        };
+        let shape = vec![Some(2), Some(3), Some(4), Some(5)];
+        assert_eq!(infer_output_shape(&op, &[&shape]), vec![Some(3), Some(5)]);
+    }
+
+    #[test]
+    fn test_reducing_everything_gives_ones_or_a_scalar() {
+        let shape = vec![Some(2), Some(3)];
+        let kept = Op::ReduceMean {
+            axes: vec![],
+            keepdims: true,
+            noop_with_empty_axes: false,
+        };
+        assert_eq!(infer_output_shape(&kept, &[&shape]), vec![Some(1), Some(1)]);
+        let dropped = Op::ReduceMean {
+            axes: vec![],
+            keepdims: false,
+            noop_with_empty_axes: false,
+        };
+        assert_eq!(infer_output_shape(&dropped, &[&shape]), vec![]);
     }
 }

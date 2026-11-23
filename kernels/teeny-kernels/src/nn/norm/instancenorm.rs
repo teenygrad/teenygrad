@@ -501,3 +501,79 @@ pub fn instance_norm_backward<T: Triton, D: Float, const BLOCK_L: i32>(
         l_start += BLOCK_L;
     }
 }
+
+/// Runtime dispatch for [`instance_norm_forward_inference`].
+///
+/// One program per `(batch, channel)` pair, each normalising that instance's spatial
+/// elements and then scaling and shifting them. The kernel carries none of those
+/// extents, so this wraps it with the shape and the epsilon the op supplies; without
+/// it `Op::InstanceNorm2d` lowered to a kernel that compiled and then panicked when
+/// the executor asked it to pack arguments.
+pub struct InstanceNormRuntimeOp<D: teeny_core::dtype::Float + Send + Sync + 'static> {
+    kernel: InstanceNormForwardInference<D>,
+    n: usize,
+    c: usize,
+    /// Spatial elements per instance: the product of the axes after the channel.
+    l: usize,
+    eps: f32,
+}
+
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> InstanceNormRuntimeOp<D> {
+    /// `None` if an instance has no elements to normalise, which would divide by zero.
+    pub fn new(block_size: i32, n: usize, c: usize, l: usize, eps: f32) -> Option<Self> {
+        if n == 0 || c == 0 || l == 0 {
+            return None;
+        }
+        Some(Self {
+            kernel: InstanceNormForwardInference::<D>::new(block_size),
+            n,
+            c,
+            l,
+            eps,
+        })
+    }
+
+    /// The generated kernel, for its name and source.
+    pub fn kernel(&self) -> &InstanceNormForwardInference<D> {
+        &self.kernel
+    }
+}
+
+impl<D: teeny_core::dtype::Float + Send + Sync + 'static> teeny_core::model::RuntimeOp
+    for InstanceNormRuntimeOp<D>
+{
+    fn n_activation_inputs(&self) -> usize {
+        // The tensor, the per-channel scale and the per-channel shift, which ONNX
+        // gives as operands.
+        3
+    }
+
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        Vec::new()
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        _output_shape: &[usize],
+        _: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(output);
+        visitor.visit_ptr(inputs[1].0);
+        visitor.visit_ptr(inputs[2].0);
+        visitor.visit_i32(self.n as i32);
+        visitor.visit_i32(self.c as i32);
+        visitor.visit_i32(self.l as i32);
+        visitor.visit_f32(self.eps);
+    }
+
+    fn grid(&self, _output_shape: &[usize]) -> [u32; 3] {
+        // One program per instance, not per block of elements: each one reduces over
+        // its own spatial extent.
+        [(self.n * self.c) as u32, 1, 1]
+    }
+}

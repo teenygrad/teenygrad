@@ -43,6 +43,12 @@ const OH: usize = (H - KH as usize) / STRIDE_H as usize + 1; // 4
 #[cfg(feature = "hardware")]
 const OW: usize = (W - KW as usize) / STRIDE_W as usize + 1; // 4
 const BLOCK_OW: i32 = 4;
+/// These cases predate padding support, so they keep the unpadded behaviour: no
+/// padding, and a full-window denominator, which with no padding is the only
+/// denominator there is.
+const PAD_H: i32 = 0;
+const PAD_W: i32 = 0;
+const COUNT_INCLUDE_PAD: i32 = 1;
 
 /// Must match `.reqntid` in the generated PTX.
 #[cfg(feature = "hardware")]
@@ -57,7 +63,14 @@ fn test_avgpool2d_forward_asm() -> anyhow::Result<()> {
     dotenv().ok();
 
     let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(
-        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+        KH,
+        KW,
+        STRIDE_H,
+        STRIDE_W,
+        PAD_H,
+        PAD_W,
+        COUNT_INCLUDE_PAD,
+        BLOCK_OW,
     );
     let target = teeny_runtime::reference_target();
     let ptx_path = PathBuf::from(teeny_runtime::compile_kernel(
@@ -122,7 +135,14 @@ fn test_avgpool2d_forward() -> anyhow::Result<()> {
     input_buf.to_device(&input_host)?;
 
     let kernel = teeny_kernels::nn::pool::avgpool2d::Avgpool2dForward::<f32>::new(
-        KH, KW, STRIDE_H, STRIDE_W, BLOCK_OW,
+        KH,
+        KW,
+        STRIDE_H,
+        STRIDE_W,
+        PAD_H,
+        PAD_W,
+        COUNT_INCLUDE_PAD,
+        BLOCK_OW,
     );
     let target = teeny_runtime::default_target(&device)?;
     let ptx_path = teeny_runtime::compile_kernel(&kernel, &target, true, false)?;

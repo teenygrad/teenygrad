@@ -13,7 +13,8 @@ jobs:
   # release-plz PR (see the release-plz-pr job below).
   release-plz-release:
     name: Release-plz release
-    runs-on: ubuntu-latest
+    # Pinned to match the ubuntu2404 CUDA apt repository installed below.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -52,7 +53,8 @@ jobs:
   # Merging that PR is what triggers release-plz-release above.
   release-plz-pr:
     name: Release-plz PR
-    runs-on: ubuntu-latest
+    # Pinned to match the ubuntu2404 CUDA apt repository installed below.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write

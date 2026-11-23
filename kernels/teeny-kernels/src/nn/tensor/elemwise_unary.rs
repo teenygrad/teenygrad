@@ -2054,3 +2054,86 @@ pub fn elemwise_atanh_backward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 }
 
 impl_float_unary_runtime_op!(ElemwiseAtanhForward);
+
+// ── Copy ──────────────────────────────────────────────────────────────────────
+//
+// An element-for-element copy. On its own it is the identity; its purpose is to give
+// the shape-only operators — Identity, Reshape, Squeeze, Unsqueeze — something to lower
+// to. Those change a tensor's shape metadata while leaving element order untouched, so
+// for contiguous buffers the data movement they need is exactly this.
+//
+// A zero-copy view would be better still, but the executable DAG has no node type that
+// aliases its input's buffer; until it does, a copy is the correct lowering rather than
+// an approximation of one.
+
+/// Forward: y = x
+#[kernel]
+pub fn elemwise_copy_forward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    n_elements: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let block_start = pid * BLOCK_SIZE;
+    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
+    let in_bounds = offsets.lt(n_elements);
+    let x = T::load(
+        x_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    T::store(
+        y_ptr.add_offsets(offsets),
+        x,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+}
+
+/// Backward: dx = dy. A reshape routes gradients straight through, unchanged.
+#[kernel]
+pub fn elemwise_copy_backward<T: Triton, D: Num, const BLOCK_SIZE: i32>(
+    dy_ptr: InPtr<T::Pointer<D>>,
+    dx_ptr: OutPtr<T::Pointer<D>>,
+    n_elements: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let block_start = pid * BLOCK_SIZE;
+    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
+    let in_bounds = offsets.lt(n_elements);
+    let dy = T::load(
+        dy_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    T::store(
+        dx_ptr.add_offsets(offsets),
+        dy,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+}
+
+impl_num_neg_bwd_runtime_op!(ElemwiseCopyForward);

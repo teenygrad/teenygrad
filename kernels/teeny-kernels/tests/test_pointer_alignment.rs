@@ -58,7 +58,7 @@ pub fn unmasked_copy<T, D: Num, const BLOCK_SIZE: i32>(
 }
 
 #[test]
-fn launch_refuses_pointers_not_16_byte_aligned() -> Result<()> {
+fn test_launch_refuses_pointers_not_16_byte_aligned() -> Result<()> {
     const BLOCK_SIZE: usize = 1024;
     const N: usize = 2 * BLOCK_SIZE;
     const OFFSET: usize = 1;

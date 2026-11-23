@@ -16,7 +16,11 @@
 
 use std::sync::Arc;
 use teeny_core::{
-    graph::{DtypeRepr, Graph, Op, Shape},
+    graph::{
+        ConstantMap, ConstantTensor, DtypeRepr, EINSUM_MAX_RANK, EinsumPlan, Graph, GraphNode, Op,
+        ResizeCoords, ResizeMode, ResizeNearest, Shape, SlicePlan, einsum_plan, matmul_plan,
+        reduce_axes, reduce_transpose_perm, resize_axis_plan, slice_plan,
+    },
     model::{ExecutableOp, Lowering, LoweringMode, RuntimeOp},
     utils::dag::Dag,
 };
@@ -42,7 +46,7 @@ use crate::nn::{
             HardtanhForward, HardtanhForwardDispatch, Relu6Forward, Relu6ForwardDispatch,
         },
         misc::{
-            LeakyReluForward, LeakyReluForwardDispatch, SoftplusForward, SoftplusForwardDispatch,
+            LeakyReluForward, LeakyReluRuntimeOp, SoftplusForward, SoftplusForwardDispatch,
             SoftshrinkForward, SoftshrinkForwardDispatch, SoftsignForward, SoftsignForwardDispatch,
             ThresholdForward, ThresholdForwardDispatch,
         },
@@ -66,7 +70,7 @@ use crate::nn::{
     norm::{
         batchnorm::{BatchNorm2dNchwInferenceRuntimeOp, BatchNormForwardInference},
         groupnorm::GroupNormForwardInference,
-        instancenorm::InstanceNormForwardInference,
+        instancenorm::{InstanceNormForwardInference, InstanceNormRuntimeOp},
         layernorm::{LayerNormForwardInference, LayerNormForwardInferenceRuntimeOp},
         rmsnorm::RmsNormForward,
     },
@@ -93,6 +97,7 @@ use crate::nn::{
         channel_bias_add::{ChannelBiasAddRuntimeOp, NchwBiasAddRuntimeOp},
         channel_cat::ChannelCatRuntimeOp,
         channel_chunk::ChannelChunkRuntimeOp,
+        constant::ConstantRuntimeOp,
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
         elemwise_binary::{
             ClipRuntimeOp, ElemwiseDivBackward, ElemwiseDivForward, ElemwiseEqualForward,
@@ -107,28 +112,40 @@ use crate::nn::{
             ElemwiseAbsBackward, ElemwiseAbsForward, ElemwiseAcosBackward, ElemwiseAcosForward,
             ElemwiseAcoshBackward, ElemwiseAcoshForward, ElemwiseAsinBackward, ElemwiseAsinForward,
             ElemwiseAsinhBackward, ElemwiseAsinhForward, ElemwiseAtanBackward, ElemwiseAtanForward,
-            ElemwiseAtanhBackward, ElemwiseAtanhForward, ElemwiseCeilForward, ElemwiseCosBackward,
-            ElemwiseCosForward, ElemwiseCoshBackward, ElemwiseCoshForward, ElemwiseErfBackward,
-            ElemwiseErfForward, ElemwiseExpBackward, ElemwiseExpForward, ElemwiseFloorForward,
-            ElemwiseIsnanForward, ElemwiseLogBackward, ElemwiseLogForward, ElemwiseNegBackward,
-            ElemwiseNegForward, ElemwiseReciprocalBackward, ElemwiseReciprocalForward,
-            ElemwiseSignForward, ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward,
-            ElemwiseSinhForward, ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward,
-            ElemwiseTanForward,
+            ElemwiseAtanhBackward, ElemwiseAtanhForward, ElemwiseCeilForward, ElemwiseCopyBackward,
+            ElemwiseCopyForward, ElemwiseCosBackward, ElemwiseCosForward, ElemwiseCoshBackward,
+            ElemwiseCoshForward, ElemwiseErfBackward, ElemwiseErfForward, ElemwiseExpBackward,
+            ElemwiseExpForward, ElemwiseFloorForward, ElemwiseIsnanForward, ElemwiseLogBackward,
+            ElemwiseLogForward, ElemwiseNegBackward, ElemwiseNegForward,
+            ElemwiseReciprocalBackward, ElemwiseReciprocalForward, ElemwiseSignForward,
+            ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward, ElemwiseSinhForward,
+            ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward, ElemwiseTanForward,
         },
+        gather::{GatherForward, GatherRuntimeOp},
         reduction::{
             CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward,
             ReduceL1Forward, ReduceL2Forward, ReduceLogSumExpForward, ReduceLogSumForward,
             ReduceMaxForward, ReduceMeanForward, ReduceMinForward, ReduceProdForward,
             ReduceSumForward, ReduceSumSquareForward,
         },
+        strided_copy::{StridedCopyForward, StridedCopyRuntimeOp},
+        tile::{MAX_RANK, TileForward, TileRuntimeOp},
         upsample_nearest2d::{UpsampleNearest2dBackward, UpsampleNearest2dForward},
     },
 };
 
+use crate::math::einsum::{EinsumForward, EinsumRuntimeOp};
 use crate::math::gemm::MatMulRuntimeOp;
+use crate::nn::conv::conv_transpose2d::ConvTranspose2dRuntimeOp;
+use crate::nn::pad::pad_nd::PadNdRuntimeOp;
+use crate::nn::tensor::concat::ConcatRuntimeOp;
+use crate::nn::tensor::fill::FillRuntimeOp;
+use crate::nn::tensor::grid_sample::GridSampleRuntimeOp;
+use crate::nn::tensor::logical::{LogicalAndForward, LogicalOrForward, LogicalXorForward};
+use crate::nn::tensor::resize::{MAX_AXES as RESIZE_MAX_AXES, ResizeAxis, ResizeRuntimeOp};
+use crate::nn::tensor::scatter::{ScatterElementsRuntimeOp, ScatterNdRuntimeOp};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 
 #[cfg(feature = "training")]
 use crate::nn::norm::batchnorm::{
@@ -449,11 +466,18 @@ macro_rules! impl_stub_runtime_op_float {
 }
 
 // Normalisation
+//
+// A stub here does not mean the op cannot run: the `#[kernel]` macro generates a
+// dispatch that requires one, so a kernel whose arguments the lowering supplies
+// through a wrapper of its own keeps its stub as well. InstanceNormForwardInference
+// and LeakyReluForward are both like that, and their wrappers are
+// `InstanceNormRuntimeOp` and `LeakyReluRuntimeOp`.
+impl_stub_runtime_op_float!(InstanceNormForwardInference);
+impl_stub_runtime_op_float!(LeakyReluForward);
 impl_stub_runtime_op_float!(BatchNormForwardInference);
 impl_stub_runtime_op_float!(LayerNormForwardInference);
 impl_stub_runtime_op_float!(RmsNormForward);
 impl_stub_runtime_op_float!(GroupNormForwardInference);
-impl_stub_runtime_op_float!(InstanceNormForwardInference);
 
 // Convolution
 impl_stub_runtime_op_num!(Conv3dForward);
@@ -493,7 +517,6 @@ impl_stub_runtime_op_float!(Relu6Forward);
 impl_stub_runtime_op_float!(HardsigmoidForward);
 impl_stub_runtime_op_float!(HardswishForward);
 impl_stub_runtime_op_float!(HardshrinkForward);
-impl_stub_runtime_op_float!(LeakyReluForward);
 impl_stub_runtime_op_float!(ThresholdForward);
 impl_stub_runtime_op_float!(SoftsignForward);
 impl_stub_runtime_op_float!(SoftshrinkForward);
@@ -537,12 +560,15 @@ impl RuntimeOp for InputRuntimeOp {
 pub struct TritonLowering {
     /// Optional graph rewrite run before Op→kernel lowering (e.g. [`Anduin`]).
     optimizer: Option<Arc<dyn GraphOptimizer>>,
+    /// Materialised constant values, keyed by graph node index.
+    constants: Arc<ConstantMap>,
 }
 
 impl std::fmt::Debug for TritonLowering {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TritonLowering")
             .field("optimizer", &self.optimizer.as_ref().map(|o| o.name()))
+            .field("constants", &self.constants.len())
             .finish()
     }
 }
@@ -558,6 +584,1451 @@ impl TritonLowering {
         self.optimizer = Some(Arc::new(optimizer));
         self
     }
+
+    /// Supplies materialised constant values, as produced by a pass such as
+    /// `teeny_onnx::materialize::materialize_constants`.
+    ///
+    /// Lowering uses them for two things. A constant consumed only in a shape-operand
+    /// position (see [`Op::shape_operand_positions`]) is read here rather than
+    /// allocated, so it never becomes a DAG node and its edges are dropped: that is
+    /// what lets `Reshape`, `Slice` and friends lower at all, since their shape
+    /// operand would otherwise have to be lowered as tensor data. A constant that
+    /// does flow data still needs a buffer, and lowering reports it by name.
+    pub fn with_constants(mut self, constants: ConstantMap) -> Self {
+        self.constants = Arc::new(constants);
+        self
+    }
+
+    /// The materialised value of a graph node, if one was supplied.
+    pub fn constant(&self, node_index: usize) -> Option<&ConstantTensor> {
+        self.constants.get(&node_index)
+    }
+}
+
+/// Builds the executable for a constant that flows tensor data.
+///
+/// Shape metadata constants never reach here: lowering elides them (see
+/// [`elidable_constants`]). What remains is a literal the exporter wrote into the
+/// graph that something reads as a buffer, so its bytes have to reach the device.
+/// [`ConstantRuntimeOp`] carries them into a parameter slot, which both drivers
+/// populate from `param_init_data` right after allocation.
+fn constant_executable(
+    dtype: DtypeRepr,
+    shape: Vec<usize>,
+    bytes: Vec<u8>,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = ConstantRuntimeOp::<$ty>::new(1024, shape.clone(), bytes.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Op::Constant {what}: {} bytes do not fill a {dtype:?} tensor of \
+                         shape {shape:?}; the materialised value and the op disagree",
+                        bytes.len(),
+                    )
+                })?;
+            let kernel = rop.kernel();
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match dtype {
+        // A bool tensor is one byte per element, and a Bool buffer is allocated at that
+        // same width, so its bytes are already a valid `u8` buffer and the u8 kernel
+        // copies them verbatim. `bool` is deliberately not a `Num` dtype: making it one
+        // would let arithmetic kernels instantiate over it, which has no meaning. The
+        // aliasing is sound only because this kernel *moves* bytes without computing on
+        // them, so it stays local to the constant path rather than going in the dtype
+        // dispatch macros. The node keeps its Bool dtype, so consumers still see a bool.
+        DtypeRepr::Bool => build!(u8),
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I8 => build!(i8),
+        DtypeRepr::I16 => build!(i16),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        DtypeRepr::U8 => build!(u8),
+        DtypeRepr::U16 => build!(u16),
+        DtypeRepr::U32 => build!(u32),
+        DtypeRepr::U64 => build!(u64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Constant {what}: {other:?} is not a supported dtype, so its \
+                 values cannot be put in a device buffer"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: shape.into_iter().map(Some).collect(),
+        dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Whether an elementwise binary node's operands all have the output's shape.
+///
+/// When they do, the flat kernels are right and cheaper. When they do not, reading
+/// both operands at the output's offsets runs off the end of the shorter one, so the
+/// broadcasting kernel is the only correct choice.
+fn needs_broadcast(graph: &Graph, node: &GraphNode) -> bool {
+    let Some(out): Option<Vec<usize>> = node.shape.iter().copied().collect() else {
+        return false;
+    };
+    node.inputs.iter().any(|&src| {
+        graph.nodes[src]
+            .shape
+            .iter()
+            .copied()
+            .collect::<Option<Vec<usize>>>()
+            .is_none_or(|s| s != out)
+    })
+}
+
+/// Which arithmetic a broadcasting elementwise node performs.
+#[derive(Clone, Copy)]
+enum BroadcastOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+impl BroadcastOp {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::Mul => "Mul",
+            Self::Div => "Div",
+        }
+    }
+}
+
+/// Builds the executable for an elementwise binary whose operands need broadcasting.
+///
+/// The operands are aligned to the output's rank first, by prepending length-1 axes,
+/// which is how ONNX lines up shapes of different ranks.
+fn broadcast_binary_executable(
+    graph: &Graph,
+    node: &GraphNode,
+    which: BroadcastOp,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    use crate::nn::tensor::broadcast_binary::{
+        BroadcastAddForward, BroadcastBinaryRuntimeOp, BroadcastDivForward, BroadcastMulForward,
+        BroadcastSubForward,
+    };
+
+    let op = which.name();
+    let out_shape = concrete_shape(&node.shape, op, "output", what)?;
+    let rank = out_shape.len();
+    if node.inputs.len() != 2 {
+        return Err(anyhow::anyhow!(
+            "Op::{op} {what}: it has {} operands, not 2",
+            node.inputs.len()
+        ));
+    }
+    let mut aligned = Vec::with_capacity(2);
+    for (pos, &src) in node.inputs.iter().enumerate() {
+        // An empty operand shape is read as a rank-0 scalar here, where elsewhere it is
+        // refused. The IR cannot tell a scalar from a shape no pass worked out
+        // (teenygrad#129), and a scalar operand is exactly what this path is for: the
+        // export divides a whole tensor by one. What makes it safe to read it that way
+        // is that the output's shape above is required to be concrete, and shape
+        // inference resolves an operand before the node that consumes it, so a node
+        // with a known output and an unresolved operand is not something it produces.
+        let shape: Vec<usize> = graph.nodes[src]
+            .shape
+            .iter()
+            .copied()
+            .collect::<Option<Vec<usize>>>()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Op::{op} {what}: operand {pos} has a dynamic extent; this kernel \
+                     needs the strides when the graph is lowered"
+                )
+            })?;
+        if shape.len() > rank {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: operand {pos} has rank {} but the output has rank \
+                 {rank}",
+                shape.len()
+            ));
+        }
+        // ONNX lines shapes up from the right, so a shorter operand gains length-1
+        // axes in front.
+        let mut padded = vec![1usize; rank - shape.len()];
+        padded.extend_from_slice(&shape);
+        aligned.push(padded);
+    }
+
+    macro_rules! build_bcast {
+        ($ty:ty) => {{
+            let (name, source, body, erased): (String, String, String, Arc<dyn RuntimeOp>) =
+                match which {
+                    BroadcastOp::Add => {
+                        let k = BroadcastAddForward::<$ty>::new(128);
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
+                        let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
+                            k,
+                            128,
+                            &out_shape,
+                            &aligned[0],
+                            &aligned[1],
+                        );
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
+                    }
+                    BroadcastOp::Sub => {
+                        let k = BroadcastSubForward::<$ty>::new(128);
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
+                        let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
+                            k,
+                            128,
+                            &out_shape,
+                            &aligned[0],
+                            &aligned[1],
+                        );
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
+                    }
+                    BroadcastOp::Mul => {
+                        let k = BroadcastMulForward::<$ty>::new(128);
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
+                        let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
+                            k,
+                            128,
+                            &out_shape,
+                            &aligned[0],
+                            &aligned[1],
+                        );
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
+                    }
+                    BroadcastOp::Div => {
+                        let k = BroadcastDivForward::<$ty>::new(128);
+                        let (n, s, b) = (
+                            k.name.to_string(),
+                            k.source.clone(),
+                            k.kernel_source.clone(),
+                        );
+                        let rop = BroadcastBinaryRuntimeOp::<_, $ty>::new(
+                            k,
+                            128,
+                            &out_shape,
+                            &aligned[0],
+                            &aligned[1],
+                        );
+                        (
+                            n,
+                            s,
+                            b,
+                            Arc::new(rop.ok_or_else(|| {
+                                broadcast_refusal(op, what, &out_shape, &aligned)
+                            })?),
+                        )
+                    }
+                };
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build_bcast!(f32),
+        DtypeRepr::F64 => build_bcast!(f64),
+        DtypeRepr::I32 => build_bcast!(i32),
+        DtypeRepr::I64 => build_bcast!(i64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: {other:?} is not a supported dtype for a broadcast"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// The error for operand shapes that are not a broadcast of the output's.
+fn broadcast_refusal(
+    op: &str,
+    what: &str,
+    out_shape: &[usize],
+    aligned: &[Vec<usize>],
+) -> anyhow::Error {
+    anyhow::anyhow!(
+        "Op::{op} {what}: operands {:?} and {:?} do not broadcast to {out_shape:?}; an \
+         operand's extent on an axis has to be the output's or 1",
+        aligned[0],
+        aligned[1]
+    )
+}
+
+/// Builds the executable for `ScatterElements`.
+///
+/// `indices` and `updates` have `data`'s rank and the same shape as each other, and
+/// agree with `data` on every axis but the scattered one. All of that is checked: an
+/// operand that disagrees off-axis would have the kernel read its elements in the
+/// wrong order, which is not something the device can report.
+///
+/// `indices`, when the lowering has the operand's value, is checked for range here as
+/// well; see [`check_scatter_indices`].
+fn scatter_elements_executable(
+    graph: &Graph,
+    node: &GraphNode,
+    axis: i64,
+    indices_value: Option<&ConstantTensor>,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    if node.inputs.len() != 3 {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterElements {what}: it has {} operands, not 3 (data, indices, \
+             updates)",
+            node.inputs.len()
+        ));
+    }
+    let operand = |pos: usize, name: &str| -> Result<Vec<usize>> {
+        concrete_shape(
+            &graph.nodes[node.inputs[pos]].shape,
+            "ScatterElements",
+            name,
+            what,
+        )
+    };
+    let data = operand(0, "data")?;
+    let indices = operand(1, "indices")?;
+    let updates = operand(2, "updates")?;
+    let out = concrete_shape(&node.shape, "ScatterElements", "output", what)?;
+
+    let rank = data.len();
+    let ax = if axis < 0 { axis + rank as i64 } else { axis };
+    let ax = usize::try_from(ax)
+        .ok()
+        .filter(|&a| a < rank)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Op::ScatterElements {what}: axis {axis} is outside a rank-{rank} tensor"
+            )
+        })?;
+    if out != data {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterElements {what}: its output is {out:?} but `data` is {data:?}"
+        ));
+    }
+    if indices != updates {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterElements {what}: `indices` is {indices:?} and `updates` is \
+             {updates:?}; they have to match"
+        ));
+    }
+    if indices.len() != rank {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterElements {what}: `indices` has rank {} but `data` has rank \
+             {rank}",
+            indices.len()
+        ));
+    }
+    for (a, (&have, &want)) in indices.iter().zip(data.iter()).enumerate() {
+        if a != ax && have != want {
+            return Err(anyhow::anyhow!(
+                "Op::ScatterElements {what}: `indices` has {have} on axis {a} but \
+                 `data` has {want}; only axis {ax} may differ"
+            ));
+        }
+    }
+    if graph.nodes[node.inputs[1]].dtype != DtypeRepr::I64 {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterElements {what}: `indices` is {:?}; the kernel reads them as \
+             I64, which is what ONNX gives",
+            graph.nodes[node.inputs[1]].dtype
+        ));
+    }
+
+    if let Some(value) = indices_value {
+        check_scatter_indices("ScatterElements", what, value, &[ax], &[data[ax]])?;
+    }
+
+    let inner: usize = data[ax + 1..].iter().product();
+    let n_data: usize = data.iter().product();
+    let n_updates: usize = updates.iter().product();
+
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = ScatterElementsRuntimeOp::<$ty>::new(
+                1024,
+                data[ax],
+                updates[ax],
+                inner,
+                n_data,
+                n_updates,
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Op::ScatterElements {what}: an axis of {} over an inner block of \
+                     {inner} gives nothing to index",
+                    data[ax]
+                )
+            })?;
+            let kernel = rop.kernel();
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::ScatterElements {what}: {other:?} is not a supported dtype"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Checks a scatter's constant indices against the axes they index.
+///
+/// Index `i` addresses axis `axes[i % axes.len()]`, of extent `extents[i % axes.len()]`:
+/// a `ScatterND` coordinate row runs over the first `k` axes in turn, and every
+/// `ScatterElements` index addresses the one scattered axis. ONNX allows
+/// `[-extent, extent)`. The kernels already drop a write whose index is outside that,
+/// so this does not guard memory; it turns a model that names an invalid index into an
+/// error naming it, instead of a scatter that silently writes less than it was asked
+/// to.
+fn check_scatter_indices(
+    op: &str,
+    what: &str,
+    value: &ConstantTensor,
+    axes: &[usize],
+    extents: &[usize],
+) -> Result<()> {
+    let values = value
+        .to_i64_vec()
+        .map_err(|reason| Error::UnreadableConstant {
+            context: format!("Op::{op} {what}: indices operand"),
+            reason,
+        })?;
+    for (i, &index) in values.iter().enumerate() {
+        let slot = i % axes.len();
+        let (axis, extent) = (axes[slot], extents[slot]);
+        // An extent beyond i64 cannot occur for a tensor that fits in memory; treat it
+        // as unbounded rather than wrapping.
+        let bound = i64::try_from(extent).unwrap_or(i64::MAX);
+        if !(-bound..bound).contains(&index) {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: index {index} (element {i} of `indices`) is out of \
+                 range for axis {axis}, of extent {extent}; ONNX allows \
+                 -{extent}..{extent}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Builds the executable for `ScatterND`.
+///
+/// ONNX's shapes: `indices` has a trailing axis of width `k`, `updates` has
+/// `indices`' shape with that axis replaced by `data`'s last `rank - k` axes, and the
+/// output has `data`'s shape. All three are checked, because a `k` or a slice length
+/// read from the wrong place would scatter into wrong positions rather than fail.
+///
+/// `indices`, when the lowering has the operand's value, is checked for range here as
+/// well; see [`check_scatter_indices`].
+fn scatter_nd_executable(
+    graph: &Graph,
+    node: &GraphNode,
+    indices_value: Option<&ConstantTensor>,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    if node.inputs.len() != 3 {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterND {what}: it has {} operands, not 3 (data, indices, updates)",
+            node.inputs.len()
+        ));
+    }
+    let operand = |pos: usize, name: &str| -> Result<Vec<usize>> {
+        concrete_shape(
+            &graph.nodes[node.inputs[pos]].shape,
+            "ScatterND",
+            name,
+            what,
+        )
+    };
+    let data = operand(0, "data")?;
+    let indices = operand(1, "indices")?;
+    let updates = operand(2, "updates")?;
+    let out = concrete_shape(&node.shape, "ScatterND", "output", what)?;
+
+    if out != data {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterND {what}: its output is {out:?} but `data` is {data:?}; the \
+             output is a copy of `data` with positions overwritten"
+        ));
+    }
+    let k = *indices.last().ok_or_else(|| {
+        anyhow::anyhow!("Op::ScatterND {what}: `indices` has no axes, so it names no coordinate")
+    })?;
+    if k == 0 || k > data.len() {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterND {what}: a coordinate of width {k} cannot address a \
+             rank-{} tensor",
+            data.len()
+        ));
+    }
+    // updates = indices.shape[..-1] ++ data.shape[k..]
+    let mut want_updates: Vec<usize> = indices[..indices.len() - 1].to_vec();
+    want_updates.extend_from_slice(&data[k..]);
+    if updates != want_updates {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterND {what}: `updates` is {updates:?} but the shapes call for \
+             {want_updates:?}"
+        ));
+    }
+    if graph.nodes[node.inputs[1]].dtype != DtypeRepr::I64 {
+        return Err(anyhow::anyhow!(
+            "Op::ScatterND {what}: `indices` is {:?}; the kernel reads them as I64, \
+             which is what ONNX gives",
+            graph.nodes[node.inputs[1]].dtype
+        ));
+    }
+
+    let strides: Vec<usize> = {
+        let mut all = vec![1usize; data.len()];
+        for ax in (0..data.len().saturating_sub(1)).rev() {
+            all[ax] = all[ax + 1] * data[ax + 1];
+        }
+        all[..k].to_vec()
+    };
+    let extents = data[..k].to_vec();
+    if let Some(value) = indices_value {
+        let axes: Vec<usize> = (0..k).collect();
+        check_scatter_indices("ScatterND", what, value, &axes, &extents)?;
+    }
+    let slice_len: usize = data[k..].iter().product();
+    let n_data: usize = data.iter().product();
+    let n_updates: usize = updates.iter().product();
+
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = ScatterNdRuntimeOp::<$ty>::new(
+                1024, &strides, &extents, slice_len, n_data, n_updates,
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Op::ScatterND {what}: a coordinate of width {k} over a slice of \
+                     {slice_len} does not describe a scatter"
+                )
+            })?;
+            let kernel = rop.kernel();
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::ScatterND {what}: {other:?} is not a supported dtype"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for `Concat`.
+///
+/// Every operand has to agree with the output on every axis but the concatenated one,
+/// and their extents along it have to add up to the output's. ONNX requires both, and
+/// a mismatch here would be a copy into the wrong place rather than a visible error,
+/// so they are checked and named.
+fn concat_executable(
+    graph: &Graph,
+    node: &GraphNode,
+    axis: i64,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    let out_shape = concrete_shape(&node.shape, "Concat", "output", what)?;
+    let rank = out_shape.len();
+    let axis = if axis < 0 { axis + rank as i64 } else { axis };
+    let axis = usize::try_from(axis)
+        .ok()
+        .filter(|&a| a < rank)
+        .ok_or_else(|| {
+            anyhow::anyhow!("Op::Concat {what}: axis {axis} is outside a rank-{rank} output")
+        })?;
+    if node.inputs.is_empty() {
+        return Err(anyhow::anyhow!("Op::Concat {what}: it has no operands"));
+    }
+
+    let mut along = 0usize;
+    for (pos, &src) in node.inputs.iter().enumerate() {
+        let shape = concrete_shape(
+            &graph.nodes[src].shape,
+            "Concat",
+            &format!("operand {pos}"),
+            what,
+        )?;
+        if shape.len() != rank {
+            return Err(anyhow::anyhow!(
+                "Op::Concat {what}: operand {pos} has rank {} but the output has rank \
+                 {rank}",
+                shape.len()
+            ));
+        }
+        for (ax, (&have, &want)) in shape.iter().zip(out_shape.iter()).enumerate() {
+            if ax != axis && have != want {
+                return Err(anyhow::anyhow!(
+                    "Op::Concat {what}: operand {pos} has {have} on axis {ax} but the \
+                     output has {want}; only axis {axis} may differ"
+                ));
+            }
+        }
+        if graph.nodes[src].dtype != node.dtype {
+            return Err(anyhow::anyhow!(
+                "Op::Concat {what}: operand {pos} is {:?} but the output is {:?}",
+                graph.nodes[src].dtype,
+                node.dtype
+            ));
+        }
+        along += shape[axis];
+    }
+    if along != out_shape[axis] {
+        return Err(anyhow::anyhow!(
+            "Op::Concat {what}: its operands add up to {along} along axis {axis}, but \
+             the output has {}",
+            out_shape[axis]
+        ));
+    }
+
+    let n_inputs = node.inputs.len();
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = ConcatRuntimeOp::<$ty>::new(128, axis, n_inputs)
+                .ok_or_else(|| anyhow::anyhow!("Op::Concat {what}: it has no operands"))?;
+            let kernel = rop.kernel();
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        // As in the constant path: this kernel moves bytes without computing on them,
+        // so a one-byte-per-element bool tensor is copied correctly by the u8
+        // instantiation.
+        DtypeRepr::Bool => build!(u8),
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I8 => build!(i8),
+        DtypeRepr::I16 => build!(i16),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        DtypeRepr::U8 => build!(u8),
+        DtypeRepr::U16 => build!(u16),
+        DtypeRepr::U32 => build!(u32),
+        DtypeRepr::U64 => build!(u64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Concat {what}: {other:?} is not a supported dtype"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Which logical operator to build; see [`logical_executable`].
+#[derive(Clone, Copy)]
+enum LogicalOp {
+    And,
+    Or,
+    Xor,
+}
+
+impl LogicalOp {
+    fn name(self) -> &'static str {
+        match self {
+            Self::And => "And",
+            Self::Or => "Or",
+            Self::Xor => "Xor",
+        }
+    }
+}
+
+/// Builds the executable for `And`, `Or` or `Xor`.
+///
+/// Bool only, which is what ONNX defines these on. The dtype decides both how wide
+/// the buffers are and how the kernel reads them, so an operand recorded as anything
+/// else is refused rather than read a byte at a time out of a wider tensor: an export
+/// without value_info leaves a logical node carrying its first operand's dtype, and
+/// a comparison feeding one still does (its own kernels write 0 or 1 in the operands'
+/// dtype), so this is a reachable mistake and not a hypothetical one.
+///
+/// The kernel is flat, as the other elementwise kernels are, so operands of different
+/// shapes are refused too. ONNX would broadcast them.
+fn logical_executable(
+    graph: &Graph,
+    node: &GraphNode,
+    which: LogicalOp,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    let op = which.name();
+    if node.dtype != DtypeRepr::Bool {
+        return Err(anyhow::anyhow!(
+            "Op::{op} {what}: its output is {:?} rather than Bool; a logical operator \
+             takes and returns bools, and the dtype sets the buffer's width",
+            node.dtype
+        ));
+    }
+    if node.inputs.len() != 2 {
+        return Err(anyhow::anyhow!(
+            "Op::{op} {what}: it has {} operands, not 2",
+            node.inputs.len()
+        ));
+    }
+    let out_shape = concrete_shape(&node.shape, op, "output", what)?;
+    for (pos, &src) in node.inputs.iter().enumerate() {
+        let operand = &graph.nodes[src];
+        if operand.dtype != DtypeRepr::Bool {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: operand {pos} is {:?} rather than Bool",
+                operand.dtype
+            ));
+        }
+        let shape = concrete_shape(&operand.shape, op, &format!("operand {pos}"), what)?;
+        if shape != out_shape {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: operand {pos} has shape {shape:?} but the output is \
+                 {out_shape:?}; this kernel reads both operands at the output's own \
+                 offsets and does not broadcast"
+            ));
+        }
+    }
+
+    // A Bool buffer is one byte per element, so the u8 instantiation reads and writes
+    // it at the right width. As in the constant path, `bool` is deliberately not a
+    // `Num` dtype, and the aliasing is sound here because the kernel only ever reads
+    // a byte as true-or-false and writes back 1 or 0.
+    let (name, kernel_source, kernel_body, runtime_op): (
+        String,
+        String,
+        String,
+        Arc<dyn RuntimeOp>,
+    ) = match which {
+        LogicalOp::And => {
+            let k = LogicalAndForward::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+                Arc::new(k),
+            )
+        }
+        LogicalOp::Or => {
+            let k = LogicalOrForward::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+                Arc::new(k),
+            )
+        }
+        LogicalOp::Xor => {
+            let k = LogicalXorForward::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+                Arc::new(k),
+            )
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for `ConstantOfShape`: one value written across the output.
+///
+/// Separate from [`constant_executable`] because a fill's parameter slot holds one
+/// element rather than the whole tensor. The outputs are often far too large to carry
+/// as data, which is why the constant folder leaves them alone and this exists.
+fn fill_executable(
+    node: &GraphNode,
+    dtype: DtypeRepr,
+    fill: &[u8],
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    let shape = concrete_shape(&node.shape, "ConstantOfShape", "output", what)?;
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = FillRuntimeOp::<$ty>::new(1024, fill).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Op::ConstantOfShape {what}: its fill value is {} bytes, which is \
+                     not one {dtype:?}",
+                    fill.len()
+                )
+            })?;
+            let kernel = rop.kernel();
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match dtype {
+        // As in `constant_executable`: a Bool buffer is one byte per element, and this
+        // kernel moves bytes without computing on them, so the u8 instantiation writes
+        // a bool tensor correctly. The node keeps its Bool dtype.
+        DtypeRepr::Bool => build!(u8),
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I8 => build!(i8),
+        DtypeRepr::I16 => build!(i16),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        DtypeRepr::U8 => build!(u8),
+        DtypeRepr::U16 => build!(u16),
+        DtypeRepr::U32 => build!(u32),
+        DtypeRepr::U64 => build!(u64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::ConstantOfShape {what}: {other:?} is not a supported dtype, so a \
+                 tensor of it cannot be filled on the device"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: shape.into_iter().map(Some).collect(),
+        dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for `Gather`, whose indices come from a materialised
+/// constant.
+fn gather_executable(
+    node: &GraphNode,
+    in_shape: &[usize],
+    axis: i64,
+    indices: &[i64],
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = GatherRuntimeOp::<$ty>::new(1024, in_shape, axis, indices)
+                .map_err(|e| anyhow::anyhow!("Op::Gather {what}: {e}"))?;
+            let kernel = GatherForward::<$ty>::new(1024);
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Gather {what}: {other:?} is not supported; the kernel is generic \
+                 over FloatBytes"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for `Tile`, whose repeats come from a materialised constant.
+fn tile_executable(
+    node: &GraphNode,
+    in_shape: &[usize],
+    repeats: &[i64],
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = TileRuntimeOp::<$ty>::new(1024, in_shape, repeats).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Op::Tile {what}: repeats {repeats:?} do not match input shape \
+                     {in_shape:?} (ONNX requires one non-negative repeat per dimension, \
+                     and this kernel indexes at most {MAX_RANK} of them)"
+                )
+            })?;
+            let kernel = TileForward::<$ty>::new(1024);
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Tile {what}: {other:?} is not supported; the kernel is generic over \
+                 FloatBytes"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for a two-operand contraction.
+fn einsum_executable(
+    node: &GraphNode,
+    plan: &EinsumPlan,
+    equation: &str,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = EinsumRuntimeOp::<$ty>::new(1024, plan).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Op::Einsum {what}: '{equation}' has rank {} , beyond the \
+                     {EINSUM_MAX_RANK} this contraction indexes",
+                    plan.out_shape.len()
+                )
+            })?;
+            let kernel = EinsumForward::<$ty>::new(1024);
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Einsum {what}: {other:?} is not a supported dtype; the kernel is \
+                 generic over Num"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// A node's name for an error message, or its index when it has none.
+fn node_label(graph: &Graph, node_index: usize) -> String {
+    graph
+        .names
+        .get(&node_index)
+        .map_or_else(|| format!("node {node_index}"), |n| format!("'{n}'"))
+}
+
+/// Whether `perm` is a permutation of `0..perm.len()`.
+fn is_permutation(perm: &[usize]) -> bool {
+    let mut seen = vec![false; perm.len()];
+    for &a in perm {
+        match seen.get_mut(a) {
+            Some(slot) if !*slot => *slot = true,
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Extents for a shape that has to be fully known, or an error naming the op.
+///
+/// An empty shape is refused as well as a dynamic one. `Shape` cannot distinguish a
+/// rank-0 scalar from a shape nobody worked out, since both are the empty vector
+/// (teenygrad#129), and reading an unknown shape as rank 0 would produce a copy of one
+/// element instead of an error. Refusing costs the genuine rank-0 case, which none of
+/// these ops do anything useful with, and buys an error message for every node whose
+/// shape inference did not reach it.
+fn concrete_shape(shape: &Shape, op: &str, what: &str, whose: &str) -> Result<Vec<usize>> {
+    if shape.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Op::{op} {what}: {whose} shape is empty, which in this IR means either a \
+             rank-0 scalar or a shape no pass worked out, and they cannot be told \
+             apart. Run teeny_onnx::materialize first."
+        ));
+    }
+    shape
+        .iter()
+        .copied()
+        .collect::<Option<Vec<usize>>>()
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Op::{op} {what}: {whose} shape {shape:?} has a dynamic or unknown \
+                 dimension, so the copy's extents are not known. Run \
+                 teeny_onnx::materialize first."
+            )
+        })
+}
+
+/// Which affine mapping a strided copy expresses.
+///
+/// The three cases differ only in how the output's extents and the input strides are
+/// derived, which is exactly what the mapping is, so they share one kernel and one
+/// executable. See [`crate::nn::tensor::strided_copy`].
+enum CopyMapping<'a> {
+    /// Output axis `d` is input axis `perm[d]`.
+    Transpose {
+        /// The input's extents.
+        in_shape: &'a [usize],
+        /// The output permutation of input axes.
+        perm: &'a [usize],
+    },
+    /// A normalised `Slice`.
+    Slice {
+        /// The input's extents.
+        in_shape: &'a [usize],
+        /// Per-dimension start, step and output extent.
+        plan: &'a SlicePlan,
+    },
+    /// Broadcast: a growing unit axis takes stride 0.
+    Expand {
+        /// The input's extents.
+        in_shape: &'a [usize],
+        /// The output's extents.
+        out_shape: &'a [usize],
+    },
+}
+
+impl CopyMapping<'_> {
+    /// The ranks this mapping spans. Both matter: the kernel indexes at most
+    /// [`MAX_RANK`] dimensions of either side.
+    fn ranks(&self) -> (usize, usize) {
+        match self {
+            CopyMapping::Transpose { in_shape, perm } => (in_shape.len(), perm.len()),
+            CopyMapping::Slice { in_shape, plan } => (in_shape.len(), plan.out_shape.len()),
+            CopyMapping::Expand {
+                in_shape,
+                out_shape,
+            } => (in_shape.len(), out_shape.len()),
+        }
+    }
+
+    /// The extents this mapping writes.
+    fn out_shape(&self) -> Vec<usize> {
+        match self {
+            CopyMapping::Transpose { in_shape, perm } => {
+                perm.iter().map(|&a| in_shape[a]).collect()
+            }
+            CopyMapping::Slice { plan, .. } => plan.out_shape.clone(),
+            CopyMapping::Expand { out_shape, .. } => out_shape.to_vec(),
+        }
+    }
+}
+
+/// Builds the executable for the ops that move elements under an affine index map.
+///
+/// The rank check is not a formality. `StridedCopyRuntimeOp` left-pads its shapes to
+/// [`MAX_RANK`] and *truncates* anything longer, which would drop the fastest-varying
+/// dimensions and copy the wrong elements with no error. Refusing here turns that into
+/// a lowering failure naming the op.
+/// A reduction's axes, keepdims and empty-axes rule, or `None` for anything else.
+///
+/// Grouped because the reduction kernels treat them all the same way, and so does the
+/// transpose that has to come first.
+/// A softmax's axis, and whether it is the log form, or `None` for anything else.
+///
+/// `Op::Softmax` names it `dim` and `Op::LogSoftmax` names it `axis`; both count
+/// negative from the end.
+fn softmax_axis(op: &Op) -> Option<(i64, AxisOp)> {
+    match op {
+        Op::Softmax { dim } => Some((*dim, AxisOp::Softmax)),
+        Op::LogSoftmax { axis } => Some((*axis, AxisOp::LogSoftmax)),
+        Op::CumSum { axis, .. } => Some((*axis, AxisOp::CumSum)),
+        Op::CumProd { axis, .. } => Some((*axis, AxisOp::CumProd)),
+        _ => None,
+    }
+}
+
+/// An op that works along one named axis, where the kernel only does the innermost one.
+///
+/// All four keep their input's shape, so moving the axis means a transpose on each
+/// side rather than the single one a reduction needs.
+#[derive(Clone, Copy, PartialEq)]
+enum AxisOp {
+    Softmax,
+    LogSoftmax,
+    CumSum,
+    CumProd,
+}
+
+fn reduce_parts(op: &Op) -> Option<(&[i64], bool, bool)> {
+    match op {
+        Op::ReduceSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMean {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMax {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceMin {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceProd {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL1 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceL2 {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSum {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceLogSumExp {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        }
+        | Op::ReduceSumSquare {
+            axes,
+            keepdims,
+            noop_with_empty_axes,
+        } => Some((axes, *keepdims, *noop_with_empty_axes)),
+        _ => None,
+    }
+}
+
+fn strided_copy_executable(
+    node: &GraphNode,
+    op: &str,
+    mapping: CopyMapping<'_>,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    let (in_rank, out_rank) = mapping.ranks();
+    if in_rank > MAX_RANK || out_rank > MAX_RANK {
+        return Err(anyhow::anyhow!(
+            "Op::{op} {what}: rank {in_rank} -> {out_rank} exceeds the {MAX_RANK} \
+             dimensions this kernel indexes"
+        ));
+    }
+
+    // The mapping's extents and the node's recorded shape must agree, because each is
+    // used for something different: the mapping decides which input element every
+    // output element reads, while the node's shape decides how large the output buffer
+    // is and how many elements the kernel is launched for. When they disagree the copy
+    // still runs, covers a prefix of the mapping it was built from, and writes a
+    // plausibly-shaped tensor of wrong values with nothing to indicate it.
+    let mapped = mapping.out_shape();
+    if let Some(recorded) = node.shape.iter().copied().collect::<Option<Vec<usize>>>()
+        && recorded != mapped
+    {
+        return Err(anyhow::anyhow!(
+            "Op::{op} {what}: the operands map onto {mapped:?} but the node's shape is \
+             {recorded:?}, so the copy and the output buffer would describe different \
+             tensors"
+        ));
+    }
+
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = match &mapping {
+                CopyMapping::Transpose { in_shape, perm } => {
+                    StridedCopyRuntimeOp::<$ty>::transpose(1024, in_shape, perm)
+                }
+                CopyMapping::Slice { in_shape, plan } => StridedCopyRuntimeOp::<$ty>::slice(
+                    1024,
+                    in_shape,
+                    &plan.out_shape,
+                    &plan.starts,
+                    &plan.steps,
+                ),
+                CopyMapping::Expand {
+                    in_shape,
+                    out_shape,
+                } => StridedCopyRuntimeOp::<$ty>::expand(1024, in_shape, out_shape),
+            };
+            let kernel = StridedCopyForward::<$ty>::new(1024);
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    // Integer dtypes matter here as much as float ones: a model's shape arithmetic is
+    // I64, and broadcasting it is what most of an export's `Expand` nodes do.
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I8 => build!(i8),
+        DtypeRepr::I16 => build!(i16),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        DtypeRepr::U8 => build!(u8),
+        DtypeRepr::U16 => build!(u16),
+        DtypeRepr::U32 => build!(u32),
+        DtypeRepr::U64 => build!(u64),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: {other:?} is not a supported dtype; the kernel is \
+                 generic over Num"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Decides, for each node, whether it is a constant that lowering can leave out of
+/// the DAG entirely.
+///
+/// Public so a caller can see what lowering will need before attempting it: the
+/// `false` entries that are still `Op::Constant` nodes are the ones that require a
+/// device buffer.
+///
+/// A constant qualifies when every one of its consumers takes it in a shape-operand
+/// position, so nothing ever reads it as a buffer. A constant with no consumers at
+/// all qualifies too, unless it is the graph's result, which must stay to be read
+/// back.
+pub fn elidable_constants(graph: &Graph) -> Vec<bool> {
+    let n = graph.nodes.len();
+    let mut data_use = vec![false; n];
+    let mut used = vec![false; n];
+
+    for node in &graph.nodes {
+        let shape_positions = node.op.shape_operand_positions();
+        for (position, &input) in node.inputs.iter().enumerate() {
+            used[input] = true;
+            if !shape_positions.contains(&position) {
+                data_use[input] = true;
+            }
+        }
+    }
+
+    // The graph's result is the one node nothing consumes that we must still keep.
+    let result = (0..n).rev().find(|&i| !used[i]);
+
+    (0..n)
+        .map(|i| {
+            // `Omitted` is always elided: it stands for an operand the model did not
+            // supply, so there is nothing to put on a device. It is in the graph only
+            // to hold its position, which `shape_operand_positions` and the ops that
+            // read operands by index both depend on.
+            matches!(graph.nodes[i].op, Op::Omitted)
+                || matches!(graph.nodes[i].op, Op::Constant { .. })
+                    && !data_use[i]
+                    && Some(i) != result
+        })
+        .collect()
 }
 
 /// Picks (BLOCK_M, BLOCK_N, BLOCK_K) for a GEMM of shape `[M, K] @ [K, N] -> [M, N]`
@@ -592,6 +2063,18 @@ fn pick_gemm_tile_sizes(m: Option<usize>, n: usize, k: usize) -> (i32, i32, i32)
     } else {
         8
     };
+    // Where the backend cannot load a partial K tile, matmul_forward reads its last
+    // one back from inside the operands, which needs a whole tile to fit, so the
+    // tile is never wider than the contracted axis. Rounded down to a power of two,
+    // since that is what the `dot` takes, and never below 1. Where a partial tile
+    // does load, 8 stays the floor: a narrower tile makes a worse `dot`, and on
+    // CUDA one below 8 gives a wrong answer outright.
+    let k_floor_pow2 = 1usize << (usize::BITS - 1 - k.max(1).leading_zeros());
+    let block_k = if crate::math::gemm::PARTIAL_K_TILE_IS_PADDED {
+        block_k
+    } else {
+        block_k.min(k_floor_pow2 as i32)
+    };
     // Capped at 128×128: a 256×128 tile needs ~128 KiB dynamic shared memory,
     // above the opt-in ceiling on some sm_120 devices (~99 KiB on RTX 5070).
     // 128×128 (~64 KiB) fits under the per-function opt-in raised via
@@ -603,54 +2086,6 @@ fn pick_gemm_tile_sizes(m: Option<usize>, n: usize, k: usize) -> (i32, i32, i32)
         _ => (64, 64),
     };
     (block_m, block_n, block_k)
-}
-
-#[cfg(test)]
-mod pick_gemm_tile_sizes_tests {
-    use super::pick_gemm_tile_sizes;
-
-    #[test]
-    fn small_shape_gets_smallest_tiles() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
-    }
-
-    #[test]
-    fn large_m_and_n_get_the_largest_tile() {
-        // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
-        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
-    }
-
-    #[test]
-    fn large_m_only_widens_block_m_not_block_n() {
-        assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
-    }
-
-    #[test]
-    fn large_n_only_widens_block_n_not_block_m() {
-        assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
-    }
-
-    #[test]
-    fn unknown_dynamic_batch_treated_as_small() {
-        // m=None should behave the same as an explicit small m, not a large one.
-        assert_eq!(
-            pick_gemm_tile_sizes(None, 64, 16),
-            pick_gemm_tile_sizes(Some(64), 64, 16)
-        );
-    }
-
-    #[test]
-    fn block_k_never_drops_below_the_tensor_core_minimum() {
-        let (_, _, block_k) = pick_gemm_tile_sizes(Some(64), 64, 1);
-        assert!(block_k >= 8);
-    }
-
-    #[test]
-    fn block_k_grows_with_k() {
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
-        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);
-    }
 }
 
 impl TritonLowering {
@@ -668,7 +2103,7 @@ impl TritonLowering {
 
         // Never run Anduin (or any optimizer) while resolving a fuse member —
         // that would recurse into pointwise fusion.
-        let lowering = TritonLowering { optimizer: None };
+        let lowering = TritonLowering::default();
         let (dag, map) = lowering.lower_with_mapping(&graph, LoweringMode::Inference)?;
         let dag_idx = map[out];
         let exec = dag.node(dag_idx).value.as_ref();
@@ -702,11 +2137,194 @@ impl TritonLowering {
         };
         let node_indexes = graph.topological_sort();
         let mut dag: Dag<Box<dyn ExecutableOp>> = Dag::new();
-        // Maps graph node index → DAG node index (one-to-one since we add every node)
+        // Maps graph node index → DAG node index. Elided constants have no DAG node,
+        // so their entry is never read; see `elided` below.
         let mut graph_to_dag = vec![0usize; graph.nodes.len()];
+        // Constants consumed only as shape metadata, which lowering reads instead of
+        // allocating. They get no DAG node and their edges are dropped.
+        let elided = elidable_constants(graph);
 
         for node_index in node_indexes {
             let node = &graph.nodes[node_index];
+
+            if elided[node_index] {
+                continue;
+            }
+
+            // The reduction kernels walk a flattened `[outer, inner]` view and infer
+            // the split from the output shape, so they can only reduce the innermost
+            // axes. When the axes are somewhere else, a transpose goes in front to put
+            // them there and the reduction reads that instead of the original input.
+            // Nothing is needed afterwards: the axes that stay keep their relative
+            // order, so the reduced elements come out in the order the recorded output
+            // shape already describes, whether the reduced axes are kept as 1s or
+            // dropped. Without this the reduction sums adjacent elements instead of
+            // strided ones and returns a plausibly-shaped wrong answer.
+            let mut reduce_input_override: Option<(usize, usize)> = None;
+            // A reduction may carry a second operand, the axes, which
+            // `Op::shape_operand_positions` marks as metadata: its value is on the op by
+            // now and the operand is elided, so only the first input is data.
+            if let Some((axes, _, noop_with_empty_axes)) = reduce_parts(&node.op)
+                && let Some(&data) = node.inputs.first()
+                && !elided[data]
+            {
+                if axes.is_empty() && node.inputs.len() > 1 {
+                    let what = node_label(graph, node_index);
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce {what}: the axes operand was not materialised, and \
+                         an empty list here would mean every axis rather than the one \
+                         the file asked for. Run teeny_onnx::materialize first."
+                    ));
+                }
+                let what = node_label(graph, node_index);
+                // The axes depend only on the rank, so a dynamic extent (a batch axis,
+                // say) is fine until a transpose actually has to copy the tensor.
+                let data_shape = &graph.nodes[data].shape;
+                let rank = data_shape.len();
+                let Some(reduced) = reduce_axes(axes, rank, noop_with_empty_axes) else {
+                    return Err(anyhow::anyhow!(
+                        "Op::Reduce {what}: axes {axes:?} are not all within the \
+                         {rank} axes of {data_shape:?}"
+                    ));
+                };
+                if let Some(perm) = reduce_transpose_perm(&reduced, rank) {
+                    let in_shape = concrete_shape(data_shape, "Reduce", &what, "its input's")?;
+                    let transposed: Vec<Option<usize>> =
+                        perm.iter().map(|&a| Some(in_shape[a])).collect();
+                    // A stand-in for the transpose's own output, which no graph node
+                    // describes: `strided_copy_executable` checks the shape it is given
+                    // against the mapping, and the reduction node's shape is a
+                    // different tensor's.
+                    let staging = GraphNode {
+                        op: Op::Transpose { perm: perm.clone() },
+                        inputs: vec![data],
+                        dtype: graph.nodes[data].dtype,
+                        shape: transposed,
+                    };
+                    let executable = strided_copy_executable(
+                        &staging,
+                        "Reduce",
+                        CopyMapping::Transpose {
+                            in_shape: &in_shape,
+                            perm: &perm,
+                        },
+                        &what,
+                    )?;
+                    let staging_dag_idx = dag.add_node(executable);
+                    dag.add_edge(graph_to_dag[data], staging_dag_idx);
+                    reduce_input_override = Some((data, staging_dag_idx));
+                }
+            }
+
+            // The softmax kernels normalize a tensor's innermost axis, one CTA per row,
+            // so an axis anywhere else has to be moved there first. Unlike a reduction
+            // the output keeps the input's shape, so this needs a transpose on both
+            // sides: in, normalize, and back. Without it the kernel normalized the last
+            // axis whatever the op asked for.
+            // A cumulative op carries its axis as a second operand, which
+            // `Op::shape_operand_positions` marks as metadata, so only the first input
+            // is data. Matching on exactly one input skipped those entirely.
+            if let Some((dim, axis_op)) = softmax_axis(&node.op)
+                && let Some(&data) = node.inputs.first()
+                && !elided[data]
+            {
+                let what = node_label(graph, node_index);
+                // As for a reduction: only a transpose needs every extent, so a dynamic
+                // batch axis in front of an innermost softmax still lowers.
+                let data_shape = &graph.nodes[data].shape;
+                let rank = data_shape.len();
+                let Some(axes) = reduce_axes(&[dim], rank, false) else {
+                    return Err(anyhow::anyhow!(
+                        "Op::Softmax {what}: axis {dim} is outside the {rank} axes of \
+                         {data_shape:?}"
+                    ));
+                };
+                if let Some(perm) = reduce_transpose_perm(&axes, rank) {
+                    let in_shape = concrete_shape(data_shape, "Softmax", &what, "its input's")?;
+                    let axis = axes[0];
+                    let permuted: Vec<usize> = perm.iter().map(|&a| in_shape[a]).collect();
+                    let transposed: Shape = permuted.iter().map(|&d| Some(d)).collect();
+
+                    // In: the axis to normalize becomes the innermost one.
+                    let staging = GraphNode {
+                        op: Op::Transpose { perm: perm.clone() },
+                        inputs: vec![data],
+                        dtype: graph.nodes[data].dtype,
+                        shape: transposed.clone(),
+                    };
+                    let executable = strided_copy_executable(
+                        &staging,
+                        "Softmax",
+                        CopyMapping::Transpose {
+                            in_shape: &in_shape,
+                            perm: &perm,
+                        },
+                        &what,
+                    )?;
+                    let into_dag_idx = dag.add_node(executable);
+                    dag.add_edge(graph_to_dag[data], into_dag_idx);
+
+                    // The normalization itself, over the transposed tensor, whose last
+                    // axis is now the one the op named.
+                    let block_size = in_shape[axis].next_power_of_two() as i32;
+                    let middle = GraphNode {
+                        op: node.op.clone(),
+                        inputs: vec![],
+                        dtype: node.dtype,
+                        shape: transposed,
+                    };
+                    let executable: Box<dyn ExecutableOp> = if axis_op == AxisOp::LogSoftmax {
+                        let fwd = LogSoftmaxForward::new(block_size);
+                        let nm = fwd.name.to_string();
+                        let fwd_src = fwd.source.clone();
+                        #[cfg(feature = "training")]
+                        let bwd_src = LogSoftmaxBackward::new(block_size).source.clone();
+                        let rop: Arc<dyn RuntimeOp> = Arc::new(fwd);
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{nm}_entry_point"),
+                            name: nm,
+                            kernel_source: fwd_src,
+                            kernel_body: String::new(),
+                            pointwise_fuse_block_size: None,
+                            shape: middle.shape.clone(),
+                            dtype: middle.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: bwd_src,
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    } else if axis_op == AxisOp::Softmax {
+                        make_float_kernel!(SoftmaxForward(block_size), middle)
+                    } else if axis_op == AxisOp::CumSum {
+                        make_num_kernel!(CumSumForward(1024), middle)
+                    } else {
+                        make_num_kernel!(CumProdForward(1024), middle)
+                    };
+                    let middle_dag_idx = dag.add_node(executable);
+                    dag.add_edge(into_dag_idx, middle_dag_idx);
+
+                    // Back: the inverse permutation restores the recorded shape, which
+                    // a softmax leaves as its input's.
+                    let mut inverse = vec![0usize; rank];
+                    for (new_axis, &old_axis) in perm.iter().enumerate() {
+                        inverse[old_axis] = new_axis;
+                    }
+                    let executable = strided_copy_executable(
+                        node,
+                        "Softmax",
+                        CopyMapping::Transpose {
+                            in_shape: &permuted,
+                            perm: &inverse,
+                        },
+                        &what,
+                    )?;
+                    let out_dag_idx = dag.add_node(executable);
+                    dag.add_edge(middle_dag_idx, out_dag_idx);
+                    graph_to_dag[node_index] = out_dag_idx;
+                    continue;
+                }
+            }
 
             // Training BatchNorm needs two sequential DAG nodes: stats then normalize.
             // BatchNorm2d uses NCHW-native kernels (falls through to the inference path below)
@@ -1231,10 +2849,75 @@ impl TritonLowering {
                 Op::GroupNorm { .. } => {
                     make_float_kernel!(GroupNormForwardInference(256), node)
                 }
-                Op::InstanceNorm1d { .. }
-                | Op::InstanceNorm2d { .. }
-                | Op::InstanceNorm3d { .. } => {
-                    make_float_kernel!(InstanceNormForwardInference(256), node)
+                Op::InstanceNorm1d { eps, .. }
+                | Op::InstanceNorm2d { eps, .. }
+                | Op::InstanceNorm3d { eps, .. } => {
+                    // The extents and the epsilon were being dropped here, and the
+                    // kernel they reached had no runtime dispatch: one program per
+                    // instance, which is what `grid` has to say.
+                    let what = node_label(graph, node_index);
+                    let shape = concrete_shape(&node.shape, "InstanceNorm", "output", &what)?;
+                    if shape.len() < 2 {
+                        return Err(anyhow::anyhow!(
+                            "Op::InstanceNorm {what}: {shape:?} has no channel axis to \
+                             normalise within"
+                        ));
+                    }
+                    if node.inputs.len() != 3 {
+                        return Err(anyhow::anyhow!(
+                            "Op::InstanceNorm {what}: it has {} operands, not 3 (input, \
+                             scale, shift)",
+                            node.inputs.len()
+                        ));
+                    }
+                    let (n_batch, channels) = (shape[0], shape[1]);
+                    let spatial: usize = shape[2..].iter().product();
+                    macro_rules! build_instance {
+                        ($ty:ty) => {{
+                            let rop = InstanceNormRuntimeOp::<$ty>::new(
+                                256,
+                                n_batch,
+                                channels,
+                                spatial,
+                                *eps as f32,
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::InstanceNorm {what}: {shape:?} leaves an \
+                                     instance with nothing to normalise"
+                                )
+                            })?;
+                            let kernel = rop.kernel();
+                            let name = kernel.name.to_string();
+                            let source = kernel.source.clone();
+                            let body = kernel.kernel_source.clone();
+                            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+                            (name, source, body, erased)
+                        }};
+                    }
+                    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+                        DtypeRepr::F32 => build_instance!(f32),
+                        DtypeRepr::F64 => build_instance!(f64),
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "Op::InstanceNorm {what}: {other:?} is not a float dtype"
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{name}_entry_point"),
+                        name,
+                        kernel_source,
+                        kernel_body,
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op,
+                    })
                 }
 
                 // --- Convolution ---
@@ -1321,6 +3004,9 @@ impl TritonLowering {
                     kernel_w,
                     stride_h,
                     stride_w,
+                    pad_h,
+                    pad_w,
+                    count_include_pad,
                 } => {
                     make_num_kernel!(
                         Avgpool2dForward(
@@ -1328,6 +3014,9 @@ impl TritonLowering {
                             *kernel_w as i32,
                             *stride_h as i32,
                             *stride_w as i32,
+                            *pad_h as i32,
+                            *pad_w as i32,
+                            i32::from(*count_include_pad),
                             16
                         ),
                         node
@@ -1701,11 +3390,46 @@ impl TritonLowering {
                     node.dtype,
                     HardshrinkForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
-                Op::LeakyRelu { .. } => exec_from(
-                    node.shape.clone(),
-                    node.dtype,
-                    LeakyReluForwardDispatch::dispatch(node.dtype, 1024)?,
-                ),
+                Op::LeakyRelu { negative_slope } => {
+                    // The slope was being dropped here, and the kernel it reached had
+                    // no runtime dispatch at all: it compiled and then panicked when
+                    // the executor asked for its argument count.
+                    let what = node_label(graph, node_index);
+                    macro_rules! build_leaky {
+                        ($ty:ty) => {{
+                            let rop = LeakyReluRuntimeOp::<$ty>::new(1024, *negative_slope as f32);
+                            let kernel = rop.kernel();
+                            let name = kernel.name.to_string();
+                            let source = kernel.source.clone();
+                            let body = kernel.kernel_source.clone();
+                            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+                            (name, source, body, erased)
+                        }};
+                    }
+                    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+                        DtypeRepr::F32 => build_leaky!(f32),
+                        DtypeRepr::F64 => build_leaky!(f64),
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "Op::LeakyRelu {what}: {other:?} is not a float dtype"
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{name}_entry_point"),
+                        name,
+                        kernel_source,
+                        kernel_body,
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op,
+                    })
+                }
                 Op::Threshold { .. } => exec_from(
                     node.shape.clone(),
                     node.dtype,
@@ -2065,6 +3789,12 @@ impl TritonLowering {
                     })
                 }
 
+                Op::Add if needs_broadcast(graph, node) => broadcast_binary_executable(
+                    graph,
+                    node,
+                    BroadcastOp::Add,
+                    &node_label(graph, node_index),
+                )?,
                 Op::Add => {
                     make_num_kernel!(ElemwiseAddForward(128), ElemwiseAddBackward(128), node)
                 }
@@ -2143,12 +3873,30 @@ impl TritonLowering {
                 }
 
                 // ── ONNX binary element-wise ops ─────────────────────────────
+                Op::Mul if needs_broadcast(graph, node) => broadcast_binary_executable(
+                    graph,
+                    node,
+                    BroadcastOp::Mul,
+                    &node_label(graph, node_index),
+                )?,
                 Op::Mul => {
                     make_num_kernel!(ElemwiseMulForward(1024), ElemwiseMulBackward(1024), node)
                 }
+                Op::Sub if needs_broadcast(graph, node) => broadcast_binary_executable(
+                    graph,
+                    node,
+                    BroadcastOp::Sub,
+                    &node_label(graph, node_index),
+                )?,
                 Op::Sub => {
                     make_num_kernel!(ElemwiseSubForward(1024), ElemwiseSubBackward(1024), node)
                 }
+                Op::Div if needs_broadcast(graph, node) => broadcast_binary_executable(
+                    graph,
+                    node,
+                    BroadcastOp::Div,
+                    &node_label(graph, node_index),
+                )?,
                 Op::Div => {
                     make_float_kernel!(ElemwiseDivForward(1024), ElemwiseDivBackward(1024), node)
                 }
@@ -2178,15 +3926,71 @@ impl TritonLowering {
                     ElemwiseWhereBackward(1024),
                     node
                 ),
-                Op::Clip => {
+                Op::Clip { min, max } => {
+                    let what = node_label(graph, node_index);
+                    // Both bounds were hardcoded to infinity here, so every Clip in
+                    // every model was a pass-through: the op ran, cost a kernel launch
+                    // and clamped nothing. Nothing in the graph showed it, because the
+                    // output has the right shape and dtype and most values in a
+                    // trained network are inside their bounds anyway.
+                    let bound = |pos: usize, attr: Option<f64>, fallback: f32| -> Result<f32> {
+                        let value: Option<f64> = match node.inputs.get(pos) {
+                            // No operand, or one the model omitted: the opset-6
+                            // attribute form, or no bound on this side.
+                            None => attr,
+                            Some(&id) if matches!(graph.nodes[id].op, Op::Omitted) => attr,
+                            Some(&id) => match self.constants.get(&id).map(|t| t.to_f64_vec()) {
+                                // An empty tensor is how some exporters write "no
+                                // bound" without omitting the operand.
+                                Some(Ok(v)) => v.first().copied(),
+                                Some(Err(reason)) => {
+                                    return Err(Error::UnreadableConstant {
+                                        context: format!("Op::Clip {what}: operand {pos}"),
+                                        reason,
+                                    }
+                                    .into());
+                                }
+                                None => {
+                                    return Err(anyhow::anyhow!(
+                                        "Op::Clip {what}: operand {pos} has no value, so \
+                                         the bound is not known. The kernel takes its \
+                                         bounds as scalar arguments, so a computed bound \
+                                         cannot be used; materialise it and pass it via \
+                                         TritonLowering::with_constants."
+                                    ));
+                                }
+                            },
+                        };
+                        let Some(value) = value else {
+                            return Ok(fallback);
+                        };
+                        // The kernel takes its bounds as f32 whatever the tensor's
+                        // dtype. Narrowing an f64 bound loses a little precision in the
+                        // threshold, which is tolerable; narrowing one that overflows
+                        // f32 would turn a real bound into no bound at all, which is
+                        // not, so it is refused rather than rounded to infinity.
+                        if value.is_finite() && !(value as f32).is_finite() {
+                            return Err(anyhow::anyhow!(
+                                "Op::Clip {what}: bound {value} at operand {pos} is \
+                                 outside f32 range, and the kernel takes its bounds as \
+                                 f32, so clamping would silently not happen"
+                            ));
+                        }
+                        Ok(value as f32)
+                    };
+                    let min_val = bound(1, *min, f32::NEG_INFINITY)?;
+                    let max_val = bound(2, *max, f32::INFINITY)?;
+                    if min_val > max_val {
+                        return Err(anyhow::anyhow!(
+                            "Op::Clip {what}: min {min_val} is above max {max_val}, so \
+                             every element would be clamped to {max_val}"
+                        ));
+                    }
+
                     let (name, ks, bwd_ks, rop): (String, String, String, Arc<dyn RuntimeOp>) =
                         match node.dtype {
                             DtypeRepr::F32 => {
-                                let r = ClipRuntimeOp::<f32>::new(
-                                    1024,
-                                    f32::NEG_INFINITY,
-                                    f32::INFINITY,
-                                );
+                                let r = ClipRuntimeOp::<f32>::new(1024, min_val, max_val);
                                 (
                                     r.kernel_name().to_string(),
                                     r.forward_source().to_string(),
@@ -2195,11 +3999,7 @@ impl TritonLowering {
                                 )
                             }
                             DtypeRepr::F64 => {
-                                let r = ClipRuntimeOp::<f64>::new(
-                                    1024,
-                                    f32::NEG_INFINITY,
-                                    f32::INFINITY,
-                                );
+                                let r = ClipRuntimeOp::<f64>::new(1024, min_val, max_val);
                                 (
                                     r.kernel_name().to_string(),
                                     r.forward_source().to_string(),
@@ -2243,6 +4043,22 @@ impl TritonLowering {
                     make_float_kernel!(ReduceLogSumExpForward(1024), node)
                 }
                 Op::ReduceSumSquare { .. } => make_num_kernel!(ReduceSumSquareForward(1024), node),
+                Op::CumSum {
+                    exclusive, reverse, ..
+                }
+                | Op::CumProd {
+                    exclusive, reverse, ..
+                } if *exclusive || *reverse => {
+                    // The kernels accumulate inclusively and forwards, and nothing in
+                    // them reads these, so either flag would be ignored rather than
+                    // obeyed.
+                    let what = node_label(graph, node_index);
+                    return Err(anyhow::anyhow!(
+                        "Op::CumSum/CumProd {what}: exclusive={exclusive} \
+                         reverse={reverse} is not implemented; the kernel accumulates \
+                         inclusively and forwards"
+                    ));
+                }
                 Op::CumSum { .. } => make_num_kernel!(CumSumForward(1024), node),
                 Op::CumProd { .. } => make_num_kernel!(CumProdForward(1024), node),
                 Op::GlobalAvgPool => make_float_kernel!(GlobalAvgPoolForward(1024), node),
@@ -2403,19 +4219,35 @@ impl TritonLowering {
 
                 // ── Matrix ops ────────────────────────────────────────────────
                 Op::MatMul | Op::Gemm { .. } => {
-                    // A: [M, K], B: [K, N], C (output): [M, N].
-                    let m = node.shape.first().copied().flatten();
-                    let n = node.shape.last().copied().flatten().unwrap_or(0);
-                    let k = node
-                        .inputs
-                        .first()
-                        .and_then(|&i| graph.nodes[i].shape.last().copied().flatten())
-                        .unwrap_or(0);
-                    let (block_m, block_n, block_k) = pick_gemm_tile_sizes(m, n, k);
+                    let what = node_label(graph, node_index);
+                    let operand = |pos: usize, side: &str| -> Result<Vec<usize>> {
+                        let &i = node.inputs.get(pos).ok_or_else(|| {
+                            anyhow::anyhow!("Op::MatMul {what}: no {side} operand")
+                        })?;
+                        concrete_shape(&graph.nodes[i].shape, "MatMul", side, &what)
+                    };
+                    let plan =
+                        matmul_plan(&operand(0, "left operand")?, &operand(1, "right operand")?)
+                            .map_err(|e| anyhow::anyhow!("Op::MatMul {what}: {e}"))?;
+
+                    let (block_m, block_n, block_k) =
+                        pick_gemm_tile_sizes(Some(plan.m), plan.n, plan.k);
 
                     let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
                         DtypeRepr::F32 => {
-                            let r = MatMulRuntimeOp::<f32>::new(block_m, block_n, block_k);
+                            let r = MatMulRuntimeOp::<f32>::new(
+                                block_m,
+                                block_n,
+                                block_k,
+                                plan.clone(),
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::MatMul {what}: a K tile of {block_k} does not fit \
+                                     inside a contraction of {}",
+                                    plan.k
+                                )
+                            })?;
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -2423,7 +4255,19 @@ impl TritonLowering {
                             )
                         }
                         DtypeRepr::F64 => {
-                            let r = MatMulRuntimeOp::<f64>::new(block_m, block_n, block_k);
+                            let r = MatMulRuntimeOp::<f64>::new(
+                                block_m,
+                                block_n,
+                                block_k,
+                                plan.clone(),
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::MatMul {what}: a K tile of {block_k} does not fit \
+                                     inside a contraction of {}",
+                                    plan.k
+                                )
+                            })?;
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -2494,25 +4338,70 @@ impl TritonLowering {
                         "TODO: Op::CausalConvWithState — implement a stateful causal-conv kernel"
                     ));
                 }
+                // Shape-only: element order is unchanged, so for contiguous buffers
+                // this is an element-for-element copy. A zero-copy view would be
+                // better, but the executable DAG has no node type that aliases its
+                // input's buffer.
                 Op::Reshape => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Reshape — implement as a strided view or copy kernel"
-                    ));
+                    make_num_kernel!(ElemwiseCopyForward(1024), ElemwiseCopyBackward(1024), node)
                 }
-                Op::Transpose { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Transpose — implement as a permuted-copy kernel"
-                    ));
+                Op::Transpose { perm } => {
+                    let what = node_label(graph, node_index);
+                    let &[data] = node.inputs.as_slice() else {
+                        return Err(anyhow::anyhow!(
+                            "Op::Transpose {what}: expected one input, got {}",
+                            node.inputs.len()
+                        ));
+                    };
+                    let in_shape = concrete_shape(
+                        &graph.nodes[data].shape,
+                        "Transpose",
+                        &what,
+                        "its input's",
+                    )?;
+                    // ONNX defaults `perm` to the reversed axis order, and the importer
+                    // records the attribute's absence as an empty vector, so an empty
+                    // perm here means that default rather than an identity.
+                    let reversed: Vec<usize> = (0..in_shape.len()).rev().collect();
+                    let perm = if perm.is_empty() { &reversed } else { perm };
+                    // Two different faults, reported differently. A perm of the wrong
+                    // length usually means the recorded input shape is wrong rather
+                    // than the attribute, since an exporter writes one perm entry per
+                    // axis, so blaming the perm sends the reader to the wrong place.
+                    if perm.len() != in_shape.len() {
+                        return Err(anyhow::anyhow!(
+                            "Op::Transpose {what}: perm {perm:?} has {} entries but the \
+                             recorded input shape {in_shape:?} has {} axes. An exporter \
+                             writes one entry per axis, so the recorded shape is the \
+                             likely culprit; run teeny_onnx::materialize first.",
+                            perm.len(),
+                            in_shape.len()
+                        ));
+                    }
+                    if !is_permutation(perm) {
+                        return Err(anyhow::anyhow!(
+                            "Op::Transpose {what}: perm {perm:?} is not a permutation of \
+                             the {} axes of {in_shape:?}",
+                            in_shape.len()
+                        ));
+                    }
+                    strided_copy_executable(
+                        node,
+                        "Transpose",
+                        CopyMapping::Transpose {
+                            in_shape: &in_shape,
+                            perm,
+                        },
+                        &what,
+                    )?
                 }
+                // Shape-only, as Op::Reshape above.
                 Op::Squeeze { .. } | Op::Unsqueeze { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Squeeze/Unsqueeze — implement as a zero-copy view"
-                    ));
+                    make_num_kernel!(ElemwiseCopyForward(1024), ElemwiseCopyBackward(1024), node)
                 }
-                Op::Concat { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Concat — implement as a multi-input copy kernel"
-                    ));
+                Op::Concat { axis } => {
+                    let what = node_label(graph, node_index);
+                    concat_executable(graph, node, *axis, &what)?
                 }
                 Op::Split { .. } => {
                     return Err(anyhow::anyhow!(
@@ -2520,32 +4409,219 @@ impl TritonLowering {
                     ));
                 }
                 Op::Slice => {
+                    let what = node_label(graph, node_index);
+                    let Some(&data) = node.inputs.first() else {
+                        return Err(anyhow::anyhow!("Op::Slice {what}: has no input"));
+                    };
+                    let in_shape =
+                        concrete_shape(&graph.nodes[data].shape, "Slice", &what, "its input's")?;
+                    // starts and ends are required operands; axes and steps are not.
+                    let operand = |pos: usize, required: bool| -> Result<Option<Vec<i64>>> {
+                        let Some(&id) = node.inputs.get(pos) else {
+                            if required {
+                                return Err(anyhow::anyhow!(
+                                    "Op::Slice {what}: operand {pos} is missing, and \
+                                     starts and ends are required"
+                                ));
+                            }
+                            return Ok(None);
+                        };
+                        match self.constants.get(&id).map(|t| t.to_i64_vec()) {
+                            Some(Ok(v)) => Ok(Some(v)),
+                            Some(Err(e)) => Err(Error::UnreadableConstant {
+                                context: format!("Op::Slice {what}: operand {pos}"),
+                                reason: e,
+                            }
+                            .into()),
+                            None => Err(anyhow::anyhow!(
+                                "Op::Slice {what}: operand {pos} has no integer value; \
+                                 materialise it and pass it via \
+                                 TritonLowering::with_constants"
+                            )),
+                        }
+                    };
+                    let starts = operand(1, true)?.unwrap_or_default();
+                    let ends = operand(2, true)?.unwrap_or_default();
+                    let axes = operand(3, false)?;
+                    let steps = operand(4, false)?;
+                    // Shared with shape inference, so the extents this copy writes and
+                    // the ones the graph records cannot disagree.
+                    let plan =
+                        slice_plan(&in_shape, &starts, &ends, axes.as_deref(), steps.as_deref())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::Slice {what}: starts {starts:?}, ends {ends:?}, axes \
+                             {axes:?} and steps {steps:?} do not describe a slice of \
+                             {in_shape:?}"
+                                )
+                            })?;
+                    strided_copy_executable(
+                        node,
+                        "Slice",
+                        CopyMapping::Slice {
+                            in_shape: &in_shape,
+                            plan: &plan,
+                        },
+                        &what,
+                    )?
+                }
+                // `Gather(data, indices, axis)`. An index tensor is integer-typed and a
+                // node's buffers are typed from its own dtype, so there is nowhere
+                // correctly-typed for one to land as an activation. The kernel reads its
+                // indices from a parameter slot instead, so the operand is elided like
+                // any other that never needs a buffer, and the value comes from the
+                // constants supplied here. That covers nearly every Gather in practice.
+                Op::Gather { axis } => {
+                    let what = graph
+                        .names
+                        .get(&node_index)
+                        .map_or_else(|| format!("node {node_index}"), |n| format!("'{n}'"));
+                    let &[data, idx_node] = node.inputs.as_slice() else {
+                        return Err(anyhow::anyhow!(
+                            "Op::Gather {what}: expected (data, indices), got {} inputs",
+                            node.inputs.len()
+                        ));
+                    };
+                    let in_shape = graph.nodes[data]
+                        .shape
+                        .iter()
+                        .copied()
+                        .collect::<Option<Vec<usize>>>()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Gather {what}: input shape {:?} has a dynamic \
+                                 dimension, so the gathered extent is not known",
+                                graph.nodes[data].shape
+                            )
+                        })?;
+                    let indices = self
+                        .constants
+                        .get(&idx_node)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Gather {what}: its indices are computed at runtime. \
+                                 Only constant indices are supported: an index tensor is \
+                                 integer-typed, and an activation buffer is typed from \
+                                 its node's dtype, so a runtime index tensor has nowhere \
+                                 correctly-typed to land. Materialise the indices, or \
+                                 implement integer-typed activation buffers."
+                            )
+                        })?
+                        .to_i64_vec()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Gather {what}: indices operand"),
+                            reason: e,
+                        })?;
+                    gather_executable(node, &in_shape, *axis, &indices, &what)?
+                }
+                Op::GatherElements { .. } | Op::GatherND { .. } => {
                     return Err(anyhow::anyhow!(
-                        "TODO: Op::Slice — implement as a strided-copy kernel"
+                        "TODO: Op::GatherElements/GatherND — per-element and N-D \
+                         indexing; Op::Gather's slice-along-one-axis kernel does not \
+                         cover either"
                     ));
                 }
-                Op::Gather { .. } | Op::GatherElements { .. } | Op::GatherND { .. } => {
+                Op::ScatterND => {
+                    let what = node_label(graph, node_index);
+                    let indices = node.inputs.get(1).and_then(|i| self.constants.get(i));
+                    scatter_nd_executable(graph, node, indices, &what)?
+                }
+                Op::ScatterElements { axis } => {
+                    let what = node_label(graph, node_index);
+                    let indices = node.inputs.get(1).and_then(|i| self.constants.get(i));
+                    scatter_elements_executable(graph, node, *axis, indices, &what)?
+                }
+                Op::Scatter { .. } | Op::TensorScatter => {
                     return Err(anyhow::anyhow!(
-                        "TODO: Op::Gather — implement as an index-gather kernel"
+                        "TODO: Op::Scatter/TensorScatter — the deprecated Scatter and \
+                         the tensor-scatter variant; ScatterElements and ScatterND \
+                         cover what the exports use"
                     ));
                 }
-                Op::ScatterElements { .. }
-                | Op::ScatterND
-                | Op::Scatter { .. }
-                | Op::TensorScatter => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Scatter — implement as an index-scatter kernel"
-                    ));
-                }
+                // `Tile(data, repeats)`. The repeats operand is shape metadata, so it
+                // is elided rather than lowered; its value comes from the constants
+                // supplied to this lowering. This is what materialising constants was
+                // for: without the value there is no kernel to build.
                 Op::Tile => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Tile — implement as a tiled-copy kernel"
-                    ));
+                    let what = graph
+                        .names
+                        .get(&node_index)
+                        .map_or_else(|| format!("node {node_index}"), |n| format!("'{n}'"));
+                    let &[data, repeats_node] = node.inputs.as_slice() else {
+                        return Err(anyhow::anyhow!(
+                            "Op::Tile {what}: expected (data, repeats), got {} inputs",
+                            node.inputs.len()
+                        ));
+                    };
+                    let in_shape = graph.nodes[data]
+                        .shape
+                        .iter()
+                        .copied()
+                        .collect::<Option<Vec<usize>>>()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Tile {what}: input shape {:?} has a dynamic \
+                                 dimension, so the tiled extent is not known",
+                                graph.nodes[data].shape
+                            )
+                        })?;
+                    let repeats = self
+                        .constants
+                        .get(&repeats_node)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Tile {what}: no value for its repeats operand; \
+                                 materialise it and pass it via \
+                                 TritonLowering::with_constants"
+                            )
+                        })?
+                        .to_i64_vec()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Tile {what}: repeats operand"),
+                            reason: e,
+                        })?;
+                    tile_executable(node, &in_shape, &repeats, &what)?
                 }
                 Op::Expand => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Expand — implement as a broadcast-copy kernel"
-                    ));
+                    let what = node_label(graph, node_index);
+                    let Some(&data) = node.inputs.first() else {
+                        return Err(anyhow::anyhow!("Op::Expand {what}: has no input"));
+                    };
+                    let in_shape =
+                        concrete_shape(&graph.nodes[data].shape, "Expand", &what, "its input's")?;
+                    // The target shape is an operand, but by this point it is also the
+                    // node's own inferred shape, which is the one the output buffer is
+                    // allocated from. Reading it here rather than the operand keeps the
+                    // copy and the allocation describing the same tensor.
+                    let out_shape = concrete_shape(&node.shape, "Expand", &what, "its own output")?;
+                    if out_shape.len() < in_shape.len() {
+                        return Err(anyhow::anyhow!(
+                            "Op::Expand {what}: cannot expand {in_shape:?} to the lower \
+                             rank {out_shape:?}"
+                        ));
+                    }
+                    // Broadcasting aligns trailing axes: each input axis must match its
+                    // output axis or be 1.
+                    let lead = out_shape.len() - in_shape.len();
+                    if let Some(d) = (0..in_shape.len())
+                        .find(|&d| in_shape[d] != 1 && in_shape[d] != out_shape[lead + d])
+                    {
+                        return Err(anyhow::anyhow!(
+                            "Op::Expand {what}: axis {d} of {in_shape:?} is {} , which \
+                             neither matches {} in {out_shape:?} nor is 1",
+                            in_shape[d],
+                            out_shape[lead + d]
+                        ));
+                    }
+                    strided_copy_executable(
+                        node,
+                        "Expand",
+                        CopyMapping::Expand {
+                            in_shape: &in_shape,
+                            out_shape: &out_shape,
+                        },
+                        &what,
+                    )?
                 }
                 Op::ShapeOf { .. } | Op::SizeOf => {
                     return Err(anyhow::anyhow!(
@@ -2554,7 +4630,14 @@ impl TritonLowering {
                 }
                 Op::Compress { .. } | Op::NonZero => {
                     return Err(anyhow::anyhow!(
-                        "TODO: Op::Compress/NonZero — variable-output ops require stream compaction"
+                        "TODO: Op::Compress/NonZero {}: how many elements these write is \
+                         decided by the data, and the compaction kernel is the easy half \
+                         — every buffer in the executable DAG is allocated from a static \
+                         shape before the graph runs, so there is nowhere to put a result \
+                         whose width is not known until it has run. Where the operand is \
+                         constant the folder evaluates the node instead, which is what \
+                         the exports seen so far need",
+                        node_label(graph, node_index)
                     ));
                 }
                 Op::Range => {
@@ -2562,30 +4645,275 @@ impl TritonLowering {
                         "TODO: Op::Range — implement as a fill/arange kernel"
                     ));
                 }
-                Op::Constant { .. } | Op::ConstantOfShape { .. } => {
+                // A constant consumed only as shape metadata never reaches here: it
+                // is elided above. One that flows data needs its bytes on the device.
+                Op::Constant { dtype, shape } => {
+                    let what = graph
+                        .names
+                        .get(&node_index)
+                        .map_or_else(|| format!("node {node_index}"), |n| format!("'{n}'"));
+                    let value = self.constants.get(&node_index).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Op::Constant {what} ({dtype:?}, shape {shape:?}) flows tensor \
+                             data, not shape metadata, so its values are needed, but none \
+                             were supplied; pass them via TritonLowering::with_constants"
+                        )
+                    })?;
+                    // `Op::Constant`'s own dtype and shape are the authoritative ones:
+                    // they come from the constant's value in the model, whereas a node's
+                    // dtype and shape can fall back to a guess when the model carries no
+                    // `value_info` for it.
+                    let concrete = shape
+                        .iter()
+                        .copied()
+                        .collect::<Option<Vec<usize>>>()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Constant {what} has a dynamic dimension in shape \
+                                 {shape:?}; a constant's shape must be static"
+                            )
+                        })?;
+                    constant_executable(*dtype, concrete, value.bytes.clone(), &what)?
+                }
+                // An operand the model did not supply. It occupies its position so
+                // the operands after it keep theirs, and carries no value, so reaching
+                // it here means an op read an operand it should have treated as
+                // absent. That is a lowering bug in that op, not something to paper
+                // over with a zero buffer.
+                Op::Omitted => {
                     return Err(anyhow::anyhow!(
-                        "TODO: Op::Constant — inline constant; should be materialised before lowering"
+                        "Op::Omitted {}: an omitted optional operand reached lowering; \
+                         the consuming op should skip it rather than read it",
+                        node_label(graph, node_index)
                     ));
+                }
+                Op::ConstantOfShape { dtype, fill } => {
+                    let what = node_label(graph, node_index);
+                    fill_executable(node, *dtype, fill, &what)?
                 }
                 Op::Trilu { .. } => {
                     return Err(anyhow::anyhow!(
                         "TODO: Op::Trilu — implement as a triangular mask kernel"
                     ));
                 }
-                Op::Pad { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Pad — implement as a generic N-D padding kernel"
-                    ));
+                Op::Pad { mode } => {
+                    let what = node_label(graph, node_index);
+                    if mode != "constant" {
+                        return Err(anyhow::anyhow!(
+                            "TODO: Op::Pad {what}: mode {mode:?}; only a constant pad \
+                             is implemented, and reflect, edge and wrap each need \
+                             their own coordinate mapping"
+                        ));
+                    }
+                    let in_shape = concrete_shape(
+                        &graph.nodes[*node
+                            .inputs
+                            .first()
+                            .ok_or_else(|| anyhow::anyhow!("Op::Pad {what}: no tensor to pad"))?]
+                        .shape,
+                        "Pad",
+                        "operand 0",
+                        &what,
+                    )?;
+                    let out_shape = concrete_shape(&node.shape, "Pad", "output", &what)?;
+                    let rank = in_shape.len();
+                    if out_shape.len() != rank {
+                        return Err(anyhow::anyhow!(
+                            "Op::Pad {what}: its output has rank {} but its operand has \
+                             rank {rank}",
+                            out_shape.len()
+                        ));
+                    }
+
+                    // pads is [lo.., hi..], over all axes or over the ones `axes` names.
+                    let pads = node
+                        .inputs
+                        .get(1)
+                        .and_then(|id| self.constants.get(id))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Pad {what}: its pads have no value; \
+                                 materialise them and pass them via \
+                                 TritonLowering::with_constants"
+                            )
+                        })?
+                        .to_i64_vec()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Pad {what}: its pads"),
+                            reason: e,
+                        })?;
+                    let axes: Vec<i64> = match node
+                        .inputs
+                        .get(3)
+                        .filter(|&&id| !matches!(graph.nodes[id].op, Op::Omitted))
+                    {
+                        Some(id) => self
+                            .constants
+                            .get(id)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::Pad {what}: it names its axes with an operand \
+                                         that has no value"
+                                )
+                            })?
+                            .to_i64_vec()
+                            .map_err(|e| Error::UnreadableConstant {
+                                context: format!("Op::Pad {what}: its axes operand"),
+                                reason: e,
+                            })?,
+                        None => (0..rank as i64).collect(),
+                    };
+                    if pads.len() != axes.len() * 2 {
+                        return Err(anyhow::anyhow!(
+                            "Op::Pad {what}: {} pads for {} axes; it takes a leading \
+                             and a trailing pad for each",
+                            pads.len(),
+                            axes.len()
+                        ));
+                    }
+
+                    // Only the named axes are padded; the rest keep a pad of zero.
+                    let mut lo = vec![0i64; rank];
+                    for (k, &ax) in axes.iter().enumerate() {
+                        let ax = if ax < 0 { ax + rank as i64 } else { ax };
+                        let ax =
+                            usize::try_from(ax)
+                                .ok()
+                                .filter(|&a| a < rank)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::Pad {what}: axis {} is outside a rank-{rank} \
+                                     tensor",
+                                        axes[k]
+                                    )
+                                })?;
+                        lo[ax] = pads[k];
+                        let hi = pads[axes.len() + k];
+                        let want = in_shape[ax] as i64 + pads[k] + hi;
+                        if want != out_shape[ax] as i64 {
+                            return Err(anyhow::anyhow!(
+                                "Op::Pad {what}: axis {ax} is {} padded by ({}, {hi}), \
+                                 which gives {want}, but the output has {}",
+                                in_shape[ax],
+                                pads[k],
+                                out_shape[ax]
+                            ));
+                        }
+                    }
+
+                    // The pad value is operand 2, a constant scalar. An omitted or
+                    // absent one means ONNX's default of zero.
+                    let value: Vec<u8> = match node
+                        .inputs
+                        .get(2)
+                        .filter(|&&id| !matches!(graph.nodes[id].op, Op::Omitted))
+                    {
+                        Some(id) => match self.constants.get(id) {
+                            Some(t) if !t.bytes.is_empty() => t.bytes.clone(),
+                            _ => {
+                                return Err(anyhow::anyhow!(
+                                    "Op::Pad {what}: its pad value is not a constant; \
+                                     the kernel reads it from a parameter slot, so it \
+                                     has to be known when the graph is lowered"
+                                ));
+                            }
+                        },
+                        None => Vec::new(),
+                    };
+
+                    macro_rules! build_pad {
+                        ($ty:ty) => {{
+                            let rop = PadNdRuntimeOp::<$ty>::new(
+                                1024, &out_shape, &in_shape, &lo, &value,
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::Pad {what}: {out_shape:?} padded from \
+                                     {in_shape:?} by {lo:?} with a {}-byte value does \
+                                     not describe a pad",
+                                    value.len()
+                                )
+                            })?;
+                            let kernel = rop.kernel();
+                            let name = kernel.name.to_string();
+                            let source = kernel.source.clone();
+                            let body = kernel.kernel_source.clone();
+                            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+                            (name, source, body, erased)
+                        }};
+                    }
+                    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+                        DtypeRepr::F32 => build_pad!(f32),
+                        DtypeRepr::F64 => build_pad!(f64),
+                        DtypeRepr::I32 => build_pad!(i32),
+                        DtypeRepr::I64 => build_pad!(i64),
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "Op::Pad {what}: {other:?} is not a supported dtype"
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{name}_entry_point"),
+                        name,
+                        kernel_source,
+                        kernel_body,
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op,
+                    })
                 }
                 Op::ReverseSequence { .. } => {
                     return Err(anyhow::anyhow!(
                         "TODO: Op::ReverseSequence — implement as a scatter-copy kernel"
                     ));
                 }
-                Op::Einsum { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Einsum — parse equation and emit a fused contraction kernel"
-                    ));
+                Op::Einsum { equation } => {
+                    let what = node_label(graph, node_index);
+                    let &[a, b] = node.inputs.as_slice() else {
+                        return Err(anyhow::anyhow!(
+                            "Op::Einsum {what}: expected two operands, got {}; only the \
+                             two-operand form is supported",
+                            node.inputs.len()
+                        ));
+                    };
+                    let a_shape = concrete_shape(
+                        &graph.nodes[a].shape,
+                        "Einsum",
+                        &what,
+                        "its left operand's",
+                    )?;
+                    let b_shape = concrete_shape(
+                        &graph.nodes[b].shape,
+                        "Einsum",
+                        &what,
+                        "its right operand's",
+                    )?;
+                    // The equation is planned by the same function shape inference
+                    // uses, so the extents the graph records and the strides the
+                    // contraction runs under come from one reading of it.
+                    let plan = einsum_plan(equation, &a_shape, &b_shape).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Op::Einsum {what}: cannot plan '{equation}' over \
+                                 {a_shape:?} and {b_shape:?}: {e}"
+                        )
+                    })?;
+                    if let Some(recorded) =
+                        node.shape.iter().copied().collect::<Option<Vec<usize>>>()
+                        && recorded != plan.out_shape
+                    {
+                        return Err(anyhow::anyhow!(
+                            "Op::Einsum {what}: '{equation}' gives {:?} but the node's \
+                             shape is {recorded:?}",
+                            plan.out_shape
+                        ));
+                    }
+                    einsum_executable(node, &plan, equation, &what)?
                 }
                 Op::Det => {
                     return Err(anyhow::anyhow!(
@@ -2600,10 +4928,115 @@ impl TritonLowering {
                         "TODO: Op::Q* quantised matmul/conv — implement quantised compute kernels"
                     ));
                 }
-                Op::ConvTranspose { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::ConvTranspose — implement transposed (gradient) convolution kernel"
-                    ));
+                Op::ConvTranspose {
+                    in_channels,
+                    out_channels,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                    groups,
+                    has_bias,
+                    ..
+                } => {
+                    let what = node_label(graph, node_index);
+                    if *groups != 1 {
+                        return Err(anyhow::anyhow!(
+                            "TODO: Op::ConvTranspose {what}: {groups} groups; the \
+                             kernel sums over every input channel, which is one group"
+                        ));
+                    }
+                    let x_shape = concrete_shape(
+                        &graph.nodes[*node.inputs.first().ok_or_else(|| {
+                            anyhow::anyhow!("Op::ConvTranspose {what}: no input")
+                        })?]
+                        .shape,
+                        "ConvTranspose",
+                        "input",
+                        &what,
+                    )?;
+                    let out_shape = concrete_shape(&node.shape, "ConvTranspose", "output", &what)?;
+                    if x_shape.len() != 4 || out_shape.len() != 4 {
+                        return Err(anyhow::anyhow!(
+                            "Op::ConvTranspose {what}: {x_shape:?} to {out_shape:?}; \
+                             this kernel is 2-D, over a rank-4 NCHW tensor"
+                        ));
+                    }
+                    if x_shape[1] != *in_channels || out_shape[1] != *out_channels {
+                        return Err(anyhow::anyhow!(
+                            "Op::ConvTranspose {what}: it says {in_channels} to \
+                             {out_channels} channels but the shapes are {} to {}",
+                            x_shape[1],
+                            out_shape[1]
+                        ));
+                    }
+                    let operands = node.inputs.len();
+                    if *has_bias && operands < 3 {
+                        return Err(anyhow::anyhow!(
+                            "Op::ConvTranspose {what}: it has a bias but only \
+                             {operands} operands"
+                        ));
+                    }
+
+                    macro_rules! build_convt {
+                        ($ty:ty) => {{
+                            let rop = ConvTranspose2dRuntimeOp::<$ty>::new(
+                                256,
+                                x_shape[0],
+                                *in_channels,
+                                *out_channels,
+                                x_shape[2],
+                                x_shape[3],
+                                out_shape[2],
+                                out_shape[3],
+                                *kernel_h,
+                                *kernel_w,
+                                *stride_h,
+                                *stride_w,
+                                *padding_h,
+                                *padding_w,
+                                *has_bias,
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::ConvTranspose {what}: a {kernel_h}x{kernel_w} \
+                                     kernel at stride {stride_h}x{stride_w} over \
+                                     {in_channels} channels leaves nothing to sum"
+                                )
+                            })?;
+                            let kernel = rop.kernel();
+                            let name = kernel.name.to_string();
+                            let source = kernel.source.clone();
+                            let body = kernel.kernel_source.clone();
+                            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+                            (name, source, body, erased)
+                        }};
+                    }
+                    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+                        DtypeRepr::F32 => build_convt!(f32),
+                        DtypeRepr::F64 => build_convt!(f64),
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "Op::ConvTranspose {what}: {other:?} is not a float dtype"
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{name}_entry_point"),
+                        name,
+                        kernel_source,
+                        kernel_body,
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op,
+                    })
                 }
                 Op::DeformConv { .. } => {
                     return Err(anyhow::anyhow!(
@@ -2615,15 +5048,298 @@ impl TritonLowering {
                         "TODO: Op::Col2Im — implement col2im (fold) kernel"
                     ));
                 }
-                Op::Resize { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Resize — implement nearest/bilinear/bicubic resize kernels"
-                    ));
+                Op::Resize {
+                    mode,
+                    coordinate_transformation_mode,
+                    nearest_mode,
+                    antialias,
+                } => {
+                    let what = node_label(graph, node_index);
+                    let in_shape = concrete_shape(
+                        &graph.nodes[*node.inputs.first().ok_or_else(|| {
+                            anyhow::anyhow!("Op::Resize {what}: no tensor to resize")
+                        })?]
+                        .shape,
+                        "Resize",
+                        "operand 0",
+                        &what,
+                    )?;
+                    let out_shape = concrete_shape(&node.shape, "Resize", "output", &what)?;
+                    let rank = in_shape.len();
+                    if out_shape.len() != rank {
+                        return Err(anyhow::anyhow!(
+                            "Op::Resize {what}: its output has rank {} but its operand \
+                             has rank {rank}",
+                            out_shape.len()
+                        ));
+                    }
+                    if *antialias {
+                        return Err(anyhow::anyhow!(
+                            "TODO: Op::Resize {what}: antialias; downsampling with a \
+                             filter needs a wider tap set than the plan builds"
+                        ));
+                    }
+
+                    let interpolation = match mode.as_str() {
+                        "nearest" => {
+                            let rounding = match nearest_mode.as_str() {
+                                "floor" => ResizeNearest::Floor,
+                                "ceil" => ResizeNearest::Ceil,
+                                "round_prefer_floor" => ResizeNearest::RoundPreferFloor,
+                                "round_prefer_ceil" => ResizeNearest::RoundPreferCeil,
+                                other => {
+                                    return Err(anyhow::anyhow!(
+                                        "Op::Resize {what}: nearest_mode {other:?} is \
+                                         not one ONNX defines"
+                                    ));
+                                }
+                            };
+                            ResizeMode::Nearest(rounding)
+                        }
+                        "linear" => ResizeMode::Linear,
+                        "cubic" => ResizeMode::Cubic,
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "TODO: Op::Resize {what}: mode {other:?}; nearest, \
+                                 linear and cubic are implemented"
+                            ));
+                        }
+                    };
+                    let coords = match coordinate_transformation_mode.as_str() {
+                        "half_pixel" | "pytorch_half_pixel" => ResizeCoords::HalfPixel,
+                        "align_corners" => ResizeCoords::AlignCorners,
+                        "asymmetric" => ResizeCoords::Asymmetric,
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "TODO: Op::Resize {what}: coordinate transformation \
+                                 {other:?}; half_pixel, align_corners and asymmetric \
+                                 are implemented"
+                            ));
+                        }
+                    };
+
+                    // Scales, when the resize was given them rather than sizes: ONNX
+                    // uses the scale itself for the coordinate transform, which is not
+                    // always the ratio of the extents.
+                    let scales: Option<Vec<f64>> = node
+                        .inputs
+                        .get(2)
+                        .filter(|&&id| !matches!(graph.nodes[id].op, Op::Omitted))
+                        .and_then(|id| self.constants.get(id))
+                        .map(|t| t.to_f64_vec())
+                        .transpose()
+                        .map_err(|e| Error::UnreadableConstant {
+                            context: format!("Op::Resize {what}: its scales"),
+                            reason: e,
+                        })?;
+
+                    // Only the trailing axes may be resized, and at most three of them.
+                    let first_resized = (0..rank)
+                        .find(|&ax| in_shape[ax] != out_shape[ax])
+                        .unwrap_or(rank);
+                    let resized = rank - first_resized;
+                    if resized > RESIZE_MAX_AXES {
+                        return Err(anyhow::anyhow!(
+                            "Op::Resize {what}: {in_shape:?} to {out_shape:?} changes \
+                             {resized} axes; this kernel resizes at most \
+                             {RESIZE_MAX_AXES}, and they have to be the trailing ones"
+                        ));
+                    }
+                    // A resize that changes nothing still has to copy, so keep one axis.
+                    let first_resized = first_resized.min(rank - 1);
+
+                    let mut strides = vec![1usize; rank];
+                    for ax in (0..rank.saturating_sub(1)).rev() {
+                        strides[ax] = strides[ax + 1] * in_shape[ax + 1];
+                    }
+
+                    let mut axes = Vec::new();
+                    for ax in first_resized..rank {
+                        let plan = resize_axis_plan(
+                            interpolation,
+                            coords,
+                            in_shape[ax],
+                            out_shape[ax],
+                            scales.as_ref().and_then(|s| s.get(ax).copied()),
+                        )
+                        .map_err(|e| anyhow::anyhow!("Op::Resize {what}: axis {ax}: {e}"))?;
+                        axes.push(ResizeAxis {
+                            out_ext: out_shape[ax],
+                            stride: strides[ax],
+                            taps: plan.taps,
+                            indices: plan.indices,
+                            weights: plan.weights,
+                        });
+                    }
+                    let in_block: usize = in_shape[first_resized..].iter().product();
+                    let n_out: usize = out_shape.iter().product();
+
+                    macro_rules! build_resize {
+                        ($ty:ty) => {{
+                            let rop = ResizeRuntimeOp::<$ty>::new(1024, &axes, in_block, n_out)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::Resize {what}: {} axes do not describe a \
+                                         resize this kernel can run",
+                                        axes.len()
+                                    )
+                                })?;
+                            let kernel = rop.kernel();
+                            let name = kernel.name.to_string();
+                            let source = kernel.source.clone();
+                            let body = kernel.kernel_source.clone();
+                            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+                            (name, source, body, erased)
+                        }};
+                    }
+                    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+                        DtypeRepr::F32 => build_resize!(f32),
+                        DtypeRepr::F64 => build_resize!(f64),
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "Op::Resize {what}: {other:?} is not a float dtype; the \
+                                 weights it interpolates with are floats"
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{name}_entry_point"),
+                        name,
+                        kernel_source,
+                        kernel_body,
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op,
+                    })
                 }
-                Op::GridSample { .. } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::GridSample — implement bilinear grid sample kernel"
-                    ));
+                Op::GridSample {
+                    mode,
+                    padding_mode,
+                    align_corners,
+                } => {
+                    let what = node_label(graph, node_index);
+                    if mode != "bilinear" && mode != "linear" {
+                        return Err(anyhow::anyhow!(
+                            "TODO: Op::GridSample {what}: mode {mode:?}; only bilinear \
+                             is implemented, and nearest and bicubic need their own \
+                             tap sets"
+                        ));
+                    }
+                    if padding_mode != "zeros" {
+                        return Err(anyhow::anyhow!(
+                            "TODO: Op::GridSample {what}: padding mode \
+                             {padding_mode:?}; only zeros is implemented, which is a \
+                             masked read, where border and reflection each need a \
+                             coordinate mapping"
+                        ));
+                    }
+                    if node.inputs.len() != 2 {
+                        return Err(anyhow::anyhow!(
+                            "Op::GridSample {what}: it has {} operands, not 2 (input, \
+                             grid)",
+                            node.inputs.len()
+                        ));
+                    }
+                    let x_shape = concrete_shape(
+                        &graph.nodes[node.inputs[0]].shape,
+                        "GridSample",
+                        "input",
+                        &what,
+                    )?;
+                    let grid_shape = concrete_shape(
+                        &graph.nodes[node.inputs[1]].shape,
+                        "GridSample",
+                        "grid",
+                        &what,
+                    )?;
+                    let out_shape = concrete_shape(&node.shape, "GridSample", "output", &what)?;
+                    if x_shape.len() != 4 || grid_shape.len() != 4 || out_shape.len() != 4 {
+                        return Err(anyhow::anyhow!(
+                            "Op::GridSample {what}: {x_shape:?} sampled by \
+                             {grid_shape:?} into {out_shape:?}; this kernel samples a \
+                             rank-4 NCHW tensor with a rank-4 grid"
+                        ));
+                    }
+                    // grid is [N, H_out, W_out, 2] and the output [N, C, H_out, W_out].
+                    let (n, c) = (x_shape[0], x_shape[1]);
+                    let (h_out, w_out) = (grid_shape[1], grid_shape[2]);
+                    if grid_shape[0] != n || grid_shape[3] != 2 {
+                        return Err(anyhow::anyhow!(
+                            "Op::GridSample {what}: its grid is {grid_shape:?}; it has \
+                             to be [{n}, H_out, W_out, 2]"
+                        ));
+                    }
+                    if out_shape != vec![n, c, h_out, w_out] {
+                        return Err(anyhow::anyhow!(
+                            "Op::GridSample {what}: its output is {out_shape:?} but the \
+                             input and grid call for {:?}",
+                            vec![n, c, h_out, w_out]
+                        ));
+                    }
+                    if graph.nodes[node.inputs[1]].dtype != node.dtype {
+                        return Err(anyhow::anyhow!(
+                            "Op::GridSample {what}: its grid is {:?} but the tensor is \
+                             {:?}; the kernel reads both as the same dtype",
+                            graph.nodes[node.inputs[1]].dtype,
+                            node.dtype
+                        ));
+                    }
+
+                    macro_rules! build_grid {
+                        ($ty:ty) => {{
+                            let rop = GridSampleRuntimeOp::<$ty>::new(
+                                1024,
+                                n,
+                                c,
+                                x_shape[2],
+                                x_shape[3],
+                                h_out,
+                                w_out,
+                                *align_corners,
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Op::GridSample {what}: {x_shape:?} has an axis \
+                                     with no extent to sample along"
+                                )
+                            })?;
+                            let kernel = rop.kernel();
+                            let name = kernel.name.to_string();
+                            let source = kernel.source.clone();
+                            let body = kernel.kernel_source.clone();
+                            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+                            (name, source, body, erased)
+                        }};
+                    }
+                    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+                        DtypeRepr::F32 => build_grid!(f32),
+                        DtypeRepr::F64 => build_grid!(f64),
+                        other => {
+                            return Err(anyhow::anyhow!(
+                                "Op::GridSample {what}: {other:?} is not a float dtype; \
+                                 the weights it samples with are floats"
+                            ));
+                        }
+                    };
+                    Box::new(KernelExecutable {
+                        entry_point: format!("{name}_entry_point"),
+                        name,
+                        kernel_source,
+                        kernel_body,
+                        pointwise_fuse_block_size: None,
+                        shape: node.shape.clone(),
+                        dtype: node.dtype,
+                        #[cfg(feature = "training")]
+                        backward_kernel_source: String::new(),
+                        #[cfg(feature = "training")]
+                        backward_entry_point: String::new(),
+                        runtime_op,
+                    })
                 }
                 Op::SpaceToDepth { .. } | Op::DepthToSpace { .. } => {
                     return Err(anyhow::anyhow!(
@@ -2674,9 +5390,13 @@ impl TritonLowering {
                     ));
                 }
                 Op::And | Op::Or | Op::Xor => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::And/Or/Xor — implement boolean logical kernels"
-                    ));
+                    let which = match node.op {
+                        Op::And => LogicalOp::And,
+                        Op::Or => LogicalOp::Or,
+                        _ => LogicalOp::Xor,
+                    };
+                    let what = node_label(graph, node_index);
+                    logical_executable(graph, node, which, &what)?
                 }
                 Op::BitShift { .. }
                 | Op::BitwiseAnd
@@ -2763,15 +5483,35 @@ impl TritonLowering {
                     ));
                 }
                 Op::Cast { to } => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Cast to {:?} — implement dtype-cast kernel",
-                        to
-                    ));
+                    // A cast to the dtype the operand already has moves bytes and
+                    // nothing else, so it is the same copy as Identity. Exporters emit
+                    // these in quantity: all 300 in the FoundationStereo export are
+                    // F32 to F32, and refusing them would have held up the whole graph
+                    // for a conversion none of them asks for.
+                    let from = node
+                        .inputs
+                        .first()
+                        .map(|&i| graph.nodes[i].dtype)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Op::Cast {}: no operand to cast",
+                                node_label(graph, node_index)
+                            )
+                        })?;
+                    if from != *to || node.dtype != *to {
+                        return Err(anyhow::anyhow!(
+                            "TODO: Op::Cast {} from {from:?} to {to:?} (node dtype \
+                             {:?}) — a converting cast needs a kernel; only a cast \
+                             that changes nothing lowers, as a copy",
+                            node_label(graph, node_index),
+                            node.dtype
+                        ));
+                    }
+                    make_num_kernel!(ElemwiseCopyForward(1024), node)
                 }
+                // Pass-through, as Op::Reshape above.
                 Op::Identity => {
-                    return Err(anyhow::anyhow!(
-                        "TODO: Op::Identity — implement zero-copy pass-through kernel"
-                    ));
+                    make_num_kernel!(ElemwiseCopyForward(1024), ElemwiseCopyBackward(1024), node)
                 }
                 Op::Dropout { .. } => {
                     return Err(anyhow::anyhow!(
@@ -2839,7 +5579,18 @@ impl TritonLowering {
             graph_to_dag[node_index] = dag_idx;
 
             for &input_graph_idx in &node.inputs {
-                dag.add_edge(graph_to_dag[input_graph_idx], dag_idx);
+                // An elided constant has no DAG node to draw an edge from. Its value
+                // reached this op through the lowering above, not through the DAG.
+                if elided[input_graph_idx] {
+                    continue;
+                }
+                // A reduction whose axes needed moving reads the transpose above
+                // instead of its own input.
+                let from = match reduce_input_override {
+                    Some((original, staging)) if original == input_graph_idx => staging,
+                    _ => graph_to_dag[input_graph_idx],
+                };
+                dag.add_edge(from, dag_idx);
             }
         }
 
@@ -2877,5 +5628,80 @@ impl<'a> Lowering<'a> for TritonLowering {
             }
         }
         extra
+    }
+}
+
+#[cfg(test)]
+mod pick_gemm_tile_sizes_tests {
+    use super::pick_gemm_tile_sizes;
+
+    #[test]
+    fn test_small_shape_gets_smallest_tiles() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 16), (64, 64, 8));
+    }
+
+    #[test]
+    fn test_large_m_and_n_get_the_largest_tile() {
+        // Largest safe tile: 256×128 would exceed the sm_120 opt-in shared-memory ceiling.
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 256, 256), (128, 128, 32));
+    }
+
+    #[test]
+    fn test_large_m_only_widens_block_m_not_block_n() {
+        assert_eq!(pick_gemm_tile_sizes(Some(512), 32, 64), (128, 64, 16));
+    }
+
+    #[test]
+    fn test_large_n_only_widens_block_n_not_block_m() {
+        assert_eq!(pick_gemm_tile_sizes(Some(32), 512, 64), (64, 128, 16));
+    }
+
+    /// Where the backend needs `matmul_forward` to read its last K tile back from
+    /// inside the operands, a tile wider than the contracted axis has nowhere to be
+    /// read from.
+    #[test]
+    #[cfg_attr(feature = "cuda", ignore = "a partial K tile loads on CUDA")]
+    fn test_block_k_never_exceeds_the_contracted_extent() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 4).2, 4);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 6).2, 4);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1).2, 1);
+    }
+
+    /// A contraction wide enough for the tile is left alone on every backend.
+    #[test]
+    fn test_block_k_is_untouched_when_the_contraction_is_wider() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 12).2, 8);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 1921).2, 32);
+    }
+
+    #[test]
+    fn test_unknown_dynamic_batch_treated_as_small() {
+        // m=None should behave the same as an explicit small m, not a large one.
+        assert_eq!(
+            pick_gemm_tile_sizes(None, 64, 16),
+            pick_gemm_tile_sizes(Some(64), 64, 16)
+        );
+    }
+
+    /// 8 is the narrowest tile worth giving the `dot`, but a tile wider than the
+    /// contracted axis has nowhere to be read back from, and `matmul_forward` needs
+    /// one whole K tile to exist. Correctness wins: a contraction of 1 gets a tile
+    /// of 1, and the few shapes that narrow are small ones anyway.
+    #[test]
+    fn test_block_k_stays_at_eight_unless_the_contraction_is_narrower() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
+        let narrow = pick_gemm_tile_sizes(Some(64), 64, 1).2;
+        if crate::math::gemm::PARTIAL_K_TILE_IS_PADDED {
+            assert_eq!(narrow, 8);
+        } else {
+            assert_eq!(narrow, 1);
+        }
+    }
+
+    #[test]
+    fn test_block_k_grows_with_k() {
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 8).2, 8);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 32).2, 16);
+        assert_eq!(pick_gemm_tile_sizes(Some(64), 64, 128).2, 32);
     }
 }

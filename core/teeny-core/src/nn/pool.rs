@@ -60,6 +60,14 @@ macro_rules! pool_layer_1d {
 
 macro_rules! pool_layer_2d {
     (#[doc = $doc:expr] $name:ident) => {
+        pool_layer_2d!(#[doc = $doc] $name {});
+    };
+    // Extra fields, each with the default `new` and `with_padding` give it.
+    (
+        #[doc = $doc:expr] $name:ident {
+            $( $(#[$fmeta:meta])* $field:ident : $fty:ty = $default:expr ),* $(,)?
+        }
+    ) => {
         #[doc = $doc]
         pub struct $name<D: Dtype, IT, OT, const RANK: usize> {
             /// Pooling window height.
@@ -74,6 +82,7 @@ macro_rules! pool_layer_2d {
             pub padding_h: usize,
             /// Horizontal padding applied before pooling.
             pub padding_w: usize,
+            $( $(#[$fmeta])* pub $field: $fty, )*
             _pd: PhantomData<(D, IT, OT)>,
         }
 
@@ -87,6 +96,7 @@ macro_rules! pool_layer_2d {
                     stride_w: stride.1,
                     padding_h: 0,
                     padding_w: 0,
+                    $( $field: $default, )*
                     _pd: PhantomData,
                 }
             }
@@ -104,6 +114,7 @@ macro_rules! pool_layer_2d {
                     stride_w: stride.1,
                     padding_h: padding.0,
                     padding_w: padding.1,
+                    $( $field: $default, )*
                     _pd: PhantomData,
                 }
             }
@@ -175,8 +186,26 @@ pool_layer_1d!(
 );
 pool_layer_2d!(
     #[doc = "2-D average pooling."]
-    AvgPool2d
+    AvgPool2d {
+        /// Whether padded positions count toward each window's denominator.
+        ///
+        /// True, PyTorch's default, divides every window by its full size, which
+        /// pulls outputs near the border toward zero. False divides by the real
+        /// elements the window covers, which is ONNX's default. The two agree
+        /// when there is no padding. Set with [`AvgPool2d::count_include_pad`].
+        count_include_pad: bool = true,
+    }
 );
+
+impl<D: Dtype, IT, OT, const RANK: usize> AvgPool2d<D, IT, OT, RANK> {
+    /// Sets whether padded positions count toward each window's denominator; see
+    /// the [`count_include_pad`](Self#structfield.count_include_pad) field.
+    #[must_use]
+    pub fn count_include_pad(mut self, count_include_pad: bool) -> Self {
+        self.count_include_pad = count_include_pad;
+        self
+    }
+}
 pool_layer_3d!(
     #[doc = "3-D average pooling."]
     AvgPool3d

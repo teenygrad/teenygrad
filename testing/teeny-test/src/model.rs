@@ -23,7 +23,7 @@
 //! [`teeny_core::device::Device::launch`], and there is no graph capture or optimisation -- since
 //! its purpose is cross-backend correctness rather than speed.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -162,6 +162,12 @@ fn resolve_shape(shape: &Shape, batch_size: usize) -> Vec<usize> {
     shape.iter().map(|d| d.unwrap_or(batch_size)).collect()
 }
 
+/// How many `f32` words `n_elems` elements of `dtype` occupy. Storage is always words,
+/// since kernels only ever see the raw pointer.
+fn buffer_words(n_elems: usize, dtype: DtypeRepr) -> usize {
+    (n_elems * dtype_bytes(dtype)).div_ceil(4).max(1)
+}
+
 /// Allocates a zero-filled buffer of `n_elems` elements of `dtype`. Storage is always `f32`
 /// words (rounded up), since kernels only ever see the raw pointer.
 fn zeroed_buffer<'a>(
@@ -173,6 +179,129 @@ fn zeroed_buffer<'a>(
     let mut buf = device.buffer::<f32>(words)?;
     buf.to_device(&vec![0.0f32; words])?;
     Ok(buf)
+}
+
+/// How much larger than the request a free buffer may be and still be reused.
+///
+/// Bounds what a node holds beyond its own size, since the spare words stay resident.
+/// Above this the pool allocates instead, trading a little more total allocation for a
+/// lower live peak. Measured over the FoundationStereo export at 480x640, 15651
+/// activation buffers:
+///
+/// ```text
+/// factor   allocated   live peak
+///      1    16.60 GiB    3.62 GiB   exact match: a buffer per distinct size, all held
+///      2     6.72 GiB    4.04 GiB
+///      3     6.01 GiB    4.16 GiB
+///      4     5.98 GiB    4.30 GiB
+///      8     6.15 GiB    4.87 GiB
+///   none     8.13 GiB    8.11 GiB   any buffer that fits, however much larger
+/// ```
+///
+/// `allocated` is what the device is holding by the end, since the pool never gives a
+/// buffer back, so that is the number a board has to have. Three is where it stops
+/// falling; four buys 0.03 GiB of it for 0.14 GiB of peak.
+const WASTE_FACTOR: usize = 3;
+
+/// Buffers that nothing needs any more, ready to be handed out again.
+///
+/// Keyed by each buffer's real capacity in words, and a request takes the smallest one
+/// that fits rather than one of exactly its size. That is safe because a node's buffer
+/// is only ever read and written through the node's own shape: `read_output_f32` and
+/// `read_output_bytes` size the host side from `output_shape`, and both `to_device` and
+/// `to_host` take a slice shorter than the buffer. The words past the node's own output
+/// are never touched, which is also why `acquire` zeroes only as many as the node asked
+/// for.
+#[derive(Default)]
+struct BufferPool<'a> {
+    /// Free buffers by their real capacity in words, smallest key first, so a request
+    /// can be served by the smallest buffer that already fits.
+    free: BTreeMap<usize, Vec<Buffer<'a, f32>>>,
+    /// How many buffers were handed out, and how many of those came from the pool.
+    acquired: usize,
+    reused: usize,
+    /// Words allocated rather than reused, and the most held at once.
+    allocated_words: usize,
+    live_words: usize,
+    peak_words: usize,
+}
+
+/// What a run cost in buffers.
+///
+/// `peak_words` is the most held at once and `allocated_words` the total asked of the
+/// device, which is the same number only when nothing could be reused. Both count a
+/// buffer's real capacity, which can exceed what the node asked for: a request is
+/// served by the smallest free buffer that fits, so the words a node does not use are
+/// still held.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BufferStats {
+    /// Buffers handed to a node's output.
+    pub acquired: usize,
+    /// How many of those came back from the pool rather than from the device.
+    pub reused: usize,
+    /// Words the device was asked for, across the run.
+    pub allocated_words: usize,
+    /// The most words held by activations at one time.
+    pub peak_words: usize,
+}
+
+impl<'a> BufferPool<'a> {
+    /// A zeroed buffer of at least `words` words, and its real capacity.
+    ///
+    /// Served by the smallest free buffer that fits, not only by one of exactly the
+    /// right size. Exact matching kept a buffer per distinct size for the whole run, so
+    /// what the pool held grew to the total ever allocated -- 16.60 GiB for the
+    /// FoundationStereo export at 480x640, against a live peak of 3.62 GiB, which is
+    /// out of memory on a 16 GiB card. Reads and writes are bounded by what the node
+    /// asked for, so the spare words at the end are never touched.
+    ///
+    /// Zeroed on every acquire, not just on allocation: a kernel that writes only part
+    /// of its output would otherwise read the last tensor that lived here, which is a
+    /// bug that would appear only once buffers start being shared. Only the words the
+    /// node will use are zeroed, for the same reason the rest is never read.
+    fn acquire(&mut self, device: &Device<'a>, words: usize) -> Result<(Buffer<'a, f32>, usize)> {
+        self.acquired += 1;
+        let words = words.max(1);
+        // The smallest free capacity that fits, but not one so much larger that holding
+        // it costs more than a fresh allocation: the words a node does not use are
+        // still resident, so an unbounded best fit traded the total allocated for a
+        // higher live peak. Up to WASTE_FACTOR times the request, else allocate.
+        let fit = self
+            .free
+            .range(words..=words.saturating_mul(WASTE_FACTOR))
+            .find(|(_, bufs)| !bufs.is_empty())
+            .map(|(&capacity, _)| capacity);
+        if let Some(capacity) = fit
+            && let Some(mut buf) = self.free.get_mut(&capacity).and_then(|v| v.pop())
+        {
+            self.reused += 1;
+            self.live_words += capacity;
+            self.peak_words = self.peak_words.max(self.live_words);
+            buf.to_device(&vec![0.0f32; words])?;
+            return Ok((buf, capacity));
+        }
+        self.allocated_words += words;
+        self.live_words += words;
+        self.peak_words = self.peak_words.max(self.live_words);
+        let mut buf = device.buffer::<f32>(words)?;
+        buf.to_device(&vec![0.0f32; words])?;
+        Ok((buf, words))
+    }
+
+    /// Takes a buffer back, filed under the capacity `acquire` reported for it.
+    fn release(&mut self, capacity: usize, buf: Buffer<'a, f32>) {
+        self.live_words = self.live_words.saturating_sub(capacity);
+        self.free.entry(capacity).or_default().push(buf);
+    }
+
+    fn stats(&self) -> BufferStats {
+        BufferStats {
+            acquired: self.acquired,
+            reused: self.reused,
+            allocated_words: self.allocated_words,
+            peak_words: self.peak_words,
+        }
+    }
 }
 
 fn ptr(buf: &Buffer<'_, f32>) -> RawPtr {
@@ -192,7 +321,25 @@ struct Node<'a> {
     /// `None` for `Input` placeholder nodes.
     op: Option<NodeOp<'a>>,
     output_shape: Vec<usize>,
-    output: Buffer<'a, f32>,
+    /// The output buffer, held only while something still needs it.
+    ///
+    /// An input's is allocated once and kept, since a feed is written before the run
+    /// and read whenever its consumers come up. An op's is taken from the pool just
+    /// before it runs and given back once the last node that reads it has run, which is
+    /// what keeps a long graph's footprint to what is live rather than to its whole
+    /// sum: for the FoundationStereo export at 480x640 that is the difference between
+    /// 42 GiB and 274 GiB.
+    output: Option<Buffer<'a, f32>>,
+    /// Words the node's output needs, which is what it asks the pool for.
+    words: usize,
+    /// The real capacity of the buffer in `output`, which can exceed `words` when the
+    /// pool served the request from a larger free buffer. Release files it under this,
+    /// so the spare capacity stays findable.
+    capacity: usize,
+    /// The last step of the run that reads this node, if any reads it at all.
+    last_reader: Option<usize>,
+    /// What the buffer's bytes mean, for reading it back at the right width.
+    dtype: DtypeRepr,
 }
 
 struct NodeOp<'a> {
@@ -211,6 +358,8 @@ pub struct RuntimeModel<'a> {
     topo: Vec<usize>,
     names: HashMap<usize, String>,
     trace: bool,
+    /// What the last run cost in activation buffers.
+    buffers: BufferStats,
 }
 
 impl<'a> RuntimeModel<'a> {
@@ -250,12 +399,21 @@ impl<'a> RuntimeModel<'a> {
             let dtype = op.output_dtype();
 
             let Some(runtime_op) = op.runtime_op().filter(|_| !op.is_input()) else {
-                let output = zeroed_buffer(device, raw_output_shape.iter().product(), dtype)?;
+                let n_elems: usize = raw_output_shape.iter().product();
+                let words = buffer_words(n_elems, dtype);
+                // An input holds its buffer for the whole run: the feed is written
+                // before the first launch and read whenever its consumers come up.
+                let output = zeroed_buffer(device, n_elems, dtype)?;
                 shapes[idx] = raw_output_shape.clone();
                 nodes[idx] = Some(Node {
                     op: None,
                     output_shape: raw_output_shape,
-                    output,
+                    output: Some(output),
+                    words,
+                    // An input's buffer is its own, never from the pool.
+                    capacity: words,
+                    last_reader: None,
+                    dtype,
                 });
                 continue;
             };
@@ -303,7 +461,7 @@ impl<'a> RuntimeModel<'a> {
             }
 
             let n_elems: usize = output_shape.iter().product();
-            let output = zeroed_buffer(device, n_elems, dtype)?;
+            let words = buffer_words(n_elems, dtype);
 
             let natural_stride = runtime_op.forward_output_row_elems(&output_shape);
             let required_stride = runtime_op.forward_output_row_stride(&output_shape);
@@ -329,20 +487,97 @@ impl<'a> RuntimeModel<'a> {
                     padded,
                 }),
                 output_shape,
-                output,
+                output: None,
+                words,
+                // Set when the pool hands this node a buffer.
+                capacity: 0,
+                last_reader: None,
+                dtype,
             });
         }
 
+        // When each node is read for the last time, so a buffer can go back in the pool
+        // as soon as nothing needs it. A node nobody reads keeps its buffer, which is
+        // what makes a terminal output readable after the run.
+        let mut nodes: Vec<Node<'a>> = nodes
+            .into_iter()
+            .map(|n| n.expect("every node visited"))
+            .collect();
+        for (step, &idx) in topo.iter().enumerate() {
+            for &parent in &parents[idx] {
+                nodes[parent].last_reader = Some(step);
+            }
+        }
+
         Ok(Self {
-            nodes: nodes
-                .into_iter()
-                .map(|n| n.expect("every node visited"))
-                .collect(),
+            nodes,
             parents,
             topo,
             names,
             trace: false,
+            buffers: BufferStats::default(),
         })
+    }
+
+    /// What the last run cost in activation buffers.
+    ///
+    /// Zero before the first run. The weights and the model's own inputs are not
+    /// counted: they are allocated once and held, where an activation's buffer is
+    /// returned to the pool as soon as nothing reads it again.
+    pub fn buffer_stats(&self) -> BufferStats {
+        self.buffers
+    }
+
+    /// What a run would cost in activation buffers, without running or allocating.
+    ///
+    /// Walks the same order `run` does and makes the same pool decisions, counting
+    /// words instead of asking the device for them. That makes it an exact answer to
+    /// "would this model's activations fit", which is otherwise only learnable by
+    /// trying: the peak depends on the pool matching sizes exactly, not just on the
+    /// graph's liveness.
+    pub fn planned_buffer_stats(&self, outputs: &[usize]) -> BufferStats {
+        let pinned: BTreeSet<usize> = outputs.iter().copied().collect();
+        // Free capacities and how many of each, mirroring the pool's best fit.
+        let mut free: BTreeMap<usize, usize> = BTreeMap::new();
+        let mut held: Vec<Option<usize>> = vec![None; self.nodes.len()];
+        let mut stats = BufferStats::default();
+        let mut live_words = 0usize;
+
+        for (step, &idx) in self.topo.iter().enumerate() {
+            if self.nodes[idx].op.is_some() {
+                let words = self.nodes[idx].words.max(1);
+                stats.acquired += 1;
+                let fit = free
+                    .range(words..=words.saturating_mul(WASTE_FACTOR))
+                    .find(|(_, n)| **n > 0)
+                    .map(|(&capacity, _)| capacity);
+                let capacity = match fit {
+                    Some(capacity) => {
+                        *free.get_mut(&capacity).expect("just found") -= 1;
+                        stats.reused += 1;
+                        capacity
+                    }
+                    None => {
+                        stats.allocated_words += words;
+                        words
+                    }
+                };
+                live_words += capacity;
+                stats.peak_words = stats.peak_words.max(live_words);
+                held[idx] = Some(capacity);
+            }
+            for &parent in &self.parents[idx] {
+                if self.nodes[parent].op.is_some()
+                    && self.nodes[parent].last_reader == Some(step)
+                    && !pinned.contains(&parent)
+                    && let Some(capacity) = held[parent].take()
+                {
+                    live_words = live_words.saturating_sub(capacity);
+                    *free.entry(capacity).or_insert(0) += 1;
+                }
+            }
+        }
+        stats
     }
 
     /// Prints each node's launch time to stderr as it runs -- useful under `qemu-riscv64`,
@@ -435,11 +670,44 @@ impl<'a> RuntimeModel<'a> {
         terminals
     }
 
+    /// Node `idx`'s buffer, or an error saying it has been reused.
+    ///
+    /// A buffer goes back in the pool once the last node that reads it has run, so an
+    /// intermediate is readable only while something still needs it. Anything asked for
+    /// through `run`'s `outputs` is kept, which is what makes a terminal readable
+    /// afterwards.
+    fn buffer(&self, idx: usize) -> Result<&Buffer<'a, f32>> {
+        self.nodes[idx].output.as_ref().ok_or_else(|| {
+            anyhow!(
+                "node {idx} ({}) holds no buffer: it was either released once nothing \
+                 read it again or never run. Ask for it in `run`'s outputs to keep it",
+                self.node_name(idx).unwrap_or("unnamed")
+            )
+        })
+    }
+
     /// Copies node `idx`'s most recent output back to the host (assumes an `f32` output).
     pub fn read_output_f32(&self, idx: usize) -> Result<Vec<f32>> {
         let node = &self.nodes[idx];
         let mut out = vec![0.0f32; node.output_shape.iter().product()];
-        node.output.to_host(&mut out)?;
+        self.buffer(idx)?.to_host(&mut out)?;
+        Ok(out)
+    }
+
+    /// Reads a node's output as raw bytes.
+    ///
+    /// This is how to read a tensor that is not four bytes wide. Buffers are allocated
+    /// in `f32` words whatever the dtype, so [`Self::read_output_f32`] lines up with
+    /// the elements only when they happen to be that wide: for a bool output, one byte
+    /// per element, it would ask for four times the buffer's size and fail.
+    pub fn read_output_bytes(&self, idx: usize) -> Result<Vec<u8>> {
+        let node = &self.nodes[idx];
+        let n: usize = node.output_shape.iter().product();
+        let bytes = n * dtype_bytes(node.dtype);
+        let mut words = vec![0.0f32; bytes.div_ceil(4).max(1)];
+        self.buffer(idx)?.to_host(&mut words)?;
+        let mut out: Vec<u8> = words.iter().flat_map(|w| w.to_ne_bytes()).collect();
+        out.truncate(bytes);
         Ok(out)
     }
 
@@ -457,20 +725,39 @@ impl<'a> RuntimeModel<'a> {
                 let data = inputs
                     .get(input_cursor)
                     .ok_or_else(|| anyhow!("too few inputs: needed >{input_cursor}"))?;
-                self.nodes[idx].output.to_device(data)?;
+                let buffer = self.nodes[idx]
+                    .output
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("input node {idx} holds no buffer"))?;
+                buffer.to_device(data)?;
                 input_cursor += 1;
             }
         }
+
+        // Anything the caller asks for is kept, whatever reads it; everything else goes
+        // back in the pool once the last node that reads it has run.
+        let pinned: BTreeSet<usize> = outputs.iter().copied().collect();
+        let mut pool = BufferPool::default();
 
         let total = self.topo.len();
         for step in 0..total {
             let idx = self.topo[step];
             let started = Instant::now();
+            if self.nodes[idx].op.is_some() {
+                let words = self.nodes[idx].words;
+                let (buffer, capacity) = pool.acquire(device, words)?;
+                self.nodes[idx].output = Some(buffer);
+                self.nodes[idx].capacity = capacity;
+            }
             let Some(tight) = self.launch_node(device, idx)? else {
                 continue;
             };
             if let Some(tight) = tight {
-                self.nodes[idx].output.to_device(&tight)?;
+                let buffer = self.nodes[idx]
+                    .output
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("node {idx} holds no buffer to unpad into"))?;
+                buffer.to_device(&tight)?;
             }
             if self.trace {
                 eprintln!(
@@ -481,6 +768,31 @@ impl<'a> RuntimeModel<'a> {
                     started.elapsed()
                 );
             }
+
+            // Release what this step was the last reader of. An input keeps its buffer:
+            // a second run would have nowhere to put the same feed.
+            for p in self.parents[idx].clone() {
+                let node = &mut self.nodes[p];
+                if node.op.is_some()
+                    && node.last_reader == Some(step)
+                    && !pinned.contains(&p)
+                    && let Some(buffer) = node.output.take()
+                {
+                    let capacity = node.capacity;
+                    pool.release(capacity, buffer);
+                }
+            }
+        }
+
+        self.buffers = pool.stats();
+        if self.trace {
+            eprintln!(
+                "buffers: {} handed out, {} reused, {:.2} MiB allocated, {:.2} MiB peak",
+                self.buffers.acquired,
+                self.buffers.reused,
+                (self.buffers.allocated_words * 4) as f64 / (1 << 20) as f64,
+                (self.buffers.peak_words * 4) as f64 / (1 << 20) as f64,
+            );
         }
 
         outputs
@@ -502,7 +814,10 @@ impl<'a> RuntimeModel<'a> {
             .iter()
             .map(|&p| {
                 (
-                    ptr(&self.nodes[p].output),
+                    self.nodes[p]
+                        .output
+                        .as_ref()
+                        .map_or(core::ptr::null_mut(), ptr),
                     self.nodes[p].output_shape.as_slice(),
                 )
             })
@@ -511,10 +826,15 @@ impl<'a> RuntimeModel<'a> {
         let param_ptrs: Vec<RawPtr> = op.params.iter().map(ptr).collect();
         let (out_ptr, row_stride) = match &op.padded {
             Some(p) => (ptr(&p.buf), p.required_stride),
-            None => (
-                ptr(&node.output),
-                op.runtime_op.forward_output_row_stride(&node.output_shape),
-            ),
+            None => {
+                let buffer = node.output.as_ref().ok_or_else(|| {
+                    anyhow!("node {idx} holds no buffer to write its output into")
+                })?;
+                (
+                    ptr(buffer),
+                    op.runtime_op.forward_output_row_stride(&node.output_shape),
+                )
+            }
         };
 
         let n_launches = op.runtime_op.n_launches();
@@ -543,6 +863,21 @@ impl<'a> RuntimeModel<'a> {
                 op.runtime_op
                     .grid_for_launch(launch_idx, &input_shapes, &node.output_shape)
             };
+            // A node with an empty extent asks for a grid with no blocks, which CUDA
+            // refuses with "invalid argument" rather than doing nothing. An ONNX export
+            // can legitimately contain one: FoundationStereo's crop-then-pad chains
+            // slice an axis to zero length, pad it back and add the result, so the
+            // kernel has nothing to do and its zeroed output is the right answer.
+            if grid.contains(&0) {
+                if self.trace {
+                    eprintln!(
+                        "skipped node {idx} ({}): empty grid {grid:?} for shape {:?}",
+                        self.node_name(idx).unwrap_or("unnamed"),
+                        node.output_shape
+                    );
+                }
+                continue;
+            }
             let cfg = teeny_runtime::launch_config_grid(grid, &op.program);
             device.launch(&op.program, &cfg, args).with_context(|| {
                 format!(
