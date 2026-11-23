@@ -34,8 +34,10 @@
 //! makes this the simpler of the two decoders, though at one byte per weight the
 //! layers are twice the size of an NVFP4 one.
 //!
-//! The byte encoding and the framework change that would tighten it are described in
-//! [`super::nvfp4`].
+//! **Packed, four bytes to an f32 element**, as in
+//! [`super::expert_gather_nvfp4`]: the weight bytes and the E8M0 scales both travel
+//! inside f32 elements and are masked back out after a bitcast. One byte per weight
+//! here, so these layers are twice the size of an NVFP4 one even packed.
 
 use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
 use teeny_macros::kernel;
@@ -55,6 +57,8 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
     TOP_K: i32,
     IDS_STRIDE: i32,
     IDS_OFFSET: i32,
+    BWORDS: i32,
+    SWORDS: i32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
@@ -62,6 +66,7 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::I32Tensor: core::ops::Add<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Sub<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
@@ -108,23 +113,37 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             false,
         );
-        // One byte per weight, and one E8M0 scale per 32 of them.
-        let brow = expert * (N * K) + (n * K);
-        let srow = expert * (N * (K / 32)) + (n * (K / 32));
-        let b = T::cast::<D, i32>(
+        // One byte per weight and one E8M0 scale per 32, packed four to an element.
+        let brow = expert * (N * BWORDS) + (n * BWORDS);
+        let srow = expert * (N * SWORDS) + (n * SWORDS);
+
+        let wword = T::cast::<D, i32>(
             T::load(
-                b_ptr.add_offsets(k + brow),
+                b_ptr.add_offsets(k / 4 + brow),
                 Some(km),
                 Some(zeros),
                 &[],
                 None,
                 None,
                 None,
-                false,
+                true,
             ),
             None,
-            false,
+            true,
         );
+        let bsel = k - ((k / 4) * 4);
+        let b = {
+            let b0 = wword & 0xFF;
+            let b1 = (wword & 0xFF00) / 256;
+            let b2 = (wword & 0x00FF_0000) / 65536;
+            let low7 = (wword & 0x7F00_0000) / 16_777_216;
+            let b3 = T::where_(wword.lt(0), low7 + 128, low7 + 0);
+            T::where_(
+                bsel.eq(0),
+                b0,
+                T::where_(bsel.eq(1), b1, T::where_(bsel.eq(2), b2, b3)),
+            )
+        };
         // E4M3: s:1 e:4 m:3.
         let sgn = b / 128;
         let rest = b - sgn * 128;
@@ -139,20 +158,33 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
         let val = T::where_(sgn.eq(1), zeros - mag, mag);
 
         // E8M0 is exponent-only: the byte is a biased power of two.
-        let sb = T::cast::<D, i32>(
+        let sword = T::cast::<D, i32>(
             T::load(
-                s_ptr.add_offsets(k / 32 + srow),
+                s_ptr.add_offsets(k / 128 + srow),
                 Some(km),
                 Some(zeros),
                 &[],
                 None,
                 None,
                 None,
-                false,
+                true,
             ),
             None,
-            false,
+            true,
         );
+        let ssel = (k / 32) - ((k / 128) * 4);
+        let sb = {
+            let s0 = sword & 0xFF;
+            let s1 = (sword & 0xFF00) / 256;
+            let s2 = (sword & 0x00FF_0000) / 65536;
+            let slow7 = (sword & 0x7F00_0000) / 16_777_216;
+            let s3 = T::where_(sword.lt(0), slow7 + 128, slow7 + 0);
+            T::where_(
+                ssel.eq(0),
+                s0,
+                T::where_(ssel.eq(1), s1, T::where_(ssel.eq(2), s2, s3)),
+            )
+        };
         let sval = T::exp2(T::cast::<i32, D>(sb, None, false) - bias);
 
         acc = acc + x * (val * sval);
@@ -261,8 +293,8 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherMxfp8Runti
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         vec![
-            vec![self.experts, self.n, self.k],
-            vec![self.experts, self.n, self.k / 32],
+            vec![self.experts, self.n, self.k.div_ceil(4)],
+            vec![self.experts, self.n, (self.k / 32).div_ceil(4)],
         ]
     }
 
@@ -297,6 +329,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherMxfp8Runti
         visitor.visit_i32(ids_stride as i32);
         // The ids sit after the weights in the router's packed row.
         visitor.visit_i32((ids_stride - self.top_k) as i32);
+        // Words per row, four bytes each. div_ceil, because a row shorter than
+        // one word still needs one.
+        visitor.visit_i32(self.k.div_ceil(4) as i32);
+        visitor.visit_i32((self.k / 32).div_ceil(4) as i32);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

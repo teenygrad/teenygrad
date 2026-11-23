@@ -45,6 +45,45 @@ pub struct Checkpoint {
     shards: HashMap<String, Mmap>,
 }
 
+/// Packs bytes four to an f32 element, which is how the quantised kernels read them.
+///
+/// Parameter buffers take the graph's dtype, so packed weights travel inside f32
+/// elements and the kernel bitcasts one back to an i32 to mask a byte out of it. The
+/// bytes are laid out little-endian, so byte `i` of the input is byte `i % 4` of word
+/// `i / 4`, which is what [`super::kernels::expert_gather_nvfp4`] indexes.
+///
+/// A trailing partial word is zero-filled. That is safe because the kernel masks
+/// lanes past `K`, so those bytes are never read.
+pub fn pack_bytes(bytes: &[f32]) -> Vec<f32> {
+    bytes
+        .chunks(4)
+        .map(|c| {
+            let mut w = [0u8; 4];
+            for (i, v) in c.iter().enumerate() {
+                w[i] = *v as u8;
+            }
+            f32::from_le_bytes(w)
+        })
+        .collect()
+}
+
+/// Packs each row of `row_len` bytes into its own whole words, four bytes each.
+///
+/// Rows are padded rather than run together: the kernels address a row as
+/// `row * words_per_row`, so a row whose byte count is not a multiple of four must
+/// still start on a word boundary. With Inkling-2-Mini's widths nothing actually
+/// pads (a 2304-wide row gives 288 weight words and 36 scale words exactly), but a
+/// narrow row would, and the tests use narrow rows.
+pub fn pack_rows(bytes: &[f32], row_len: usize) -> Vec<f32> {
+    assert!(row_len > 0, "pack_rows: row_len must be positive");
+    assert!(
+        bytes.len().is_multiple_of(row_len),
+        "pack_rows: {} bytes is not a whole number of {row_len}-byte rows",
+        bytes.len()
+    );
+    bytes.chunks(row_len).flat_map(pack_bytes).collect()
+}
+
 /// How a tensor's bytes reach the device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Encoding {
