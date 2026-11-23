@@ -20,6 +20,10 @@
 //! [`GenerationRequest`] and drive an [`Engine`]. Nothing in this crate knows about HTTP or the
 //! terminal.
 //!
+//! Model implementations live in `models`, each behind a cargo feature named after it
+//! (`functiongemma`), with the kernels they share in `kernels`. Pick the backend with
+//! `cuda`, `riscv` or `qemu`; the defaults are `functiongemma` and `cuda`.
+//!
 //! [`teeny-llm-server`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_server/
 //! [`teeny-llm-chat`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_chat/
 
@@ -27,6 +31,11 @@ mod echo;
 mod engine;
 mod error;
 mod types;
+
+#[cfg(feature = "kernels")]
+pub mod kernels;
+#[cfg(feature = "functiongemma")]
+pub mod models;
 
 pub use echo::EchoEngine;
 pub use engine::{Engine, TokenStream};
