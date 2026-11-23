@@ -11,6 +11,10 @@
 //!
 //! ONNX_CORPUS points at the corpus directory; ONNX_CORPUS_ONLY optionally restricts it
 //! to a comma-separated list of model names.
+//!
+//! Both tests compile and run models on a device, so they need `hardware`.
+
+#![cfg(feature = "hardware")]
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
