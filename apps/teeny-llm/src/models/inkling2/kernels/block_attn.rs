@@ -49,7 +49,7 @@ pub fn block_attn_forward<T: Triton, D: Float, const BLOCK: i32>(
     y_ptr: OutPtr<T::Pointer<D>>,
     S: i32,
     H: i32,
-    Q: i32,
+    QI: i32,
     scale: f32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
@@ -59,9 +59,10 @@ pub fn block_attn_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let pid = T::program_id(Axis::X);
-    let token = pid / Q;
-    let qi = pid - token * Q;
+    // One program per token: QI picks which of the Q learned queries this op uses,
+    // so a layer that needs several records the op several times.
+    let token = T::program_id(Axis::X);
+    let qi = QI;
 
     let d = T::arange(0, BLOCK);
     let dm = d.lt(H);
@@ -101,7 +102,7 @@ pub fn block_attn_forward<T: Triton, D: Float, const BLOCK: i32>(
         m_run = m_new;
     }
     T::store(
-        y_ptr.add_offsets(d + pid * H),
+        y_ptr.add_offsets(d + token * H),
         acc / (l_run + zeros),
         Some(dm),
         &[],
@@ -129,23 +130,28 @@ pub struct BlockAttnOp<D: FloatBytes + Send + Sync + 'static> {
     pub states: usize,
     /// Model width.
     pub hidden: usize,
-    /// Learned queries.
+    /// Learned queries the parameter holds.
     pub queries: usize,
+    /// Which of them this op uses.
+    pub query_index: usize,
     block: i32,
     _phantom: PhantomData<D>,
 }
 
 impl<D: FloatBytes + Send + Sync + 'static> BlockAttnOp<D> {
-    /// Attention from `queries` learned queries over `states` states of `hidden` lanes.
-    pub fn new(states: usize, hidden: usize, queries: usize) -> Self {
+    /// Attention over `states` states of `hidden` lanes, using query `query_index`
+    /// of the `queries` the parameter holds.
+    pub fn new(states: usize, hidden: usize, queries: usize, query_index: usize) -> Self {
+        assert!(states > 0, "block attn: states must be positive");
         assert!(
-            states > 0 && queries > 0,
-            "block attn: states and queries must be positive"
+            query_index < queries,
+            "block attn: query {query_index} is outside the {queries} the parameter holds"
         );
         Self {
             states,
             hidden,
             queries,
+            query_index,
             block: hidden.next_power_of_two() as i32,
             _phantom: PhantomData,
         }
@@ -158,7 +164,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for BlockAttnOp<D> {
     }
     fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
         vec![
-            input_shapes[0][0].map(|rows| rows / self.states * self.queries),
+            input_shapes[0][0].map(|rows| rows / self.states),
             Some(self.hidden),
         ]
     }
@@ -175,6 +181,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for BlockAttnOp<D> {
                 states: self.states,
                 hidden: self.hidden,
                 queries: self.queries,
+                query_index: self.query_index,
                 _phantom: PhantomData,
             }),
         ))
@@ -186,6 +193,7 @@ pub struct BlockAttnRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     states: usize,
     hidden: usize,
     queries: usize,
+    query_index: usize,
     _phantom: PhantomData<D>,
 }
 
@@ -204,21 +212,21 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for BlockAttnRuntimeOp<D> 
         inputs: &[(RawPtr, &[usize])],
         params: &[RawPtr],
         output: RawPtr,
-        output_shape: &[usize],
+        _output_shape: &[usize],
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
         assert_eq!(inputs[0].1[1], self.hidden, "block attn: state width");
+
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
         visitor.visit_i32(self.states as i32);
         visitor.visit_i32(self.hidden as i32);
-        visitor.visit_i32(self.queries as i32);
+        visitor.visit_i32(self.query_index as i32);
         // The reference scales by hidden ** -0.5, the full model width, not by a
         // per-head dimension: this attention has one head as wide as the model.
         visitor.visit_f32((self.hidden as f32).powf(-0.5));
-        let _ = output_shape;
     }
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [output_shape[0] as u32, 1, 1]

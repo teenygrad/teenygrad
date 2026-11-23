@@ -28,8 +28,9 @@ use teeny_core::graph::{DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::config::Inkling2TextConfig;
+use teeny_llm_core::models::inkling2::kernels::attention::PastLen;
 use teeny_llm_core::models::inkling2::model::{
-    build_controller, build_moe, build_router, slot_ids,
+    LayerInputs, build_controller, build_layer, build_moe, build_router, slot_ids,
 };
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -82,6 +83,28 @@ impl GraphRun {
             dtype: DtypeRepr::F32,
             shape,
         }
+    }
+
+    /// The graph's parameter slot names, which also proves it lowers and compiles.
+    fn slot_names(&self) -> Vec<String> {
+        let graph: &Graph = &self.graph.borrow();
+        let lowering = TritonLowering::new();
+        lowering
+            .lower_with_mapping(graph, LoweringMode::Inference)
+            .expect("lowering the graph");
+        let device = runtime::open().expect("opening the device");
+        let target = runtime::default_target(&device).expect("the device's target");
+        let model = RuntimeModel::compile(
+            &device,
+            graph,
+            &lowering,
+            LoweringMode::Inference,
+            &target,
+            self.first.shape[0].unwrap_or(1),
+            false,
+        )
+        .expect("compiling the graph through teenyc");
+        model.param_info_named().map(|(n, _, _)| n).collect()
     }
 
     fn run(&self, out: &SymTensor, feeds: &[&[f32]], params: &[(&str, &[f32])]) -> Vec<f32> {
@@ -263,4 +286,87 @@ fn test_controller_slot_names() {
         ],
     );
     assert_eq!(got.len(), t * cfg.hidden_size);
+}
+
+/// Builds a whole decoder layer, lowers it, and runs it.
+///
+/// This does not check the numbers against a host reference of the full layer, which
+/// would be a second implementation of everything the per-kernel tests already pin.
+/// What it does check is that the layer is **connected**: every op reachable, every
+/// weight slot accounted for, and a finite result out the other end. An earlier draft
+/// passed its convolutions a host tensor instead of the attention output, which left
+/// attention dangling in the graph; that would fail here on the slot list.
+#[test]
+fn test_decoder_layer_builds_and_runs() {
+    let mut cfg = test_config();
+    cfg.n_layers_per_attn_res_block = 6;
+    cfg.sliding_window_size = 8;
+    cfg.local_layer_ids = vec![1];
+    let (t, hid, k) = (2usize, cfg.hidden_size, cfg.num_experts_per_tok);
+    let (states, past, cache) = (2usize, 3usize, 8usize);
+    let kv_len = past + t;
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+
+    let g = GraphRun::new(&[t, hid]);
+    let block_states = g.input(&[t * states, hid]);
+    let k_hist = g.input(&[kw, nkv * hd]);
+    let v_hist = g.input(&[kw, nkv * hd]);
+    let attn_hist = g.input(&[kw, hid]);
+    let mlp_hist = g.input(&[kw, hid]);
+    let k_cache = g.input(&[cache, nkv * hd]);
+    let v_cache = g.input(&[cache, nkv * hd]);
+    let routed = g.input(&[t, 2 * k]);
+    let ids = g.input(&[t * k, 2]);
+
+    let past_len = PastLen::default();
+    past_len.set(past);
+    let inputs = LayerInputs {
+        x: &g.first,
+        block_states: &block_states,
+        n_states: states,
+        k_hist: &k_hist,
+        v_hist: &v_hist,
+        attn_hist: &attn_hist,
+        mlp_hist: &mlp_hist,
+        k_cache: &k_cache,
+        v_cache: &v_cache,
+        routed: &routed,
+        ids: &ids,
+        messages: None,
+    };
+    // Layer 1: not a block boundary, so the residual is the sum, and it slides.
+    let out = build_layer::<f32>(&cfg, 1, &inputs, past, kv_len, past_len);
+    assert_eq!(
+        out.shape,
+        vec![Some(t), Some(hid)],
+        "a layer returns [T, hidden]"
+    );
+
+    let names = g.slot_names();
+    for expected in [
+        "attn_res.attn_queries_0.query",
+        "attn_res.attn_queries_2.query",
+        "attn_res.mlp_queries_0.query",
+        "attn_norm.weight",
+        "attn.wq_du.weight",
+        "attn.wk_dv.weight",
+        "attn.wv_dv.weight",
+        "attn.wo_ud.weight",
+        "attn.gate_attn.weight",
+        "attn.attn_sink_proj.weight",
+        "attn.wr_du.weight",
+        "attn.q_l2_clip.scale",
+        "attn.rel_l2_clip.scale",
+        "attn_sconv.weight",
+        "mlp_norm.weight",
+        "mlp.experts.weight",
+        "mlp.experts_down.weight",
+        "mlp_sconv.weight",
+    ] {
+        assert!(
+            names.iter().any(|n| n == expected),
+            "the layer has no slot {expected}; it has {names:?}"
+        );
+    }
 }
