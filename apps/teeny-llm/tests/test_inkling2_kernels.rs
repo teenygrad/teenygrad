@@ -31,10 +31,12 @@ use teeny_llm_core::models::inkling2::kernels::{
     block_attn::BlockAttnOp,
     cat2::Cat2Op,
     expert_gather::ExpertGatherOp,
+    expert_gather_nvfp4::ExpertGatherNvfp4Op,
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
+    nvfp4::Nvfp4DequantOp,
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
     scatter_add::ExpertScatterAddOp,
@@ -1277,4 +1279,166 @@ fn test_block_attn_with_one_state_returns_it() {
             );
         }
     }
+}
+
+/// Real NVFP4 bytes from `thinkingmachines/Inkling-2-Mini`'s expert weights, the
+/// same 19 KB the RVV work in `experiments/nvfp4-riscv` is tested against.
+fn nvfp4_fixture(name: &str) -> Vec<u8> {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/nvfp4")
+        .join(name);
+    std::fs::read(&p).unwrap_or_else(|e| panic!("reading {}: {e}", p.display()))
+}
+
+/// E4M3 to f32, the host reference.
+fn e4m3(b: u8) -> f32 {
+    let (s, e, m) = ((b >> 7) & 1, (b >> 3) & 0xF, b & 7);
+    let v = if e == 0 {
+        (m as f32 / 8.0) * 0.015_625
+    } else {
+        (1.0 + m as f32 / 8.0) * (e as f32 - 7.0).exp2()
+    };
+    if s == 1 { -v } else { v }
+}
+
+const E2M1: [f32; 16] = [
+    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
+];
+
+/// `value = e2m1(nibble) * e4m3(scale[k / 16]) * scale2`, on real weights.
+#[test]
+fn test_nvfp4_dequant_matches_the_reference() {
+    let raw = nvfp4_fixture("w13_rows.bin");
+    let scales = nvfp4_fixture("w13_scale.bin");
+    let s2_bytes = nvfp4_fixture("w13_scale2.bin");
+    let s2 = f32::from_le_bytes([s2_bytes[0], s2_bytes[1], s2_bytes[2], s2_bytes[3]]);
+
+    // One row: 2048 packed bytes, 4096 weights, 256 scales.
+    let n = 4096usize;
+    let bytes: Vec<f32> = raw[..n / 2].iter().map(|b| *b as f32).collect();
+    let sc: Vec<f32> = scales[..n / 16].iter().map(|b| *b as f32).collect();
+
+    let want: Vec<f32> = (0..n)
+        .map(|i| {
+            let byte = raw[i / 2];
+            let nib = if i % 2 == 1 { byte >> 4 } else { byte & 0x0F };
+            E2M1[nib as usize] * e4m3(scales[i / 16]) * s2
+        })
+        .collect();
+
+    let g = OneOp::new(&[1, n / 2]);
+    let sc_in = g.input(&[1, n / 16]);
+    let got = g.run(
+        Nvfp4DequantOp::<f32>::new(n),
+        &[&sc_in],
+        &[&bytes, &sc],
+        &[&[s2]],
+    );
+    assert_close("nvfp4 dequant", &got, &want, 1e-5);
+
+    // Sanity: these are real weights, not a degenerate buffer.
+    let absmax = want.iter().fold(0.0f32, |a, v| a.max(v.abs()));
+    assert!(
+        absmax > 0.01 && absmax < 10.0,
+        "weights look wrong: absmax {absmax}"
+    );
+    let zeros = want.iter().filter(|v| **v == 0.0).count();
+    assert!(
+        zeros * 4 < n,
+        "too many zeros for a real weight row: {zeros} of {n}"
+    );
+}
+
+/// Every one of the sixteen E2M1 codes decodes to its documented value.
+#[test]
+fn test_nvfp4_decodes_all_sixteen_codes() {
+    // Eight bytes carry all sixteen nibbles, low nibble first.
+    let bytes: Vec<f32> = (0..8u8)
+        .map(|i| ((2 * i + 1) * 16 + 2 * i) as f32)
+        .collect();
+    let n = 16usize;
+    // A scale byte of 0x38 is E4M3 1.0, so the output is the raw E2M1 value.
+    let sc = vec![0x38u8 as f32; 1];
+    let want: Vec<f32> = (0..n)
+        .map(|i| {
+            let b = (2 * (i / 2) + 1) as u8 * 16 + (2 * (i / 2)) as u8;
+            let nib = if i % 2 == 1 { b >> 4 } else { b & 0x0F };
+            E2M1[nib as usize]
+        })
+        .collect();
+    assert!((e4m3(0x38) - 1.0).abs() < 1e-6, "0x38 should be E4M3 1.0");
+    let g = OneOp::new(&[1, n / 2]);
+    let sc_in = g.input(&[1, 1]);
+    let got = g.run(
+        Nvfp4DequantOp::<f32>::new(n),
+        &[&sc_in],
+        &[&bytes, &sc],
+        &[&[1.0f32]],
+    );
+    assert_close("all e2m1 codes", &got, &want, 1e-6);
+}
+
+/// The NVFP4 gather must equal the f32 gather fed the same weights dequantised.
+///
+/// This is the test that matters: the packed path and the plain path are different
+/// kernels, and the model is only correct if they agree.
+#[test]
+fn test_nvfp4_gather_equals_the_f32_gather() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 4usize, 64usize, 2usize);
+    let raw = nvfp4_fixture("w13_rows.bin");
+    let scales = nvfp4_fixture("w13_scale.bin");
+    let s2b = nvfp4_fixture("w13_scale2.bin");
+    let s2: Vec<f32> = (0..e)
+        .map(|i| f32::from_le_bytes([s2b[i * 4], s2b[i * 4 + 1], s2b[i * 4 + 2], s2b[i * 4 + 3]]))
+        .collect();
+
+    // e * n rows of k weights: k/2 bytes and k/16 scales each.
+    let rows = e * n;
+    let bytes: Vec<f32> = raw[..rows * k / 2].iter().map(|b| *b as f32).collect();
+    let sc: Vec<f32> = scales[..rows * k / 16].iter().map(|b| *b as f32).collect();
+
+    // The same weights, dequantised on the host, for the f32 gather.
+    let w: Vec<f32> = (0..rows * k)
+        .map(|i| {
+            let (row, col) = (i / k, i % k);
+            let byte = raw[row * k / 2 + col / 2];
+            let nib = if col % 2 == 1 { byte >> 4 } else { byte & 0x0F };
+            E2M1[nib as usize] * e4m3(scales[row * k / 16 + col / 16]) * s2[row / n]
+        })
+        .collect();
+
+    let x = values(t * k, 141);
+    let ids = [1usize, 2, 0, 1];
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + top_k + slot] = ids[tok * top_k + slot] as f32;
+        }
+    }
+
+    let gf = OneOp::new(&[t, k]);
+    let ids_f = gf.input(&[t, 2 * top_k]);
+    let plain = gf.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_f],
+        &[&x, &packed],
+        &[&w],
+    );
+
+    let gq = OneOp::new(&[t, k]);
+    let b_in = gq.input(&[rows, k / 2]);
+    let s_in = gq.input(&[rows, k / 16]);
+    let s2_in = gq.input(&[1, e]);
+    let ids_q = gq.input(&[t, 2 * top_k]);
+    let packed_out = gq.run(
+        ExpertGatherNvfp4Op::<f32>::new(e, n, k, top_k),
+        &[&b_in, &s_in, &s2_in, &ids_q],
+        &[&x, &bytes, &sc, &s2, &packed],
+        &[],
+    );
+    assert_close("nvfp4 gather vs f32 gather", &packed_out, &plain, 1e-4);
+    assert!(
+        plain.iter().any(|v| v.abs() > 1e-6),
+        "the comparison is only meaningful on non-zero output"
+    );
 }
