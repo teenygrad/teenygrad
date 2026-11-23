@@ -19,7 +19,10 @@
 //! `test_inkling2_kernels.rs`; this checks that they compose and that the weight
 //! slots carry the checkpoint's names.
 
-#![cfg(all(feature = "inkling2", any(feature = "cuda", feature = "qemu")))]
+#![cfg(all(
+    feature = "inkling2",
+    any(feature = "cuda", feature = "qemu", feature = "riscv")
+))]
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -157,8 +160,9 @@ impl GraphRun {
 }
 
 fn test_config() -> Inkling2TextConfig {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/inkling2-mini-config.json");
+    let base = std::env::var("INKLING2_FIXTURES")
+        .unwrap_or_else(|_| format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR")));
+    let path = std::path::Path::new(&base).join("inkling2-mini-config.json");
     let mut cfg = teeny_llm_core::models::inkling2::Inkling2Config::load(&path)
         .expect("the shipped config")
         .text_config;
