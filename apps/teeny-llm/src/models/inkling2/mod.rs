@@ -56,9 +56,28 @@
 //! `test_controller_slot_names` pins the first three, so the map cannot drift
 //! unnoticed.
 //!
-//! Still to come: the decoder layer that puts attention, the MoE block, `attn_res`
-//! and the controllers together with the block-state bookkeeping; the runner; and
-//! NVFP4 dequantisation inside the expert gather's inner loop.
+//! **The layers are not uniform, and the port builds only the common shape.**
+//! Reading the shipped index showed six distinct layer shapes, not one.
+//! `test_the_checkpoint_layer_shapes_are_what_the_port_assumes` pins all of this:
+//!
+//! - **Layers 5, 11, 17 and 23** (the last of each six-layer block) have no
+//!   `attn_norm` and no plain `k_sconv.weight`. They carry `q_input_norm`,
+//!   `k_input_norm` and `v_input_norm` separately, and a *projected* convolution
+//!   (`k_sconv.weight_proj` with `static_w`), which is the reference's
+//!   `Inkling2LoopDynamicShortConvolution`. **Neither is implemented.**
+//! - **Layers 20 to 23 are MXFP8, not NVFP4** (no `_amax`, no
+//!   `_outer_scale_denominator`), matching `hf_quant_config`'s eight MXFP8 tensors.
+//!   [`kernels::expert_gather_nvfp4`] handles NVFP4 only.
+//! - `attn_res.attn_queries` stops at layer 22 while `mlp_queries` runs to 23, so the
+//!   last layer takes no attention message.
+//!
+//! So [`model::build_layer`] is right for 20 of 24 layers and wrong for four, and the
+//! expert gather is right for 20 of 24 and wrong for four. Both gaps are additions
+//! rather than corrections: the existing kernels keep working for the layers they
+//! cover.
+//!
+//! Still to come: those four layers, the MXFP8 path, the token loop, and the packed
+//! NVFP4 encoding (blocked on the `bitcast` flag, teenygrad#170).
 //!
 //! Four things make this a larger job than the Gemma port, which is why they are
 //! named in [`config`] rather than discovered later:
@@ -85,5 +104,6 @@ pub mod config;
 pub mod kernels;
 pub mod model;
 pub mod runner;
+pub mod weights;
 
 pub use config::{Inkling2Config, Inkling2TextConfig, LoopConfig};
