@@ -1482,9 +1482,7 @@ fn map_node_op(
         "GatherND" => Op::GatherND {
             batch_dims: get_attr_int(node, "batch_dims", 0),
         },
-        "ScatterElements" | "ScatterND"
-            if get_attr_string(node, "reduction", "none") != "none" =>
-        {
+        "ScatterElements" | "ScatterND" if get_attr_string(node, "reduction", "none") != "none" => {
             return Err(Error::Unsupported(format!(
                 "{} '{}' with reduction '{}': only 'none' is supported",
                 node.op_type,

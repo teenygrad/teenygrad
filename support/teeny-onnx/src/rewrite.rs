@@ -346,8 +346,16 @@ pub fn split_variadic(graph: &mut Graph, constants: &mut ConstantMap) -> usize {
         let n = a.len().max(b.len());
         (0..n)
             .map(|i| {
-                let x = if i + a.len() >= n { a[i + a.len() - n] } else { 1 };
-                let y = if i + b.len() >= n { b[i + b.len() - n] } else { 1 };
+                let x = if i + a.len() >= n {
+                    a[i + a.len() - n]
+                } else {
+                    1
+                };
+                let y = if i + b.len() >= n {
+                    b[i + b.len() - n]
+                } else {
+                    1
+                };
                 match (x, y) {
                     (x, y) if x == y => Some(x),
                     (1, y) => Some(y),
@@ -380,15 +388,25 @@ pub fn split_variadic(graph: &mut Graph, constants: &mut ConstantMap) -> usize {
         if inputs.len() <= 2 && !(matches!(op, Op::ElemMean) && inputs.len() == 1) {
             continue;
         }
-        let shapes: Option<Vec<Vec<usize>>> =
-            inputs.iter().map(|&i| static_shape(&graph.nodes[i].shape)).collect();
+        let shapes: Option<Vec<Vec<usize>>> = inputs
+            .iter()
+            .map(|&i| static_shape(&graph.nodes[i].shape))
+            .collect();
         let (Some(shapes), Some(out)) = (shapes, static_shape(&graph.nodes[g].shape)) else {
             continue;
         };
         let dtype = graph.nodes[g].dtype;
-        let pair = if matches!(op, Op::ElemMean) { Op::ElemSum } else { op.clone() };
+        let pair = if matches!(op, Op::ElemMean) {
+            Op::ElemSum
+        } else {
+            op.clone()
+        };
         let (mut acc, mut acc_shape) = (inputs[0], shapes[0].clone());
-        let last = if matches!(op, Op::ElemMean) { inputs.len() } else { inputs.len() - 1 };
+        let last = if matches!(op, Op::ElemMean) {
+            inputs.len()
+        } else {
+            inputs.len() - 1
+        };
         for k in 1..last {
             let Some(s) = broadcast(&acc_shape, &shapes[k]) else {
                 break;
@@ -405,12 +423,22 @@ pub fn split_variadic(graph: &mut Graph, constants: &mut ConstantMap) -> usize {
                 _ => (inv as f32).to_le_bytes().repeat(n),
             };
             let c = graph.add_node(
-                Op::Constant { dtype, shape: full(&out) },
+                Op::Constant {
+                    dtype,
+                    shape: full(&out),
+                },
                 vec![],
                 dtype,
                 full(&out),
             );
-            constants.insert(c, ConstantTensor { dtype, shape: full(&out), bytes });
+            constants.insert(
+                c,
+                ConstantTensor {
+                    dtype,
+                    shape: full(&out),
+                    bytes,
+                },
+            );
             // The sum may be smaller than the output only if every operand is; Mean's
             // output is their broadcast, so acc_shape == out here.
             graph.nodes[g].op = Op::Mul;

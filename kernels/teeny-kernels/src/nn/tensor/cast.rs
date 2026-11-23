@@ -36,7 +36,7 @@ use teeny_triton::triton::*;
 
 /// I32/I64 (as `i32` words, `in_words` per element) to F32.
 #[kernel]
-pub fn cast_words_to_f32_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_words_to_f32_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<i32>>,
     y_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
@@ -75,7 +75,7 @@ pub fn cast_words_to_f32_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// Bool to F32: `1.0` or `0.0`.
 #[kernel]
-pub fn cast_bool_to_f32_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_bool_to_f32_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<u8>>,
     y_ptr: OutPtr<T::Pointer<f32>>,
     n_elements: i32,
@@ -117,7 +117,7 @@ pub fn cast_bool_to_f32_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// I32/I64 (as `i32` words) to Bool: `x != 0`.
 #[kernel]
-pub fn cast_words_to_bool_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_words_to_bool_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<i32>>,
     y_ptr: OutPtr<T::Pointer<u8>>,
     n_elements: i32,
@@ -160,7 +160,7 @@ pub fn cast_words_to_bool_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// F32 to Bool: `x != 0`.
 #[kernel]
-pub fn cast_f32_to_bool_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_f32_to_bool_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<f32>>,
     y_ptr: OutPtr<T::Pointer<u8>>,
     n_elements: i32,
@@ -203,7 +203,7 @@ pub fn cast_f32_to_bool_forward<T: Triton, const BLOCK_SIZE: i32>(
 /// F32 to I32/I64 (`out_words` words per element), truncating towards zero. For I64
 /// the high word is written as the sign of the low one.
 #[kernel]
-pub fn cast_f32_to_words_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_f32_to_words_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<f32>>,
     y_ptr: OutPtr<T::Pointer<i32>>,
     n_elements: i32,
@@ -255,7 +255,7 @@ pub fn cast_f32_to_words_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// Bool to I32/I64: `1` or `0`, with a zero high word for I64.
 #[kernel]
-pub fn cast_bool_to_words_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_bool_to_words_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<u8>>,
     y_ptr: OutPtr<T::Pointer<i32>>,
     n_elements: i32,
@@ -304,7 +304,7 @@ pub fn cast_bool_to_words_forward<T: Triton, const BLOCK_SIZE: i32>(
 
 /// I32/I64 to I32/I64: the low word copied, the high word (if any) its sign.
 #[kernel]
-pub fn cast_words_to_words_forward<T: Triton, const BLOCK_SIZE: i32>(
+pub fn cast_words_to_words_forward<T, const BLOCK_SIZE: i32>(
     x_ptr: InPtr<T::Pointer<i32>>,
     y_ptr: OutPtr<T::Pointer<i32>>,
     n_elements: i32,

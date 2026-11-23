@@ -1701,7 +1701,11 @@ fn binary(args: &[&Value], kind: BinKind) -> Eval {
                         x % y
                     } else {
                         let r = x % y;
-                        if r != 0 && (r < 0) != (y < 0) { r + y } else { r }
+                        if r != 0 && (r < 0) != (y < 0) {
+                            r + y
+                        } else {
+                            r
+                        }
                     }
                 }
                 _ => unreachable!("comparison kind in arithmetic branch"),

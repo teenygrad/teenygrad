@@ -581,7 +581,7 @@ mod k_tail_tests {
 /// Grid: `(M * cdiv(N, BLOCK_N), batch)`.
 #[allow(clippy::too_many_arguments)]
 #[kernel]
-pub fn matmul_rows_forward<T: Triton, D: Num, const BLOCK_N: i32>(
+pub fn matmul_rows_forward<T, D: Num, const BLOCK_N: i32>(
     a_ptr: InPtr<T::Pointer<D>>,
     b_ptr: InPtr<T::Pointer<D>>,
     c_ptr: OutPtr<T::Pointer<D>>,

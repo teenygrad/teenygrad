@@ -98,12 +98,12 @@ use crate::nn::{
         elemwise_add::{ElemwiseAddBackward, ElemwiseAddForward},
         elemwise_binary::{
             ClipRuntimeOp, ElemwiseDivBackward, ElemwiseDivForward, ElemwiseEqualForward,
-            ElemwiseFmodForward, ElemwiseTruncModForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
+            ElemwiseFmodForward, ElemwiseGreaterEqualForward, ElemwiseGreaterForward,
             ElemwiseLessEqualForward, ElemwiseLessForward, ElemwiseMaxBackward, ElemwiseMaxForward,
             ElemwiseMeanBackward, ElemwiseMeanForward, ElemwiseMinBackward, ElemwiseMinForward,
             ElemwiseMulBackward, ElemwiseMulForward, ElemwisePowBackward, ElemwisePowForward,
             ElemwiseSubBackward, ElemwiseSubForward, ElemwiseSumBackward, ElemwiseSumForward,
-            ElemwiseWhereBackward, ElemwiseWhereForward,
+            ElemwiseTruncModForward, ElemwiseWhereBackward, ElemwiseWhereForward,
         },
         elemwise_unary::{
             ElemwiseAbsBackward, ElemwiseAbsForward, ElemwiseAcosBackward, ElemwiseAcosForward,
@@ -4154,10 +4154,9 @@ impl TritonLowering {
                     make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node)
                 }
                 Op::Mod { .. }
-                    if node
-                        .inputs
-                        .iter()
-                        .any(|&i| !matches!(graph.nodes[i].dtype, DtypeRepr::F32 | DtypeRepr::F64)) =>
+                    if node.inputs.iter().any(|&i| {
+                        !matches!(graph.nodes[i].dtype, DtypeRepr::F32 | DtypeRepr::F64)
+                    }) =>
                 {
                     // The Mod kernels compute in floating point; an integer operand read as
                     // float words would give garbage.
