@@ -225,3 +225,47 @@ impl Checkpoint {
         Ok((values, shape, enc))
     }
 }
+
+impl Checkpoint {
+    /// Reads a tensor the way a graph parameter wants it.
+    ///
+    /// Floats are widened as [`Checkpoint::tensor`] does. Quantised tensors are
+    /// **packed four bytes to an f32 element**, per row, where the row is the
+    /// tensor's last dimension: `w13_weight` is `[experts, 2 * inter, hidden / 2]`
+    /// bytes, so each `hidden / 2` row becomes its own whole words, which is how
+    /// [`super::kernels::expert_gather_nvfp4`] addresses them.
+    ///
+    /// The returned length is what `param_shapes` declares, so a mismatch here is a
+    /// mismatch the loader can report rather than one `load_param_f32` discovers.
+    pub fn param(&mut self, name: &str) -> anyhow::Result<Vec<f32>> {
+        let (values, shape, enc) = self.tensor(name)?;
+        Ok(match enc {
+            Encoding::Float => values,
+            Encoding::Bytes => {
+                let row = *shape.last().ok_or_else(|| {
+                    anyhow::anyhow!("quantised tensor {name} has no shape to pack by")
+                })?;
+                pack_rows(&values, row)
+            }
+        })
+    }
+
+    /// NVFP4's per-expert scale, which the checkpoint does not store as one tensor.
+    ///
+    /// It keeps `<prefix>_amax` per expert and a single
+    /// `<prefix>_outer_scale_denominator` for the layer; the scale the kernel wants
+    /// is the quotient. The MXFP8 layers have neither, and
+    /// [`super::kernels::expert_gather_mxfp8`] takes no per-expert scale at all.
+    pub fn expert_scale2(&mut self, prefix: &str) -> anyhow::Result<Vec<f32>> {
+        let (amax, _, _) = self.tensor(&format!("{prefix}_amax"))?;
+        let (denom, _, _) = self.tensor(&format!("{prefix}_outer_scale_denominator"))?;
+        let d = *denom
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("{prefix}_outer_scale_denominator is empty"))?;
+        anyhow::ensure!(
+            d != 0.0 && d.is_finite(),
+            "{prefix}_outer_scale_denominator is {d}, which cannot divide"
+        );
+        Ok(amax.iter().map(|a| a / d).collect())
+    }
+}
