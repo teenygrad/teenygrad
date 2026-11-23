@@ -7,7 +7,7 @@
 //! happen to be right.
 //!
 //! `SOFTMAX_ONNX` and `SOFTMAX_DATA` name the model and the fixtures, built by
-//! `scripts/make_softmax_onnx.py`.
+//! `kernels/teeny-kernels/tests/fixtures/onnx/make_softmax_onnx.py`.
 #![cfg(feature = "hardware")]
 
 use teeny_core::model::LoweringMode;

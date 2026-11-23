@@ -1,11 +1,12 @@
 //! Compares every node's output against onnxruntime's, by name.
 //!
-//! onnxruntime runs the same file, so there is no mapping between a module and a node to
-//! get wrong, and its disparity matches PyTorch's to a mean of 0.011. Values would be
-//! gigabytes, so `scripts/ort_stats.py` writes per-tensor statistics and this compares
-//! those: the first node in run order whose count, range or mean differs is where we
-//! diverge. Statistics can agree while values differ, so this localizes rather than
-//! proves, but a fault large enough to matter moves them.
+//! onnxruntime runs the same file, so there is no mapping between a module and a node
+//! to get wrong, and its disparity matches PyTorch's to a mean of 0.011. Values would
+//! be gigabytes, so `kernels/teeny-kernels/tests/fixtures/onnx/ort_stats.py` writes
+//! per-tensor statistics and this compares those: the first node in run order whose
+//! count, range or mean differs is where we diverge. Statistics can agree while values
+//! differ, so this localizes rather than proves, but a fault large enough to matter
+//! moves them.
 //!
 //! FS96_ONNX, FS96_DATA as the other FoundationStereo probes, plus ORT_STATS pointing at
 //! the TSV.
@@ -40,7 +41,7 @@ fn as_words(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-/// One tensor's summary, as `scripts/ort_stats.py` writes it.
+/// One tensor's summary, as `tests/fixtures/onnx/ort_stats.py` writes it.
 #[derive(Clone, Copy, PartialEq)]
 struct Stats {
     count: usize,

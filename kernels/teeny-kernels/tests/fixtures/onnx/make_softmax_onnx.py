@@ -14,7 +14,7 @@ first axis rather than one per row, so any rank above 2 leaves most of the outpu
 unwritten. The lowering takes `n_cols` from the last axis and drops `Op::Softmax`'s
 `dim`, so a softmax over anything else is computed over the last axis instead.
 
-    python3 scripts/make_softmax_onnx.py /tmp/softmax
+    python3 kernels/teeny-kernels/tests/fixtures/onnx/make_softmax_onnx.py /tmp/softmax
     SOFTMAX_ONNX=/tmp/softmax/softmax4d_mid.onnx SOFTMAX_DATA=/tmp/softmax \
       cargo test -p teeny-kernels --features cuda,hardware \
       --test test_softmax_graph -- --ignored --nocapture

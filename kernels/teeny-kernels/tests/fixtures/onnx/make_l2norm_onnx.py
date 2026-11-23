@@ -14,7 +14,7 @@ which is what the test asserts.
 
 Writes the model, the input, and the reference next to each other:
 
-    python3 scripts/make_l2norm_onnx.py /tmp/l2norm
+    python3 kernels/teeny-kernels/tests/fixtures/onnx/make_l2norm_onnx.py /tmp/l2norm
     L2NORM_ONNX=/tmp/l2norm/l2norm5d.onnx L2NORM_DATA=/tmp/l2norm \
       cargo test -p teeny-kernels --features cuda,hardware \
       --test test_l2_normalize_graph -- --ignored --nocapture

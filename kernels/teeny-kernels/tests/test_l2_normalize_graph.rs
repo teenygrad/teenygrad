@@ -7,10 +7,11 @@
 //! elements a different group's norm, and the ones that land on an all-zero group get
 //! the clip's floor of 1e-12 instead.
 //!
-//! `scripts/make_l2norm_onnx.py` builds two models that differ only in where the
-//! reduced axis sits. `l2norm.onnx`, `[1, 6, 4, 1]` reducing axis 2, has it innermost in
-//! effect and is exact to 1e-7. `l2norm5d.onnx`, `[1, 2, 5, 3, 4]` reducing the axis of
-//! extent 5, gives it a stride and comes out at 2.70, identically on CUDA and on RISC-V.
+//! `kernels/teeny-kernels/tests/fixtures/onnx/make_l2norm_onnx.py` builds two models
+//! that differ only in where the reduced axis sits. `l2norm.onnx`, `[1, 6, 4, 1]`
+//! reducing axis 2, has it innermost in effect and is exact to 1e-7. `l2norm5d.onnx`,
+//! `[1, 2, 5, 3, 4]` reducing the axis of extent 5, gives it a stride and comes out at
+//! 2.70, identically on CUDA and on RISC-V.
 //!
 //! The cause is that every `Op::Reduce*` arm in the lowering matches `{ .. }` and drops
 //! its axes, while `reduction.rs` reduces a flattened `[outer, inner]` view and says the
