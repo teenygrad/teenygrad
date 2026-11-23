@@ -33,6 +33,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
     cat2::Cat2Op,
+    dyn_sconv::DynSconvOp,
     expert_gather::ExpertGatherOp,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
     gated_mul::GatedMulOp,
@@ -160,7 +161,9 @@ fn test_sconv_matches_a_host_convolution() {
     let want: Vec<f32> = (0..t * c)
         .map(|i| {
             let (row, ch) = (i / c, i % c);
-            (0..K).map(|k| w[ch * K + k] * x[(row + k) * c + ch]).sum()
+            let conv: f32 = (0..K).map(|k| w[ch * K + k] * x[(row + k) * c + ch]).sum();
+            // The convolution carries its own residual and normalisation.
+            (conv + x[(row + K - 1) * c + ch]) / ((K + 1) as f32).sqrt()
         })
         .collect();
     let (hist, cur) = x.split_at((K - 1) * c);
@@ -180,7 +183,9 @@ fn test_sconv_with_zero_history_keeps_only_the_last_tap() {
     let row = values(c, 13);
     x[(K - 1) * c..].copy_from_slice(&row); // the only non-zero token
     let w = values(c * K, 14);
-    let want: Vec<f32> = (0..c).map(|ch| w[ch * K + (K - 1)] * row[ch]).collect();
+    let want: Vec<f32> = (0..c)
+        .map(|ch| (w[ch * K + (K - 1)] * row[ch] + row[ch]) / ((K + 1) as f32).sqrt())
+        .collect();
     let (hist, cur) = x.split_at((K - 1) * c);
     let g = OneOp::new(&[K - 1, c]);
     let x_in = g.input(&[1, c]);
@@ -198,7 +203,8 @@ fn test_sconv_masks_a_ragged_channel_tail() {
     let want: Vec<f32> = (0..t * c)
         .map(|i| {
             let (row, ch) = (i / c, i % c);
-            (0..K).map(|k| w[ch * K + k] * x[(row + k) * c + ch]).sum()
+            let conv: f32 = (0..K).map(|k| w[ch * K + k] * x[(row + k) * c + ch]).sum();
+            (conv + x[(row + K - 1) * c + ch]) / ((K + 1) as f32).sqrt()
         })
         .collect();
     let (hist, cur) = x.split_at((K - 1) * c);
@@ -1488,4 +1494,130 @@ fn test_bitand_works_and_bitcast_is_ignored() {
         differing > n / 2,
         "the two readings must differ for this test to mean anything ({differing} of {n})"
     );
+}
+
+/// `w[t,c,j] = static[j,c] + dyn[t, head(c)*K + j]`, with j the BACKWARD distance,
+/// then `(conv + x) / sqrt(2K + 1)`.
+#[test]
+fn test_dyn_sconv_matches_the_reference() {
+    const K: usize = 4;
+    let (t, heads, hd) = (5usize, 3usize, 8usize);
+    let c = heads * hd;
+    let hist = values((K - 1) * c, 151);
+    let x = values(t * c, 152);
+    let dynw = values(t * heads * K, 153);
+    let stat = values(K * c, 154);
+
+    // Row r of the virtual [hist; x] stack.
+    let row = |r: isize, ch: usize| -> f32 {
+        if r < (K - 1) as isize {
+            hist[r as usize * c + ch]
+        } else {
+            x[(r as usize - (K - 1)) * c + ch]
+        }
+    };
+    let want: Vec<f32> = (0..t * c)
+        .map(|i| {
+            let (tok, ch) = (i / c, i % c);
+            let head = ch / hd;
+            let conv: f32 = (0..K)
+                .map(|j| {
+                    let w = stat[j * c + ch] + dynw[tok * heads * K + head * K + j];
+                    // j = 0 is the current token.
+                    w * row((tok + K - 1 - j) as isize, ch)
+                })
+                .sum();
+            (conv + x[tok * c + ch]) / ((2 * K + 1) as f32).sqrt()
+        })
+        .collect();
+
+    let g = OneOp::new(&[K - 1, c]);
+    let x_in = g.input(&[t, c]);
+    let d_in = g.input(&[t, heads * K]);
+    let got = g.run(
+        DynSconvOp::<f32>::new(c, heads, K),
+        &[&x_in, &d_in],
+        &[&hist, &x, &dynw],
+        &[&stat],
+    );
+    assert_close("dyn sconv", &got, &want, 1e-4);
+}
+
+/// Tap 0 is the CURRENT token, the opposite of the static convolution. With only tap
+/// 0 non-zero the output is that token alone, scaled; with only the last tap it is
+/// the oldest token in the window.
+#[test]
+fn test_dyn_sconv_tap_zero_is_the_current_token() {
+    const K: usize = 4;
+    let (t, heads, hd) = (1usize, 1usize, 4usize);
+    let c = heads * hd;
+    let hist: Vec<f32> = (0..(K - 1) * c).map(|i| (i + 1) as f32).collect();
+    let x = vec![100.0f32; c];
+    let dynw = vec![0.0f32; t * heads * K];
+    let norm = ((2 * K + 1) as f32).sqrt();
+
+    for (tap, label) in [(0usize, "current"), (K - 1, "oldest")] {
+        let mut stat = vec![0.0f32; K * c];
+        for ch in 0..c {
+            stat[tap * c + ch] = 1.0;
+        }
+        let g = OneOp::new(&[K - 1, c]);
+        let x_in = g.input(&[t, c]);
+        let d_in = g.input(&[t, heads * K]);
+        let got = g.run(
+            DynSconvOp::<f32>::new(c, heads, K),
+            &[&x_in, &d_in],
+            &[&hist, &x, &dynw],
+            &[&stat],
+        );
+        let want: Vec<f32> = (0..c)
+            .map(|ch| {
+                let picked = if tap == 0 {
+                    x[ch]
+                } else {
+                    hist[(K - 1 - tap) * c + ch]
+                };
+                (picked + x[ch]) / norm
+            })
+            .collect();
+        assert_close(&format!("dyn sconv tap {tap} ({label})"), &got, &want, 1e-4);
+    }
+}
+
+/// The dynamic taps are shared by every channel of a head, so two heads given
+/// different taps must differ while channels within a head agree.
+#[test]
+fn test_dyn_sconv_taps_are_per_head() {
+    const K: usize = 4;
+    let (t, heads, hd) = (1usize, 2usize, 4usize);
+    let c = heads * hd;
+    let hist = vec![0.0f32; (K - 1) * c];
+    let x = vec![1.0f32; c];
+    let stat = vec![0.0f32; K * c];
+    // Head 0 gets tap 0 = 1, head 1 gets tap 0 = 2.
+    let mut dynw = vec![0.0f32; t * heads * K];
+    dynw[0] = 1.0;
+    dynw[K] = 2.0;
+    let g = OneOp::new(&[K - 1, c]);
+    let x_in = g.input(&[t, c]);
+    let d_in = g.input(&[t, heads * K]);
+    let got = g.run(
+        DynSconvOp::<f32>::new(c, heads, K),
+        &[&x_in, &d_in],
+        &[&hist, &x, &dynw],
+        &[&stat],
+    );
+    let norm = ((2 * K + 1) as f32).sqrt();
+    for ch in 0..hd {
+        assert!(
+            (got[ch] - 2.0 / norm).abs() < 1e-4,
+            "head 0 channel {ch}: {}",
+            got[ch]
+        );
+        assert!(
+            (got[hd + ch] - 3.0 / norm).abs() < 1e-4,
+            "head 1 channel {ch}: {}",
+            got[hd + ch]
+        );
+    }
 }

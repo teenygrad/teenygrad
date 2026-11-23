@@ -368,3 +368,82 @@ fn test_decoder_layer_builds_and_runs() {
         );
     }
 }
+
+/// The last layer of each block is built differently: three input norms instead of
+/// one, and convolutions whose taps are projected from the layer input.
+///
+/// A layer that quietly used the static form would still compile and run, so this
+/// checks the SLOTS, which is what the checkpoint actually constrains.
+#[test]
+fn test_the_last_layer_of_a_block_convolves_dynamically() {
+    let mut cfg = test_config();
+    cfg.n_layers_per_attn_res_block = 6;
+    cfg.local_layer_ids = vec![];
+    let (t, hid) = (2usize, cfg.hidden_size);
+    let (states, past, cache) = (2usize, 3usize, 8usize);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+
+    // Layer 5 is the last of the first block; layer 4 is not.
+    for (layer, dynamic) in [(5usize, true), (4usize, false)] {
+        let g = GraphRun::new(&[t, hid]);
+        let block_states = g.input(&[t * states, hid]);
+        let k_hist = g.input(&[kw, nkv * hd]);
+        let v_hist = g.input(&[kw, nkv * hd]);
+        let attn_hist = g.input(&[kw, hid]);
+        let mlp_hist = g.input(&[kw, hid]);
+        let k_cache = g.input(&[cache, nkv * hd]);
+        let v_cache = g.input(&[cache, nkv * hd]);
+        let past_len = PastLen::default();
+        past_len.set(past);
+        let inputs = LayerInputs {
+            x: &g.first,
+            block_states: &block_states,
+            n_states: states,
+            k_hist: &k_hist,
+            v_hist: &v_hist,
+            attn_hist: &attn_hist,
+            mlp_hist: &mlp_hist,
+            k_cache: &k_cache,
+            v_cache: &v_cache,
+            messages: None,
+        };
+        let _ = build_layer::<f32>(&cfg, layer, &inputs, past, past + t, past_len);
+        let names = g.slot_names();
+        let has = |n: &str| names.iter().any(|x| x == n);
+
+        if dynamic {
+            assert!(
+                has("q_input_norm.weight"),
+                "layer {layer} needs three input norms"
+            );
+            assert!(has("k_input_norm.weight"));
+            assert!(has("v_input_norm.weight"));
+            assert!(!has("attn_norm.weight"), "layer {layer} has no attn_norm");
+            assert!(
+                has("attn.k_sconv.static_w"),
+                "layer {layer} convolves dynamically"
+            );
+            assert!(has("attn.k_sconv.weight_proj.weight"));
+            assert!(has("attn.v_sconv.static_w"));
+            assert!(
+                !has("attn.k_sconv.weight"),
+                "layer {layer} has no static filter"
+            );
+        } else {
+            assert!(has("attn_norm.weight"), "layer {layer} needs attn_norm");
+            assert!(
+                has("attn.k_sconv.weight"),
+                "layer {layer} convolves statically"
+            );
+            assert!(!has("q_input_norm.weight"));
+            assert!(!has("attn.k_sconv.static_w"));
+        }
+        // Both kinds keep the layer-level convolutions static.
+        assert!(
+            has("attn_sconv.weight"),
+            "layer {layer} keeps a static attn_sconv"
+        );
+        assert!(has("mlp_sconv.weight"));
+    }
+}

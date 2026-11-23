@@ -53,6 +53,7 @@ use super::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
     cat2::Cat2Op,
+    dyn_sconv::DynSconvOp,
     expert_gather::ExpertGatherOp,
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
@@ -257,6 +258,7 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
     x: &SymTensor,
     hist: &SymTensor,
     is_key: bool,
+    dynamic: Option<&SymTensor>,
 ) -> SymTensor {
     let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
     let name = if is_key { "wk_dv" } else { "wv_dv" };
@@ -266,11 +268,25 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
     };
     let conv = {
         let _g = name_scope(if is_key { "k_sconv" } else { "v_sconv" });
-        hist.record_custom(
-            CustomData::new(SconvOp::<D>::new(nkv * hd, cfg.sconv_kernel_size)),
-            &[&proj],
-            None,
-        )
+        match dynamic {
+            // The last layer of each block projects its taps from the layer input.
+            Some(src) => {
+                let taps = {
+                    let _w = name_scope("weight_proj");
+                    linear::<D>(src, cfg.hidden_size, nkv * cfg.sconv_kernel_size)
+                };
+                hist.record_custom(
+                    CustomData::new(DynSconvOp::<D>::new(nkv * hd, nkv, cfg.sconv_kernel_size)),
+                    &[&proj, &taps],
+                    None,
+                )
+            }
+            None => hist.record_custom(
+                CustomData::new(SconvOp::<D>::new(nkv * hd, cfg.sconv_kernel_size)),
+                &[&proj],
+                None,
+            ),
+        }
     };
     if is_key {
         conv.record_custom(
@@ -367,6 +383,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     v_in: &SymTensor,
     k_hist: &SymTensor,
     v_hist: &SymTensor,
+    dynamic: Option<&SymTensor>,
     k_cache: &SymTensor,
     v_cache: &SymTensor,
     past: usize,
@@ -381,8 +398,8 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         cfg.head_dim,
     );
     let q = build_q_proj::<D>(cfg, q_in);
-    let k = build_kv_proj::<D>(cfg, k_in, k_hist, true);
-    let v = build_kv_proj::<D>(cfg, v_in, v_hist, false);
+    let k = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic);
+    let v = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic);
     // The bias and the sinks are conditioned on the query's hidden states.
     let bias = build_rel_bias::<D>(cfg, q_in, past, kv_len);
     let sinks = {
@@ -571,6 +588,9 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
 ) -> SymTensor {
     let hid = cfg.hidden_size;
     let is_boundary = layer.is_multiple_of(cfg.n_layers_per_attn_res_block);
+    // The LAST layer of each block convolves dynamically and norms q, k and v
+    // separately; every other layer has a single attn_norm and a static convolution.
+    let is_dynamic = (layer + 1).is_multiple_of(cfg.n_layers_per_attn_res_block);
     let window = if cfg.is_sliding(layer) {
         Some(cfg.sliding_window_size)
     } else {
@@ -587,10 +607,18 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
             .map(|(i, which)| build_controller::<D>(cfg, which, &qkv[i], msgs[i]))
             .collect(),
     };
-    let normed: Vec<SymTensor> = gated
-        .iter()
-        .map(|g| build_norm::<D>("attn_norm", g, hid))
-        .collect();
+    let normed: Vec<SymTensor> = if is_dynamic {
+        ["q_input_norm", "k_input_norm", "v_input_norm"]
+            .iter()
+            .enumerate()
+            .map(|(i, n)| build_norm::<D>(n, &gated[i], hid))
+            .collect()
+    } else {
+        gated
+            .iter()
+            .map(|g| build_norm::<D>("attn_norm", g, hid))
+            .collect()
+    };
 
     let attn = build_attention::<D>(
         cfg,
@@ -599,6 +627,8 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         &normed[2],
         inputs.k_hist,
         inputs.v_hist,
+        // The dynamic taps are projected from the layer input, before any norm.
+        if is_dynamic { Some(inputs.x) } else { None },
         inputs.k_cache,
         inputs.v_cache,
         past,

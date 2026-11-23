@@ -22,8 +22,14 @@
 //! per-channel dot product over the last `K` tokens, not a matmul:
 //!
 //! ```text
-//! y[t, c] = sum(k in 0..K) w[c, k] * x[t + k, c]
+//! conv[t, c] = sum(k in 0..K) w[c, k] * x[t + k, c]
+//! y[t, c]    = (conv[t, c] + x[t, c]) / sqrt(K + 1)
 //! ```
+//!
+//! The residual and the `1 / sqrt(K + 1)` are part of the convolution in the
+//! reference (`Inkling2LoopShortConvolution`), not something a caller adds. An
+//! earlier version of this kernel left both out and its tests passed, because the
+//! host reference they compared against was written from the same misreading.
 //!
 //! **History is a second input, not a prefix.** The convolution takes `hist` of
 //! `[K - 1, C]` and `x` of `[T, C]` separately, and reads
@@ -49,6 +55,7 @@ pub fn sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
     w_ptr: InPtr<T::Pointer<D>>,
     y_ptr: OutPtr<T::Pointer<D>>,
     C: i32,
+    NORM: f32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
@@ -107,9 +114,22 @@ pub fn sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
         );
         acc = acc + x * w;
     }
+    // The residual is the CURRENT token, row t of this step's input.
+    let cur = T::load(
+        x_ptr.add_offsets(offs + t * C),
+        Some(m),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    // 1 / sqrt(K + 1), computed by the host: the kernel environment has no sqrt.
+    let norm = T::full(&[BLOCK], D::from_f64(NORM as f64));
     T::store(
         y_ptr.add_offsets(offs + t * C),
-        acc,
+        (acc + cur) * norm,
         Some(m),
         &[],
         None,
@@ -224,6 +244,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for SconvRuntimeOp<D> {
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
         visitor.visit_i32(self.channels as i32);
+        visitor.visit_f32(1.0 / ((self.width + 1) as f32).sqrt());
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
