@@ -30,7 +30,7 @@
 use alloc::{string::String, vec::Vec};
 
 thread_local! {
-    static SCOPE: core::cell::RefCell<Vec<String>> = core::cell::RefCell::new(Vec::new());
+    static SCOPE: core::cell::RefCell<Vec<String>> = const { core::cell::RefCell::new(Vec::new()) };
 }
 
 /// RAII guard that pops its scope segment when dropped.
