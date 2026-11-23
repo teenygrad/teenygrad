@@ -28,5 +28,6 @@ pub mod rel_bias;
 pub mod router;
 pub mod scatter_add;
 pub mod sconv;
+pub mod slot_ids;
 pub mod softcap;
 pub mod swiglu;

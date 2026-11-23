@@ -62,6 +62,7 @@ use super::kernels::{
     router::TopKRouterOp,
     scatter_add::ExpertScatterAddOp,
     sconv::SconvOp,
+    slot_ids::SlotIdsOp,
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
@@ -119,16 +120,21 @@ pub fn slot_ids(routed: &[f32], tokens: usize, top_k: usize) -> Vec<f32> {
 
 /// Records `Inkling2LoopSparseMoeBlock` on `x` of `[T, hidden]`, returning `[T, hidden]`.
 ///
-/// `routed` is the router's packed `[T, 2 * top_k]` row and `ids` its re-packed form
-/// from [`slot_ids`]; both are graph inputs because the second gather needs the ids in
-/// a different layout from the one the router emits.
+/// `routed` is the router's packed `[T, 2 * top_k]` row, which [`build_router`]
+/// produces in the same graph.
 pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     x: &SymTensor,
     routed: &SymTensor,
-    ids: &SymTensor,
 ) -> SymTensor {
     let _m = name_scope("mlp");
+    // The down projection needs one id per (token, slot) row; the re-pack runs on the
+    // device so the layer stays a single graph.
+    let ids = &routed.record_custom(
+        CustomData::new(SlotIdsOp::<D>::new(cfg.num_experts_per_tok)),
+        &[],
+        None,
+    );
     let (hid, inter) = (cfg.hidden_size, cfg.intermediate_size);
     let (e, k) = (cfg.n_routed_experts, cfg.num_experts_per_tok);
 
@@ -523,11 +529,6 @@ pub struct LayerInputs<'a> {
     pub k_cache: &'a SymTensor,
     /// As `k_cache`.
     pub v_cache: &'a SymTensor,
-    /// The router's packed row and its re-packed ids, which the host computes
-    /// between the two halves of the layer (see [`build_router`] and [`slot_ids`]).
-    pub routed: &'a SymTensor,
-    /// As `routed`.
-    pub ids: &'a SymTensor,
     /// On passes after the first through the looped core, the previous pass's
     /// messages for the query, key, value and MLP inputs, in that order.
     pub messages: Option<[&'a SymTensor; 4]>,
@@ -626,7 +627,8 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         Some(msgs) => build_controller::<D>(cfg, "mlp", &m, msgs[3]),
     };
     let m = build_norm::<D>("mlp_norm", &m, hid);
-    let moe = build_moe::<D>(cfg, &m, inputs.routed, inputs.ids);
+    let routed = build_router::<D>(cfg, &m);
+    let moe = build_moe::<D>(cfg, &m, &routed);
     let m = {
         let _g = name_scope("mlp_sconv");
         inputs.mlp_hist.record_custom(

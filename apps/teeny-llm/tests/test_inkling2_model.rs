@@ -30,7 +30,7 @@ use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::config::Inkling2TextConfig;
 use teeny_llm_core::models::inkling2::kernels::attention::PastLen;
 use teeny_llm_core::models::inkling2::model::{
-    LayerInputs, build_controller, build_layer, build_moe, build_router, slot_ids,
+    LayerInputs, build_controller, build_layer, build_moe, build_router,
 };
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -194,15 +194,13 @@ fn test_moe_block_matches_a_host_reference() {
         &[&x],
         &[("mlp.gate.weight", &gate_w), ("mlp.gate.bias", &gate_b)],
     );
-    let ids = slot_ids(&routed, t, k);
 
     let gm = GraphRun::new(&[t, hid]);
     let routed_in = gm.input(&[t, 2 * k]);
-    let ids_in = gm.input(&[t * k, 2]);
-    let out = build_moe::<f32>(&cfg, &gm.first, &routed_in, &ids_in);
+    let out = build_moe::<f32>(&cfg, &gm.first, &routed_in);
     let got = gm.run(
         &out,
-        &[&x, &routed, &ids],
+        &[&x, &routed],
         &[
             ("mlp.experts.weight", &w13),
             ("mlp.experts_down.weight", &w2),
@@ -302,7 +300,7 @@ fn test_decoder_layer_builds_and_runs() {
     cfg.n_layers_per_attn_res_block = 6;
     cfg.sliding_window_size = 8;
     cfg.local_layer_ids = vec![1];
-    let (t, hid, k) = (2usize, cfg.hidden_size, cfg.num_experts_per_tok);
+    let (t, hid) = (2usize, cfg.hidden_size);
     let (states, past, cache) = (2usize, 3usize, 8usize);
     let kv_len = past + t;
     let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
@@ -316,8 +314,6 @@ fn test_decoder_layer_builds_and_runs() {
     let mlp_hist = g.input(&[kw, hid]);
     let k_cache = g.input(&[cache, nkv * hd]);
     let v_cache = g.input(&[cache, nkv * hd]);
-    let routed = g.input(&[t, 2 * k]);
-    let ids = g.input(&[t * k, 2]);
 
     let past_len = PastLen::default();
     past_len.set(past);
@@ -331,8 +327,6 @@ fn test_decoder_layer_builds_and_runs() {
         mlp_hist: &mlp_hist,
         k_cache: &k_cache,
         v_cache: &v_cache,
-        routed: &routed,
-        ids: &ids,
         messages: None,
     };
     // Layer 1: not a block boundary, so the residual is the sum, and it slides.
