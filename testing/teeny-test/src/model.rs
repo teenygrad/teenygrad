@@ -611,6 +611,30 @@ impl<'a> RuntimeModel<'a> {
             })
     }
 
+    /// Every parameter slot with a slot name, as `(slot name, node_idx, param_idx)`,
+    /// whether or not its node has a name. [`Self::param_info_named`] lists only named
+    /// nodes, which an imported model need not have (ONNX node names are optional).
+    pub fn param_slots(&self) -> impl Iterator<Item = (&'static str, usize, usize)> + '_ {
+        self.nodes
+            .iter()
+            .enumerate()
+            .flat_map(move |(node_idx, node)| {
+                let entries: Vec<(&'static str, usize, usize)> = match &node.op {
+                    Some(op) => {
+                        let slots = op.runtime_op.param_names();
+                        (0..op.param_shapes.len())
+                            .filter_map(|pi| {
+                                let slot = slots.get(pi).copied().unwrap_or("");
+                                (!slot.is_empty()).then_some((slot, node_idx, pi))
+                            })
+                            .collect()
+                    }
+                    None => Vec::new(),
+                };
+                entries
+            })
+    }
+
     /// Uploads `data` into parameter slot `param_idx` of node `node_idx`.
     pub fn load_param_f32(
         &mut self,
@@ -689,7 +713,11 @@ impl<'a> RuntimeModel<'a> {
     /// Copies node `idx`'s most recent output back to the host (assumes an `f32` output).
     pub fn read_output_f32(&self, idx: usize) -> Result<Vec<f32>> {
         let node = &self.nodes[idx];
-        let mut out = vec![0.0f32; node.output_shape.iter().product()];
+        // The buffer's own size in words, which is one per element only for a 4-byte
+        // dtype: a bool output of `n` elements holds `n / 4` words and an I64 one `2n`,
+        // so reading `n` would overrun the first and truncate the second.
+        let n: usize = node.output_shape.iter().product();
+        let mut out = vec![0.0f32; buffer_words(n, node.dtype)];
         self.buffer(idx)?.to_host(&mut out)?;
         Ok(out)
     }

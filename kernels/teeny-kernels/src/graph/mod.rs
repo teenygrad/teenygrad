@@ -39,7 +39,7 @@ use crate::nn::{
             CeluForward, CeluForwardDispatch, EluForward, EluForwardDispatch, SeluForward,
             SeluForwardDispatch,
         },
-        gelu::{GeluForwardDispatch, MishForward, MishForwardDispatch},
+        gelu::{GeluErfForward, GeluForwardDispatch, MishForward, MishForwardDispatch},
         hard::{
             HardshrinkForward, HardshrinkForwardDispatch, HardsigmoidForward,
             HardsigmoidForwardDispatch, HardswishForward, HardswishForwardDispatch,
@@ -63,10 +63,7 @@ use crate::nn::{
         conv2d::{Conv2dBackward, Conv2dBiasForward, Conv2dForward},
         conv3d::Conv3dForward,
     },
-    mlp::{
-        flatten::FlattenForward,
-        linear::{LinearBackward, LinearForward},
-    },
+    mlp::linear::{LinearBackward, LinearForward},
     norm::{
         batchnorm::{BatchNorm2dNchwInferenceRuntimeOp, BatchNormForwardInference},
         groupnorm::GroupNormForwardInference,
@@ -106,7 +103,7 @@ use crate::nn::{
             ElemwiseMeanBackward, ElemwiseMeanForward, ElemwiseMinBackward, ElemwiseMinForward,
             ElemwiseMulBackward, ElemwiseMulForward, ElemwisePowBackward, ElemwisePowForward,
             ElemwiseSubBackward, ElemwiseSubForward, ElemwiseSumBackward, ElemwiseSumForward,
-            ElemwiseWhereBackward, ElemwiseWhereForward,
+            ElemwiseTruncModForward, ElemwiseWhereBackward, ElemwiseWhereForward,
         },
         elemwise_unary::{
             ElemwiseAbsBackward, ElemwiseAbsForward, ElemwiseAcosBackward, ElemwiseAcosForward,
@@ -121,7 +118,7 @@ use crate::nn::{
             ElemwiseSinBackward, ElemwiseSinForward, ElemwiseSinhBackward, ElemwiseSinhForward,
             ElemwiseSqrtBackward, ElemwiseSqrtForward, ElemwiseTanBackward, ElemwiseTanForward,
         },
-        gather::{GatherForward, GatherRuntimeOp},
+        gather::{GatherDynForward, GatherDynRuntimeOp, GatherForward, GatherRuntimeOp},
         reduction::{
             CumProdForward, CumSumForward, GlobalAvgPoolForward, GlobalMaxPoolForward,
             ReduceL1Forward, ReduceL2Forward, ReduceLogSumExpForward, ReduceLogSumForward,
@@ -165,6 +162,8 @@ use crate::nn::norm::batchnorm::{
 
 /// Dispatch to a D: Num kernel based on `$node.dtype`.
 /// Usage: `make_num_kernel!(KernelType(arg1, arg2, ...), node)`
+// Bool tensors are one byte per element, so they take the u8 instantiation: sound for
+// the copies and data movement a bool goes through, and ONNX defines no arithmetic on bools.
 macro_rules! make_num_kernel {
     ($K:ident ($($arg:expr),*), $node:expr) => {{
         let (name, ks, body, probe_bs, rop) = match $node.dtype {
@@ -174,7 +173,7 @@ macro_rules! make_num_kernel {
             DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U8 | DtypeRepr::Bool => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
@@ -204,7 +203,7 @@ macro_rules! make_num_kernel {
             DtypeRepr::I16 => { let k = $K::<i16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I32 => { let k = $K::<i32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::I64 => { let k = $K::<i64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
-            DtypeRepr::U8  => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
+            DtypeRepr::U8 | DtypeRepr::Bool => { let k = $K::<u8>::new($($arg),*);  let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U16 => { let k = $K::<u16>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U32 => { let k = $K::<u32>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
             DtypeRepr::U64 => { let k = $K::<u64>::new($($arg),*); let nm = k.name.to_string(); let body = k.kernel_source.clone(); let src = k.source.clone(); let probe_bs = k.pointwise_fuse_probe().map(|p| p.block_size); let r: Arc<dyn RuntimeOp> = Arc::new(k); (nm, src, body, probe_bs, r) }
@@ -218,7 +217,7 @@ macro_rules! make_num_kernel {
             DtypeRepr::I16 => { let k = $Bwd::<i16>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::I32 => { let k = $Bwd::<i32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::I64 => { let k = $Bwd::<i64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
-            DtypeRepr::U8  => { let k = $Bwd::<u8>::new($($barg),*);  (k.name.to_string(), k.source.clone()) }
+            DtypeRepr::U8 | DtypeRepr::Bool  => { let k = $Bwd::<u8>::new($($barg),*);  (k.name.to_string(), k.source.clone()) }
             DtypeRepr::U16 => { let k = $Bwd::<u16>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::U32 => { let k = $Bwd::<u32>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
             DtypeRepr::U64 => { let k = $Bwd::<u64>::new($($barg),*); (k.name.to_string(), k.source.clone()) }
@@ -509,20 +508,55 @@ impl_stub_runtime_op_num!(CircularPad3dForward);
 // GeluForward, SiluForward, and TanhForward have real RuntimeOp impls in their
 // kernel modules.
 impl_stub_runtime_op_float!(EluForward);
-impl_stub_runtime_op_float!(SeluForward);
 impl_stub_runtime_op_float!(CeluForward);
-impl_stub_runtime_op_float!(MishForward);
 impl_stub_runtime_op_float!(HardtanhForward);
-impl_stub_runtime_op_float!(Relu6Forward);
-impl_stub_runtime_op_float!(HardsigmoidForward);
-impl_stub_runtime_op_float!(HardswishForward);
 impl_stub_runtime_op_float!(HardshrinkForward);
 impl_stub_runtime_op_float!(ThresholdForward);
-impl_stub_runtime_op_float!(SoftsignForward);
 impl_stub_runtime_op_float!(SoftshrinkForward);
 impl_stub_runtime_op_float!(SoftplusForward);
-impl_stub_runtime_op_float!(LogsigmoidForward);
-impl_stub_runtime_op_float!(TanhshrinkForward);
+
+// Element-wise activations of signature `(x, y, n_elements)`: one input, no
+// parameters, a 1-D grid of `BLOCK_SIZE` lanes.
+macro_rules! impl_unary_runtime_op_float {
+    ($T:ident) => {
+        impl<D: teeny_core::dtype::Float + Send + Sync + 'static> RuntimeOp for $T<D> {
+            fn n_activation_inputs(&self) -> usize {
+                1
+            }
+            fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+                Vec::new()
+            }
+            fn pack_args(
+                &self,
+                inputs: &[(teeny_core::model::RawPtr, &[usize])],
+                _params: &[teeny_core::model::RawPtr],
+                output: teeny_core::model::RawPtr,
+                output_shape: &[usize],
+                _output_row_stride: i32,
+                visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+            ) {
+                let n: usize = output_shape.iter().product();
+                visitor.visit_ptr(inputs[0].0);
+                visitor.visit_ptr(output);
+                visitor.visit_i32(n as i32);
+            }
+            fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+                let n: usize = output_shape.iter().product();
+                [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+            }
+        }
+    };
+}
+
+impl_unary_runtime_op_float!(SeluForward);
+impl_unary_runtime_op_float!(MishForward);
+impl_unary_runtime_op_float!(GeluErfForward);
+impl_unary_runtime_op_float!(Relu6Forward);
+impl_unary_runtime_op_float!(HardsigmoidForward);
+impl_unary_runtime_op_float!(HardswishForward);
+impl_unary_runtime_op_float!(SoftsignForward);
+impl_unary_runtime_op_float!(LogsigmoidForward);
+impl_unary_runtime_op_float!(TanhshrinkForward);
 
 // ---------------------------------------------------------------------------
 // No-op RuntimeOp for Input placeholder nodes
@@ -1567,6 +1601,10 @@ fn gather_executable(
     let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
         DtypeRepr::F32 => build!(f32),
         DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        // One byte per element: a bool is moved exactly as a u8.
+        DtypeRepr::U8 | DtypeRepr::Bool => build!(u8),
         other => {
             return Err(anyhow::anyhow!(
                 "Op::Gather {what}: {other:?} is not supported; the kernel is generic \
@@ -1588,6 +1626,139 @@ fn gather_executable(
         #[cfg(feature = "training")]
         backward_entry_point: String::new(),
         runtime_op,
+    }))
+}
+
+/// Builds the executable for a `Gather` whose indices are an activation (see
+/// [`GatherDynRuntimeOp`]).
+fn gather_dyn_executable(
+    node: &GraphNode,
+    in_shape: &[usize],
+    axis: i64,
+    n_idx: usize,
+    idx_bytes: usize,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    macro_rules! build {
+        ($ty:ty) => {{
+            let rop = GatherDynRuntimeOp::<$ty>::new(1024, in_shape, axis, n_idx, idx_bytes)
+                .map_err(|e| anyhow::anyhow!("Op::Gather {what}: {e}"))?;
+            let kernel = GatherDynForward::<$ty>::new(1024);
+            let name = kernel.name.to_string();
+            let source = kernel.source.clone();
+            let body = kernel.kernel_source.clone();
+            let erased: Arc<dyn RuntimeOp> = Arc::new(rop);
+            (name, source, body, erased)
+        }};
+    }
+
+    let (name, kernel_source, kernel_body, runtime_op) = match node.dtype {
+        DtypeRepr::F32 => build!(f32),
+        DtypeRepr::F64 => build!(f64),
+        DtypeRepr::I32 => build!(i32),
+        DtypeRepr::I64 => build!(i64),
+        // One byte per element: a bool is moved exactly as a u8.
+        DtypeRepr::U8 | DtypeRepr::Bool => build!(u8),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Op::Gather {what}: {other:?} data is not supported; the kernel is generic \
+                 over FloatBytes"
+            ));
+        }
+    };
+
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op,
+    }))
+}
+
+/// Builds the executable for a converting `Cast` (see [`crate::nn::tensor::cast`]).
+fn cast_executable(
+    node: &GraphNode,
+    from: DtypeRepr,
+    to: DtypeRepr,
+    what: &str,
+) -> Result<Box<dyn ExecutableOp>> {
+    use crate::nn::tensor::cast::{
+        CastBoolToF32Forward, CastBoolToWordsForward, CastF32ToBoolForward, CastF32ToWordsForward,
+        CastKind, CastRuntimeOp, CastWordsToBoolForward, CastWordsToF32Forward,
+        CastWordsToWordsForward,
+    };
+    let words = |d: DtypeRepr| match d {
+        DtypeRepr::I32 => Some(1),
+        DtypeRepr::I64 => Some(2),
+        _ => None,
+    };
+    let refuse = || {
+        anyhow::anyhow!(
+            "Op::Cast {what}: {from:?} to {to:?} has no kernel; casts between F32, I32, I64 \
+             and Bool are supported"
+        )
+    };
+    let kind = match (from, to) {
+        (_, DtypeRepr::F32) if words(from).is_some() => CastKind::WordsToF32 {
+            in_words: words(from).unwrap(),
+        },
+        (DtypeRepr::Bool, DtypeRepr::F32) => CastKind::BoolToF32,
+        (_, DtypeRepr::Bool) if words(from).is_some() => CastKind::WordsToBool {
+            in_words: words(from).unwrap(),
+        },
+        (DtypeRepr::F32, DtypeRepr::Bool) => CastKind::F32ToBool,
+        (DtypeRepr::F32, _) if words(to).is_some() => CastKind::F32ToWords {
+            out_words: words(to).unwrap(),
+        },
+        (DtypeRepr::Bool, _) if words(to).is_some() => CastKind::BoolToWords {
+            out_words: words(to).unwrap(),
+        },
+        _ if words(from).is_some() && words(to).is_some() => CastKind::WordsToWords {
+            in_words: words(from).unwrap(),
+            out_words: words(to).unwrap(),
+        },
+        _ => return Err(refuse()),
+    };
+    macro_rules! k {
+        ($K:ident) => {{
+            let k = $K::new(1024);
+            (
+                k.name.to_string(),
+                k.source.clone(),
+                k.kernel_source.clone(),
+            )
+        }};
+    }
+    let (name, kernel_source, kernel_body) = match kind {
+        CastKind::WordsToF32 { .. } => k!(CastWordsToF32Forward),
+        CastKind::BoolToF32 => k!(CastBoolToF32Forward),
+        CastKind::WordsToBool { .. } => k!(CastWordsToBoolForward),
+        CastKind::F32ToBool => k!(CastF32ToBoolForward),
+        CastKind::F32ToWords { .. } => k!(CastF32ToWordsForward),
+        CastKind::BoolToWords { .. } => k!(CastBoolToWordsForward),
+        CastKind::WordsToWords { .. } => k!(CastWordsToWordsForward),
+    };
+    Ok(Box::new(KernelExecutable {
+        entry_point: format!("{name}_entry_point"),
+        name,
+        kernel_source,
+        kernel_body,
+        pointwise_fuse_block_size: None,
+        shape: node.shape.clone(),
+        dtype: node.dtype,
+        #[cfg(feature = "training")]
+        backward_kernel_source: String::new(),
+        #[cfg(feature = "training")]
+        backward_entry_point: String::new(),
+        runtime_op: Arc::new(CastRuntimeOp::new(1024, kind)),
     }))
 }
 
@@ -1964,7 +2135,7 @@ fn strided_copy_executable(
         DtypeRepr::I16 => build!(i16),
         DtypeRepr::I32 => build!(i32),
         DtypeRepr::I64 => build!(i64),
-        DtypeRepr::U8 => build!(u8),
+        DtypeRepr::U8 | DtypeRepr::Bool => build!(u8),
         DtypeRepr::U16 => build!(u16),
         DtypeRepr::U32 => build!(u32),
         DtypeRepr::U64 => build!(u64),
@@ -2172,7 +2343,13 @@ impl TritonLowering {
                 && let Some(&data) = node.inputs.first()
                 && !elided[data]
             {
-                if axes.is_empty() && node.inputs.len() > 1 {
+                // An axes operand that is a known constant has been adopted onto the
+                // op, so an empty list then is the file's own (reduce every axis, or
+                // none with noop_with_empty_axes); without a value it is unknown.
+                if axes.is_empty()
+                    && node.inputs.len() > 1
+                    && !self.constants.contains_key(&node.inputs[1])
+                {
                     let what = node_label(graph, node_index);
                     return Err(anyhow::anyhow!(
                         "Op::Reduce {what}: the axes operand was not materialised, and \
@@ -2768,7 +2945,10 @@ impl TritonLowering {
                         node
                     )
                 }
-                Op::Flatten => make_num_kernel!(FlattenForward(32, 256), node),
+                // A contiguous tensor flattens to the same elements in the same order, so this
+                // is the element copy Reshape and Identity are (the 2-D tiled FlattenForward
+                // miscopies its u8 instantiation, which bool masks take).
+                Op::Flatten { .. } => make_num_kernel!(ElemwiseCopyForward(1024), node),
 
                 // --- Normalisation ---
                 Op::BatchNorm1d { .. } | Op::BatchNorm3d { .. } => {
@@ -2828,13 +3008,14 @@ impl TritonLowering {
                         runtime_op: rop,
                     })
                 }
-                Op::LayerNorm { eps, .. } => {
+                Op::LayerNorm { eps, axis, .. } => {
                     let eps_f32 = *eps as f32;
                     const LN_BLOCK_N: i32 = 1024;
                     let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
                         DtypeRepr::F32 => {
-                            let r =
-                                LayerNormForwardInferenceRuntimeOp::<f32>::new(LN_BLOCK_N, eps_f32);
+                            let r = LayerNormForwardInferenceRuntimeOp::<f32>::with_axis(
+                                LN_BLOCK_N, eps_f32, *axis,
+                            );
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -2842,8 +3023,9 @@ impl TritonLowering {
                             )
                         }
                         DtypeRepr::F64 => {
-                            let r =
-                                LayerNormForwardInferenceRuntimeOp::<f64>::new(LN_BLOCK_N, eps_f32);
+                            let r = LayerNormForwardInferenceRuntimeOp::<f64>::with_axis(
+                                LN_BLOCK_N, eps_f32, *axis,
+                            );
                             (
                                 r.kernel_name().to_string(),
                                 r.forward_source().to_string(),
@@ -3071,6 +3253,17 @@ impl TritonLowering {
                         ),
                         node
                     )
+                }
+                Op::MaxPool1d { .. } | Op::MaxPool2d { .. } | Op::MaxPool3d { .. }
+                    if matches!(node.dtype, DtypeRepr::U8 | DtypeRepr::Bool) =>
+                {
+                    // The pooling kernels pad with the dtype's lowest float value, which
+                    // wraps for unsigned bytes.
+                    return Err(anyhow::anyhow!(
+                        "MaxPool {}: {:?} input is not supported",
+                        node_label(graph, node_index),
+                        node.dtype
+                    ));
                 }
                 Op::MaxPool1d { kernel_l, stride } => {
                     make_num_kernel!(Maxpool1dForward(*kernel_l as i32, *stride as i32, 32), node)
@@ -3389,6 +3582,7 @@ impl TritonLowering {
                     node.dtype,
                     GeluForwardDispatch::dispatch(node.dtype, 1024)?,
                 ),
+                Op::GeluErf => make_float_kernel!(GeluErfForward(1024), node),
                 Op::Mish => exec_from(
                     node.shape.clone(),
                     node.dtype,
@@ -3929,10 +4123,50 @@ impl TritonLowering {
                 Op::Div => {
                     make_float_kernel!(ElemwiseDivForward(1024), ElemwiseDivBackward(1024), node)
                 }
+                Op::Pow
+                | Op::Mod { .. }
+                | Op::ElemMin
+                | Op::ElemMax
+                | Op::Equal
+                | Op::Greater
+                | Op::GreaterOrEqual
+                | Op::Less
+                | Op::LessOrEqual
+                    if needs_broadcast(graph, node) =>
+                {
+                    // Only Add, Sub, Mul and Div have a broadcasting kernel. The flat
+                    // kernels read every operand at the output's offsets, so a smaller
+                    // operand would be read past its end: refuse instead.
+                    let what = node_label(graph, node_index);
+                    let shapes: Vec<_> = node
+                        .inputs
+                        .iter()
+                        .map(|&i| graph.nodes[i].shape.clone())
+                        .collect();
+                    return Err(anyhow::anyhow!(
+                        "Op::{:?} {what}: operands {shapes:?} differ from the output {:?}, \
+                         and only Add, Sub, Mul and Div have a broadcasting kernel",
+                        node.op,
+                        node.shape
+                    ));
+                }
                 Op::Pow => {
                     make_float_kernel!(ElemwisePowForward(1024), ElemwisePowBackward(1024), node)
                 }
-                Op::Mod { .. } => make_float_kernel!(ElemwiseFmodForward(1024), node),
+                Op::Mod { .. }
+                    if node.inputs.iter().any(|&i| {
+                        !matches!(graph.nodes[i].dtype, DtypeRepr::F32 | DtypeRepr::F64)
+                    }) =>
+                {
+                    // The Mod kernels compute in floating point; an integer operand read as
+                    // float words would give garbage.
+                    return Err(anyhow::anyhow!(
+                        "Op::Mod {}: integer operands are not supported (the kernels are float-only)",
+                        node_label(graph, node_index)
+                    ));
+                }
+                Op::Mod { fmod: true } => make_float_kernel!(ElemwiseTruncModForward(1024), node),
+                Op::Mod { fmod: false } => make_float_kernel!(ElemwiseFmodForward(1024), node),
                 Op::ElemMin => {
                     make_num_kernel!(ElemwiseMinForward(1024), ElemwiseMinBackward(1024), node)
                 }
@@ -4060,6 +4294,25 @@ impl TritonLowering {
                 }
 
                 // ── ONNX reduction ops ────────────────────────────────────────
+                Op::ReduceMax { .. } | Op::ReduceMin { .. } | Op::ReduceLogSumExp { .. }
+                    if node.inputs.first().is_some_and(|&i| {
+                        graph.nodes[i].shape.contains(&Some(0))
+                            || (!matches!(node.op, Op::ReduceLogSumExp { .. })
+                                && graph.nodes[i].dtype == DtypeRepr::Bool)
+                    }) =>
+                {
+                    // Over an empty set these reduce to ±inf, but the kernels start from
+                    // the dtype's finite extremes; and on Bool they start from signed byte
+                    // extremes. Refuse both rather than return a wrong value.
+                    let src = &graph.nodes[node.inputs[0]];
+                    return Err(anyhow::anyhow!(
+                        "{:?} {}: input {:?} of shape {:?} is not supported (empty or Bool)",
+                        node.op,
+                        node_label(graph, node_index),
+                        src.dtype,
+                        src.shape
+                    ));
+                }
                 Op::ReduceSum { .. } => {
                     make_num_kernel!(ReduceSumForward(REDUCE_BLOCK_INNER), node)
                 }
@@ -4275,71 +4528,114 @@ impl TritonLowering {
                         matmul_plan(&operand(0, "left operand")?, &operand(1, "right operand")?)
                             .map_err(|e| anyhow::anyhow!("Op::MatMul {what}: {e}"))?;
 
-                    let (block_m, block_n, block_k) =
-                        pick_gemm_tile_sizes(Some(plan.m), plan.n, plan.k);
+                    // The tiled kernel's tensor descriptors need 16-byte row strides, so
+                    // a K or N that is not a multiple of 4 is wrong on CUDA
+                    // (teenygrad#143); the row kernel is exact for any shape.
+                    if plan.k % 4 != 0 || plan.n % 4 != 0 {
+                        use crate::math::gemm::{MatMulRowsRuntimeOp, MatmulRowsForward};
+                        macro_rules! rows {
+                            ($ty:ty) => {{
+                                let k = MatmulRowsForward::<$ty>::new(64);
+                                (
+                                    k.name.to_string(),
+                                    k.source.clone(),
+                                    k.kernel_source.clone(),
+                                )
+                            }};
+                        }
+                        let (name, kernel_source, kernel_body) = match node.dtype {
+                            DtypeRepr::F32 => rows!(f32),
+                            DtypeRepr::F64 => rows!(f64),
+                            DtypeRepr::I32 => rows!(i32),
+                            DtypeRepr::I64 => rows!(i64),
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "{other:?} is not a supported dtype for MatMul"
+                                ));
+                            }
+                        };
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{name}_entry_point"),
+                            name,
+                            kernel_source,
+                            kernel_body,
+                            pointwise_fuse_block_size: None,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: Arc::new(MatMulRowsRuntimeOp::new(plan, 64)),
+                        })
+                    } else {
+                        let (block_m, block_n, block_k) =
+                            pick_gemm_tile_sizes(Some(plan.m), plan.n, plan.k);
 
-                    let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype {
-                        DtypeRepr::F32 => {
-                            let r = MatMulRuntimeOp::<f32>::new(
-                                block_m,
-                                block_n,
-                                block_k,
-                                plan.clone(),
-                            )
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Op::MatMul {what}: a K tile of {block_k} does not fit \
-                                     inside a contraction of {}",
-                                    plan.k
+                        let (name, ks, rop): (String, String, Arc<dyn RuntimeOp>) = match node.dtype
+                        {
+                            DtypeRepr::F32 => {
+                                let r = MatMulRuntimeOp::<f32>::new(
+                                    block_m,
+                                    block_n,
+                                    block_k,
+                                    plan.clone(),
                                 )
-                            })?;
-                            (
-                                r.kernel_name().to_string(),
-                                r.forward_source().to_string(),
-                                Arc::new(r),
-                            )
-                        }
-                        DtypeRepr::F64 => {
-                            let r = MatMulRuntimeOp::<f64>::new(
-                                block_m,
-                                block_n,
-                                block_k,
-                                plan.clone(),
-                            )
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Op::MatMul {what}: a K tile of {block_k} does not fit \
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::MatMul {what}: a K tile of {block_k} does not fit \
                                      inside a contraction of {}",
-                                    plan.k
+                                        plan.k
+                                    )
+                                })?;
+                                (
+                                    r.kernel_name().to_string(),
+                                    r.forward_source().to_string(),
+                                    Arc::new(r),
                                 )
-                            })?;
-                            (
-                                r.kernel_name().to_string(),
-                                r.forward_source().to_string(),
-                                Arc::new(r),
-                            )
-                        }
-                        other => {
-                            return Err(anyhow::anyhow!(
-                                "{:?} is not a Float dtype for MatMul",
-                                other
-                            ));
-                        }
-                    };
-                    Box::new(KernelExecutable {
-                        entry_point: format!("{}_entry_point", name),
-                        name,
-                        kernel_source: ks,
-                        kernel_body: String::new(),
-                        pointwise_fuse_block_size: None,
-                        shape: node.shape.clone(),
-                        dtype: node.dtype,
-                        #[cfg(feature = "training")]
-                        backward_kernel_source: String::new(),
-                        #[cfg(feature = "training")]
-                        backward_entry_point: String::new(),
-                        runtime_op: rop,
-                    })
+                            }
+                            DtypeRepr::F64 => {
+                                let r = MatMulRuntimeOp::<f64>::new(
+                                    block_m,
+                                    block_n,
+                                    block_k,
+                                    plan.clone(),
+                                )
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Op::MatMul {what}: a K tile of {block_k} does not fit \
+                                     inside a contraction of {}",
+                                        plan.k
+                                    )
+                                })?;
+                                (
+                                    r.kernel_name().to_string(),
+                                    r.forward_source().to_string(),
+                                    Arc::new(r),
+                                )
+                            }
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "{:?} is not a Float dtype for MatMul",
+                                    other
+                                ));
+                            }
+                        };
+                        Box::new(KernelExecutable {
+                            entry_point: format!("{}_entry_point", name),
+                            name,
+                            kernel_source: ks,
+                            kernel_body: String::new(),
+                            pointwise_fuse_block_size: None,
+                            shape: node.shape.clone(),
+                            dtype: node.dtype,
+                            #[cfg(feature = "training")]
+                            backward_kernel_source: String::new(),
+                            #[cfg(feature = "training")]
+                            backward_entry_point: String::new(),
+                            runtime_op: rop,
+                        })
+                    }
                 }
 
                 // ── ONNX ops that cannot be lowered to a single Triton kernel ─
@@ -4539,25 +4835,37 @@ impl TritonLowering {
                                 graph.nodes[data].shape
                             )
                         })?;
-                    let indices = self
-                        .constants
-                        .get(&idx_node)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Op::Gather {what}: its indices are computed at runtime. \
-                                 Only constant indices are supported: an index tensor is \
-                                 integer-typed, and an activation buffer is typed from \
-                                 its node's dtype, so a runtime index tensor has nowhere \
-                                 correctly-typed to land. Materialise the indices, or \
-                                 implement integer-typed activation buffers."
-                            )
-                        })?
-                        .to_i64_vec()
-                        .map_err(|e| Error::UnreadableConstant {
-                            context: format!("Op::Gather {what}: indices operand"),
-                            reason: e,
-                        })?;
-                    gather_executable(node, &in_shape, *axis, &indices, &what)?
+                    match self.constants.get(&idx_node) {
+                        None => {
+                            // Indices known only at run time (token ids into an embedding):
+                            // read from the index tensor's own buffer.
+                            let idx = &graph.nodes[idx_node];
+                            let idx_bytes = match idx.dtype {
+                                DtypeRepr::I64 => 8,
+                                DtypeRepr::I32 => 4,
+                                other => {
+                                    return Err(anyhow::anyhow!(
+                                        "Op::Gather {what}: runtime indices of {other:?}; only \
+                                     I32 and I64 are supported"
+                                    ));
+                                }
+                            };
+                            let n_idx: usize =
+                                concrete_shape(&idx.shape, "Gather", &what, "its indices'")?
+                                    .iter()
+                                    .product();
+                            gather_dyn_executable(node, &in_shape, *axis, n_idx, idx_bytes, &what)?
+                        }
+                        Some(constant) => {
+                            let indices = constant.to_i64_vec().map_err(|reason| {
+                                Error::UnreadableConstant {
+                                    context: format!("Op::Gather {what}: indices operand"),
+                                    reason,
+                                }
+                            })?;
+                            gather_executable(node, &in_shape, *axis, &indices, &what)?
+                        }
+                    }
                 }
                 Op::GatherElements { .. } | Op::GatherND { .. } => {
                     return Err(anyhow::anyhow!(
@@ -5543,16 +5851,19 @@ impl TritonLowering {
                                 node_label(graph, node_index)
                             )
                         })?;
-                    if from != *to || node.dtype != *to {
+                    if node.dtype != *to {
                         return Err(anyhow::anyhow!(
-                            "TODO: Op::Cast {} from {from:?} to {to:?} (node dtype \
-                             {:?}) — a converting cast needs a kernel; only a cast \
-                             that changes nothing lowers, as a copy",
+                            "Op::Cast {}: casts to {to:?} but the node is {:?}; the \
+                             node's dtype sets its buffer's width",
                             node_label(graph, node_index),
                             node.dtype
                         ));
                     }
-                    make_num_kernel!(ElemwiseCopyForward(1024), node)
+                    if from == *to {
+                        make_num_kernel!(ElemwiseCopyForward(1024), node)
+                    } else {
+                        cast_executable(node, from, *to, &node_label(graph, node_index))?
+                    }
                 }
                 // Pass-through, as Op::Reshape above.
                 Op::Identity => {

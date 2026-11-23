@@ -60,6 +60,15 @@ fn narrow<T: Copy + Into<i128>>(values: &[T], width: usize) -> Vec<u8> {
     out
 }
 
+/// Reads a serialised `TensorProto` (a `.pb` file of the ONNX backend test data, say),
+/// returning its name and values.
+pub fn read_tensor_proto(bytes: &[u8]) -> Result<(String, TensorData)> {
+    let t = TensorProto::parse_from_bytes(bytes)
+        .map_err(|e| Error::InvalidModel(format!("parsing TensorProto: {e}")))?;
+    let data = tensor_data(&t, &t.name)?;
+    Ok((t.name.clone(), data))
+}
+
 /// Extracts a `TensorProto`'s values.
 ///
 /// ONNX stores values either in `raw_data` or in a dtype-specific repeated field; both
@@ -220,6 +229,9 @@ pub(crate) struct ImportCtx<'a> {
     /// Tensor name -> the index of the node producing it. Doubles as the enclosing
     /// scope when a subgraph is imported.
     pub(crate) value_to_node: BTreeMap<String, usize>,
+    /// Later outputs of multi-output nodes, which are not computed: tensor name -> its
+    /// producer, for the error a consumer of one gets.
+    dropped_outputs: BTreeMap<String, String>,
     pub(crate) value_info_map: BTreeMap<String, (DtypeRepr, Shape)>,
     initializer_map: BTreeMap<&'a str, &'a TensorProto>,
     /// The file's ONNX opset version, which decides what some absent attributes mean.
@@ -350,6 +362,7 @@ impl<'a> ImportCtx<'a> {
             graph: Graph::new(),
             tensors: BTreeMap::new(),
             value_to_node: BTreeMap::new(),
+            dropped_outputs: BTreeMap::new(),
             value_info_map,
             opset,
             initializer_map: onnx_graph
@@ -390,6 +403,7 @@ impl<'a> ImportCtx<'a> {
             graph,
             tensors,
             value_to_node,
+            dropped_outputs: BTreeMap::new(),
             value_info_map,
             opset,
             initializer_map: subgraph
@@ -479,12 +493,24 @@ impl<'a> ImportCtx<'a> {
                 inputs.push(self.omitted_node());
                 continue;
             }
-            let input_id = self.value_to_node.get(input_name).copied().ok_or_else(|| {
-                Error::InvalidModel(format!(
-                    "Node '{}' references unknown input '{}'",
-                    node.name, input_name
-                ))
-            })?;
+            let input_id = match self.value_to_node.get(input_name) {
+                Some(&id) => id,
+                None => {
+                    if let Some(producer) = self.dropped_outputs.get(input_name) {
+                        return Err(Error::Unsupported(format!(
+                            "Node '{}' ({}) reads '{input_name}', a later output of {producer}; \
+                             only a node's first output is computed",
+                            node.name, node.op_type
+                        ))
+                        .into());
+                    }
+                    return Err(Error::InvalidModel(format!(
+                        "Node '{}' references unknown input '{}'",
+                        node.name, input_name
+                    ))
+                    .into());
+                }
+            };
             inputs.push(input_id);
         }
 
@@ -558,7 +584,19 @@ impl<'a> ImportCtx<'a> {
         // dtype, and lowering reads the node's dtype to pick the instantiation, so
         // calling them Bool here would stop them lowering at all. That wants fixing
         // together, in the kernels and here.
-        let logical_output = matches!(op, Op::And | Op::Or | Op::Xor);
+        // Comparisons return bools too. Their kernels write 0/1 in the operands' dtype,
+        // so `rewrite::compare_then_cast` later computes them at that dtype and casts.
+        let logical_output = matches!(
+            op,
+            Op::And
+                | Op::Or
+                | Op::Xor
+                | Op::Equal
+                | Op::Greater
+                | Op::GreaterOrEqual
+                | Op::Less
+                | Op::LessOrEqual
+        );
 
         let (dtype, shape) = constant_type
             .or_else(|| self.value_info_map.get(first_output).cloned())
@@ -588,6 +626,18 @@ impl<'a> ImportCtx<'a> {
                     (input_node.dtype, Vec::new())
                 }
             });
+        // A Cast's output has the dtype it casts to, whatever its operand's is. Without
+        // value_info the fallback above copies the operand's, which makes every
+        // converting Cast look like a no-op copy at the wrong width.
+        // Likewise a Where's output has its values' dtype (operand 1), not its
+        // condition's, which is Bool.
+        let dtype = match &op {
+            Op::Cast { to } => *to,
+            Op::Where if dtype == DtypeRepr::Bool => {
+                inputs.get(1).map_or(dtype, |&i| self.graph.nodes[i].dtype)
+            }
+            _ => dtype,
+        };
 
         // A multi-output op cannot be one node: every output name would map to the
         // same node, and so to the same buffer, and a consumer of output 1 would
@@ -625,9 +675,20 @@ impl<'a> ImportCtx<'a> {
             );
         }
 
-        for output_name in &node.output {
-            if !output_name.is_empty() {
-                self.value_to_node.insert(output_name.clone(), node_id);
+        // The node computes its first output only. A multi-output op's later outputs
+        // (LayerNormalization's Mean and InvStdDev, MaxPool's Indices, TopK's indices)
+        // are left without a producer, so a consumer of one fails to import rather than
+        // silently reading the first output's buffer. Split, whose outputs are all data,
+        // is expanded into one node per output above.
+        if let Some(first) = node.output.first().filter(|n| !n.is_empty()) {
+            self.value_to_node.insert(first.clone(), node_id);
+        }
+        for (k, name) in node.output.iter().enumerate().skip(1) {
+            if !name.is_empty() {
+                self.dropped_outputs.insert(
+                    name.clone(),
+                    format!("node '{}' ({}, output #{k})", node.name, node.op_type),
+                );
             }
         }
         Ok(node_id)
@@ -678,8 +739,29 @@ impl Onnx {
         Self::import_from_reader(&mut file)
     }
 
+    /// As [`Onnx::import_from_path`], with `constants` giving values for named graph
+    /// inputs, which are then imported as if they were initializers.
+    ///
+    /// For a model whose metadata or weights arrive as inputs (the ONNX backend test
+    /// suite passes every operand that way) this is what an exporter would have written:
+    /// ops resolved during import, such as Split's sizes, see the values.
+    pub fn import_from_path_with_constants(
+        path: impl AsRef<Path>,
+        constants: &BTreeMap<String, TensorData>,
+    ) -> Result<Import> {
+        let mut file = File::open(path)?;
+        Self::import_inner(&mut file, Some(constants))
+    }
+
     /// As [`Onnx::import_from_path`], reading from `reader`.
     pub fn import_from_reader(reader: &mut impl Read) -> Result<Import> {
+        Self::import_inner(reader, None)
+    }
+
+    fn import_inner(
+        reader: &mut impl Read,
+        constants: Option<&BTreeMap<String, TensorData>>,
+    ) -> Result<Import> {
         let mut reader = CodedInputStream::new(reader);
         let model = ModelProto::parse_from(&mut reader)?;
         let onnx_graph = model
@@ -699,6 +781,11 @@ impl Onnx {
         let mut ctx = ImportCtx::new(onnx_graph, opset)?;
         let mut branches: BTreeMap<usize, IfBranches> = BTreeMap::new();
         ctx.add_initializers_and_inputs(onnx_graph)?;
+        for (name, value) in constants.into_iter().flatten() {
+            if let Some(&id) = ctx.value_to_node.get(name) {
+                ctx.tensors.insert(id, value.clone());
+            }
+        }
 
         for node in &onnx_graph.node {
             let node_id = ctx.import_node(node)?;
@@ -830,6 +917,38 @@ fn get_attr_string<'a>(node: &'a NodeProto, name: &str, default: &'a str) -> &'a
         .unwrap_or(default)
 }
 
+/// Refuses pooling and convolution attributes the IR cannot express, so they fail to
+/// import instead of being computed as if absent: `auto_pad` other than NOTSET/VALID
+/// (its padding depends on the input's size, which the importer does not know yet),
+/// `ceil_mode`, `dilations` other than 1, and, when `pads_supported` is false or the
+/// pads are asymmetric, any padding at all.
+fn refuse_window_attrs(node: &NodeProto, what: &str, pads_supported: bool) -> Result<()> {
+    let refuse = |why: String| -> Result<()> {
+        Err(Error::Unsupported(format!("Node '{}' ({what}): {why}", node.name)).into())
+    };
+    let auto_pad = get_attr_string(node, "auto_pad", "NOTSET");
+    if !matches!(auto_pad, "NOTSET" | "VALID" | "") {
+        return refuse(format!("auto_pad {auto_pad} is not supported"));
+    }
+    if what != "Conv" && get_attr_int(node, "ceil_mode", 0) != 0 {
+        return refuse("ceil_mode is not supported".into());
+    }
+    if let Some(d) = get_attr_ints(node, "dilations")
+        && d.iter().any(|&v| v != 1)
+    {
+        return refuse(format!("dilations {d:?} are not supported"));
+    }
+    if let Some(p) = get_attr_ints(node, "pads") {
+        let half = p.len() / 2;
+        if p.iter().any(|&v| v != 0) && (!pads_supported || p[..half] != p[half..]) {
+            return refuse(format!(
+                "pads {p:?} are not supported (only symmetric padding, and only in 2-D)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn map_node_op(
     node: &NodeProto,
     initializers: &BTreeMap<&str, &TensorProto>,
@@ -843,7 +962,21 @@ fn map_node_op(
         "Sigmoid" => Op::Sigmoid,
         "Tanh" => Op::Tanh,
         "Add" => Op::Add,
-        "Flatten" => Op::Flatten,
+        "Flatten" => {
+            // A negative axis counts from the end, which needs the input's rank; the
+            // importer has no shapes yet, so refuse it rather than guess.
+            let axis = get_attr_int(node, "axis", 1);
+            if axis < 0 {
+                return Err(Error::Unsupported(format!(
+                    "Flatten '{}' with negative axis {axis} is not supported",
+                    node.name
+                ))
+                .into());
+            }
+            Op::Flatten {
+                axis: axis as usize,
+            }
+        }
         "Softmax" => {
             // ONNX changed the default in opset 13, from 1 to -1, so the file's own
             // opset decides what an absent attribute means. The axis is kept as
@@ -856,6 +989,7 @@ fn map_node_op(
         }
 
         "Conv" => {
+            refuse_window_attrs(node, "Conv", true)?;
             let weight_name = node.input.get(1).map(|s| s.as_str()).unwrap_or("");
             // Weight dims: [out_ch, in_ch/groups, k...] if from an initializer,
             // otherwise inferred from the kernel_shape attribute.
@@ -962,7 +1096,17 @@ fn map_node_op(
 
         "MaxPool" => {
             let kernel = get_attr_ints(node, "kernel_shape").unwrap_or(&[1, 1]);
-            let strides = get_attr_ints(node, "strides").unwrap_or(kernel);
+            refuse_window_attrs(node, "MaxPool", kernel.len() == 2)?;
+            if node.output.len() > 1 && !node.output[1].is_empty() {
+                return Err(Error::Unsupported(format!(
+                    "Node '{}' (MaxPool): the Indices output is not supported",
+                    node.name
+                ))
+                .into());
+            }
+            // ONNX's default stride is 1 along each axis (PyTorch's is the kernel size).
+            let ones = vec![1i64; kernel.len()];
+            let strides = get_attr_ints(node, "strides").unwrap_or(&ones);
             let pads = get_attr_ints(node, "pads").unwrap_or(&[0, 0, 0, 0]);
             match kernel.len() {
                 1 => Op::MaxPool1d {
@@ -990,7 +1134,10 @@ fn map_node_op(
 
         "AveragePool" => {
             let kernel = get_attr_ints(node, "kernel_shape").unwrap_or(&[1, 1]);
-            let strides = get_attr_ints(node, "strides").unwrap_or(kernel);
+            refuse_window_attrs(node, "AveragePool", kernel.len() == 2)?;
+            // ONNX's default stride is 1 along each axis (PyTorch's is the kernel size).
+            let ones = vec![1i64; kernel.len()];
+            let strides = get_attr_ints(node, "strides").unwrap_or(&ones);
             let pads = get_attr_ints(node, "pads").unwrap_or(&[0, 0, 0, 0]);
             let count_include_pad = get_attr_int(node, "count_include_pad", 0) != 0;
             // `pads` is [h_begin, w_begin, h_end, w_end] and may be asymmetric, which
@@ -1104,6 +1251,7 @@ fn map_node_op(
             let eps = get_attr_float(node, "epsilon", 1e-5) as f64;
             Op::LayerNorm {
                 normalized_shape: vec![],
+                axis: get_attr_int(node, "axis", -1),
                 eps,
                 affine: true,
             }
@@ -1170,13 +1318,44 @@ fn map_node_op(
         "Elu" => Op::Elu {
             alpha: get_attr_float(node, "alpha", 1.0) as f64,
         },
-        "Selu" => Op::Selu,
+        "Selu" => {
+            // The kernel has PyTorch's constants baked in, which are ONNX's defaults.
+            let alpha = get_attr_float(node, "alpha", 1.673_263_2);
+            let gamma = get_attr_float(node, "gamma", 1.050_701);
+            if (alpha - 1.673_263_2).abs() > 1e-5 || (gamma - 1.050_701).abs() > 1e-5 {
+                return Err(Error::Unsupported(format!(
+                    "Selu '{}' with alpha {alpha}, gamma {gamma}: only the defaults \
+                     (1.6733, 1.0507) are supported",
+                    node.name
+                ))
+                .into());
+            }
+            Op::Selu
+        }
         "Celu" => Op::Celu {
             alpha: get_attr_float(node, "alpha", 1.0) as f64,
         },
-        "Gelu" => Op::Gelu,
+        "Gelu" => match get_attr_string(node, "approximate", "none") {
+            "tanh" => Op::Gelu,
+            _ => Op::GeluErf,
+        },
         "Mish" => Op::Mish,
-        "HardSigmoid" => Op::Hardsigmoid,
+        "HardSigmoid" => {
+            // The kernel is PyTorch's hardsigmoid, clamp(x / 6 + 1 / 2, 0, 1): ONNX's
+            // alpha = 1/6, beta = 0.5. ONNX's own defaults (0.2, 0.5) differ, so any
+            // other pair is refused rather than computed with PyTorch's.
+            let alpha = get_attr_float(node, "alpha", 0.2);
+            let beta = get_attr_float(node, "beta", 0.5);
+            if (alpha - 1.0 / 6.0).abs() > 1e-6 || (beta - 0.5).abs() > 1e-6 {
+                return Err(Error::Unsupported(format!(
+                    "HardSigmoid '{}' with alpha {alpha}, beta {beta}: only PyTorch's \
+                     (1/6, 0.5) is supported",
+                    node.name
+                ))
+                .into());
+            }
+            Op::Hardsigmoid
+        }
         "HardSwish" => Op::Hardswish,
         "Swish" => Op::Swish,
         "LeakyRelu" => Op::LeakyRelu {
@@ -1303,6 +1482,15 @@ fn map_node_op(
         "GatherND" => Op::GatherND {
             batch_dims: get_attr_int(node, "batch_dims", 0),
         },
+        "ScatterElements" | "ScatterND" if get_attr_string(node, "reduction", "none") != "none" => {
+            return Err(Error::Unsupported(format!(
+                "{} '{}' with reduction '{}': only 'none' is supported",
+                node.op_type,
+                node.name,
+                get_attr_string(node, "reduction", "none")
+            ))
+            .into());
+        }
         "ScatterElements" => Op::ScatterElements {
             axis: get_attr_int(node, "axis", 0),
         },
@@ -1507,19 +1695,43 @@ fn map_node_op(
         // ---------------------------------------------------------------
         // Resize / spatial
         // ---------------------------------------------------------------
+        "Upsample" | "Resize"
+            if get_attr_float(node, "cubic_coeff_a", -0.75) != -0.75
+                || get_attr_int(node, "exclude_outside", 0) != 0
+                || get_attr_float(node, "extrapolation_value", 0.0) != 0.0
+                || get_attr_string(node, "keep_aspect_ratio_policy", "stretch") != "stretch" =>
+        {
+            return Err(Error::Unsupported(format!(
+                "Node '{}' (Resize): cubic_coeff_a other than -0.75, exclude_outside, \
+                 extrapolation_value and keep_aspect_ratio_policy are not supported",
+                node.name
+            ))
+            .into());
+        }
         "Upsample" | "Resize" => Op::Resize {
             mode: get_attr_string(node, "mode", "nearest").to_string(),
+            // Resize defaults to half_pixel; the deprecated Upsample has no such
+            // attribute and always means asymmetric.
             coordinate_transformation_mode: get_attr_string(
                 node,
                 "coordinate_transformation_mode",
-                "asymmetric",
+                if node.op_type == "Upsample" {
+                    "asymmetric"
+                } else {
+                    "half_pixel"
+                },
             )
             .to_string(),
             // ONNX's default is a rounding, not a floor. An exporter writing a plain
             // nearest upsample asks for `floor` explicitly, and reading one for the
             // other shifts the whole axis by an element, so it is carried rather than
             // assumed.
-            nearest_mode: get_attr_string(node, "nearest_mode", "round_prefer_floor").to_string(),
+            // Upsample (deprecated) has no nearest_mode and always floors.
+            nearest_mode: if node.op_type == "Upsample" {
+                "floor".to_string()
+            } else {
+                get_attr_string(node, "nearest_mode", "round_prefer_floor").to_string()
+            },
             antialias: get_attr_int(node, "antialias", 0) != 0,
         },
 

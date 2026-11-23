@@ -92,6 +92,7 @@ impl Op {
                 | Op::Elu { .. }
                 | Op::Selu
                 | Op::Gelu
+                | Op::GeluErf
                 | Op::Mish
                 | Op::Silu
                 | Op::Swish
@@ -133,12 +134,12 @@ impl Op {
     ///
     /// Positions are indices into [`GraphNode::inputs`]. Operands that genuinely flow
     /// data are excluded. `Gather`'s indices are included even though they are a
-    /// tensor operand rather than an attribute: an index tensor is integer-typed, and
-    /// a node's buffers are typed from its own dtype, so a lowering has nowhere
-    /// correctly-typed to put one as an activation. The gather kernel therefore reads
-    /// its indices from a parameter slot the lowering fills, which means the operand
-    /// never needs a buffer either. `GatherElements` and `GatherND` are not included,
-    /// since nothing lowers them yet.
+    /// tensor operand rather than an attribute: when they are constant the gather
+    /// kernel reads them from a parameter slot the lowering fills, so the operand needs
+    /// no buffer. Only constants are elided (see `elidable_constants`), so indices
+    /// computed at run time keep their edge and reach the runtime-index kernel as an
+    /// activation. `GatherElements` and `GatherND` are not included, since nothing
+    /// lowers them yet.
     pub fn shape_operand_positions(&self) -> &'static [usize] {
         match self {
             // Reshape(data, shape), Expand(data, shape), Tile(data, repeats)
@@ -323,8 +324,12 @@ pub enum Op {
         /// Whether a learned bias is added.
         has_bias: bool,
     },
-    /// Flattens all spatial dimensions into a single feature vector (see `nn::flatten::Flatten`).
-    Flatten,
+    /// Flattens to 2-D: every axis before `axis` into the first output dimension and
+    /// the rest into the second (ONNX `Flatten`; `axis: 1` is `nn::flatten::Flatten`).
+    Flatten {
+        /// The first axis of the second output dimension.
+        axis: usize,
+    },
 
     // --- Normalisation ---
     /// 1-D batch normalization (see `nn::batchnorm::BatchNorm1d`).
@@ -370,6 +375,9 @@ pub enum Op {
     LayerNorm {
         /// Shape of the trailing axes to normalize over.
         normalized_shape: alloc::vec::Vec<usize>,
+        /// The first normalized axis (ONNX's `axis`; negative counts from the end).
+        /// Every axis from it to the last is normalized over together.
+        axis: i64,
         /// Numerical stability constant.
         eps: f64,
         /// Whether to learn per-channel scale/shift parameters.
@@ -789,8 +797,10 @@ pub enum Op {
         /// The `alpha` parameter.
         alpha: f64,
     },
-    /// GELU activation (see `nn::activation::gelu::Gelu`).
+    /// GELU activation (see `nn::activation::gelu::Gelu`): the tanh approximation.
     Gelu,
+    /// Exact GELU, `x * 0.5 * (1 + erf(x / sqrt(2)))`: ONNX's `Gelu` by default.
+    GeluErf,
     /// Mish activation (see `nn::activation::gelu::Mish`).
     Mish,
     /// Hardtanh activation (see `nn::activation::hard::Hardtanh`).
@@ -1960,6 +1970,7 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
         | Op::Selu
         | Op::Celu { .. }
         | Op::Gelu
+        | Op::GeluErf
         | Op::Mish
         | Op::Hardtanh { .. }
         | Op::Relu6
@@ -1994,13 +2005,14 @@ fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
             out
         }
 
-        Op::Flatten => {
-            // [N, C, H, W, ...] → [N, C*H*W*...]
-            let rest = &input[1..];
-            let flat: Option<usize> = rest
-                .iter()
-                .try_fold(1usize, |acc, dim| dim.map(|d| acc * d));
-            vec![input[0], flat]
+        Op::Flatten { axis } => {
+            // [d0 .. d(axis-1), d(axis) ..] → [d0*..*d(axis-1), d(axis)*..]
+            let axis = (*axis).min(input.len());
+            let prod = |dims: &[Option<usize>]| {
+                dims.iter()
+                    .try_fold(1usize, |acc, dim| dim.map(|d| acc * d))
+            };
+            vec![prod(&input[..axis]), prod(&input[axis..])]
         }
 
         // --- Convolution ---

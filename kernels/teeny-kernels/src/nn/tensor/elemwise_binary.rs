@@ -684,7 +684,7 @@ impl_binary_float_runtime_op_with_bwd!(ElemwisePowForward);
 
 // ── Mod ───────────────────────────────────────────────────────────────────────
 
-/// Forward fmod: out = a - trunc(a/b)*b  (C-style float remainder)
+/// Forward Mod with fmod=0: out = a - floor(a/b)*b, the sign of the divisor (Python-style).
 #[kernel]
 pub fn elemwise_fmod_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     a_ptr: InPtr<T::Pointer<D>>,
@@ -720,8 +720,6 @@ pub fn elemwise_fmod_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    // fmod: a - floor(a/b)*b  (use floor here; for true C fmod we'd need trunc)
-    // Using floor makes this the Python-style modulo which is more broadly useful.
     let y = a - T::floor(a / b) * b;
     T::store(
         out_ptr.add_offsets(offsets),
@@ -734,6 +732,84 @@ pub fn elemwise_fmod_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
 }
 
 impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseFmodForward<D> {
+    fn n_activation_inputs(&self) -> usize {
+        2
+    }
+    fn param_shapes(&self, _: &[&[usize]], _: &[usize]) -> Vec<Vec<usize>> {
+        vec![]
+    }
+    fn pack_args(
+        &self,
+        inputs: &[(teeny_core::model::RawPtr, &[usize])],
+        _: &[teeny_core::model::RawPtr],
+        output: teeny_core::model::RawPtr,
+        output_shape: &[usize],
+        _: i32,
+        visitor: &mut dyn teeny_core::device::program::ArgVisitor,
+    ) {
+        let n: usize = output_shape.iter().product();
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(inputs[1].0);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(n as i32);
+    }
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let n: usize = output_shape.iter().product();
+        [n.div_ceil(self.block_size as usize) as u32, 1, 1]
+    }
+}
+
+/// Forward Mod with fmod=1: out = a - trunc(a/b)*b, the sign of the dividend (C fmod).
+#[kernel]
+pub fn elemwise_trunc_mod_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
+    a_ptr: InPtr<T::Pointer<D>>,
+    b_ptr: InPtr<T::Pointer<D>>,
+    out_ptr: OutPtr<T::Pointer<D>>,
+    n_elements: i32,
+) where
+    T::I32Tensor: types::Tensor<i32, 1>,
+    T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let pid = T::program_id(Axis::X);
+    let block_start = pid * BLOCK_SIZE;
+    let offsets = T::arange(0, BLOCK_SIZE) + block_start;
+    let in_bounds = offsets.lt(n_elements);
+    let a = T::load(
+        a_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let b = T::load(
+        b_ptr.add_offsets(offsets),
+        Some(in_bounds),
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let q = a / b;
+    let zero = T::zeros_like(q);
+    let t = T::where_(T::lt(q, zero), zero - T::floor(zero - q), T::floor(q));
+    let y = a - t * b;
+    T::store(
+        out_ptr.add_offsets(offsets),
+        y,
+        Some(in_bounds),
+        &[],
+        None,
+        None,
+    );
+}
+
+impl<D: Float + Send + Sync + 'static> teeny_core::model::RuntimeOp for ElemwiseTruncModForward<D> {
     fn n_activation_inputs(&self) -> usize {
         2
     }

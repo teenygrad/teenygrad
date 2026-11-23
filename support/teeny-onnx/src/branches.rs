@@ -204,6 +204,9 @@ pub fn materialize_and_resolve(
     import: &mut Import,
     config: &MaterializeConfig,
 ) -> Result<(ConstantMap, MaterializeReport, BranchReport)> {
+    crate::rewrite::decompose_gemm(&mut import.graph)
+        .map_err(crate::errors::Error::InvalidModel)?;
+    crate::rewrite::simplify_pow(&mut import.graph, &import.tensors);
     let mut folds = ConstantMap::new();
     let mut totals = BranchReport::default();
     // The first round's folding report is the one worth returning: it describes
@@ -226,7 +229,13 @@ pub fn materialize_and_resolve(
         totals.declined_multi_output = report.declined_multi_output;
 
         if !report.made_progress() {
-            let all = lowering_constants(&import.graph, &seed, &folds);
+            let mut all = lowering_constants(&import.graph, &seed, &folds);
+            // With every shape now known, give the ops that have no broadcasting
+            // kernel operands of their output's shape.
+            crate::rewrite::split_variadic(&mut import.graph, &mut all);
+            crate::rewrite::expand_for_broadcast(&mut import.graph, &mut all);
+            crate::rewrite::compare_then_cast(&mut import.graph);
+            crate::rewrite::dedupe_operands(&mut import.graph);
             return Ok((all, materialize_report, totals));
         }
     }

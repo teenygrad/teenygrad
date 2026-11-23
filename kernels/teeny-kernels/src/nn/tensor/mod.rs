@@ -15,6 +15,7 @@
  */
 
 pub mod broadcast_binary;
+pub mod cast;
 pub mod channel_bias_add;
 pub mod channel_cat;
 pub mod channel_chunk;
