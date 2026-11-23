@@ -101,7 +101,11 @@ pub fn gelu_erf_forward<T: Triton, D: Float, const BLOCK_SIZE: i32>(
     );
     let half = T::full(&[BLOCK_SIZE], D::from_f64(0.5));
     let one = T::full(&[BLOCK_SIZE], D::from_f64(1.0));
-    let rsqrt2 = T::full(&[BLOCK_SIZE], D::from_f64(core::f64::consts::FRAC_1_SQRT_2));
+    // 1/sqrt(2). A literal (not `f64::consts::FRAC_1_SQRT_2`) is deliberate: this body is
+    // compiled through the `teenyc`/no_core Triton DSL frontend, which cannot resolve
+    // `core` const paths.
+    #[allow(clippy::approx_constant)]
+    let rsqrt2 = T::full(&[BLOCK_SIZE], D::from_f64(0.7071067811865476));
     let y = x * half * (one + T::erf(x * rsqrt2));
     T::store(
         y_ptr.add_offsets(offsets),
