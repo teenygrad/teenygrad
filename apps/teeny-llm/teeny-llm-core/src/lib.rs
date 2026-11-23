@@ -34,7 +34,7 @@ mod types;
 
 #[cfg(feature = "kernels")]
 pub mod kernels;
-#[cfg(feature = "functiongemma")]
+#[cfg(any(feature = "functiongemma", feature = "inkling2"))]
 pub mod models;
 
 pub use echo::EchoEngine;

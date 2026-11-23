@@ -19,3 +19,6 @@
 
 #[cfg(feature = "functiongemma")]
 pub mod functiongemma;
+
+#[cfg(feature = "inkling2")]
+pub mod inkling2;

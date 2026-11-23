@@ -29,6 +29,13 @@ functiongemma = [
   "dep:teeny-test",
   "dep:tokenizers",
 ]
+# Inkling-2 (thinkingmachines/Inkling-2-Mini). Needs a backend, as functiongemma does.
+inkling2 = [
+  "kernels",
+  "dep:anyhow",
+  "dep:serde",
+  "dep:serde_json",
+]
 # The kernels shared between models (`teeny_llm_core::kernels`). Enabled by every model
 # feature; on its own it builds the kernels without any model.
 kernels = ["dep:teeny-core", "dep:teeny-macros", "dep:teeny-triton"]
