@@ -49,7 +49,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
-use teeny_llm_core::models::inkling2::weights::pack_rows;
+use teeny_llm_core::models::inkling2::weights::{Checkpoint, pack_rows};
 use teeny_test::model::{RuntimeModel, runtime};
 
 /// Deterministic values in `[-1, 1)`.
@@ -1730,4 +1730,112 @@ fn test_mxfp8_scale_127_is_unity() {
         "scale 127 should be unity: got {}, want {want}",
         got[0]
     );
+}
+
+/// The loader's output is exactly what the gather expects.
+///
+/// Writes real NVFP4 bytes into a safetensors checkpoint, reads them back through
+/// `Checkpoint::param`, and runs the packed gather on the result, comparing against
+/// the plain f32 gather fed the same weights decoded on the host. A layout
+/// disagreement between loader and kernel would show up here as wrong numbers;
+/// anywhere else it would show up as a fluent model saying nonsense.
+#[test]
+fn test_the_loader_feeds_the_packed_gather_correctly() {
+    use safetensors::{Dtype, tensor::TensorView};
+    use std::collections::HashMap;
+
+    let (t, e, n, k, top_k) = (2usize, 2usize, 4usize, 64usize, 2usize);
+    let rows = e * n;
+    let raw = nvfp4_fixture("w13_rows.bin");
+    let scales = nvfp4_fixture("w13_scale.bin");
+    let wbytes = &raw[..rows * k / 2];
+    let sbytes = &scales[..rows * k / 16];
+    let amax: Vec<f32> = (0..e).map(|i| 2.0 + i as f32).collect();
+    let denom = 4.0f32;
+
+    // A checkpoint holding them with the real dtypes and shapes.
+    let dir = std::env::temp_dir().join(format!("inkling2-e2e-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let amax_b: Vec<u8> = amax.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let denom_b = denom.to_le_bytes().to_vec();
+    let tensors = HashMap::from([
+        (
+            "w13_weight".to_string(),
+            TensorView::new(Dtype::U8, vec![e, n, k / 2], wbytes).expect("weights"),
+        ),
+        (
+            "w13_weight_scale".to_string(),
+            TensorView::new(Dtype::F8_E4M3, vec![e, n, k / 16], sbytes).expect("scales"),
+        ),
+        (
+            "w13_weight_amax".to_string(),
+            TensorView::new(Dtype::F32, vec![e], &amax_b).expect("amax"),
+        ),
+        (
+            "w13_weight_outer_scale_denominator".to_string(),
+            TensorView::new(Dtype::F32, vec![1], &denom_b).expect("denominator"),
+        ),
+    ]);
+    std::fs::write(
+        dir.join("model.safetensors"),
+        safetensors::serialize(&tensors, None).expect("serialize"),
+    )
+    .expect("write");
+
+    let mut ck = Checkpoint::open(&dir).expect("opening the checkpoint");
+    let w_packed = ck.param("w13_weight").expect("packed weights");
+    let s_packed = ck.param("w13_weight_scale").expect("packed scales");
+    let s2 = ck.expert_scale2("w13_weight").expect("per-expert scale");
+    assert_eq!(
+        w_packed.len(),
+        rows * k / 8,
+        "the loader packs to the gather's shape"
+    );
+    assert_eq!(s_packed.len(), rows * (k / 16).div_ceil(4));
+    assert_eq!(s2, vec![0.5, 0.75], "amax over the denominator");
+
+    // The same weights decoded on the host, for the f32 gather.
+    let want_w: Vec<f32> = (0..rows * k)
+        .map(|i| {
+            let (row, col) = (i / k, i % k);
+            let byte = wbytes[row * k / 2 + col / 2];
+            let nib = if col % 2 == 1 { byte >> 4 } else { byte & 0x0F };
+            E2M1[nib as usize] * e4m3(sbytes[row * k / 16 + col / 16]) * s2[row / n]
+        })
+        .collect();
+
+    let x = values(t * k, 181);
+    let ids = [1usize, 0, 0, 1];
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + top_k + slot] = ids[tok * top_k + slot] as f32;
+        }
+    }
+
+    let gf = OneOp::new(&[t, k]);
+    let ids_f = gf.input(&[t, 2 * top_k]);
+    let plain = gf.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_f],
+        &[&x, &packed],
+        &[&want_w],
+    );
+
+    let gq = OneOp::new(&[t, k]);
+    let ids_q = gq.input(&[t, 2 * top_k]);
+    let got = gq.run(
+        ExpertGatherNvfp4Op::<f32>::new(e, n, k, top_k),
+        &[&ids_q],
+        &[&x, &packed],
+        &[&w_packed, &s_packed, &s2],
+    );
+    assert_close("loader -> packed gather", &got, &plain, 1e-4);
+    assert!(
+        plain.iter().any(|v| v.abs() > 1e-6),
+        "the output must not be all zero"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

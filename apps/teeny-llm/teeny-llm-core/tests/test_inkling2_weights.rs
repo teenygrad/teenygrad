@@ -29,7 +29,7 @@ use std::path::Path;
 use safetensors::{Dtype, tensor::TensorView};
 use teeny_llm_core::models::inkling2::Inkling2Config;
 use teeny_llm_core::models::inkling2::runner::checkpoint_name;
-use teeny_llm_core::models::inkling2::weights::{Checkpoint, Encoding};
+use teeny_llm_core::models::inkling2::weights::{Checkpoint, Encoding, pack_rows};
 
 fn fixtures() -> std::path::PathBuf {
     std::env::var("INKLING2_FIXTURES")
@@ -56,6 +56,8 @@ fn synthetic(dir: &Path) -> anyhow::Result<()> {
         safetensors::serialize(&one, None)?,
     )?;
 
+    let amax: Vec<u8> = [4.0f32, 8.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+    let denom: Vec<u8> = 2.0f32.to_le_bytes().to_vec();
     let two = HashMap::from([
         (
             "model.llm.layers.0.mlp.experts.w13_weight".to_string(),
@@ -64,6 +66,14 @@ fn synthetic(dir: &Path) -> anyhow::Result<()> {
         (
             "model.llm.layers.0.mlp.experts.w13_weight_scale".to_string(),
             TensorView::new(Dtype::F8_E4M3, vec![4], &scales)?,
+        ),
+        (
+            "model.llm.layers.0.mlp.experts.w13_weight_amax".to_string(),
+            TensorView::new(Dtype::F32, vec![2], &amax)?,
+        ),
+        (
+            "model.llm.layers.0.mlp.experts.w13_weight_outer_scale_denominator".to_string(),
+            TensorView::new(Dtype::F32, vec![1], &denom)?,
         ),
     ]);
     std::fs::write(
@@ -77,6 +87,8 @@ fn synthetic(dir: &Path) -> anyhow::Result<()> {
             "model.llm.layers.0.attn_norm.weight": "model-00001.safetensors",
             "model.llm.layers.0.mlp.experts.w13_weight": "model-00002.safetensors",
             "model.llm.layers.0.mlp.experts.w13_weight_scale": "model-00002.safetensors",
+            "model.llm.layers.0.mlp.experts.w13_weight_amax": "model-00002.safetensors",
+            "model.llm.layers.0.mlp.experts.w13_weight_outer_scale_denominator": "model-00002.safetensors",
         }
     });
     std::fs::write(dir.join("model.safetensors.index.json"), index.to_string())?;
@@ -289,4 +301,62 @@ fn test_the_checkpoint_layer_shapes_are_what_the_port_assumes() {
         "the last layer has no attn_queries"
     );
     assert!(has("model.llm.attn_res.mlp_queries.23"));
+}
+
+/// `param` packs quantised tensors four bytes to an element, per row, and leaves
+/// floats alone.
+#[test]
+fn test_param_packs_quantised_rows_and_passes_floats_through() {
+    let dir = std::env::temp_dir().join(format!("inkling2-param-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    synthetic(&dir).expect("writing the synthetic checkpoint");
+    let mut ck = Checkpoint::open(&dir).expect("opening it");
+
+    // A float tensor is unchanged.
+    let w = ck
+        .param("model.llm.layers.0.attn_norm.weight")
+        .expect("norm weight");
+    assert_eq!(w, vec![0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]);
+
+    // The packed weights are [2, 16] bytes, so two rows of sixteen become two rows
+    // of four words: eight elements, not the thirty-two raw bytes.
+    let p = ck
+        .param("model.llm.layers.0.mlp.experts.w13_weight")
+        .expect("w13");
+    assert_eq!(p.len(), 8, "16 bytes a row packs to 4 words a row");
+    let raw: Vec<f32> = (0..32u8).map(|i| i.wrapping_mul(7) as f32).collect();
+    assert_eq!(
+        p,
+        pack_rows(&raw, 16),
+        "packed per row, not across the whole tensor"
+    );
+
+    // And the bytes survive: word 0 holds the first four bytes little-endian.
+    let w0 = p[0].to_le_bytes();
+    assert_eq!(w0, [0u8, 7, 14, 21], "the first four bytes of row 0");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// NVFP4's per-expert scale is `amax / outer_scale_denominator`, which the
+/// checkpoint stores as two tensors rather than one.
+#[test]
+fn test_expert_scale2_divides_amax_by_the_denominator() {
+    let dir = std::env::temp_dir().join(format!("inkling2-scale2-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    synthetic(&dir).expect("writing the synthetic checkpoint");
+    let mut ck = Checkpoint::open(&dir).expect("opening it");
+
+    let s2 = ck
+        .expert_scale2("model.llm.layers.0.mlp.experts.w13_weight")
+        .expect("the per-expert scale");
+    // amax [4, 8] over a denominator of 2.
+    assert_eq!(s2, vec![2.0, 4.0], "one scale per expert");
+
+    assert!(
+        ck.expert_scale2("model.llm.layers.0.mlp.experts.w2_weight")
+            .is_err(),
+        "a layer without amax must error rather than invent a scale"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
