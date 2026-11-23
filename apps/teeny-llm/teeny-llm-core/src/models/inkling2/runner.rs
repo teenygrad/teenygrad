@@ -344,3 +344,236 @@ mod tests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Host-side state for one sequence
+// ---------------------------------------------------------------------------
+
+/// Everything a step carries between layers and between tokens.
+///
+/// A step graph per layer rather than one graph for the whole model: the looped core
+/// restarts from saved states and the block states grow at boundaries, so the shapes
+/// change as the stack is walked. Keeping the layer as the unit of compilation means
+/// one graph per distinct layer shape instead of one enormous graph, and the host
+/// carries the tensors.
+pub struct State {
+    /// Keys per cache slot, `capacity` rows of `kv_heads * head_dim`.
+    pub k: Vec<Vec<f32>>,
+    /// Values, as `k`.
+    pub v: Vec<Vec<f32>>,
+    /// How many rows of each cache are valid.
+    pub len: usize,
+    /// The four short-convolution states per cache slot, each `K - 1` rows: the key
+    /// and value projections, then the layer's own two.
+    pub conv: Vec<[Vec<f32>; 4]>,
+    /// Block states accumulated at boundaries, `[T * n, hidden]` per token.
+    pub blocks: Vec<Vec<f32>>,
+    hidden: usize,
+    kv_row: usize,
+    conv_rows: usize,
+}
+
+impl State {
+    /// Empty state for a sequence of at most `capacity` tokens.
+    pub fn new(cfg: &Inkling2TextConfig, capacity: usize) -> Self {
+        let slots = cache_slots(cfg);
+        let kv_row = cfg.num_key_value_heads * cfg.head_dim;
+        let conv_rows = cfg.sconv_kernel_size - 1;
+        Self {
+            k: vec![vec![0.0; capacity * kv_row]; slots],
+            v: vec![vec![0.0; capacity * kv_row]; slots],
+            len: 0,
+            conv: (0..slots)
+                .map(|_| {
+                    [
+                        vec![0.0; conv_rows * kv_row],
+                        vec![0.0; conv_rows * kv_row],
+                        vec![0.0; conv_rows * cfg.hidden_size],
+                        vec![0.0; conv_rows * cfg.hidden_size],
+                    ]
+                })
+                .collect(),
+            blocks: Vec::new(),
+            hidden: cfg.hidden_size,
+            kv_row,
+            conv_rows,
+        }
+    }
+
+    /// Appends a step's keys and values to cache slot `slot`.
+    pub fn append_kv(&mut self, slot: usize, k_new: &[f32], v_new: &[f32]) -> anyhow::Result<()> {
+        let rows = k_new.len() / self.kv_row;
+        anyhow::ensure!(
+            k_new.len() == v_new.len() && k_new.len().is_multiple_of(self.kv_row),
+            "append_kv: {} keys and {} values are not whole rows of {}",
+            k_new.len(),
+            v_new.len(),
+            self.kv_row
+        );
+        let at = self.len * self.kv_row;
+        anyhow::ensure!(
+            at + k_new.len() <= self.k[slot].len(),
+            "append_kv: slot {slot} holds {} rows, cannot take {} more at {}",
+            self.k[slot].len() / self.kv_row,
+            rows,
+            self.len
+        );
+        self.k[slot][at..at + k_new.len()].copy_from_slice(k_new);
+        self.v[slot][at..at + v_new.len()].copy_from_slice(v_new);
+        Ok(())
+    }
+
+    /// Replaces a convolution state with the last `K - 1` rows of `x`.
+    ///
+    /// Shorter input keeps the older rows, which is what a one-token step needs.
+    pub fn roll_conv(&mut self, slot: usize, which: usize, x: &[f32], width: usize) {
+        let state = &mut self.conv[slot][which];
+        let keep = self.conv_rows * width;
+        if x.len() >= keep {
+            state.copy_from_slice(&x[x.len() - keep..]);
+        } else {
+            state.rotate_left(x.len());
+            let at = keep - x.len();
+            state[at..].copy_from_slice(x);
+        }
+    }
+
+    /// Appends one block state per token, which a boundary layer does with its input.
+    pub fn push_block(&mut self, x: &[f32]) {
+        self.blocks.push(x.to_vec());
+    }
+
+    /// The block states as the layer graph wants them: `[T * n, hidden]`, a token's
+    /// states together.
+    pub fn block_input(&self, tokens: usize) -> Vec<f32> {
+        let n = self.blocks.len();
+        let mut out = vec![0.0; tokens * n * self.hidden];
+        for (s, block) in self.blocks.iter().enumerate() {
+            for t in 0..tokens {
+                let to = (t * n + s) * self.hidden;
+                let from = t * self.hidden;
+                out[to..to + self.hidden].copy_from_slice(&block[from..from + self.hidden]);
+            }
+        }
+        out
+    }
+
+    /// How many block states each token carries.
+    pub fn n_blocks(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Forgets the block states, which every pass through the core does.
+    pub fn reset_blocks(&mut self, to: Vec<Vec<f32>>) {
+        self.blocks = to;
+    }
+}
+
+/// The id with the largest logit.
+pub fn argmax(logits: &[f32]) -> u32 {
+    let mut best = 0usize;
+    for (i, v) in logits.iter().enumerate() {
+        if v > &logits[best] {
+            best = i;
+        }
+    }
+    best as u32
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    fn cfg() -> Inkling2TextConfig {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/inkling2-mini-config.json");
+        super::super::Inkling2Config::load(&path)
+            .expect("config")
+            .text_config
+    }
+
+    #[test]
+    fn test_state_has_a_cache_per_effective_layer() {
+        let c = cfg();
+        let s = State::new(&c, 16);
+        assert_eq!(
+            s.k.len(),
+            48,
+            "a cache per executed layer, not per weight set"
+        );
+        assert_eq!(s.k.len(), cache_slots(&c));
+        assert_eq!(s.conv.len(), s.k.len());
+        // Four convolutions per layer: the key and value projections, then the
+        // layer's own attn_sconv and mlp_sconv.
+        assert_eq!(s.conv[0].len(), 4);
+        assert_eq!(
+            s.conv[0][0].len(),
+            (c.sconv_kernel_size - 1) * c.num_key_value_heads * c.head_dim
+        );
+        assert_eq!(
+            s.conv[0][2].len(),
+            (c.sconv_kernel_size - 1) * c.hidden_size
+        );
+    }
+
+    #[test]
+    fn test_appending_keys_respects_the_cursor() {
+        let mut c = cfg();
+        c.num_key_value_heads = 2;
+        c.head_dim = 2;
+        let row = c.num_key_value_heads * c.head_dim;
+        let mut s = State::new(&c, 4);
+        s.append_kv(0, &[1.0; 8], &[2.0; 8]).expect("two rows");
+        s.len = 2;
+        s.append_kv(0, &[3.0; 4], &[4.0; 4]).expect("one more");
+        assert_eq!(&s.k[0][..row], &[1.0; 4], "the first row stays");
+        assert_eq!(
+            &s.k[0][2 * row..3 * row],
+            &[3.0; 4],
+            "the third lands at the cursor"
+        );
+        s.len = 4;
+        assert!(
+            s.append_kv(0, &[5.0; 4], &[5.0; 4]).is_err(),
+            "past capacity must error"
+        );
+    }
+
+    #[test]
+    fn test_rolling_a_conv_state_keeps_the_newest_rows() {
+        let mut c = cfg();
+        c.hidden_size = 2;
+        c.sconv_kernel_size = 4; // three rows of state
+        let mut s = State::new(&c, 8);
+        // A long step replaces the state with its last three rows.
+        let long: Vec<f32> = (1..=10).map(|i| i as f32).collect(); // five rows of two
+        s.roll_conv(0, 2, &long, 2);
+        assert_eq!(s.conv[0][2], vec![5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
+        // A one-row step shifts the window by one.
+        s.roll_conv(0, 2, &[11.0, 12.0], 2);
+        assert_eq!(s.conv[0][2], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
+    }
+
+    #[test]
+    fn test_block_states_are_laid_out_per_token() {
+        let mut c = cfg();
+        c.hidden_size = 2;
+        let mut s = State::new(&c, 8);
+        // Two tokens, two block states: [t0s0, t0s1, t1s0, t1s1].
+        s.push_block(&[1.0, 1.0, 2.0, 2.0]); // state 0 for tokens 0 and 1
+        s.push_block(&[3.0, 3.0, 4.0, 4.0]); // state 1
+        assert_eq!(s.n_blocks(), 2);
+        assert_eq!(
+            s.block_input(2),
+            vec![1.0, 1.0, 3.0, 3.0, 2.0, 2.0, 4.0, 4.0],
+            "a token's states must be adjacent, as block_attn indexes them"
+        );
+    }
+
+    #[test]
+    fn test_argmax_takes_the_first_of_equals() {
+        assert_eq!(argmax(&[0.1, 0.9, 0.3]), 1);
+        assert_eq!(argmax(&[1.0, 1.0]), 0, "ties go left, as the router's does");
+        assert_eq!(argmax(&[-5.0, -1.0, -3.0]), 1);
+    }
+}
