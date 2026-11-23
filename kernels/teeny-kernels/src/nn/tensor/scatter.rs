@@ -32,9 +32,18 @@
 //! computed in the export rather than constant, so there is nothing to bake in.
 //! Duplicate coordinates are undefined in ONNX and stay undefined here, where the
 //! last lane to write a position wins.
+//!
+//! Because the indices are runtime data, the kernels bound them themselves: an index
+//! outside `[-extent, extent)` is invalid in ONNX, and a lane holding one writes
+//! nothing rather than wherever the index points. The check is made on the `i64` value
+//! before it is narrowed to the `i32` the offsets are computed in, so a value that
+//! would wrap into range on the cast is still caught. When the indices are a constant
+//! the lowering also checks them on the host, so a model that names one out of range
+//! is refused by name instead of silently dropping the write.
 
 #![allow(non_snake_case)]
 
+use core::ops::BitAnd;
 use teeny_core::device::program::ArgVisitor;
 use teeny_core::dtype::Num;
 use teeny_core::model::{RawPtr, RuntimeOp};
@@ -50,6 +59,8 @@ use teeny_triton::triton::{
 /// seeds the output from `data`. `slice_len` is how many elements one index row
 /// addresses, 1 for that copy. `meta_ptr` holds `k` output strides followed by `k`
 /// output extents.
+///
+/// A lane whose coordinate is outside `[-extent, extent)` on any axis writes nothing.
 #[kernel]
 pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
     src_ptr: InPtr<T::Pointer<D>>,
@@ -63,6 +74,8 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Tensor<i64>: Comparison<T::Tensor<i64>, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
@@ -83,6 +96,8 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
     let within = p - row * slice_len;
 
     let mut dst = within;
+    // Whether every coordinate so far is in range; the store is masked by it.
+    let mut ok = in_bounds;
     for j in 0..k {
         // One stride and one extent, read into every lane: the slot holds strides
         // first, then extents.
@@ -119,6 +134,12 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
             None,
             false,
         );
+        // Bound the coordinate while it is still i64, so one that would wrap into
+        // range on the narrowing cast below is caught.
+        let extent_wide = T::cast::<i32, i64>(extent, None, false);
+        ok = ok
+            .bitand(coord.ge(-extent_wide))
+            .bitand(coord.lt(extent_wide));
         let coord = T::cast::<i64, i32>(coord, None, false);
         // ONNX counts a negative coordinate from the end of its own axis.
         let wrapped = T::where_(coord.lt(0), extent, T::full::<i32>(&[BLOCK_SIZE], 0));
@@ -135,14 +156,7 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(
-        out_ptr.add_offsets(dst),
-        v,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out_ptr.add_offsets(dst), v, Some(ok), &[], None, None);
 }
 
 /// Forward: `ScatterElements`, one index per element along a single axis.
@@ -153,6 +167,8 @@ pub fn scatter_nd_forward<T, D: Num, const BLOCK_SIZE: i32>(
 /// and the axis arithmetic collapses to the identity, and it also pins the index read
 /// to element 0 so the copy pass, which runs over more elements than the index tensor
 /// holds, never reads past its end.
+///
+/// A lane whose index is outside `[-axis_len, axis_len)` writes nothing.
 #[kernel]
 pub fn scatter_elements_forward<T, D: Num, const BLOCK_SIZE: i32>(
     src_ptr: InPtr<T::Pointer<D>>,
@@ -167,6 +183,8 @@ pub fn scatter_elements_forward<T, D: Num, const BLOCK_SIZE: i32>(
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
+    T::Tensor<i64>: Comparison<T::Tensor<i64>, BoolTensor = T::BoolTensor>,
+    T::BoolTensor: BitAnd<Output = T::BoolTensor>,
     T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
@@ -198,6 +216,17 @@ pub fn scatter_elements_forward<T, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
+    // The copy pass reads element 0 of the indices for every lane and then ignores it,
+    // so zero it there before the bound: the copy pass's axis length is 1, which 0 is
+    // inside, and an out-of-range first index must not drop the copy.
+    let use_wide = T::cast::<i32, i64>(T::full::<i32>(&[BLOCK_SIZE], use_index), None, false);
+    let coord = coord * use_wide;
+    // Bound the index while it is still i64, so one that would wrap into range on the
+    // narrowing cast below is caught.
+    let len_wide = T::cast::<i32, i64>(T::full::<i32>(&[BLOCK_SIZE], axis_len), None, false);
+    let ok = in_bounds
+        .bitand(coord.ge(-len_wide))
+        .bitand(coord.lt(len_wide));
     let coord = T::cast::<i64, i32>(coord, None, false);
     // ONNX counts a negative index from the end of the axis.
     let wrapped = T::where_(
@@ -218,14 +247,7 @@ pub fn scatter_elements_forward<T, D: Num, const BLOCK_SIZE: i32>(
         None,
         false,
     );
-    T::store(
-        out_ptr.add_offsets(dst),
-        v,
-        Some(in_bounds),
-        &[],
-        None,
-        None,
-    );
+    T::store(out_ptr.add_offsets(dst), v, Some(ok), &[], None, None);
 }
 
 /// Dispatch for [`scatter_elements_forward`]: the copy pass, then the scatter pass.

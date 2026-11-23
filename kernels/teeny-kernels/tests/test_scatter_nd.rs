@@ -9,7 +9,7 @@
 //   cargo test -p teeny-kernels --no-default-features --features qemu,hardware \
 //       --test test_scatter_nd
 
-use teeny_core::graph::{DtypeRepr, Graph, Op};
+use teeny_core::graph::{ConstantMap, ConstantTensor, DtypeRepr, Graph, Op};
 use teeny_core::model::{Lowering, LoweringMode};
 use teeny_kernels::graph::TritonLowering;
 
@@ -179,6 +179,9 @@ mod execution {
     }
 
     /// ScatterND on the host: copy, then overwrite by coordinate.
+    ///
+    /// A row with any coordinate outside `[-extent, extent)` is invalid in ONNX and
+    /// writes nothing, which is what the kernel is required to do with it.
     fn reference(
         data: &[f32],
         data_shape: &[usize],
@@ -193,6 +196,13 @@ mod execution {
         }
         let slice_len: usize = data_shape[k..].iter().product();
         for (row, chunk) in coords.chunks(k).enumerate() {
+            let in_range = chunk.iter().enumerate().all(|(ax, &c)| {
+                let e = data_shape[ax] as i64;
+                (-e..e).contains(&c)
+            });
+            if !in_range {
+                continue;
+            }
             let mut base = 0usize;
             for (ax, &c) in chunk.iter().enumerate() {
                 let c = if c < 0 { c + data_shape[ax] as i64 } else { c };
@@ -287,6 +297,8 @@ mod execution {
     }
 
     /// ScatterElements on the host: copy, then overwrite one element per index.
+    ///
+    /// An index outside `[-extent, extent)` is invalid in ONNX and writes nothing.
     fn elements_reference(
         data: &[f32],
         shape: &[usize],
@@ -303,7 +315,11 @@ mod execution {
                 for n in 0..inner {
                     let src = (o * along + j) * inner + n;
                     let c = coords[src];
-                    let c = if c < 0 { c + shape[axis] as i64 } else { c } as usize;
+                    let e = shape[axis] as i64;
+                    if !(-e..e).contains(&c) {
+                        continue;
+                    }
+                    let c = if c < 0 { c + e } else { c } as usize;
                     out[(o * shape[axis] + c) * inner + n] = updates[src];
                 }
             }
@@ -372,4 +388,159 @@ mod execution {
     fn test_a_negative_element_index_counts_from_the_end() {
         run_elements(&[2, 4], 1, 2, &[-1, -4, -2, 0]);
     }
+
+    /// `2^32 + c`: narrowed to `i32` without a check first, this is `c`, a valid index.
+    const WRAPS_TO: i64 = 1 << 32;
+
+    /// Out-of-range coordinates write nothing, and the in-range rows beside them still
+    /// land.
+    ///
+    /// Each bad coordinate is one an unchecked kernel would have written *inside* the
+    /// buffer, at the wrong position, so a missing bound shows up here as a wrong
+    /// element rather than as a silent write past the end:
+    ///
+    /// - `(0, 4)` runs off row 0 into row 1;
+    /// - `(1, -5)` wraps to column -1, the end of row 0;
+    /// - `(3, -5)` is past the last row but wraps back into it;
+    /// - `(0, 2^32 + 1)` narrows to `(0, 1)`;
+    /// - `(3, 0)` is out on the first axis only, so it is caught by that axis's check
+    ///   and not the last one's.
+    #[test]
+    fn test_out_of_range_coordinates_write_nothing() {
+        #[rustfmt::skip]
+        let coords = [
+            0, 4,
+            1, -5,
+            2, 1,
+            3, -5,
+            0, WRAPS_TO + 1,
+            3, 0,
+            -1, 3,
+        ];
+        run(&[3, 4], &coords, 2);
+    }
+
+    /// The same for whole slices: a row index past the first axis writes no slice.
+    #[test]
+    fn test_an_out_of_range_slice_row_writes_nothing() {
+        run(&[4, 3], &[4, 1, -5, WRAPS_TO + 2], 1);
+    }
+
+    /// ScatterElements drops an out-of-range index the same way.
+    ///
+    /// The first index is itself out of range, which also covers the copy pass: that
+    /// pass reads index 0 for every lane, so a bound applied to it there would drop the
+    /// copy and leave the output empty wherever no update landed.
+    #[test]
+    fn test_out_of_range_element_indices_write_nothing() {
+        // [2, 4] along axis 1, two indices per row: row 0 gets 4 (one past the end)
+        // and 1, row 1 gets -5 (one before the start) and 2^32 + 2.
+        run_elements(&[2, 4], 1, 2, &[4, 1, -5, WRAPS_TO + 2]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constant indices
+// ---------------------------------------------------------------------------
+
+/// `values` as an I64 constant tensor of `shape`.
+fn i64_tensor(shape: &[usize], values: &[i64]) -> ConstantTensor {
+    ConstantTensor {
+        dtype: DtypeRepr::I64,
+        shape: shape.iter().map(|&d| Some(d)).collect(),
+        bytes: values.iter().flat_map(|v| v.to_le_bytes()).collect(),
+    }
+}
+
+/// Lowers `op` over `data` with its indices a constant of `indices_shape` holding
+/// `values`, and `updates` of `updates_shape`.
+fn lower_with_constant_indices(
+    op: Op,
+    data: &[usize],
+    indices_shape: &[usize],
+    values: &[i64],
+    updates_shape: &[usize],
+) -> anyhow::Result<usize> {
+    let dims = |s: &[usize]| -> Vec<Option<usize>> { s.iter().map(|&d| Some(d)).collect() };
+    let mut g = Graph::new();
+    let d = g.add_node(Op::Input, vec![], DtypeRepr::F32, dims(data));
+    let i = g.add_node(
+        Op::Constant {
+            dtype: DtypeRepr::I64,
+            shape: dims(indices_shape),
+        },
+        vec![],
+        DtypeRepr::I64,
+        dims(indices_shape),
+    );
+    let u = g.add_node(Op::Input, vec![], DtypeRepr::F32, dims(updates_shape));
+    g.add_node(op, vec![d, i, u], DtypeRepr::F32, dims(data));
+
+    let mut constants = ConstantMap::new();
+    constants.insert(i, i64_tensor(indices_shape, values));
+    TritonLowering::new()
+        .with_constants(constants)
+        .lower(&g, LoweringMode::Inference)
+        .map(|dag| dag.len())
+}
+
+fn refusal(result: anyhow::Result<usize>, why: &str) -> String {
+    match result {
+        Ok(_) => panic!("{why} should not lower"),
+        Err(e) => e.to_string(),
+    }
+}
+
+/// Constant indices in range, negative ones included, lower as before.
+#[test]
+fn test_in_range_constant_indices_lower() {
+    lower_with_constant_indices(Op::ScatterND, &[3, 4], &[2, 2], &[0, 3, -3, -4], &[2])
+        .expect("ScatterND in range");
+    lower_with_constant_indices(
+        Op::ScatterElements { axis: 1 },
+        &[2, 4],
+        &[2, 2],
+        &[3, -4, 0, -1],
+        &[2, 2],
+    )
+    .expect("ScatterElements in range");
+}
+
+/// A constant coordinate out of range is refused by name, with its axis and extent.
+#[test]
+fn test_out_of_range_constant_scatter_nd_indices_are_refused() {
+    // The second coordinate of row 0 is one past axis 1's end.
+    let msg = refusal(
+        lower_with_constant_indices(Op::ScatterND, &[3, 4], &[2, 2], &[0, 4, 1, 1], &[2]),
+        "a coordinate past the end",
+    );
+    assert!(msg.contains("index 4 (element 1 of `indices`)"), "{msg}");
+    assert!(msg.contains("axis 1, of extent 4"), "{msg}");
+
+    // One before the start of axis 0.
+    let msg = refusal(
+        lower_with_constant_indices(Op::ScatterND, &[3, 4], &[1, 2], &[-4, 0], &[1]),
+        "a coordinate before the start",
+    );
+    assert!(msg.contains("index -4"), "{msg}");
+    assert!(msg.contains("axis 0, of extent 3"), "{msg}");
+}
+
+/// The host check works on the full `i64`, so a value that would wrap into range in
+/// `i32` is refused too.
+#[test]
+fn test_a_constant_index_that_would_wrap_is_refused() {
+    let wraps = (1i64 << 32) + 2;
+    let msg = refusal(
+        lower_with_constant_indices(
+            Op::ScatterElements { axis: 1 },
+            &[2, 4],
+            &[2, 2],
+            &[0, 1, wraps, 3],
+            &[2, 2],
+        ),
+        "an index that wraps in i32",
+    );
+    assert!(msg.contains(&format!("index {wraps}")), "{msg}");
+    assert!(msg.contains("axis 1, of extent 4"), "{msg}");
 }

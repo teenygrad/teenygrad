@@ -927,10 +927,14 @@ fn broadcast_refusal(
 /// agree with `data` on every axis but the scattered one. All of that is checked: an
 /// operand that disagrees off-axis would have the kernel read its elements in the
 /// wrong order, which is not something the device can report.
+///
+/// `indices`, when the lowering has the operand's value, is checked for range here as
+/// well; see [`check_scatter_indices`].
 fn scatter_elements_executable(
     graph: &Graph,
     node: &GraphNode,
     axis: i64,
+    indices_value: Option<&ConstantTensor>,
     what: &str,
 ) -> Result<Box<dyn ExecutableOp>> {
     if node.inputs.len() != 3 {
@@ -997,6 +1001,10 @@ fn scatter_elements_executable(
         ));
     }
 
+    if let Some(value) = indices_value {
+        check_scatter_indices("ScatterElements", what, value, &[ax], &[data[ax]])?;
+    }
+
     let inner: usize = data[ax + 1..].iter().product();
     let n_data: usize = data.iter().product();
     let n_updates: usize = updates.iter().product();
@@ -1055,15 +1063,58 @@ fn scatter_elements_executable(
     }))
 }
 
+/// Checks a scatter's constant indices against the axes they index.
+///
+/// Index `i` addresses axis `axes[i % axes.len()]`, of extent `extents[i % axes.len()]`:
+/// a `ScatterND` coordinate row runs over the first `k` axes in turn, and every
+/// `ScatterElements` index addresses the one scattered axis. ONNX allows
+/// `[-extent, extent)`. The kernels already drop a write whose index is outside that,
+/// so this does not guard memory; it turns a model that names an invalid index into an
+/// error naming it, instead of a scatter that silently writes less than it was asked
+/// to.
+fn check_scatter_indices(
+    op: &str,
+    what: &str,
+    value: &ConstantTensor,
+    axes: &[usize],
+    extents: &[usize],
+) -> Result<()> {
+    let values = value
+        .to_i64_vec()
+        .map_err(|reason| Error::UnreadableConstant {
+            context: format!("Op::{op} {what}: indices operand"),
+            reason,
+        })?;
+    for (i, &index) in values.iter().enumerate() {
+        let slot = i % axes.len();
+        let (axis, extent) = (axes[slot], extents[slot]);
+        // An extent beyond i64 cannot occur for a tensor that fits in memory; treat it
+        // as unbounded rather than wrapping.
+        let bound = i64::try_from(extent).unwrap_or(i64::MAX);
+        if !(-bound..bound).contains(&index) {
+            return Err(anyhow::anyhow!(
+                "Op::{op} {what}: index {index} (element {i} of `indices`) is out of \
+                 range for axis {axis}, of extent {extent}; ONNX allows \
+                 -{extent}..{extent}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Builds the executable for `ScatterND`.
 ///
 /// ONNX's shapes: `indices` has a trailing axis of width `k`, `updates` has
 /// `indices`' shape with that axis replaced by `data`'s last `rank - k` axes, and the
 /// output has `data`'s shape. All three are checked, because a `k` or a slice length
 /// read from the wrong place would scatter into wrong positions rather than fail.
+///
+/// `indices`, when the lowering has the operand's value, is checked for range here as
+/// well; see [`check_scatter_indices`].
 fn scatter_nd_executable(
     graph: &Graph,
     node: &GraphNode,
+    indices_value: Option<&ConstantTensor>,
     what: &str,
 ) -> Result<Box<dyn ExecutableOp>> {
     if node.inputs.len() != 3 {
@@ -1126,6 +1177,10 @@ fn scatter_nd_executable(
         all[..k].to_vec()
     };
     let extents = data[..k].to_vec();
+    if let Some(value) = indices_value {
+        let axes: Vec<usize> = (0..k).collect();
+        check_scatter_indices("ScatterND", what, value, &axes, &extents)?;
+    }
     let slice_len: usize = data[k..].iter().product();
     let n_data: usize = data.iter().product();
     let n_updates: usize = updates.iter().product();
@@ -4468,11 +4523,13 @@ impl TritonLowering {
                 }
                 Op::ScatterND => {
                     let what = node_label(graph, node_index);
-                    scatter_nd_executable(graph, node, &what)?
+                    let indices = node.inputs.get(1).and_then(|i| self.constants.get(i));
+                    scatter_nd_executable(graph, node, indices, &what)?
                 }
                 Op::ScatterElements { axis } => {
                     let what = node_label(graph, node_index);
-                    scatter_elements_executable(graph, node, *axis, &what)?
+                    let indices = node.inputs.get(1).and_then(|i| self.constants.get(i));
+                    scatter_elements_executable(graph, node, *axis, indices, &what)?
                 }
                 Op::Scatter { .. } | Op::TensorScatter => {
                     return Err(anyhow::anyhow!(
