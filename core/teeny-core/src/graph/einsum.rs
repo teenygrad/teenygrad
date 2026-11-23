@@ -73,6 +73,17 @@ pub enum EinsumError {
         /// The offending label.
         label: char,
     },
+    /// A label appears twice in the output, which ONNX and NumPy both reject: each
+    /// output axis must be a distinct label.
+    RepeatedOutputLabel {
+        /// The offending label.
+        label: char,
+    },
+    /// A character that is not an ASCII letter where a label is expected.
+    InvalidLabel {
+        /// The offending character.
+        label: char,
+    },
     /// A label's extent differs between the operands.
     ExtentMismatch {
         /// The offending label.
@@ -127,6 +138,15 @@ impl core::fmt::Display for EinsumError {
                 f,
                 "label '{label}' appears twice in one operand, which takes a diagonal"
             ),
+            EinsumError::RepeatedOutputLabel { label } => write!(
+                f,
+                "label '{label}' appears twice in the output; each output axis must be a \
+                 distinct label"
+            ),
+            EinsumError::InvalidLabel { label } => write!(
+                f,
+                "'{label}' is not a valid label; labels are ASCII letters, one per axis"
+            ),
             EinsumError::ExtentMismatch { label, a, b } => write!(
                 f,
                 "label '{label}' is {a} in the left operand and {b} in the right"
@@ -141,7 +161,7 @@ impl core::fmt::Display for EinsumError {
             ),
             EinsumError::ContractedLabels { count } => write!(
                 f,
-                "{count} contracted labels; exactly one is supported, and {} ",
+                "{count} contracted labels; exactly one is supported, and {}",
                 if *count == 0 {
                     "none means this is elementwise or an outer product rather than a \
                      contraction"
@@ -171,23 +191,34 @@ pub fn einsum_plan(
     a_shape: &[usize],
     b_shape: &[usize],
 ) -> Result<EinsumPlan, EinsumError> {
-    if equation.contains("...") {
+    let compact: String = equation.chars().filter(|c| !c.is_whitespace()).collect();
+    // After removing whitespace, so that a spaced-out `. . .` is still recognised as an
+    // ellipsis rather than reported as three invalid labels.
+    if compact.contains("...") {
         return Err(EinsumError::Ellipsis);
     }
-    let compact: String = equation.chars().filter(|c| !c.is_whitespace()).collect();
     let (inputs, output) = compact
         .split_once("->")
         .ok_or(EinsumError::NotTwoOperandForm)?;
     let (a_labels, b_labels) = inputs
         .split_once(',')
         .ok_or(EinsumError::NotTwoOperandForm)?;
-    if b_labels.contains(',') {
+    if b_labels.contains(',') || output.contains("->") {
         return Err(EinsumError::NotTwoOperandForm);
     }
 
     let a_labels: Vec<char> = a_labels.chars().collect();
     let b_labels: Vec<char> = b_labels.chars().collect();
     let out_labels: Vec<char> = output.chars().collect();
+
+    if let Some(&label) = a_labels
+        .iter()
+        .chain(&b_labels)
+        .chain(&out_labels)
+        .find(|c| !c.is_ascii_alphabetic())
+    {
+        return Err(EinsumError::InvalidLabel { label });
+    }
 
     for (operand, (labels, shape)) in [(&a_labels, a_shape), (&b_labels, b_shape)]
         .into_iter()
@@ -215,6 +246,13 @@ pub fn einsum_plan(
         return Err(EinsumError::RankTooHigh {
             rank: out_labels.len(),
         });
+    }
+    // A repeated output label would read the operands along a diagonal and write an
+    // output of the wrong rank; it is not a valid equation, so refuse it by name.
+    for (i, &label) in out_labels.iter().enumerate() {
+        if out_labels[..i].contains(&label) {
+            return Err(EinsumError::RepeatedOutputLabel { label });
+        }
     }
 
     // Each label's extent and where it sits in each operand.
@@ -299,7 +337,7 @@ fn contiguous_strides(shape: &[usize]) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
+    use alloc::{string::ToString, vec};
 
     /// The equation the FoundationStereo export uses: a batch pair, one free label on
     /// each side and one contracted label.
@@ -430,6 +468,73 @@ mod tests {
             einsum_plan("abcde,ae->abcd", &[2, 2, 2, 2, 2], &[2, 2]),
             Err(EinsumError::RankTooHigh { .. })
         ));
+    }
+
+    /// Each output axis must be a distinct label. `ij,jk->iik` would otherwise plan a
+    /// rank-3 output that reads A along its diagonal, an equation ONNX and NumPy both
+    /// reject.
+    #[test]
+    fn test_rejects_a_repeated_output_label() {
+        assert_eq!(
+            einsum_plan("ij,jk->iik", &[2, 3], &[3, 4]),
+            Err(EinsumError::RepeatedOutputLabel { label: 'i' })
+        );
+        // Not adjacent, and on a label only the right operand has.
+        assert_eq!(
+            einsum_plan("ij,jk->kik", &[2, 3], &[3, 4]),
+            Err(EinsumError::RepeatedOutputLabel { label: 'k' })
+        );
+    }
+
+    /// Labels are ASCII letters; anything else is reported as the character it is
+    /// rather than as whatever structural fault it happens to cause later.
+    #[test]
+    fn test_rejects_a_label_that_is_not_a_letter() {
+        // In either operand or the output.
+        assert_eq!(
+            einsum_plan("i1,1k->ik", &[2, 3], &[3, 4]),
+            Err(EinsumError::InvalidLabel { label: '1' })
+        );
+        assert_eq!(
+            einsum_plan("ij,jk->i_k", &[2, 3], &[3, 4]),
+            Err(EinsumError::InvalidLabel { label: '_' })
+        );
+        // A single dot is not an ellipsis, and not a label either.
+        assert_eq!(
+            einsum_plan(".ij,jk->ik", &[1, 2, 3], &[3, 4]),
+            Err(EinsumError::InvalidLabel { label: '.' })
+        );
+        // Uppercase letters are labels, distinct from their lowercase forms.
+        let plan = einsum_plan("iJ,Jk->ik", &[2, 3], &[3, 4]).expect("uppercase label");
+        assert_eq!(plan.out_shape, vec![2, 4]);
+    }
+
+    /// A second `->` is a malformed equation, not an output containing `-` and `>`.
+    #[test]
+    fn test_rejects_a_second_arrow() {
+        assert_eq!(
+            einsum_plan("ij,jk->ik->x", &[2, 3], &[3, 4]),
+            Err(EinsumError::NotTwoOperandForm)
+        );
+    }
+
+    /// The ellipsis is recognised after whitespace is dropped, so spacing it out does
+    /// not turn it into three invalid labels.
+    #[test]
+    fn test_recognises_a_spaced_out_ellipsis() {
+        assert_eq!(
+            einsum_plan(". . .ij,. . .jk->. . .ik", &[2, 3], &[3, 4]),
+            Err(EinsumError::Ellipsis)
+        );
+    }
+
+    /// The contraction-count message ends at its last word.
+    #[test]
+    fn test_contracted_labels_message_has_no_trailing_space() {
+        for count in [0, 2] {
+            let msg = EinsumError::ContractedLabels { count }.to_string();
+            assert_eq!(msg, msg.trim_end(), "{msg:?}");
+        }
     }
 
     /// Whitespace is not significant, and an output label neither operand has is an
