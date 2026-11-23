@@ -35,6 +35,7 @@ use teeny_llm::models::inkling2::kernels::{
     cat2::Cat2Op,
     dyn_sconv::DynSconvOp,
     expert_gather::ExpertGatherOp,
+    expert_gather_mxfp8::ExpertGatherMxfp8Op,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
@@ -1437,15 +1438,12 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
     );
 
     let gq = OneOp::new(&[t, k]);
-    let b_in = gq.input(&[rows, k / 2]);
-    let s_in = gq.input(&[rows, k / 16]);
-    let s2_in = gq.input(&[1, e]);
     let ids_q = gq.input(&[t, 2 * top_k]);
     let packed_out = gq.run(
         ExpertGatherNvfp4Op::<f32>::new(e, n, k, top_k),
-        &[&b_in, &s_in, &s2_in, &ids_q],
-        &[&x, &bytes, &sc, &s2, &packed],
-        &[],
+        &[&ids_q],
+        &[&x, &packed],
+        &[&bytes, &sc, &s2],
     );
     assert_close("nvfp4 gather vs f32 gather", &packed_out, &plain, 1e-4);
     assert!(
@@ -1620,4 +1618,92 @@ fn test_dyn_sconv_taps_are_per_head() {
             got[hd + ch]
         );
     }
+}
+
+/// MXFP8: an E4M3 byte per weight, an E8M0 scale per 32, no per-expert scale.
+///
+/// Compared against the plain f32 gather fed the same weights decoded on the host,
+/// the same way the NVFP4 gather is checked.
+#[test]
+fn test_mxfp8_gather_equals_the_f32_gather() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 4usize, 64usize, 2usize);
+    let rows = e * n;
+    // Deterministic E4M3 and E8M0 bytes. Skip 0xFF: E8M0 reserves it for NaN, and
+    // E4M3's 0x7F/0xFF are NaN too.
+    let wbytes: Vec<u8> = (0..rows * k).map(|i| ((i * 37 + 11) % 254) as u8).collect();
+    let sbytes: Vec<u8> = (0..rows * k / 32)
+        .map(|i| (120 + (i % 14)) as u8) // exponents around 2^-7 .. 2^6
+        .collect();
+
+    let e8m0 = |b: u8| (b as f32 - 127.0).exp2();
+    let w: Vec<f32> = (0..rows * k)
+        .map(|i| {
+            let (row, col) = (i / k, i % k);
+            e4m3(wbytes[i]) * e8m0(sbytes[row * (k / 32) + col / 32])
+        })
+        .collect();
+    assert!(
+        w.iter().all(|v| v.is_finite()),
+        "the fixture must avoid NaN encodings"
+    );
+
+    let x = values(t * k, 161);
+    let ids = [2usize, 0, 1, 2];
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + top_k + slot] = ids[tok * top_k + slot] as f32;
+        }
+    }
+
+    let gf = OneOp::new(&[t, k]);
+    let ids_f = gf.input(&[t, 2 * top_k]);
+    let plain = gf.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_f],
+        &[&x, &packed],
+        &[&w],
+    );
+
+    let bytes: Vec<f32> = wbytes.iter().map(|b| *b as f32).collect();
+    let scales: Vec<f32> = sbytes.iter().map(|b| *b as f32).collect();
+    let gq = OneOp::new(&[t, k]);
+    let ids_q = gq.input(&[t, 2 * top_k]);
+    let got = gq.run(
+        ExpertGatherMxfp8Op::<f32>::new(e, n, k, top_k),
+        &[&ids_q],
+        &[&x, &packed],
+        &[&bytes, &scales],
+    );
+    assert_close("mxfp8 gather vs f32 gather", &got, &plain, 1e-3);
+    assert!(
+        plain.iter().any(|v| v.abs() > 1e-6),
+        "the comparison is only meaningful on non-zero output"
+    );
+}
+
+/// An E8M0 scale of 127 is exactly 1.0, so the output is the raw E4M3 values.
+#[test]
+fn test_mxfp8_scale_127_is_unity() {
+    let (t, e, n, k, top_k) = (1usize, 1usize, 1usize, 32usize, 1usize);
+    let wbytes: Vec<u8> = (0..k).map(|i| (56 + i) as u8).collect(); // 0x38 is 1.0
+    let bytes: Vec<f32> = wbytes.iter().map(|b| *b as f32).collect();
+    let scales = vec![127.0f32; 1];
+    let x = vec![1.0f32; k];
+    let packed = vec![0.0f32; 2];
+    let want: f32 = wbytes.iter().map(|b| e4m3(*b)).sum();
+
+    let g = OneOp::new(&[t, k]);
+    let ids = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertGatherMxfp8Op::<f32>::new(e, n, k, top_k),
+        &[&ids],
+        &[&x, &packed],
+        &[&bytes, &scales],
+    );
+    assert!(
+        (got[0] - want).abs() <= 1e-3 * want.abs().max(1.0),
+        "scale 127 should be unity: got {}, want {want}",
+        got[0]
+    );
 }

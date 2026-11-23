@@ -252,6 +252,25 @@ fn test_the_checkpoint_layer_shapes_are_what_the_port_assumes() {
         assert_eq!(has(&name), want, "controllers on layer {layer}");
     }
 
+    // The quantised gathers' parameter slots must resolve, per quantisation.
+    for layer in 0..cfg.num_hidden_layers {
+        for slot in [
+            "mlp.experts.weight",
+            "mlp.experts.scale",
+            "mlp.experts_down.scale",
+        ] {
+            let name = checkpoint_name(slot, layer);
+            assert!(has(&name), "layer {layer} slot {slot} -> {name}");
+        }
+        // Only NVFP4 layers have the per-expert amax the scale2 slot maps to.
+        let nvfp4 = layer + 4 < cfg.num_hidden_layers;
+        assert_eq!(
+            has(&checkpoint_name("mlp.experts.scale2", layer)),
+            nvfp4,
+            "layer {layer} per-expert scale"
+        );
+    }
+
     // TWO QUANTISATIONS. The last four layers hold no `_amax` or
     // `_outer_scale_denominator`, which is the MXFP8 group of hf_quant_config; the
     // rest are NVFP4. The expert gather implements NVFP4 only.

@@ -21,6 +21,7 @@ pub mod block_attn;
 pub mod cat2;
 pub mod dyn_sconv;
 pub mod expert_gather;
+pub mod expert_gather_mxfp8;
 pub mod expert_gather_nvfp4;
 pub mod gated_mul;
 pub mod l2_clip;

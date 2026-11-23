@@ -55,6 +55,8 @@ use super::kernels::{
     cat2::Cat2Op,
     dyn_sconv::DynSconvOp,
     expert_gather::ExpertGatherOp,
+    expert_gather_mxfp8::ExpertGatherMxfp8Op,
+    expert_gather_nvfp4::ExpertGatherNvfp4Op,
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
@@ -67,6 +69,7 @@ use super::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
+use super::runner::Quant;
 use crate::kernels::linear::Linear4Op;
 
 /// Block width for the linear kernel, as in the Gemma port.
@@ -127,6 +130,7 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     x: &SymTensor,
     routed: &SymTensor,
+    quant: Option<Quant>,
 ) -> SymTensor {
     let _m = name_scope("mlp");
     // The down projection needs one id per (token, slot) row; the re-pack runs on the
@@ -139,13 +143,29 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
     let (hid, inter) = (cfg.hidden_size, cfg.intermediate_size);
     let (e, k) = (cfg.n_routed_experts, cfg.num_experts_per_tok);
 
+    // `quant` picks the decoder; `None` keeps the plain f32 gather, which the tests
+    // use and which no shipped layer needs.
+    let gather = |n: usize, kk: usize, slots: usize, x: &SymTensor, r: &SymTensor| match quant {
+        None => x.record_custom(
+            CustomData::new(ExpertGatherOp::<D>::new(e, n, kk, slots)),
+            &[r],
+            None,
+        ),
+        Some(Quant::Nvfp4) => x.record_custom(
+            CustomData::new(ExpertGatherNvfp4Op::<D>::new(e, n, kk, slots)),
+            &[r],
+            None,
+        ),
+        Some(Quant::Mxfp8) => x.record_custom(
+            CustomData::new(ExpertGatherMxfp8Op::<D>::new(e, n, kk, slots)),
+            &[r],
+            None,
+        ),
+    };
+
     let gate_up = {
         let _g = name_scope("experts");
-        x.record_custom(
-            CustomData::new(ExpertGatherOp::<D>::new(e, 2 * inter, hid, k)),
-            &[routed],
-            None,
-        )
+        gather(2 * inter, hid, k, x, routed)
     };
     let act = gate_up.record_custom(
         CustomData::new(SwigluOp::<D>::new(
@@ -158,11 +178,7 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
     );
     let down = {
         let _g = name_scope("experts_down");
-        act.record_custom(
-            CustomData::new(ExpertGatherOp::<D>::new(e, hid, inter, 1)),
-            &[ids],
-            None,
-        )
+        gather(hid, inter, 1, &act, ids)
     };
     down.record_custom(
         CustomData::new(ExpertScatterAddOp::<D>::new(hid, k)),
@@ -658,7 +674,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     };
     let m = build_norm::<D>("mlp_norm", &m, hid);
     let routed = build_router::<D>(cfg, &m);
-    let moe = build_moe::<D>(cfg, &m, &routed);
+    let moe = build_moe::<D>(cfg, &m, &routed, Some(super::runner::quant_of(cfg, layer)));
     let m = {
         let _g = name_scope("mlp_sconv");
         inputs.mlp_hist.record_custom(

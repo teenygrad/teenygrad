@@ -62,6 +62,34 @@
 
 use super::config::Inkling2TextConfig;
 
+/// How a layer's experts are quantised.
+///
+/// Inkling-2-Mini is not uniform: the last four layers hold `F8_E4M3` weights with an
+/// `U8` E8M0 scale per 32, and the rest hold `U8` E2M1 nibbles with an `F8_E4M3`
+/// scale per 16 plus a per-expert `amax` and a shared denominator.
+/// `hf_quant_config.json` lists eight MXFP8 tensors, which is the four layers' two
+/// expert matrices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quant {
+    /// Layers 0 to 19.
+    Nvfp4,
+    /// Layers 20 to 23.
+    Mxfp8,
+}
+
+/// Which quantisation layer `l` uses.
+///
+/// Decided by the presence of `_amax` in the checkpoint, which
+/// `test_the_checkpoint_layer_shapes_are_what_the_port_assumes` pins to the last four
+/// layers. There is nothing in `config.json` that says so.
+pub fn quant_of(cfg: &Inkling2TextConfig, l: usize) -> Quant {
+    if l + 4 >= cfg.num_hidden_layers {
+        Quant::Mxfp8
+    } else {
+        Quant::Nvfp4
+    }
+}
+
 /// One layer execution: a layer index, which pass it belongs to, and the cache it
 /// uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,7 +173,14 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "attn.k_sconv.weight_proj.weight" => format!("{prefix}attn.k_sconv.weight_proj"),
         "attn.v_sconv.weight_proj.weight" => format!("{prefix}attn.v_sconv.weight_proj"),
         "mlp.experts.weight" => format!("{prefix}mlp.experts.w13_weight"),
+        "mlp.experts.scale" => format!("{prefix}mlp.experts.w13_weight_scale"),
         "mlp.experts_down.weight" => format!("{prefix}mlp.experts.w2_weight"),
+        "mlp.experts_down.scale" => format!("{prefix}mlp.experts.w2_weight_scale"),
+        // NVFP4's per-expert scale is not stored as one tensor: it is `amax` divided
+        // by a denominator shared by the layer, so the loader computes it and this
+        // name is the numerator.
+        "mlp.experts.scale2" => format!("{prefix}mlp.experts.w13_weight_amax"),
+        "mlp.experts_down.scale2" => format!("{prefix}mlp.experts.w2_weight_amax"),
         // attn_res queries live at the top level, one tensor per layer, and every
         // query of a layer reads the same one.
         s if s.starts_with("attn_res.attn_queries_") => {

@@ -35,6 +35,7 @@ use teeny_llm::models::inkling2::kernels::attention::PastLen;
 use teeny_llm::models::inkling2::model::{
     LayerInputs, build_controller, build_layer, build_moe, build_router,
 };
+use teeny_llm::models::inkling2::runner::{Quant, quant_of};
 use teeny_test::model::{RuntimeModel, runtime};
 
 /// Deterministic values in `[-1, 1)`.
@@ -201,7 +202,7 @@ fn test_moe_block_matches_a_host_reference() {
 
     let gm = GraphRun::new(&[t, hid]);
     let routed_in = gm.input(&[t, 2 * k]);
-    let out = build_moe::<f32>(&cfg, &gm.first, &routed_in);
+    let out = build_moe::<f32>(&cfg, &gm.first, &routed_in, None);
     let got = gm.run(
         &out,
         &[&x, &routed],
@@ -359,6 +360,8 @@ fn test_decoder_layer_builds_and_runs() {
         "attn_sconv.weight",
         "mlp_norm.weight",
         "mlp.experts.weight",
+        "mlp.experts.scale",
+        "mlp.experts.scale2",
         "mlp.experts_down.weight",
         "mlp_sconv.weight",
     ] {
@@ -445,5 +448,59 @@ fn test_the_last_layer_of_a_block_convolves_dynamically() {
             "layer {layer} keeps a static attn_sconv"
         );
         assert!(has("mlp_sconv.weight"));
+    }
+}
+
+/// A layer in the MXFP8 range builds the MXFP8 gather, which has no `scale2`.
+#[test]
+fn test_the_last_layers_use_the_mxfp8_gather() {
+    let cfg = test_config();
+    let (t, hid) = (2usize, cfg.hidden_size);
+    let (states, past, cache) = (2usize, 3usize, 8usize);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+
+    // Layer 2 is NVFP4; layer 22 of 24 is MXFP8.
+    for (layer, mxfp8) in [(2usize, false), (cfg.num_hidden_layers - 2, true)] {
+        assert_eq!(
+            quant_of(&cfg, layer) == Quant::Mxfp8,
+            mxfp8,
+            "layer {layer} quantisation"
+        );
+        let g = GraphRun::new(&[t, hid]);
+        let block_states = g.input(&[t * states, hid]);
+        let k_hist = g.input(&[kw, nkv * hd]);
+        let v_hist = g.input(&[kw, nkv * hd]);
+        let attn_hist = g.input(&[kw, hid]);
+        let mlp_hist = g.input(&[kw, hid]);
+        let k_cache = g.input(&[cache, nkv * hd]);
+        let v_cache = g.input(&[cache, nkv * hd]);
+        let past_len = PastLen::default();
+        past_len.set(past);
+        let inputs = LayerInputs {
+            x: &g.first,
+            block_states: &block_states,
+            n_states: states,
+            k_hist: &k_hist,
+            v_hist: &v_hist,
+            attn_hist: &attn_hist,
+            mlp_hist: &mlp_hist,
+            k_cache: &k_cache,
+            v_cache: &v_cache,
+            messages: None,
+        };
+        let _ = build_layer::<f32>(&cfg, layer, &inputs, past, past + t, past_len);
+        let names = g.slot_names();
+        let has = |n: &str| names.iter().any(|x| x == n);
+        assert!(
+            has("mlp.experts.weight"),
+            "layer {layer} needs expert weights"
+        );
+        assert!(has("mlp.experts.scale"), "layer {layer} needs block scales");
+        assert_eq!(
+            has("mlp.experts.scale2"),
+            !mxfp8,
+            "only NVFP4 has a per-expert scale (layer {layer})"
+        );
     }
 }
