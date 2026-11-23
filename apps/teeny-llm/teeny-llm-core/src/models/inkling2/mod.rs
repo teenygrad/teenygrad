@@ -30,9 +30,29 @@
 //!   is why the reference sets `_supports_sdpa = False` and cannot use flash
 //!   attention.
 //!
-//! Also still to come: the gated output projection (`o_proj` is gated by the layer
-//! input), the loop gate that mixes the three passes of the core, the runner, and
-//! NVFP4 dequantisation inside the expert gather's inner loop.
+//! **The checkpoint does not use the reference's names.**
+//! `thinkingmachines/Inkling-2-Mini` ships the original tensor names, which
+//! transformers renames on load: `attn.wq_du.weight` is the query projection,
+//! `attn.wk_dv` / `attn.wv_dv` the key and value, `attn.wo_ud` the output,
+//! `attn.gate_attn` its gate, `attn.wr_du` the relative linear, `attn_norm` and
+//! `mlp_norm` the two layer norms. [`model`] names its slots the checkpoint's way,
+//! so weights load without a rename pass. The shapes confirm the mapping.
+//!
+//! **A whole decoder layer needs two mechanisms that are not built yet**, and
+//! neither appears in the part of the reference the kernels were written from:
+//!
+//! - **`attn_res`** (`Inkling2LoopBlockAttentionResidual`): attention from learned
+//!   queries over the block states accumulated every `n_layers_per_attn_res_block`
+//!   layers. The checkpoint holds `attn_res.attn_queries.{layer}` of `[3, 2304]` and
+//!   `attn_res.mlp_queries.{layer}` of `[2304]`, so three learned queries before
+//!   attention and one before the MLP.
+//! - **`controllers`**: a rank-64 gate per layer, with `down_weight` `[64, 4608]`
+//!   and `forget_weight` / `gain_weight` `[2304, 64]`, for `attn`, `k`, `v` and
+//!   `mlp`. The 64 is `loop_config.gate_rank` and the 4608 is two hidden widths, so
+//!   this is what mixes the three passes of the looped core.
+//!
+//! Also still to come: the runner, and NVFP4 dequantisation inside the expert
+//! gather's inner loop.
 //!
 //! Four things make this a larger job than the Gemma port, which is why they are
 //! named in [`config`] rather than discovered later:

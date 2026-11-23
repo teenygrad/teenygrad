@@ -29,7 +29,9 @@ use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     expert_gather::ExpertGatherOp,
-    l2_clip::ScaledL2ClipOp,
+    gated_mul::GatedMulOp,
+    l2_clip::{L2ClipOp, ScaledL2ClipOp},
+    norm::{RmsNormOp, UnweightedRmsNormOp},
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
     scatter_add::ExpertScatterAddOp,
@@ -1052,4 +1054,71 @@ fn test_bias_changes_the_attention() {
         diff > 1e-3,
         "the bias did not change the output (diff {diff})"
     );
+}
+
+fn rms(row: &[f32]) -> f32 {
+    (row.iter().map(|v| v * v).sum::<f32>() / row.len() as f32 + 1e-6).sqrt()
+}
+
+/// `y = w * x / sqrt(mean(x^2) + eps)`. NOT Gemma's `1 + w`.
+#[test]
+fn test_rmsnorm_applies_the_weight_directly() {
+    let (rows, r) = (3usize, 100usize);
+    let x = values(rows * r, 101);
+    let w: Vec<f32> = values(r, 102).iter().map(|v| v + 1.0).collect();
+    let want: Vec<f32> = (0..rows * r)
+        .map(|i| {
+            let (row, col) = (i / r, i % r);
+            x[i] / rms(&x[row * r..(row + 1) * r]) * w[col]
+        })
+        .collect();
+    let g = OneOp::new(&[rows, r]);
+    let got = g.run(RmsNormOp::<f32>::new(r), &[], &[&x], &[&w]);
+    assert_close("rmsnorm", &got, &want, 1e-4);
+    // An all-ones weight must be a no-op on the scale, which `1 + w` would double.
+    let ones = vec![1.0f32; r];
+    let g2 = OneOp::new(&[rows, r]);
+    let plain = g2.run(RmsNormOp::<f32>::new(r), &[], &[&x], &[&ones]);
+    let expect: Vec<f32> = (0..rows * r)
+        .map(|i| x[i] / rms(&x[(i / r) * r..(i / r + 1) * r]))
+        .collect();
+    assert_close("rmsnorm with unit weight", &plain, &expect, 1e-4);
+}
+
+#[test]
+fn test_unweighted_rmsnorm_normalises_without_a_scale() {
+    let (rows, r) = (4usize, 64usize);
+    let x = values(rows * r, 103);
+    let want: Vec<f32> = (0..rows * r)
+        .map(|i| x[i] / rms(&x[(i / r) * r..(i / r + 1) * r]))
+        .collect();
+    let g = OneOp::new(&[rows, r]);
+    let got = g.run(UnweightedRmsNormOp::<f32>::new(r), &[], &[&x], &[]);
+    assert_close("unweighted rmsnorm", &got, &want, 1e-4);
+}
+
+/// The key projection's clip: same as the scaled one with an all-ones scale.
+#[test]
+fn test_unscaled_l2_clip_matches_the_scaled_one_with_unit_scale() {
+    let (rows, hd) = (6usize, 64usize);
+    let thr = 22.627_417f32;
+    let x: Vec<f32> = values(rows * hd, 104).iter().map(|v| v * 6.0).collect();
+    let ones = vec![1.0f32; hd];
+    let want = l2_clip_reference(&x, &ones, 1, hd, thr);
+    let g = OneOp::new(&[rows, hd]);
+    let got = g.run(L2ClipOp::<f32>::new(hd, thr), &[], &[&x], &[]);
+    assert_close("unscaled l2 clip", &got, &want, 1e-4);
+}
+
+/// `y = x * sigmoid(g)`, the output projection's gate.
+#[test]
+fn test_gated_mul_applies_a_sigmoid_gate() {
+    let n = 500usize;
+    let x = values(n, 105);
+    let gate: Vec<f32> = values(n, 106).iter().map(|v| v * 10.0).collect();
+    let want: Vec<f32> = (0..n).map(|i| x[i] / (1.0 + (-gate[i]).exp())).collect();
+    let g = OneOp::new(&[n]);
+    let gin = g.input(&[n]);
+    let got = g.run(GatedMulOp::<f32>::default(), &[&gin], &[&x, &gate], &[]);
+    assert_close("gated mul", &got, &want, 1e-5);
 }
