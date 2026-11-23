@@ -30,8 +30,16 @@
 //! This is what makes the model fit at all: the experts are 20.2 GB packed and about
 //! 160 GB in f32, against a board's 31 GB.
 //!
-//! The interim byte encoding and the framework change that would remove it are
-//! described in [`super::nvfp4`]. The arithmetic here is final either way.
+//! **Packed, four bytes to an f32 element.** Parameter buffers take the graph's
+//! dtype, so the packed nibbles travel inside f32 elements and are taken apart here:
+//! `T::cast` bitcasts one to an i32 and the byte is masked out of it. That is
+//! 0.5 bytes per weight, the true NVFP4 density.
+//!
+//! Which of the four bytes a lane wants varies along `k`, so all four are computed
+//! and selected rather than branched on. There are no shifts: `Shr` is not lowered
+//! by teenyc, and masking first is needed anyway because `Div` truncates towards
+//! zero, so the top byte has to be masked before it is divided down and its sign bit
+//! added back by hand.
 
 use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
 use teeny_macros::kernel;
@@ -52,6 +60,8 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     TOP_K: i32,
     IDS_STRIDE: i32,
     IDS_OFFSET: i32,
+    BWORDS: i32,
+    SWORDS: i32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
@@ -59,6 +69,7 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::I32Tensor: core::ops::Add<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Sub<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
@@ -105,24 +116,41 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             false,
         );
-        // The packed row of this (expert, n): K/2 bytes and K/16 scales.
-        // `expert` is a block-wide tensor, so the scalar part goes on its right.
-        let brow = expert * (N * (K / 2)) + (n * (K / 2));
-        let srow = expert * (N * (K / 16)) + (n * (K / 16));
-        let byte = T::cast::<D, i32>(
+        // The packed row of this (expert, n): K/8 words of four bytes each, and
+        // K/64 words of four E4M3 scales.
+        let brow = expert * (N * BWORDS) + (n * BWORDS);
+        let srow = expert * (N * SWORDS) + (n * SWORDS);
+
+        let wword = T::cast::<D, i32>(
             T::load(
-                b_ptr.add_offsets(k / 2 + brow),
+                b_ptr.add_offsets(k / 8 + brow),
                 Some(km),
                 Some(zeros),
                 &[],
                 None,
                 None,
                 None,
-                false,
+                true,
             ),
             None,
-            false,
+            true,
         );
+        // Byte (k/2) % 4 of that word. The index varies by lane, so all four are
+        // computed and selected; the top byte is masked to seven bits and 128 added
+        // back when the word is negative.
+        let bsel = (k / 2) - ((k / 8) * 4);
+        let byte = {
+            let b0 = wword & 0xFF;
+            let b1 = (wword & 0xFF00) / 256;
+            let b2 = (wword & 0x00FF_0000) / 65536;
+            let low7 = (wword & 0x7F00_0000) / 16_777_216;
+            let b3 = T::where_(wword.lt(0), low7 + 128, low7 + 0);
+            T::where_(
+                bsel.eq(0),
+                b0,
+                T::where_(bsel.eq(1), b1, T::where_(bsel.eq(2), b2, b3)),
+            )
+        };
         let hi = byte / 16;
         let nib = T::where_((k - (k / 2) * 2).eq(1), hi, byte - hi * 16);
         let sgn = nib / 8;
@@ -137,20 +165,33 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
         );
         let val = T::where_(sgn.eq(1), zeros - mag, mag);
 
-        let sb = T::cast::<D, i32>(
+        let sword = T::cast::<D, i32>(
             T::load(
-                s_ptr.add_offsets(k / 16 + srow),
+                s_ptr.add_offsets(k / 64 + srow),
                 Some(km),
                 Some(zeros),
                 &[],
                 None,
                 None,
                 None,
-                false,
+                true,
             ),
             None,
-            false,
+            true,
         );
+        let ssel = (k / 16) - ((k / 64) * 4);
+        let sb = {
+            let s0 = sword & 0xFF;
+            let s1 = (sword & 0xFF00) / 256;
+            let s2 = (sword & 0x00FF_0000) / 65536;
+            let slow7 = (sword & 0x7F00_0000) / 16_777_216;
+            let s3 = T::where_(sword.lt(0), slow7 + 128, slow7 + 0);
+            T::where_(
+                ssel.eq(0),
+                s0,
+                T::where_(ssel.eq(1), s1, T::where_(ssel.eq(2), s2, s3)),
+            )
+        };
         let ssgn = sb / 128;
         let srest = sb - ssgn * 128;
         let se = srest / 8;
@@ -280,8 +321,8 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherNvfp4Runti
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         vec![
-            vec![self.experts, self.n, self.k / 2],
-            vec![self.experts, self.n, self.k / 16],
+            vec![self.experts, self.n, self.k.div_ceil(8)],
+            vec![self.experts, self.n, (self.k / 16).div_ceil(4)],
             vec![self.experts],
         ]
     }
@@ -318,6 +359,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherNvfp4Runti
         visitor.visit_i32(ids_stride as i32);
         // The ids sit after the weights in the router's packed row.
         visitor.visit_i32((ids_stride - self.top_k) as i32);
+        // Words per row, four bytes each. div_ceil, because a row shorter than
+        // one word still needs one.
+        visitor.visit_i32(self.k.div_ceil(8) as i32);
+        visitor.visit_i32((self.k / 16).div_ceil(4) as i32);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

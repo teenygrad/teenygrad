@@ -49,6 +49,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
+use teeny_llm_core::models::inkling2::weights::pack_rows;
 use teeny_test::model::{RuntimeModel, runtime};
 
 /// Deterministic values in `[-1, 1)`.
@@ -1406,8 +1407,23 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
 
     // e * n rows of k weights: k/2 bytes and k/16 scales each.
     let rows = e * n;
-    let bytes: Vec<f32> = raw[..rows * k / 2].iter().map(|b| *b as f32).collect();
-    let sc: Vec<f32> = scales[..rows * k / 16].iter().map(|b| *b as f32).collect();
+    // Packed four bytes to an f32 element, as the kernel reads them.
+    let bytes = pack_rows(
+        &raw[..rows * k / 2]
+            .iter()
+            .map(|b| *b as f32)
+            .collect::<Vec<_>>(),
+        k / 2,
+    );
+    let sc = pack_rows(
+        &scales[..rows * k / 16]
+            .iter()
+            .map(|b| *b as f32)
+            .collect::<Vec<_>>(),
+        k / 16,
+    );
+    assert_eq!(bytes.len(), rows * k / 8, "four weight bytes per element");
+    assert_eq!(sc.len(), rows * k / 64, "four scales per element");
 
     // The same weights, dequantised on the host, for the f32 gather.
     let w: Vec<f32> = (0..rows * k)
@@ -1668,8 +1684,12 @@ fn test_mxfp8_gather_equals_the_f32_gather() {
         &[&w],
     );
 
-    let bytes: Vec<f32> = wbytes.iter().map(|b| *b as f32).collect();
-    let scales: Vec<f32> = sbytes.iter().map(|b| *b as f32).collect();
+    let bytes = pack_rows(&wbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k);
+    let scales = pack_rows(
+        &sbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(),
+        k / 32,
+    );
+    assert_eq!(bytes.len(), rows * k / 4, "four weight bytes per element");
     let gq = OneOp::new(&[t, k]);
     let ids_q = gq.input(&[t, 2 * top_k]);
     let got = gq.run(
@@ -1690,8 +1710,9 @@ fn test_mxfp8_gather_equals_the_f32_gather() {
 fn test_mxfp8_scale_127_is_unity() {
     let (t, e, n, k, top_k) = (1usize, 1usize, 1usize, 32usize, 1usize);
     let wbytes: Vec<u8> = (0..k).map(|i| (56 + i) as u8).collect(); // 0x38 is 1.0
-    let bytes: Vec<f32> = wbytes.iter().map(|b| *b as f32).collect();
-    let scales = vec![127.0f32; 1];
+    let bytes = pack_rows(&wbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k);
+    // One scale per 32 weights, so one per row here, padded to a word.
+    let scales = pack_rows(&[127.0f32], 1);
     let x = vec![1.0f32; k];
     let packed = vec![0.0f32; 2];
     let want: f32 = wbytes.iter().map(|b| e4m3(*b)).sum();
