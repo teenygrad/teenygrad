@@ -33,6 +33,9 @@ functiongemma = [
 inkling2 = [
   "kernels",
   "dep:anyhow",
+  "dep:half",
+  "dep:memmap2",
+  "dep:safetensors",
   "dep:serde",
   "dep:serde_json",
   "dep:teeny-kernels",
@@ -56,6 +59,7 @@ half = { workspace = true, optional = true }
 minijinja = { workspace = true, optional = true }
 minijinja-contrib = { workspace = true, optional = true }
 safetensors = { workspace = true, optional = true }
+memmap2 = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 teeny-core = { workspace = true, features = ["std"], optional = true }
