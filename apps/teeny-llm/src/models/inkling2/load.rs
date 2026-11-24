@@ -41,6 +41,15 @@ pub enum Source {
     /// Compute the per-expert scale from `<prefix>_amax` and the layer's
     /// denominator.
     ExpertScale(String),
+    /// Read this tensor and transpose it from `[in, out]` to the `[out, in]` a linear
+    /// wants, given its row length in the checkpoint.
+    ///
+    /// Only the relative-position projection needs this. It is an `nn.Parameter` used
+    /// as `states @ proj` in the reference, not an `nn.Linear`, so it is stored
+    /// `[d_rel, rel_extent]`. The element count is the same either way, so reading it
+    /// untransposed loads cleanly and computes nonsense; the name is `.proj` rather
+    /// than `.weight` because it is not a linear's weight.
+    Transposed(String, usize),
 }
 
 /// Where each slot of a layer comes from.
@@ -54,6 +63,9 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
                     // that name without the suffix.
                     let amax = checkpoint_name(slot, layer);
                     Source::ExpertScale(amax.strip_suffix("_amax").unwrap_or(&amax).to_string())
+                }
+                "attn.rel_logits_proj.weight" => {
+                    Source::Transposed(checkpoint_name(slot, layer), 0)
                 }
                 other => Source::Tensor(checkpoint_name(other, layer)),
             };
@@ -69,7 +81,9 @@ pub fn missing(ck: &Checkpoint, slots: &[String], layer: usize) -> Vec<(String, 
     resolve(slots, layer)
         .into_iter()
         .filter_map(|(slot, src)| match src {
-            Source::Tensor(name) => (!ck.has(&name)).then_some((slot, name)),
+            Source::Tensor(name) | Source::Transposed(name, _) => {
+                (!ck.has(&name)).then_some((slot, name))
+            }
             Source::ExpertScale(prefix) => {
                 let amax = format!("{prefix}_amax");
                 let denom = format!("{prefix}_outer_scale_denominator");
@@ -104,6 +118,23 @@ pub fn read(
                 Source::ExpertScale(prefix) => ck
                     .expert_scale2(prefix)
                     .map_err(|e| anyhow::anyhow!("slot {slot} scales from {prefix}: {e}"))?,
+                Source::Transposed(name, _) => {
+                    let (flat, shape, _) = ck
+                        .tensor(name)
+                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?;
+                    anyhow::ensure!(
+                        shape.len() == 2,
+                        "slot {slot}: {name} is {shape:?}, expected a matrix to transpose"
+                    );
+                    let (rows, cols) = (shape[0], shape[1]);
+                    let mut out = vec![0.0f32; flat.len()];
+                    for r in 0..rows {
+                        for c in 0..cols {
+                            out[c * rows + r] = flat[r * cols + c];
+                        }
+                    }
+                    out
+                }
             };
             Ok((slot, values))
         })

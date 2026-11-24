@@ -162,6 +162,48 @@ impl GraphRun {
         got.remove(0)
     }
 
+    /// As `run_from_checkpoint`, returning several outputs instead of one.
+    fn run_many_from_checkpoint(
+        &self,
+        outs: &[&SymTensor],
+        feeds: &[&[f32]],
+        ck: &mut teeny_llm::models::inkling2::weights::Checkpoint,
+        layer: usize,
+    ) -> Vec<Vec<f32>> {
+        let graph: &Graph = &self.graph.borrow();
+        let lowering = TritonLowering::new();
+        let (_, graph_to_dag) = lowering
+            .lower_with_mapping(graph, LoweringMode::Inference)
+            .expect("lowering the graph");
+        let device = runtime::open().expect("opening the device");
+        let target = runtime::default_target(&device).expect("the device's target");
+        let mut model = RuntimeModel::compile(
+            &device,
+            graph,
+            &lowering,
+            LoweringMode::Inference,
+            &target,
+            self.first.shape[0].unwrap_or(1),
+            false,
+        )
+        .expect("compiling the graph through teenyc");
+        let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
+        let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
+        let values = teeny_llm::models::inkling2::load::read(ck, &names, layer)
+            .expect("reading the layer's parameters");
+        let by_name: std::collections::HashMap<&str, &[f32]> = values
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.as_slice()))
+            .collect();
+        for (name, node, idx) in &slots {
+            model
+                .load_param_f32(*node, *idx, by_name[name.as_str()])
+                .unwrap_or_else(|e| panic!("loading {name}: {e}"));
+        }
+        let ids: Vec<usize> = outs.iter().map(|o| graph_to_dag[o.node_id]).collect();
+        model.run(&device, feeds, &ids).expect("running the layer")
+    }
+
     fn run(&self, out: &SymTensor, feeds: &[&[f32]], params: &[(&str, &[f32])]) -> Vec<f32> {
         let graph: &Graph = &self.graph.borrow();
         let lowering = TritonLowering::new();
@@ -440,6 +482,8 @@ fn test_decoder_layer_builds_and_runs() {
         x: &g.first,
         block_states: &block_states,
         n_states: states,
+        mlp_block_states: &block_states,
+        mlp_n_states: states,
         k_hist: &k_hist,
         v_hist: &v_hist,
         attn_hist: &attn_hist,
@@ -520,6 +564,8 @@ fn test_the_last_layer_of_a_block_convolves_dynamically() {
             x: &g.first,
             block_states: &block_states,
             n_states: states,
+            mlp_block_states: &block_states,
+            mlp_n_states: states,
             k_hist: &k_hist,
             v_hist: &v_hist,
             attn_hist: &attn_hist,
@@ -600,6 +646,8 @@ fn test_the_last_layers_use_the_mxfp8_gather() {
             x: &g.first,
             block_states: &block_states,
             n_states: states,
+            mlp_block_states: &block_states,
+            mlp_n_states: states,
             k_hist: &k_hist,
             v_hist: &v_hist,
             attn_hist: &attn_hist,
@@ -744,6 +792,9 @@ fn test_layer_execution_speed() {
 
     let g = GraphRun::new(&[t, hid]);
     let block_states = g.input(&[0, hid]);
+    // Layer 0 is a block boundary, so between the attention and the MLP the layer
+    // appends its own input; the MLP residual attends over a stack one deeper.
+    let mlp_block_states = g.input(&[1, hid]);
     let k_hist = g.input(&[kw, nkv * hd]);
     let v_hist = g.input(&[kw, nkv * hd]);
     let attn_hist = g.input(&[kw, hid]);
@@ -756,6 +807,8 @@ fn test_layer_execution_speed() {
         x: &g.first,
         block_states: &block_states,
         n_states: 0,
+        mlp_block_states: &mlp_block_states,
+        mlp_n_states: 1,
         k_hist: &k_hist,
         v_hist: &v_hist,
         attn_hist: &attn_hist,
@@ -890,6 +943,9 @@ fn test_layer_zero_runs_on_real_weights() {
     // Layer 0: no committed block states, an empty cache, a cold convolution window.
     let g = GraphRun::new(&[t, hid]);
     let block_states = g.input(&[0, hid]);
+    // Layer 0 is a block boundary, so between the attention and the MLP the layer
+    // appends its own input; the MLP residual attends over a stack one deeper.
+    let mlp_block_states = g.input(&[1, hid]);
     let k_hist = g.input(&[kw, nkv * hd]);
     let v_hist = g.input(&[kw, nkv * hd]);
     let attn_hist = g.input(&[kw, hid]);
@@ -902,6 +958,8 @@ fn test_layer_zero_runs_on_real_weights() {
         x: &g.first,
         block_states: &block_states,
         n_states: 0,
+        mlp_block_states: &mlp_block_states,
+        mlp_n_states: 1,
         k_hist: &k_hist,
         v_hist: &v_hist,
         attn_hist: &attn_hist,
@@ -916,14 +974,24 @@ fn test_layer_zero_runs_on_real_weights() {
     let out = out.out;
     assert_eq!(out.shape, vec![Some(t), Some(hid)]);
 
-    // A plausible embedding: the real one for a token, normed as the model does.
-    let embed = ck
-        .param("model.llm.embed.weight")
-        .expect("the embedding table");
+    // The real embedding for a token, exactly as build_embed computes it: the lookup,
+    // RMS-normalised, then scaled by embed_norm. Leaving the scale off makes any
+    // comparison against a reference meaningless, since the layer gets a different
+    // input than the model would ever give it.
     let token = 5000usize;
-    let row = &embed[token * hid..(token + 1) * hid];
-    let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
-    let x: Vec<f32> = row.iter().map(|v| v / rms).collect();
+    let x: Vec<f32> = {
+        let embed = ck
+            .param("model.llm.embed.weight")
+            .expect("the embedding table");
+        let row = &embed[token * hid..(token + 1) * hid];
+        let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+        let scaled: Vec<f32> = row.iter().map(|v| v / rms).collect();
+        drop(embed);
+        let enorm = ck
+            .param("model.llm.embed_norm.weight")
+            .expect("embed_norm");
+        scaled.iter().zip(enorm.iter()).map(|(v, w)| v * w).collect()
+    };
 
     let zeros_kv = vec![0.0f32; kw * nkv * hd];
     let zeros_h = vec![0.0f32; kw * hid];
@@ -946,9 +1014,27 @@ fn test_layer_zero_runs_on_real_weights() {
     let absmax = got.iter().fold(0.0f32, |a, v| a.max(v.abs()));
     let nonzero = got.iter().filter(|v| v.abs() > 1e-12).count();
     println!(
-        "layer 0: absmax {absmax:.4}, nonzero {nonzero} of {}",
-        got.len()
+        "layer 0: absmax {absmax:.4}, nonzero {nonzero} of {}, mean {:.6}, first4 {:?}",
+        got.len(),
+        got.iter().sum::<f32>() / got.len() as f32,
+        &got[..4]
     );
+    // Against transformers' own decoder layer driven with the same weights, when that
+    // reference has been generated (scripts/inkling2-ref-layer.py).
+    let reference = std::path::Path::new("/tmp/claude-ref-layer0.bin");
+    if let Ok(bytes) = std::fs::read(reference) {
+        let want: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        assert_eq!(want.len(), got.len(), "reference length");
+        let worst = got
+            .iter()
+            .zip(&want)
+            .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
+            .fold(0.0f32, f32::max);
+        println!("  vs reference: worst relative error {worst:.6}");
+    }
     assert!(
         nonzero > got.len() / 2,
         "most outputs should be non-zero, got {nonzero}"
@@ -1029,6 +1115,8 @@ fn test_one_token_through_every_layer_once() {
             x: &g.first,
             block_states: &block_states,
             n_states,
+            mlp_block_states: &block_states,
+            mlp_n_states: n_states,
             k_hist: &k_hist,
             v_hist: &v_hist,
             attn_hist: &attn_hist,
@@ -1200,6 +1288,8 @@ fn test_what_the_stack_does_to_a_few_tokens() {
                 x: &g.first,
                 block_states: &bs,
                 n_states,
+                mlp_block_states: &bs,
+                mlp_n_states: n_states,
                 k_hist: &kh,
                 v_hist: &vh,
                 attn_hist: &ah,
@@ -1307,4 +1397,186 @@ fn test_chat_template_matches_apply_chat_template() {
         got, want_ids,
         "the rendered prompt must tokenize exactly as apply_chat_template does"
     );
+}
+
+/// Layer 0 stage by stage against transformers' own decoder layer.
+///
+/// `scripts/inkling2-ref-layer.py` writes `/tmp/claude-ref-layer0{,.attn,.moe}.bin`
+/// from the reference modules driven with the same checkpoint weights and the same
+/// embedded token. Comparing only the layer output says that something is wrong;
+/// comparing the attention output and the MoE output says where.
+#[test]
+#[ignore = "needs the checkpoint and the reference dumps; set INKLING2_MODEL_DIR"]
+fn test_layer_zero_stages_against_the_reference() {
+    use teeny_llm::models::inkling2::weights::Checkpoint;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let cfg = teeny_llm::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+
+    let (t, hid) = (1usize, cfg.hidden_size);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+    let cache = 8usize;
+
+    let g = GraphRun::new(&[t, hid]);
+    let block_states = g.input(&[0, hid]);
+    // Layer 0 is a block boundary, so between the attention and the MLP the layer
+    // appends its own input; the MLP residual attends over a stack one deeper.
+    let mlp_block_states = g.input(&[1, hid]);
+    let k_hist = g.input(&[kw, nkv * hd]);
+    let v_hist = g.input(&[kw, nkv * hd]);
+    let attn_hist = g.input(&[kw, hid]);
+    let mlp_hist = g.input(&[kw, hid]);
+    let k_cache = g.input(&[cache, nkv * hd]);
+    let v_cache = g.input(&[cache, nkv * hd]);
+    let past = PastLen::default();
+    past.set(0);
+    let inputs = LayerInputs {
+        x: &g.first,
+        block_states: &block_states,
+        n_states: 0,
+        mlp_block_states: &mlp_block_states,
+        mlp_n_states: 1,
+        k_hist: &k_hist,
+        v_hist: &v_hist,
+        attn_hist: &attn_hist,
+        mlp_hist: &mlp_hist,
+        k_cache: &k_cache,
+        v_cache: &v_cache,
+        messages: None,
+        msg_scale: None,
+        bias_width: None,
+    };
+    let layer = build_layer::<f32>(&cfg, 0, &inputs, past);
+
+    let token = 5000usize;
+    let x: Vec<f32> = {
+        let embed = ck.param("model.llm.embed.weight").expect("the embedding");
+        let row = &embed[token * hid..(token + 1) * hid];
+        let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+        let scaled: Vec<f32> = row.iter().map(|v| v / rms).collect();
+        drop(embed);
+        let enorm = ck.param("model.llm.embed_norm.weight").expect("embed_norm");
+        scaled.iter().zip(enorm.iter()).map(|(v, w)| v * w).collect()
+    };
+    let zeros_kv = vec![0.0f32; kw * nkv * hd];
+    let zeros_h = vec![0.0f32; kw * hid];
+    let cache_kv = vec![0.0f32; cache * nkv * hd];
+    let empty: Vec<f32> = Vec::new();
+
+    let got = g.run_many_from_checkpoint(
+        &[&layer.out, &layer.conv_in[2], &layer.conv_in[3], &layer.k, &layer.v],
+        &[
+            &x, &empty, &x, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv,
+        ],
+        &mut ck,
+        0,
+    );
+
+    let load = |name: &str| -> Option<Vec<f32>> {
+        std::fs::read(name).ok().map(|b| {
+            b.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        })
+    };
+    for (label, mine, path) in [
+        ("k", &got[3], "/tmp/claude-ref-layer0.k.bin"),
+        ("v", &got[4], "/tmp/claude-ref-layer0.v.bin"),
+        ("attn", &got[1], "/tmp/claude-ref-layer0.attn.bin"),
+        ("moe", &got[2], "/tmp/claude-ref-layer0.moe.bin"),
+        ("out", &got[0], "/tmp/claude-ref-layer0.bin"),
+    ] {
+        let absmax = mine.iter().fold(0.0f32, |a, v| a.max(v.abs()));
+        match load(path) {
+            None => println!("{label:10} absmax {absmax:.4} (no reference)"),
+            Some(want) => {
+                let worst = mine
+                    .iter()
+                    .zip(&want)
+                    .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
+                    .fold(0.0f32, f32::max);
+                println!(
+                    "{label:10} absmax {absmax:.4} vs {:.4}; worst relative error {worst:.5}; \
+                     mine {:?} want {:?}",
+                    want.iter().fold(0.0f32, |a, v| a.max(v.abs())),
+                    &mine[..3],
+                    &want[..3]
+                );
+            }
+        }
+    }
+}
+
+/// The query projection and the relative-position bias of layer 0, fed the reference's
+/// own normalised hidden states, against the reference's own values.
+///
+/// Narrows what `test_layer_zero_stages_against_the_reference` localises: the keys and
+/// values already match bit for bit, so what is left between the layer input and the
+/// attention output is the query, the bias, the sinks and the attention itself.
+#[test]
+#[ignore = "needs the checkpoint and the reference dumps; set INKLING2_MODEL_DIR"]
+fn test_layer_zero_query_and_bias_against_the_reference() {
+    use teeny_llm::models::inkling2::model::{build_q_proj, build_rel_bias};
+    use teeny_llm::models::inkling2::weights::Checkpoint;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let cfg = teeny_llm::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+    let hid = cfg.hidden_size;
+
+    let load = |name: &str| -> Vec<f32> {
+        std::fs::read(name)
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    };
+    let normed = load("/tmp/claude-ref-layer0.attn_norm.bin");
+    assert_eq!(normed.len(), hid);
+
+    let report = |label: &str, mine: &[f32], want: &[f32]| {
+        let worst = mine
+            .iter()
+            .zip(want)
+            .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
+            .fold(0.0f32, f32::max);
+        println!(
+            "{label:6} len {} vs {}; worst relative error {worst:.5}; mine {:?} want {:?}",
+            mine.len(),
+            want.len(),
+            &mine[..3.min(mine.len())],
+            &want[..3.min(want.len())]
+        );
+    };
+
+    {
+        let g = GraphRun::new(&[1, hid]);
+        // build_attention wraps both of these in its own scope, and the slot names
+        // the loader resolves come from the scope.
+        let q = {
+            let _a = teeny_core::name_scope::name_scope("attn");
+            build_q_proj::<f32>(&cfg, &g.first)
+        };
+        let got = g.run_many_from_checkpoint(&[&q], &[&normed], &mut ck, 0);
+        report("q", &got[0], &load("/tmp/claude-ref-layer0.q.bin"));
+    }
+    {
+        let g = GraphRun::new(&[1, hid]);
+        let past = PastLen::default();
+        past.set(0);
+        let b = {
+            let _a = teeny_core::name_scope::name_scope("attn");
+            build_rel_bias::<f32>(&cfg, &g.first, past, None)
+        };
+        let got = g.run_many_from_checkpoint(&[&b], &[&normed], &mut ck, 0);
+        report("bias", &got[0], &load("/tmp/claude-ref-layer0.bias.bin"));
+    }
 }
