@@ -1408,7 +1408,9 @@ fn test_chat_template_matches_apply_chat_template() {
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What is the capital of France?"},
     ]);
-    let got = chat.prompt(&messages, None).expect("rendering the prompt");
+    // prompt() appends the token that opens the model's turn; the fixture is what
+    // apply_chat_template renders, which stops before it.
+    let got = chat.prompt_raw(&messages, None).expect("rendering the prompt");
     assert_eq!(
         got, want_ids,
         "the rendered prompt must tokenize exactly as apply_chat_template does"

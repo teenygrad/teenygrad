@@ -383,10 +383,14 @@ fn test_swiglu_matches_the_reference() {
     let (gate, up) = (f.get("swiglu.in.gate"), f.get("swiglu.in.up"));
     let i = f.usize_of("swiglu", "intermediate");
     let rows = gate.len() / i;
-    let mut cat = Vec::with_capacity(gate.len() * 2);
+    // The kernel reads gate and up from interleaved lanes, as `w13_weight` stores
+    // them; the reference module takes them as two separate tensors.
+    let mut cat = vec![0.0f32; gate.len() * 2];
     for r in 0..rows {
-        cat.extend_from_slice(&gate[r * i..(r + 1) * i]);
-        cat.extend_from_slice(&up[r * i..(r + 1) * i]);
+        for c in 0..i {
+            cat[r * 2 * i + c * 2] = gate[r * i + c];
+            cat[r * 2 * i + c * 2 + 1] = up[r * i + c];
+        }
     }
     let g = OneOp::new(&[rows, 2 * i]);
     let got = g.run(

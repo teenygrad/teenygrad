@@ -97,7 +97,10 @@ class LazyExperts(torch.nn.Module):
                 w2 = torch.from_numpy(expert_rows("w2", e))     # [H, I]
                 x = hidden_states[pos:pos + 1].float()
                 gu = torch.nn.functional.linear(x, w13)
-                g, u = gu.chunk(2, dim=-1)
+                # w13_weight interleaves gate and up down its rows; transformers converts
+            # it with Interleave(dim=1) rather than renaming it, so chunking into
+            # halves pairs every gate with the wrong up.
+            g, u = gu[..., 0::2], gu[..., 1::2]
                 h = self.act_fn(g, u)
                 y = torch.nn.functional.linear(h, w2)
                 out[pos:pos + 1] += y * float(top_k_weights[pos, slot])

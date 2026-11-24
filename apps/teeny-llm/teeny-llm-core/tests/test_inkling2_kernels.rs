@@ -672,8 +672,9 @@ fn swiglu_reference(x: &[f32], s: usize, i: usize, gcap: f32, ucap: f32) -> Vec<
     (0..s * i)
         .map(|idx| {
             let (row, col) = (idx / i, idx % i);
-            let g = x[row * 2 * i + col];
-            let u = x[row * 2 * i + i + col];
+            // gate and up are interleaved, as `w13_weight` stores them
+            let g = x[row * 2 * i + col * 2];
+            let u = x[row * 2 * i + col * 2 + 1];
             cap(g, gcap) * (1.0 / (1.0 + (-g).exp())) * cap(u, ucap)
         })
         .collect()
@@ -697,7 +698,7 @@ fn test_swiglu_matches_the_reference() {
 fn test_swiglu_sigmoid_sees_the_uncapped_gate() {
     let (s, i) = (1usize, 1usize);
     let (gcap, ucap) = (4.0f32, 25.0f32);
-    let x = vec![40.0f32, 1.0]; // gate 40, up 1
+    let x = vec![40.0f32, 1.0]; // gate 40, up 1 -- interleaved, so adjacent
     let g = OneOp::new(&[s, 2 * i]);
     let got = g.run(SwigluOp::<f32>::new(i, gcap, ucap), &[], &[&x], &[]);
     let cap = |v: f32, c: f32| (v / c).tanh() * c;
@@ -841,9 +842,11 @@ fn test_router_gather_swiglu_scatter_compose() {
                         .sum()
                 })
                 .collect();
+            // gate and up are interleaved down the rows of w13, not two halves.
             let a: Vec<f32> = (0..inter)
                 .map(|r| {
-                    cap(gu[r], gcap) * (1.0 / (1.0 + (-gu[r]).exp())) * cap(gu[inter + r], ucap)
+                    let (g, u) = (gu[2 * r], gu[2 * r + 1]);
+                    cap(g, gcap) * (1.0 / (1.0 + (-g).exp())) * cap(u, ucap)
                 })
                 .collect();
             for (c, slot_out) in want[tok * hidden..(tok + 1) * hidden]
