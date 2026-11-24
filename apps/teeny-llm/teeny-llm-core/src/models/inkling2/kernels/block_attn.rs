@@ -22,9 +22,14 @@
 //! out[t, q] = sum_s softmax_s(query[q] . states[t, s] * hidden^-0.5) states[t, s]
 //! ```
 //!
-//! One head, `head_dim = hidden`, no mask and no causality: the `S` states of a token
-//! are block boundaries it has already passed, not a sequence. `S` grows by one at
-//! each block boundary, and the partial state of the current block is the last entry.
+//! One head, `head_dim = hidden`, no mask and no causality: the states of a token
+//! are block boundaries it has already passed, not a sequence.
+//!
+//! **The partial state is a separate input**, stacked on the end, because the
+//! reference does `cat([block_states, partial.unsqueeze(-2)])` and the partial is
+//! produced inside the graph: before attention it is the layer's input, before the
+//! MLP it is the post-attention state. So the logical stack is `S + 1` deep with `S`
+//! committed states and one partial.
 //!
 //! The queries are a parameter of `[Q, hidden]`, the same at every position; the
 //! checkpoint stores them centrally as `attn_res.attn_queries.{layer}` (`Q = 3`) and
@@ -45,6 +50,7 @@ use teeny_triton::triton::*;
 #[kernel]
 pub fn block_attn_forward<T: Triton, D: Float, const BLOCK: i32>(
     s_ptr: InPtr<T::Pointer<D>>,
+    p_ptr: InPtr<T::Pointer<D>>,
     q_ptr: InPtr<T::Pointer<D>>,
     y_ptr: OutPtr<T::Pointer<D>>,
     S: i32,
@@ -82,17 +88,31 @@ pub fn block_attn_forward<T: Triton, D: Float, const BLOCK: i32>(
     let mut m_run = T::full(&[1], D::from_f64(-1.0e30));
     let mut l_run = T::zeros::<D>(&[1]);
     let mut acc = T::zeros::<D>(&[BLOCK]);
-    for s in 0..S {
-        let st = T::load(
-            s_ptr.add_offsets(d + (token * S + s) * H),
-            Some(dm),
-            Some(zeros),
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
+    // S committed states, then the partial: S + 1 in all.
+    for s in 0..(S + 1) {
+        let st = if s < S {
+            T::load(
+                s_ptr.add_offsets(d + (token * S + s) * H),
+                Some(dm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            )
+        } else {
+            T::load(
+                p_ptr.add_offsets(d + token * H),
+                Some(dm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            )
+        };
         let logit = T::sum(q * st, Some(0), true);
         let m_new = T::maximum(m_run, logit);
         let p = T::exp(logit - m_new);
@@ -123,10 +143,11 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-/// Graph-level block attention: input `states` `[T * S, hidden]` (already normalised),
-/// a `[Q, hidden]` query parameter, output `[T * Q, hidden]`.
+/// Graph-level block attention: inputs `states` `[T * S, hidden]` and `partial`
+/// `[T, hidden]`, both already normalised, with a `[Q, hidden]` query parameter;
+/// output `[T, hidden]` for the selected query.
 pub struct BlockAttnOp<D: FloatBytes + Send + Sync + 'static> {
-    /// Block states per token, including the current partial one.
+    /// Committed block states per token; the partial is a separate input.
     pub states: usize,
     /// Model width.
     pub hidden: usize,
@@ -141,8 +162,8 @@ pub struct BlockAttnOp<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> BlockAttnOp<D> {
     /// Attention over `states` states of `hidden` lanes, using query `query_index`
     /// of the `queries` the parameter holds.
+    /// `states` may be zero: the first block boundary has only the partial.
     pub fn new(states: usize, hidden: usize, queries: usize, query_index: usize) -> Self {
-        assert!(states > 0, "block attn: states must be positive");
         assert!(
             query_index < queries,
             "block attn: query {query_index} is outside the {queries} the parameter holds"
@@ -163,10 +184,16 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for BlockAttnOp<D> {
         "llm.block_attn"
     }
     fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
-        vec![
-            input_shapes[0][0].map(|rows| rows / self.states),
-            Some(self.hidden),
-        ]
+        // One row per token. The partial has exactly that, so prefer it; some
+        // re-inference paths pass only the primary input, and then the token count
+        // has to come from the committed states, which is impossible when there are
+        // none (the first boundary) and the shape stays symbolic.
+        let rows = match input_shapes.get(1) {
+            Some(partial) => partial[0],
+            None if self.states > 0 => input_shapes[0][0].map(|r| r / self.states),
+            None => None,
+        };
+        vec![rows, Some(self.hidden)]
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -199,7 +226,7 @@ pub struct BlockAttnRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
 
 impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for BlockAttnRuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
-        1
+        2
     }
     fn param_shapes(&self, _i: &[&[usize]], _o: &[usize]) -> Vec<Vec<usize>> {
         vec![vec![self.queries, self.hidden]]
@@ -216,9 +243,9 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for BlockAttnRuntimeOp<D> 
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
-        assert_eq!(inputs[0].1[1], self.hidden, "block attn: state width");
-
+        assert_eq!(inputs[1].1[1], self.hidden, "block attn: partial width");
         visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(inputs[1].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
         visitor.visit_i32(self.states as i32);
