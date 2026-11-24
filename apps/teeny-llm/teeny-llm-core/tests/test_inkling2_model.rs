@@ -1591,3 +1591,59 @@ fn test_layer_zero_query_and_bias_against_the_reference() {
         report("bias", &got[0], &load("/tmp/claude-ref-layer0.bias.bin"));
     }
 }
+
+/// One token through the whole model, against the reference's own forward pass.
+///
+/// `scripts/inkling2-ref-full.py` writes `/tmp/claude-ref-full.bin`: the logits
+/// transformers produces for the same token, running the pre-core layers, the core
+/// three times with cross-pass messages, the post-core layers and the head. This is
+/// the only test that exercises the loop, which the per-layer tests cannot reach.
+#[test]
+#[ignore = "needs the checkpoint and /tmp/claude-ref-full.bin; set INKLING2_MODEL_DIR"]
+fn test_one_token_logits_against_the_reference() {
+    use teeny_llm_core::models::inkling2::engine::Engine;
+    use teeny_llm_core::models::inkling2::weights::Checkpoint;
+    use teeny_test::model::runtime;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let cfg = teeny_llm_core::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+    let token: u32 = std::env::var("INKLING2_REF_TOKEN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5000);
+
+    let want: Vec<f32> = std::fs::read("/tmp/claude-ref-full.bin")
+        .expect("/tmp/claude-ref-full.bin (run scripts/inkling2-ref-full.py)")
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+
+    let device = runtime::open().expect("opening the device");
+    let mut engine =
+        Engine::load(&device, cfg.clone(), 1.0, &mut ck, 16).expect("loading the model");
+    let got = engine.step(&device, token).expect("one token");
+
+    assert_eq!(got.len(), want.len(), "logit count");
+    let n = cfg.unpadded_vocab_size.min(got.len());
+    let worst = got[..n]
+        .iter()
+        .zip(&want[..n])
+        .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
+        .fold(0.0f32, f32::max);
+    let arg = |v: &[f32]| {
+        v[..n]
+            .iter()
+            .enumerate()
+            .fold((0usize, f32::MIN), |a, (i, &x)| if x > a.1 { (i, x) } else { a })
+    };
+    let (mi, mv) = arg(&got);
+    let (wi, wv) = arg(&want);
+    println!("mine argmax {mi} ({mv:.4}); reference argmax {wi} ({wv:.4})");
+    println!("worst relative error over {n} real logits: {worst:.6}");
+    assert_eq!(mi, wi, "the model must predict the same token as the reference");
+    assert!(worst < 1e-2, "logits diverge by {worst}");
+}

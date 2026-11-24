@@ -164,7 +164,13 @@ rms = np.sqrt((emb * emb).mean() + cfg.rms_norm_eps)
 x = torch.from_numpy((emb / rms) * enorm).view(1, 1, -1).float()
 
 # ---- run layers 0..LAYER, as Inkling2LoopTextModel does before the core ----
-assert LAYER < cfg.loop_layer_index_start, "this chains the pre-core layers only"
+# Chaining runs the core's FIRST pass only, which is what a layer inside the core sees
+# on that pass. Layers after the core see all three passes, so they cannot be reached
+# this way.
+assert LAYER < cfg.loop_layer_index_end, (
+    "this chains up to the end of the core's first pass; layers after it need the "
+    "whole loop"
+)
 block_states = x.new_zeros(1, 1, 0, x.shape[-1])
 pos = torch.arange(1).unsqueeze(0)
 taps = {}
