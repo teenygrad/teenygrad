@@ -887,3 +887,133 @@ fn test_one_token_through_every_layer_once() {
         "the top logit should stand above the mean"
     );
 }
+
+/// Diagnostics: does the stack actually transform its input, and does every token
+/// echo itself?
+///
+/// The first run echoed its input (token 5000 in, 5000 out) with a weak margin,
+/// which is consistent both with reasonable behaviour on a context-free single token
+/// and with a near-identity stack whose unembedding is matching a residual stream
+/// that still looks like the input embedding. Two measurements separate them:
+///
+/// - the **cosine between the final hidden state and the input embedding**. Near 1
+///   means the 24 layers barely moved the residual stream.
+/// - **several tokens**. If every one echoes itself, that points at the unembedding
+///   reading the embedding rather than at the model predicting.
+#[test]
+#[ignore = "needs the checkpoint; set INKLING2_MODEL_DIR"]
+fn test_what_the_stack_does_to_a_few_tokens() {
+    use std::time::Instant;
+    use teeny_llm::models::inkling2::runner::{State, argmax, plan};
+    use teeny_llm::models::inkling2::weights::Checkpoint;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let cfg = teeny_llm::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+
+    let (t, hid) = (1usize, cfg.hidden_size);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+    let cache = 8usize;
+    let zeros_kv = vec![0.0f32; kw * nkv * hd];
+    let zeros_h = vec![0.0f32; kw * hid];
+    let cache_kv = vec![0.0f32; cache * nkv * hd];
+
+    let embed = ck.param("model.llm.embed.weight").expect("embeddings");
+    let enorm = ck.param("model.llm.embed_norm.weight").expect("embed_norm");
+    let norm_w = ck.param("model.llm.norm.weight").expect("final norm");
+    let unembed = ck.param("model.llm.unembed.weight").expect("unembed");
+
+    let cosine = |a: &[f32], b: &[f32]| -> f32 {
+        let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+        let na = a.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let nb = b.iter().map(|v| v * v).sum::<f32>().sqrt();
+        dot / (na * nb + 1e-20)
+    };
+
+    let tokens = [5000usize, 100, 42, 100_000];
+    let mut finals: Vec<Vec<f32>> = Vec::new();
+    let mut echoes = 0usize;
+    for &token in &tokens {
+        let started = Instant::now();
+        let row: Vec<f32> = embed[token * hid..(token + 1) * hid].to_vec();
+        let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+        let mut x: Vec<f32> = (0..hid).map(|i| row[i] / rms * enorm[i]).collect();
+        let entry = x.clone();
+        let mut state = State::new(&cfg, cache);
+
+        for step in plan(&cfg) {
+            if step.pass.is_some_and(|p| p > 0) {
+                continue;
+            }
+            let block_input = state.block_input(t);
+            let n_states = state.n_blocks();
+            let g = GraphRun::new(&[t, hid]);
+            let bs = g.input(&[t * n_states, hid]);
+            let kh = g.input(&[kw, nkv * hd]);
+            let vh = g.input(&[kw, nkv * hd]);
+            let ah = g.input(&[kw, hid]);
+            let mh = g.input(&[kw, hid]);
+            let kc = g.input(&[cache, nkv * hd]);
+            let vc = g.input(&[cache, nkv * hd]);
+            let past = PastLen::default();
+            past.set(0);
+            let inputs = LayerInputs {
+                x: &g.first,
+                block_states: &bs,
+                n_states,
+                k_hist: &kh,
+                v_hist: &vh,
+                attn_hist: &ah,
+                mlp_hist: &mh,
+                k_cache: &kc,
+                v_cache: &vc,
+                messages: None,
+            };
+            let out = build_layer::<f32>(&cfg, step.layer, &inputs, past);
+            let next = g.run_from_checkpoint(
+                &out,
+                &[&x, &block_input, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv],
+                &mut ck,
+                step.layer,
+            );
+            if step.is_boundary {
+                state.push_block(&x);
+            }
+            x = next;
+        }
+
+        let gh = GraphRun::new(&[t, hid]);
+        let sym = build_head::<f32>(&cfg, &gh.first, 16.0);
+        let logits = gh.run(&sym, &[&x], &[("norm.weight", &norm_w), ("unembed.weight", &unembed)]);
+        let best = argmax(&logits) as usize;
+        let mean = logits.iter().sum::<f32>() / logits.len() as f32;
+        let cos_in = cosine(&x, &entry);
+        let cos_raw = cosine(&x, &row);
+        if best == token {
+            echoes += 1;
+        }
+        println!(
+            "token {token:6} -> {best:6} {} | logit {:7.4} mean {:7.4} | cos(final, entry) {cos_in:+.4} cos(final, embed) {cos_raw:+.4} | {:.0}s",
+            if best == token { "ECHO" } else { "    " },
+            logits[best],
+            mean,
+            started.elapsed().as_secs_f32()
+        );
+        assert!(x.iter().all(|v| v.is_finite()), "token {token} gave a non-finite state");
+        finals.push(x);
+    }
+
+    // Different inputs must give different final states, or the stack is ignoring
+    // its input entirely.
+    let across = cosine(&finals[0], &finals[1]);
+    println!("cos(final[{}], final[{}]) = {across:+.4}", tokens[0], tokens[1]);
+    assert!(
+        across < 0.999,
+        "two different tokens produced near-identical states ({across}); the stack ignores its input"
+    );
+    println!("{echoes} of {} tokens echoed their input", tokens.len());
+}
