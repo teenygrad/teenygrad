@@ -120,8 +120,12 @@ pub fn actions(cfg: &Inkling2TextConfig) -> Vec<Action> {
         }
         if let Some(p) = step.pass {
             if last_pass != Some(p) && p > 0 {
-                out.push(Action::RestoreCore);
+                // Messages first: they are retrieved from the state the PREVIOUS pass
+                // ended in, and restoring would overwrite exactly that. The reference
+                // reads `prev_blocks` and `prev_x` off the live state and only then
+                // assigns the saved ones back.
                 out.push(Action::Messages(p));
+                out.push(Action::RestoreCore);
             }
             last_pass = Some(p);
         }
@@ -258,7 +262,8 @@ mod tests {
             vec![1, 2],
             "one message build per pass after the first"
         );
-        // Each precedes that pass's first layer.
+        // Each precedes that pass's first layer, and -- the part that matters -- the
+        // restore that would destroy the state they are built from.
         for p in [1usize, 2] {
             let at = acts
                 .iter()
@@ -269,6 +274,22 @@ mod tests {
                 .position(|a| matches!(a, Action::Run(s) if s.pass == Some(p)))
                 .expect("a pass layer");
             assert!(at < layer, "messages for pass {p} come before its layers");
+            let restore = acts
+                .iter()
+                .enumerate()
+                .filter(|(i, a)| *i > at && **a == Action::RestoreCore)
+                .map(|(i, _)| i)
+                .next()
+                .expect("a restore after the messages");
+            assert!(
+                restore < layer,
+                "pass {p} restores the core's entry state before its layers run"
+            );
+            assert!(
+                at < restore,
+                "messages for pass {p} are built from the previous pass's state, so \
+                 they must be built before the restore overwrites it"
+            );
         }
     }
 

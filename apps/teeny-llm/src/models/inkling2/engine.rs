@@ -271,9 +271,18 @@ impl<'d> Engine<'d> {
             Compiled::new(device, g, &flat, n, ck, 0)?
         };
 
+        // The head sees the block states the last layer left behind: every boundary
+        // the token crossed, which is one per `n_layers_per_attn_res_block` over the
+        // whole stack plus the first.
+        // Every boundary the token crossed is one block state. The core's later
+        // passes restart from its entry state, so each boundary contributes once
+        // however many times its layer runs.
+        let per = cfg.n_layers_per_attn_res_block;
+        let head_states = (0..cfg.num_hidden_layers).filter(|l| l % per == 0).count();
         let head = {
-            let b = Builder::new(&[1, hid]);
-            let out = build_head::<f32>(&cfg, &b.first, mup_width_multiplier);
+            let b = Builder::new(&[head_states.max(1), hid]);
+            let partial = b.input(&[1, hid]);
+            let out = build_head::<f32>(&cfg, &partial, &b.first, head_states, mup_width_multiplier);
             let g: &Graph = &b.graph.borrow();
             Compiled::new(device, g, &[&out], 1, ck, 0)?
         };
@@ -401,7 +410,8 @@ impl<'d> Engine<'d> {
         self.state.len += 1;
         self.past.set(self.state.len);
         self.tokens.push(token);
-        Ok(self.head.run(device, &[&x])?.remove(0))
+        let head_blocks = self.state.block_input(1);
+        Ok(self.head.run(device, &[&head_blocks, &x])?.remove(0))
     }
 
     /// The most likely next token, masked to the real vocabulary.

@@ -949,9 +949,15 @@ pub fn build_embed<D: FloatBytes + Send + Sync + 'static>(
 pub fn build_head<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     x: &SymTensor,
+    block_states: &SymTensor,
+    n_states: usize,
     mup_width_multiplier: f64,
 ) -> SymTensor {
-    let x = build_norm::<D>("norm", x, cfg.hidden_size);
+    // One last block-attention residual before the norm, with its own query:
+    // `TextModel.forward` ends `hidden = self.final_input(block_states, hidden)[0]`.
+    // Skipping it feeds the head a hidden state the model never produces.
+    let x = build_attn_res::<D>(cfg, "output_query", block_states, x, n_states, 1).remove(0);
+    let x = build_norm::<D>("norm", &x, cfg.hidden_size);
     let last = x.record_custom(CustomData::new(LastRowOp::<D>::default()), &[], None);
     let logits = {
         let _g = name_scope("unembed");
