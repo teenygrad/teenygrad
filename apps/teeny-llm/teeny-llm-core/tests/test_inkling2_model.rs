@@ -726,3 +726,164 @@ fn test_layer_zero_runs_on_real_weights() {
         "the output should be plausibly scaled, absmax was {absmax}"
     );
 }
+
+/// One token through all 24 layers of the real model, then the head.
+///
+/// Ignored: needs the checkpoint, and takes tens of minutes under qemu.
+///
+/// **One pass, not three.** The looped core's later passes need the cross-pass
+/// messages, and the checkpoint holds those as `middle_cycle_cross_pass_queries` and
+/// `_kv_queries`, two `[24, 2304]` tensors that no reachable source maps onto the
+/// reference's `(loop_layers, 4, hidden)` message queries. Pass 0 takes no messages,
+/// so this walks the plan's pass-0 steps and skips the rest. It is the whole stack
+/// apart from the loop: both layer shapes, both quantisations, block states,
+/// boundaries, the embedding and the head.
+#[test]
+#[ignore = "needs the checkpoint and tens of minutes; set INKLING2_MODEL_DIR"]
+fn test_one_token_through_every_layer_once() {
+    use std::time::Instant;
+    use teeny_llm_core::models::inkling2::runner::{State, argmax, plan};
+    use teeny_llm_core::models::inkling2::weights::Checkpoint;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let full = teeny_llm_core::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's config");
+    let cfg = full.text_config.clone();
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+
+    let (t, hid) = (1usize, cfg.hidden_size);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+    let cache = 8usize;
+    let past = PastLen::default();
+    past.set(0);
+    let mut state = State::new(&cfg, cache);
+
+    // Embed one token, as build_embed does: a lookup then embed_norm.
+    let token = 5000usize;
+    let embed = ck
+        .param("model.llm.embed.weight")
+        .expect("the embedding table");
+    let enorm = ck.param("model.llm.embed_norm.weight").expect("embed_norm");
+    let row = &embed[token * hid..(token + 1) * hid];
+    let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+    let mut x: Vec<f32> = (0..hid).map(|i| row[i] / rms * enorm[i]).collect();
+    drop(embed);
+
+    let zeros_kv = vec![0.0f32; kw * nkv * hd];
+    let zeros_h = vec![0.0f32; kw * hid];
+    let cache_kv = vec![0.0f32; cache * nkv * hd];
+
+    let started = Instant::now();
+    let mut ran = 0usize;
+    for step in plan(&cfg) {
+        // Pass 0 and the layers outside the core; the later passes need messages.
+        if step.pass.is_some_and(|p| p > 0) {
+            continue;
+        }
+        let block_input = state.block_input(t);
+        let n_states = state.n_blocks();
+
+        let g = GraphRun::new(&[t, hid]);
+        let block_states = g.input(&[t * n_states, hid]);
+        let k_hist = g.input(&[kw, nkv * hd]);
+        let v_hist = g.input(&[kw, nkv * hd]);
+        let attn_hist = g.input(&[kw, hid]);
+        let mlp_hist = g.input(&[kw, hid]);
+        let k_cache = g.input(&[cache, nkv * hd]);
+        let v_cache = g.input(&[cache, nkv * hd]);
+        let inputs = LayerInputs {
+            x: &g.first,
+            block_states: &block_states,
+            n_states,
+            k_hist: &k_hist,
+            v_hist: &v_hist,
+            attn_hist: &attn_hist,
+            mlp_hist: &mlp_hist,
+            k_cache: &k_cache,
+            v_cache: &v_cache,
+            messages: None,
+        };
+        let out = build_layer::<f32>(&cfg, step.layer, &inputs, past.clone());
+        let next = g.run_from_checkpoint(
+            &out,
+            &[
+                &x,
+                &block_input,
+                &zeros_kv,
+                &zeros_kv,
+                &zeros_h,
+                &zeros_h,
+                &cache_kv,
+                &cache_kv,
+            ],
+            &mut ck,
+            step.layer,
+        );
+        assert_eq!(next.len(), t * hid, "layer {} output width", step.layer);
+        assert!(
+            next.iter().all(|v| v.is_finite()),
+            "layer {} produced a non-finite value",
+            step.layer
+        );
+        // A boundary layer's INPUT joins the block states, not its output.
+        if step.is_boundary {
+            state.push_block(&x);
+        }
+        x = next;
+        ran += 1;
+        let absmax = x.iter().fold(0.0f32, |a, v| a.max(v.abs()));
+        println!(
+            "layer {:2} done in {:>6.1}s, absmax {absmax:8.3}, blocks {}",
+            step.layer,
+            started.elapsed().as_secs_f32(),
+            state.n_blocks()
+        );
+    }
+    assert_eq!(
+        ran, cfg.num_hidden_layers,
+        "every layer runs once in pass 0"
+    );
+
+    // The head: final norm, unembed, muP, softcap.
+    let gh = GraphRun::new(&[t, hid]);
+    let logits_sym = build_head::<f32>(&cfg, &gh.first, 16.0);
+    let norm_w = ck.param("model.llm.norm.weight").expect("final norm");
+    let unembed = ck.param("model.llm.unembed.weight").expect("unembed");
+    let logits = gh.run(
+        &logits_sym,
+        &[&x],
+        &[("norm.weight", &norm_w), ("unembed.weight", &unembed)],
+    );
+
+    assert_eq!(
+        logits.len(),
+        cfg.vocab_size,
+        "one distribution over the vocabulary"
+    );
+    assert!(
+        logits.iter().all(|v| v.is_finite()),
+        "every logit must be finite"
+    );
+    let cap = full.text_config.final_logit_softcapping.unwrap_or(30.0) as f32;
+    assert!(
+        logits.iter().all(|v| v.abs() <= cap + 1e-3),
+        "every logit must sit inside the softcap"
+    );
+    let best = argmax(&logits);
+    let top = logits[best as usize];
+    let mean = logits.iter().sum::<f32>() / logits.len() as f32;
+    println!(
+        "token {token} -> {best}, logit {top:.4}, mean {mean:.4}, in {:.0}s",
+        started.elapsed().as_secs_f32()
+    );
+    assert!(
+        (best as usize) < cfg.unpadded_vocab_size,
+        "the chosen id {best} is outside the real vocabulary"
+    );
+    assert!(
+        top > mean + 1e-3,
+        "the top logit should stand above the mean"
+    );
+}
