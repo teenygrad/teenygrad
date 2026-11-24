@@ -28,7 +28,8 @@ use std::path::Path;
 
 use safetensors::{Dtype, tensor::TensorView};
 use teeny_llm::models::inkling2::Inkling2Config;
-use teeny_llm::models::inkling2::runner::checkpoint_name;
+use teeny_llm::models::inkling2::load::{Source, resolve};
+use teeny_llm::models::inkling2::runner::{Quant, checkpoint_name, plan, quant_of};
 use teeny_llm::models::inkling2::weights::{Checkpoint, Encoding, pack_rows};
 
 fn fixtures() -> std::path::PathBuf {
@@ -359,4 +360,156 @@ fn test_expert_scale2_divides_amax_by_the_denominator() {
         "a layer without amax must error rather than invent a scale"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The slots a layer's graph actually produces, as the graph tests observe them.
+///
+/// Written out rather than built, because building them needs a device; the graph
+/// tests in `test_inkling2_model.rs` check this list against a compiled layer.
+fn layer_slots(layer: usize, nvfp4: bool, dynamic: bool, looped: bool) -> Vec<String> {
+    let mut v: Vec<String> = [
+        "mlp_norm.weight",
+        "attn.wq_du.weight",
+        "attn.wk_dv.weight",
+        "attn.wv_dv.weight",
+        "attn.wo_ud.weight",
+        "attn.gate_attn.weight",
+        "attn.attn_sink_proj.weight",
+        "attn.wr_du.weight",
+        "attn.q_l2_clip.scale",
+        "attn.rel_l2_clip.scale",
+        "attn.rel_logits_proj.weight",
+        "attn_sconv.weight",
+        "mlp_sconv.weight",
+        "mlp.gate.weight",
+        "mlp.gate.bias",
+        "mlp.experts.weight",
+        "mlp.experts.scale",
+        "mlp.experts_down.weight",
+        "mlp.experts_down.scale",
+        "attn_res.mlp_queries_0.query",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    // Layer 0 has no attention residual: no block states yet, and no queries for it
+    // in the checkpoint.
+    if layer > 0 {
+        for q in 0..3 {
+            v.push(format!("attn_res.attn_queries_{q}.query"));
+        }
+    }
+    if dynamic {
+        v.extend(
+            [
+                "q_input_norm.weight",
+                "k_input_norm.weight",
+                "v_input_norm.weight",
+                "attn.k_sconv.weight_proj.weight",
+                "attn.v_sconv.weight_proj.weight",
+                "attn.k_sconv.static_w",
+                "attn.v_sconv.static_w",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
+        );
+    } else {
+        v.extend(
+            [
+                "attn_norm.weight",
+                "attn.k_sconv.weight",
+                "attn.v_sconv.weight",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
+        );
+    }
+    if nvfp4 {
+        v.push("mlp.experts.scale2".to_string());
+        v.push("mlp.experts_down.scale2".to_string());
+    }
+    if looped {
+        for which in ["attn", "k", "v", "mlp"] {
+            for part in ["down", "forget", "gain"] {
+                v.push(format!("controllers.{which}.{part}.weight"));
+            }
+        }
+    }
+    v
+}
+
+/// Every slot of every step of a full plan resolves to a tensor the real checkpoint
+/// has. This is the check the first real load would otherwise perform, one failure
+/// at a time, somewhere inside a step.
+#[test]
+fn test_a_whole_plan_resolves_against_the_real_index() {
+    let text = std::fs::read_to_string(fixtures().join("inkling2-mini-index.json"))
+        .expect("the shipped index fixture");
+    let v: serde_json::Value = serde_json::from_str(&text).expect("parsing it");
+    let names: std::collections::BTreeSet<String> = v["weight_map"]
+        .as_object()
+        .expect("weight_map")
+        .keys()
+        .cloned()
+        .collect();
+
+    let cfg = Inkling2Config::load(&fixtures().join("inkling2-mini-config.json"))
+        .expect("the shipped config")
+        .text_config;
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut checked = 0usize;
+    for step in plan(&cfg) {
+        let dynamic = (step.layer + 1) % cfg.n_layers_per_attn_res_block == 0;
+        let nvfp4 = quant_of(&cfg, step.layer) == Quant::Nvfp4;
+        let slots = layer_slots(step.layer, nvfp4, dynamic, step.pass.is_some());
+        for (slot, src) in resolve(&slots, step.layer) {
+            checked += 1;
+            let needed: Vec<String> = match src {
+                Source::Tensor(n) => vec![n],
+                Source::ExpertScale(p) => {
+                    vec![format!("{p}_amax"), format!("{p}_outer_scale_denominator")]
+                }
+            };
+            for n in needed {
+                if !names.contains(&n) {
+                    missing.push(format!("layer {} slot {slot} -> {n}", step.layer));
+                }
+            }
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "{} of {checked} slots do not resolve, e.g.:\n  {}",
+        missing.len(),
+        missing
+            .iter()
+            .take(6)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+    assert!(
+        checked > 1500,
+        "a 48-step plan should check well over 1500 slots, got {checked}"
+    );
+
+    // The attn_queries of the last layer do not exist, so a plan that reached it with
+    // three attention queries would be wrong. Confirm the plan never does.
+    // 23 attention queries for layers 1..=23, and 24 mlp queries for every layer.
+    assert!(!names.contains("model.llm.attn_res.attn_queries.23"));
+    assert!(names.contains("model.llm.attn_res.attn_queries.22"));
+    assert!(names.contains("model.llm.attn_res.mlp_queries.23"));
+    assert_eq!(
+        checkpoint_name("attn_res.attn_queries_0.query", 23),
+        "model.llm.attn_res.attn_queries.22",
+        "the last layer reads the last query, not one past the end"
+    );
+    assert_eq!(
+        checkpoint_name("attn_res.mlp_queries_0.query", 23),
+        "model.llm.attn_res.mlp_queries.23",
+        "the mlp queries are not offset"
+    );
 }
