@@ -7,7 +7,10 @@ from transformers.models.inkling2_loop.configuration_inkling2_loop import Inklin
 
 DIR = "/home/petr/models/Inkling-2-Mini"
 LAYER = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-TOKEN = int(sys.argv[2]) if len(sys.argv) > 2 else 5000
+# One token, or a comma-separated sequence: the whole prompt in one forward pass,
+# which is the ground truth for what the model should predict after it.
+TOKENS = [int(v) for v in (sys.argv[2] if len(sys.argv) > 2 else "5000").split(",")]
+TOKEN = TOKENS[0]
 OUT = sys.argv[3] if len(sys.argv) > 3 else "/tmp/ref_full.bin"
 # Which row of each pair is which message. Two independent choices, written as the
 # queries pair then the kv pair: "qm" or "mq", then "kv" or "vk". Indexing a flat
@@ -97,14 +100,21 @@ class LazyExperts(torch.nn.Module):
         self.num_experts = cfg.n_routed_experts
         self.act_fn = M.Inkling2LoopSoftcappedSwiGLU(cfg)
         self.prefix, self.nvfp4 = prefix, nvfp4
+        # Many positions route to the same expert; dequantising it once per layer
+        # turns a 20-token prompt from hours into minutes.
+        self._cache = {}
 
     def forward(self, hidden_states, top_k_index, top_k_weights):
         out = torch.zeros_like(hidden_states, dtype=torch.float32)
         for pos in range(top_k_index.shape[0]):
             for slot in range(top_k_index.shape[1]):
                 e = int(top_k_index[pos, slot])
-                w13 = torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w13", e))
-                w2 = torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w2", e))
+                if e not in self._cache:
+                    self._cache[e] = (
+                        torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w13", e)),
+                        torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w2", e)),
+                    )
+                w13, w2 = self._cache[e]
                 x = hidden_states[pos:pos + 1].float()
                 gu = torch.nn.functional.linear(x, w13)
                 g, u = gu.chunk(2, dim=-1)
@@ -187,12 +197,17 @@ def build(idx):
 # Inkling2LoopTextModel.forward, written out: the pre-core layers, the core three
 # times, then the post-core layers, with each later pass restarting from the state the
 # core was entered with and taking messages from the pass before.
-emb = raw("model.llm.embed.weight")[TOKEN].astype(np.float32)
+table = raw("model.llm.embed.weight")
 enorm = raw("model.llm.embed_norm.weight").astype(np.float32)
-rms = np.sqrt((emb * emb).mean() + cfg.rms_norm_eps)
-x = torch.from_numpy((emb / rms) * enorm).view(1, 1, -1).float()
+rows = []
+for tk in TOKENS:
+    e = table[tk].astype(np.float32)
+    rows.append((e / np.sqrt((e * e).mean() + cfg.rms_norm_eps)) * enorm)
+x = torch.from_numpy(np.stack(rows)).view(1, len(TOKENS), -1).float()
+del table
+T = len(TOKENS)
 
-print("building 24 layers ...", flush=True)
+print(f"building 24 layers for {T} tokens ...", flush=True)
 layers = [build(i) for i in range(cfg.num_hidden_layers)]
 
 start, end = cfg.loop_layer_index_start, cfg.loop_layer_index_end
@@ -220,8 +235,31 @@ final_input = M.Inkling2LoopBlockAttentionResidual(cfg).eval()
 with torch.no_grad():
     final_input.query.copy_(t("model.llm.attn_res.output_query"))
 
-pos = torch.arange(1).unsqueeze(0)
-blocks = x.new_zeros(1, 1, 0, x.shape[-1])
+pos = torch.arange(T).unsqueeze(0)
+blocks = x.new_zeros(1, T, 0, x.shape[-1])
+# Without a mask the reference attends bidirectionally, so a multi-token run needs
+# the same masks TextModel.forward builds.
+def additive_mask(window=None):
+    """[1, 1, T, T], 0 where a query may see a key and -inf elsewhere.
+
+    Built by hand rather than with masking_utils: those return None when they expect
+    the attention implementation to enforce causality itself, and the eager path then
+    applies no mask at all and attends bidirectionally -- which looks like a plausible
+    answer rather than an error.
+    """
+    i = torch.arange(T).view(T, 1)
+    j = torch.arange(T).view(1, T)
+    ok = j <= i
+    if window is not None:
+        ok = ok & (i - j < window)
+    m = torch.zeros(T, T)
+    m[~ok] = float("-inf")
+    return m.view(1, 1, T, T)
+
+MASKS = {
+    "full_attention": additive_mask(),
+    "sliding_attention": additive_mask(cfg.sliding_window_size),
+}
 
 TRACE = []
 
@@ -230,8 +268,9 @@ def run(idx, hidden, blocks, messages=None):
     rel = M.get_relative_distance(hidden, None, is_sliding=sliding)
     loop = cfg.loop_layer_index_start <= idx < cfg.loop_layer_index_end
     args = (hidden, blocks, messages) if loop else (hidden, blocks)
+    mask = MASKS["sliding_attention" if sliding else "full_attention"]
     with torch.no_grad():
-        out = layer(*args, attention_mask=None, relative_distance=rel,
+        out = layer(*args, attention_mask=mask, relative_distance=rel,
                     conv_mask=None, cache=None, position_ids=pos)
     y = out[0] if isinstance(out, tuple) else out
     TRACE.append((idx, y.detach().reshape(-1).float().numpy().copy()))
@@ -287,7 +326,8 @@ with torch.no_grad():
     norm.weight.copy_(t("model.llm.norm.weight"))
     h = norm(x)
     unembed = t("model.llm.unembed.weight")
-    logits = torch.nn.functional.linear(h.reshape(1, -1), unembed)
+    # The last position is the one that predicts the next token.
+    logits = torch.nn.functional.linear(h.reshape(T, -1)[-1:], unembed)
     if cfg.final_logit_softcapping:
         c = cfg.final_logit_softcapping
         logits = torch.tanh(logits / c) * c
@@ -300,6 +340,7 @@ print("order", ORDER, "-> argmax", int(top[0]), "logit", float(lg[top[0]]),
 print("hidden absmax", float(np.abs(x.numpy()).max()))
 # Every layer execution in order, for bisecting against the engine.
 np.stack([v for _, v in TRACE]).astype("<f4").tofile(OUT.replace(".bin", ".trace.bin"))
+print("tokens:", TOKENS)
 print("executions traced:", len(TRACE), "->", OUT.replace(".bin", ".trace.bin"))
 for n, (idx, v) in enumerate(TRACE):
     if n < 3 or n > len(TRACE) - 3:

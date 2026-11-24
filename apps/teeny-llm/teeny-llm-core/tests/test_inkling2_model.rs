@@ -1632,21 +1632,36 @@ fn test_one_token_logits_against_the_reference() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(5000);
 
-    let want: Vec<f32> = std::fs::read("/tmp/claude-ref-full.bin")
-        .expect("/tmp/claude-ref-full.bin (run scripts/inkling2-ref-full.py)")
+    let ref_path =
+        std::env::var("INKLING2_REF_BIN").unwrap_or_else(|_| "/tmp/claude-ref-full.bin".into());
+    let want: Vec<f32> = std::fs::read(&ref_path)
+        .unwrap_or_else(|e| panic!("{ref_path}: {e} (run scripts/inkling2-ref-full.py)"))
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
 
+    // INKLING2_REF_TOKENS steps a whole sequence, one token at a time, and compares
+    // the last one's logits. That is what exercises the KV cache, the convolution
+    // windows and the per-token block reset; a single token leaves all three empty.
+    let tokens: Vec<u32> = match std::env::var("INKLING2_REF_TOKENS") {
+        Ok(v) => v.split(',').filter_map(|t| t.trim().parse().ok()).collect(),
+        Err(_) => vec![token],
+    };
     let device = runtime::open().expect("opening the device");
     let mut engine =
-        Engine::load(&device, cfg.clone(), 1.0, &mut ck, 16).expect("loading the model");
-    let got = engine.step(&device, token).expect("one token");
+        Engine::load(&device, cfg.clone(), 1.0, &mut ck, 32).expect("loading the model");
+    let mut got = Vec::new();
+    for (i, t) in tokens.iter().enumerate() {
+        got = engine.step(&device, *t).expect("a token");
+        println!("  stepped {}/{} (token {t})", i + 1, tokens.len());
+    }
 
     // If the reference traced its layer executions, say which one first diverged:
     // the whole-model comparison tells you that something is wrong, this tells you
     // where. Each row is one execution's output, in plan order.
-    if let Ok(bytes) = std::fs::read("/tmp/claude-ref-full.trace.bin") {
+    if tokens.len() == 1
+        && let Ok(bytes) = std::fs::read("/tmp/claude-ref-full.trace.bin")
+    {
         let want_trace: Vec<f32> = bytes
             .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
