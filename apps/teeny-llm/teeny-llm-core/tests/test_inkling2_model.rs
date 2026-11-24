@@ -33,9 +33,11 @@ use teeny_kernels::graph::TritonLowering;
 use teeny_llm_core::models::inkling2::config::Inkling2TextConfig;
 use teeny_llm_core::models::inkling2::kernels::attention::PastLen;
 use teeny_llm_core::models::inkling2::model::{
-    LayerInputs, build_controller, build_embed, build_head, build_layer, build_moe, build_router,
+    LayerInputs, build_controller, build_embed, build_head, build_layer, build_message_block,
+    build_moe, build_router,
 };
-use teeny_llm_core::models::inkling2::runner::{Quant, quant_of};
+use teeny_llm_core::models::inkling2::runner::{Quant, checkpoint_name, quant_of};
+use teeny_llm_core::models::inkling2::session::message_states;
 use teeny_test::model::{RuntimeModel, runtime};
 
 /// Deterministic values in `[-1, 1)`.
@@ -338,6 +340,70 @@ fn test_controller_slot_names() {
         ],
     );
     assert_eq!(got.len(), t * cfg.hidden_size);
+}
+
+/// Builds the cross-pass message block, runs it, and checks its parameter slots are
+/// the two top-level checkpoint tensors.
+///
+/// The messages are what passes 2 and 3 of the looped core consume, so this is the
+/// piece that takes a step from 24 layer executions to 48.
+#[test]
+fn test_message_block_builds_and_names_the_cross_pass_tensors() {
+    let cfg = test_config();
+    let hid = cfg.hidden_size;
+    let t = 2usize;
+    let n_loop = cfg.loop_config.core_end - cfg.loop_config.core_start;
+    let n_states = message_states(&cfg).max(1);
+    let rows = 2 * n_loop;
+
+    let g = GraphRun::new(&[t * n_states, hid]);
+    let partial = g.input(&[t, hid]);
+    let msgs = build_message_block::<f32>(&cfg, &g.first, &partial, n_states);
+    assert_eq!(msgs.len(), n_loop, "one set of messages per loop layer");
+
+    // Every op reads one row of one of the two shared tensors through its
+    // `query_index`, so each slot takes the whole [2 * n_loop, hidden] tensor.
+    let queries = values(rows * hid, 161);
+    let kv_queries = values(rows * hid, 162);
+    let states = values(t * n_states * hid, 163);
+    let part = values(t * hid, 164);
+
+    // One slot per op: four per loop layer, all reading one of the two tensors.
+    let names: Vec<String> = (0..n_loop)
+        .flat_map(|l| {
+            [
+                format!("cross_pass.queries_{l}_0.query"),
+                format!("cross_pass.kv_queries_{l}_1.query"),
+                format!("cross_pass.kv_queries_{l}_2.query"),
+                format!("cross_pass.queries_{l}_3.query"),
+            ]
+        })
+        .collect();
+    let params: Vec<(&str, &[f32])> = names
+        .iter()
+        .map(|n| {
+            let data: &[f32] = if n.contains("kv_queries") {
+                &kv_queries
+            } else {
+                &queries
+            };
+            (n.as_str(), data)
+        })
+        .collect();
+
+    let got = g.run(&msgs[0][0], &[&states, &part], &params);
+    assert_eq!(got.len(), t * hid);
+    assert!(got.iter().all(|v| v.is_finite()), "finite messages");
+
+    // And the slot names resolve to the checkpoint's own tensors.
+    assert_eq!(
+        checkpoint_name("cross_pass.queries_0_0.query", 7),
+        "model.llm.middle_cycle_cross_pass_queries"
+    );
+    assert_eq!(
+        checkpoint_name("cross_pass.kv_queries_11_2.query", 7),
+        "model.llm.middle_cycle_cross_pass_kv_queries"
+    );
 }
 
 /// Builds a whole decoder layer, lowers it, and runs it.

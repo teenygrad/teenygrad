@@ -75,6 +75,19 @@ pub fn graph_keys(cfg: &Inkling2TextConfig, prompt_tokens: usize) -> Vec<GraphKe
     keys
 }
 
+/// How many committed block states the cross-pass message stack attends over.
+///
+/// The reference slices `block_states[num_pre_loop_blocks + 1:]`: the blocks a pass
+/// appended, less its first. With the partial (the previous pass's final hidden state)
+/// stacked on top, that is what the messages are retrieved from.
+pub fn message_states(cfg: &Inkling2TextConfig) -> usize {
+    let l = &cfg.loop_config;
+    let per = cfg.n_layers_per_attn_res_block;
+    let in_core = (l.core_start..l.core_end).filter(|layer| layer % per == 0).count();
+    // The pre-core blocks are skipped by the slice, along with one more.
+    in_core.saturating_sub(1)
+}
+
 /// The order a step walks, with the saved states the looped core restarts from.
 ///
 /// Returned rather than executed so the sequencing can be tested without a device:
@@ -218,6 +231,15 @@ mod tests {
             save_at < first_core,
             "the state is saved before the core runs"
         );
+    }
+
+    #[test]
+    fn test_the_message_stack_is_the_pass_blocks_less_the_first() {
+        let c = cfg();
+        // The core spans layers 6..18 with a boundary every 6, so a pass appends two
+        // blocks (at 6 and 12) and the messages see the second alone, plus the
+        // previous pass's final hidden state as the partial.
+        assert_eq!(message_states(&c), 1);
     }
 
     #[test]
