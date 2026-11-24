@@ -9,7 +9,10 @@ DIR = "/home/petr/models/Inkling-2-Mini"
 LAYER = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 TOKEN = int(sys.argv[2]) if len(sys.argv) > 2 else 5000
 OUT = sys.argv[3] if len(sys.argv) > 3 else "/tmp/ref_full.bin"
-ORDER = __import__("os").environ.get("INKLING2_MSG_ORDER", "qkvm")
+# Which row of each pair is which message. Two independent choices, written as the
+# queries pair then the kv pair: "qm" or "mq", then "kv" or "vk". Indexing a flat
+# "qkvm" by position silently reads the wrong character and swaps key with value.
+ORDER = __import__("os").environ.get("INKLING2_MSG_ORDER", "qm-kv")
 
 # ---- checkpoint access ----------------------------------------------------
 HDR = {}
@@ -202,8 +205,9 @@ qs = t("model.llm.middle_cycle_cross_pass_queries")
 kvs = t("model.llm.middle_cycle_cross_pass_kv_queries")
 msg_q = torch.zeros(n_loop, 4, cfg.hidden_size)
 for l in range(n_loop):
-    a, b = (0, 1) if ORDER[0] == "q" else (1, 0)
-    c, d = (0, 1) if ORDER[2] == "k" else (1, 0)
+    qpair, kvpair = ORDER.split("-")
+    a, b = (0, 1) if qpair == "qm" else (1, 0)
+    c, d = (0, 1) if kvpair == "kv" else (1, 0)
     msg_q[l, 0] = qs[2 * l + a]        # query
     msg_q[l, 3] = qs[2 * l + b]        # mlp
     msg_q[l, 1] = kvs[2 * l + c]       # key
