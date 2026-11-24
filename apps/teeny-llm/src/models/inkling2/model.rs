@@ -491,6 +491,94 @@ pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
         .collect()
 }
 
+/// Records the cross-pass message retrieval (`Inkling2LoopMessageAttentionResidual`):
+/// the four messages one loop layer receives from the previous pass, in the reference's
+/// order (query, key, value, mlp).
+///
+/// Like [`build_attn_res`] this is attention over the normalised stack of
+/// `states` plus `partial`, but with queries that are shared by the whole core
+/// rather than stored per layer. The reference holds them as one `[n_loop, 4, hidden]`
+/// parameter; the checkpoint splits the same 48 vectors across two top-level tensors of
+/// `[2 * n_loop, hidden]`:
+///
+/// ```text
+/// middle_cycle_cross_pass_queries     row 2l     -> query    row 2l + 1 -> mlp
+/// middle_cycle_cross_pass_kv_queries  row 2l     -> key      row 2l + 1 -> value
+/// ```
+///
+/// The split by name is certain (one tensor is named for the keys and values); the
+/// order **within** each pair is the one inference left, and nothing in the checkpoint
+/// or the reference pins it down. Swapping query with mlp, or key with value, is the
+/// first thing to try if a pass-2 comparison disagrees.
+///
+/// Each [`BlockAttnOp`] reads one row of the whole `[2 * n_loop, hidden]` tensor through
+/// its `query_index`, so both tensors load unmodified and no slicing op is needed.
+pub fn build_messages<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    states: &SymTensor,
+    partial: &SymTensor,
+    n_states: usize,
+    loop_layer: usize,
+) -> [SymTensor; 4] {
+    let _a = name_scope("cross_pass");
+    let hid = cfg.hidden_size;
+    let rows = 2 * (cfg.loop_config.core_end - cfg.loop_config.core_start);
+    let norm = |x: &SymTensor| {
+        x.record_custom(CustomData::new(UnweightedRmsNormOp::<D>::new(hid)), &[], None)
+    };
+    let normed = norm(states);
+    let normed_partial = norm(partial);
+
+    // (checkpoint tensor, row) for query, key, value and mlp.
+    let slots = [
+        ("queries", 2 * loop_layer),
+        ("kv_queries", 2 * loop_layer),
+        ("kv_queries", 2 * loop_layer + 1),
+        ("queries", 2 * loop_layer + 1),
+    ];
+    let built: Vec<SymTensor> = slots
+        .iter()
+        .enumerate()
+        .map(|(i, (tensor, row))| {
+            // The scope names the parameter slot, so each op gets its own; the name
+            // carries which checkpoint tensor the loader must put there.
+            let _g = name_scope(format!("{tensor}_{loop_layer}_{i}"));
+            normed.record_custom(
+                CustomData::new(BlockAttnOp::<D>::new(n_states, hid, rows, *row)),
+                &[&normed_partial],
+                None,
+            )
+        })
+        .collect();
+    let mut it = built.into_iter();
+    [
+        it.next().expect("query message"),
+        it.next().expect("key message"),
+        it.next().expect("value message"),
+        it.next().expect("mlp message"),
+    ]
+}
+
+/// Records every loop layer's messages in one graph.
+///
+/// All twelve share the same two inputs (the previous pass's trailing block states and
+/// its final hidden states), so one graph serves the whole pass, and the same graph
+/// serves every later pass: only the inputs differ.
+///
+/// The result is indexed by position in the core, not by model layer: entry `i` is for
+/// layer `core_start + i`.
+pub fn build_message_block<D: FloatBytes + Send + Sync + 'static>(
+    cfg: &Inkling2TextConfig,
+    states: &SymTensor,
+    partial: &SymTensor,
+    n_states: usize,
+) -> Vec<[SymTensor; 4]> {
+    let l = &cfg.loop_config;
+    (0..l.core_end - l.core_start)
+        .map(|i| build_messages::<D>(cfg, states, partial, n_states, i))
+        .collect()
+}
+
 /// Records one `controllers.*` gate (`Inkling2LoopMessageGate`):
 ///
 /// ```text

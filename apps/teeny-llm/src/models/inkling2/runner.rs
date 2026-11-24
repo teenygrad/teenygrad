@@ -211,6 +211,14 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         s if s.starts_with("attn_res.mlp_queries_") => {
             format!("{top}attn_res.mlp_queries.{layer}")
         }
+        // The cross-pass queries are shared by the whole core, not stored per layer:
+        // two top-level tensors of [2 * n_loop, hidden], each read a row at a time.
+        s if s.starts_with("cross_pass.kv_queries") => {
+            format!("{top}middle_cycle_cross_pass_kv_queries")
+        }
+        s if s.starts_with("cross_pass.queries") => {
+            format!("{top}middle_cycle_cross_pass_queries")
+        }
         other => format!("{prefix}{other}"),
     }
 }
