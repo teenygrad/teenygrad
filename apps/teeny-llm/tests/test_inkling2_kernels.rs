@@ -1259,8 +1259,8 @@ fn test_block_attn_matches_a_host_reference() {
                 .collect();
             let m = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let den: f32 = logits.iter().map(|l| (l - m).exp()).sum();
-            for si in 0..=st {
-                let p = (logits[si] - m).exp() / den;
+            for (si, logit) in logits.iter().enumerate() {
+                let p = (logit - m).exp() / den;
                 for d in 0..hid {
                     want[(tok * q + qi) * hid + d] += p * at(si, d);
                 }
