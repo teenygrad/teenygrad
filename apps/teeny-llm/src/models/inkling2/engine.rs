@@ -238,6 +238,9 @@ impl<'d> Engine<'d> {
                 v_cache: &v_cache,
                 messages: msg_refs,
                 msg_scale: scale.as_ref(),
+                // One graph serves the whole sequence, so the bias has to be as wide
+                // as the cache can ever be rather than as wide as it is today.
+                bias_width: Some(capacity),
             };
             let out = build_layer::<f32>(&cfg, layer, &inputs, past.clone());
             let g: &Graph = &b.graph.borrow();
@@ -289,6 +292,13 @@ impl<'d> Engine<'d> {
         let kw = self.cfg.sconv_kernel_size - 1;
         let kv = self.cfg.num_key_value_heads * self.cfg.head_dim;
         self.past.set(self.state.len);
+        // Block states belong to the token being run, not to the sequence: the
+        // reference starts each forward pass with an empty stack and fills it at the
+        // boundaries it crosses. Keeping the previous token's would both feed the
+        // layer graphs a longer tensor than the shape they were compiled for and
+        // retrieve from the wrong states. The KV cache and the convolution windows do
+        // carry across tokens; these do not.
+        self.state.reset_blocks(Vec::new());
 
         let ids = [token as f32];
         let mut x = self.embed.run(device, &[&ids])?.remove(0);

@@ -71,6 +71,7 @@ pub fn sink_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
     P: i32,
     LO: i32,
     W: i32,
+    BSTRIDE: i32,
     scale: f32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
@@ -178,7 +179,7 @@ pub fn sink_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
             false,
         );
         let bj = T::load(
-            bias_ptr.add_offsets(ione + ((t * H + h) * KV + j)),
+            bias_ptr.add_offsets(ione + ((t * H + h) * BSTRIDE + j)),
             None,
             Some(zero1),
             &[],
@@ -308,11 +309,16 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for SinkAttentionRuntimeOp
             past <= cache_rows,
             "attention: past length {past} exceeds the {cache_rows}-row KV cache"
         );
-        let kv = inputs[5].1[1];
-        assert_eq!(
-            kv,
-            past + output_shape[0],
-            "attention: a bias of {kv} keys does not match {past} cached plus {} new",
+        // The bias may be wider than the keys in play: a graph reused across a whole
+        // sequence pins its width to the cache capacity, since the runtime resolves
+        // output shapes once at compile time. Its extra columns are zero, so only the
+        // row stride differs from the number of keys.
+        let bias_stride = inputs[5].1[1];
+        let kv = past + output_shape[0];
+        assert!(
+            bias_stride >= kv,
+            "attention: a bias of {bias_stride} keys per row cannot cover {past} cached \
+             plus {} new",
             output_shape[0]
         );
         for (ptr, _) in &inputs[..7] {
@@ -333,6 +339,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for SinkAttentionRuntimeOp
         // The first key query 0 (position `past`) sees.
         visitor.visit_i32((past as i64 - window as i64 + 1).max(0) as i32);
         visitor.visit_i32(window);
+        visitor.visit_i32(bias_stride as i32);
         visitor.visit_f32(s.scale);
     }
 

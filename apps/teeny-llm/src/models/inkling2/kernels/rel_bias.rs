@@ -131,6 +131,13 @@ pub struct RelBiasOp<D: FloatBytes + Send + Sync + 'static> {
     pub rel_extent: usize,
     /// Cached keys, read at launch.
     pub past: PastLen,
+    /// A pinned output width, for a graph reused across a whole sequence.
+    ///
+    /// The runtime resolves output shapes once, when the graph is compiled, so a bias
+    /// whose width tracks `past` can only ever be right for the length it was compiled
+    /// at. Pinning it to the cache capacity makes the shape constant; keys past
+    /// `past + T` fall outside the causal range and come out zero anyway.
+    pub width: Option<usize>,
     _phantom: PhantomData<D>,
 }
 
@@ -138,7 +145,18 @@ impl<D: FloatBytes + Send + Sync + 'static> RelBiasOp<D> {
     /// A gather for `heads` heads reaching `rel_extent` back, reading the cache
     /// length from `past` at each launch.
     pub fn new(heads: usize, rel_extent: usize, past: PastLen) -> Self {
+        Self::with_width(heads, rel_extent, past, None)
+    }
+
+    /// As [`Self::new`], with the output width pinned to `width` when given.
+    pub fn with_width(
+        heads: usize,
+        rel_extent: usize,
+        past: PastLen,
+        width: Option<usize>,
+    ) -> Self {
         Self {
+            width,
             heads,
             rel_extent,
             past,
@@ -172,6 +190,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for RelBiasOp<D> {
                 heads: self.heads,
                 rel_extent: self.rel_extent,
                 past: self.past.clone(),
+                width: self.width,
                 _phantom: PhantomData,
             }),
         ))
@@ -183,6 +202,7 @@ pub struct RelBiasRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     heads: usize,
     rel_extent: usize,
     past: PastLen,
+    width: Option<usize>,
     _phantom: PhantomData<D>,
 }
 
@@ -206,7 +226,9 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RelBiasRuntimeOp<D> {
     ) {
         assert_eq!(inputs[0].1[1], self.rel_extent, "rel bias: profile width");
         let past = self.past.get();
-        let kv = past + inputs[0].1[0] / self.heads;
+        let kv = self
+            .width
+            .unwrap_or_else(|| past + inputs[0].1[0] / self.heads);
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(kv as i32);
@@ -216,7 +238,9 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RelBiasRuntimeOp<D> {
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        let kv = self.past.get() + output_shape[0] / self.heads;
+        let kv = self
+            .width
+            .unwrap_or_else(|| self.past.get() + output_shape[0] / self.heads);
         [
             kv.div_ceil(BLOCK as usize) as u32,
             output_shape[0] as u32,
@@ -231,7 +255,12 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RelBiasRuntimeOp<D> {
     ) -> Vec<usize> {
         // [T * heads, past + T]: the width grows with the cache, so it cannot come
         // from the symbolic shape.
+        //
+        // The runtime resolves this once, when the graph is compiled, so a generation
+        // loop that reuses one compiled graph has to pin the width instead: `width`
+        // holds the whole cache and the keys beyond `past + T` come out zero, which
+        // the distance check already does for them.
         let rows = resolved[0];
-        vec![rows, self.past.get() + rows / self.heads]
+        vec![rows, self.width.unwrap_or_else(|| self.past.get() + rows / self.heads)]
     }
 }

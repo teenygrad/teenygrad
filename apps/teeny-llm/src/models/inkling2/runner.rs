@@ -211,6 +211,12 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         s if s.starts_with("attn_res.mlp_queries_") => {
             format!("{top}attn_res.mlp_queries.{layer}")
         }
+        // The two ends of the model sit beside the layers, not inside one. They are
+        // only ever built once, so the layer they are resolved against is arbitrary.
+        "embed.weight" => format!("{top}embed.weight"),
+        "embed_norm.weight" => format!("{top}embed_norm.weight"),
+        "norm.weight" => format!("{top}norm.weight"),
+        "unembed.weight" => format!("{top}unembed.weight"),
         // The cross-pass queries are shared by the whole core, not stored per layer:
         // two top-level tensors of [2 * n_loop, hidden], each read a row at a time.
         s if s.starts_with("cross_pass.kv_queries") => {
