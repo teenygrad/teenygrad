@@ -150,10 +150,26 @@ def build(idx):
     global P, NVFP4
     P, NVFP4 = f"model.llm.layers.{idx}.", idx < 20
     sliding = cfg.layer_types[idx] == "hybrid_sliding"
-    cls = M.Inkling2LoopSlidingDecoderLayer if sliding else M.Inkling2LoopFullDecoderLayer
+    # A layer inside the core is a *loop* layer: it takes `messages` as a third
+    # positional argument and carries the four message gates.
+    loop = cfg.loop_layer_index_start <= idx < cfg.loop_layer_index_end
+    cls = {
+        (True, False): M.Inkling2LoopSlidingDecoderLayer,
+        (False, False): M.Inkling2LoopFullDecoderLayer,
+        (True, True): M.Inkling2LoopSlidingLoopDecoderLayer,
+        (False, True): M.Inkling2LoopFullLoopDecoderLayer,
+    }[(sliding, loop)]
     layer = cls(cfg, idx).eval()
     layer.mlp.experts = LazyExperts(cfg)
-    miss, unexp = layer.load_state_dict(state_dict(idx, sliding), strict=False)
+    sd = state_dict(idx, sliding)
+    if loop:
+        # controllers.{attn,k,v,mlp} are the query, key, value and MLP gates.
+        for gate, which in (("q", "attn"), ("k", "k"), ("v", "v"), ("mlp", "mlp")):
+            cp = f"model.llm.layers.{idx}.controllers.{which}."
+            sd[f"{gate}_message_gate.down_proj.weight"] = t(cp + "down_weight")
+            sd[f"{gate}_message_gate.forget_gate_proj.weight"] = t(cp + "forget_weight")
+            sd[f"{gate}_message_gate.message_gate_proj.weight"] = t(cp + "gain_weight")
+    miss, unexp = layer.load_state_dict(sd, strict=False)
     real = [m for m in miss if "experts" not in m]
     assert not real and not unexp, (idx, real, unexp)
     return layer, sliding
@@ -200,7 +216,8 @@ blocks = x.new_zeros(1, 1, 0, x.shape[-1])
 def run(idx, hidden, blocks, messages=None):
     layer, sliding = layers[idx]
     rel = M.get_relative_distance(hidden, None, is_sliding=sliding)
-    args = (hidden, blocks) if messages is None else (hidden, blocks, messages)
+    loop = cfg.loop_layer_index_start <= idx < cfg.loop_layer_index_end
+    args = (hidden, blocks, messages) if loop else (hidden, blocks)
     with torch.no_grad():
         out = layer(*args, attention_mask=None, relative_distance=rel,
                     conv_mask=None, cache=None, position_ids=pos)

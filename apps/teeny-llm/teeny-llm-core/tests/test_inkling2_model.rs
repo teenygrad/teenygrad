@@ -728,8 +728,10 @@ fn test_head_scales_by_mup_and_softcaps() {
     // Large enough that the softcap bites.
     let unembed: Vec<f32> = values(vocab * hid, 175).iter().map(|v| v * 300.0).collect();
 
-    let g = GraphRun::new(&[t, hid]);
-    let out = build_head::<f32>(&cfg, &g.first, mup);
+    // No block states: the final residual then attends over the partial alone.
+    let g = GraphRun::new(&[0, hid]);
+    let partial = g.input(&[t, hid]);
+    let out = build_head::<f32>(&cfg, &partial, &g.first, 0, mup);
     let got = g.run(
         &out,
         &[&x],
@@ -1170,8 +1172,9 @@ fn test_one_token_through_every_layer_once() {
     );
 
     // The head: final norm, unembed, muP, softcap.
-    let gh = GraphRun::new(&[t, hid]);
-    let logits_sym = build_head::<f32>(&cfg, &gh.first, 16.0);
+    let gh = GraphRun::new(&[0, hid]);
+    let gh_x = gh.input(&[t, hid]);
+    let logits_sym = build_head::<f32>(&cfg, &gh_x, &gh.first, 0, 16.0);
     let norm_w = ck.param("model.llm.norm.weight").expect("final norm");
     let unembed = ck.param("model.llm.unembed.weight").expect("unembed");
     let logits = gh.run(
@@ -1314,9 +1317,22 @@ fn test_what_the_stack_does_to_a_few_tokens() {
             x = next;
         }
 
-        let gh = GraphRun::new(&[t, hid]);
-        let sym = build_head::<f32>(&cfg, &gh.first, 16.0);
-        let logits = gh.run(&sym, &[&x], &[("norm.weight", &norm_w), ("unembed.weight", &unembed)]);
+        let gh = GraphRun::new(&[0, hid]);
+        let gh_x = gh.input(&[t, hid]);
+        let sym = build_head::<f32>(&cfg, &gh_x, &gh.first, 0, 16.0);
+        let empty_blocks: Vec<f32> = Vec::new();
+        let out_query = ck
+            .param("model.llm.attn_res.output_query")
+            .expect("the head's block-attention query");
+        let logits = gh.run(
+            &sym,
+            &[&empty_blocks, &x],
+            &[
+                ("norm.weight", &norm_w),
+                ("unembed.weight", &unembed),
+                ("attn_res.output_query_0.query", &out_query),
+            ],
+        );
         let best = argmax(&logits) as usize;
         let mean = logits.iter().sum::<f32>() / logits.len() as f32;
         let cos_in = cosine(&x, &entry);

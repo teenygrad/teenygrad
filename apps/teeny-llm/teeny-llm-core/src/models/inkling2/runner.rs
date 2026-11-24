@@ -219,6 +219,8 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "unembed.weight" => format!("{top}unembed.weight"),
         // The cross-pass queries are shared by the whole core, not stored per layer:
         // two top-level tensors of [2 * n_loop, hidden], each read a row at a time.
+        // The head's own block-attention query, stored centrally like the others.
+        s if s.starts_with("attn_res.output_query_") => format!("{top}attn_res.output_query"),
         s if s.starts_with("cross_pass.kv_queries") => {
             format!("{top}middle_cycle_cross_pass_kv_queries")
         }
