@@ -480,7 +480,7 @@ pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
             let _g = name_scope(format!("{name}_{q}"));
             normed.record_custom(
                 CustomData::new(BlockAttnOp::<D>::new(n_states, cfg.hidden_size, queries, q)),
-                &[],
+                &[&normed_partial],
                 None,
             )
         })
