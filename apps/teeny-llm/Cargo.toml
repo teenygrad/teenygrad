@@ -89,6 +89,10 @@ tokio = { workspace = true }
 name = "chat"
 required-features = ["functiongemma3"]
 
+[[example]]
+name = "inkling2"
+required-features = ["inkling2"]
+
 [[test]]
 name = "test_functiongemma"
 required-features = ["functiongemma3"]
