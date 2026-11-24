@@ -307,7 +307,6 @@ fn test_decoder_layer_builds_and_runs() {
     cfg.local_layer_ids = vec![1];
     let (t, hid) = (2usize, cfg.hidden_size);
     let (states, past, cache) = (2usize, 3usize, 8usize);
-    let kv_len = past + t;
     let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
     let kw = cfg.sconv_kernel_size - 1;
 
@@ -335,7 +334,7 @@ fn test_decoder_layer_builds_and_runs() {
         messages: None,
     };
     // Layer 1: not a block boundary, so the residual is the sum, and it slides.
-    let out = build_layer::<f32>(&cfg, 1, &inputs, past, kv_len, past_len);
+    let out = build_layer::<f32>(&cfg, 1, &inputs, past_len);
     assert_eq!(
         out.shape,
         vec![Some(t), Some(hid)],
@@ -411,7 +410,7 @@ fn test_the_last_layer_of_a_block_convolves_dynamically() {
             v_cache: &v_cache,
             messages: None,
         };
-        let _ = build_layer::<f32>(&cfg, layer, &inputs, past, past + t, past_len);
+        let _ = build_layer::<f32>(&cfg, layer, &inputs, past_len);
         let names = g.slot_names();
         let has = |n: &str| names.iter().any(|x| x == n);
 
@@ -489,7 +488,7 @@ fn test_the_last_layers_use_the_mxfp8_gather() {
             v_cache: &v_cache,
             messages: None,
         };
-        let _ = build_layer::<f32>(&cfg, layer, &inputs, past, past + t, past_len);
+        let _ = build_layer::<f32>(&cfg, layer, &inputs, past_len);
         let names = g.slot_names();
         let has = |n: &str| names.iter().any(|x| x == n);
         assert!(

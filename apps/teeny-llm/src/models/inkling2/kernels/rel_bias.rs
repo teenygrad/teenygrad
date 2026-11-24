@@ -115,34 +115,33 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
+pub use crate::kernels::attention::PastLen;
+
 const BLOCK: i32 = 256;
 
 /// Graph-level relative-bias gather: `[T * heads, rel_extent]` to `[T * heads, KV]`.
+///
+/// The past length is read from a shared [`PastLen`] at each launch, as
+/// [`super::attention`] does, so one compiled graph serves every step of a sequence.
+/// Baking it in would mean recompiling the whole model for every token.
 pub struct RelBiasOp<D: FloatBytes + Send + Sync + 'static> {
     /// Attention heads.
     pub heads: usize,
     /// How far back the bias reaches. 1024 in Inkling-2-Mini.
     pub rel_extent: usize,
-    /// Keys already in the cache, so query `t` sits at `past + t`.
-    pub past: usize,
-    /// Keys attended over: `past + T`.
-    pub kv_len: usize,
+    /// Cached keys, read at launch.
+    pub past: PastLen,
     _phantom: PhantomData<D>,
 }
 
 impl<D: FloatBytes + Send + Sync + 'static> RelBiasOp<D> {
-    /// A gather for `heads` heads reaching `rel_extent` back, with `past` cached keys
-    /// and `kv_len` keys in all.
-    pub fn new(heads: usize, rel_extent: usize, past: usize, kv_len: usize) -> Self {
-        assert!(
-            kv_len >= past,
-            "rel bias: kv_len {kv_len} is shorter than the {past} keys already cached"
-        );
+    /// A gather for `heads` heads reaching `rel_extent` back, reading the cache
+    /// length from `past` at each launch.
+    pub fn new(heads: usize, rel_extent: usize, past: PastLen) -> Self {
         Self {
             heads,
             rel_extent,
             past,
-            kv_len,
             _phantom: PhantomData,
         }
     }
@@ -154,7 +153,9 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for RelBiasOp<D> {
     }
 
     fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
-        vec![input_shapes[0][0], Some(self.kv_len)]
+        // KV is not known until launch; the runtime op allocates by the concrete
+        // shape it computes below.
+        vec![input_shapes[0][0], None]
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -170,8 +171,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for RelBiasOp<D> {
             Arc::new(RelBiasRuntimeOp::<D> {
                 heads: self.heads,
                 rel_extent: self.rel_extent,
-                past: self.past,
-                kv_len: self.kv_len,
+                past: self.past.clone(),
                 _phantom: PhantomData,
             }),
         ))
@@ -182,8 +182,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for RelBiasOp<D> {
 pub struct RelBiasRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     heads: usize,
     rel_extent: usize,
-    past: usize,
-    kv_len: usize,
+    past: PastLen,
     _phantom: PhantomData<D>,
 }
 
@@ -206,19 +205,33 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RelBiasRuntimeOp<D> {
         visitor: &mut dyn ArgVisitor,
     ) {
         assert_eq!(inputs[0].1[1], self.rel_extent, "rel bias: profile width");
+        let past = self.past.get();
+        let kv = past + inputs[0].1[0] / self.heads;
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(output);
-        visitor.visit_i32(self.kv_len as i32);
+        visitor.visit_i32(kv as i32);
         visitor.visit_i32(self.heads as i32);
         visitor.visit_i32(self.rel_extent as i32);
-        visitor.visit_i32(self.past as i32);
+        visitor.visit_i32(past as i32);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        let kv = self.past.get() + output_shape[0] / self.heads;
         [
-            self.kv_len.div_ceil(BLOCK as usize) as u32,
+            kv.div_ceil(BLOCK as usize) as u32,
             output_shape[0] as u32,
             1,
         ]
+    }
+
+    fn compute_concrete_output_shape(
+        &self,
+        _input_shapes: &[&[usize]],
+        resolved: &[usize],
+    ) -> Vec<usize> {
+        // [T * heads, past + T]: the width grows with the cache, so it cannot come
+        // from the symbolic shape.
+        let rows = resolved[0];
+        vec![rows, self.past.get() + rows / self.heads]
     }
 }

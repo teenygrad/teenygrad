@@ -357,8 +357,7 @@ pub fn build_norm<D: FloatBytes + Send + Sync + 'static>(
 pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     x: &SymTensor,
-    past: usize,
-    kv_len: usize,
+    past: PastLen,
 ) -> SymTensor {
     let (nh, dr) = (cfg.num_attention_heads, cfg.d_rel);
     let rel = {
@@ -382,7 +381,7 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
         linear::<D>(&rel, dr, cfg.rel_extent)
     };
     logits.record_custom(
-        CustomData::new(RelBiasOp::<D>::new(nh, cfg.rel_extent, past, kv_len)),
+        CustomData::new(RelBiasOp::<D>::new(nh, cfg.rel_extent, past)),
         &[],
         None,
     )
@@ -405,8 +404,6 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     dynamic: Option<&SymTensor>,
     k_cache: &SymTensor,
     v_cache: &SymTensor,
-    past: usize,
-    kv_len: usize,
     past_len: PastLen,
     window: Option<usize>,
 ) -> SymTensor {
@@ -420,7 +417,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     let k = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic);
     let v = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic);
     // The bias and the sinks are conditioned on the query's hidden states.
-    let bias = build_rel_bias::<D>(cfg, q_in, past, kv_len);
+    let bias = build_rel_bias::<D>(cfg, q_in, past_len.clone());
     let sinks = {
         let _g = name_scope("attn_sink_proj");
         linear::<D>(q_in, cfg.hidden_size, nh)
@@ -601,8 +598,6 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     layer: usize,
     inputs: &LayerInputs<'_>,
-    past: usize,
-    kv_len: usize,
     past_len: PastLen,
 ) -> SymTensor {
     let hid = cfg.hidden_size;
@@ -650,8 +645,6 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         if is_dynamic { Some(inputs.x) } else { None },
         inputs.k_cache,
         inputs.v_cache,
-        past,
-        kv_len,
         past_len,
         window,
     );
