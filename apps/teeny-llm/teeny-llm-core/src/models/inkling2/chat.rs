@@ -52,6 +52,19 @@ impl Chat {
             .map_err(|e| anyhow::anyhow!("loading {}/tokenizer.json: {e}", dir.display()))?;
         let template = std::fs::read_to_string(dir.join("chat_template.jinja"))
             .map_err(|e| anyhow::anyhow!("reading {}/chat_template.jinja: {e}", dir.display()))?;
+        // `{% generation %}`/`{% endgeneration %}` is a Hugging Face extension that marks
+        // which span of the render is assistant-generated, so a trainer can build a loss
+        // mask for it. It emits nothing, and minijinja has no such statement, so the
+        // markers come out rather than the renderer failing on them.
+        let template = template
+            .replace("{%- generation -%}", "")
+            .replace("{% generation %}", "")
+            .replace("{%- generation %}", "")
+            .replace("{% generation -%}", "")
+            .replace("{%- endgeneration -%}", "")
+            .replace("{% endgeneration %}", "")
+            .replace("{%- endgeneration %}", "")
+            .replace("{% endgeneration -%}", "");
         let special: Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join("special_tokens_map.json")).map_err(|e| {
                 anyhow::anyhow!("reading {}/special_tokens_map.json: {e}", dir.display())

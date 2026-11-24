@@ -1248,3 +1248,56 @@ fn test_what_the_stack_does_to_a_few_tokens() {
     );
     println!("{echoes} of {} tokens echoed their input", tokens.len());
 }
+
+/// The chat template and tokenizer against what `apply_chat_template` produced.
+///
+/// The fixture was generated once by transformers (see
+/// `scripts/inkling2-gen-reference.py`'s sibling in the session that added it); this
+/// checks minijinja renders the same text and the tokenizer gives the same ids, which
+/// is the part a hand-rolled prompt builder gets wrong silently.
+#[test]
+#[ignore = "needs the checkpoint's 26 MB tokenizer.json; set INKLING2_MODEL_DIR"]
+fn test_chat_template_matches_apply_chat_template() {
+    use teeny_llm_core::models::inkling2::chat::Chat;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let chat = Chat::load(std::path::Path::new(&dir)).expect("loading the tokenizer");
+
+    let base = std::env::var("INKLING2_FIXTURES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"));
+    let raw = std::fs::read_to_string(base.join("reference/inkling2-chat.json"))
+        .expect("the chat fixture");
+
+    // The fixture is {"messages": [...], "text": "...", "ids": [...], "eos_id": n}.
+    let want_ids: Vec<u32> = {
+        let at = raw.find("\"ids\"").expect("ids in the fixture");
+        let open = raw[at..].find('[').expect("an array") + at;
+        let close = raw[open..].find(']').expect("a close") + open;
+        raw[open + 1..close]
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect()
+    };
+    let eos: u32 = {
+        let at = raw.find("\"eos_id\"").expect("eos_id");
+        raw[at..]
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse()
+            .expect("a number")
+    };
+    assert_eq!(chat.eos, eos, "the end-of-sampling token");
+
+    let messages = serde_json::json!([
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is the capital of France?"},
+    ]);
+    let got = chat.prompt(&messages, None).expect("rendering the prompt");
+    assert_eq!(
+        got, want_ids,
+        "the rendered prompt must tokenize exactly as apply_chat_template does"
+    );
+}
