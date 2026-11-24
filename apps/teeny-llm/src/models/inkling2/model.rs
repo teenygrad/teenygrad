@@ -409,7 +409,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     v_in: &SymTensor,
     k_hist: &SymTensor,
     v_hist: &SymTensor,
-    dynamic: Option<&SymTensor>,
+    dynamic: bool,
     k_cache: &SymTensor,
     v_cache: &SymTensor,
     past_len: PastLen,
@@ -423,8 +423,12 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         cfg.head_dim,
     );
     let q = build_q_proj::<D>(cfg, q_in);
-    let (k_proj, k) = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic);
-    let (v_proj, v) = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic);
+    // A dynamic convolution's per-token taps are projected from the projection's own
+    // input -- the normed key states for the key, the normed value states for the
+    // value -- not from the layer input, and not from one shared tensor. The reference
+    // passes `hidden_states` straight back into its own sconv.
+    let (k_proj, k) = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic.then_some(k_in));
+    let (v_proj, v) = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic.then_some(v_in));
     // The bias and the sinks are conditioned on the query's hidden states.
     let bias = build_rel_bias::<D>(cfg, q_in, past_len.clone(), bias_width);
     let sinks = {
@@ -837,8 +841,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         &normed[2],
         inputs.k_hist,
         inputs.v_hist,
-        // The dynamic taps are projected from the layer input, before any norm.
-        if is_dynamic { Some(inputs.x) } else { None },
+        is_dynamic,
         inputs.k_cache,
         inputs.v_cache,
         past_len,
