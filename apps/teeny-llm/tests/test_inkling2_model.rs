@@ -447,9 +447,11 @@ fn test_decoder_layer_builds_and_runs() {
         k_cache: &k_cache,
         v_cache: &v_cache,
         messages: None,
+        msg_scale: None,
     };
     // Layer 1: not a block boundary, so the residual is the sum, and it slides.
     let out = build_layer::<f32>(&cfg, 1, &inputs, past_len);
+    let out = out.out;
     assert_eq!(
         out.shape,
         vec![Some(t), Some(hid)],
@@ -524,6 +526,7 @@ fn test_the_last_layer_of_a_block_convolves_dynamically() {
             k_cache: &k_cache,
             v_cache: &v_cache,
             messages: None,
+            msg_scale: None,
         };
         let _ = build_layer::<f32>(&cfg, layer, &inputs, past_len);
         let names = g.slot_names();
@@ -602,6 +605,7 @@ fn test_the_last_layers_use_the_mxfp8_gather() {
             k_cache: &k_cache,
             v_cache: &v_cache,
             messages: None,
+            msg_scale: None,
         };
         let _ = build_layer::<f32>(&cfg, layer, &inputs, past_len);
         let names = g.slot_names();
@@ -756,8 +760,10 @@ fn test_layer_execution_speed() {
         k_cache: &k_cache,
         v_cache: &v_cache,
         messages: None,
+        msg_scale: None,
     };
     let out = build_layer::<f32>(&cfg, layer, &inputs, past);
+    let out = out.out;
 
     // ---- compile, timed on its own -------------------------------------------
     let t_compile = Instant::now();
@@ -899,8 +905,10 @@ fn test_layer_zero_runs_on_real_weights() {
         k_cache: &k_cache,
         v_cache: &v_cache,
         messages: None,
+        msg_scale: None,
     };
     let out = build_layer::<f32>(&cfg, 0, &inputs, past);
+    let out = out.out;
     assert_eq!(out.shape, vec![Some(t), Some(hid)]);
 
     // A plausible embedding: the real one for a token, normed as the model does.
@@ -1023,8 +1031,10 @@ fn test_one_token_through_every_layer_once() {
             k_cache: &k_cache,
             v_cache: &v_cache,
             messages: None,
+            msg_scale: None,
         };
         let out = build_layer::<f32>(&cfg, step.layer, &inputs, past.clone());
+    let out = out.out;
         let next = g.run_from_checkpoint(
             &out,
             &[
@@ -1191,8 +1201,10 @@ fn test_what_the_stack_does_to_a_few_tokens() {
                 k_cache: &kc,
                 v_cache: &vc,
                 messages: None,
+                msg_scale: None,
             };
             let out = build_layer::<f32>(&cfg, step.layer, &inputs, past);
+    let out = out.out;
             let next = g.run_from_checkpoint(
                 &out,
                 &[&x, &block_input, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv],
