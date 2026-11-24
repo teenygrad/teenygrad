@@ -362,6 +362,7 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     x: &SymTensor,
     past: PastLen,
+    width: Option<usize>,
 ) -> SymTensor {
     let (nh, dr) = (cfg.num_attention_heads, cfg.d_rel);
     let rel = {
@@ -388,7 +389,7 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
         linear::<D>(&rel, dr, cfg.rel_extent)
     };
     logits.record_custom(
-        CustomData::new(RelBiasOp::<D>::new(nh, cfg.rel_extent, past)),
+        CustomData::new(RelBiasOp::<D>::with_width(nh, cfg.rel_extent, past, width)),
         &[],
         None,
     )
@@ -413,6 +414,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     v_cache: &SymTensor,
     past_len: PastLen,
     window: Option<usize>,
+    bias_width: Option<usize>,
 ) -> Attention {
     let _a = name_scope("attn");
     let (nh, nkv, hd) = (
@@ -424,7 +426,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     let (k_proj, k) = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic);
     let (v_proj, v) = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic);
     // The bias and the sinks are conditioned on the query's hidden states.
-    let bias = build_rel_bias::<D>(cfg, q_in, past_len.clone());
+    let bias = build_rel_bias::<D>(cfg, q_in, past_len.clone(), bias_width);
     let sinks = {
         let _g = name_scope("attn_sink_proj");
         linear::<D>(q_in, cfg.hidden_size, nh)
@@ -697,6 +699,12 @@ pub struct LayerInputs<'a> {
     /// switch, so that one compiled graph serves all three. Giving `None` builds a layer
     /// with no controllers at all, which is right for a layer outside the core.
     pub messages: Option<[&'a SymTensor; 4]>,
+    /// Pins the relative-bias width, for a graph reused across a whole sequence.
+    ///
+    /// The runtime resolves output shapes once, at compile time, so a bias sized from
+    /// the cache length is only ever right at the length it was compiled at. The
+    /// engine pins this to the cache capacity; a one-shot graph leaves it `None`.
+    pub bias_width: Option<usize>,
     /// Blends the controller in: `0` leaves the layer input untouched (the first pass,
     /// which takes no messages) and `1` applies the gate in full.
     ///
@@ -778,8 +786,12 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
 
     // `lerp(a, b, s)` as `(1 - s) * a + s * b`, which is exactly what the controller's
     // own combine kernel computes when both of its gates are the same tensor.
+    // The combine takes four distinct inputs. Recording `s` twice would give the node
+    // the same edge twice and it would arrive with three, so the second gate is a
+    // separate node: an identity scale, one elementwise pass over `hidden` floats.
     let lerp = |a: &SymTensor, b: &SymTensor, s: &SymTensor| {
-        a.record_custom(CustomData::new(MessageMixOp::<D>::default()), &[b, s, s], None)
+        let s2 = s.record_custom(CustomData::new(ScaleOp::<D>::new(1.0)), &[], None);
+        a.record_custom(CustomData::new(MessageMixOp::<D>::default()), &[b, s, &s2], None)
     };
     let gated: Vec<SymTensor> = match inputs.messages {
         None => qkv,
@@ -822,6 +834,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         inputs.v_cache,
         past_len,
         window,
+        inputs.bias_width,
     );
     let h = {
         let _g = name_scope("attn_sconv");

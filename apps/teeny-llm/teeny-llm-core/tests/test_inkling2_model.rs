@@ -448,6 +448,7 @@ fn test_decoder_layer_builds_and_runs() {
         v_cache: &v_cache,
         messages: None,
         msg_scale: None,
+        bias_width: None,
     };
     // Layer 1: not a block boundary, so the residual is the sum, and it slides.
     let out = build_layer::<f32>(&cfg, 1, &inputs, past_len);
@@ -527,6 +528,7 @@ fn test_the_last_layer_of_a_block_convolves_dynamically() {
             v_cache: &v_cache,
             messages: None,
             msg_scale: None,
+            bias_width: None,
         };
         let _ = build_layer::<f32>(&cfg, layer, &inputs, past_len);
         let names = g.slot_names();
@@ -606,6 +608,7 @@ fn test_the_last_layers_use_the_mxfp8_gather() {
             v_cache: &v_cache,
             messages: None,
             msg_scale: None,
+            bias_width: None,
         };
         let _ = build_layer::<f32>(&cfg, layer, &inputs, past_len);
         let names = g.slot_names();
@@ -761,6 +764,7 @@ fn test_layer_execution_speed() {
         v_cache: &v_cache,
         messages: None,
         msg_scale: None,
+        bias_width: None,
     };
     let out = build_layer::<f32>(&cfg, layer, &inputs, past);
     let out = out.out;
@@ -906,6 +910,7 @@ fn test_layer_zero_runs_on_real_weights() {
         v_cache: &v_cache,
         messages: None,
         msg_scale: None,
+        bias_width: None,
     };
     let out = build_layer::<f32>(&cfg, 0, &inputs, past);
     let out = out.out;
@@ -1032,6 +1037,7 @@ fn test_one_token_through_every_layer_once() {
             v_cache: &v_cache,
             messages: None,
             msg_scale: None,
+            bias_width: None,
         };
         let out = build_layer::<f32>(&cfg, step.layer, &inputs, past.clone());
     let out = out.out;
@@ -1202,6 +1208,7 @@ fn test_what_the_stack_does_to_a_few_tokens() {
                 v_cache: &vc,
                 messages: None,
                 msg_scale: None,
+                bias_width: None,
             };
             let out = build_layer::<f32>(&cfg, step.layer, &inputs, past);
     let out = out.out;
