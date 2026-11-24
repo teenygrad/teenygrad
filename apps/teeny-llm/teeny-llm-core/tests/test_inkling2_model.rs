@@ -699,6 +699,151 @@ fn test_head_scales_by_mup_and_softcaps() {
     );
 }
 
+/// Measures the real decode speed: compile and load **once**, then run the same
+/// layer graph many times and time only the runs.
+///
+/// The earlier numbers (around 156 s per token) came from a loop that called
+/// `GraphRun::new` per layer per token, so every one of them recompiled 24 graphs
+/// through teenyc. That conflated compile with execute and could not answer how fast
+/// the model actually runs. This separates them.
+///
+/// A token is 48 layer executions, so the implied rate is `1 / (48 * per_execution)`,
+/// plus the host's state-carrying between layers, which this does not measure.
+#[test]
+#[ignore = "needs the 20.2 GB checkpoint; set INKLING2_MODEL_DIR"]
+fn test_layer_execution_speed() {
+    use std::time::Instant;
+    use teeny_llm_core::models::inkling2::weights::Checkpoint;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let cfg = teeny_llm_core::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+    let runs: usize = std::env::var("INKLING2_BENCH_RUNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let layer: usize = std::env::var("INKLING2_BENCH_LAYER")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let (t, hid) = (1usize, cfg.hidden_size);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+    let cache = 8usize;
+
+    let g = GraphRun::new(&[t, hid]);
+    let block_states = g.input(&[0, hid]);
+    let k_hist = g.input(&[kw, nkv * hd]);
+    let v_hist = g.input(&[kw, nkv * hd]);
+    let attn_hist = g.input(&[kw, hid]);
+    let mlp_hist = g.input(&[kw, hid]);
+    let k_cache = g.input(&[cache, nkv * hd]);
+    let v_cache = g.input(&[cache, nkv * hd]);
+    let past = PastLen::default();
+    past.set(0);
+    let inputs = LayerInputs {
+        x: &g.first,
+        block_states: &block_states,
+        n_states: 0,
+        k_hist: &k_hist,
+        v_hist: &v_hist,
+        attn_hist: &attn_hist,
+        mlp_hist: &mlp_hist,
+        k_cache: &k_cache,
+        v_cache: &v_cache,
+        messages: None,
+    };
+    let out = build_layer::<f32>(&cfg, layer, &inputs, past);
+
+    // ---- compile, timed on its own -------------------------------------------
+    let t_compile = Instant::now();
+    let graph: &Graph = &g.graph.borrow();
+    let lowering = TritonLowering::new();
+    let (_, graph_to_dag) = lowering
+        .lower_with_mapping(graph, LoweringMode::Inference)
+        .expect("lowering");
+    let device = runtime::open().expect("opening the device");
+    let target = runtime::default_target(&device).expect("the device's target");
+    let mut model = RuntimeModel::compile(
+        &device,
+        graph,
+        &lowering,
+        LoweringMode::Inference,
+        &target,
+        t,
+        false,
+    )
+    .expect("compiling through teenyc");
+    let compile_s = t_compile.elapsed().as_secs_f64();
+
+    // ---- load the weights, timed on its own ----------------------------------
+    let t_load = Instant::now();
+    let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
+    let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
+    let values = teeny_llm_core::models::inkling2::load::read(&mut ck, &names, layer)
+        .expect("reading the layer's parameters");
+    let by_name: std::collections::HashMap<&str, &[f32]> = values
+        .iter()
+        .map(|(n, v)| (n.as_str(), v.as_slice()))
+        .collect();
+    let mut bytes = 0usize;
+    for (name, node, idx) in &slots {
+        let data = by_name[name.as_str()];
+        bytes += data.len() * 4;
+        model
+            .load_param_f32(*node, *idx, data)
+            .unwrap_or_else(|e| panic!("loading {name}: {e}"));
+    }
+    let load_s = t_load.elapsed().as_secs_f64();
+
+    // ---- run repeatedly, the only thing that counts --------------------------
+    let embed = ck.param("model.llm.embed.weight").expect("the embedding");
+    let row = &embed[5000 * hid..5001 * hid];
+    let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+    let x: Vec<f32> = row.iter().map(|v| v / rms).collect();
+    drop(embed);
+    let zeros_kv = vec![0.0f32; kw * nkv * hd];
+    let zeros_h = vec![0.0f32; kw * hid];
+    let cache_kv = vec![0.0f32; cache * nkv * hd];
+    let empty: Vec<f32> = Vec::new();
+    let feeds: Vec<&[f32]> = vec![
+        &x, &empty, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv,
+    ];
+    let outs = [graph_to_dag[out.node_id]];
+
+    // One warm-up run, not counted: the first touch of 500 MB of weights faults it in.
+    model.run(&device, &feeds, &outs).expect("the warm-up run");
+
+    let mut each = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        let t0 = Instant::now();
+        let got = model.run(&device, &feeds, &outs).expect("a timed run");
+        each.push(t0.elapsed().as_secs_f64());
+        assert_eq!(got[0].len(), t * hid);
+    }
+    each.sort_by(|a, b| a.partial_cmp(b).expect("no NaN timings"));
+    let median = each[each.len() / 2];
+    let best = each[0];
+    let executions = 48.0; // a token is 48 layer executions, from 24 weight sets
+
+    println!("layer {layer} on {} tokens, {runs} runs", t);
+    println!("  compile      {compile_s:8.2} s   (once per graph, cached after)");
+    println!(
+        "  load         {load_s:8.2} s   ({:.0} MB of parameters)",
+        bytes as f64 / 1e6
+    );
+    println!("  execute      {:8.3} s   median (best {best:.3})", median);
+    println!(
+        "  implied      {:8.3} s/token over {executions:.0} executions = {:.4} tokens/s",
+        median * executions,
+        1.0 / (median * executions)
+    );
+}
+
 /// Layer 0 of the real model, with its real weights, on one token.
 ///
 /// Ignored: needs the 20.2 GB checkpoint. Point `INKLING2_MODEL_DIR` at it.

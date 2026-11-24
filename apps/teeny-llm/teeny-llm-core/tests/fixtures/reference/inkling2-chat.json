@@ -1,0 +1,47 @@
+{
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are a helpful assistant."
+  },
+  {
+   "role": "user",
+   "content": "What is the capital of France?"
+  }
+ ],
+ "text": "<|message_system|><|content_text|>You are a helpful assistant.<|end_message|><|message_system|><|content_text|>Thinking effort level: 0.9<|end_message|><|message_user|><|content_text|>What is the capital of France?<|end_message|>",
+ "ids": [
+  200002,
+  200004,
+  1735,
+  149914,
+  149878,
+  160385,
+  171159,
+  13,
+  200010,
+  200002,
+  200004,
+  34182,
+  279,
+  154554,
+  150628,
+  25,
+  220,
+  15,
+  13,
+  24,
+  200010,
+  200000,
+  200004,
+  1775,
+  149884,
+  149876,
+  151451,
+  149879,
+  151194,
+  30,
+  200010
+ ],
+ "eos_id": 200006
+}

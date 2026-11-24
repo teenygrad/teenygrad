@@ -100,6 +100,7 @@
 use teeny_kernels as _;
 use teeny_test as _;
 
+pub mod chat;
 pub mod config;
 pub mod kernels;
 pub mod load;

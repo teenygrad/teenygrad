@@ -737,7 +737,8 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
 
     let gated: Vec<SymTensor> = match inputs.messages {
         None => qkv,
-        Some(msgs) => ["q", "k", "v"]
+        // The checkpoint names the query controller `attn`, not `q`.
+        Some(msgs) => ["attn", "k", "v"]
             .iter()
             .enumerate()
             .map(|(i, which)| build_controller::<D>(cfg, which, &qkv[i], msgs[i]))
