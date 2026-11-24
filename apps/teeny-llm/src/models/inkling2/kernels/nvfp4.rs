@@ -306,6 +306,7 @@ pub fn unpack_byte_forward<T: Triton, D: Float, const BLOCK: i32, const WHICH: i
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shr<i32, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
@@ -328,17 +329,9 @@ pub fn unpack_byte_forward<T: Triton, D: Float, const BLOCK: i32, const WHICH: i
         None,
         true,
     );
-    let byte = if WHICH == 0 {
-        w & 0xFF
-    } else if WHICH == 1 {
-        (w & 0xFF00) / 256
-    } else if WHICH == 2 {
-        (w & 0x00FF_0000) / 65536
-    } else {
-        // Bits 24..31, with bit 31 put back by hand.
-        let low7 = (w & 0x7F00_0000) / 16_777_216;
-        T::where_(w.lt(0), low7 + 128, low7 + 0)
-    };
+    // An arithmetic shift then a mask. The mask drops the sign extension, so the top
+    // byte needs no special case.
+    let byte = (w >> (8 * WHICH)) & 0xFF;
     T::store(
         y_ptr.add_offsets(i),
         T::cast::<i32, D>(byte, None, false),

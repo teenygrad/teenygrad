@@ -120,6 +120,7 @@ pub struct LlvmCompiler {
     cache_dir: PathBuf,
     target_triple: String,
     target_cpu: Option<String>,
+    target_features: Vec<String>,
     ptx_version: Option<u32>,
     log_level: Option<LogLevel>,
 }
@@ -177,6 +178,7 @@ impl LlvmCompiler {
             cache_dir,
             target_triple: DEFAULT_TARGET_TRIPLE.to_string(),
             target_cpu: None,
+            target_features: Vec::new(),
             ptx_version,
             log_level,
         })
@@ -200,6 +202,21 @@ impl LlvmCompiler {
     /// [`Self::with_target_triple`]'s backend.
     pub fn with_target_cpu(mut self, cpu: impl Into<String>) -> Self {
         self.target_cpu = Some(cpu.into());
+        self
+    }
+
+    /// Sets LLVM target features passed to `teenyc` as `-Ctarget-feature=+a,+b`.
+    ///
+    /// Each entry is a bare feature name; the `+` is added here. This is how a chip's
+    /// vector width reaches the backend: RVV's ISA string does not carry `zvl###b`, so
+    /// without `zvl256b` LLVM must assume the 128-bit minimum and halves every vector
+    /// operation on a 256-bit part.
+    pub fn with_target_features<I, F>(mut self, features: I) -> Self
+    where
+        I: IntoIterator<Item = F>,
+        F: Into<String>,
+    {
+        self.target_features = features.into_iter().map(Into::into).collect();
         self
     }
 
@@ -254,6 +271,9 @@ impl Compiler for LlvmCompiler {
             h.update(kernel.id().as_bytes());
             if let Some(cpu) = &self.target_cpu {
                 h.update(cpu.as_bytes());
+            }
+            for feature in &self.target_features {
+                h.update(feature.as_bytes());
             }
             if let Some(ptx_version) = self.ptx_version {
                 h.update(ptx_version.to_le_bytes());
@@ -349,6 +369,11 @@ impl Compiler for LlvmCompiler {
                     .env("RUSTC_BOOTSTRAP", "1");
                 if let Some(cpu) = &self.target_cpu {
                     cmd.arg(format!("-Ctarget-cpu={cpu}"));
+                }
+                if !self.target_features.is_empty() {
+                    let features: Vec<String> =
+                        self.target_features.iter().map(|f| format!("+{f}")).collect();
+                    cmd.arg(format!("-Ctarget-feature={}", features.join(",")));
                 }
                 if let Some(ptx_version) = self.ptx_version {
                     cmd.env("TEENYC_PTX_VERSION", ptx_version.to_string());

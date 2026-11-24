@@ -35,6 +35,11 @@ stage=$target_dir/inkling2-test-stage
 cache=$target_dir/kernel-cache
 fixtures=$PWD/apps/teeny-llm/tests/fixtures
 qemu=$(command -v qemu-riscv64-static || command -v qemu-riscv64)
+# The board has VLEN=256 (vlenb reads 32) and the kernels are compiled for it with
+# `zvl256b`, so qemu must be given the same width. `-cpu max` defaults to 128 and the
+# code compiled for 256 then misbehaves -- as 33 of 47 kernel tests failing, not as a
+# clean error.
+qemu_cpu=${QEMU_CPU:-rv64,v=true,vlen=256,elen=64,zba=true,zbb=true,zbs=true}
 sysroot=/usr/riscv64-linux-gnu
 tests=(test_inkling2_kernels test_inkling2_reference test_inkling2_model)
 
@@ -51,9 +56,12 @@ done
 rm -rf "$stage"
 mkdir -p "$stage" "$cache"
 for t in "${tests[@]}"; do
-    bin=$(ls "$target_dir/$triple/release/build/teeny-llm/"*"/out/$t-"* | head -1)
+    # Newest first, and not the .d depfile beside it: cargo leaves one directory per
+    # build hash, so an alphabetical pick silently stages a stale binary.
+    bin=$(ls -t "$target_dir/$triple/release/build/teeny-llm/"*"/out/$t-"* \
+        | grep -v '\.d$' | head -1)
     TEENYC_CACHE_DIR=$cache TEENYC_CAPABILITY=$capability INKLING2_FIXTURES=$fixtures \
-        "$qemu" -cpu max -L $sysroot "$bin" --test-threads=1 >/dev/null
+        "$qemu" -cpu "$qemu_cpu" -L $sysroot "$bin" --test-threads=1 >/dev/null
     cp "$bin" "$stage/$t"
 done
 cp -r "$cache" "$stage/kernel-cache"
