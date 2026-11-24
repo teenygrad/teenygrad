@@ -1643,6 +1643,38 @@ fn test_one_token_logits_against_the_reference() {
         Engine::load(&device, cfg.clone(), 1.0, &mut ck, 16).expect("loading the model");
     let got = engine.step(&device, token).expect("one token");
 
+    // If the reference traced its layer executions, say which one first diverged:
+    // the whole-model comparison tells you that something is wrong, this tells you
+    // where. Each row is one execution's output, in plan order.
+    if let Ok(bytes) = std::fs::read("/tmp/claude-ref-full.trace.bin") {
+        let want_trace: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let mine_trace: Vec<f32> = std::fs::read("/tmp/claude-mine.trace.bin")
+            .expect("INKLING2_TRACE should have written /tmp/claude-mine.trace.bin")
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let hid = cfg.hidden_size;
+        let n = (want_trace.len() / hid).min(mine_trace.len() / hid);
+        println!("tracing {n} layer executions");
+        for e in 0..n {
+            let (a, b) = (&mine_trace[e * hid..(e + 1) * hid], &want_trace[e * hid..(e + 1) * hid]);
+            let worst = a
+                .iter()
+                .zip(b)
+                .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
+                .fold(0.0f32, f32::max);
+            if worst > 1e-3 {
+                println!("  FIRST DIVERGENCE at execution {e}: worst {worst:.5}");
+                println!("    mine {:?}", &a[..3]);
+                println!("    want {:?}", &b[..3]);
+                break;
+            }
+        }
+    }
+
     assert_eq!(got.len(), want.len(), "logit count");
     let n = cfg.unpadded_vocab_size.min(got.len());
     let worst = got[..n]
