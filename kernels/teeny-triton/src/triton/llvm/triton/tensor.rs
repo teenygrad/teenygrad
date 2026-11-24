@@ -232,6 +232,26 @@ impl Shl<i32> for LlvmI32Tensor {
     }
 }
 
+impl Shr<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shr(self, _rhs: LlvmI32Tensor) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shl<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shl(self, _rhs: LlvmI32Tensor) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
 impl BitAnd<i32> for LlvmI32Tensor {
     type Output = LlvmI32Tensor;
 
