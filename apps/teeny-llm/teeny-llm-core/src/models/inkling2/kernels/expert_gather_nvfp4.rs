@@ -99,9 +99,26 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     let mut acc = T::zeros::<D>(&[BLOCK]);
     let half = T::full(&[BLOCK], D::from_f64(0.5));
     let one = T::full(&[BLOCK], D::from_f64(1.0));
-    let eighth = T::full(&[BLOCK], D::from_f64(0.125));
-    let seven = T::full(&[BLOCK], D::from_f64(7.0));
-    let sub6 = T::full(&[BLOCK], D::from_f64(0.015_625));
+    let two = T::full(&[BLOCK], D::from_f64(2.0));
+    let four = T::full(&[BLOCK], D::from_f64(4.0));
+    // The subnormal E4M3 step: sm * 2^-9, which is (sm / 8) * 2^-6.
+    let sub9 = T::full(&[BLOCK], D::from_f64(0.001_953_125));
+
+    // Lane-invariant index arithmetic, hoisted out of the reduction.
+    //
+    // `k` is `offs + i * BLOCK` and BLOCK is a multiple of 64, so each of these
+    // divisions distributes over the sum exactly: `k / 8` is `offs / 8 + i * BLOCK / 8`
+    // and so on. The lane-dependent part is therefore the same on every iteration, and
+    // the byte and scale selectors do not depend on `i` at all. They used to be
+    // recomputed for every element of every chunk.
+    let o2 = offs / 2;
+    let o8 = offs / 8;
+    let o16 = offs / 16;
+    let o64 = offs / 64;
+    let bsel = o2 - o8 * 4;
+    let parity = offs - o2 * 2;
+    let ssel = o16 - o64 * 4;
+
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
         let k = offs + i * BLOCK;
@@ -123,7 +140,7 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
 
         let wword = T::cast::<D, i32>(
             T::load(
-                b_ptr.add_offsets(k / 8 + brow),
+                b_ptr.add_offsets(o8 + i * (BLOCK / 8) + brow),
                 Some(km),
                 Some(zeros),
                 &[],
@@ -138,7 +155,6 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
         // Byte (k/2) % 4 of that word. The index varies by lane, so all four are
         // computed and selected; the top byte is masked to seven bits and 128 added
         // back when the word is negative.
-        let bsel = (k / 2) - ((k / 8) * 4);
         let byte = {
             let b0 = wword & 0xFF;
             let b1 = (wword & 0xFF00) / 256;
@@ -152,22 +168,21 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
             )
         };
         let hi = byte / 16;
-        let nib = T::where_((k - (k / 2) * 2).eq(1), hi, byte - hi * 16);
+        let nib = T::where_(parity.eq(1), hi, byte - hi * 16);
         let sgn = nib / 8;
         let rest = nib - sgn * 8;
         let e = rest / 2;
         let mant = T::cast::<i32, D>(rest - e * 2, None, false);
-        let ef = T::cast::<i32, D>(e, None, false);
-        let mag = T::where_(
-            e.eq(0),
-            mant * half,
-            (one + mant * half) * T::exp2(ef - one),
-        );
+        // E2M1's exponent is two bits, so `exp2(e - 1)` is one of 1, 2 and 4: a pair of
+        // selects rather than a transcendental. RISC-V has no vector exp2, and this ran
+        // once per weight.
+        let p = T::where_(e.eq(1), one, T::where_(e.eq(2), two, four));
+        let mag = T::where_(e.eq(0), mant * half, (one + mant * half) * p);
         let val = T::where_(sgn.eq(1), zeros - mag, mag);
 
         let sword = T::cast::<D, i32>(
             T::load(
-                s_ptr.add_offsets(k / 64 + srow),
+                s_ptr.add_offsets(o64 + i * (BLOCK / 64) + srow),
                 Some(km),
                 Some(zeros),
                 &[],
@@ -179,7 +194,6 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        let ssel = (k / 16) - ((k / 64) * 4);
         let sb = {
             let s0 = sword & 0xFF;
             let s1 = (sword & 0xFF00) / 256;
@@ -195,13 +209,18 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
         let ssgn = sb / 128;
         let srest = sb - ssgn * 128;
         let se = srest / 8;
-        let smf = T::cast::<i32, D>(srest - se * 8, None, false);
-        let sef = T::cast::<i32, D>(se, None, false);
-        let sval = T::where_(
-            se.eq(0),
-            smf * eighth * sub6,
-            (one + smf * eighth) * T::exp2(sef - seven),
-        );
+        let sm = srest - se * 8;
+        let smf = T::cast::<i32, D>(sm, None, false);
+        // F8_E4M3 to f32 is an exact bit mapping, so build the float and reinterpret it
+        // instead of calling exp2 a second time per weight:
+        //
+        //   bits = (se - 7 + 127) << 23 | sm << 20 = ((se + 120) * 8 + sm) * 2^20
+        //
+        // which stays well inside i32 (se <= 15 gives 1087 * 2^20). `se == 0` is the
+        // subnormal case, sm * 2^-9.
+        let bits = ((se + 120) * 8 + sm) * 1_048_576;
+        let normal = T::cast::<i32, D>(bits, None, true);
+        let sval = T::where_(se.eq(0), smf * sub9, normal);
         let sval = T::where_(ssgn.eq(1), zeros - sval, sval);
 
         acc = acc + x * (val * sval);

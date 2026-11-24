@@ -94,11 +94,21 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
     let expert = T::cast::<D, i32>(id, None, false);
 
     let mut acc = T::zeros::<D>(&[BLOCK]);
-    let one = T::full(&[BLOCK], D::from_f64(1.0));
-    let eighth = T::full(&[BLOCK], D::from_f64(0.125));
-    let seven = T::full(&[BLOCK], D::from_f64(7.0));
-    let sub6 = T::full(&[BLOCK], D::from_f64(0.015_625));
-    let bias = T::full(&[BLOCK], D::from_f64(127.0));
+    // E8M0's zero exponent, 2^-127, the one value bit construction cannot produce.
+    let tiny = T::full(&[BLOCK], D::from_f64(5.877_471_754_111_438e-39));
+    // The subnormal E4M3 step: mant * 2^-9, which is (mant / 8) * 2^-6.
+    let sub9 = T::full(&[BLOCK], D::from_f64(0.001_953_125));
+
+    // Lane-invariant index arithmetic, hoisted out of the reduction. `k` is
+    // `offs + i * BLOCK` and BLOCK is a multiple of 128, so every one of these
+    // divisions distributes over the sum exactly and the byte and scale selectors do
+    // not depend on `i` at all.
+    let o4 = offs / 4;
+    let o32 = offs / 32;
+    let o128 = offs / 128;
+    let bsel = offs - o4 * 4;
+    let ssel = o32 - o128 * 4;
+
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
         let k = offs + i * BLOCK;
@@ -119,7 +129,7 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
 
         let wword = T::cast::<D, i32>(
             T::load(
-                b_ptr.add_offsets(k / 4 + brow),
+                b_ptr.add_offsets(o4 + i * (BLOCK / 4) + brow),
                 Some(km),
                 Some(zeros),
                 &[],
@@ -131,7 +141,6 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        let bsel = k - ((k / 4) * 4);
         let b = {
             let b0 = wword & 0xFF;
             let b1 = (wword & 0xFF00) / 256;
@@ -148,19 +157,22 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
         let sgn = b / 128;
         let rest = b - sgn * 128;
         let e = rest / 8;
-        let mant = T::cast::<i32, D>(rest - e * 8, None, false);
-        let ef = T::cast::<i32, D>(e, None, false);
-        let mag = T::where_(
-            e.eq(0),
-            mant * eighth * sub6,
-            (one + mant * eighth) * T::exp2(ef - seven),
-        );
+        let m = rest - e * 8;
+        let mant = T::cast::<i32, D>(m, None, false);
+        // F8_E4M3 to f32 is an exact bit mapping, so build the float and reinterpret
+        // it rather than calling exp2 once per weight (RISC-V has no vector exp2):
+        //
+        //   bits = (e - 7 + 127) << 23 | m << 20 = ((e + 120) * 8 + m) * 2^20
+        //
+        // which stays inside i32 (e <= 15 gives 1087 * 2^20). `e == 0` is subnormal.
+        let bits = ((e + 120) * 8 + m) * 1_048_576;
+        let mag = T::where_(e.eq(0), mant * sub9, T::cast::<i32, D>(bits, None, true));
         let val = T::where_(sgn.eq(1), zeros - mag, mag);
 
         // E8M0 is exponent-only: the byte is a biased power of two.
         let sword = T::cast::<D, i32>(
             T::load(
-                s_ptr.add_offsets(k / 128 + srow),
+                s_ptr.add_offsets(o128 + i * (BLOCK / 128) + srow),
                 Some(km),
                 Some(zeros),
                 &[],
@@ -172,7 +184,6 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        let ssel = (k / 32) - ((k / 128) * 4);
         let sb = {
             let s0 = sword & 0xFF;
             let s1 = (sword & 0xFF00) / 256;
@@ -185,7 +196,13 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
                 T::where_(ssel.eq(1), s1, T::where_(ssel.eq(2), s2, s3)),
             )
         };
-        let sval = T::exp2(T::cast::<i32, D>(sb, None, false) - bias);
+        // E8M0 is exponent-only, so 2^(sb - 127) is just that exponent in an f32:
+        // bits = sb << 23. Only sb == 0 (2^-127, subnormal) needs the literal.
+        let sval = T::where_(
+            sb.eq(0),
+            tiny,
+            T::cast::<i32, D>(sb * 8_388_608, None, true),
+        );
 
         acc = acc + x * (val * sval);
     }
