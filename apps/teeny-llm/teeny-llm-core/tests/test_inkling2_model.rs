@@ -1399,19 +1399,25 @@ fn test_chat_template_matches_apply_chat_template() {
     );
 }
 
-/// Layer 0 stage by stage against transformers' own decoder layer.
+/// Any layer, stage by stage, against transformers' own decoder layer.
 ///
-/// `scripts/inkling2-ref-layer.py` writes `/tmp/claude-ref-layer0{,.attn,.moe}.bin`
-/// from the reference modules driven with the same checkpoint weights and the same
-/// embedded token. Comparing only the layer output says that something is wrong;
-/// comparing the attention output and the MoE output says where.
+/// `scripts/inkling2-ref-layer.py N` chains layers 0..N with the real weights and
+/// dumps that layer's input, its block states and every stage. This feeds our graph
+/// the reference's own input, so a mismatch is this layer's and not inherited.
+///
+/// Set `INKLING2_REF_LAYER` to pick the layer (0 by default).
 #[test]
 #[ignore = "needs the checkpoint and the reference dumps; set INKLING2_MODEL_DIR"]
-fn test_layer_zero_stages_against_the_reference() {
+fn test_layer_stages_against_the_reference() {
+    use teeny_llm_core::models::inkling2::runner::attn_queries_of;
     use teeny_llm_core::models::inkling2::weights::Checkpoint;
 
     let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
     let dir = std::path::Path::new(&dir);
+    let n: usize = std::env::var("INKLING2_REF_LAYER")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let cfg = teeny_llm_core::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
         .expect("the checkpoint's config")
         .text_config;
@@ -1421,12 +1427,36 @@ fn test_layer_zero_stages_against_the_reference() {
     let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
     let kw = cfg.sconv_kernel_size - 1;
     let cache = 8usize;
+    let stem = format!("/tmp/claude-ref-layer{n}");
+    let load = |suffix: &str| -> Vec<f32> {
+        let path = format!("{stem}{suffix}");
+        std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("{path}: {e} (run scripts/inkling2-ref-layer.py {n})"))
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    };
+
+    let x = load(".in.bin");
+    let blocks = load(".blocks.bin");
+    let n_states = blocks.len() / hid;
+    let boundary = n % cfg.n_layers_per_attn_res_block == 0;
+    // At a boundary the layer appends its own input before the MLP's residual.
+    let mlp_blocks: Vec<f32> = if boundary {
+        blocks.iter().chain(x.iter()).copied().collect()
+    } else {
+        blocks.clone()
+    };
+    let mlp_n = mlp_blocks.len() / hid;
+    println!(
+        "layer {n}: {n_states} block states, mlp sees {mlp_n}, boundary {boundary}, \
+         {} attention queries",
+        attn_queries_of(&cfg, n)
+    );
 
     let g = GraphRun::new(&[t, hid]);
-    let block_states = g.input(&[0, hid]);
-    // Layer 0 is a block boundary, so between the attention and the MLP the layer
-    // appends its own input; the MLP residual attends over a stack one deeper.
-    let mlp_block_states = g.input(&[1, hid]);
+    let block_states = g.input(&[n_states, hid]);
+    let mlp_block_states = g.input(&[mlp_n, hid]);
     let k_hist = g.input(&[kw, nkv * hd]);
     let v_hist = g.input(&[kw, nkv * hd]);
     let attn_hist = g.input(&[kw, hid]);
@@ -1438,9 +1468,9 @@ fn test_layer_zero_stages_against_the_reference() {
     let inputs = LayerInputs {
         x: &g.first,
         block_states: &block_states,
-        n_states: 0,
+        n_states,
         mlp_block_states: &mlp_block_states,
-        mlp_n_states: 1,
+        mlp_n_states: mlp_n,
         k_hist: &k_hist,
         v_hist: &v_hist,
         attn_hist: &attn_hist,
@@ -1451,65 +1481,46 @@ fn test_layer_zero_stages_against_the_reference() {
         msg_scale: None,
         bias_width: None,
     };
-    let layer = build_layer::<f32>(&cfg, 0, &inputs, past);
+    let layer = build_layer::<f32>(&cfg, n, &inputs, past);
 
-    let token = 5000usize;
-    let x: Vec<f32> = {
-        let embed = ck.param("model.llm.embed.weight").expect("the embedding");
-        let row = &embed[token * hid..(token + 1) * hid];
-        let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
-        let scaled: Vec<f32> = row.iter().map(|v| v / rms).collect();
-        drop(embed);
-        let enorm = ck.param("model.llm.embed_norm.weight").expect("embed_norm");
-        scaled.iter().zip(enorm.iter()).map(|(v, w)| v * w).collect()
-    };
     let zeros_kv = vec![0.0f32; kw * nkv * hd];
     let zeros_h = vec![0.0f32; kw * hid];
     let cache_kv = vec![0.0f32; cache * nkv * hd];
-    let empty: Vec<f32> = Vec::new();
-
     let got = g.run_many_from_checkpoint(
         &[&layer.out, &layer.conv_in[2], &layer.conv_in[3], &layer.k, &layer.v],
         &[
-            &x, &empty, &x, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv,
+            &x, &blocks, &mlp_blocks, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv,
+            &cache_kv,
         ],
         &mut ck,
-        0,
+        n,
     );
 
-    let load = |name: &str| -> Option<Vec<f32>> {
-        std::fs::read(name).ok().map(|b| {
-            b.chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect()
-        })
-    };
-    for (label, mine, path) in [
-        ("k", &got[3], "/tmp/claude-ref-layer0.k.bin"),
-        ("v", &got[4], "/tmp/claude-ref-layer0.v.bin"),
-        ("attn", &got[1], "/tmp/claude-ref-layer0.attn.bin"),
-        ("moe", &got[2], "/tmp/claude-ref-layer0.moe.bin"),
-        ("out", &got[0], "/tmp/claude-ref-layer0.bin"),
+    let mut worst_overall = 0.0f32;
+    for (label, mine, suffix) in [
+        ("k", &got[3], ".k.bin"),
+        ("v", &got[4], ".v.bin"),
+        ("attn", &got[1], ".attn.bin"),
+        ("moe", &got[2], ".moe.bin"),
+        ("out", &got[0], ".bin"),
     ] {
-        let absmax = mine.iter().fold(0.0f32, |a, v| a.max(v.abs()));
-        match load(path) {
-            None => println!("{label:10} absmax {absmax:.4} (no reference)"),
-            Some(want) => {
-                let worst = mine
-                    .iter()
-                    .zip(&want)
-                    .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
-                    .fold(0.0f32, f32::max);
-                println!(
-                    "{label:10} absmax {absmax:.4} vs {:.4}; worst relative error {worst:.5}; \
-                     mine {:?} want {:?}",
-                    want.iter().fold(0.0f32, |a, v| a.max(v.abs())),
-                    &mine[..3],
-                    &want[..3]
-                );
-            }
-        }
+        let want = load(suffix);
+        let worst = mine
+            .iter()
+            .zip(&want)
+            .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
+            .fold(0.0f32, f32::max);
+        worst_overall = worst_overall.max(worst);
+        println!(
+            "{label:6} worst relative error {worst:.6}  mine {:?} want {:?}",
+            &mine[..3],
+            &want[..3]
+        );
     }
+    assert!(
+        worst_overall < 1e-3,
+        "layer {n} diverges from the reference by {worst_overall}"
+    );
 }
 
 /// The query projection and the relative-position bias of layer 0, fed the reference's

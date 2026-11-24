@@ -103,49 +103,59 @@ class LazyExperts(torch.nn.Module):
                 out[pos:pos + 1] += y * float(top_k_weights[pos, slot])
         return out
 
-# ---- build the layer ------------------------------------------------------
+# ---- build the layers -----------------------------------------------------
 cfg_json = json.load(open(f"{DIR}/config.json"))["text_config"]
 cfg = Inkling2LoopTextConfig(**cfg_json)
-is_sliding = cfg.layer_types[LAYER] == "hybrid_sliding"
-cls = M.Inkling2LoopSlidingDecoderLayer if is_sliding else M.Inkling2LoopFullDecoderLayer
-layer = cls(cfg, LAYER).eval()
-layer.mlp.experts = LazyExperts(cfg)
 
-sd = {
-    "input_layernorm.weight": t(P + "attn_norm.weight"),
-    "post_attention_layernorm.weight": t(P + "mlp_norm.weight"),
-    "post_attention_convolution.conv1d.weight": t(P + "attn_sconv.weight"),
-    "post_mlp_convolution.conv1d.weight": t(P + "mlp_sconv.weight"),
-    "self_attn.q_proj.linear.weight": t(P + "attn.wq_du.weight"),
-    "self_attn.q_proj.norm.scale": t(P + "attn.q_l2_clip.scale"),
-    "self_attn.o_proj.gate_proj.weight": t(P + "attn.gate_attn.weight"),
-    "self_attn.o_proj.linear.weight": t(P + "attn.wo_ud.weight"),
-    "self_attn.sink_proj.weight": t(P + "attn.attn_sink_proj.weight"),
-    "self_attn.relative_position_bias.linear.weight": t(P + "attn.wr_du.weight"),
-    "self_attn.relative_position_bias.norm.scale": t(P + "attn.rel_l2_clip.scale"),
-    "self_attn.relative_position_bias.proj": t(P + "attn.rel_logits_proj.proj"),
-    "self_attn.k_proj.linear.weight": t(P + "attn.wk_dv.weight"),
-    "self_attn.v_proj.linear.weight": t(P + "attn.wv_dv.weight"),
-    "mlp.gate.weight": t(P + "mlp.gate.weight"),
-    "mlp.gate.e_score_correction_bias": t(P + "mlp.gate.bias"),
-    "mlp_input.query": t(f"model.llm.attn_res.mlp_queries.{LAYER}"),
-}
-if is_sliding:
-    sd["self_attn.k_proj.sconv.conv1d.weight"] = t(P + "attn.k_sconv.weight")
-    sd["self_attn.v_proj.sconv.conv1d.weight"] = t(P + "attn.v_sconv.weight")
-else:
-    sd["self_attn.k_proj.sconv.static_weight"] = t(P + "attn.k_sconv.weight").squeeze(1).T
-    sd["self_attn.v_proj.sconv.static_weight"] = t(P + "attn.v_sconv.weight").squeeze(1).T
-    sd["self_attn.k_proj.sconv.weight_proj.weight"] = t(P + "attn.k_sconv.weight_proj")
-    sd["self_attn.v_proj.sconv.weight_proj.weight"] = t(P + "attn.v_sconv.weight_proj")
-if LAYER > 0:
-    q = t(f"model.llm.attn_res.attn_queries.{LAYER - 1}")
-    sd["attention_input.query"] = q if q.dim() == 1 else q[0]
+def state_dict(idx, sliding):
+    p = f"model.llm.layers.{idx}."
+    sd = {
+        "post_attention_layernorm.weight": t(p + "mlp_norm.weight"),
+        "post_attention_convolution.conv1d.weight": t(p + "attn_sconv.weight"),
+        "post_mlp_convolution.conv1d.weight": t(p + "mlp_sconv.weight"),
+        "self_attn.q_proj.linear.weight": t(p + "attn.wq_du.weight"),
+        "self_attn.q_proj.norm.scale": t(p + "attn.q_l2_clip.scale"),
+        "self_attn.o_proj.gate_proj.weight": t(p + "attn.gate_attn.weight"),
+        "self_attn.o_proj.linear.weight": t(p + "attn.wo_ud.weight"),
+        "self_attn.sink_proj.weight": t(p + "attn.attn_sink_proj.weight"),
+        "self_attn.relative_position_bias.linear.weight": t(p + "attn.wr_du.weight"),
+        "self_attn.relative_position_bias.norm.scale": t(p + "attn.rel_l2_clip.scale"),
+        "self_attn.relative_position_bias.proj": t(p + "attn.rel_logits_proj.proj"),
+        "self_attn.k_proj.linear.weight": t(p + "attn.wk_dv.weight"),
+        "self_attn.v_proj.linear.weight": t(p + "attn.wv_dv.weight"),
+        "mlp.gate.weight": t(p + "mlp.gate.weight"),
+        "mlp.gate.e_score_correction_bias": t(p + "mlp.gate.bias"),
+        "mlp_input.query": t(f"model.llm.attn_res.mlp_queries.{idx}"),
+    }
+    if sliding:
+        sd["input_layernorm.weight"] = t(p + "attn_norm.weight")
+        sd["self_attn.k_proj.sconv.conv1d.weight"] = t(p + "attn.k_sconv.weight")
+        sd["self_attn.v_proj.sconv.conv1d.weight"] = t(p + "attn.v_sconv.weight")
+    else:
+        # A full-attention layer norms the query, key and value inputs separately and
+        # its key/value convolutions are dynamic: static taps plus a per-token projection.
+        for which in ("q", "k", "v"):
+            sd[f"{which}_input_layernorm.weight"] = t(p + f"{which}_input_norm.weight")
+        sd["self_attn.k_proj.sconv.static_weight"] = t(p + "attn.k_sconv.static_w")
+        sd["self_attn.v_proj.sconv.static_weight"] = t(p + "attn.v_sconv.static_w")
+        sd["self_attn.k_proj.sconv.weight_proj.weight"] = t(p + "attn.k_sconv.weight_proj")
+        sd["self_attn.v_proj.sconv.weight_proj.weight"] = t(p + "attn.v_sconv.weight_proj")
+    if idx > 0:
+        q = t(f"model.llm.attn_res.attn_queries.{idx - 1}")
+        sd["attention_input.query"] = q if q.dim() == 1 else q.reshape(-1, q.shape[-1])
+    return sd
 
-missing, unexpected = layer.load_state_dict(sd, strict=False)
-real_missing = [m for m in missing if "experts" not in m]
-print("missing:", real_missing)
-print("unexpected:", unexpected)
+def build(idx):
+    global P, NVFP4
+    P, NVFP4 = f"model.llm.layers.{idx}.", idx < 20
+    sliding = cfg.layer_types[idx] == "hybrid_sliding"
+    cls = M.Inkling2LoopSlidingDecoderLayer if sliding else M.Inkling2LoopFullDecoderLayer
+    layer = cls(cfg, idx).eval()
+    layer.mlp.experts = LazyExperts(cfg)
+    miss, unexp = layer.load_state_dict(state_dict(idx, sliding), strict=False)
+    real = [m for m in miss if "experts" not in m]
+    assert not real and not unexp, (idx, real, unexp)
+    return layer, sliding
 
 # ---- the embedding, as the model computes it ------------------------------
 emb = raw("model.llm.embed.weight")[TOKEN].astype(np.float32)
@@ -153,39 +163,48 @@ enorm = raw("model.llm.embed_norm.weight").astype(np.float32)
 rms = np.sqrt((emb * emb).mean() + cfg.rms_norm_eps)
 x = torch.from_numpy((emb / rms) * enorm).view(1, 1, -1).float()
 
+# ---- run layers 0..LAYER, as Inkling2LoopTextModel does before the core ----
+assert LAYER < cfg.loop_layer_index_start, "this chains the pre-core layers only"
+block_states = x.new_zeros(1, 1, 0, x.shape[-1])
+pos = torch.arange(1).unsqueeze(0)
 taps = {}
+
 def tap(name):
     def hook(_m, _i, o):
         v = o[0] if isinstance(o, tuple) else o
         taps[name] = v.detach().reshape(-1).float().numpy().copy()
     return hook
-layer.self_attn.register_forward_hook(tap("attn"))
-layer.self_attn.q_proj.register_forward_hook(tap("q"))
-layer.self_attn.k_proj.register_forward_hook(tap("k"))
-layer.self_attn.v_proj.register_forward_hook(tap("v"))
-layer.self_attn.sink_proj.register_forward_hook(tap("sinks"))
-layer.self_attn.relative_position_bias.register_forward_hook(tap("bias"))
-layer.input_layernorm.register_forward_hook(tap("attn_norm"))
-layer.post_attention_convolution.register_forward_hook(tap("attn_sconv"))
-layer.mlp.register_forward_hook(tap("moe"))
-layer.post_attention_layernorm.register_forward_hook(tap("mlp_norm"))
-layer.mlp_input.register_forward_hook(tap("mlp_input"))
 
-block_states = x.new_zeros(1, 1, 0, x.shape[-1])
-rel = M.get_relative_distance(x, None, is_sliding=is_sliding)
-pos = torch.arange(1).unsqueeze(0)
-with torch.no_grad():
-    out = layer(x, block_states, attention_mask=None, relative_distance=rel,
-                conv_mask=None, cache=None, position_ids=pos)
-y = out[0] if isinstance(out, tuple) else out
-y = y.reshape(-1).float().numpy().astype("<f4")
+for idx in range(LAYER + 1):
+    layer, sliding = build(idx)
+    if idx == LAYER:
+        layer.self_attn.register_forward_hook(tap("attn"))
+        layer.mlp.register_forward_hook(tap("moe"))
+        norm = getattr(layer, "input_layernorm", None) or layer.q_input_layernorm
+        norm.register_forward_hook(tap("attn_norm"))
+        layer.self_attn.k_proj.register_forward_hook(tap("k"))
+        layer.self_attn.v_proj.register_forward_hook(tap("v"))
+        layer.self_attn.q_proj.register_forward_hook(tap("q"))
+        layer.self_attn.relative_position_bias.register_forward_hook(tap("bias"))
+        taps["in"] = x.detach().reshape(-1).float().numpy().copy()
+        taps["blocks"] = block_states.detach().reshape(-1).float().numpy().copy()
+    rel = M.get_relative_distance(x, None, is_sliding=sliding)
+    with torch.no_grad():
+        out = layer(x, block_states, attention_mask=None, relative_distance=rel,
+                    conv_mask=None, cache=None, position_ids=pos)
+    new_x = out[0] if isinstance(out, tuple) else out
+    if idx % cfg.n_layers_per_attn_res_block == 0:
+        block_states = torch.cat([block_states, x.unsqueeze(-2)], dim=-2)
+    x = new_x
+
+y = x.reshape(-1).float().numpy().astype("<f4")
 y.tofile(OUT)
 print("layer", LAYER, "token", TOKEN, "-> absmax", float(np.abs(y).max()),
       "mean", float(y.mean()), "first4", y[:4])
 print("wrote", OUT, y.size, "floats")
-for k in ("attn_norm", "q", "k", "v", "sinks", "bias", "attn", "attn_sconv", "mlp_input", "mlp_norm", "moe"):
+for k in ("in", "blocks", "attn_norm", "q", "k", "v", "bias", "attn", "moe"):
     v = taps.get(k)
     if v is None:
         continue
     v.astype("<f4").tofile(OUT.replace(".bin", f".{k}.bin"))
-    print(f"  {k:10s} absmax {abs(v).max():.4f} mean {v.mean():+.6f} first3 {v[:3]}")
+    print(f"  {k:10s} n {v.size:5d} absmax {abs(v).max():.4f} mean {v.mean():+.6f} first3 {v[:3]}")
