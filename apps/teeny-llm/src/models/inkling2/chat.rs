@@ -42,6 +42,8 @@ pub struct Chat {
     env: Environment<'static>,
     /// The id generation stops on (`<|content_model_end_sampling|>`).
     pub eos: u32,
+    /// `<|message_model|>`, which opens the model's turn.
+    pub turn_start: u32,
 }
 
 impl Chat {
@@ -90,10 +92,14 @@ impl Chat {
             Err(Error::new(ErrorKind::InvalidOperation, msg))
         });
         env.add_template_owned("chat", template)?;
+        let turn_start = tokenizer
+            .token_to_id("<|message_model|>")
+            .ok_or_else(|| anyhow::anyhow!("the tokenizer has no <|message_model|>"))?;
         Ok(Self {
             tokenizer,
             env,
             eos,
+            turn_start,
         })
     }
 
@@ -111,14 +117,24 @@ impl Chat {
 
     /// The token ids of `messages`.
     ///
-    /// The template writes every special token itself, so none are added here.
+    /// The template writes every special token itself and stops after the user's
+    /// `<|end_message|>`; the model opens its own turn with `<|message_model|>`, as
+    /// the reference's own `generate` does, so nothing is appended here.
     pub fn prompt(
         &self,
         messages: &Value,
         reasoning_effort: Option<&str>,
     ) -> anyhow::Result<Vec<u32>> {
-        let text = self.render(messages, reasoning_effort)?;
-        self.encode(&text)
+        self.encode(&self.render(messages, reasoning_effort)?)
+    }
+
+    /// As [`Self::prompt`], without the token that opens the model's turn.
+    pub fn prompt_raw(
+        &self,
+        messages: &Value,
+        reasoning_effort: Option<&str>,
+    ) -> anyhow::Result<Vec<u32>> {
+        self.encode(&self.render(messages, reasoning_effort)?)
     }
 
     /// Tokenizes `text` with no added special tokens.

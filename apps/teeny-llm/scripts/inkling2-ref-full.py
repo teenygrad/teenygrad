@@ -100,27 +100,30 @@ class LazyExperts(torch.nn.Module):
         self.num_experts = cfg.n_routed_experts
         self.act_fn = M.Inkling2LoopSoftcappedSwiGLU(cfg)
         self.prefix, self.nvfp4 = prefix, nvfp4
-        # Many positions route to the same expert; dequantising it once per layer
-        # turns a 20-token prompt from hours into minutes.
-        self._cache = {}
+
 
     def forward(self, hidden_states, top_k_index, top_k_weights):
+        # Group the positions by expert, as Inkling2LoopExperts does, so each expert is
+        # dequantised once per call and freed. Caching them instead is ~4 GB a layer
+        # once a prompt routes to most of the 128, which runs the machine out of memory.
         out = torch.zeros_like(hidden_states, dtype=torch.float32)
+        hits = {}
         for pos in range(top_k_index.shape[0]):
             for slot in range(top_k_index.shape[1]):
-                e = int(top_k_index[pos, slot])
-                if e not in self._cache:
-                    self._cache[e] = (
-                        torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w13", e)),
-                        torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w2", e)),
-                    )
-                w13, w2 = self._cache[e]
-                x = hidden_states[pos:pos + 1].float()
-                gu = torch.nn.functional.linear(x, w13)
-                g, u = gu.chunk(2, dim=-1)
-                h = self.act_fn(g, u)
-                y = torch.nn.functional.linear(h, w2)
-                out[pos:pos + 1] += y * float(top_k_weights[pos, slot])
+                hits.setdefault(int(top_k_index[pos, slot]), []).append((pos, slot))
+        for e, items in hits.items():
+            w13 = torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w13", e))
+            w2 = torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w2", e))
+            rows = [p for p, _ in items]
+            gu = torch.nn.functional.linear(hidden_states[rows].float(), w13)
+            # w13_weight interleaves gate and up down its rows; transformers converts
+            # it with Interleave(dim=1) rather than renaming it, so chunking into
+            # halves pairs every gate with the wrong up.
+            g, u = gu[..., 0::2], gu[..., 1::2]
+            y = torch.nn.functional.linear(self.act_fn(g, u), w2)
+            for r, (pos, slot) in enumerate(items):
+                out[pos] += y[r] * float(top_k_weights[pos, slot])
+            del w13, w2
         return out
 
 # ---- build the layers -----------------------------------------------------

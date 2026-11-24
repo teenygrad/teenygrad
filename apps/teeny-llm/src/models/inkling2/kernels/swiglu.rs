@@ -59,9 +59,13 @@ pub fn swiglu_forward<T: Triton, D: Float, const BLOCK: i32>(
     let m = offs.lt(I);
     let zeros = T::zeros::<D>(&[BLOCK]);
 
-    // One row of the projection is [gate (I) | up (I)].
+    // One row of the projection is gate and up INTERLEAVED, not two halves: the
+    // checkpoint stores `w13_weight` as gate, up, gate, up, ... down its rows, which
+    // is why transformers converts it with an `Interleave(dim=1)` rather than a plain
+    // rename. Splitting it into halves instead silently pairs each gate with the wrong
+    // up, and the model still produces fluent-looking nonsense.
     let gate = T::load(
-        x_ptr.add_offsets(offs + row * 2 * I),
+        x_ptr.add_offsets(offs * 2 + row * 2 * I),
         Some(m),
         Some(zeros),
         &[],
@@ -71,7 +75,7 @@ pub fn swiglu_forward<T: Triton, D: Float, const BLOCK: i32>(
         false,
     );
     let up = T::load(
-        x_ptr.add_offsets(offs + I + row * 2 * I),
+        x_ptr.add_offsets(offs * 2 + 1 + row * 2 * I),
         Some(m),
         Some(zeros),
         &[],
