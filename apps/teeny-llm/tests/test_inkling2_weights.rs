@@ -513,3 +513,67 @@ fn test_a_whole_plan_resolves_against_the_real_index() {
         "the mlp queries are not offset"
     );
 }
+
+/// The same whole-plan resolution, but against a real checkpoint on disk.
+///
+/// Ignored by default: it needs the 20.2 GB download. Point `INKLING2_MODEL_DIR` at
+/// it and run with `--ignored`. This checks what the index fixture cannot: that the
+/// shard actually holds each tensor, and that what the loader produces is the size
+/// the kernels declare.
+#[test]
+#[ignore = "needs the 20.2 GB checkpoint; set INKLING2_MODEL_DIR"]
+fn test_the_real_checkpoint_satisfies_a_whole_plan() {
+    let dir = std::env::var("INKLING2_MODEL_DIR")
+        .expect("set INKLING2_MODEL_DIR to the checkpoint directory");
+    let dir = Path::new(&dir);
+    let cfg = Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's own config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+
+    let mut absent: Vec<String> = Vec::new();
+    let mut slots_checked = 0usize;
+    for step in plan(&cfg) {
+        let dynamic = (step.layer + 1) % cfg.n_layers_per_attn_res_block == 0;
+        let nvfp4 = quant_of(&cfg, step.layer) == Quant::Nvfp4;
+        let slots = layer_slots(step.layer, nvfp4, dynamic, step.pass.is_some());
+        slots_checked += slots.len();
+        for (slot, name) in teeny_llm::models::inkling2::load::missing(&ck, &slots, step.layer)
+        {
+            absent.push(format!("layer {} slot {slot} -> {name}", step.layer));
+        }
+    }
+    absent.sort();
+    absent.dedup();
+    assert!(
+        absent.is_empty(),
+        "{} of {slots_checked} slots are absent from the checkpoint:\n  {}",
+        absent.len(),
+        absent
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+
+    // Read one layer for real and check the packed sizes against what the gather
+    // declares: experts * n * ceil(row / 4).
+    let (e, inter, hid) = (cfg.n_routed_experts, cfg.intermediate_size, cfg.hidden_size);
+    let w13 = ck
+        .param(&checkpoint_name("mlp.experts.weight", 3))
+        .expect("layer 3 expert weights");
+    assert_eq!(
+        w13.len(),
+        e * (2 * inter) * (hid / 2).div_ceil(4),
+        "packed w13 is experts * 2*inter * ceil(hidden/2 / 4) elements"
+    );
+    let s2 = ck
+        .expert_scale2(&checkpoint_name("mlp.experts.scale2", 3).replace("_amax", ""))
+        .expect("layer 3 per-expert scale");
+    assert_eq!(s2.len(), e, "one scale per expert");
+    assert!(
+        s2.iter().all(|v| v.is_finite() && *v > 0.0),
+        "the per-expert scales must be finite and positive"
+    );
+}
