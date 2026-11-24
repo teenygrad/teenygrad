@@ -36,7 +36,7 @@ cache=$target_dir/kernel-cache
 fixtures=$PWD/apps/teeny-llm/teeny-llm-core/tests/fixtures
 qemu=$(command -v qemu-riscv64-static || command -v qemu-riscv64)
 sysroot=/usr/riscv64-linux-gnu
-tests=(test_inkling2_kernels test_inkling2_model)
+tests=(test_inkling2_kernels test_inkling2_reference test_inkling2_model)
 
 # ── Cross-compile the test binaries ───────────────────────────────────────────────────────────
 for t in "${tests[@]}"; do
