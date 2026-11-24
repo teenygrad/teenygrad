@@ -76,6 +76,22 @@ impl Target {
     }
 }
 
+impl Capability {
+    /// LLVM target features for this chip, beyond what the base triple implies.
+    ///
+    /// RVV's ISA string does not carry the vector width, so without `zvl###b` LLVM has
+    /// to assume the 128-bit minimum the spec guarantees and halves every vector
+    /// operation on a wider part. Both Spacemit parts here are 256-bit (`vlenb` reads
+    /// 32 on a K3/X100), which is worth telling the backend.
+    pub fn target_features(&self) -> &'static [&'static str] {
+        match self {
+            // Conservative: a generic RVV 1.0 target may be any width at all.
+            Self::GenericRvv1_0 => &[],
+            Self::SpacemitK1 | Self::SpacemitK3 => &["zvl256b"],
+        }
+    }
+}
+
 impl teeny_core::compiler::Target for Target {
     fn target_cpu(&self) -> Option<String> {
         Some(self.capability.to_string())
