@@ -392,12 +392,17 @@ fn layer_slots(layer: usize, nvfp4: bool, dynamic: bool, looped: bool) -> Vec<St
     .iter()
     .map(|s| s.to_string())
     .collect();
-    // Layer 0 has no attention residual: no block states yet, and no queries for it
-    // in the checkpoint.
-    if layer > 0 {
-        for q in 0..3 {
-            v.push(format!("attn_res.attn_queries_{q}.query"));
-        }
+    // The query count varies: none on layer 0, three on the dynamic layers, one
+    // everywhere else.
+    let n_queries = if layer == 0 {
+        0
+    } else if dynamic {
+        3
+    } else {
+        1
+    };
+    for q in 0..n_queries {
+        v.push(format!("attn_res.attn_queries_{q}.query"));
     }
     if dynamic {
         v.extend(

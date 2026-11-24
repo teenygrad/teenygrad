@@ -90,6 +90,24 @@ pub fn quant_of(cfg: &Inkling2TextConfig, l: usize) -> Quant {
     }
 }
 
+/// How many learned queries a layer's attention residual has.
+///
+/// Not uniform, and not stated anywhere in `config.json`: the checkpoint holds
+/// `[3, hidden]` for layers 5, 11, 17 and 23 and `[hidden]` for the rest, with
+/// nothing at all for layer 0. Those four are exactly the layers whose convolutions
+/// are dynamic and whose q, k and v are normed separately, so three queries give
+/// them three distinct states; every other layer feeds one state to all three
+/// projections, which is the reference's `num_queries = 1` form.
+pub fn attn_queries_of(cfg: &Inkling2TextConfig, layer: usize) -> usize {
+    if layer == 0 {
+        0
+    } else if (layer + 1).is_multiple_of(cfg.n_layers_per_attn_res_block) {
+        3
+    } else {
+        1
+    }
+}
+
 /// One layer execution: a layer index, which pass it belongs to, and the cache it
 /// uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

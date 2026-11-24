@@ -62,6 +62,7 @@ use super::kernels::{
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
+    regroup::RegroupOp,
     rel_bias::RelBiasOp,
     router::TopKRouterOp,
     scale::ScaleOp,
@@ -376,6 +377,9 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
             None,
         )
     };
+    // The projection is per head, so the matmul's rows are (token, head) pairs:
+    // [T, heads * d_rel] regrouped to [T * heads, d_rel].
+    let rel = rel.record_custom(CustomData::new(RegroupOp::<D>::new(nh)), &[], None);
     let logits = {
         let _g = name_scope("rel_logits_proj");
         linear::<D>(&rel, dr, cfg.rel_extent)
@@ -619,14 +623,30 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     };
 
     // Three states out of the block attention, one per projection.
-    let qkv = build_attn_res::<D>(
-        cfg,
-        "attn_queries",
-        inputs.block_states,
-        inputs.x,
-        inputs.n_states,
-        3,
-    );
+    // The attention residual's query count varies: none on layer 0, three on the
+    // dynamic layers (which norm q, k and v separately), one everywhere else. A
+    // single query feeds the same state to all three projections.
+    let n_queries = super::runner::attn_queries_of(cfg, layer);
+    let qkv: Vec<SymTensor> = if n_queries == 0 {
+        // Layer 0 has no block states to attend over and no queries in the
+        // checkpoint, so it uses its own input.
+        vec![inputs.x.clone(), inputs.x.clone(), inputs.x.clone()]
+    } else {
+        let got = build_attn_res::<D>(
+            cfg,
+            "attn_queries",
+            inputs.block_states,
+            inputs.x,
+            inputs.n_states,
+            n_queries,
+        );
+        if n_queries == 1 {
+            vec![got[0].clone(), got[0].clone(), got[0].clone()]
+        } else {
+            got
+        }
+    };
+
     let gated: Vec<SymTensor> = match inputs.messages {
         None => qkv,
         Some(msgs) => ["q", "k", "v"]

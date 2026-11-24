@@ -111,6 +111,55 @@ impl GraphRun {
         model.param_info_named().map(|(n, _, _)| n).collect()
     }
 
+    /// Compiles once, asks the model for its slots, fills them from a checkpoint,
+    /// and runs. One compile rather than the two `slot_names` then `run` would cost,
+    /// which matters when the parameters are hundreds of megabytes.
+    fn run_from_checkpoint(
+        &self,
+        out: &SymTensor,
+        feeds: &[&[f32]],
+        ck: &mut teeny_llm::models::inkling2::weights::Checkpoint,
+        layer: usize,
+    ) -> Vec<f32> {
+        let graph: &Graph = &self.graph.borrow();
+        let lowering = TritonLowering::new();
+        let (_, graph_to_dag) = lowering
+            .lower_with_mapping(graph, LoweringMode::Inference)
+            .expect("lowering the graph");
+        let device = runtime::open().expect("opening the device");
+        let target = runtime::default_target(&device).expect("the device's target");
+        let mut model = RuntimeModel::compile(
+            &device,
+            graph,
+            &lowering,
+            LoweringMode::Inference,
+            &target,
+            self.first.shape[0].unwrap_or(1),
+            false,
+        )
+        .expect("compiling the graph through teenyc");
+
+        let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
+        let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
+        let missing = teeny_llm::models::inkling2::load::missing(ck, &names, layer);
+        assert!(missing.is_empty(), "layer {layer} is missing {missing:?}");
+        let values = teeny_llm::models::inkling2::load::read(ck, &names, layer)
+            .expect("reading the layer's parameters");
+        let by_name: std::collections::HashMap<&str, &[f32]> = values
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.as_slice()))
+            .collect();
+        for (name, node, idx) in &slots {
+            model
+                .load_param_f32(*node, *idx, by_name[name.as_str()])
+                .unwrap_or_else(|e| panic!("loading {name}: {e}"));
+        }
+        let mut got = model
+            .run(&device, feeds, &[graph_to_dag[out.node_id]])
+            .expect("running the layer");
+        got.remove(0)
+    }
+
     fn run(&self, out: &SymTensor, feeds: &[&[f32]], params: &[(&str, &[f32])]) -> Vec<f32> {
         let graph: &Graph = &self.graph.borrow();
         let lowering = TritonLowering::new();
@@ -343,8 +392,8 @@ fn test_decoder_layer_builds_and_runs() {
 
     let names = g.slot_names();
     for expected in [
+        // Layer 1 is not a dynamic layer, so it has ONE attention query, not three.
         "attn_res.attn_queries_0.query",
-        "attn_res.attn_queries_2.query",
         "attn_res.mlp_queries_0.query",
         "attn_norm.weight",
         "attn.wq_du.weight",
@@ -581,5 +630,99 @@ fn test_head_scales_by_mup_and_softcaps() {
     assert!(
         got.iter().all(|v| v.abs() <= 30.0 + 1e-3),
         "every logit must sit inside the cap"
+    );
+}
+
+/// Layer 0 of the real model, with its real weights, on one token.
+///
+/// Ignored: needs the 20.2 GB checkpoint. Point `INKLING2_MODEL_DIR` at it.
+///
+/// This is the first time arithmetic runs on trained weights rather than on
+/// `values()`. It checks what a shape test cannot: that the output is finite, that
+/// it is not all zero, and that it sits in a plausible range. A layer that silently
+/// read the wrong bytes would usually fail one of those.
+#[test]
+#[ignore = "needs the 20.2 GB checkpoint; set INKLING2_MODEL_DIR"]
+fn test_layer_zero_runs_on_real_weights() {
+    use teeny_llm::models::inkling2::weights::Checkpoint;
+
+    let dir = std::env::var("INKLING2_MODEL_DIR").expect("set INKLING2_MODEL_DIR");
+    let dir = std::path::Path::new(&dir);
+    let cfg = teeny_llm::models::inkling2::Inkling2Config::load(&dir.join("config.json"))
+        .expect("the checkpoint's config")
+        .text_config;
+    let mut ck = Checkpoint::open(dir).expect("opening the checkpoint");
+
+    let (t, hid) = (1usize, cfg.hidden_size);
+    let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
+    let kw = cfg.sconv_kernel_size - 1;
+    let cache = 8usize;
+
+    // Layer 0: no committed block states, an empty cache, a cold convolution window.
+    let g = GraphRun::new(&[t, hid]);
+    let block_states = g.input(&[0, hid]);
+    let k_hist = g.input(&[kw, nkv * hd]);
+    let v_hist = g.input(&[kw, nkv * hd]);
+    let attn_hist = g.input(&[kw, hid]);
+    let mlp_hist = g.input(&[kw, hid]);
+    let k_cache = g.input(&[cache, nkv * hd]);
+    let v_cache = g.input(&[cache, nkv * hd]);
+    let past = PastLen::default();
+    past.set(0);
+    let inputs = LayerInputs {
+        x: &g.first,
+        block_states: &block_states,
+        n_states: 0,
+        k_hist: &k_hist,
+        v_hist: &v_hist,
+        attn_hist: &attn_hist,
+        mlp_hist: &mlp_hist,
+        k_cache: &k_cache,
+        v_cache: &v_cache,
+        messages: None,
+    };
+    let out = build_layer::<f32>(&cfg, 0, &inputs, past);
+    assert_eq!(out.shape, vec![Some(t), Some(hid)]);
+
+    // A plausible embedding: the real one for a token, normed as the model does.
+    let embed = ck
+        .param("model.llm.embed.weight")
+        .expect("the embedding table");
+    let token = 5000usize;
+    let row = &embed[token * hid..(token + 1) * hid];
+    let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
+    let x: Vec<f32> = row.iter().map(|v| v / rms).collect();
+
+    let zeros_kv = vec![0.0f32; kw * nkv * hd];
+    let zeros_h = vec![0.0f32; kw * hid];
+    let cache_kv = vec![0.0f32; cache * nkv * hd];
+    let empty: Vec<f32> = Vec::new();
+    let got = g.run_from_checkpoint(
+        &out,
+        &[
+            &x, &empty, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv,
+        ],
+        &mut ck,
+        0,
+    );
+
+    assert_eq!(got.len(), t * hid, "a layer returns [T, hidden]");
+    assert!(
+        got.iter().all(|v| v.is_finite()),
+        "every output must be finite"
+    );
+    let absmax = got.iter().fold(0.0f32, |a, v| a.max(v.abs()));
+    let nonzero = got.iter().filter(|v| v.abs() > 1e-12).count();
+    println!(
+        "layer 0: absmax {absmax:.4}, nonzero {nonzero} of {}",
+        got.len()
+    );
+    assert!(
+        nonzero > got.len() / 2,
+        "most outputs should be non-zero, got {nonzero}"
+    );
+    assert!(
+        absmax > 1e-4 && absmax < 1.0e4,
+        "the output should be plausibly scaled, absmax was {absmax}"
     );
 }

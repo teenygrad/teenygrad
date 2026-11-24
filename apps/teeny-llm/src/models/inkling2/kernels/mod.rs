@@ -29,6 +29,7 @@ pub mod l2_clip;
 pub mod mix;
 pub mod norm;
 pub mod nvfp4;
+pub mod regroup;
 pub mod rel_bias;
 pub mod router;
 pub mod scale;
