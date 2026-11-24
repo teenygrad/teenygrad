@@ -183,8 +183,12 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "mlp.experts_down.scale2" => format!("{prefix}mlp.experts.w2_weight_amax"),
         // attn_res queries live at the top level, one tensor per layer, and every
         // query of a layer reads the same one.
+        // The attention queries are offset by one: layer 0 has no attention
+        // residual at all (the reference builds it only `if layer_idx > 0`), so the
+        // checkpoint's 23 entries cover layers 1..=23 while the 24 mlp_queries cover
+        // every layer. Indexing them by layer leaves the last layer with nothing.
         s if s.starts_with("attn_res.attn_queries_") => {
-            format!("{top}attn_res.attn_queries.{layer}")
+            format!("{top}attn_res.attn_queries.{}", layer.saturating_sub(1))
         }
         s if s.starts_with("attn_res.mlp_queries_") => {
             format!("{top}attn_res.mlp_queries.{layer}")
@@ -321,10 +325,17 @@ mod tests {
                 3,
                 "model.llm.layers.3.mlp.experts.w2_weight",
             ),
+            // The attention queries are offset by one: layer 0 has none, so the
+            // checkpoint's 23 entries cover layers 1..=23.
             (
                 "attn_res.attn_queries_2.query",
                 5,
-                "model.llm.attn_res.attn_queries.5",
+                "model.llm.attn_res.attn_queries.4",
+            ),
+            (
+                "attn_res.attn_queries_0.query",
+                23,
+                "model.llm.attn_res.attn_queries.22",
             ),
             (
                 "attn_res.mlp_queries_0.query",

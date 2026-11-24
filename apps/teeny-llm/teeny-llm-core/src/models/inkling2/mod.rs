@@ -102,6 +102,7 @@ use teeny_test as _;
 
 pub mod config;
 pub mod kernels;
+pub mod load;
 pub mod model;
 pub mod runner;
 pub mod session;
