@@ -376,7 +376,11 @@ fn test_rel_bias_gathers_by_backward_distance() {
     let want = rel_bias_reference(&logits, t, heads, extent, past, kv);
     let g = OneOp::new(&[t * heads, extent]);
     let got = g.run(
-        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        RelBiasOp::<f32>::new(heads, extent, {
+            let p = PastLen::default();
+            p.set(past);
+            p
+        }),
         &[],
         &[&logits],
         &[],
@@ -388,11 +392,15 @@ fn test_rel_bias_gathers_by_backward_distance() {
 #[test]
 fn test_rel_bias_is_zero_past_the_extent() {
     let (t, heads, extent, past) = (2usize, 1usize, 8usize, 40usize);
-    let kv = past + t;
+    // kv is now derived from PastLen at launch rather than passed in.
     let logits: Vec<f32> = (0..t * heads * extent).map(|i| 1.0 + i as f32).collect();
     let g = OneOp::new(&[t * heads, extent]);
     let got = g.run(
-        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        RelBiasOp::<f32>::new(heads, extent, {
+            let p = PastLen::default();
+            p.set(past);
+            p
+        }),
         &[],
         &[&logits],
         &[],
@@ -417,7 +425,11 @@ fn test_rel_bias_zeroes_future_keys() {
     let want = rel_bias_reference(&logits, t, heads, extent, past, kv);
     let g = OneOp::new(&[t * heads, extent]);
     let got = g.run(
-        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        RelBiasOp::<f32>::new(heads, extent, {
+            let p = PastLen::default();
+            p.set(past);
+            p
+        }),
         &[],
         &[&logits],
         &[],
@@ -437,7 +449,11 @@ fn test_rel_bias_masks_a_ragged_kv_tail() {
     let want = rel_bias_reference(&logits, t, heads, extent, past, kv);
     let g = OneOp::new(&[t * heads, extent]);
     let got = g.run(
-        RelBiasOp::<f32>::new(heads, extent, past, kv),
+        RelBiasOp::<f32>::new(heads, extent, {
+            let p = PastLen::default();
+            p.set(past);
+            p
+        }),
         &[],
         &[&logits],
         &[],
@@ -1033,10 +1049,10 @@ fn test_bias_changes_the_attention() {
         window: None,
     };
     let sinks = vec![-60.0f32];
+    let kv = c.past + c.t;
     let (base, _) = run_sink_attention(&c, &sinks, 95);
     // Same seed, but the reference is recomputed with a biased key, so a mismatch
     // here would mean the kernel ignored the bias.
-    let kv = c.past + c.t;
     let mut bias = values(c.t * c.h * kv, 95 + 5);
     bias[0] += 20.0; // make key 0 dominate
     let q = values(c.t * c.h * c.hd, 95);
