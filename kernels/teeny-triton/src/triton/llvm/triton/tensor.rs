@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use core::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Sub};
+use core::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Shl, Shr, Sub};
 
 use super::super::super::types::{self as ty};
 
@@ -218,6 +218,111 @@ impl Div<i32> for LlvmI32Tensor {
     #[inline(never)]
     #[allow(clippy::zero_ptr)]
     fn div(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+// Bitwise and shift operators on integer tensors, for kernels that unpack data packed into
+// wider words (sub-byte quantised weights carried in f32 elements, read back out with a
+// bitcast). `>>` is arithmetic, as on `i32`. The right-hand side is a scalar, splatted to the
+// tensor's shape, or a tensor of the same shape.
+
+impl BitAnd<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitand(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitAnd<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitand(self, _rhs: LlvmI32Tensor) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitOr<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitor(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitOr<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitor(self, _rhs: LlvmI32Tensor) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitXor<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitxor(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl BitXor<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitxor(self, _rhs: LlvmI32Tensor) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shl<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shl(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shl<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shl(self, _rhs: LlvmI32Tensor) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shr<i32> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shr(self, _rhs: i32) -> Self::Output {
+        LlvmTensor(0 as *mut i32)
+    }
+}
+
+impl Shr<LlvmI32Tensor> for LlvmI32Tensor {
+    type Output = LlvmI32Tensor;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shr(self, _rhs: LlvmI32Tensor) -> Self::Output {
         LlvmTensor(0 as *mut i32)
     }
 }
