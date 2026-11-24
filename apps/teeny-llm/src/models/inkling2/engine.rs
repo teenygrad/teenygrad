@@ -440,9 +440,14 @@ impl<'d> Engine<'d> {
         }
 
         if let Some(path) = trace_to {
+            // One file per position, so a sequence's traces do not overwrite one
+            // another and it is never ambiguous which token a trace belongs to.
             let bytes: Vec<u8> = trace.iter().flat_map(|v| v.to_le_bytes()).collect();
-            std::fs::write(&path, bytes)
-                .with_context(|| format!("writing the execution trace to {path}"))?;
+            let at = self.state.len;
+            for p in [path.replace(".bin", &format!(".{at}.bin")), path.clone()] {
+                std::fs::write(&p, &bytes)
+                    .with_context(|| format!("writing the execution trace to {p}"))?;
+            }
         }
         self.state.len += 1;
         self.past.set(self.state.len);
