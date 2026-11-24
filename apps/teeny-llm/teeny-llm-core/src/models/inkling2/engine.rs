@@ -212,7 +212,10 @@ impl<'d> Engine<'d> {
         for layer in 0..cfg.num_hidden_layers {
             let n_states = blocks[layer];
             let b = Builder::new(&[1, hid]);
+            let boundary = layer % cfg.n_layers_per_attn_res_block == 0;
+            let mlp_states = n_states + usize::from(boundary);
             let block_states = b.input(&[n_states, hid]);
+            let mlp_block_states = b.input(&[mlp_states, hid]);
             let k_hist = b.input(&[kw, kv]);
             let v_hist = b.input(&[kw, kv]);
             let attn_hist = b.input(&[kw, hid]);
@@ -230,6 +233,8 @@ impl<'d> Engine<'d> {
                 x: &b.first,
                 block_states: &block_states,
                 n_states,
+                mlp_block_states: &mlp_block_states,
+                mlp_n_states: mlp_states,
                 k_hist: &k_hist,
                 v_hist: &v_hist,
                 attn_hist: &attn_hist,
@@ -344,10 +349,20 @@ impl<'d> Engine<'d> {
                     let slot = step.cache;
                     let n_states = self.state.n_blocks();
                     let block_in = self.state.block_input(1);
+                    // At a boundary the MLP's stack already holds this layer's input;
+                    // the host appends it here rather than the graph, because the
+                    // attention before it must still see the shallower stack.
+                    let mlp_in = if step.is_boundary {
+                        let mut v = block_in.clone();
+                        v.extend_from_slice(&x);
+                        v
+                    } else {
+                        block_in.clone()
+                    };
                     let conv = &self.state.conv[slot];
                     let (kc, vc) = (&self.state.k[slot], &self.state.v[slot]);
                     let mut feeds: Vec<&[f32]> = vec![
-                        &x, &block_in, &conv[0], &conv[1], &conv[2], &conv[3], kc, vc,
+                        &x, &block_in, &mlp_in, &conv[0], &conv[1], &conv[2], &conv[3], kc, vc,
                     ];
                     let idx = step.layer - core_start;
                     let on_pass = step.pass.is_some_and(|p| p > 0);

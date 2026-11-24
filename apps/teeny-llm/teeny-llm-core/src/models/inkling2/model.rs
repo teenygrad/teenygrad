@@ -680,6 +680,15 @@ pub struct LayerInputs<'a> {
     pub block_states: &'a SymTensor,
     /// How many states that is per token.
     pub n_states: usize,
+    /// The block states the MLP's residual attends over, and how many per token.
+    ///
+    /// A boundary layer appends its own input to the stack *between* the attention
+    /// and the MLP, so the two see different stacks: the attention the old one, the
+    /// MLP one state deeper. Away from a boundary these are `block_states` and
+    /// `n_states` again.
+    pub mlp_block_states: &'a SymTensor,
+    /// How many states `mlp_block_states` holds per token.
+    pub mlp_n_states: usize,
     /// The key convolution's `K - 1` rows of state, of the PROJECTED keys.
     pub k_hist: &'a SymTensor,
     /// As `k_hist`, for values.
@@ -853,9 +862,9 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     let m = build_attn_res::<D>(
         cfg,
         "mlp_queries",
-        inputs.block_states,
+        inputs.mlp_block_states,
         &residual,
-        inputs.n_states,
+        inputs.mlp_n_states,
         1,
     )
     .remove(0);
