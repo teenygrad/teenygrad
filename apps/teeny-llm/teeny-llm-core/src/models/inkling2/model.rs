@@ -279,7 +279,7 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
     hist: &SymTensor,
     is_key: bool,
     dynamic: Option<&SymTensor>,
-) -> SymTensor {
+) -> (SymTensor, SymTensor) {
     let (nkv, hd) = (cfg.num_key_value_heads, cfg.head_dim);
     let name = if is_key { "wk_dv" } else { "wv_dv" };
     let proj = {
@@ -308,7 +308,9 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
             ),
         }
     };
-    if is_key {
+    // The pre-convolution projection comes back too: it is what the convolution's
+    // state carries into the next token, and the host cannot recover it from the output.
+    let out = if is_key {
         conv.record_custom(
             CustomData::new(L2ClipOp::<D>::new(hd, cfg.qk_l2_clip_threshold as f32)),
             &[],
@@ -320,7 +322,8 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
             &[],
             None,
         )
-    }
+    };
+    (proj, out)
 }
 
 /// Records the gated output projection.
@@ -410,7 +413,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
     v_cache: &SymTensor,
     past_len: PastLen,
     window: Option<usize>,
-) -> SymTensor {
+) -> Attention {
     let _a = name_scope("attn");
     let (nh, nkv, hd) = (
         cfg.num_attention_heads,
@@ -418,8 +421,8 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         cfg.head_dim,
     );
     let q = build_q_proj::<D>(cfg, q_in);
-    let k = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic);
-    let v = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic);
+    let (k_proj, k) = build_kv_proj::<D>(cfg, k_in, k_hist, true, dynamic);
+    let (v_proj, v) = build_kv_proj::<D>(cfg, v_in, v_hist, false, dynamic);
     // The bias and the sinks are conditioned on the query's hidden states.
     let bias = build_rel_bias::<D>(cfg, q_in, past_len.clone());
     let sinks = {
@@ -438,7 +441,33 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         &[&k, &v, k_cache, v_cache, &bias, &sinks],
         None,
     );
-    build_o_proj::<D>(cfg, &attn, q_in)
+    Attention {
+        out: build_o_proj::<D>(cfg, &attn, q_in),
+        k,
+        v,
+        k_proj,
+        v_proj,
+    }
+}
+
+/// What [`build_attention`] produces: its output, plus the tensors the host has to
+/// carry from one token to the next.
+///
+/// `k` and `v` are post-convolution and post-norm, which is the form the cache holds,
+/// so appending them is all the next token needs. `k_proj` and `v_proj` are the
+/// *pre*-convolution projections, which are what each short convolution's state
+/// window carries; neither can be recovered from the layer's output.
+pub struct Attention {
+    /// The attention block's output, `[T, hidden]`.
+    pub out: SymTensor,
+    /// Keys to append to the cache, `[T, kv_heads * head_dim]`.
+    pub k: SymTensor,
+    /// Values to append, as `k`.
+    pub v: SymTensor,
+    /// The key projection before its convolution, for the convolution's state.
+    pub k_proj: SymTensor,
+    /// As `k_proj`, for values.
+    pub v_proj: SymTensor,
 }
 
 // ---------------------------------------------------------------------------
@@ -663,7 +692,19 @@ pub struct LayerInputs<'a> {
     pub v_cache: &'a SymTensor,
     /// On passes after the first through the looped core, the previous pass's
     /// messages for the query, key, value and MLP inputs, in that order.
+    ///
+    /// A looped-core layer should pass these on **every** pass, with `msg_scale` as the
+    /// switch, so that one compiled graph serves all three. Giving `None` builds a layer
+    /// with no controllers at all, which is right for a layer outside the core.
     pub messages: Option<[&'a SymTensor; 4]>,
+    /// Blends the controller in: `0` leaves the layer input untouched (the first pass,
+    /// which takes no messages) and `1` applies the gate in full.
+    ///
+    /// Present only with `messages`. It is a tensor rather than a constant because the
+    /// alternative is a second compiled graph per core layer, and a second copy of that
+    /// layer's 682 MB of expert weights with it -- 8.2 GB that does not fit beside
+    /// everything else on a 31 GB board.
+    pub msg_scale: Option<&'a SymTensor>,
 }
 
 /// Records one decoder layer.
@@ -698,7 +739,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     layer: usize,
     inputs: &LayerInputs<'_>,
     past_len: PastLen,
-) -> SymTensor {
+) -> Layer {
     let hid = cfg.hidden_size;
     let is_boundary = layer.is_multiple_of(cfg.n_layers_per_attn_res_block);
     // The LAST layer of each block convolves dynamically and norms q, k and v
@@ -735,13 +776,24 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         }
     };
 
+    // `lerp(a, b, s)` as `(1 - s) * a + s * b`, which is exactly what the controller's
+    // own combine kernel computes when both of its gates are the same tensor.
+    let lerp = |a: &SymTensor, b: &SymTensor, s: &SymTensor| {
+        a.record_custom(CustomData::new(MessageMixOp::<D>::default()), &[b, s, s], None)
+    };
     let gated: Vec<SymTensor> = match inputs.messages {
         None => qkv,
         // The checkpoint names the query controller `attn`, not `q`.
         Some(msgs) => ["attn", "k", "v"]
             .iter()
             .enumerate()
-            .map(|(i, which)| build_controller::<D>(cfg, which, &qkv[i], msgs[i]))
+            .map(|(i, which)| {
+                let g = build_controller::<D>(cfg, which, &qkv[i], msgs[i]);
+                match inputs.msg_scale {
+                    Some(s) => lerp(&qkv[i], &g, s),
+                    None => g,
+                }
+            })
             .collect(),
     };
     let normed: Vec<SymTensor> = if is_dynamic {
@@ -775,7 +827,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         let _g = name_scope("attn_sconv");
         inputs.attn_hist.record_custom(
             CustomData::new(SconvOp::<D>::new(hid, cfg.sconv_kernel_size)),
-            &[&attn],
+            &[&attn.out],
             None,
         )
     };
@@ -796,12 +848,18 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     .remove(0);
     let m = match inputs.messages {
         None => m,
-        Some(msgs) => build_controller::<D>(cfg, "mlp", &m, msgs[3]),
+        Some(msgs) => {
+            let g = build_controller::<D>(cfg, "mlp", &m, msgs[3]);
+            match inputs.msg_scale {
+                Some(s) => lerp(&m, &g, s),
+                None => g,
+            }
+        }
     };
     let m = build_norm::<D>("mlp_norm", &m, hid);
     let routed = build_router::<D>(cfg, &m);
     let moe = build_moe::<D>(cfg, &m, &routed, Some(super::runner::quant_of(cfg, layer)));
-    let m = {
+    let m_conv = {
         let _g = name_scope("mlp_sconv");
         inputs.mlp_hist.record_custom(
             CustomData::new(SconvOp::<D>::new(hid, cfg.sconv_kernel_size)),
@@ -809,7 +867,28 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
             None,
         )
     };
-    add(&residual, &m)
+    Layer {
+        out: add(&residual, &m_conv),
+        k: attn.k,
+        v: attn.v,
+        // The four convolution states, in the order State::conv holds them: the key
+        // and value projections, then the attention and MoE outputs.
+        conv_in: [attn.k_proj, attn.v_proj, attn.out, moe],
+    }
+}
+
+/// What [`build_layer`] produces: the layer output, and the state the host carries to
+/// the next token.
+pub struct Layer {
+    /// The layer's output, `[T, hidden]`.
+    pub out: SymTensor,
+    /// Keys to append to this layer's cache slot.
+    pub k: SymTensor,
+    /// Values to append.
+    pub v: SymTensor,
+    /// The inputs of the layer's four short convolutions, whose last `K - 1` rows
+    /// become the next token's history, in `State::conv` order.
+    pub conv_in: [SymTensor; 4],
 }
 
 // ---------------------------------------------------------------------------
