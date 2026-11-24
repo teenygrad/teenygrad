@@ -83,6 +83,10 @@ clap = { workspace = true }
 tokio = { workspace = true }
 
 [[example]]
+name = "inkling2"
+required-features = ["inkling2"]
+
+[[example]]
 name = "functiongemma"
 required-features = ["functiongemma"]
 

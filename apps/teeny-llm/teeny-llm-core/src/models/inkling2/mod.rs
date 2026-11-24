@@ -102,6 +102,8 @@ use teeny_test as _;
 
 pub mod chat;
 pub mod config;
+#[cfg(any(feature = "cuda", feature = "qemu", feature = "riscv"))]
+pub mod engine;
 pub mod kernels;
 pub mod load;
 pub mod model;
