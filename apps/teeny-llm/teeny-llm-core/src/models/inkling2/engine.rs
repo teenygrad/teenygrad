@@ -321,6 +321,7 @@ impl<'d> Engine<'d> {
         // What a boundary commits is the layer's INPUT, not its output, and the push
         // happens after the layer has run, by which point `x` is the output.
         let mut layer_input: Vec<f32> = Vec::new();
+        let mut dumped_messages = false;
 
         let ids = [token as f32];
         let mut x = self.embed.run(device, &[&ids])?.remove(0);
@@ -360,7 +361,11 @@ impl<'d> Engine<'d> {
                         vec![0.0f32; want * hid]
                     };
                     messages = self.messages.run(device, &[&states, &x])?;
-                    if let Some(path) = &trace_to {
+                    // Only the first pass's messages: the dump is a single file, and
+                    // the reference dumps pass 1, so writing every pass leaves pass 2's
+                    // behind and the comparison silently compares different passes.
+                    if let (Some(path), true) = (&trace_to, !dumped_messages) {
+                        dumped_messages = true;
                         // The first messages any layer receives, beside the state they
                         // were retrieved from, for bisecting against the reference.
                         let dump = |suffix: &str, v: &[f32]| {
