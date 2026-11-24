@@ -67,6 +67,8 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::I32Tensor: core::ops::Sub<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shr<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shr<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
@@ -103,11 +105,10 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
     // `offs + i * BLOCK` and BLOCK is a multiple of 128, so every one of these
     // divisions distributes over the sum exactly and the byte and scale selectors do
     // not depend on `i` at all.
-    let o4 = offs / 4;
-    let o32 = offs / 32;
-    let o128 = offs / 128;
-    let bsel = offs - o4 * 4;
-    let ssel = o32 - o128 * 4;
+    let o4 = offs >> 2;
+    let o128 = offs >> 7;
+    let bsel = offs & 3;
+    let ssel = (offs >> 5) & 3;
 
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
@@ -141,23 +142,14 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        let b = {
-            let b0 = wword & 0xFF;
-            let b1 = (wword & 0xFF00) / 256;
-            let b2 = (wword & 0x00FF_0000) / 65536;
-            let low7 = (wword & 0x7F00_0000) / 16_777_216;
-            let b3 = T::where_(wword.lt(0), low7 + 128, low7 + 0);
-            T::where_(
-                bsel.eq(0),
-                b0,
-                T::where_(bsel.eq(1), b1, T::where_(bsel.eq(2), b2, b3)),
-            )
-        };
+        // An arithmetic shift then a mask: the mask drops the sign extension, so the
+        // top byte needs no special case and the four-way select disappears.
+        let b = (wword >> (bsel * 8)) & 0xFF;
         // E4M3: s:1 e:4 m:3.
-        let sgn = b / 128;
-        let rest = b - sgn * 128;
-        let e = rest / 8;
-        let m = rest - e * 8;
+        let sgn = b >> 7;
+        let rest = b & 0x7F;
+        let e = rest >> 3;
+        let m = rest & 7;
         let mant = T::cast::<i32, D>(m, None, false);
         // F8_E4M3 to f32 is an exact bit mapping, so build the float and reinterpret
         // it rather than calling exp2 once per weight (RISC-V has no vector exp2):
@@ -184,18 +176,7 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        let sb = {
-            let s0 = sword & 0xFF;
-            let s1 = (sword & 0xFF00) / 256;
-            let s2 = (sword & 0x00FF_0000) / 65536;
-            let slow7 = (sword & 0x7F00_0000) / 16_777_216;
-            let s3 = T::where_(sword.lt(0), slow7 + 128, slow7 + 0);
-            T::where_(
-                ssel.eq(0),
-                s0,
-                T::where_(ssel.eq(1), s1, T::where_(ssel.eq(2), s2, s3)),
-            )
-        };
+        let sb = (sword >> (ssel * 8)) & 0xFF;
         // E8M0 is exponent-only, so 2^(sb - 127) is just that exponent in an f32:
         // bits = sb << 23. Only sb == 0 (2^-127, subnormal) needs the literal.
         let sval = T::where_(

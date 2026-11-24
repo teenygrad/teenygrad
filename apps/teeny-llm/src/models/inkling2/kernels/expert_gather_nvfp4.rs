@@ -70,6 +70,8 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::I32Tensor: core::ops::Sub<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Div<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shr<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shr<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
@@ -111,13 +113,11 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     // and so on. The lane-dependent part is therefore the same on every iteration, and
     // the byte and scale selectors do not depend on `i` at all. They used to be
     // recomputed for every element of every chunk.
-    let o2 = offs / 2;
-    let o8 = offs / 8;
-    let o16 = offs / 16;
-    let o64 = offs / 64;
-    let bsel = o2 - o8 * 4;
-    let parity = offs - o2 * 2;
-    let ssel = o16 - o64 * 4;
+    let o8 = offs >> 3;
+    let o64 = offs >> 6;
+    let bsel = (offs >> 1) & 3;
+    let parity = offs & 1;
+    let ssel = (offs >> 4) & 3;
 
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
@@ -155,24 +155,14 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
         // Byte (k/2) % 4 of that word. The index varies by lane, so all four are
         // computed and selected; the top byte is masked to seven bits and 128 added
         // back when the word is negative.
-        let byte = {
-            let b0 = wword & 0xFF;
-            let b1 = (wword & 0xFF00) / 256;
-            let b2 = (wword & 0x00FF_0000) / 65536;
-            let low7 = (wword & 0x7F00_0000) / 16_777_216;
-            let b3 = T::where_(wword.lt(0), low7 + 128, low7 + 0);
-            T::where_(
-                bsel.eq(0),
-                b0,
-                T::where_(bsel.eq(1), b1, T::where_(bsel.eq(2), b2, b3)),
-            )
-        };
-        let hi = byte / 16;
-        let nib = T::where_(parity.eq(1), hi, byte - hi * 16);
-        let sgn = nib / 8;
-        let rest = nib - sgn * 8;
-        let e = rest / 2;
-        let mant = T::cast::<i32, D>(rest - e * 2, None, false);
+        // An arithmetic shift then a mask: the mask drops the sign extension, so the
+        // top byte needs no special case and the four-way select disappears.
+        let byte = (wword >> (bsel * 8)) & 0xFF;
+        let nib = (byte >> (parity * 4)) & 0xF;
+        let sgn = nib >> 3;
+        let rest = nib & 7;
+        let e = rest >> 1;
+        let mant = T::cast::<i32, D>(rest & 1, None, false);
         // E2M1's exponent is two bits, so `exp2(e - 1)` is one of 1, 2 and 4: a pair of
         // selects rather than a transcendental. RISC-V has no vector exp2, and this ran
         // once per weight.
@@ -194,22 +184,11 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        let sb = {
-            let s0 = sword & 0xFF;
-            let s1 = (sword & 0xFF00) / 256;
-            let s2 = (sword & 0x00FF_0000) / 65536;
-            let slow7 = (sword & 0x7F00_0000) / 16_777_216;
-            let s3 = T::where_(sword.lt(0), slow7 + 128, slow7 + 0);
-            T::where_(
-                ssel.eq(0),
-                s0,
-                T::where_(ssel.eq(1), s1, T::where_(ssel.eq(2), s2, s3)),
-            )
-        };
-        let ssgn = sb / 128;
-        let srest = sb - ssgn * 128;
-        let se = srest / 8;
-        let sm = srest - se * 8;
+        let sb = (sword >> (ssel * 8)) & 0xFF;
+        let ssgn = sb >> 7;
+        let srest = sb & 0x7F;
+        let se = srest >> 3;
+        let sm = srest & 7;
         let smf = T::cast::<i32, D>(sm, None, false);
         // F8_E4M3 to f32 is an exact bit mapping, so build the float and reinterpret it
         // instead of calling exp2 a second time per weight:
