@@ -72,30 +72,36 @@ def dequant_mxfp8(rows_bytes, rows_scale):
 
 NVFP4 = LAYER < 20
 
-def expert_rows(which, expert):
-    """Dequantised [rows, K] for one expert of `w13_weight` or `w2_weight`."""
-    b = raw(P + f"mlp.experts.{which}_weight")[expert]
-    s = raw(P + f"mlp.experts.{which}_weight_scale")[expert]
-    if NVFP4:
-        amax = raw(P + f"mlp.experts.{which}_weight_amax")[expert]
-        den = raw(P + f"mlp.experts.{which}_weight_outer_scale_denominator")[0]
+def expert_rows(prefix, nvfp4, which, expert):
+    """Dequantised [rows, K] for one expert of `w13_weight` or `w2_weight`.
+
+    The prefix is passed in, not read from a global: building every layer up front
+    and then reading a global set by the last `build` call makes every layer use the
+    last layer's experts.
+    """
+    b = raw(prefix + f"mlp.experts.{which}_weight")[expert]
+    s = raw(prefix + f"mlp.experts.{which}_weight_scale")[expert]
+    if nvfp4:
+        amax = raw(prefix + f"mlp.experts.{which}_weight_amax")[expert]
+        den = raw(prefix + f"mlp.experts.{which}_weight_outer_scale_denominator")[0]
         return dequant_nvfp4(b, s, np.float32(amax / den))
     return dequant_mxfp8(b, s)
 
 class LazyExperts(torch.nn.Module):
     """Inkling2LoopExperts, dequantising only the experts a token actually routes to."""
-    def __init__(self, cfg):
+    def __init__(self, cfg, prefix, nvfp4):
         super().__init__()
         self.num_experts = cfg.n_routed_experts
         self.act_fn = M.Inkling2LoopSoftcappedSwiGLU(cfg)
+        self.prefix, self.nvfp4 = prefix, nvfp4
 
     def forward(self, hidden_states, top_k_index, top_k_weights):
         out = torch.zeros_like(hidden_states, dtype=torch.float32)
         for pos in range(top_k_index.shape[0]):
             for slot in range(top_k_index.shape[1]):
                 e = int(top_k_index[pos, slot])
-                w13 = torch.from_numpy(expert_rows("w13", e))   # [2I, H]
-                w2 = torch.from_numpy(expert_rows("w2", e))     # [H, I]
+                w13 = torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w13", e))
+                w2 = torch.from_numpy(expert_rows(self.prefix, self.nvfp4, "w2", e))
                 x = hidden_states[pos:pos + 1].float()
                 gu = torch.nn.functional.linear(x, w13)
                 g, u = gu.chunk(2, dim=-1)
@@ -160,7 +166,7 @@ def build(idx):
         (False, True): M.Inkling2LoopFullLoopDecoderLayer,
     }[(sliding, loop)]
     layer = cls(cfg, idx).eval()
-    layer.mlp.experts = LazyExperts(cfg)
+    layer.mlp.experts = LazyExperts(cfg, f"model.llm.layers.{idx}.", idx < 20)
     sd = state_dict(idx, sliding)
     if loop:
         # controllers.{attn,k,v,mlp} are the query, key, value and MLP gates.
@@ -213,6 +219,8 @@ with torch.no_grad():
 pos = torch.arange(1).unsqueeze(0)
 blocks = x.new_zeros(1, 1, 0, x.shape[-1])
 
+TRACE = []
+
 def run(idx, hidden, blocks, messages=None):
     layer, sliding = layers[idx]
     rel = M.get_relative_distance(hidden, None, is_sliding=sliding)
@@ -221,7 +229,9 @@ def run(idx, hidden, blocks, messages=None):
     with torch.no_grad():
         out = layer(*args, attention_mask=None, relative_distance=rel,
                     conv_mask=None, cache=None, position_ids=pos)
-    return out[0] if isinstance(out, tuple) else out
+    y = out[0] if isinstance(out, tuple) else out
+    TRACE.append((idx, y.detach().reshape(-1).float().numpy().copy()))
+    return y
 
 for i in range(start):
     nx = run(i, x, blocks)
@@ -244,6 +254,18 @@ for p in range(1, cfg.loop_num_passes):
     for j, i in enumerate(range(start, end)):
         with torch.no_grad():
             msgs = message_input(prev_blocks, prev_x, j)
+        if p == 1 and j == 0:
+            # The first messages any layer ever receives, for bisecting the loop.
+            msgs.detach().reshape(-1).float().numpy().astype("<f4").tofile(
+                OUT.replace(".bin", ".msg.bin"))
+            prev_x.detach().reshape(-1).float().numpy().astype("<f4").tofile(
+                OUT.replace(".bin", ".prevx.bin"))
+            prev_blocks.detach().reshape(-1).float().numpy().astype("<f4").tofile(
+                OUT.replace(".bin", ".prevblocks.bin"))
+            mm = msgs.detach().reshape(4, -1).float().numpy()
+            print("  pass1 layer0 messages absmax", [round(float(abs(v).max()), 4) for v in mm])
+            print("    prev_x absmax", float(prev_x.abs().max()),
+                  "prev_blocks", list(prev_blocks.shape))
         nx = run(i, x, blocks, msgs)
         if i % cfg.n_layers_per_attn_res_block == 0:
             blocks = torch.cat([blocks, x.unsqueeze(-2)], dim=-2)
@@ -272,3 +294,9 @@ top = np.argsort(-lg[:cfg.unpadded_vocab_size])[:5]
 print("order", ORDER, "-> argmax", int(top[0]), "logit", float(lg[top[0]]),
       "top5", [(int(i), round(float(lg[i]), 3)) for i in top])
 print("hidden absmax", float(np.abs(x.numpy()).max()))
+# Every layer execution in order, for bisecting against the engine.
+np.stack([v for _, v in TRACE]).astype("<f4").tofile(OUT.replace(".bin", ".trace.bin"))
+print("executions traced:", len(TRACE), "->", OUT.replace(".bin", ".trace.bin"))
+for n, (idx, v) in enumerate(TRACE):
+    if n < 3 or n > len(TRACE) - 3:
+        print(f"  [{n:2d}] layer {idx:2d} absmax {abs(v).max():.4f} first2 {v[:2]}")

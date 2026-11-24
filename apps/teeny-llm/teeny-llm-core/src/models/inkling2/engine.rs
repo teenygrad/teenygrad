@@ -314,6 +314,14 @@ impl<'d> Engine<'d> {
         // carry across tokens; these do not.
         self.state.reset_blocks(Vec::new());
 
+        // INKLING2_TRACE names a file to append each layer execution's output to, in
+        // order, for bisecting against the reference's own trace.
+        let trace_to = std::env::var("INKLING2_TRACE").ok();
+        let mut trace: Vec<f32> = Vec::new();
+        // What a boundary commits is the layer's INPUT, not its output, and the push
+        // happens after the layer has run, by which point `x` is the output.
+        let mut layer_input: Vec<f32> = Vec::new();
+
         let ids = [token as f32];
         let mut x = self.embed.run(device, &[&ids])?.remove(0);
 
@@ -352,9 +360,25 @@ impl<'d> Engine<'d> {
                         vec![0.0f32; want * hid]
                     };
                     messages = self.messages.run(device, &[&states, &x])?;
+                    if let Some(path) = &trace_to {
+                        // The first messages any layer receives, beside the state they
+                        // were retrieved from, for bisecting against the reference.
+                        let dump = |suffix: &str, v: &[f32]| {
+                            let bytes: Vec<u8> = v.iter().flat_map(|f| f.to_le_bytes()).collect();
+                            let _ = std::fs::write(path.replace(".bin", suffix), bytes);
+                        };
+                        if messages.len() >= 4 {
+                            let flat: Vec<f32> =
+                                messages[..4].iter().flatten().copied().collect();
+                            dump(".msg.bin", &flat);
+                        }
+                        dump(".prevx.bin", &x);
+                        dump(".prevblocks.bin", &states);
+                    }
                 }
-                Action::PushBlock(_) => self.state.push_block(&x),
+                Action::PushBlock(_) => self.state.push_block(&layer_input),
                 Action::Run(step) => {
+                    layer_input.clone_from(&x);
                     let slot = step.cache;
                     let n_states = self.state.n_blocks();
                     let block_in = self.state.block_input(1);
@@ -402,11 +426,19 @@ impl<'d> Engine<'d> {
                         let width = if which < 2 { kv } else { hid };
                         self.state.roll_conv(slot, which, data, width);
                     }
+                    if trace_to.is_some() {
+                        trace.extend_from_slice(&x);
+                    }
                     let _ = kw;
                 }
             }
         }
 
+        if let Some(path) = trace_to {
+            let bytes: Vec<u8> = trace.iter().flat_map(|v| v.to_le_bytes()).collect();
+            std::fs::write(&path, bytes)
+                .with_context(|| format!("writing the execution trace to {path}"))?;
+        }
         self.state.len += 1;
         self.past.set(self.state.len);
         self.tokens.push(token);
