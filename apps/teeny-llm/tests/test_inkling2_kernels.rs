@@ -1232,27 +1232,37 @@ fn test_message_mix_gates_reach_both_extremes() {
 /// `out[t, q] = sum_s softmax_s(query[q] . states[t, s] * hidden^-0.5) states[t, s]`.
 #[test]
 fn test_block_attn_matches_a_host_reference() {
-    let (t, st, hid, q) = (3usize, 4usize, 64usize, 3usize); // 3 queries, as attn_queries
+    // Three committed states plus a partial makes the stack of four the reference
+    // builds with cat([block_states, partial]).
+    let (t, st, hid, q) = (3usize, 3usize, 64usize, 3usize);
     let states = values(t * st * hid, 121);
+    let partial = values(t * hid, 125);
     let query = values(q * hid, 122);
     let scale = (hid as f32).powf(-0.5);
     let mut want = vec![0.0f32; t * q * hid];
     for tok in 0..t {
         for qi in 0..q {
-            let logits: Vec<f32> = (0..st)
+            let at = |si: usize, d: usize| {
+                if si < st {
+                    states[(tok * st + si) * hid + d]
+                } else {
+                    partial[tok * hid + d]
+                }
+            };
+            let logits: Vec<f32> = (0..=st)
                 .map(|si| {
                     (0..hid)
-                        .map(|d| query[qi * hid + d] * states[(tok * st + si) * hid + d])
+                        .map(|d| query[qi * hid + d] * at(si, d))
                         .sum::<f32>()
                         * scale
                 })
                 .collect();
             let m = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let den: f32 = logits.iter().map(|l| (l - m).exp()).sum();
-            for si in 0..st {
+            for si in 0..=st {
                 let p = (logits[si] - m).exp() / den;
                 for d in 0..hid {
-                    want[(tok * q + qi) * hid + d] += p * states[(tok * st + si) * hid + d];
+                    want[(tok * q + qi) * hid + d] += p * at(si, d);
                 }
             }
         }
@@ -1261,10 +1271,11 @@ fn test_block_attn_matches_a_host_reference() {
     let got: Vec<Vec<f32>> = (0..q)
         .map(|qi| {
             let gi = OneOp::new(&[t * st, hid]);
+            let pin = gi.input(&[t, hid]);
             gi.run(
                 BlockAttnOp::<f32>::new(st, hid, q, qi),
-                &[],
-                &[&states],
+                &[&pin],
+                &[&states, &partial],
                 &[&query],
             )
         })
@@ -1282,26 +1293,29 @@ fn test_block_attn_matches_a_host_reference() {
     }
 }
 
-/// With one state the softmax is trivial and every query returns that state, which
-/// is what the first block boundary of a sequence looks like.
+/// With no committed states the stack is the partial alone, the softmax is trivial,
+/// and every query returns it. That is the first block boundary of a sequence, and
+/// what layer 0 sees.
 #[test]
 fn test_block_attn_with_one_state_returns_it() {
     let (t, hid, q) = (2usize, 32usize, 3usize);
-    let states = values(t * hid, 123);
+    let states: Vec<f32> = Vec::new();
+    let partial = values(t * hid, 123);
     let query = values(q * hid, 124);
     for qi in 0..q {
-        let g = OneOp::new(&[t, hid]);
+        let g = OneOp::new(&[0, hid]);
+        let pin = g.input(&[t, hid]);
         let got = g.run(
-            BlockAttnOp::<f32>::new(1, hid, q, qi),
-            &[],
-            &[&states],
+            BlockAttnOp::<f32>::new(0, hid, q, qi),
+            &[&pin],
+            &[&states, &partial],
             &[&query],
         );
         for tok in 0..t {
             assert_close(
                 "single state",
                 &got[tok * hid..(tok + 1) * hid],
-                &states[tok * hid..(tok + 1) * hid],
+                &partial[tok * hid..(tok + 1) * hid],
                 1e-5,
             );
         }

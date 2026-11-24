@@ -455,15 +455,22 @@ pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     name: &str,
     states: &SymTensor,
+    partial: &SymTensor,
     n_states: usize,
     queries: usize,
 ) -> Vec<SymTensor> {
     let _a = name_scope("attn_res");
-    let normed = states.record_custom(
-        CustomData::new(UnweightedRmsNormOp::<D>::new(cfg.hidden_size)),
-        &[],
-        None,
-    );
+    // The reference norms the stack once; normalising the committed states and the
+    // partial separately is the same, since the norm is per row.
+    let norm = |x: &SymTensor| {
+        x.record_custom(
+            CustomData::new(UnweightedRmsNormOp::<D>::new(cfg.hidden_size)),
+            &[],
+            None,
+        )
+    };
+    let normed = norm(states);
+    let normed_partial = norm(partial);
     // One op per query. They share the checkpoint's `[queries, hidden]` tensor, so
     // it loads into each of their slots; at 3 x 2304 floats that is ~27 KB, which is
     // cheaper than the alternatives (slicing the output needs a strided view the
@@ -612,7 +619,14 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     };
 
     // Three states out of the block attention, one per projection.
-    let qkv = build_attn_res::<D>(cfg, "attn_queries", inputs.block_states, inputs.n_states, 3);
+    let qkv = build_attn_res::<D>(
+        cfg,
+        "attn_queries",
+        inputs.block_states,
+        inputs.x,
+        inputs.n_states,
+        3,
+    );
     let gated: Vec<SymTensor> = match inputs.messages {
         None => qkv,
         Some(msgs) => ["q", "k", "v"]
@@ -662,8 +676,15 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
         add(inputs.x, &h)
     };
 
-    let m =
-        build_attn_res::<D>(cfg, "mlp_queries", inputs.block_states, inputs.n_states, 1).remove(0);
+    let m = build_attn_res::<D>(
+        cfg,
+        "mlp_queries",
+        inputs.block_states,
+        &residual,
+        inputs.n_states,
+        1,
+    )
+    .remove(0);
     let m = match inputs.messages {
         None => m,
         Some(msgs) => build_controller::<D>(cfg, "mlp", &m, msgs[3]),
