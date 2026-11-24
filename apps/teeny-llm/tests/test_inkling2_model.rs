@@ -818,6 +818,14 @@ fn test_layer_execution_speed() {
     // One warm-up run, not counted: the first touch of 500 MB of weights faults it in.
     model.run(&device, &feeds, &outs).expect("the warm-up run");
 
+    // With INKLING2_BENCH_TRACE the runtime prints each node's own time, which is how
+    // you find which op owns the layer's cost rather than guessing from totals.
+    if std::env::var_os("INKLING2_BENCH_TRACE").is_some() {
+        model.set_trace(true);
+        model.run(&device, &feeds, &outs).expect("the traced run");
+        model.set_trace(false);
+    }
+
     let mut each = Vec::with_capacity(runs);
     for _ in 0..runs {
         let t0 = Instant::now();
