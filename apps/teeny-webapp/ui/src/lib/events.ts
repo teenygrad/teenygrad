@@ -1,3 +1,5 @@
+import type { Timings } from './timings'
+
 /** A model, as `/v1/models` lists it. */
 export interface ModelEntry {
   id: string
@@ -22,6 +24,7 @@ export type ServerEvent = { time: number } & (
       status: number
       duration_ms: number
     }
+  | { type: 'request.stats'; id: string; model: string; timings: Timings }
   | { type: 'lagged'; missed: number }
 )
 
@@ -33,7 +36,10 @@ export interface ModelState {
   owned_by: string
 }
 
-/** An API request the console shows; `status` and `duration_ms` once it is answered. */
+/**
+ * An API request the console shows; `status` and `duration_ms` once it is answered, and
+ * the model and its timings once a generation finishes.
+ */
 export interface RequestState {
   id: string
   method: string
@@ -41,6 +47,8 @@ export interface RequestState {
   started: number
   status: number | null
   duration_ms: number | null
+  model: string | null
+  timings: Timings | null
 }
 
 /** What the console knows about the server, from its events. */
@@ -118,6 +126,8 @@ export function applyEvent(state: ServerState, event: ServerEvent): void {
         started: event.time,
         status: null,
         duration_ms: null,
+        model: null,
+        timings: null,
       })
       state.requests.splice(KEEP_REQUESTS)
       break
@@ -126,6 +136,14 @@ export function applyEvent(state: ServerState, event: ServerEvent): void {
       if (request) {
         request.status = event.status
         request.duration_ms = event.duration_ms
+      }
+      break
+    }
+    case 'request.stats': {
+      const request = state.requests.find((r) => r.id === event.id)
+      if (request) {
+        request.model = event.model
+        request.timings = event.timings
       }
       break
     }

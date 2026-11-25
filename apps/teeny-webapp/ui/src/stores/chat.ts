@@ -9,6 +9,7 @@ import {
   type ToolChoice,
   type Usage,
 } from '@/lib/chat'
+import type { Timings } from '@/lib/timings'
 import { parseTools } from '@/lib/tools'
 
 /**
@@ -32,6 +33,7 @@ export const useChatStore = defineStore('chat', () => {
   const draft = ref<{ content: string; tools: string[] } | null>(null)
   const error = ref<string | null>(null)
   const usage = ref<Usage | null>(null)
+  const timings = ref<Timings | null>(null)
   let abort: AbortController | null = null
 
   const tools = computed(() => parseTools(settings.toolsText))
@@ -90,6 +92,7 @@ export const useChatStore = defineStore('chat', () => {
       messages.value.push(reply.message())
     }
     usage.value = reply.usage ?? usage.value
+    timings.value = reply.timings ?? timings.value
   }
 
   /** Adds `text` as the user's message and asks the model for its reply. */
@@ -124,6 +127,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
     error.value = null
     usage.value = null
+    timings.value = null
   }
 
   return {
@@ -132,6 +136,7 @@ export const useChatStore = defineStore('chat', () => {
     draft,
     error,
     usage,
+    timings,
     toolsError,
     streaming,
     pendingCalls,

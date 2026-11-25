@@ -1,3 +1,4 @@
+import type { Timings } from './timings'
 import type { FunctionTool } from './tools'
 
 /** A tool call the model made: which function, with what arguments (JSON text). */
@@ -67,18 +68,21 @@ export interface ChatChunk {
     finish_reason?: string | null
   }[]
   usage?: Usage | null
+  /** With the usage, from a model that measures itself. */
+  timings?: Timings | null
   error?: { message: string }
 }
 
 /**
  * The first choice of a streamed chat completion, put together from its chunks: the reply's
- * text, the tool calls it makes, why it finished, and the usage.
+ * text, the tool calls it makes, why it finished, the usage and the timings.
  */
 export class ReplyAccumulator {
   content = ''
   toolCalls: ToolCall[] = []
   finishReason: string | null = null
   usage: Usage | null = null
+  timings: Timings | null = null
 
   /** Adds `chunk`; throws the error a chunk carries. */
   apply(chunk: ChatChunk): void {
@@ -87,6 +91,9 @@ export class ReplyAccumulator {
     }
     if (chunk.usage) {
       this.usage = chunk.usage
+    }
+    if (chunk.timings) {
+      this.timings = chunk.timings
     }
     for (const choice of chunk.choices ?? []) {
       if (choice.index !== 0) {

@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { describeTimings, type Timings } from '@/lib/timings'
 import { useServerStore } from '@/stores/server'
 
 const server = useServerStore()
 
 const time = (ms: number): string => new Date(ms).toLocaleTimeString()
+
+/** Prompt and decode throughput, compactly. */
+const speed = (t: Timings): string =>
+  `${t.prompt_per_second.toFixed(0)} / ${t.predicted_per_second.toFixed(1)}`
 
 const inFlight = computed(() => server.state.requests.filter((r) => r.status === null).length)
 
@@ -65,7 +70,7 @@ function fields(event: object): string {
       </table>
     </section>
 
-    <section class="panel">
+    <section class="panel requests">
       <h2>
         Requests <span class="muted">({{ inFlight }} in flight)</span>
       </h2>
@@ -77,6 +82,7 @@ function fields(event: object): string {
             <th>Request</th>
             <th>Status</th>
             <th>Duration</th>
+            <th title="prompt / decode tokens per second">Tokens/s</th>
           </tr>
         </thead>
         <tbody>
@@ -85,6 +91,9 @@ function fields(event: object): string {
             <td class="mono">{{ r.method }} {{ r.path }}</td>
             <td :class="{ error: (r.status ?? 0) >= 400 }">{{ r.status ?? '…' }}</td>
             <td>{{ r.duration_ms === null ? '' : `${r.duration_ms} ms` }}</td>
+            <td :title="r.timings ? `${r.model}: ${describeTimings(r.timings)}` : ''">
+              {{ r.timings ? speed(r.timings) : '' }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -158,7 +167,8 @@ th {
   background: var(--error-bg);
   color: var(--error);
 }
-.log {
+.log,
+.requests {
   grid-column: 1 / -1;
 }
 .log ol {

@@ -49,7 +49,21 @@ describe('applyEvent', () => {
       status: 200,
       duration_ms: 3,
     })
-    expect(state.requests[0]).toMatchObject({ status: 200, duration_ms: 3 })
+    expect(state.requests[0]).toMatchObject({ status: 200, duration_ms: 3, timings: null })
+    const timings = {
+      cache_n: 0,
+      prompt_n: 4,
+      prompt_ms: 2,
+      prompt_per_token_ms: 0.5,
+      prompt_per_second: 2000,
+      predicted_n: 2,
+      predicted_ms: 1,
+      predicted_per_token_ms: 1,
+      predicted_per_second: 1000,
+    }
+    applyEvent(state, { type: 'request.stats', time: 2, id: 'r1', model: 'teeny-echo', timings })
+    applyEvent(state, { type: 'request.stats', time: 2, id: 'gone', model: 'x', timings })
+    expect(state.requests[0]).toMatchObject({ model: 'teeny-echo', timings })
     for (let i = 0; i < KEEP_REQUESTS + 5; i++) {
       applyEvent(state, { type: 'request.started', time: 3, id: `x${i}`, method: 'GET', path: '/' })
     }

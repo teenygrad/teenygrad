@@ -68,7 +68,23 @@ describe('ReplyAccumulator', () => {
         },
       ],
     })
-    reply.apply({ choices: [], usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 } })
+    const timings = {
+      cache_n: 0,
+      prompt_n: 3,
+      prompt_ms: 1,
+      prompt_per_token_ms: 0.3,
+      prompt_per_second: 3000,
+      predicted_n: 4,
+      predicted_ms: 3,
+      predicted_per_token_ms: 1,
+      predicted_per_second: 1000,
+    }
+    reply.apply({
+      choices: [],
+      usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
+      timings,
+    })
+    expect(reply.timings).toEqual(timings)
     expect(reply.finishReason).toBe('tool_calls')
     expect(reply.usage?.total_tokens).toBe(7)
     expect(reply.message()).toEqual({

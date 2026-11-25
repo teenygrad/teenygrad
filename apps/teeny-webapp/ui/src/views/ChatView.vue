@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, reactive, ref, watch, watchEffect } from 'vue'
 
+import { describeTimings } from '@/lib/timings'
 import { useChatStore } from '@/stores/chat'
 import { useServerStore } from '@/stores/server'
 
@@ -172,9 +173,14 @@ function numberOrNull(value: string): number | null {
       </form>
 
       <footer class="status">
-        <span v-if="chat.usage">
-          {{ chat.usage.prompt_tokens }} prompt + {{ chat.usage.completion_tokens }} completion
-          tokens
+        <span>
+          <span v-if="chat.usage">
+            {{ chat.usage.prompt_tokens }} prompt + {{ chat.usage.completion_tokens }} completion
+            tokens
+          </span>
+          <span v-if="chat.timings" class="timings" :title="'Last reply'">
+            · {{ describeTimings(chat.timings) }}
+          </span>
         </span>
         <button type="button" class="link" @click="chat.clear()">Clear conversation</button>
       </footer>
