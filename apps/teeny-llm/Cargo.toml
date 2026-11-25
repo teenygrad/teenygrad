@@ -41,7 +41,6 @@ qemu = ["riscv", "teeny-test?/qemu", "teeny-kernels?/qemu"]
 [dependencies]
 futures = { workspace = true }
 # PNG encoding and decoding for the images API (pure Rust).
-image = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true, features = ["std"] }
 

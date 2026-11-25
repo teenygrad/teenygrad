@@ -9,7 +9,7 @@ HTTP API) serves:
   model declares, `validate` (refusing what a model cannot do, by parameter), the trait models
   implement, and an echo model as its reference implementation: `chat` (`ChatModel`),
   `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`),
-  `moderation` (`ModerationModel`), `images` (`ImageModel`, with PNG encoding and decoding)
+  `moderation` (`ModerationModel`)
 - `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)
 - `models::Model`: the models a build includes, by tag (`functiongemma3:270m`), and
   `Model::load`, which loads one as a `LoadedModel` exposing the APIs it serves

@@ -6,8 +6,9 @@ throughput (see the [roadmap](../appendix/faq-and-roadmap.md)). It is split into
 
 | Crate       | Kind      | Role |
 | ----------- | --------- | ---- |
-| `teeny-llm` | library   | The LLM API traits models implement (chat, completions, embeddings, moderation; images until it moves to its own crate), and the model factory (`Model::load`) |
+| `teeny-llm` | library   | The LLM API traits models implement (chat, completions, embeddings, moderation), and the model factory (`Model::load`) |
 | `teeny-audio` | library | The audio API traits (transcription, speech) and WAV/PCM decoding and encoding |
+| `teeny-image` | library | The image generation API trait (generations, edits, variations) and PNG decoding and encoding |
 | `teeny-api` | lib + bin | OpenAI-compatible HTTP API, one feature per domain (`llm` by default, `audio`, `image`), with the `Engine` its routes drive and the `ModelEngine` serving each domain's models |
 
 The binary serves the models it is built with; a model is a cargo feature, with the backend it

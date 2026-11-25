@@ -26,8 +26,8 @@ default = ["llm"]
 llm = ["dep:teeny-llm"]
 # Transcriptions, translations and speech, served by teeny-audio models.
 audio = ["dep:teeny-audio"]
-# Image generations, edits and variations. (Its models still live in teeny-llm.)
-image = ["llm"]
+# Image generations, edits and variations, served by teeny-image models.
+image = ["dep:teeny-image"]
 functiongemma3 = ["llm", "teeny-llm/functiongemma3"]
 cuda = ["teeny-llm?/cuda"]
 riscv = ["teeny-llm?/riscv"]
@@ -36,6 +36,7 @@ qemu = ["teeny-llm?/qemu"]
 [dependencies]
 teeny-llm = { workspace = true, optional = true }
 teeny-audio = { workspace = true, optional = true }
+teeny-image = { workspace = true, optional = true }
 anyhow = { workspace = true, features = ["std"] }
 axum = { workspace = true, features = ["multipart"] }
 clap = { workspace = true }

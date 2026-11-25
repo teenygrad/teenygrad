@@ -78,6 +78,7 @@ macro_rules! api_error_from {
 api_error_from! {
     "llm" => teeny_llm::Error,
     "audio" => teeny_audio::Error,
+    "image" => teeny_image::Error,
 }
 
 impl From<crate::Error> for ApiError {

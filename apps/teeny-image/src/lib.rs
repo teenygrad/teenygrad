@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-//! Image generation (`/v1/images/generations`, `/edits`, `/variations`), for
-//! diffusion-class models.
+//! `teeny-image`: teenygrad's image generation API (`/v1/images/generations`, `/edits`,
+//! `/variations`), for diffusion-class models.
 //!
 //! A model implements [`ImageModel`]: it declares its [`ImageCapabilities`] and paints
 //! [`Rgba`] pixels ([`ImageStream`]), from the decoded [`ImageInputs`] of an edit or a
@@ -23,18 +23,30 @@
 //! [`encode_stream`]) are shared, so no model repeats them; [`validate`] refuses what the
 //! model cannot do first. [`EchoImageModel`] is the reference implementation.
 //!
-//! PNG is decoded and encoded so far; JPEG and WebP are refused by name.
+//! PNG is decoded and encoded so far; JPEG and WebP are refused by name. Nothing here knows
+//! about HTTP: [`teeny-api`] serves the API with its `image` feature.
+//!
+//! [`teeny-api`]: https://docs.teenygrad.org/api/teenygrad/teeny_api/
 
 mod echo;
+mod error;
 
 pub use echo::EchoImageModel;
+pub use error::{Error, Result};
 
 use std::pin::Pin;
 
 use futures::future::BoxFuture;
 use futures::{Stream, StreamExt};
 
-use crate::{Error, ModelInfo, Result};
+/// What a model is, as a frontend lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelInfo {
+    pub id: String,
+    /// Unix timestamp (seconds) the model was loaded/created.
+    pub created: u64,
+    pub owned_by: String,
+}
 
 /// An image as 8-bit RGBA, row-major.
 #[derive(Clone, PartialEq, Eq)]

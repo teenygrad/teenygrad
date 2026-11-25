@@ -25,7 +25,7 @@ use axum::{
     routing::post,
 };
 use futures::{StreamExt, stream};
-use teeny_llm::images::{self, ImageEvent, ImageRequest, ImageTask};
+use teeny_image::{self as images, ImageEvent, ImageRequest, ImageTask};
 
 use super::{AppState, read_form, sse_error, sse_event, sse_only, unix_now};
 use crate::openai::{

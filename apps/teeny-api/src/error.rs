@@ -118,3 +118,25 @@ impl From<teeny_audio::Error> for Error {
         }
     }
 }
+
+#[cfg(feature = "image")]
+impl From<teeny_image::Error> for Error {
+    fn from(e: teeny_image::Error) -> Self {
+        use teeny_image::Error as E;
+        match e {
+            E::InvalidParameter { parameter, detail } => {
+                Self::InvalidParameter { parameter, detail }
+            }
+            E::UnsupportedParameter {
+                model,
+                parameter,
+                detail,
+            } => Self::UnsupportedParameter {
+                model,
+                parameter,
+                detail,
+            },
+            e @ E::Inference(_) => Self::Model(e.to_string()),
+        }
+    }
+}

@@ -24,7 +24,7 @@ use teeny_api::{Engine, ModelEngine, ServedModel};
 #[cfg(feature = "audio")]
 use teeny_audio::{speech::EchoSpeechModel, transcription::EchoTranscriptionModel};
 #[cfg(feature = "image")]
-use teeny_llm::images::EchoImageModel;
+use teeny_image::EchoImageModel;
 #[cfg(feature = "llm")]
 use teeny_llm::{
     chat::EchoChatModel,
@@ -130,7 +130,7 @@ fn echo_models() -> Vec<ServedModel> {
         ServedModel::from_speech(Arc::new(EchoSpeechModel)),
     ]);
     #[cfg(feature = "image")]
-    echo.push(ServedModel::from_images(Arc::new(EchoImageModel)));
+    echo.extend([ServedModel::from_images(Arc::new(EchoImageModel))]);
     echo
 }
 

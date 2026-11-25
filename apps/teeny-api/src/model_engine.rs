@@ -33,7 +33,7 @@ use teeny_audio::{
     transcription::{self, TranscriptionModel, TranscriptionRequest, TranscriptionStream},
 };
 #[cfg(feature = "image")]
-use teeny_llm::images::{self, EncodedImageStream, ImageModel, ImageRequest};
+use teeny_image::{self as images, EncodedImageStream, ImageModel, ImageRequest};
 #[cfg(feature = "llm")]
 use teeny_llm::{
     chat::{self, ChatModel, ChatRequest, ChatStream},
@@ -48,7 +48,7 @@ use teeny_llm::{
 ///
 /// One model can serve several APIs (chat and completions, say) from one set of weights,
 /// so each API is an optional handle rather than the model being one trait. Built from a
-/// teeny-llm [`LoadedModel`] with `From`, or by hand with [`ServedModel::new`] and the
+/// teeny-llm `LoadedModel` with `From`, or by hand with [`ServedModel::new`] and the
 /// `with_` methods.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -184,7 +184,7 @@ impl ServedModel {
     /// The ids its API handles report, by API, for checking they agree with
     /// [`ServedModel::info`].
     fn handle_ids(&self) -> Vec<(&'static str, String)> {
-        #[allow(unused_mut)]
+        #[allow(unused_mut)] // which domains extend it depends on the features
         let mut ids: Vec<(&'static str, Option<String>)> = Vec::new();
         #[cfg(feature = "llm")]
         ids.extend([
@@ -202,7 +202,7 @@ impl ServedModel {
             ("speech", self.speech.as_ref().map(|h| h.info().id)),
         ]);
         #[cfg(feature = "image")]
-        ids.push(("images", self.images.as_ref().map(|h| h.info().id)));
+        ids.extend([("images", self.images.as_ref().map(|h| h.info().id))]);
         ids.into_iter()
             .filter_map(|(api, id)| id.map(|id| (api, id)))
             .collect()
@@ -210,7 +210,7 @@ impl ServedModel {
 
     /// The APIs it serves, by name, for messages.
     pub fn apis(&self) -> Vec<&'static str> {
-        #[allow(unused_mut)]
+        #[allow(unused_mut)] // which domains extend it depends on the features
         let mut apis: Vec<(&'static str, bool)> = Vec::new();
         #[cfg(feature = "llm")]
         apis.extend([
@@ -224,9 +224,9 @@ impl ServedModel {
             ("speech", self.speech.is_some()),
         ]);
         #[cfg(feature = "llm")]
-        apis.push(("moderations", self.moderation.is_some()));
+        apis.extend([("moderations", self.moderation.is_some())]);
         #[cfg(feature = "image")]
-        apis.push(("images", self.images.is_some()));
+        apis.extend([("images", self.images.is_some())]);
         apis.into_iter()
             .filter_map(|(api, served)| served.then_some(api))
             .collect()
@@ -248,25 +248,18 @@ impl ServedModel {
     }
 }
 
-/// A teeny-llm model, serving the LLM APIs it implements (and, while they live in
-/// teeny-llm, its image one).
+/// A teeny-llm model, serving the LLM APIs it implements.
 #[cfg(feature = "llm")]
 impl From<LoadedModel> for ServedModel {
     fn from(m: LoadedModel) -> Self {
-        #[allow(unused_mut)]
-        let mut served = Self {
+        Self {
             model: m.model,
             chat: m.chat,
             completion: m.completion,
             embedding: m.embedding,
             moderation: m.moderation,
             ..Self::new(m.info.into())
-        };
-        #[cfg(feature = "image")]
-        {
-            served.images = m.images;
         }
-        served
     }
 }
 

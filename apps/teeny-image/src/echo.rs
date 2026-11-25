@@ -18,11 +18,10 @@
 
 use futures::future::BoxFuture;
 
-use super::{
+use crate::{
     Background, ImageCapabilities, ImageEvent, ImageInputs, ImageModel, ImageQuality, ImageRequest,
-    ImageStream, ImageTask, ImageUsage, Rgba,
+    ImageStream, ImageTask, ImageUsage, ModelInfo, Result, Rgba,
 };
-use crate::{ModelInfo, Result};
 
 /// An image model without weights. It paints the prompt as a colour: a generation is
 /// filled with it, an edit paints it into the first image where the mask is transparent

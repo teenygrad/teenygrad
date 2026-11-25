@@ -18,7 +18,7 @@
 //! requests, `ImagesResponse`, and the streamed image events.
 
 use serde::{Deserialize, Serialize};
-use teeny_llm::images::{
+use teeny_image::{
     Background, ImageFormat, ImageQuality, ImageRequest, ImageStyle, ImageTask, ImageUsage,
     InputFidelity,
 };

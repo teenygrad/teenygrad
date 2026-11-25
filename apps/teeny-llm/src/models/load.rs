@@ -25,7 +25,6 @@ use super::Model;
 use crate::chat::ChatModel;
 use crate::completion::CompletionModel;
 use crate::embedding::EmbeddingModel;
-use crate::images::ImageModel;
 use crate::moderation::ModerationModel;
 use crate::tokenizer::Tokenizer;
 use crate::{Error, ModelInfo, Result};
@@ -131,8 +130,6 @@ pub struct LoadedModel {
     pub embedding: Option<Arc<dyn EmbeddingModel>>,
     /// Content classification.
     pub moderation: Option<Arc<dyn ModerationModel>>,
-    /// Image generation.
-    pub images: Option<Arc<dyn ImageModel>>,
 }
 
 impl fmt::Debug for LoadedModel {
@@ -146,7 +143,6 @@ impl fmt::Debug for LoadedModel {
             .field("completion", &self.completion.is_some())
             .field("embedding", &self.embedding.is_some())
             .field("moderation", &self.moderation.is_some())
-            .field("images", &self.images.is_some())
             .finish()
     }
 }
@@ -163,7 +159,6 @@ impl LoadedModel {
             completion: None,
             embedding: None,
             moderation: None,
-            images: None,
         }
     }
 
@@ -185,11 +180,6 @@ impl LoadedModel {
     /// A moderation model, described by its own [`ModerationModel::info`].
     pub fn from_moderation(moderation: Arc<dyn ModerationModel>) -> Self {
         Self::new(moderation.info()).with_moderation(moderation)
-    }
-
-    /// An image model, described by its own [`ImageModel::info`].
-    pub fn from_images(images: Arc<dyn ImageModel>) -> Self {
-        Self::new(images.info()).with_images(images)
     }
 
     /// Records which [`Model`] it is, so short tags resolve to it.
@@ -234,12 +224,6 @@ impl LoadedModel {
         self
     }
 
-    /// Serves images with `images`.
-    pub fn with_images(mut self, images: Arc<dyn ImageModel>) -> Self {
-        self.images = Some(images);
-        self
-    }
-
     /// The APIs it serves, by name, for messages.
     pub fn apis(&self) -> Vec<&'static str> {
         let mut apis = Vec::new();
@@ -254,9 +238,6 @@ impl LoadedModel {
         }
         if self.moderation.is_some() {
             apis.push("moderations");
-        }
-        if self.images.is_some() {
-            apis.push("images");
         }
         apis
     }

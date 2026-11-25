@@ -27,7 +27,7 @@ use teeny_audio::{
     transcription::{TranscriptionRequest, TranscriptionStream},
 };
 #[cfg(feature = "image")]
-use teeny_llm::images::{EncodedImageStream, ImageRequest};
+use teeny_image::{EncodedImageStream, ImageRequest};
 #[cfg(feature = "llm")]
 use teeny_llm::{
     chat::{ChatRequest, ChatStream},
@@ -64,6 +64,7 @@ macro_rules! model_info_from {
 model_info_from! {
     "llm" => teeny_llm::ModelInfo,
     "audio" => teeny_audio::ModelInfo,
+    "image" => teeny_image::ModelInfo,
 }
 
 /// The future an engine method returns when it does not serve that API.

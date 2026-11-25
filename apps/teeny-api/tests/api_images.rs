@@ -24,7 +24,7 @@ use std::sync::Arc;
 use common::{BARE, post, spawn_server as spawn_with};
 use serde_json::{Value, json};
 use teeny_api::ServedModel;
-use teeny_llm::images::{self, EchoImageModel, ImageFormat, Rgba};
+use teeny_image::{self as images, EchoImageModel, ImageFormat, Rgba};
 
 /// A server over the image echo model.
 async fn spawn_server() -> String {

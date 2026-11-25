@@ -28,13 +28,14 @@
 //! |---|---|---|
 //! | `llm` (default) | [`teeny-llm`] | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations` |
 //! | `audio` | [`teeny-audio`] | `/v1/audio/transcriptions`, `/v1/audio/translations`, `/v1/audio/speech` |
-//! | `image` | [`teeny-llm`] (for now) | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` |
+//! | `image` | [`teeny-image`] | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` |
 //!
 //! `/v1/models` and `/health` are always served. The models themselves are features too
 //! (`functiongemma3`), with the backend they run on (`cuda`, `riscv`, `qemu`).
 //!
 //! [`teeny-llm`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm/
 //! [`teeny-audio`]: https://docs.teenygrad.org/api/teenygrad/teeny_audio/
+//! [`teeny-image`]: https://docs.teenygrad.org/api/teenygrad/teeny_image/
 
 mod engine;
 mod error;

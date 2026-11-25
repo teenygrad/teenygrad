@@ -44,6 +44,7 @@ teeny-runtime = { path = "runtime/teeny-runtime", version = "0.3.2" }
 # serves no model unless asked, so they do not pull in the model and backend stack.
 teeny-llm = { path = "apps/teeny-llm", version = "0.3.2", default-features = false }
 teeny-audio = { path = "apps/teeny-audio", version = "0.3.2" }
+teeny-image = { path = "apps/teeny-image", version = "0.3.2" }
 
 anyhow = { version = "1.0.100", default-features = false }
 thiserror = { version = "2.0.18", default-features = false }
