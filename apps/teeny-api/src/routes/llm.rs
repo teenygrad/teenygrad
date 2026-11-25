@@ -26,7 +26,7 @@ use futures::{StreamExt, stream};
 use teeny_llm::chat::{self, ChatEvent};
 use teeny_llm::completion::{self, CompletionEvent};
 
-use super::{AppState, new_id, sse_error, sse_event, sse_response, unix_now};
+use super::{AppState, ServerState, new_id, sse_error, sse_event, sse_response, unix_now};
 use crate::openai::{
     FinishReason, Usage,
     chat::{
@@ -44,7 +44,7 @@ use crate::openai::{
     moderations::{CreateModerationRequest, CreateModerationResponse},
 };
 
-pub(super) fn routes(router: Router<AppState>) -> Router<AppState> {
+pub(super) fn routes(router: Router<ServerState>) -> Router<ServerState> {
     router
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))

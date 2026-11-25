@@ -19,6 +19,7 @@ OpenAI-compatible clients can talk to it.
 | POST   | `/v1/images/generations`      | PNG as `b64_json`; `stream: true` → SSE  |
 | POST   | `/v1/images/edits`            | multipart PNG image(s) and mask          |
 | POST   | `/v1/images/variations`       | multipart PNG image                      |
+| GET    | `/v1/events`                  | websocket of server events (see below)   |
 | GET    | `/health`                     |                                          |
 
 The chat API is served whole: tools and tool calls (streamed as deltas), `tool_choice`,
@@ -44,6 +45,27 @@ which serves `ServedModel`s (each the API handles one domain crate's model imple
 teeny-llm `LoadedModel` converting into one) and routes each request to the model and
 API it names. Each domain crate's errors convert into `teeny_api::Error`, so they map to
 HTTP in one place.
+
+## Events
+
+`/v1/events` is a websocket over which the server pushes what happens in it, for dashboards
+and the webapp. Each event is one JSON text frame, with a `type`, a `time` (Unix
+milliseconds) and its fields:
+
+| `type` | Fields | When |
+| ------ | ------ | ---- |
+| `hello` | `version`, `models` | first, on connecting: the models served so far, as `/v1/models` lists them |
+| `model.loading` | `model`, `detail` | a model is loading; `detail` says what it is doing |
+| `model.added` | `model` | a model has loaded and is served from now on |
+| `model.failed` | `model`, `error` | a model failed to load (the server then stops) |
+| `request.started` | `id`, `method`, `path` | an API request arrived (`id` is also its `x-request-id`) |
+| `request.finished` | `id`, `method`, `path`, `status`, `duration_ms` | it was answered (for a stream, when the stream started) |
+| `heartbeat` | | after 15 s with nothing else to send |
+| `lagged` | `missed` | this subscriber fell behind and missed some events |
+
+The server listens before its models load, so a client sees them load and arrive. Events are
+not stored: a subscriber gets those published while it is connected. What a client sends is
+ignored. `/health` and `/v1/events` aren't reported as requests.
 
 ## Getting started
 

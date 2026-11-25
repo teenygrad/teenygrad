@@ -20,26 +20,38 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use teeny_api::{Engine, ModelEngine, ModelInfo, ServedModel};
+use teeny_api::{Engine, Events, ModelEngine, ModelInfo, ServedModel};
 
 /// A model that serves no API, for requests a model cannot answer.
 pub const BARE: &str = "teeny-bare";
 
-/// A server over `models`, and [`BARE`].
-pub async fn spawn_server(mut models: Vec<ServedModel>) -> String {
-    models.push(ServedModel::new(ModelInfo {
+/// [`BARE`], described.
+pub fn bare() -> ServedModel {
+    ServedModel::new(ModelInfo {
         id: BARE.into(),
         created: 0,
         owned_by: "teenygrad".into(),
-    }));
-    spawn(Arc::new(ModelEngine::new(models).unwrap())).await
+    })
 }
 
-pub async fn spawn(engine: Arc<dyn Engine>) -> String {
+/// A server over `models`, and [`BARE`].
+pub async fn spawn_server(models: Vec<ServedModel>) -> String {
+    spawn_with_events(models).await.0
+}
+
+/// A server over `models` and [`BARE`], with the [`Events`] it publishes to.
+pub async fn spawn_with_events(mut models: Vec<ServedModel>) -> (String, Events) {
+    models.push(bare());
+    let events = Events::new();
+    let base = spawn(Arc::new(ModelEngine::new(models).unwrap()), events.clone()).await;
+    (base, events)
+}
+
+pub async fn spawn(engine: Arc<dyn Engine>, events: Events) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, teeny_api::router(engine))
+        axum::serve(listener, teeny_api::router(engine, events))
             .await
             .unwrap();
     });

@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-//! The axum [`Router`] over an [`Engine`]: `/v1/models` and `/health` always, and each
-//! domain's endpoints with its feature (`llm`, `audio`, `image`).
+//! The axum [`Router`] over an [`Engine`]: `/v1/models`, `/v1/events` and `/health`
+//! always, and each domain's endpoints with its feature (`llm`, `audio`, `image`).
 
 #[cfg(feature = "audio")]
 mod audio;
+mod events;
 #[cfg(feature = "image")]
 mod images;
 #[cfg(feature = "llm")]
@@ -42,7 +43,8 @@ use axum::response::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{FromRef, Path, State},
+    middleware,
     routing::get,
 };
 #[cfg(feature = "llm")]
@@ -51,6 +53,7 @@ use futures::stream;
 use futures::{Stream, StreamExt};
 
 use crate::Engine;
+use crate::events::Events;
 #[cfg(any(feature = "audio", feature = "image"))]
 use crate::openai::form::FormPart;
 use crate::openai::{
@@ -58,21 +61,49 @@ use crate::openai::{
     models::{ListModelsResponse, Model},
 };
 
+/// What most handlers take: the engine.
 type AppState = Arc<dyn Engine>;
 
+/// What the router holds; handlers extract the part they need.
+#[derive(Clone)]
+struct ServerState {
+    engine: AppState,
+    events: Events,
+}
+
+impl FromRef<ServerState> for AppState {
+    fn from_ref(state: &ServerState) -> Self {
+        Arc::clone(&state.engine)
+    }
+}
+
+impl FromRef<ServerState> for Events {
+    fn from_ref(state: &ServerState) -> Self {
+        state.events.clone()
+    }
+}
+
 /// Builds the OpenAI-compatible router (`/v1/...` plus `/health`) over `engine`.
-pub fn router(engine: Arc<dyn Engine>) -> Router {
+/// `/v1/events` streams what is published to `events`, along with each API request the
+/// router answers.
+pub fn router(engine: Arc<dyn Engine>, events: Events) -> Router {
     let router = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/v1/models", get(list_models))
-        .route("/v1/models/{model}", get(retrieve_model));
+        .route("/v1/models/{model}", get(retrieve_model))
+        .route("/v1/events", get(events::events_socket));
     #[cfg(feature = "llm")]
     let router = llm::routes(router);
     #[cfg(feature = "audio")]
     let router = audio::routes(router);
     #[cfg(feature = "image")]
     let router = images::routes(router);
-    router.with_state(engine)
+    router
+        .layer(middleware::from_fn_with_state(
+            events.clone(),
+            events::track,
+        ))
+        .with_state(ServerState { engine, events })
 }
 
 #[cfg(any(feature = "llm", feature = "image"))]
@@ -82,7 +113,6 @@ fn unix_now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-#[cfg(feature = "llm")]
 fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
 }

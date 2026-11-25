@@ -19,6 +19,7 @@
 use std::fmt;
 #[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
 use std::sync::Arc;
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(feature = "llm")]
 use futures::TryStreamExt;
@@ -272,72 +273,101 @@ impl From<LoadedModel> for ServedModel {
 ///
 /// Each API is validated against the model's capabilities for it before the model sees
 /// the request, and the model is handed its canonical id.
-#[derive(Clone, Debug)]
+///
+/// Models can be added while it serves ([`ModelEngine::add`]), so a server can listen
+/// before its models finish loading; requests in flight keep the handles they took.
+#[derive(Debug, Default)]
 pub struct ModelEngine {
-    models: Vec<ServedModel>,
+    models: RwLock<Vec<ServedModel>>,
+}
+
+/// Checks that each of `model`'s API handles reports its id.
+fn check_handles(model: &ServedModel) -> Result<()> {
+    for (api, id) in model.handle_ids() {
+        if id != model.info.id {
+            return Err(Error::InvalidRequest(format!(
+                "served model `{}` has a {api} handle reporting the id `{id}`",
+                model.info.id
+            )));
+        }
+    }
+    Ok(())
 }
 
 impl ModelEngine {
     /// Serves `models`. Their ids must be distinct, and each API handle must report its
     /// model's id.
     pub fn new(models: impl IntoIterator<Item = impl Into<ServedModel>>) -> Result<Self> {
-        let models: Vec<ServedModel> = models.into_iter().map(Into::into).collect();
-        let mut ids: Vec<&str> = models.iter().map(|m| m.info.id.as_str()).collect();
-        ids.sort_unstable();
-        if let Some(w) = ids.windows(2).find(|w| w[0] == w[1]) {
-            return Err(Error::InvalidRequest(format!(
-                "two served models share the id `{}`; each needs its own",
-                w[0]
-            )));
+        let engine = Self::default();
+        for m in models {
+            engine.add(m)?;
         }
-        for m in &models {
-            for (api, id) in m.handle_ids() {
-                if id != m.info.id {
-                    return Err(Error::InvalidRequest(format!(
-                        "served model `{}` has a {api} handle reporting the id `{id}`",
-                        m.info.id
-                    )));
-                }
-            }
-        }
-        Ok(Self { models })
+        Ok(engine)
     }
 
-    /// The models served.
-    pub fn served(&self) -> &[ServedModel] {
-        &self.models
+    /// Starts serving `model`, as [`ModelEngine::new`] would: its id must be new, and each
+    /// API handle must report it.
+    pub fn add(&self, model: impl Into<ServedModel>) -> Result<()> {
+        let model = model.into();
+        check_handles(&model)?;
+        let mut models = self.write();
+        if models.iter().any(|m| m.info.id == model.info.id) {
+            return Err(Error::InvalidRequest(format!(
+                "two served models share the id `{}`; each needs its own",
+                model.info.id
+            )));
+        }
+        models.push(model);
+        Ok(())
+    }
+
+    /// The models served, as they are now.
+    pub fn served(&self) -> Vec<ServedModel> {
+        self.read().clone()
+    }
+
+    fn read(&self) -> RwLockReadGuard<'_, Vec<ServedModel>> {
+        // A panic while holding the lock cannot leave the list half-changed (pushes are
+        // atomic), so a poisoned lock is still sound to use.
+        self.models.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn write(&self) -> RwLockWriteGuard<'_, Vec<ServedModel>> {
+        self.models.write().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The model `requested` names: by id, else by a tag of a factory model. Otherwise
     /// the error lists those served.
-    pub fn find(&self, requested: &str) -> Result<&ServedModel> {
-        if let Some(m) = self.models.iter().find(|m| m.info.id == requested) {
-            return Ok(m);
+    pub fn find(&self, requested: &str) -> Result<ServedModel> {
+        let models = self.read();
+        if let Some(m) = models.iter().find(|m| m.info.id == requested) {
+            return Ok(m.clone());
         }
         #[cfg(feature = "llm")]
         if let Some(m) = requested
             .parse::<Model>()
             .ok()
-            .and_then(|tag| self.models.iter().find(|m| m.model == Some(tag)))
+            .and_then(|tag| models.iter().find(|m| m.model == Some(tag)))
         {
-            return Ok(m);
+            return Ok(m.clone());
         }
         Err(Error::ModelNotFound {
             requested: requested.to_owned(),
-            available: self.models.iter().map(|m| m.info.id.clone()).collect(),
+            available: models.iter().map(|m| m.info.id.clone()).collect(),
         })
     }
 
     /// The model `requested` names and its handle for an API, picked by `handle`.
     #[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
-    fn handle<'a, H: ?Sized>(
-        &'a self,
+    fn handle<H: ?Sized>(
+        &self,
         requested: &str,
         api: &'static str,
-        handle: impl Fn(&'a ServedModel) -> Option<&'a Arc<H>>,
-    ) -> Result<(&'a ServedModel, &'a Arc<H>)> {
+        handle: impl Fn(&ServedModel) -> Option<&Arc<H>>,
+    ) -> Result<(ServedModel, Arc<H>)> {
         let m = self.find(requested)?;
-        handle(m).map(|h| (m, h)).ok_or_else(|| m.lacks(api))
+        let h = handle(&m).cloned().ok_or_else(|| m.lacks(api))?;
+        Ok((m, h))
     }
 
     /// The moderation handle of the model `requested` names, or, with none named, of the
@@ -346,12 +376,12 @@ impl ModelEngine {
     fn moderation_model(
         &self,
         requested: Option<&str>,
-    ) -> Result<(&ServedModel, &Arc<dyn ModerationModel>)> {
+    ) -> Result<(ServedModel, Arc<dyn ModerationModel>)> {
         let Some(requested) = requested else {
             return self
-                .models
+                .read()
                 .iter()
-                .find_map(|m| m.moderation.as_ref().map(|h| (m, h)))
+                .find_map(|m| m.moderation.clone().map(|h| (m.clone(), h)))
                 .ok_or_else(|| Error::InvalidParameter {
                     parameter: "model".into(),
                     detail: "no served model classifies content, so one cannot be chosen".into(),
@@ -367,7 +397,7 @@ impl Engine for ModelEngine {
     }
 
     fn models(&self) -> Vec<ModelInfo> {
-        self.models.iter().map(|m| m.info.clone()).collect()
+        self.read().iter().map(|m| m.info.clone()).collect()
     }
 
     fn model(&self, id: &str) -> Result<ModelInfo> {
@@ -380,7 +410,6 @@ impl Engine for ModelEngine {
             self.handle(&request.model, "chat completions", |m| m.chat.as_ref())?;
         // The model sees its canonical id, whatever tag the request used.
         request.model.clone_from(&served.info.id);
-        let model = Arc::clone(model);
         chat::validate(&served.info.id, &model.capabilities(), &request)?;
         let started = async move { model.chat(request).await };
         Ok(Box::pin(futures::stream::once(started).try_flatten()))

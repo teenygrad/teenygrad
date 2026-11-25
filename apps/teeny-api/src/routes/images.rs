@@ -27,7 +27,7 @@ use axum::{
 use futures::{StreamExt, stream};
 use teeny_image::{self as images, ImageEvent, ImageRequest, ImageTask};
 
-use super::{AppState, read_form, sse_error, sse_event, sse_only, unix_now};
+use super::{AppState, ServerState, read_form, sse_error, sse_event, sse_only, unix_now};
 use crate::openai::{
     error::ApiError,
     images::{ImageParams, ImageStreamEvent, ImagesResponse, parse_form as parse_image_form},
@@ -37,7 +37,7 @@ use crate::openai::{
 /// for a few files.
 const MAX_IMAGE_BYTES: usize = 128 * 1024 * 1024;
 
-pub(super) fn routes(router: Router<AppState>) -> Router<AppState> {
+pub(super) fn routes(router: Router<ServerState>) -> Router<ServerState> {
     router
         .route("/v1/images/generations", post(image_generations))
         .route(

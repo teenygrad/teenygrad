@@ -39,11 +39,13 @@
 
 mod engine;
 mod error;
+pub mod events;
 mod model_engine;
 pub mod openai;
 mod routes;
 
 pub use engine::{Engine, ModelInfo};
 pub use error::{Error, Result};
+pub use events::{Events, ServerEvent};
 pub use model_engine::{ModelEngine, ServedModel};
 pub use routes::router;

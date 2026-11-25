@@ -38,7 +38,7 @@ teeny-llm = { workspace = true, optional = true }
 teeny-audio = { workspace = true, optional = true }
 teeny-image = { workspace = true, optional = true }
 anyhow = { workspace = true, features = ["std"] }
-axum = { workspace = true, features = ["multipart"] }
+axum = { workspace = true, features = ["multipart", "ws"] }
 clap = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
@@ -51,6 +51,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }
+tokio-tungstenite = "0.29"
 
 [[test]]
 name = "api_llm"

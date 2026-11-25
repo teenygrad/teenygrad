@@ -29,7 +29,7 @@ use futures::StreamExt;
 use teeny_audio::speech::{self, SpeechChunk};
 use teeny_audio::transcription::{self, TranscriptionEvent, TranscriptionTask};
 
-use super::{AppState, read_form, sse_error, sse_event, sse_only};
+use super::{AppState, ServerState, read_form, sse_error, sse_event, sse_only};
 use crate::openai::{
     audio::{Rendered, TextDeltaEvent, TextDoneEvent, parse_form, render},
     error::ApiError,
@@ -40,7 +40,7 @@ use crate::openai::{
 /// form's other fields.
 const MAX_AUDIO_BYTES: usize = 26 * 1024 * 1024;
 
-pub(super) fn routes(router: Router<AppState>) -> Router<AppState> {
+pub(super) fn routes(router: Router<ServerState>) -> Router<ServerState> {
     router
         .route("/v1/audio/speech", post(speech_audio))
         .route(

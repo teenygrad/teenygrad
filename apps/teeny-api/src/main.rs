@@ -20,7 +20,9 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context;
 use clap::Parser;
-use teeny_api::{Engine, ModelEngine, ServedModel};
+#[cfg(feature = "llm")]
+use teeny_api::ServerEvent;
+use teeny_api::{Engine, Events, ModelEngine, ServedModel};
 #[cfg(feature = "audio")]
 use teeny_audio::{speech::EchoSpeechModel, transcription::EchoTranscriptionModel};
 #[cfg(feature = "image")]
@@ -82,17 +84,20 @@ fn model_parser() -> impl clap::builder::TypedValueParser<Value = Model> {
     PossibleValuesParser::new(Model::tags()).try_map(|tag| tag.parse::<Model>())
 }
 
-/// Loads the models `args` names, each on a blocking thread (loading compiles kernels).
+/// Loads the models `args` names, one after another on a blocking thread (loading
+/// compiles kernels), adding each to `engine` once it is ready and telling `events`
+/// how it goes. The server is already listening.
 #[cfg(feature = "llm")]
-async fn load_models(args: &Args) -> anyhow::Result<Vec<ServedModel>> {
-    anyhow::ensure!(
-        args.model_dir.is_none() || args.models.len() == 1,
-        "--model-dir names one model's weights; give exactly one --model with it"
-    );
-    let mut loaded = Vec::new();
+async fn load_models(args: &Args, engine: &ModelEngine, events: &Events) -> anyhow::Result<()> {
     for &model in &args.models {
-        let mut options =
-            LoadOptions::default().with_progress(move |what| tracing::info!(%model, "{what}"));
+        let progress = events.clone();
+        let mut options = LoadOptions::default().with_progress(move |what| {
+            tracing::info!(%model, "{what}");
+            progress.publish(ServerEvent::ModelLoading {
+                model: model.tag().to_owned(),
+                detail: what.to_owned(),
+            });
+        });
         if let Some(dir) = &args.model_dir {
             options = options.with_model_dir(dir.clone());
         }
@@ -100,14 +105,31 @@ async fn load_models(args: &Args) -> anyhow::Result<Vec<ServedModel>> {
             options = options.with_context_length(n);
         }
         tracing::info!(%model, "loading");
-        let m = tokio::task::spawn_blocking(move || model.load(&options))
+        events.publish(ServerEvent::ModelLoading {
+            model: model.tag().to_owned(),
+            detail: "loading".to_owned(),
+        });
+        let loaded = tokio::task::spawn_blocking(move || model.load(&options))
             .await
-            .context("the loading thread panicked")?
-            .with_context(|| format!("loading {model}"))?;
+            .context("the loading thread panicked")
+            .and_then(|r| r.with_context(|| format!("loading {model}")));
+        let m = match loaded {
+            Ok(m) => m,
+            Err(e) => {
+                events.publish(ServerEvent::ModelFailed {
+                    model: model.tag().to_owned(),
+                    error: format!("{e:#}"),
+                });
+                return Err(e);
+            }
+        };
         tracing::info!(%model, parameters = ?m.parameters, "loaded");
-        loaded.push(m.into());
+        let served = ServedModel::from(m);
+        let info = served.info.clone();
+        engine.add(served)?;
+        events.publish(ServerEvent::ModelAdded { model: info.into() });
     }
-    Ok(loaded)
+    Ok(())
 }
 
 /// The echo models of every API this build includes.
@@ -134,19 +156,20 @@ fn echo_models() -> Vec<ServedModel> {
     echo
 }
 
-/// The models to serve: those `args` names, and the echo models with `--echo`.
-async fn served_models(args: &Args) -> anyhow::Result<Vec<ServedModel>> {
+/// Checks `args` names something to serve.
+fn check_args(args: &Args) -> anyhow::Result<()> {
     #[cfg(feature = "llm")]
-    let mut served = load_models(args).await?;
-    #[cfg(not(feature = "llm"))]
-    let mut served = Vec::new();
-    if args.echo {
-        served.extend(echo_models());
+    {
+        anyhow::ensure!(
+            args.model_dir.is_none() || args.models.len() == 1,
+            "--model-dir names one model's weights; give exactly one --model with it"
+        );
+        if !args.models.is_empty() {
+            return Ok(());
+        }
     }
-    if served.is_empty() {
-        anyhow::bail!("nothing to serve: {}", nothing_to_serve());
-    }
-    Ok(served)
+    anyhow::ensure!(args.echo, "nothing to serve: {}", nothing_to_serve());
+    Ok(())
 }
 
 /// What to pass to serve something.
@@ -177,19 +200,37 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let addr = SocketAddr::new(args.host, args.port);
 
-    let engine: Arc<dyn Engine> = Arc::new(ModelEngine::new(served_models(&args).await?)?);
-    let models: Vec<String> = engine.models().into_iter().map(|m| m.id).collect();
+    check_args(&args)?;
+    let engine = Arc::new(ModelEngine::new(if args.echo {
+        echo_models()
+    } else {
+        Vec::new()
+    })?);
+    let events = Events::new();
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("failed to bind {addr}; is another server using the port?"))?;
+    let models: Vec<String> = engine.models().into_iter().map(|m| m.id).collect();
     tracing::info!(%addr, ?models, "teeny-api listening");
 
-    axum::serve(listener, teeny_api::router(engine))
+    let api: Arc<dyn Engine> = engine.clone();
+    let serve = axum::serve(listener, teeny_api::router(api, events.clone()))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("shutting down");
-        })
-        .await
-        .context("server error")
+        });
+    // The models load while the server listens, so `/v1/events` shows their progress;
+    // one failing to load stops the server, as it would have before listening.
+    #[cfg(feature = "llm")]
+    let loading = async {
+        load_models(&args, &engine, &events).await?;
+        std::future::pending::<anyhow::Result<()>>().await
+    };
+    #[cfg(not(feature = "llm"))]
+    let loading = std::future::pending::<anyhow::Result<()>>();
+    tokio::select! {
+        served = serve => served.context("server error"),
+        failed = loading => failed,
+    }
 }
