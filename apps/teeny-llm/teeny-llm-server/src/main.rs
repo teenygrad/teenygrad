@@ -24,6 +24,7 @@ use teeny_llm_core::chat::EchoChatModel;
 use teeny_llm_core::completion::EchoCompletionModel;
 use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::{LoadOptions, LoadedModel, Model};
+use teeny_llm_core::moderation::EchoModerationModel;
 use teeny_llm_core::speech::EchoSpeechModel;
 use teeny_llm_core::transcription::EchoTranscriptionModel;
 use teeny_llm_core::{Engine, ModelEngine};
@@ -59,7 +60,8 @@ struct Args {
     /// chat, which echoes the last user message, `teeny-echo-complete` for text
     /// completions, which repeats the prompt, `teeny-echo-embed` for embeddings, and
     /// `teeny-echo-transcribe` for transcriptions, which describes the recording, and
-    /// `teeny-echo-speak` for speech, which beeps once a word.
+    /// `teeny-echo-speak` for speech, which beeps once a word, and `teeny-echo-moderate`
+    /// for moderations, which flags the categories a text names as `flag:<category>`.
     #[arg(long)]
     echo: bool,
 }
@@ -114,6 +116,7 @@ async fn load_models(args: &Args) -> anyhow::Result<Vec<LoadedModel>> {
             EchoTranscriptionModel,
         )));
         loaded.push(LoadedModel::from_speech(Arc::new(EchoSpeechModel)));
+        loaded.push(LoadedModel::from_moderation(Arc::new(EchoModerationModel)));
     }
     Ok(loaded)
 }

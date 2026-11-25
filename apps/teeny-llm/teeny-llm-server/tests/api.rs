@@ -15,7 +15,7 @@
  */
 
 //! End-to-end tests of the OpenAI-compatible API, against the reference echo models (chat,
-//! completions, embeddings, transcriptions, speech) served by `ModelEngine`.
+//! completions, embeddings, transcriptions, speech, moderations) served by `ModelEngine`.
 
 use std::sync::Arc;
 
@@ -25,6 +25,7 @@ use teeny_llm_core::chat::EchoChatModel;
 use teeny_llm_core::completion::EchoCompletionModel;
 use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::LoadedModel;
+use teeny_llm_core::moderation::EchoModerationModel;
 use teeny_llm_core::speech::EchoSpeechModel;
 use teeny_llm_core::transcription::EchoTranscriptionModel;
 use teeny_llm_core::{Engine, ModelEngine};
@@ -43,6 +44,7 @@ async fn spawn_server() -> String {
         LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)),
         LoadedModel::from_transcription(Arc::new(EchoTranscriptionModel)),
         LoadedModel::from_speech(Arc::new(EchoSpeechModel)),
+        LoadedModel::from_moderation(Arc::new(EchoModerationModel)),
     ];
     spawn(Arc::new(ModelEngine::new(models).unwrap())).await
 }
@@ -681,4 +683,51 @@ async fn test_speech_errors_name_the_parameter() {
         let err: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(err["error"]["param"], param, "{text}");
     }
+}
+
+#[tokio::test]
+async fn test_moderates_each_input() {
+    let base = spawn_server().await;
+    // No model named: the engine picks the one that classifies.
+    let (status, body) = post(
+        &base,
+        "/v1/moderations",
+        json!({"input": ["a fine day", "flag:harassment flag:hate"]}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert!(v["id"].as_str().unwrap().starts_with("modr-"));
+    assert_eq!(v["model"], EchoModerationModel::MODEL_ID);
+    assert_eq!(v["results"][0]["flagged"], false);
+    let r = &v["results"][1];
+    assert_eq!(
+        (r["flagged"].as_bool(), r["categories"]["hate"].as_bool()),
+        (Some(true), Some(true))
+    );
+    assert_eq!(r["categories"]["violence"], false);
+    assert_eq!(r["category_scores"]["harassment"], 1.0);
+
+    let (status, body) = post(
+        &base,
+        "/v1/moderations",
+        json!({"model": EchoModerationModel::MODEL_ID, "input": [{"type": "image_url", "image_url": {"url": "data:,"}}]}),
+    )
+    .await;
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["param"],
+        "input"
+    );
+    let (status, body) = post(
+        &base,
+        "/v1/moderations",
+        json!({"model": ECHO, "input": "hi"}),
+    )
+    .await;
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
+        "model_not_supported"
+    );
 }

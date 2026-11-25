@@ -10,7 +10,8 @@ HTTP API) and [`teeny-llm-chat`](https://docs.teenygrad.org/api/teenygrad/teeny_
   model declares, `validate` (refusing what a model cannot do, by parameter), the trait models
   implement, and an echo model as its reference implementation: `chat` (`ChatModel`),
   `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`), `transcription`
-  (`TranscriptionModel`), `speech` (`SpeechModel`)
+  (`TranscriptionModel`), `speech` (`SpeechModel`),
+  `moderation` (`ModerationModel`)
 - `audio`: decoding uploads into PCM (WAV so far) and encoding PCM (WAV, raw), mixed and
   resampled for the model, so no speech model repeats it
 - `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)

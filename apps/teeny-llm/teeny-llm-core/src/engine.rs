@@ -19,6 +19,7 @@ use futures::future::BoxFuture;
 use crate::chat::{ChatRequest, ChatStream};
 use crate::completion::{CompletionRequest, CompletionStream};
 use crate::embedding::{EmbeddingRequest, Embeddings};
+use crate::moderation::{Moderation, ModerationRequest};
 use crate::speech::{AudioStream, SpeechRequest};
 use crate::transcription::{TranscriptionRequest, TranscriptionStream};
 use crate::{Error, ModelInfo, Result};
@@ -114,6 +115,20 @@ pub trait Engine: Send + Sync + 'static {
             Err(Error::Unsupported {
                 engine: name,
                 operation: "speech",
+            })
+        })
+    }
+
+    /// Classifies `request.inputs`. Engines that serve
+    /// [`ModerationModel`](crate::moderation::ModerationModel)s implement it; the rest keep
+    /// the default.
+    fn moderate(&self, request: ModerationRequest) -> BoxFuture<'_, Result<Moderation>> {
+        let _ = request;
+        let name = self.name();
+        Box::pin(async move {
+            Err(Error::Unsupported {
+                engine: name,
+                operation: "moderations",
             })
         })
     }

@@ -57,6 +57,7 @@ use crate::openai::{
     },
     error::ApiError,
     models::{ListModelsResponse, Model},
+    moderations::{CreateModerationRequest, CreateModerationResponse},
     speech::{AudioDeltaEvent, AudioDoneEvent, CreateSpeechRequest, StreamFormat},
 };
 
@@ -75,6 +76,7 @@ pub fn router(engine: Arc<dyn Engine>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
         .route("/v1/embeddings", post(embeddings))
+        .route("/v1/moderations", post(moderations))
         .route("/v1/audio/speech", post(speech_audio))
         .route(
             "/v1/audio/transcriptions",
@@ -416,4 +418,18 @@ async fn speech_audio(
     }
     let (bytes, _) = speech::collect(audio).await?;
     Ok(([(header::CONTENT_TYPE, mime)], bytes).into_response())
+}
+
+// ---- moderations -----------------------------------------------------------------------------
+
+async fn moderations(
+    State(engine): State<AppState>,
+    body: Result<Json<CreateModerationRequest>, JsonRejection>,
+) -> Result<Json<CreateModerationResponse>, ApiError> {
+    let Json(req) = body?;
+    let out = engine.moderate(req.into_core()).await?;
+    Ok(Json(CreateModerationResponse::from_core(
+        new_id("modr"),
+        &out,
+    )))
 }

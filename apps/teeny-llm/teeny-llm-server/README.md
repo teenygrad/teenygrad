@@ -15,6 +15,7 @@ OpenAI-compatible clients can talk to it.
 | POST   | `/v1/audio/transcriptions`    | multipart, WAV; every `response_format` |
 | POST   | `/v1/audio/translations`      | as transcriptions, into English          |
 | POST   | `/v1/audio/speech`            | wav or pcm; `stream_format: "sse"`       |
+| POST   | `/v1/moderations`             | `model` optional: the first classifier   |
 | GET    | `/health`                     |                                          |
 
 The chat API is served whole: tools and tool calls (streamed as deltas), `tool_choice`,
@@ -41,9 +42,9 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 cache, or `--model-dir` for a single model, and `--context` sets the KV-cache size. `--echo`
 serves the echo models (`teeny-echo` for chat, `teeny-echo-complete` for completions,
 `teeny-echo-embed` for embeddings, `teeny-echo-transcribe` for transcriptions,
-`teeny-echo-speak` for speech), for trying the API without weights. Each endpoint is answered by
-the models that implement its API; a request to a model without it gets a `400` saying what the
-model does serve.
+`teeny-echo-speak` for speech, `teeny-echo-moderate` for moderations), for trying the API
+without weights. Each endpoint is answered by the models that implement its API; a request to a
+model without it gets a `400` saying what the model does serve.
 
 The Vue scaffolds in `webapps/` (chat UI, admin console) aren't wired up yet.
 

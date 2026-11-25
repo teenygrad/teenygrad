@@ -25,6 +25,7 @@ use super::Model;
 use crate::chat::ChatModel;
 use crate::completion::CompletionModel;
 use crate::embedding::EmbeddingModel;
+use crate::moderation::ModerationModel;
 use crate::speech::SpeechModel;
 use crate::tokenizer::Tokenizer;
 use crate::transcription::TranscriptionModel;
@@ -134,6 +135,8 @@ pub struct LoadedModel {
     pub transcription: Option<Arc<dyn TranscriptionModel>>,
     /// Text to speech.
     pub speech: Option<Arc<dyn SpeechModel>>,
+    /// Content classification.
+    pub moderation: Option<Arc<dyn ModerationModel>>,
 }
 
 impl fmt::Debug for LoadedModel {
@@ -148,6 +151,7 @@ impl fmt::Debug for LoadedModel {
             .field("embedding", &self.embedding.is_some())
             .field("transcription", &self.transcription.is_some())
             .field("speech", &self.speech.is_some())
+            .field("moderation", &self.moderation.is_some())
             .finish()
     }
 }
@@ -165,6 +169,7 @@ impl LoadedModel {
             embedding: None,
             transcription: None,
             speech: None,
+            moderation: None,
         }
     }
 
@@ -191,6 +196,11 @@ impl LoadedModel {
     /// A speech model, described by its own [`SpeechModel::info`].
     pub fn from_speech(speech: Arc<dyn SpeechModel>) -> Self {
         Self::new(speech.info()).with_speech(speech)
+    }
+
+    /// A moderation model, described by its own [`ModerationModel::info`].
+    pub fn from_moderation(moderation: Arc<dyn ModerationModel>) -> Self {
+        Self::new(moderation.info()).with_moderation(moderation)
     }
 
     /// Records which [`Model`] it is, so short tags resolve to it.
@@ -241,6 +251,12 @@ impl LoadedModel {
         self
     }
 
+    /// Serves moderations with `moderation`.
+    pub fn with_moderation(mut self, moderation: Arc<dyn ModerationModel>) -> Self {
+        self.moderation = Some(moderation);
+        self
+    }
+
     /// The APIs it serves, by name, for messages.
     pub fn apis(&self) -> Vec<&'static str> {
         let mut apis = Vec::new();
@@ -258,6 +274,9 @@ impl LoadedModel {
         }
         if self.speech.is_some() {
             apis.push("speech");
+        }
+        if self.moderation.is_some() {
+            apis.push("moderations");
         }
         apis
     }

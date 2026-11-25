@@ -27,6 +27,7 @@ pub mod completions;
 pub mod embeddings;
 pub mod error;
 pub mod models;
+pub mod moderations;
 pub mod speech;
 
 use serde::{Deserialize, Serialize};

@@ -18,10 +18,11 @@
 //!
 //! Frontends ([`teeny-llm-server`], [`teeny-llm-chat`]) translate their own wire formats into
 //! the requests of each API ([`chat`], [`completion`], [`embedding`], [`transcription`],
-//! [`speech`]) and drive an
+//! [`speech`], [`moderation`]) and drive an
 //! [`Engine`]. Models implement the API traits ([`chat::ChatModel`],
 //! [`completion::CompletionModel`], [`embedding::EmbeddingModel`],
-//! [`transcription::TranscriptionModel`], [`speech::SpeechModel`]);
+//! [`transcription::TranscriptionModel`], [`speech::SpeechModel`],
+//! [`moderation::ModerationModel`]);
 //! [`models::Model::load`] loads one as a [`models::LoadedModel`], and [`ModelEngine`]
 //! serves loaded models as an [`Engine`]. Each API has an echo model, its reference
 //! implementation and a fixture for frontends. Nothing in this crate knows about
@@ -51,6 +52,7 @@ mod types;
 #[cfg(feature = "kernels")]
 pub mod kernels;
 pub mod models;
+pub mod moderation;
 
 pub use embedding::Embeddings;
 pub use engine::Engine;

@@ -25,6 +25,7 @@ use crate::chat::{ChatModel, ChatRequest, ChatStream, validate};
 use crate::completion::{self, CompletionModel, CompletionRequest, CompletionStream};
 use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
 use crate::models::{LoadedModel, Model};
+use crate::moderation::{self, Moderation, ModerationModel, ModerationRequest};
 use crate::speech::{self, AudioStream, SpeechModel, SpeechRequest};
 use crate::transcription::{self, TranscriptionModel, TranscriptionRequest, TranscriptionStream};
 use crate::{Engine, Error, ModelInfo, Result};
@@ -65,6 +66,7 @@ impl ModelEngine {
                     m.transcription.as_ref().map(|t| t.info().id),
                 ),
                 ("speech", m.speech.as_ref().map(|s| s.info().id)),
+                ("moderation", m.moderation.as_ref().map(|s| s.info().id)),
             ];
             for (api, id) in handles {
                 if let Some(id) = id.filter(|id| *id != m.info.id) {
@@ -149,6 +151,29 @@ impl ModelEngine {
         match &m.speech {
             Some(s) => Ok((m, s)),
             None => Err(lacks(m, "speech")),
+        }
+    }
+
+    /// The moderation handle of the model `requested` names, or, with none named, of the
+    /// first model that classifies.
+    fn moderation_model(
+        &self,
+        requested: Option<&str>,
+    ) -> Result<(&LoadedModel, &Arc<dyn ModerationModel>)> {
+        let Some(requested) = requested else {
+            return self
+                .models
+                .iter()
+                .find_map(|m| m.moderation.as_ref().map(|h| (m, h)))
+                .ok_or_else(|| Error::InvalidParameter {
+                    parameter: "model".into(),
+                    detail: "no served model classifies content, so one cannot be chosen".into(),
+                });
+        };
+        let m = self.find(requested)?;
+        match &m.moderation {
+            Some(h) => Ok((m, h)),
+            None => Err(lacks(m, "moderations")),
         }
     }
 }
@@ -247,6 +272,17 @@ impl Engine for ModelEngine {
                 caps.sample_rate,
                 streamed,
             ))
+        })
+    }
+
+    fn moderate(&self, mut request: ModerationRequest) -> BoxFuture<'_, Result<Moderation>> {
+        Box::pin(async move {
+            let (loaded, model) = self.moderation_model(request.model.as_deref())?;
+            request.model = Some(loaded.info.id.clone());
+            moderation::validate(&loaded.info.id, &model.capabilities(), &request)?;
+            let mut out = model.moderate(request).await?;
+            out.model.clone_from(&loaded.info.id);
+            Ok(out)
         })
     }
 }
