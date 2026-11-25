@@ -101,19 +101,21 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
     // The subnormal E4M3 step: mant * 2^-9, which is (mant / 8) * 2^-6.
     let sub9 = T::full(&[BLOCK], D::from_f64(0.001_953_125));
 
-    // Lane-invariant index arithmetic, hoisted out of the reduction. `k` is
-    // `offs + i * BLOCK` and BLOCK is a multiple of 128, so every one of these
-    // divisions distributes over the sum exactly and the byte and scale selectors do
-    // not depend on `i` at all.
-    let o4 = offs >> 2;
-    let o128 = offs >> 7;
-    let bsel = offs & 3;
-    let ssel = (offs >> 5) & 3;
+    // The byte and scale indices are derived from `k` inside the loop rather than
+    // hoisted out of it. Hoisting needs each shift to distribute over `offs + i * BLOCK`,
+    // which holds only while BLOCK is a multiple of 128 -- the scales are one E8M0 per 32
+    // weights packed four to an element -- and that floor on BLOCK is what forced a
+    // 256-lane tensor and spilled the register file. Three vector ops a chunk buy the
+    // freedom to pick BLOCK for the register file instead.
 
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
         let k = offs + i * BLOCK;
         let km = k.lt(K);
+        let bword = k >> 2;
+        let bsel = k & 3;
+        let s_word_idx = k >> 7;
+        let ssel = (k >> 5) & 3;
         let x = T::load(
             x_ptr.add_offsets(k + token * K),
             Some(km),
@@ -130,7 +132,7 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
 
         let wword = T::cast::<D, i32>(
             T::load(
-                b_ptr.add_offsets(o4 + i * (BLOCK / 4) + brow),
+                b_ptr.add_offsets(bword + brow),
                 Some(km),
                 Some(zeros),
                 &[],
@@ -164,7 +166,7 @@ pub fn expert_gather_mxfp8_forward<T: Triton, D: Float, const BLOCK: i32>(
         // E8M0 is exponent-only: the byte is a biased power of two.
         let sword = T::cast::<D, i32>(
             T::load(
-                s_ptr.add_offsets(o128 + i * (BLOCK / 128) + srow),
+                s_ptr.add_offsets(s_word_idx + srow),
                 Some(km),
                 Some(zeros),
                 &[],
@@ -211,7 +213,10 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-const BLOCK: i32 = 256;
+// 32 lanes: see the NVFP4 gather. A 256-lane tensor at `e32` with VLEN=256 is the
+// whole vector register file, so the dequant's live values spill -- 191 whole-register
+// spill/fill operations. The indices above are computed per chunk so BLOCK is free.
+const BLOCK: i32 = 32;
 
 /// Graph-level expert gather. Inputs are `x` of `[T, K]` and the router's packed
 /// `[T, 2 * top_k]`; the output is `[T * top_k, N]`.

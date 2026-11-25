@@ -1736,6 +1736,76 @@ fn test_mxfp8_gather_equals_the_f32_gather() {
     );
 }
 
+/// The same comparison with a `k` long enough to span several packed scale elements.
+///
+/// The gather derives its scale index from `k >> 7` and its byte-within-element from
+/// `(k >> 5) & 3` per chunk. With `k = 64` neither crosses a packed element, so a
+/// mistake in that arithmetic passes unnoticed; 320 gives ten scales over three
+/// elements, the last of them partial, and exercises every value of the selector.
+#[test]
+fn test_mxfp8_gather_spans_several_scale_elements() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 4usize, 320usize, 2usize);
+    let rows = e * n;
+    let wbytes: Vec<u8> = (0..rows * k).map(|i| ((i * 37 + 11) % 254) as u8).collect();
+    // A different exponent for every scale, so a wrong index gives a wrong answer
+    // rather than coincidentally the right one.
+    let sbytes: Vec<u8> = (0..rows * k / 32).map(|i| (114 + (i % 26)) as u8).collect();
+
+    let e8m0 = |b: u8| (b as f32 - 127.0).exp2();
+    let w: Vec<f32> = (0..rows * k)
+        .map(|i| {
+            let (row, col) = (i / k, i % k);
+            e4m3(wbytes[i]) * e8m0(sbytes[row * (k / 32) + col / 32])
+        })
+        .collect();
+    assert!(
+        w.iter().all(|v| v.is_finite()),
+        "the fixture must avoid NaN encodings"
+    );
+
+    let x = values(t * k, 163);
+    let ids = [2usize, 0, 1, 2];
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + top_k + slot] = ids[tok * top_k + slot] as f32;
+        }
+    }
+
+    let gf = OneOp::new(&[t, k]);
+    let ids_f = gf.input(&[t, 2 * top_k]);
+    let plain = gf.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_f],
+        &[&x, &packed],
+        &[&w],
+    );
+
+    let bytes = pack_rows(&wbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k);
+    let scales = pack_rows(
+        &sbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(),
+        k / 32,
+    );
+    let gq = OneOp::new(&[t, k]);
+    let ids_q = gq.input(&[t, 2 * top_k]);
+    let got = gq.run(
+        ExpertGatherMxfp8Op::<f32>::new(e, n, k, top_k),
+        &[&ids_q],
+        &[&x, &packed],
+        &[&bytes, &scales],
+    );
+    assert_close(
+        "mxfp8 gather over several scale elements",
+        &got,
+        &plain,
+        1e-3,
+    );
+    assert!(
+        plain.iter().any(|v| v.abs() > 1e-6),
+        "the comparison is only meaningful on non-zero output"
+    );
+}
+
 /// An E8M0 scale of 127 is exactly 1.0, so the output is the raw E4M3 values.
 #[test]
 fn test_mxfp8_scale_127_is_unity() {
