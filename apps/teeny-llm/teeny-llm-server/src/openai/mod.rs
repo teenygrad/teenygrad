@@ -124,12 +124,3 @@ pub enum FinishReason {
     ContentFilter,
     FunctionCall,
 }
-
-impl From<teeny_llm_core::FinishReason> for FinishReason {
-    fn from(r: teeny_llm_core::FinishReason) -> Self {
-        match r {
-            teeny_llm_core::FinishReason::Stop => FinishReason::Stop,
-            teeny_llm_core::FinishReason::Length => FinishReason::Length,
-        }
-    }
-}

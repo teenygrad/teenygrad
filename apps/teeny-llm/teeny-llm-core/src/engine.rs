@@ -14,18 +14,12 @@
  * limitations under the License.
  */
 
-use std::pin::Pin;
-
 use futures::future::BoxFuture;
-use futures::{Stream, StreamExt};
 
 use crate::chat::{ChatRequest, ChatStream};
 use crate::completion::{CompletionRequest, CompletionStream};
 use crate::embedding::{EmbeddingRequest, Embeddings};
-use crate::{Error, Generation, GenerationChunk, GenerationRequest, ModelInfo, Result};
-
-/// A stream of generated text increments; see [`GenerationChunk`].
-pub type TokenStream = Pin<Box<dyn Stream<Item = Result<GenerationChunk>> + Send>>;
+use crate::{Error, ModelInfo, Result};
 
 /// An inference backend.
 ///
@@ -37,18 +31,12 @@ pub trait Engine: Send + Sync + 'static {
     /// The models this engine can serve.
     fn models(&self) -> Vec<ModelInfo>;
 
-    /// Starts a generation and returns its incremental output.
-    ///
-    /// Validation errors (unknown model, bad parameters) are returned here, before streaming
-    /// starts, so frontends can map them to a proper error response.
-    fn generate_stream(&self, request: GenerationRequest) -> Result<TokenStream>;
-
     /// Starts a chat completion with the full chat API (tools, structured output, content
     /// parts, several choices). Engines that serve [`ChatModel`](crate::chat::ChatModel)s
-    /// implement it; the rest keep the default and are reached through
-    /// [`Engine::generate_stream`].
+    /// implement it; the rest keep the default.
     ///
-    /// As there, validation errors are returned before streaming starts.
+    /// Validation errors (unknown model, bad parameters) are returned here, before
+    /// streaming starts, so frontends can map them to a proper error response.
     fn chat_stream(&self, request: ChatRequest) -> Result<ChatStream> {
         let _ = request;
         Err(Error::Unsupported {
@@ -102,29 +90,5 @@ pub trait Engine: Send + Sync + 'static {
                 available: models.into_iter().map(|m| m.id).collect(),
             }),
         }
-    }
-}
-
-impl dyn Engine {
-    /// Runs a generation to completion, concatenating the streamed chunks.
-    pub async fn generate(&self, request: GenerationRequest) -> Result<Generation> {
-        let mut stream = self.generate_stream(request)?;
-        let mut text = String::new();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            text.push_str(&chunk.text);
-            if let Some(finish_reason) = chunk.finish_reason {
-                return Ok(Generation {
-                    text,
-                    finish_reason,
-                    usage: chunk.usage.unwrap_or_default(),
-                });
-            }
-        }
-        Err(Error::Inference(format!(
-            "engine `{}` ended the stream without a finish reason after {} bytes of output",
-            self.name(),
-            text.len()
-        )))
     }
 }

@@ -18,19 +18,14 @@
 
 use std::sync::Arc;
 
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
-use futures::{StreamExt, TryStreamExt};
 
-use crate::chat::{
-    ChatEvent, ChatFinishReason, ChatModel, ChatRequest, ChatStream, Message, Sampling, validate,
-};
+use crate::chat::{ChatModel, ChatRequest, ChatStream, validate};
 use crate::completion::{self, CompletionModel, CompletionRequest, CompletionStream};
 use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
 use crate::models::{LoadedModel, Model};
-use crate::{
-    ChatMessage, Engine, Error, FinishReason, GenerationChunk, GenerationRequest, ModelInfo,
-    Prompt, Result, Role, TokenStream, Usage,
-};
+use crate::{Engine, Error, ModelInfo, Result};
 
 /// Loaded models, served as one [`Engine`].
 ///
@@ -39,10 +34,8 @@ use crate::{
 /// `functiongemma3:270m`, case-insensitively), then to the API handle the request needs;
 /// a model without that API is refused with an error naming what it does serve.
 ///
-/// [`Engine::chat_stream`] passes the full chat API through, validated against the
-/// model's capabilities. [`Engine::generate_stream`] maps the older text-only
-/// [`GenerationRequest`] onto chat, for frontends not yet moved to chat requests; raw-text
-/// prompts (legacy completions) are not something a chat model takes, and are refused.
+/// Each API is validated against the model's capabilities for it before the model sees
+/// the request, and the model is handed its canonical id.
 #[derive(Clone, Debug)]
 pub struct ModelEngine {
     models: Vec<LoadedModel>,
@@ -146,34 +139,6 @@ fn lacks(model: &LoadedModel, api: &'static str) -> Error {
     }
 }
 
-fn to_message(m: ChatMessage) -> Result<Message> {
-    Ok(match m.role {
-        Role::Developer => Message::Developer {
-            content: m.content,
-            name: None,
-        },
-        Role::System => Message::system(m.content),
-        Role::User => Message::user(m.content),
-        Role::Assistant => Message::assistant(m.content),
-        Role::Tool => {
-            return Err(Error::InvalidRequest(
-                "a tool message needs the id of the call it answers, which a text-only \
-                 GenerationRequest cannot carry; send it through Engine::chat_stream"
-                    .to_owned(),
-            ));
-        }
-    })
-}
-
-fn to_finish(reason: ChatFinishReason) -> FinishReason {
-    match reason {
-        ChatFinishReason::Length => FinishReason::Length,
-        ChatFinishReason::Stop | ChatFinishReason::ToolCalls | ChatFinishReason::ContentFilter => {
-            FinishReason::Stop
-        }
-    }
-}
-
 impl Engine for ModelEngine {
     fn name(&self) -> &'static str {
         "models"
@@ -217,82 +182,14 @@ impl Engine for ModelEngine {
             model.embed(request).await
         })
     }
-
-    fn generate_stream(&self, request: GenerationRequest) -> Result<TokenStream> {
-        let messages = match request.prompt {
-            Prompt::Chat(messages) => messages
-                .into_iter()
-                .map(to_message)
-                .collect::<Result<Vec<_>>>()?,
-            Prompt::Text(_) => {
-                return Err(Error::Unsupported {
-                    engine: self.name(),
-                    operation: "text completions (chat models take a conversation)",
-                });
-            }
-        };
-        let s = request.sampling;
-        let chat = ChatRequest {
-            model: request.model,
-            messages,
-            max_completion_tokens: s.max_tokens,
-            sampling: Sampling {
-                temperature: s.temperature,
-                top_p: s.top_p,
-                presence_penalty: s.presence_penalty,
-                frequency_penalty: s.frequency_penalty,
-                seed: s.seed,
-                stop: s.stop,
-                ..Sampling::default()
-            },
-            include_usage: true,
-            ..ChatRequest::default()
-        };
-        let events = self.chat_stream(chat)?;
-        // Choice 0's text, then one closing chunk with the finish reason and usage.
-        let chunks = events
-            .scan(None, |finish: &mut Option<FinishReason>, event| {
-                let out = match event {
-                    Err(e) => Some(Err(e)),
-                    Ok(ChatEvent::Delta { index: 0, delta }) => {
-                        delta.content.filter(|t| !t.is_empty()).map(|text| {
-                            Ok(GenerationChunk {
-                                text,
-                                finish_reason: None,
-                                usage: None,
-                            })
-                        })
-                    }
-                    Ok(ChatEvent::Delta { .. }) => None,
-                    Ok(ChatEvent::Finish { index, reason }) => {
-                        if index == 0 {
-                            *finish = Some(to_finish(reason));
-                        }
-                        None
-                    }
-                    Ok(ChatEvent::Usage(u)) => Some(Ok(GenerationChunk {
-                        text: String::new(),
-                        finish_reason: Some(finish.unwrap_or(FinishReason::Stop)),
-                        usage: Some(Usage {
-                            prompt_tokens: u.prompt_tokens,
-                            completion_tokens: u.completion_tokens,
-                        }),
-                    })),
-                };
-                futures::future::ready(Some(out))
-            })
-            .filter_map(futures::future::ready);
-        Ok(Box::pin(chunks))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SamplingParams;
     #[cfg(feature = "functiongemma3")]
     use crate::chat::Capabilities;
-    use crate::chat::{EchoChatModel, collect};
+    use crate::chat::{EchoChatModel, Message, collect};
 
     fn engine() -> ModelEngine {
         ModelEngine::new(vec![LoadedModel::from_chat(Arc::new(EchoChatModel))]).unwrap()
@@ -304,25 +201,6 @@ mod tests {
             messages: vec![Message::user("hi")],
             ..ChatRequest::default()
         }
-    }
-
-    #[tokio::test]
-    async fn test_model_engine_serves_text_generation_from_a_chat_model() {
-        let e: &dyn Engine = &engine();
-        let out = e
-            .generate(GenerationRequest {
-                model: EchoChatModel::MODEL_ID.into(),
-                prompt: Prompt::Chat(vec![ChatMessage::user("hello there")]),
-                sampling: SamplingParams {
-                    max_tokens: Some(1),
-                    ..SamplingParams::default()
-                },
-            })
-            .await
-            .unwrap();
-        assert_eq!(out.text, "hello");
-        assert_eq!(out.finish_reason, FinishReason::Length);
-        assert_eq!(out.usage.completion_tokens, 1);
     }
 
     #[tokio::test]
@@ -351,12 +229,6 @@ mod tests {
             ..hi(EchoChatModel::MODEL_ID)
         });
         assert!(matches!(too_many, Err(Error::UnsupportedParameter { .. })));
-        let text = e.generate_stream(GenerationRequest {
-            model: EchoChatModel::MODEL_ID.into(),
-            prompt: Prompt::Text("x".into()),
-            sampling: SamplingParams::default(),
-        });
-        assert!(matches!(text, Err(Error::Unsupported { .. })));
     }
 
     #[test]

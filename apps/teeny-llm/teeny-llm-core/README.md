@@ -6,11 +6,15 @@ transport-independent pieces shared by
 HTTP API) and [`teeny-llm-chat`](https://docs.teenygrad.org/api/teenygrad/teeny_llm_chat/)
 (interactive CLI):
 
-- `ChatMessage` / `Role`: a conversation
-- `Prompt`, `SamplingParams`, `GenerationRequest`: what to generate
-- `Engine`: the trait an inference backend implements (streaming generation, optional embeddings)
-- `EchoEngine`: a placeholder engine that echoes the last user message, so the server and CLI can be
-  exercised end to end before real model execution lands
+- one module per OpenAI API, each with its request and response types, the capabilities a
+  model declares, `validate` (refusing what a model cannot do, by parameter), the trait models
+  implement, and an echo model as its reference implementation: `chat` (`ChatModel`),
+  `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`)
+- `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)
+- `models::Model`: the models a build includes, by tag (`functiongemma3:270m`), and
+  `Model::load`, which loads one as a `LoadedModel` exposing the APIs it serves
+- `ModelEngine`: loaded models served as one `Engine`, the trait frontends drive, routing each
+  request by model to the API it needs
 
 ## Models
 
@@ -32,10 +36,11 @@ cargo test -p teeny-llm-core --test test_llm_kernels
 cargo run --release -p teeny-llm-core --example chat -- --model functiongemma3   # weights from the HF cache, or --model-dir
 ```
 
-> ⚠️ The models are not yet served through `Engine`: `teeny-llm-server` and `teeny-llm-chat`
-> still run `EchoEngine`. Use the `chat` example to talk to FunctionGemma: `--mode chat` (the
-> default) in the terminal, `--mode tool --prompt ...` for the function calls it picks for one
-> request, or `--mode serve` for the weather web demo in a browser.
+Loaded through `Model::load`, the models are served by `teeny-llm-server` and
+`teeny-llm-chat` (built with the model's feature: `--features functiongemma3,cuda`). The `chat`
+example drives FunctionGemma directly: `--mode chat` (the default) in the terminal,
+`--mode tool --prompt ...` for the function calls it picks for one request, or `--mode serve`
+for the weather web demo in a browser.
 
 ## License
 

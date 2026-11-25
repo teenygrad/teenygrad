@@ -16,10 +16,13 @@
 
 //! `teeny-llm-core`: the transport-independent core of teenygrad's LLM inference stack.
 //!
-//! Frontends ([`teeny-llm-server`], [`teeny-llm-chat`]) translate their own wire formats into a
-//! [`GenerationRequest`] (or a [`chat::ChatRequest`]) and drive an [`Engine`]. Models implement
-//! [`chat::ChatModel`]; [`models::Model::load`] loads one as a [`models::LoadedModel`], and
-//! [`ModelEngine`] serves loaded models as an [`Engine`]. Nothing in this crate knows about
+//! Frontends ([`teeny-llm-server`], [`teeny-llm-chat`]) translate their own wire formats into
+//! the requests of each API ([`chat`], [`completion`], [`embedding`]) and drive an
+//! [`Engine`]. Models implement the API traits ([`chat::ChatModel`],
+//! [`completion::CompletionModel`], [`embedding::EmbeddingModel`]);
+//! [`models::Model::load`] loads one as a [`models::LoadedModel`], and [`ModelEngine`]
+//! serves loaded models as an [`Engine`]. Each API has an echo model, its reference
+//! implementation and a fixture for frontends. Nothing in this crate knows about
 //! HTTP or the terminal.
 //!
 //! Model implementations live in `models`, each behind a cargo feature named for the model
@@ -33,7 +36,6 @@
 
 pub mod chat;
 pub mod completion;
-mod echo;
 pub mod embedding;
 mod engine;
 mod error;
@@ -45,12 +47,8 @@ mod types;
 pub mod kernels;
 pub mod models;
 
-pub use echo::EchoEngine;
 pub use embedding::Embeddings;
-pub use engine::{Engine, TokenStream};
+pub use engine::Engine;
 pub use error::{Error, Result};
 pub use model_engine::ModelEngine;
-pub use types::{
-    ChatMessage, FinishReason, Generation, GenerationChunk, GenerationRequest, ModelInfo, Prompt,
-    Role, SamplingParams, Usage,
-};
+pub use types::{ModelInfo, Usage};
