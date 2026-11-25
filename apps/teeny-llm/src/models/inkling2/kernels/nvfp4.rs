@@ -113,8 +113,14 @@ pub fn nvfp4_dequant_forward<T: Triton, D: Float, const BLOCK: i32>(
     let half = T::full(&[BLOCK], D::from_f64(0.5));
     let one = T::full(&[BLOCK], D::from_f64(1.0));
     // e == 0 is the subnormal pair {0, 0.5}; otherwise (1 + m/2) * 2^(e-1).
-    let ef = T::cast::<i32, D>(e, None, false);
-    let mag = T::where_(e.eq(0), mf * half, (one + mf * half) * T::exp2(ef - one));
+    //
+    // E2M1's exponent is two bits, so `exp2(e - 1)` is one of 1, 2 and 4: a pair of
+    // selects rather than a transcendental. RISC-V has no vector exp2, so `T::exp2`
+    // is an `exp2f` call per lane, and this runs once per weight.
+    let two = T::full(&[BLOCK], D::from_f64(2.0));
+    let four = T::full(&[BLOCK], D::from_f64(4.0));
+    let p = T::where_(e.eq(1), one, T::where_(e.eq(2), two, four));
+    let mag = T::where_(e.eq(0), mf * half, (one + mf * half) * p);
     let signed = T::where_(sign_bit.eq(1), zeros - mag, mag);
 
     // E4M3 block scale, one per 16 weights.
@@ -138,13 +144,16 @@ pub fn nvfp4_dequant_forward<T: Triton, D: Float, const BLOCK: i32>(
     let sm = srest - se * 8;
     let smf = T::cast::<i32, D>(sm, None, false);
     let eighth = T::full(&[BLOCK], D::from_f64(0.125));
-    let seven = T::full(&[BLOCK], D::from_f64(7.0));
-    let sef = T::cast::<i32, D>(se, None, false);
     // Normal: (1 + m/8) * 2^(e-7). Subnormal (e == 0): (m/8) * 2^-6.
+    //
+    // `2^(e-7)` is built rather than called: e is four bits and at least 1 on this
+    // branch, so `e - 7 + 127` is 121..135, a valid f32 exponent field, and placing it
+    // there gives the power of two exactly. `* 8388608` is `<< 23`.
+    let spow = T::cast::<i32, D>((se + 120) * 8_388_608, None, true);
     let sval = T::where_(
         se.eq(0),
         smf * eighth * T::full(&[BLOCK], D::from_f64(0.015_625)),
-        (one + smf * eighth) * T::exp2(sef - seven),
+        (one + smf * eighth) * spow,
     );
     let sval = T::where_(ssign.eq(1), zeros - sval, sval);
 
@@ -181,6 +190,12 @@ use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
 const BLOCK: i32 = 256;
+
+// The dequant's own tile, separate from `unpack_byte`'s above. Its live values are an
+// E2M1 nibble, an E4M3 scale and the pieces of both being taken apart, so at `e32`
+// with VLEN=256 a 256-lane tile is the whole vector register file and spilled 250
+// times; 32 spills twice. `unpack_byte` is a mask and a divide and does not need it.
+const DEQUANT_BLOCK: i32 = 32;
 
 /// Graph-level NVFP4 dequantisation of one expert plane.
 ///
@@ -221,7 +236,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for Nvfp4DequantOp<D> {
     }
 
     fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
-        let kernel = Nvfp4DequantForward::<D>::new(BLOCK);
+        let kernel = Nvfp4DequantForward::<D>::new(DEQUANT_BLOCK);
         Some((
             "nvfp4_dequant_forward".to_string(),
             kernel.source,
@@ -274,7 +289,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for Nvfp4DequantRuntimeOp<
             output_shape
                 .iter()
                 .product::<usize>()
-                .div_ceil(BLOCK as usize) as u32,
+                .div_ceil(DEQUANT_BLOCK as usize) as u32,
             1,
             1,
         ]

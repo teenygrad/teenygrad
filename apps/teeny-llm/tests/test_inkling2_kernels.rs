@@ -1465,6 +1465,87 @@ fn test_nvfp4_decodes_all_sixteen_codes() {
     assert_close("all e2m1 codes", &got, &want, 1e-6);
 }
 
+/// softcap across the point where the in-lane exponential has to clamp.
+///
+/// `test_softcap_saturates_at_the_cap` reaches x = 1e4, but with cap 4 that is an
+/// argument of -5000, and when the clamp is removed the overflowed exponent field
+/// happens to wrap to something that still gives the right answer. It passes either
+/// way, so it does not cover the clamp. A cap of 1 walks the argument across -87 in
+/// small steps instead, where a wrapped exponent field goes negative and the
+/// exponential comes back signed.
+#[test]
+fn test_softcap_crosses_the_exponential_clamp() {
+    let cap = 1.0f32;
+    let x: Vec<f32> = vec![
+        0.0, 1.0, 5.0, 20.0, 30.0, 40.0, 43.0, 44.0, 45.0, 50.0, 60.0, 80.0, 100.0, 200.0, -1.0,
+        -20.0, -43.0, -44.0, -45.0, -60.0, -100.0, -200.0,
+    ];
+    let want: Vec<f32> = x.iter().map(|v| (v / cap).tanh() * cap).collect();
+
+    let g = OneOp::new(&[x.len()]);
+    let got = g.run(SoftcapOp::<f32>::new(cap), &[], &[&x], &[]);
+
+    assert!(
+        got.iter().all(|v| v.is_finite()),
+        "softcap must not produce a NaN or an infinity: {got:?}"
+    );
+    // tanh is bounded, so nothing may leave [-cap, cap] by more than rounding.
+    assert!(
+        got.iter().all(|v| v.abs() <= cap + 1e-5),
+        "softcap must stay inside the cap: {got:?}"
+    );
+    assert_close("softcap across the clamp", &got, &want, 1e-5);
+}
+
+/// Every E4M3 block scale, including the subnormals and both extremes.
+///
+/// The dequant builds `2^(e-7)` by placing `e - 7 + 127` in an f32's exponent field
+/// instead of calling `exp2`, so the whole four-bit exponent range has to be right,
+/// not just the values a real weight row happens to use. `w13_scale.bin` is one real
+/// row and the all-sixteen-codes test pins a single scale of 0x38, so neither would
+/// catch an off-by-one in that field or a broken subnormal branch.
+#[test]
+fn test_nvfp4_decodes_all_e4m3_scales() {
+    // E2M1 code 2 is 1.0, in both nibbles, so each output is its scale alone.
+    assert!((E2M1[2] - 1.0).abs() < 1e-6, "E2M1 code 2 should be 1.0");
+
+    // Every scale byte except the two E4M3 NaN encodings, 0x7F and 0xFF.
+    let codes: Vec<u8> = (0..=255u8).filter(|b| *b != 0x7F && *b != 0xFF).collect();
+    let groups = codes.len();
+    let n = groups * 16; // one scale per sixteen weights
+    let bytes: Vec<f32> = vec![0x22u8 as f32; n / 2];
+    let sc: Vec<f32> = codes.iter().map(|b| *b as f32).collect();
+
+    let want: Vec<f32> = (0..n).map(|i| e4m3(codes[i / 16])).collect();
+    assert!(
+        want.iter().all(|v| v.is_finite()),
+        "the fixture must avoid NaN encodings"
+    );
+    // The range really is extreme: 2^-9 up to 448.
+    assert!(
+        want.iter().any(|v| v.abs() > 100.0) && want.iter().any(|v| *v != 0.0 && v.abs() < 1e-2),
+        "the sweep should span both ends of E4M3"
+    );
+
+    let g = OneOp::new(&[1, n / 2]);
+    let sc_in = g.input(&[1, groups]);
+    let got = g.run(
+        Nvfp4DequantOp::<f32>::new(n),
+        &[&sc_in],
+        &[&bytes, &sc],
+        &[&[1.0f32]],
+    );
+    // Relative, because the values span nine orders of magnitude.
+    for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+        let tol = 1e-6 * w.abs().max(1e-6);
+        assert!(
+            (g - w).abs() <= tol,
+            "scale 0x{:02X} (weight {i}): got {g}, want {w}",
+            codes[i / 16]
+        );
+    }
+}
+
 /// The NVFP4 gather must equal the f32 gather fed the same weights dequantised.
 ///
 /// This is the test that matters: the packed path and the plain path are different
