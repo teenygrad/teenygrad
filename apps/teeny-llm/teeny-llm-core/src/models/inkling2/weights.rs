@@ -137,13 +137,27 @@ impl Checkpoint {
                 .map(|n| (n.to_string(), "model.safetensors".to_string()))
                 .collect()
         };
-        let converted = index.contains_key("__converted__");
-        Ok(Self {
+        let converted = index.contains_key(CONVERTED_MARKER);
+        let mut ck = Self {
             dir: dir.to_path_buf(),
             index,
             shards: HashMap::new(),
             converted,
-        })
+        };
+        if converted {
+            let (v, _, _) = ck.tensor(CONVERTED_MARKER)?;
+            let found = v.first().copied().unwrap_or(f32::NAN);
+            anyhow::ensure!(
+                found == CONVERTED_FORMAT as f32,
+                "{} was converted in format {found}, but this build reads format {}. \
+                 Re-run inkling2_convert over the original checkpoint; the converted \
+                 tensors are a cache of how the loader packed and folded them, and \
+                 reading stale ones silently produces wrong output.",
+                dir.display(),
+                CONVERTED_FORMAT
+            );
+        }
+        Ok(ck)
     }
 
     /// Tensor names in the checkpoint.
@@ -320,6 +334,19 @@ impl Checkpoint {
         Ok(amax.iter().map(|a| a / d).collect())
     }
 }
+
+/// The conversion format [`Checkpoint`] understands, stored in a converted
+/// checkpoint's `__converted__` marker.
+///
+/// **Bump this whenever the conversion changes**: the packing, the scale folding, the
+/// set of tensors written, or the names they are written under. A converted
+/// checkpoint is a cache of decisions made at conversion time, and the loader has no
+/// other way to notice that those decisions have moved on -- it would read the stale
+/// tensors happily and the model would produce wrong output with no error.
+pub const CONVERTED_FORMAT: u32 = 1;
+
+/// The tensor a converted checkpoint stores [`CONVERTED_FORMAT`] in.
+pub const CONVERTED_MARKER: &str = "__converted__";
 
 /// One F8_E4M3 byte as an f32: sign, four exponent bits biased by 7, three mantissa
 /// bits, with a zero exponent meaning a subnormal `m * 2^-9`.
