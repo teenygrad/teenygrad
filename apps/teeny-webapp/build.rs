@@ -51,10 +51,15 @@ fn main() {
     println!("cargo::rerun-if-env-changed=TEENY_WEBAPP_UI");
     println!("cargo::rerun-if-env-changed=DOCS_RS");
 
-    let dist = out.join("dist");
     let skip =
         env::var("TEENY_WEBAPP_UI").is_ok_and(|v| v == "skip") || env::var_os("DOCS_RS").is_some();
+    // Each mode has its own folder, so a placeholder build never embeds an earlier build's
+    // files alongside the placeholder page.
+    let dist = out.join(if skip { "placeholder" } else { "dist" });
     if skip {
+        if dist.exists() {
+            fs::remove_dir_all(&dist).expect("clearing the placeholder's folder");
+        }
         fs::create_dir_all(&dist).expect("creating the placeholder's folder");
         fs::write(dist.join("index.html"), PLACEHOLDER).expect("writing the placeholder page");
     } else {
