@@ -22,15 +22,19 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use teeny_llm_core::chat::EchoChatModel;
+use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::LoadedModel;
 use teeny_llm_core::{EchoEngine, Engine, ModelEngine};
 
 const ECHO: &str = EchoChatModel::MODEL_ID;
 
-/// A server over the echo chat model.
+/// A server over the echo chat and embedding models.
 async fn spawn_server() -> String {
-    let echo = LoadedModel::from_chat(Arc::new(EchoChatModel));
-    spawn(Arc::new(ModelEngine::new(vec![echo]).unwrap())).await
+    let models = vec![
+        LoadedModel::from_chat(Arc::new(EchoChatModel)),
+        LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)),
+    ];
+    spawn(Arc::new(ModelEngine::new(models).unwrap())).await
 }
 
 async fn spawn(engine: Arc<dyn Engine>) -> String {
@@ -265,6 +269,55 @@ async fn rejects_unsupported_requests_with_openai_errors() {
     )
     .await;
     assert_eq!(status, 501, "{text}");
+}
+
+#[tokio::test]
+async fn embeddings_in_both_encodings() {
+    let base = spawn_server().await;
+    let model = EchoEmbeddingModel::MODEL_ID;
+    let (status, body) = post(
+        &base,
+        "/v1/embeddings",
+        json!({"model": model, "input": ["red apple", "green pear"], "dimensions": 8}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["object"], "list");
+    assert_eq!(v["data"][1]["index"], 1);
+    assert_eq!(v["data"][0]["embedding"].as_array().unwrap().len(), 8);
+    assert_eq!(v["usage"]["prompt_tokens"], 4);
+
+    let (status, body) = post(
+        &base,
+        "/v1/embeddings",
+        json!({"model": model, "input": [[1, 2, 3]], "encoding_format": "base64"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    // 16 little-endian f32s are 64 bytes, 88 base64 digits.
+    assert_eq!(v["data"][0]["embedding"].as_str().unwrap().len(), 88);
+
+    for (body, status, param) in [
+        (
+            json!({"model": model, "input": "hi", "dimensions": 99}),
+            400,
+            "dimensions",
+        ),
+        (json!({"model": model, "input": ""}), 400, "input[0]"),
+        (
+            json!({"model": model, "input": "hi", "encoding_format": "hex"}),
+            400,
+            "encoding_format",
+        ),
+        (json!({"model": ECHO, "input": "hi"}), 400, "model"),
+    ] {
+        let (got, text) = post(&base, "/v1/embeddings", body).await;
+        assert_eq!(got, status, "{text}");
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["error"]["param"], param, "{text}");
+    }
 }
 
 #[tokio::test]

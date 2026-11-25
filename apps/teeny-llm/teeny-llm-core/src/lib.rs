@@ -33,6 +33,7 @@
 
 pub mod chat;
 mod echo;
+pub mod embedding;
 mod engine;
 mod error;
 mod model_engine;
@@ -44,10 +45,11 @@ pub mod kernels;
 pub mod models;
 
 pub use echo::EchoEngine;
+pub use embedding::Embeddings;
 pub use engine::{Engine, TokenStream};
 pub use error::{Error, Result};
 pub use model_engine::ModelEngine;
 pub use types::{
-    ChatMessage, Embeddings, FinishReason, Generation, GenerationChunk, GenerationRequest,
-    ModelInfo, Prompt, Role, SamplingParams, Usage,
+    ChatMessage, FinishReason, Generation, GenerationChunk, GenerationRequest, ModelInfo, Prompt,
+    Role, SamplingParams, Usage,
 };

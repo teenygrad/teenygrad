@@ -16,10 +16,12 @@
 
 use std::pin::Pin;
 
+use futures::future::BoxFuture;
 use futures::{Stream, StreamExt};
 
 use crate::chat::{ChatRequest, ChatStream};
-use crate::{Embeddings, Error, Generation, GenerationChunk, GenerationRequest, ModelInfo, Result};
+use crate::embedding::{EmbeddingRequest, Embeddings};
+use crate::{Error, Generation, GenerationChunk, GenerationRequest, ModelInfo, Result};
 
 /// A stream of generated text increments; see [`GenerationChunk`].
 pub type TokenStream = Pin<Box<dyn Stream<Item = Result<GenerationChunk>> + Send>>;
@@ -54,12 +56,19 @@ pub trait Engine: Send + Sync + 'static {
         })
     }
 
-    /// Embeds `inputs` with `model`. Engines without an embedding model keep the default.
-    fn embed(&self, model: &str, inputs: &[String]) -> Result<Embeddings> {
-        let _ = (model, inputs);
-        Err(Error::Unsupported {
-            engine: self.name(),
-            operation: "embeddings",
+    /// Embeds `request`. Engines that serve
+    /// [`EmbeddingModel`](crate::embedding::EmbeddingModel)s implement it; the rest keep the
+    /// default.
+    ///
+    /// Validation errors resolve the future to `Err` before any work is done.
+    fn embed(&self, request: EmbeddingRequest) -> BoxFuture<'_, Result<Embeddings>> {
+        let _ = request;
+        let name = self.name();
+        Box::pin(async move {
+            Err(Error::Unsupported {
+                engine: name,
+                operation: "embeddings",
+            })
         })
     }
 

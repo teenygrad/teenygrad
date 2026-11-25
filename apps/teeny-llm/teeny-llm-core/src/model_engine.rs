@@ -18,11 +18,13 @@
 
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use futures::{StreamExt, TryStreamExt};
 
 use crate::chat::{
     ChatEvent, ChatFinishReason, ChatModel, ChatRequest, ChatStream, Message, Sampling, validate,
 };
+use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
 use crate::models::{LoadedModel, Model};
 use crate::{
     ChatMessage, Engine, Error, FinishReason, GenerationChunk, GenerationRequest, ModelInfo,
@@ -58,11 +60,14 @@ impl ModelEngine {
             )));
         }
         for m in &models {
-            if let Some(chat) = &m.chat {
-                let id = chat.info().id;
-                if id != m.info.id {
+            let handles = [
+                ("chat", m.chat.as_ref().map(|c| c.info().id)),
+                ("embedding", m.embedding.as_ref().map(|e| e.info().id)),
+            ];
+            for (api, id) in handles {
+                if let Some(id) = id.filter(|id| *id != m.info.id) {
                     return Err(Error::InvalidRequest(format!(
-                        "loaded model `{}` has a chat handle reporting the id `{id}`",
+                        "loaded model `{}` has a {api} handle reporting the id `{id}`",
                         m.info.id
                     )));
                 }
@@ -98,6 +103,17 @@ impl ModelEngine {
         match &m.chat {
             Some(chat) => Ok((m, chat)),
             None => Err(lacks(m, "chat completions")),
+        }
+    }
+}
+
+impl ModelEngine {
+    /// The embedding handle of the model `requested` names.
+    fn embedding_model(&self, requested: &str) -> Result<(&LoadedModel, &Arc<dyn EmbeddingModel>)> {
+        let m = self.find(requested)?;
+        match &m.embedding {
+            Some(e) => Ok((m, e)),
+            None => Err(lacks(m, "embeddings")),
         }
     }
 }
@@ -165,6 +181,15 @@ impl Engine for ModelEngine {
         validate(&loaded.info.id, &model.capabilities(), &request)?;
         let started = async move { model.chat(request).await };
         Ok(Box::pin(futures::stream::once(started).try_flatten()))
+    }
+
+    fn embed(&self, mut request: EmbeddingRequest) -> BoxFuture<'_, Result<Embeddings>> {
+        Box::pin(async move {
+            let (loaded, model) = self.embedding_model(&request.model)?;
+            request.model.clone_from(&loaded.info.id);
+            embedding::validate(&loaded.info.id, &model.capabilities(), &request)?;
+            model.embed(request).await
+        })
     }
 
     fn generate_stream(&self, request: GenerationRequest) -> Result<TokenStream> {
@@ -313,6 +338,33 @@ mod tests {
         let echo = || LoadedModel::from_chat(Arc::new(EchoChatModel));
         let twice = ModelEngine::new(vec![echo(), echo()]);
         assert!(matches!(twice, Err(Error::InvalidRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_model_engine_serves_embeddings_from_an_embedding_model() {
+        use crate::embedding::{EchoEmbeddingModel, EmbeddingInput};
+        let e = ModelEngine::new(vec![
+            LoadedModel::from_chat(Arc::new(EchoChatModel)),
+            LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)),
+        ])
+        .unwrap();
+        let request = |model: &str, dimensions| EmbeddingRequest {
+            model: model.into(),
+            inputs: vec![EmbeddingInput::Text("a b".into())],
+            dimensions,
+            user: None,
+        };
+        let out = e
+            .embed(request(EchoEmbeddingModel::MODEL_ID, Some(4)))
+            .await
+            .unwrap();
+        assert_eq!(out.vectors[0].len(), 4);
+        let refused = e
+            .embed(request(EchoEmbeddingModel::MODEL_ID, Some(99)))
+            .await;
+        assert!(matches!(refused, Err(Error::InvalidParameter { .. })));
+        let chat_only = e.embed(request(EchoChatModel::MODEL_ID, None)).await;
+        assert!(matches!(chat_only, Err(Error::ModelLacksApi { .. })));
     }
 
     #[test]

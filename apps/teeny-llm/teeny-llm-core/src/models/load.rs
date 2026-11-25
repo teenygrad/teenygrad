@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use super::Model;
 use crate::chat::ChatModel;
+use crate::embedding::EmbeddingModel;
 use crate::tokenizer::Tokenizer;
 use crate::{Error, ModelInfo, Result};
 
@@ -122,6 +123,8 @@ pub struct LoadedModel {
     pub tokenizer: Option<Arc<dyn Tokenizer>>,
     /// Chat completions.
     pub chat: Option<Arc<dyn ChatModel>>,
+    /// Embeddings.
+    pub embedding: Option<Arc<dyn EmbeddingModel>>,
 }
 
 impl fmt::Debug for LoadedModel {
@@ -132,6 +135,7 @@ impl fmt::Debug for LoadedModel {
             .field("parameters", &self.parameters)
             .field("tokenizer", &self.tokenizer.is_some())
             .field("chat", &self.chat.is_some())
+            .field("embedding", &self.embedding.is_some())
             .finish()
     }
 }
@@ -145,12 +149,18 @@ impl LoadedModel {
             parameters: None,
             tokenizer: None,
             chat: None,
+            embedding: None,
         }
     }
 
     /// A chat model, described by its own [`ChatModel::info`].
     pub fn from_chat(chat: Arc<dyn ChatModel>) -> Self {
         Self::new(chat.info()).with_chat(chat)
+    }
+
+    /// An embedding model, described by its own [`EmbeddingModel::info`].
+    pub fn from_embedding(embedding: Arc<dyn EmbeddingModel>) -> Self {
+        Self::new(embedding.info()).with_embedding(embedding)
     }
 
     /// Records which [`Model`] it is, so short tags resolve to it.
@@ -177,11 +187,20 @@ impl LoadedModel {
         self
     }
 
+    /// Serves embeddings with `embedding`.
+    pub fn with_embedding(mut self, embedding: Arc<dyn EmbeddingModel>) -> Self {
+        self.embedding = Some(embedding);
+        self
+    }
+
     /// The APIs it serves, by name, for messages.
     pub fn apis(&self) -> Vec<&'static str> {
         let mut apis = Vec::new();
         if self.chat.is_some() {
             apis.push("chat completions");
+        }
+        if self.embedding.is_some() {
+            apis.push("embeddings");
         }
         apis
     }

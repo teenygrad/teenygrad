@@ -137,13 +137,6 @@ pub struct Generation {
     pub usage: Usage,
 }
 
-/// The result of embedding a batch of inputs, one vector per input in order.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Embeddings {
-    pub vectors: Vec<Vec<f32>>,
-    pub prompt_tokens: u32,
-}
-
 /// A model an [`Engine`](crate::Engine) can serve.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelInfo {

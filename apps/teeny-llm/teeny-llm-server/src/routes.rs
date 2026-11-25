@@ -41,7 +41,9 @@ use crate::openai::{
         CreateChatCompletionStreamResponse, Role, choice_from_core, delta_from_core,
     },
     completions::{CompletionChoice, CreateCompletionRequest, CreateCompletionResponse},
-    embeddings::{CreateEmbeddingRequest, CreateEmbeddingResponse, Embedding, EmbeddingUsage},
+    embeddings::{
+        CreateEmbeddingRequest, CreateEmbeddingResponse, Embedding, EmbeddingUsage, EmbeddingVector,
+    },
     error::ApiError,
     models::{ListModelsResponse, Model},
 };
@@ -326,33 +328,22 @@ async fn embeddings(
     body: Result<Json<CreateEmbeddingRequest>, JsonRejection>,
 ) -> Result<Json<CreateEmbeddingResponse>, ApiError> {
     let Json(req) = body?;
-    if let Some(format) = req.encoding_format.as_deref().filter(|f| *f != "float") {
-        return Err(ApiError::invalid_request(
-            format!("encoding_format `{format}` is not supported yet; only `float` is"),
-            Some("encoding_format"),
-        ));
-    }
-    if req.dimensions.is_some() {
-        return Err(ApiError::invalid_request(
-            "`dimensions` is not supported yet",
-            Some("dimensions"),
-        ));
-    }
-    let inputs = req.input.into_vec();
-    let out = engine.embed(&req.model, &inputs)?;
+    let (request, format) = req.into_core()?;
+    let model = engine.model(&request.model)?.id;
+    let out = engine.embed(request).await?;
     Ok(Json(CreateEmbeddingResponse {
         object: "list".to_owned(),
         data: out
             .vectors
             .into_iter()
             .enumerate()
-            .map(|(i, embedding)| Embedding {
+            .map(|(i, v)| Embedding {
                 object: "embedding".to_owned(),
                 index: u32::try_from(i).unwrap_or(u32::MAX),
-                embedding,
+                embedding: EmbeddingVector::encode(v, format),
             })
             .collect(),
-        model: req.model,
+        model,
         usage: EmbeddingUsage {
             prompt_tokens: out.prompt_tokens,
             total_tokens: out.prompt_tokens,
