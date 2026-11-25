@@ -1,0 +1,40 @@
+[package]
+name = "teeny-bench"
+version.workspace = true
+edition.workspace = true
+description = "llama-bench-style benchmarks of teenygrad models: prompt processing and generation throughput, time to first token and decode latency percentiles, in-process or against teeny-api."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["benchmark", "llm", "inference", "teenygrad"]
+categories = ["development-tools::profiling", "science"]
+# A tool for the repository's own benchmarks; not published yet.
+publish = false
+
+[[bin]]
+name = "teeny-bench"
+path = "src/main.rs"
+
+[features]
+default = []
+# A model to benchmark in-process is a cargo feature, with its backend, as for teeny-api:
+# `--features functiongemma3,cuda` (or `riscv`, `qemu`).
+functiongemma3 = ["teeny-llm/functiongemma3"]
+cuda = ["teeny-llm/cuda"]
+riscv = ["teeny-llm/riscv"]
+qemu = ["teeny-llm/qemu"]
+
+[dependencies]
+anyhow = { workspace = true, features = ["std"] }
+clap = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+teeny-llm = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+teeny-api = { path = "../../apps/teeny-api" }

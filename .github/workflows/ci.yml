@@ -136,6 +136,12 @@ jobs:
           cargo clippy -p teeny-api --all-targets --no-default-features --features image -- -D warnings
           cargo test -p teeny-api --features audio,image
 
+      - name: Clippy and test teeny-bench
+        run: |
+          cargo clippy -p teeny-bench --all-targets -- -D warnings
+          cargo clippy -p teeny-bench --all-targets --features functiongemma3,cuda -- -D warnings
+          cargo test -p teeny-bench
+
       - name: Check the teeny-webapp UI
         working-directory: apps/teeny-webapp/ui
         run: |

@@ -72,6 +72,7 @@ The codebase is organized as a Cargo workspace with resolver "3":
 - **torch/teeny-torch** - PyO3 Python bindings for PyTorch interoperability
 - **models/** - teeny-hf (Hugging Face integration), teeny-samples
 - **apps/** - Inference serving: teeny-llm (LLM models and API traits), teeny-audio (audio API traits, WAV/PCM codec), teeny-image (image API trait, PNG codec), teeny-api (OpenAI-compatible HTTP API, `teeny-api` bin, a feature per domain), teeny-webapp (browser UI binary; its build.rs runs npm in `ui/`, `TEENY_WEBAPP_UI=skip` builds without Node)
+- **testing/** - teeny-test (kernel/model test harness), teeny-bench (llama-bench-style model benchmarks: `pp`/`tg` tests, in-process or via teeny-api's `timings`)
 - **utilities/** - Helper crates: teeny-cli (AOT compilation helpers), teeny-data (dataset/safetensors loading), teeny-quant (model quantization)
 - **macros/teeny-macros** - Procedural macros (Edition 2021 for macro crate compatibility)
 - **support/teeny-onnx** - ONNX model format support
