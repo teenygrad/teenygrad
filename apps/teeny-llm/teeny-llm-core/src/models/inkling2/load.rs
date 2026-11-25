@@ -41,6 +41,9 @@ pub enum Source {
     /// Compute the per-expert scale from `<prefix>_amax` and the layer's
     /// denominator.
     ExpertScale(String),
+    /// NVFP4's block scale and per-expert scale, multiplied together at load time so
+    /// the kernel loads one f32 instead of decoding an E4M3 byte per weight.
+    FoldedScale(String),
     /// Read this tensor and transpose it from `[in, out]` to the `[out, in]` a linear
     /// wants, given its row length in the checkpoint.
     ///
@@ -58,6 +61,14 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
         .iter()
         .map(|slot| {
             let src = match slot.as_str() {
+                // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
+                // keep their own E8M0 bytes under the plain `scale`.
+                "mlp.experts.folded_scale" | "mlp.experts_down.folded_scale" => {
+                    let name = checkpoint_name(slot, layer);
+                    Source::FoldedScale(
+                        name.strip_suffix("_scale").unwrap_or(&name).to_string(),
+                    )
+                }
                 "mlp.experts.scale2" | "mlp.experts_down.scale2" => {
                     // checkpoint_name maps these to the amax tensor; the prefix is
                     // that name without the suffix.
@@ -83,6 +94,10 @@ pub fn missing(ck: &Checkpoint, slots: &[String], layer: usize) -> Vec<(String, 
         .filter_map(|(slot, src)| match src {
             Source::Tensor(name) | Source::Transposed(name, _) => {
                 (!ck.has(&name)).then_some((slot, name))
+            }
+            Source::FoldedScale(prefix) => {
+                let scale = format!("{prefix}_scale");
+                (!ck.has(&scale)).then_some((slot, scale))
             }
             Source::ExpertScale(prefix) => {
                 let amax = format!("{prefix}_amax");
@@ -118,6 +133,9 @@ pub fn read(
                 Source::ExpertScale(prefix) => ck
                     .expert_scale2(prefix)
                     .map_err(|e| anyhow::anyhow!("slot {slot} scales from {prefix}: {e}"))?,
+                Source::FoldedScale(prefix) => ck
+                    .folded_scale(prefix)
+                    .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?,
                 Source::Transposed(name, _) => {
                     let (flat, shape, _) = ck
                         .tensor(name)

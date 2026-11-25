@@ -1448,15 +1448,13 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
             .collect::<Vec<_>>(),
         k / 2,
     );
-    let sc = pack_rows(
-        &scales[..rows * k / 16]
-            .iter()
-            .map(|b| *b as f32)
-            .collect::<Vec<_>>(),
-        k / 16,
-    );
+    // The gather now takes one folded f32 per block: the E4M3 block scale times the
+    // per-expert scale, as the loader computes it.
+    let sc: Vec<f32> = (0..rows * k / 16)
+        .map(|i| e4m3(scales[i]) * s2[i / (k / 16) / n])
+        .collect();
     assert_eq!(bytes.len(), rows * k / 8, "four weight bytes per element");
-    assert_eq!(sc.len(), rows * k / 64, "four scales per element");
+    assert_eq!(sc.len(), rows * k / 16, "one folded scale per sixteen weights");
 
     // The same weights, dequantised on the host, for the f32 gather.
     let w: Vec<f32> = (0..rows * k)
@@ -1492,7 +1490,7 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
         ExpertGatherNvfp4Op::<f32>::new(e, n, k, top_k),
         &[&ids_q],
         &[&x, &packed],
-        &[&bytes, &sc, &s2],
+        &[&bytes, &sc],
     );
     assert_close("nvfp4 gather vs f32 gather", &packed_out, &plain, 1e-4);
     assert!(
@@ -1818,14 +1816,16 @@ fn test_the_loader_feeds_the_packed_gather_correctly() {
 
     let mut ck = Checkpoint::open(&dir).expect("opening the checkpoint");
     let w_packed = ck.param("w13_weight").expect("packed weights");
-    let s_packed = ck.param("w13_weight_scale").expect("packed scales");
     let s2 = ck.expert_scale2("w13_weight").expect("per-expert scale");
+    // The loader folds the block scale and the per-expert scale together, so the
+    // gather gets one f32 per sixteen weights and no separate per-expert scale.
+    let s_folded = ck.folded_scale("w13_weight").expect("folded scales");
     assert_eq!(
         w_packed.len(),
         rows * k / 8,
         "the loader packs to the gather's shape"
     );
-    assert_eq!(s_packed.len(), rows * (k / 16).div_ceil(4));
+    assert_eq!(s_folded.len(), rows * k / 16, "one folded scale per block");
     assert_eq!(s2, vec![0.5, 0.75], "amax over the denominator");
 
     // The same weights decoded on the host, for the f32 gather.
@@ -1862,7 +1862,7 @@ fn test_the_loader_feeds_the_packed_gather_correctly() {
         ExpertGatherNvfp4Op::<f32>::new(e, n, k, top_k),
         &[&ids_q],
         &[&x, &packed],
-        &[&w_packed, &s_packed, &s2],
+        &[&w_packed, &s_folded],
     );
     assert_close("loader -> packed gather", &got, &plain, 1e-4);
     assert!(

@@ -52,7 +52,6 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     x_ptr: InPtr<T::Pointer<D>>,
     b_ptr: InPtr<T::Pointer<D>>,
     s_ptr: InPtr<T::Pointer<D>>,
-    s2_ptr: InPtr<T::Pointer<D>>,
     ids_ptr: InPtr<T::Pointer<D>>,
     y_ptr: OutPtr<T::Pointer<D>>,
     N: i32,
@@ -114,10 +113,10 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     // the byte and scale selectors do not depend on `i` at all. They used to be
     // recomputed for every element of every chunk.
     let o8 = offs >> 3;
-    let o64 = offs >> 6;
+    // One folded f32 scale per 16 weights, so the lane's scale index is offs / 16.
+    let o16 = offs >> 4;
     let bsel = (offs >> 1) & 3;
     let parity = offs & 1;
-    let ssel = (offs >> 4) & 3;
 
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
@@ -170,53 +169,25 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
         let mag = T::where_(e.eq(0), mant * half, (one + mant * half) * p);
         let val = T::where_(sgn.eq(1), zeros - mag, mag);
 
-        let sword = T::cast::<D, i32>(
-            T::load(
-                s_ptr.add_offsets(o64 + i * (BLOCK / 64) + srow),
-                Some(km),
-                Some(zeros),
-                &[],
-                None,
-                None,
-                None,
-                true,
-            ),
+        // One folded f32 per 16-weight block: the E4M3 block scale times the
+        // per-expert scale, multiplied at load time. This used to be a word load, a
+        // shift, a mask, three field splits, a bit construction, a reinterpret and
+        // two selects -- per weight, for a scale sixteen weights share.
+        let sval = T::load(
+            s_ptr.add_offsets(o16 + i * (BLOCK / 16) + srow),
+            Some(km),
+            Some(zeros),
+            &[],
             None,
-            true,
+            None,
+            None,
+            false,
         );
-        let sb = (sword >> (ssel * 8)) & 0xFF;
-        let ssgn = sb >> 7;
-        let srest = sb & 0x7F;
-        let se = srest >> 3;
-        let sm = srest & 7;
-        let smf = T::cast::<i32, D>(sm, None, false);
-        // F8_E4M3 to f32 is an exact bit mapping, so build the float and reinterpret it
-        // instead of calling exp2 a second time per weight:
-        //
-        //   bits = (se - 7 + 127) << 23 | sm << 20 = ((se + 120) * 8 + sm) * 2^20
-        //
-        // which stays well inside i32 (se <= 15 gives 1087 * 2^20). `se == 0` is the
-        // subnormal case, sm * 2^-9.
-        let bits = ((se + 120) * 8 + sm) * 1_048_576;
-        let normal = T::cast::<i32, D>(bits, None, true);
-        let sval = T::where_(se.eq(0), smf * sub9, normal);
-        let sval = T::where_(ssgn.eq(1), zeros - sval, sval);
-
         acc = acc + x * (val * sval);
     }
-    // scale2 is one value per expert, so it multiplies the reduced sum once.
-    let s2 = T::load(
-        s2_ptr.add_offsets(expert),
-        None,
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    // One scalar per program: reduce the lanes, then write a single element.
-    let out = T::sum(acc * s2, Some(0), true);
+    // One scalar per program: reduce the lanes, then write a single element. The
+    // per-expert scale is already folded into the block scale.
+    let out = T::sum(acc, Some(0), true);
     T::store(
         y_ptr.add_offsets(T::zeros::<i32>(&[BLOCK]) + (slot * N + n)),
         out,
@@ -320,13 +291,14 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherNvfp4Runti
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         vec![
             vec![self.experts, self.n, self.k.div_ceil(8)],
-            vec![self.experts, self.n, (self.k / 16).div_ceil(4)],
-            vec![self.experts],
+            // One f32 per 16-weight block: the E4M3 block scale and the per-expert
+            // scale multiplied together at load time.
+            vec![self.experts, self.n, self.k / 16],
         ]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
-        &["weight", "scale", "scale2"]
+        &["weight", "folded_scale"]
     }
 
     fn pack_args(
@@ -348,7 +320,6 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherNvfp4Runti
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(params[1]);
-        visitor.visit_ptr(params[2]);
         visitor.visit_ptr(inputs[1].0);
         visitor.visit_ptr(output);
         visitor.visit_i32(self.n as i32);
@@ -360,7 +331,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGatherNvfp4Runti
         // Words per row, four bytes each. div_ceil, because a row shorter than
         // one word still needs one.
         visitor.visit_i32(self.k.div_ceil(8) as i32);
-        visitor.visit_i32((self.k / 16).div_ceil(4) as i32);
+        visitor.visit_i32((self.k / 16) as i32);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

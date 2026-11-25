@@ -250,6 +250,37 @@ impl Checkpoint {
         })
     }
 
+    /// NVFP4's two scale levels folded into one f32 per 16-weight block.
+    ///
+    /// A weight is `e2m1(nibble) * e4m3(scale) * (amax / denominator)`. The last two
+    /// factors are constant per block and per expert, so multiplying them here leaves
+    /// the kernel a single load where it used to decode an E4M3 byte per *weight* --
+    /// a shift, a mask, three field splits, a bit construction, a reinterpret and two
+    /// selects, sixteen times over for a scale sixteen weights share.
+    ///
+    /// Costs 4 bytes a block instead of 1, which is 0.25 bytes a weight.
+    pub fn folded_scale(&mut self, prefix: &str) -> anyhow::Result<Vec<f32>> {
+        let (bytes, shape, _) = self.tensor(&format!("{prefix}_scale"))?;
+        let s2 = self.expert_scale2(prefix)?;
+        anyhow::ensure!(
+            !s2.is_empty() && bytes.len() % s2.len() == 0,
+            "{prefix}_scale has {} entries, which {} experts do not divide",
+            bytes.len(),
+            s2.len()
+        );
+        anyhow::ensure!(
+            shape.first() == Some(&s2.len()),
+            "{prefix}_scale is {shape:?} but there are {} experts",
+            s2.len()
+        );
+        let per_expert = bytes.len() / s2.len();
+        Ok(bytes
+            .iter()
+            .enumerate()
+            .map(|(i, b)| e4m3_to_f32(*b as u8) * s2[i / per_expert])
+            .collect())
+    }
+
     /// NVFP4's per-expert scale, which the checkpoint does not store as one tensor.
     ///
     /// It keeps `<prefix>_amax` per expert and a single
@@ -268,4 +299,18 @@ impl Checkpoint {
         );
         Ok(amax.iter().map(|a| a / d).collect())
     }
+}
+
+/// One F8_E4M3 byte as an f32: sign, four exponent bits biased by 7, three mantissa
+/// bits, with a zero exponent meaning a subnormal `m * 2^-9`.
+pub fn e4m3_to_f32(b: u8) -> f32 {
+    let sign = if b >> 7 == 1 { -1.0f32 } else { 1.0 };
+    let e = (b >> 3) & 0xF;
+    let m = (b & 7) as f32;
+    let mag = if e == 0 {
+        m * 2.0f32.powi(-9)
+    } else {
+        (1.0 + m / 8.0) * 2.0f32.powi(e as i32 - 7)
+    };
+    sign * mag
 }
