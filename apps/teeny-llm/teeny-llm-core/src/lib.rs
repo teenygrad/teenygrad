@@ -17,10 +17,11 @@
 //! `teeny-llm-core`: the transport-independent core of teenygrad's LLM inference stack.
 //!
 //! Frontends ([`teeny-llm-server`], [`teeny-llm-chat`]) translate their own wire formats into
-//! the requests of each API ([`chat`], [`completion`], [`embedding`], [`transcription`]) and drive an
+//! the requests of each API ([`chat`], [`completion`], [`embedding`], [`transcription`],
+//! [`speech`]) and drive an
 //! [`Engine`]. Models implement the API traits ([`chat::ChatModel`],
 //! [`completion::CompletionModel`], [`embedding::EmbeddingModel`],
-//! [`transcription::TranscriptionModel`]);
+//! [`transcription::TranscriptionModel`], [`speech::SpeechModel`]);
 //! [`models::Model::load`] loads one as a [`models::LoadedModel`], and [`ModelEngine`]
 //! serves loaded models as an [`Engine`]. Each API has an echo model, its reference
 //! implementation and a fixture for frontends. Nothing in this crate knows about
@@ -42,6 +43,7 @@ pub mod embedding;
 mod engine;
 mod error;
 mod model_engine;
+pub mod speech;
 pub mod tokenizer;
 pub mod transcription;
 mod types;

@@ -24,6 +24,7 @@ use teeny_llm_core::chat::EchoChatModel;
 use teeny_llm_core::completion::EchoCompletionModel;
 use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::{LoadOptions, LoadedModel, Model};
+use teeny_llm_core::speech::EchoSpeechModel;
 use teeny_llm_core::transcription::EchoTranscriptionModel;
 use teeny_llm_core::{Engine, ModelEngine};
 use tracing_subscriber::EnvFilter;
@@ -57,7 +58,8 @@ struct Args {
     /// Also serve the echo models, for trying the API without weights: `teeny-echo` for
     /// chat, which echoes the last user message, `teeny-echo-complete` for text
     /// completions, which repeats the prompt, `teeny-echo-embed` for embeddings, and
-    /// `teeny-echo-transcribe` for transcriptions, which describes the recording.
+    /// `teeny-echo-transcribe` for transcriptions, which describes the recording, and
+    /// `teeny-echo-speak` for speech, which beeps once a word.
     #[arg(long)]
     echo: bool,
 }
@@ -111,6 +113,7 @@ async fn load_models(args: &Args) -> anyhow::Result<Vec<LoadedModel>> {
         loaded.push(LoadedModel::from_transcription(Arc::new(
             EchoTranscriptionModel,
         )));
+        loaded.push(LoadedModel::from_speech(Arc::new(EchoSpeechModel)));
     }
     Ok(loaded)
 }

@@ -25,6 +25,7 @@ use super::Model;
 use crate::chat::ChatModel;
 use crate::completion::CompletionModel;
 use crate::embedding::EmbeddingModel;
+use crate::speech::SpeechModel;
 use crate::tokenizer::Tokenizer;
 use crate::transcription::TranscriptionModel;
 use crate::{Error, ModelInfo, Result};
@@ -131,6 +132,8 @@ pub struct LoadedModel {
     pub embedding: Option<Arc<dyn EmbeddingModel>>,
     /// Speech to text.
     pub transcription: Option<Arc<dyn TranscriptionModel>>,
+    /// Text to speech.
+    pub speech: Option<Arc<dyn SpeechModel>>,
 }
 
 impl fmt::Debug for LoadedModel {
@@ -144,6 +147,7 @@ impl fmt::Debug for LoadedModel {
             .field("completion", &self.completion.is_some())
             .field("embedding", &self.embedding.is_some())
             .field("transcription", &self.transcription.is_some())
+            .field("speech", &self.speech.is_some())
             .finish()
     }
 }
@@ -160,6 +164,7 @@ impl LoadedModel {
             completion: None,
             embedding: None,
             transcription: None,
+            speech: None,
         }
     }
 
@@ -181,6 +186,11 @@ impl LoadedModel {
     /// A transcription model, described by its own [`TranscriptionModel::info`].
     pub fn from_transcription(transcription: Arc<dyn TranscriptionModel>) -> Self {
         Self::new(transcription.info()).with_transcription(transcription)
+    }
+
+    /// A speech model, described by its own [`SpeechModel::info`].
+    pub fn from_speech(speech: Arc<dyn SpeechModel>) -> Self {
+        Self::new(speech.info()).with_speech(speech)
     }
 
     /// Records which [`Model`] it is, so short tags resolve to it.
@@ -225,6 +235,12 @@ impl LoadedModel {
         self
     }
 
+    /// Serves speech with `speech`.
+    pub fn with_speech(mut self, speech: Arc<dyn SpeechModel>) -> Self {
+        self.speech = Some(speech);
+        self
+    }
+
     /// The APIs it serves, by name, for messages.
     pub fn apis(&self) -> Vec<&'static str> {
         let mut apis = Vec::new();
@@ -239,6 +255,9 @@ impl LoadedModel {
         }
         if self.transcription.is_some() {
             apis.push("transcriptions");
+        }
+        if self.speech.is_some() {
+            apis.push("speech");
         }
         apis
     }

@@ -15,7 +15,7 @@
  */
 
 //! End-to-end tests of the OpenAI-compatible API, against the reference echo models (chat,
-//! completions, embeddings, transcriptions) served by `ModelEngine`.
+//! completions, embeddings, transcriptions, speech) served by `ModelEngine`.
 
 use std::sync::Arc;
 
@@ -25,6 +25,7 @@ use teeny_llm_core::chat::EchoChatModel;
 use teeny_llm_core::completion::EchoCompletionModel;
 use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::LoadedModel;
+use teeny_llm_core::speech::EchoSpeechModel;
 use teeny_llm_core::transcription::EchoTranscriptionModel;
 use teeny_llm_core::{Engine, ModelEngine};
 
@@ -41,6 +42,7 @@ async fn spawn_server() -> String {
         LoadedModel::from_completion(Arc::new(EchoCompletionModel)),
         LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)),
         LoadedModel::from_transcription(Arc::new(EchoTranscriptionModel)),
+        LoadedModel::from_speech(Arc::new(EchoSpeechModel)),
     ];
     spawn(Arc::new(ModelEngine::new(models).unwrap())).await
 }
@@ -611,5 +613,72 @@ async fn test_transcription_errors_name_the_parameter() {
         assert_eq!(status, 400, "{body}");
         let err: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(err["error"]["param"], param, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn test_speaks_as_a_file_or_as_events() {
+    let base = spawn_server().await;
+    let speak = EchoSpeechModel::MODEL_ID;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/v1/audio/speech"))
+        .json(&json!({"model": speak, "input": "three short words", "voice": "echo", "response_format": "wav"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    assert_eq!(resp.headers()["content-type"], "audio/wav");
+    let wav = resp.bytes().await.unwrap();
+    let pcm = teeny_llm_core::audio::decode_wav(&wav).unwrap();
+    // Three words of 0.2 s at 24 kHz.
+    assert_eq!((pcm.sample_rate, pcm.samples.len()), (24_000, 3 * 4800));
+
+    let (status, body) = post(
+        &base,
+        "/v1/audio/speech",
+        json!({"model": speak, "input": "two words", "voice": "alloy", "response_format": "pcm", "stream_format": "sse"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let events: Vec<Value> = body
+        .lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .map(|d| serde_json::from_str(d).unwrap())
+        .collect();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0]["type"], "speech.audio.delta");
+    assert_eq!(
+        events[2],
+        json!({"type": "speech.audio.done", "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4}})
+    );
+}
+
+#[tokio::test]
+async fn test_speech_errors_name_the_parameter() {
+    let base = spawn_server().await;
+    let speak = EchoSpeechModel::MODEL_ID;
+    let cases = [
+        (
+            json!({"model": speak, "input": "hi", "voice": "alloy"}),
+            "response_format",
+        ),
+        (
+            json!({"model": speak, "input": "hi", "voice": "onyx", "response_format": "wav"}),
+            "voice",
+        ),
+        (
+            json!({"model": speak, "input": "hi", "voice": "alloy", "response_format": "wav", "speed": 5}),
+            "speed",
+        ),
+        (
+            json!({"model": ECHO, "input": "hi", "voice": "alloy", "response_format": "wav"}),
+            "model",
+        ),
+    ];
+    for (body, param) in cases {
+        let (status, text) = post(&base, "/v1/audio/speech", body).await;
+        assert_eq!(status, 400, "{text}");
+        let err: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(err["error"]["param"], param, "{text}");
     }
 }

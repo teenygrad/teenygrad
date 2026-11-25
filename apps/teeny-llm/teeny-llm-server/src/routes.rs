@@ -38,6 +38,7 @@ use futures::{Stream, StreamExt, stream};
 use teeny_llm_core::Engine;
 use teeny_llm_core::chat::{self, ChatEvent};
 use teeny_llm_core::completion::{self, CompletionEvent};
+use teeny_llm_core::speech::{self, SpeechChunk};
 use teeny_llm_core::transcription::{self, TranscriptionEvent, TranscriptionTask};
 
 use crate::openai::{
@@ -56,6 +57,7 @@ use crate::openai::{
     },
     error::ApiError,
     models::{ListModelsResponse, Model},
+    speech::{AudioDeltaEvent, AudioDoneEvent, CreateSpeechRequest, StreamFormat},
 };
 
 type AppState = Arc<dyn Engine>;
@@ -73,6 +75,7 @@ pub fn router(engine: Arc<dyn Engine>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
         .route("/v1/embeddings", post(embeddings))
+        .route("/v1/audio/speech", post(speech_audio))
         .route(
             "/v1/audio/transcriptions",
             post(transcriptions).layer(DefaultBodyLimit::max(MAX_AUDIO_BYTES)),
@@ -390,4 +393,27 @@ async fn audio_to_text(
         Rendered::Json(v) => Json(v).into_response(),
         Rendered::Text { mime, body } => ([(header::CONTENT_TYPE, mime)], body).into_response(),
     })
+}
+
+async fn speech_audio(
+    State(engine): State<AppState>,
+    body: Result<Json<CreateSpeechRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Json(req) = body?;
+    let (request, stream_format) = req.into_core()?;
+    let mime = request.format.mime();
+    let audio = engine.speak(request).await?;
+    if stream_format == StreamFormat::Sse {
+        // Speech streams end with their done event, without chat's `[DONE]`.
+        let events = audio.map(|chunk| match chunk {
+            Ok(SpeechChunk::Audio(bytes)) => sse_event(&AudioDeltaEvent::new(&bytes)),
+            Ok(SpeechChunk::Done(usage)) => sse_event(&AudioDoneEvent::new(usage)),
+            Err(e) => sse_error(e),
+        });
+        return Ok(Sse::new(events.map(Ok::<_, Infallible>))
+            .keep_alive(KeepAlive::default())
+            .into_response());
+    }
+    let (bytes, _) = speech::collect(audio).await?;
+    Ok(([(header::CONTENT_TYPE, mime)], bytes).into_response())
 }

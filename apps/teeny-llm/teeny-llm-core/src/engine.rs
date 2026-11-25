@@ -19,6 +19,7 @@ use futures::future::BoxFuture;
 use crate::chat::{ChatRequest, ChatStream};
 use crate::completion::{CompletionRequest, CompletionStream};
 use crate::embedding::{EmbeddingRequest, Embeddings};
+use crate::speech::{AudioStream, SpeechRequest};
 use crate::transcription::{TranscriptionRequest, TranscriptionStream};
 use crate::{Error, ModelInfo, Result};
 
@@ -97,6 +98,22 @@ pub trait Engine: Send + Sync + 'static {
             Err(Error::Unsupported {
                 engine: name,
                 operation: "transcriptions",
+            })
+        })
+    }
+
+    /// Speaks `request.input`, in `request.format`. Engines that serve
+    /// [`SpeechModel`](crate::speech::SpeechModel)s implement it; the rest keep the
+    /// default.
+    ///
+    /// Validation errors resolve the future to `Err` before the model runs.
+    fn speak(&self, request: SpeechRequest) -> BoxFuture<'_, Result<AudioStream>> {
+        let _ = request;
+        let name = self.name();
+        Box::pin(async move {
+            Err(Error::Unsupported {
+                engine: name,
+                operation: "speech",
             })
         })
     }

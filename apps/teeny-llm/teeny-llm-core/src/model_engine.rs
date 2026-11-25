@@ -25,6 +25,7 @@ use crate::chat::{ChatModel, ChatRequest, ChatStream, validate};
 use crate::completion::{self, CompletionModel, CompletionRequest, CompletionStream};
 use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
 use crate::models::{LoadedModel, Model};
+use crate::speech::{self, AudioStream, SpeechModel, SpeechRequest};
 use crate::transcription::{self, TranscriptionModel, TranscriptionRequest, TranscriptionStream};
 use crate::{Engine, Error, ModelInfo, Result};
 
@@ -63,6 +64,7 @@ impl ModelEngine {
                     "transcription",
                     m.transcription.as_ref().map(|t| t.info().id),
                 ),
+                ("speech", m.speech.as_ref().map(|s| s.info().id)),
             ];
             for (api, id) in handles {
                 if let Some(id) = id.filter(|id| *id != m.info.id) {
@@ -138,6 +140,15 @@ impl ModelEngine {
         match &m.transcription {
             Some(t) => Ok((m, t)),
             None => Err(lacks(m, "transcriptions")),
+        }
+    }
+
+    /// The speech handle of the model `requested` names.
+    fn speech_model(&self, requested: &str) -> Result<(&LoadedModel, &Arc<dyn SpeechModel>)> {
+        let m = self.find(requested)?;
+        match &m.speech {
+            Some(s) => Ok((m, s)),
+            None => Err(lacks(m, "speech")),
         }
     }
 }
@@ -219,6 +230,23 @@ impl Engine for ModelEngine {
             // The model has the samples; the upload is not needed twice.
             request.audio = Vec::new();
             model.transcribe(request, audio).await
+        })
+    }
+
+    fn speak(&self, mut request: SpeechRequest) -> BoxFuture<'_, Result<AudioStream>> {
+        Box::pin(async move {
+            let (loaded, model) = self.speech_model(&request.model)?;
+            request.model.clone_from(&loaded.info.id);
+            let caps = model.capabilities();
+            speech::validate(&loaded.info.id, &caps, &request)?;
+            let (format, streamed) = (request.format, request.stream);
+            let samples = model.speak(request).await?;
+            Ok(speech::encode_stream(
+                samples,
+                format,
+                caps.sample_rate,
+                streamed,
+            ))
         })
     }
 }
