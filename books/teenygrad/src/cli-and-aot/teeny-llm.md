@@ -6,8 +6,8 @@ under `apps/teeny-llm/`:
 
 | Crate              | Kind      | Role                                                                    |
 | ------------------ | --------- | ----------------------------------------------------------------------- |
-| `teeny-llm-core`   | library   | The API traits models implement (chat, completions, embeddings), the model factory, and the `Engine` frontends drive |
-| `teeny-llm-server` | lib + bin | OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`) |
+| `teeny-llm-core`   | library   | The API traits models implement (chat, completions, embeddings, transcription, speech, moderation, images), the model factory, and the `Engine` frontends drive |
+| `teeny-llm-server` | lib + bin | OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/audio/*`, `/v1/moderations`, `/v1/images/*`, `/v1/models`) |
 | `teeny-llm-chat`   | binary    | Interactive terminal chat, running the engine in-process                |
 
 Each binary serves the models it is built with; a model is a cargo feature, with the backend it

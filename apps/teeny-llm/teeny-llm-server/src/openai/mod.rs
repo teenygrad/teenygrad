@@ -26,6 +26,7 @@ pub mod chat;
 pub mod completions;
 pub mod embeddings;
 pub mod error;
+pub mod images;
 pub mod models;
 pub mod moderations;
 pub mod speech;

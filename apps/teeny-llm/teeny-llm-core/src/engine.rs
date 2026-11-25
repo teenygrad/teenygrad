@@ -19,6 +19,7 @@ use futures::future::BoxFuture;
 use crate::chat::{ChatRequest, ChatStream};
 use crate::completion::{CompletionRequest, CompletionStream};
 use crate::embedding::{EmbeddingRequest, Embeddings};
+use crate::images::{EncodedImageStream, ImageRequest};
 use crate::moderation::{Moderation, ModerationRequest};
 use crate::speech::{AudioStream, SpeechRequest};
 use crate::transcription::{TranscriptionRequest, TranscriptionStream};
@@ -129,6 +130,23 @@ pub trait Engine: Send + Sync + 'static {
             Err(Error::Unsupported {
                 engine: name,
                 operation: "moderations",
+            })
+        })
+    }
+
+    /// Paints images for `request` (a generation, edit or variation), in
+    /// `request.format`. Engines that serve [`ImageModel`](crate::images::ImageModel)s
+    /// implement it; the rest keep the default.
+    ///
+    /// Validation and upload decoding errors resolve the future to `Err` before the model
+    /// runs.
+    fn paint(&self, request: ImageRequest) -> BoxFuture<'_, Result<EncodedImageStream>> {
+        let _ = request;
+        let name = self.name();
+        Box::pin(async move {
+            Err(Error::Unsupported {
+                engine: name,
+                operation: "images",
             })
         })
     }

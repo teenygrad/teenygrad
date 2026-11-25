@@ -11,7 +11,7 @@ HTTP API) and [`teeny-llm-chat`](https://docs.teenygrad.org/api/teenygrad/teeny_
   implement, and an echo model as its reference implementation: `chat` (`ChatModel`),
   `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`), `transcription`
   (`TranscriptionModel`), `speech` (`SpeechModel`),
-  `moderation` (`ModerationModel`)
+  `moderation` (`ModerationModel`), `images` (`ImageModel`, with PNG encoding and decoding)
 - `audio`: decoding uploads into PCM (WAV so far) and encoding PCM (WAV, raw), mixed and
   resampled for the model, so no speech model repeats it
 - `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)

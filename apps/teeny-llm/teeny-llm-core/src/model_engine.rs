@@ -24,6 +24,7 @@ use futures::future::BoxFuture;
 use crate::chat::{ChatModel, ChatRequest, ChatStream, validate};
 use crate::completion::{self, CompletionModel, CompletionRequest, CompletionStream};
 use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
+use crate::images::{self, EncodedImageStream, ImageModel, ImageRequest};
 use crate::models::{LoadedModel, Model};
 use crate::moderation::{self, Moderation, ModerationModel, ModerationRequest};
 use crate::speech::{self, AudioStream, SpeechModel, SpeechRequest};
@@ -67,6 +68,7 @@ impl ModelEngine {
                 ),
                 ("speech", m.speech.as_ref().map(|s| s.info().id)),
                 ("moderation", m.moderation.as_ref().map(|s| s.info().id)),
+                ("images", m.images.as_ref().map(|s| s.info().id)),
             ];
             for (api, id) in handles {
                 if let Some(id) = id.filter(|id| *id != m.info.id) {
@@ -176,6 +178,15 @@ impl ModelEngine {
             None => Err(lacks(m, "moderations")),
         }
     }
+
+    /// The image handle of the model `requested` names.
+    fn image_model(&self, requested: &str) -> Result<(&LoadedModel, &Arc<dyn ImageModel>)> {
+        let m = self.find(requested)?;
+        match &m.images {
+            Some(h) => Ok((m, h)),
+            None => Err(lacks(m, "images")),
+        }
+    }
 }
 
 /// The error for a request to `model` for an API it does not serve.
@@ -283,6 +294,21 @@ impl Engine for ModelEngine {
             let mut out = model.moderate(request).await?;
             out.model.clone_from(&loaded.info.id);
             Ok(out)
+        })
+    }
+
+    fn paint(&self, mut request: ImageRequest) -> BoxFuture<'_, Result<EncodedImageStream>> {
+        Box::pin(async move {
+            let (loaded, model) = self.image_model(&request.model)?;
+            request.model.clone_from(&loaded.info.id);
+            images::validate(&loaded.info.id, &model.capabilities(), &request)?;
+            let inputs = images::decode_inputs(&request)?;
+            // The model has the decoded images; the uploads are not needed twice.
+            request.images = Vec::new();
+            request.mask = None;
+            let format = request.format;
+            let painted = model.paint(request, inputs).await?;
+            Ok(images::encode_stream(painted, format))
         })
     }
 }

@@ -38,6 +38,7 @@ use futures::{Stream, StreamExt, stream};
 use teeny_llm_core::Engine;
 use teeny_llm_core::chat::{self, ChatEvent};
 use teeny_llm_core::completion::{self, CompletionEvent};
+use teeny_llm_core::images::{self, ImageEvent, ImageRequest, ImageTask};
 use teeny_llm_core::speech::{self, SpeechChunk};
 use teeny_llm_core::transcription::{self, TranscriptionEvent, TranscriptionTask};
 
@@ -56,6 +57,7 @@ use crate::openai::{
         CreateEmbeddingRequest, CreateEmbeddingResponse, Embedding, EmbeddingUsage, EmbeddingVector,
     },
     error::ApiError,
+    images::{ImageParams, ImageStreamEvent, ImagesResponse, parse_form as parse_image_form},
     models::{ListModelsResponse, Model},
     moderations::{CreateModerationRequest, CreateModerationResponse},
     speech::{AudioDeltaEvent, AudioDoneEvent, CreateSpeechRequest, StreamFormat},
@@ -67,6 +69,10 @@ type AppState = Arc<dyn Engine>;
 /// form's other fields.
 const MAX_AUDIO_BYTES: usize = 26 * 1024 * 1024;
 
+/// The largest image form the edit and variation endpoints take: OpenAI's 50 MiB a file,
+/// for a few files.
+const MAX_IMAGE_BYTES: usize = 128 * 1024 * 1024;
+
 /// Builds the OpenAI-compatible router (`/v1/...` plus `/health`) over `engine`.
 pub fn router(engine: Arc<dyn Engine>) -> Router {
     Router::new()
@@ -77,6 +83,15 @@ pub fn router(engine: Arc<dyn Engine>) -> Router {
         .route("/v1/completions", post(completions))
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/moderations", post(moderations))
+        .route("/v1/images/generations", post(image_generations))
+        .route(
+            "/v1/images/edits",
+            post(image_edits).layer(DefaultBodyLimit::max(MAX_IMAGE_BYTES)),
+        )
+        .route(
+            "/v1/images/variations",
+            post(image_variations).layer(DefaultBodyLimit::max(MAX_IMAGE_BYTES)),
+        )
         .route("/v1/audio/speech", post(speech_audio))
         .route(
             "/v1/audio/transcriptions",
@@ -432,4 +447,79 @@ async fn moderations(
         new_id("modr"),
         &out,
     )))
+}
+
+// ---- images ----------------------------------------------------------------------------------
+
+async fn image_generations(
+    State(engine): State<AppState>,
+    body: Result<Json<ImageParams>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Json(params) = body?;
+    paint(
+        engine,
+        params.into_core(ImageTask::Generate, Vec::new(), None)?,
+    )
+    .await
+}
+
+async fn image_edits(
+    State(engine): State<AppState>,
+    form: Result<Multipart, MultipartRejection>,
+) -> Result<Response, ApiError> {
+    let request = parse_image_form(ImageTask::Edit, read_form(form?).await?)?;
+    paint(engine, request).await
+}
+
+async fn image_variations(
+    State(engine): State<AppState>,
+    form: Result<Multipart, MultipartRejection>,
+) -> Result<Response, ApiError> {
+    let request = parse_image_form(ImageTask::Variation, read_form(form?).await?)?;
+    paint(engine, request).await
+}
+
+async fn paint(engine: AppState, request: ImageRequest) -> Result<Response, ApiError> {
+    // What the response describes, without the uploads.
+    let described = ImageRequest {
+        images: Vec::new(),
+        mask: None,
+        ..request.clone()
+    };
+    let created = unix_now();
+    let painted = engine.paint(request).await?;
+    if !described.stream {
+        let (data, usage) = images::collect(painted).await?;
+        return Ok(Json(ImagesResponse::new(created, &described, data, usage)).into_response());
+    }
+    // A completed event carries the usage, which the model sends last: finished images
+    // wait for it. Image streams end with their completed events, without `[DONE]`.
+    let events = painted
+        .scan(Vec::new(), move |pending: &mut Vec<Vec<u8>>, event| {
+            let out: Vec<Event> = match event {
+                Ok(ImageEvent::Partial { partial, image, .. }) => {
+                    vec![sse_event(&ImageStreamEvent::partial(
+                        &described, created, partial, &image,
+                    ))]
+                }
+                Ok(ImageEvent::Done { image, .. }) => {
+                    pending.push(image);
+                    Vec::new()
+                }
+                Ok(ImageEvent::Usage(usage)) => pending
+                    .drain(..)
+                    .map(|image| {
+                        sse_event(&ImageStreamEvent::completed(
+                            &described, created, &image, usage,
+                        ))
+                    })
+                    .collect(),
+                Err(e) => vec![sse_error(e)],
+            };
+            futures::future::ready(Some(stream::iter(out)))
+        })
+        .flatten();
+    Ok(Sse::new(events.map(Ok::<_, Infallible>))
+        .keep_alive(KeepAlive::default())
+        .into_response())
 }
