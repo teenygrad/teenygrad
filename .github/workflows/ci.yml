@@ -115,10 +115,10 @@ jobs:
       - name: Clippy teeny-llm-core models (cuda, riscv)
         run: |
           cargo clippy -p teeny-llm-core --all-targets -- -D warnings
-          cargo clippy -p teeny-llm-core --all-targets --no-default-features --features functiongemma,riscv -- -D warnings
+          cargo clippy -p teeny-llm-core --all-targets --no-default-features --features functiongemma3,riscv -- -D warnings
 
       - name: Test teeny-llm-core (riscv)
-        run: cargo test -p teeny-llm-core --no-default-features --features functiongemma,riscv
+        run: cargo test -p teeny-llm-core --no-default-features --features functiongemma3,riscv
 
       - name: Check formatting
         run: cargo fmt --all -- --check

@@ -5,8 +5,8 @@ Gemma 3 text models on teenygrad, starting with FunctionGemma
 270M fine-tuned for function calling). Runs on CUDA and on RISC-V RVV boards.
 
 It lives in `teeny-llm-core` as `teeny_llm_core::models::functiongemma`, behind the
-`functiongemma` cargo feature. It is on by default with CUDA; for RISC-V build with
-`--no-default-features --features functiongemma,riscv` (or `qemu`). Its own
+`functiongemma3` cargo feature. It is on by default with CUDA; for RISC-V build with
+`--no-default-features --features functiongemma3,riscv` (or `qemu`). Its own
 kernels (scaled embedding, RMSNorm, gated tanh-GELU) are in that module; the ones it shares with
 other models (attention, linear, RoPE, last row) are in `teeny_llm_core::kernels`.
 

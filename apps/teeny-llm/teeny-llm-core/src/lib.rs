@@ -21,10 +21,11 @@
 //! [`chat::ChatModel`], and [`chat::ChatEngine`] serves them as an [`Engine`]. Nothing in this
 //! crate knows about HTTP or the terminal.
 //!
-//! Model implementations live in `models`, each behind a cargo feature named after it
-//! (`functiongemma`), with the kernels they share in `kernels`; [`models::Model`] lists the
-//! ones a build can run, for command lines to take as `--model`. Pick the backend with
-//! `cuda`, `riscv` or `qemu`; the defaults are `functiongemma` and `cuda`.
+//! Model implementations live in `models`, each behind a cargo feature named for the model
+//! and its version (`functiongemma3` for `models::functiongemma`), with the kernels they
+//! share in `kernels`; [`models::Model`] lists the ones a build can run, for command lines
+//! to take as `--model`. Pick the backend with `cuda`, `riscv` or `qemu`; the defaults are
+//! `functiongemma3` and `cuda`.
 //!
 //! [`teeny-llm-server`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_server/
 //! [`teeny-llm-chat`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_chat/

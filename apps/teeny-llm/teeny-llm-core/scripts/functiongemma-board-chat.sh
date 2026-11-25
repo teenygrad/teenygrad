@@ -53,7 +53,7 @@ if [[ $skip_build == 0 ]]; then
     CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc \
         CARGO_TARGET_DIR=$target_dir \
         cargo build --release --target $triple -p teeny-llm-core --example chat \
-        --no-default-features --features functiongemma,riscv
+        --no-default-features --features functiongemma3,riscv
 fi
 
 # ── Stage: binary and model (dereferencing the Hugging Face cache's symlinks) ─────────────────

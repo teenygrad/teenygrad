@@ -23,7 +23,7 @@ use std::str::FromStr;
 
 use crate::{Error, Result};
 
-#[cfg(feature = "functiongemma")]
+#[cfg(feature = "functiongemma3")]
 pub mod functiongemma;
 
 /// A model this build of teeny-llm-core can run: one variant per model family (and
@@ -41,13 +41,14 @@ pub mod functiongemma;
 #[non_exhaustive]
 pub enum Model {
     /// FunctionGemma: Gemma 3 270M tuned for function calling (`models::functiongemma`).
-    #[cfg(feature = "functiongemma")]
+    #[cfg(feature = "functiongemma3")]
     FunctionGemma3,
 }
 
 /// What a [`Model`] is, known without loading it. The exact parameter count and the
 /// hyperparameters come from the weights themselves; see [`parameter_count`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ModelSpec {
     /// The canonical tag, `family:size` (`functiongemma3:270m`).
     pub tag: &'static str,
@@ -72,14 +73,14 @@ pub struct ModelSpec {
 impl Model {
     /// Every model compiled into this build, each in every size.
     pub const ALL: &'static [Model] = &[
-        #[cfg(feature = "functiongemma")]
+        #[cfg(feature = "functiongemma3")]
         Model::FunctionGemma3,
     ];
 
     /// What the model is.
     pub fn spec(self) -> ModelSpec {
         match self {
-            #[cfg(feature = "functiongemma")]
+            #[cfg(feature = "functiongemma3")]
             Model::FunctionGemma3 => ModelSpec {
                 tag: "functiongemma3:270m",
                 family: "functiongemma3",
@@ -97,7 +98,7 @@ impl Model {
     /// Whether this is the size `--model <family>` picks when no size is given.
     pub fn is_default_size(self) -> bool {
         match self {
-            #[cfg(feature = "functiongemma")]
+            #[cfg(feature = "functiongemma3")]
             Model::FunctionGemma3 => true,
         }
     }
@@ -116,7 +117,7 @@ impl Model {
     /// The files a weights folder for this model must hold.
     pub fn required_files(self) -> &'static [&'static str] {
         match self {
-            #[cfg(feature = "functiongemma")]
+            #[cfg(feature = "functiongemma3")]
             Model::FunctionGemma3 => &[
                 "config.json",
                 "model.safetensors",
@@ -343,7 +344,7 @@ fn safetensors_parameters(file: &Path) -> std::result::Result<u64, String> {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "functiongemma")]
+    #[cfg(feature = "functiongemma3")]
     #[test]
     fn test_model_tags_round_trip() {
         for m in Model::ALL {
@@ -355,7 +356,7 @@ mod tests {
         assert_eq!(Model::tags(), ["functiongemma3", "functiongemma3:270m"]);
     }
 
-    #[cfg(feature = "functiongemma")]
+    #[cfg(feature = "functiongemma3")]
     #[test]
     fn test_family_alone_picks_the_default_size() {
         for tag in [
@@ -410,7 +411,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "functiongemma")]
+    #[cfg(feature = "functiongemma3")]
     #[test]
     fn test_locate_checks_the_weights_folder() {
         let dir = std::env::temp_dir().join(format!("teeny-llm-locate-{}", std::process::id()));
@@ -427,7 +428,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[cfg(feature = "functiongemma")]
+    #[cfg(feature = "functiongemma3")]
     #[test]
     fn test_locate_finds_the_cached_snapshot_refs_main_names() {
         let hub = std::env::temp_dir().join(format!("teeny-llm-hub-{}", std::process::id()));

@@ -29,7 +29,7 @@
 
 #[cfg(not(any(feature = "cuda", feature = "riscv")))]
 compile_error!(
-    "the `functiongemma` feature needs a backend to run on: enable `cuda`, `riscv` or `qemu` with it"
+    "the `functiongemma3` feature needs a backend to run on: enable `cuda`, `riscv` or `qemu` with it"
 );
 
 pub mod chat;

@@ -53,7 +53,7 @@ for `qemu-riscv64` unless told otherwise):
 TEENYC_QEMU_RISCV64=$(command -v qemu-riscv64-static) TEENYC_CAPABILITY=spacemit-k3 GEMMA_STEPS=6 \
 GEMMA_MODEL_DIR=$(ls -d ~/.cache/huggingface/hub/models--google--functiongemma-270m-it/snapshots/*/ | head -1) \
 GEMMA_FIXTURES=~/.cache/teeny-llm/fixtures/functiongemma CARGO_TARGET_DIR=target/qemu-test \
-  cargo test --release -p teeny-llm-core --no-default-features --features functiongemma,qemu \
+  cargo test --release -p teeny-llm-core --no-default-features --features functiongemma3,qemu \
     --test test_functiongemma -- --ignored --nocapture test_functiongemma_matches_pytorch
 ```
 

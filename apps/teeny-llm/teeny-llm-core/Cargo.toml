@@ -13,10 +13,10 @@ categories = ["science"]
 
 [features]
 # FunctionGemma on CUDA. A model feature needs a backend, so build for RISC-V with
-# `--no-default-features --features functiongemma,riscv` (or `qemu`).
-default = ["functiongemma", "cuda"]
+# `--no-default-features --features functiongemma3,riscv` (or `qemu`).
+default = ["functiongemma3", "cuda"]
 # One feature per model; each turns on the shared kernels and its own dependencies.
-functiongemma = [
+functiongemma3 = [
   "kernels",
   "dep:anyhow",
   "dep:half",
@@ -67,12 +67,12 @@ tokio = { workspace = true }
 
 [[example]]
 name = "chat"
-required-features = ["functiongemma"]
+required-features = ["functiongemma3"]
 
 [[test]]
 name = "test_functiongemma"
-required-features = ["functiongemma"]
+required-features = ["functiongemma3"]
 
 [[test]]
 name = "test_llm_kernels"
-required-features = ["functiongemma"]
+required-features = ["functiongemma3"]
