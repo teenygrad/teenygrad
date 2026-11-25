@@ -60,12 +60,25 @@ milliseconds) and its fields:
 | `model.failed` | `model`, `error` | a model failed to load (the server then stops) |
 | `request.started` | `id`, `method`, `path` | an API request arrived (`id` is also its `x-request-id`) |
 | `request.finished` | `id`, `method`, `path`, `status`, `duration_ms` | it was answered (for a stream, when the stream started) |
+| `request.stats` | `id`, `model`, `timings` | a chat or text completion generated its output; `timings` as below |
 | `heartbeat` | | after 15 s with nothing else to send |
 | `lagged` | `missed` | this subscriber fell behind and missed some events |
 
 The server listens before its models load, so a client sees them load and arrive. Events are
 not stored: a subscriber gets those published while it is connected. What a client sends is
 ignored. `/health` and `/v1/events` aren't reported as requests.
+
+## Timings
+
+Chat and text completion responses carry a `timings` object in
+[llama.cpp server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)'s format,
+from the model's own measurements: `prompt_n` tokens run in `prompt_ms` (`prompt_per_second`),
+`cache_n` reused from the KV cache, and `predicted_n` generated, decoding at
+`predicted_per_second`. teenygrad adds `queued_ms` (waiting for the model), `first_token_ms`
+(from arrival to the first token) and `predicted_latencies_ms` (each decode step). The first
+token comes out of the prompt phase, so the `predicted_*` rates are over the `predicted_n - 1`
+decode steps after it. A stream sends `timings` on its final usage chunk, so ask for
+`stream_options.include_usage`. OpenAI clients ignore the field.
 
 ## Getting started
 

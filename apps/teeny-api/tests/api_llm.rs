@@ -93,6 +93,25 @@ async fn test_chat_completion() {
     assert!(v["choices"][0]["logprobs"].is_null());
     assert_eq!(v["usage"]["completion_tokens"], 2);
     assert_eq!(v["usage"]["total_tokens"], 6);
+    // llama.cpp's timings, from the model's own measurements.
+    let t = &v["timings"];
+    assert_eq!(
+        (&t["prompt_n"], &t["cache_n"], &t["predicted_n"]),
+        (&json!(4), &json!(0), &json!(2))
+    );
+    assert_eq!(
+        t["predicted_latencies_ms"].as_array().map(Vec::len),
+        Some(1)
+    );
+    for key in [
+        "prompt_ms",
+        "prompt_per_second",
+        "predicted_ms",
+        "predicted_per_second",
+        "first_token_ms",
+    ] {
+        assert!(t[key].as_f64().is_some_and(|x| x >= 0.0), "{key}: {t}");
+    }
 }
 
 #[tokio::test]
@@ -129,6 +148,22 @@ async fn test_chat_completion_stream_with_usage() {
     assert_eq!(chunks[n - 1]["choices"], json!([]));
     assert_eq!(chunks[n - 1]["usage"]["completion_tokens"], 2);
     assert!(chunks[..n - 1].iter().all(|c| c.get("usage").is_none()));
+    // The timings come with the usage, and only with it.
+    assert_eq!(chunks[n - 1]["timings"]["predicted_n"], 2);
+    assert!(chunks[..n - 1].iter().all(|c| c.get("timings").is_none()));
+
+    let (_, body) = post(
+        &base,
+        "/v1/chat/completions",
+        json!({"model": ECHO, "messages": [{"role": "user", "content": "hi"}], "stream": true}),
+    )
+    .await;
+    assert!(
+        sse_payloads(&body)
+            .iter()
+            .all(|c| c.get("timings").is_none() && c["choices"] != json!([])),
+        "without include_usage, no chunk without choices: {body}"
+    );
 }
 
 #[tokio::test]
@@ -147,6 +182,8 @@ async fn test_completion_and_stream() {
     assert_eq!(v["choices"][1]["text"], "c");
     assert_eq!(v["choices"][1]["index"], 1);
     assert_eq!(v["usage"]["completion_tokens"], 3);
+    assert_eq!(v["timings"]["prompt_n"], 3);
+    assert_eq!(v["timings"]["predicted_n"], 3);
 
     let (status, body) = post(
         &base,
@@ -165,6 +202,18 @@ async fn test_completion_and_stream() {
         chunks.last().unwrap()["choices"][0]["finish_reason"],
         "stop"
     );
+
+    let (_, body) = post(
+        &base,
+        "/v1/completions",
+        json!({"model": COMPLETE, "prompt": "x y", "stream": true,
+               "stream_options": {"include_usage": true}}),
+    )
+    .await;
+    let chunks = sse_payloads(&body);
+    let last = chunks.last().unwrap();
+    assert_eq!(last["usage"]["completion_tokens"], 2);
+    assert_eq!(last["timings"]["predicted_n"], 2);
 }
 
 #[tokio::test]

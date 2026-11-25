@@ -25,6 +25,7 @@ use teeny_llm::completion::{
 };
 
 use super::error::ApiError;
+use super::timings::Timings;
 use super::{FinishReason, OneOrMany, StreamOptions, Usage};
 
 /// `prompt`: a string, strings, token ids, or arrays of token ids.
@@ -210,6 +211,10 @@ pub struct CreateCompletionResponse {
     pub choices: Vec<CompletionChoice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// How long it took (llama.cpp's `timings`), from a model that measures itself; when
+    /// streamed, on the usage chunk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<Timings>,
 }
 
 #[cfg(test)]

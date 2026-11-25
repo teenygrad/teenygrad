@@ -31,7 +31,7 @@ use axum::{
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{ServerState, new_id};
-use crate::events::{Envelope, Events, ServerEvent};
+use crate::events::{Envelope, Events, RequestId, ServerEvent};
 use crate::openai::models::Model;
 
 /// How long a quiet connection waits before a heartbeat.
@@ -89,7 +89,11 @@ async fn serve(mut socket: WebSocket, state: ServerState) {
 
 /// Publishes each API request's start and finish, and gives its response the request's
 /// id as `x-request-id`.
-pub(super) async fn track(State(events): State<Events>, request: Request, next: Next) -> Response {
+pub(super) async fn track(
+    State(events): State<Events>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     let path = request.uri().path().to_owned();
     if UNTRACKED.contains(&path.as_str()) {
         return next.run(request).await;
@@ -97,6 +101,7 @@ pub(super) async fn track(State(events): State<Events>, request: Request, next: 
     let method = request.method().to_string();
     let id = new_id("req");
     let started = Instant::now();
+    request.extensions_mut().insert(RequestId(id.clone()));
     events.publish(ServerEvent::RequestStarted {
         id: id.clone(),
         method: method.clone(),

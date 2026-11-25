@@ -17,7 +17,7 @@
 //! The LLM endpoints: chat completions, legacy completions, embeddings and moderations.
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{State, rejection::JsonRejection},
     response::{IntoResponse, Response, sse::Event},
     routing::post,
@@ -25,6 +25,9 @@ use axum::{
 use futures::{StreamExt, stream};
 use teeny_llm::chat::{self, ChatEvent};
 use teeny_llm::completion::{self, CompletionEvent};
+
+use crate::events::{Events, RequestId, ServerEvent};
+use crate::openai::timings::Timings;
 
 use super::{AppState, ServerState, new_id, sse_error, sse_event, sse_response, unix_now};
 use crate::openai::{
@@ -54,8 +57,28 @@ pub(super) fn routes(router: Router<ServerState>) -> Router<ServerState> {
 
 // ---- chat completions ------------------------------------------------------------------------
 
+/// Publishes `timings` for request `id` (when the event middleware named it) on `events`.
+fn publish_stats(
+    events: &Events,
+    id: Option<&RequestId>,
+    model: &str,
+    timings: &teeny_llm::Timings,
+) -> Timings {
+    let wire = Timings::from(timings);
+    if let Some(RequestId(id)) = id {
+        events.publish(ServerEvent::RequestStats {
+            id: id.clone(),
+            model: model.to_owned(),
+            timings: wire.clone(),
+        });
+    }
+    wire
+}
+
 async fn chat_completions(
     State(engine): State<AppState>,
+    State(events): State<Events>,
+    request_id: Option<Extension<RequestId>>,
     body: Result<Json<CreateChatCompletionRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let Json(req) = body?;
@@ -65,12 +88,17 @@ async fn chat_completions(
     let model = engine.model(&request.model)?.id;
     let (n, include_usage) = (request.n, request.include_usage);
     let logprobs = request.logprobs.is_some();
-    let events = engine.chat_stream(request)?;
+    let stream_events = engine.chat_stream(request)?;
     let id = new_id("chatcmpl");
     let created = unix_now();
 
+    let request_id = request_id.map(|Extension(id)| id);
     if !stream {
-        let done = chat::collect(&model, n, events).await?;
+        let done = chat::collect(&model, n, stream_events).await?;
+        let timings = done
+            .timings
+            .as_ref()
+            .map(|t| publish_stats(&events, request_id.as_ref(), &model, t));
         return Ok(Json(CreateChatCompletionResponse {
             id,
             object: "chat.completion".to_owned(),
@@ -82,11 +110,15 @@ async fn chat_completions(
                 .map(|c| choice_from_core(c, logprobs))
                 .collect(),
             usage: Some(done.usage.into()),
+            timings,
         })
         .into_response());
     }
 
-    let chunk = move |choices: Vec<ChatCompletionStreamChoice>, usage: Option<Usage>| {
+    let stats_model = model.clone();
+    let chunk = move |choices: Vec<ChatCompletionStreamChoice>,
+                      usage: Option<Usage>,
+                      timings: Option<Timings>| {
         sse_event(&CreateChatCompletionStreamResponse {
             id: id.clone(),
             object: "chat.completion.chunk".to_owned(),
@@ -94,6 +126,7 @@ async fn chat_completions(
             model: model.clone(),
             choices,
             usage,
+            timings,
         })
     };
     let choice = |index, delta, logprobs, finish_reason| ChatCompletionStreamChoice {
@@ -110,10 +143,13 @@ async fn chat_completions(
                 content: Some(String::new()),
                 ..ChatCompletionStreamResponseDelta::default()
             };
-            chunk(vec![choice(index, delta, None, None)], None)
+            chunk(vec![choice(index, delta, None, None)], None, None)
         })
         .collect();
-    let rest = events.filter_map(move |item| {
+    // The timings wait for the usage chunk, so a stream never sends a chunk without
+    // choices that its client didn't ask for.
+    let mut timings: Option<Timings> = None;
+    let rest = stream_events.filter_map(move |item| {
         let event = match item {
             Err(e) => Some(sse_error(e)),
             Ok(ChatEvent::Delta { index, delta }) => {
@@ -125,6 +161,7 @@ async fn chat_completions(
                 Some(chunk(
                     vec![choice(index, delta_from_core(delta), lp, None)],
                     None,
+                    None,
                 ))
             }
             Ok(ChatEvent::Finish { index, reason }) => Some(chunk(
@@ -135,10 +172,20 @@ async fn chat_completions(
                     Some(FinishReason::from(reason)),
                 )],
                 None,
+                None,
             )),
-            // Not on the wire yet.
-            Ok(ChatEvent::Timings(_)) => None,
-            Ok(ChatEvent::Usage(u)) => include_usage.then(|| chunk(Vec::new(), Some(u.into()))),
+            Ok(ChatEvent::Timings(t)) => {
+                timings = Some(publish_stats(
+                    &events,
+                    request_id.as_ref(),
+                    &stats_model,
+                    &t,
+                ));
+                None
+            }
+            Ok(ChatEvent::Usage(u)) => {
+                include_usage.then(|| chunk(Vec::new(), Some(u.into()), timings.take()))
+            }
         };
         std::future::ready(event)
     });
@@ -149,6 +196,8 @@ async fn chat_completions(
 
 async fn completions(
     State(engine): State<AppState>,
+    State(events): State<Events>,
+    request_id: Option<Extension<RequestId>>,
     body: Result<Json<CreateCompletionRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let Json(req) = body?;
@@ -157,29 +206,37 @@ async fn completions(
     let model = engine.model(&request.model)?.id;
     let choices = request.prompts.len() * request.n as usize;
     let (include_usage, logprobs) = (request.include_usage, request.logprobs.is_some());
-    let events = engine.complete_stream(request).await?;
+    let stream_events = engine.complete_stream(request).await?;
+    let request_id = request_id.map(|Extension(id)| id);
     let id = new_id("cmpl");
     let created = unix_now();
-    let response = move |choices, usage| CreateCompletionResponse {
+    let stats_model = model.clone();
+    let response = move |choices, usage, timings| CreateCompletionResponse {
         id: id.clone(),
         object: "text_completion".to_owned(),
         created,
         model: model.clone(),
         choices,
         usage,
+        timings,
     };
 
     if !stream {
-        let done = completion::collect(choices, events).await?;
+        let done = completion::collect(choices, stream_events).await?;
+        let timings = done
+            .timings
+            .as_ref()
+            .map(|t| publish_stats(&events, request_id.as_ref(), &stats_model, t));
         let choices = done
             .choices
             .into_iter()
             .map(|c| CompletionChoice::from_core(c, logprobs))
             .collect();
-        return Ok(Json(response(choices, Some(done.usage.into()))).into_response());
+        return Ok(Json(response(choices, Some(done.usage.into()), timings)).into_response());
     }
 
-    let events = events.filter_map(move |item| {
+    let mut timings: Option<Timings> = None;
+    let out = stream_events.filter_map(move |item| {
         let event = match item {
             Err(e) => Some(sse_error(e)),
             Ok(CompletionEvent::Text {
@@ -193,7 +250,7 @@ async fn completions(
                     logprobs: CompletionLogprobs::from_core(logprobs, lp),
                     finish_reason: None,
                 };
-                Some(sse_event(&response(vec![choice], None)))
+                Some(sse_event(&response(vec![choice], None, None)))
             }
             Ok(CompletionEvent::Finish { index, reason }) => {
                 let choice = CompletionChoice {
@@ -202,17 +259,23 @@ async fn completions(
                     logprobs: None,
                     finish_reason: Some(reason.into()),
                 };
-                Some(sse_event(&response(vec![choice], None)))
+                Some(sse_event(&response(vec![choice], None, None)))
             }
-            // Not on the wire yet.
-            Ok(CompletionEvent::Timings(_)) => None,
-            Ok(CompletionEvent::Usage(u)) => {
-                include_usage.then(|| sse_event(&response(Vec::new(), Some(u.into()))))
+            Ok(CompletionEvent::Timings(t)) => {
+                timings = Some(publish_stats(
+                    &events,
+                    request_id.as_ref(),
+                    &stats_model,
+                    &t,
+                ));
+                None
             }
+            Ok(CompletionEvent::Usage(u)) => include_usage
+                .then(|| sse_event(&response(Vec::new(), Some(u.into()), timings.take()))),
         };
         std::future::ready(event)
     });
-    Ok(sse_response(events))
+    Ok(sse_response(out))
 }
 
 // ---- embeddings ------------------------------------------------------------------------------

@@ -141,3 +141,51 @@ async fn test_events_carry_what_the_server_publishes_to_every_subscriber() {
     events.publish(ServerEvent::Heartbeat);
     assert_eq!(next(&mut second).await["type"], "heartbeat");
 }
+
+#[cfg(feature = "llm")]
+#[tokio::test]
+async fn test_events_report_each_generations_timings() {
+    use teeny_llm::chat::EchoChatModel;
+    use teeny_llm::models::LoadedModel;
+
+    let echo = ServedModel::from(LoadedModel::from_chat(Arc::new(EchoChatModel)));
+    let (base, _events) = spawn_with_events(vec![echo]).await;
+    let mut socket = connect(&base).await;
+    assert_eq!(next(&mut socket).await["type"], "hello");
+
+    for stream in [false, true] {
+        let response = reqwest::Client::new()
+            .post(format!("{base}/v1/chat/completions"))
+            .json(&serde_json::json!({
+                "model": EchoChatModel::MODEL_ID,
+                "messages": [{"role": "user", "content": "one two three"}],
+                "stream": stream,
+            }))
+            .send()
+            .await
+            .unwrap();
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        response.text().await.unwrap();
+
+        let mut seen = Vec::new();
+        let stats = loop {
+            let event = next(&mut socket).await;
+            if event["type"] == "request.stats" {
+                break event;
+            }
+            seen.push(event["type"].clone());
+        };
+        assert_eq!(stats["id"], request_id.as_str(), "stream {stream}");
+        assert_eq!(stats["model"], EchoChatModel::MODEL_ID);
+        assert_eq!(stats["timings"]["predicted_n"], 3);
+        assert_eq!(stats["timings"]["prompt_n"], 3);
+        assert!(seen.contains(&Value::from("request.started")), "{seen:?}");
+        // Drain this request's finish (which may come before or after its stats).
+        if !seen.contains(&Value::from("request.finished")) {
+            assert_eq!(next(&mut socket).await["type"], "request.finished");
+        }
+    }
+}

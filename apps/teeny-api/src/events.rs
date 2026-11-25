@@ -28,6 +28,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::openai::models::Model;
+use crate::openai::timings::Timings;
 
 /// How many events a slow subscriber may fall behind before it misses some.
 const BACKLOG: usize = 1024;
@@ -100,10 +101,24 @@ pub enum ServerEvent {
         duration_ms: u64,
     },
 
+    /// How long a generation took, from a model that measures itself: sent once a chat or
+    /// text completion request (`id`) has generated its output.
+    #[serde(rename = "request.stats")]
+    RequestStats {
+        id: String,
+        model: String,
+        timings: Timings,
+    },
+
     /// This subscriber fell behind and missed `missed` events.
     #[serde(rename = "lagged")]
     Lagged { missed: u64 },
 }
+
+/// The id of the API request being handled (its `x-request-id`), in the request's
+/// extensions, so handlers can name it in their events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestId(pub String);
 
 /// Where the server publishes its [`ServerEvent`]s, for every `/v1/events` subscriber.
 /// Cloning it gives another handle on the same stream.

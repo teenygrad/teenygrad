@@ -40,6 +40,7 @@ pub mod models;
 pub mod moderations;
 #[cfg(feature = "audio")]
 pub mod speech;
+pub mod timings;
 
 use serde::{Deserialize, Serialize};
 

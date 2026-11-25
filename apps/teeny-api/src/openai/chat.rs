@@ -29,6 +29,7 @@ use teeny_llm::chat;
 
 use super::base64;
 use super::error::ApiError;
+use super::timings::Timings;
 use super::{FinishReason, OneOrMany, StreamOptions, Usage};
 
 /// Message roles, as in `ChatCompletionRequestMessage` and `ChatCompletionStreamResponseDelta`.
@@ -837,6 +838,9 @@ pub struct CreateChatCompletionResponse {
     pub choices: Vec<ChatCompletionChoice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// How long it took (llama.cpp's `timings`), from a model that measures itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<Timings>,
 }
 
 /// The `function` of a streamed tool call: the name on its first chunk, then pieces of
@@ -906,6 +910,9 @@ pub struct CreateChatCompletionStreamResponse {
     /// Only on the final chunk, and only with `stream_options.include_usage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// With `usage`, from a model that measures itself (llama.cpp's `timings`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<Timings>,
 }
 
 impl From<chat::ChatFinishReason> for FinishReason {
