@@ -21,9 +21,7 @@
 //! [`ChatStream`] of [`ChatEvent`]s. [`validate`] checks each request against the model's
 //! capabilities first, so what a model cannot do is refused with an error naming the
 //! parameter rather than ignored. [`collect`] puts a stream together into a
-//! [`ChatCompletion`], and [`ModelEngine`](crate::ModelEngine) serves chat models to
-//! frontends as an [`Engine`](crate::Engine). [`EchoChatModel`] is the reference
-//! implementation.
+//! [`ChatCompletion`]. [`EchoChatModel`] is the reference implementation.
 //!
 //! These types carry no wire format: frontends map their own (the server's OpenAI JSON)
 //! onto them.

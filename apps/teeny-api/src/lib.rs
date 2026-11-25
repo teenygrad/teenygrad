@@ -14,12 +14,34 @@
  * limitations under the License.
  */
 
-//! `teeny-api`: an OpenAI-compatible HTTP API over a [`teeny_llm::Engine`].
+//! `teeny-api`: teenygrad's inference served over an OpenAI-compatible HTTP API.
 //!
-//! [`openai`] holds the wire types (a subset of the OpenAI OpenAPI spec) and [`router`] builds the
-//! axum [`Router`](axum::Router) that serves them.
+//! [`Engine`] is what the routes drive, over the APIs of every domain this build includes;
+//! [`ModelEngine`] implements it over [`ServedModel`]s, each holding the API handles a
+//! domain crate's model implements, and routes each request to the model and API it
+//! names. [`openai`] holds the wire types (a subset of the OpenAI OpenAPI spec) and
+//! [`router`] builds the axum [`Router`](axum::Router) that serves them.
+//!
+//! Each domain is a cargo feature that brings in its crate and endpoints:
+//!
+//! | Feature | Crate | Endpoints |
+//! |---|---|---|
+//! | `llm` (default) | [`teeny-llm`] | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations` |
+//! | `audio` | [`teeny-llm`] (for now) | `/v1/audio/transcriptions`, `/v1/audio/translations`, `/v1/audio/speech` |
+//! | `image` | [`teeny-llm`] (for now) | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` |
+//!
+//! `/v1/models` and `/health` are always served. The models themselves are features too
+//! (`functiongemma3`), with the backend they run on (`cuda`, `riscv`, `qemu`).
+//!
+//! [`teeny-llm`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm/
 
+mod engine;
+mod error;
+mod model_engine;
 pub mod openai;
 mod routes;
 
+pub use engine::{Engine, ModelInfo};
+pub use error::{Error, Result};
+pub use model_engine::{ModelEngine, ServedModel};
 pub use routes::router;

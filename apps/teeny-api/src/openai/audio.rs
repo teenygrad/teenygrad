@@ -24,14 +24,7 @@ use teeny_llm::transcription::{
 };
 
 use super::error::ApiError;
-
-/// One part of a multipart form: its name, the file name it was sent with, and its bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormPart {
-    pub name: String,
-    pub file_name: Option<String>,
-    pub data: Vec<u8>,
-}
+use super::form::FormPart;
 
 /// How the transcript is returned.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

@@ -18,15 +18,14 @@
 //!
 //! Frontends (such as [`teeny-api`]) translate their own wire formats into
 //! the requests of each API ([`chat`], [`completion`], [`embedding`], [`transcription`],
-//! [`speech`], [`moderation`], [`images`]) and drive an
-//! [`Engine`]. Models implement the API traits ([`chat::ChatModel`],
-//! [`completion::CompletionModel`], [`embedding::EmbeddingModel`],
+//! [`speech`], [`moderation`], [`images`]). Models implement the API traits
+//! ([`chat::ChatModel`], [`completion::CompletionModel`], [`embedding::EmbeddingModel`],
 //! [`transcription::TranscriptionModel`], [`speech::SpeechModel`],
-//! [`moderation::ModerationModel`], [`images::ImageModel`]);
-//! [`models::Model::load`] loads one as a [`models::LoadedModel`], and [`ModelEngine`]
-//! serves loaded models as an [`Engine`]. Each API has an echo model, its reference
-//! implementation and a fixture for frontends. Nothing in this crate knows about
-//! HTTP or the terminal.
+//! [`moderation::ModerationModel`], [`images::ImageModel`]), and [`models::Model::load`]
+//! loads one as a [`models::LoadedModel`], exposing the APIs it serves; each request is
+//! checked with its API's `validate` before the model sees it. Each API has an echo
+//! model, its reference implementation and a fixture for frontends. Nothing in this crate
+//! knows about HTTP or the terminal: `teeny-api` routes requests to the models it serves.
 //!
 //! Model implementations live in `models`, each behind a cargo feature named for the model
 //! and its version (`functiongemma3` for `models::functiongemma`), with the kernels they
@@ -40,10 +39,8 @@ pub mod audio;
 pub mod chat;
 pub mod completion;
 pub mod embedding;
-mod engine;
 mod error;
 pub mod images;
-mod model_engine;
 pub mod speech;
 pub mod tokenizer;
 pub mod transcription;
@@ -55,7 +52,5 @@ pub mod models;
 pub mod moderation;
 
 pub use embedding::Embeddings;
-pub use engine::Engine;
 pub use error::{Error, Result};
-pub use model_engine::ModelEngine;
 pub use types::{ModelInfo, Usage};

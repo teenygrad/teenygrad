@@ -26,8 +26,8 @@ pub struct Model {
     pub owned_by: String,
 }
 
-impl From<teeny_llm::ModelInfo> for Model {
-    fn from(m: teeny_llm::ModelInfo) -> Self {
+impl From<crate::ModelInfo> for Model {
+    fn from(m: crate::ModelInfo) -> Self {
         Self {
             id: m.id,
             object: "model".to_owned(),

@@ -116,8 +116,17 @@ jobs:
         run: |
           cargo clippy -p teeny-llm --all-targets -- -D warnings
           cargo clippy -p teeny-llm --all-targets --no-default-features --features functiongemma3,riscv -- -D warnings
-          cargo clippy -p teeny-api --all-targets --features functiongemma3,cuda -- -D warnings
+          cargo clippy -p teeny-api --all-targets --features functiongemma3,cuda,audio,image -- -D warnings
           cargo clippy -p teeny-api --all-targets --features functiongemma3,riscv -- -D warnings
+
+      # teeny-api's domains are features (llm by default, audio, image): the workspace Test
+      # step covers the default, and this the rest, with and without each.
+      - name: Clippy and test teeny-api domains
+        run: |
+          cargo clippy -p teeny-api --all-targets --no-default-features -- -D warnings
+          cargo clippy -p teeny-api --all-targets --no-default-features --features audio -- -D warnings
+          cargo clippy -p teeny-api --all-targets --no-default-features --features image -- -D warnings
+          cargo test -p teeny-api --features audio,image
 
       - name: Test teeny-llm (riscv)
         run: cargo test -p teeny-llm --no-default-features --features functiongemma3,riscv

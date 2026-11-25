@@ -26,8 +26,7 @@ use crate::{ModelInfo, Result};
 /// A model that answers chat completion requests.
 ///
 /// Each model in `teeny_llm::models` (behind its feature) implements this; frontends reach
-/// models through an [`Engine`](crate::Engine), and [`ModelEngine`](crate::ModelEngine)
-/// serves them as one, through the [`LoadedModel`](crate::models::LoadedModel)s that
+/// it through the [`LoadedModel`](crate::models::LoadedModel) that
 /// [`Model::load`](crate::models::Model::load) returns.
 ///
 /// Object-safe, so models can be held as `Arc<dyn ChatModel>`; [`ChatModel::chat`] returns

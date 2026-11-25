@@ -16,19 +16,23 @@
 
 //! `teeny-api`: serve teenygrad LLM inference over an OpenAI-compatible HTTP API.
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context;
 use clap::Parser;
-use teeny_llm::chat::EchoChatModel;
-use teeny_llm::completion::EchoCompletionModel;
-use teeny_llm::embedding::EchoEmbeddingModel;
+use teeny_api::{Engine, ModelEngine, ServedModel};
+#[cfg(feature = "image")]
 use teeny_llm::images::EchoImageModel;
-use teeny_llm::models::{LoadOptions, LoadedModel, Model};
-use teeny_llm::moderation::EchoModerationModel;
-use teeny_llm::speech::EchoSpeechModel;
-use teeny_llm::transcription::EchoTranscriptionModel;
-use teeny_llm::{Engine, ModelEngine};
+#[cfg(feature = "llm")]
+use teeny_llm::{
+    chat::EchoChatModel,
+    completion::EchoCompletionModel,
+    embedding::EchoEmbeddingModel,
+    models::{LoadOptions, LoadedModel, Model},
+    moderation::EchoModerationModel,
+};
+#[cfg(feature = "audio")]
+use teeny_llm::{speech::EchoSpeechModel, transcription::EchoTranscriptionModel};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -44,54 +48,47 @@ struct Args {
 
     /// A model to serve, by tag (`family:size`, or the family for its default size).
     /// Repeat it to serve several. The choices are the models this build includes.
+    #[cfg(feature = "llm")]
     #[arg(long = "model", short, ignore_case = true, value_parser = model_parser())]
     models: Vec<Model>,
 
     /// The weights folder, when serving one model. Defaults to the model's snapshot in
     /// the local Hugging Face cache.
+    #[cfg(feature = "llm")]
     #[arg(long)]
-    model_dir: Option<PathBuf>,
+    model_dir: Option<std::path::PathBuf>,
 
     /// The longest conversation, in tokens, each model keeps (its KV cache). Defaults to
     /// each model's own.
+    #[cfg(feature = "llm")]
     #[arg(long)]
     context: Option<u32>,
 
-    /// Also serve the echo models, for trying the API without weights: `teeny-echo` for
-    /// chat, which echoes the last user message, `teeny-echo-complete` for text
-    /// completions, which repeats the prompt, `teeny-echo-embed` for embeddings, and
+    /// Also serve the echo models of the APIs this build includes, for trying them without
+    /// weights: `teeny-echo` for chat, which echoes the last user message,
+    /// `teeny-echo-complete` for text completions, which repeats the prompt,
+    /// `teeny-echo-embed` for embeddings, `teeny-echo-moderate` for moderations, which
+    /// flags the categories a text names as `flag:<category>` (with `llm`);
     /// `teeny-echo-transcribe` for transcriptions, which describes the recording, and
-    /// `teeny-echo-speak` for speech, which beeps once a word, and `teeny-echo-moderate`
-    /// for moderations, which flags the categories a text names as `flag:<category>`, and
-    /// `teeny-echo-image` for images, which paints the prompt as a colour.
+    /// `teeny-echo-speak` for speech, which beeps once a word (with `audio`);
+    /// `teeny-echo-image` for images, which paints the prompt as a colour (with `image`).
     #[arg(long)]
     echo: bool,
 }
 
+#[cfg(feature = "llm")]
 fn model_parser() -> impl clap::builder::TypedValueParser<Value = Model> {
     use clap::builder::{PossibleValuesParser, TypedValueParser};
     PossibleValuesParser::new(Model::tags()).try_map(|tag| tag.parse::<Model>())
 }
 
 /// Loads the models `args` names, each on a blocking thread (loading compiles kernels).
-async fn load_models(args: &Args) -> anyhow::Result<Vec<LoadedModel>> {
+#[cfg(feature = "llm")]
+async fn load_models(args: &Args) -> anyhow::Result<Vec<ServedModel>> {
     anyhow::ensure!(
         args.model_dir.is_none() || args.models.len() == 1,
         "--model-dir names one model's weights; give exactly one --model with it"
     );
-    if args.models.is_empty() && !args.echo {
-        let tags = Model::tags();
-        anyhow::bail!(
-            "nothing to serve: pass --model <tag> ({}) or --echo",
-            if tags.is_empty() {
-                "this build includes no models; rebuild with a model feature, e.g. \
-                 --features functiongemma3,cuda"
-                    .to_owned()
-            } else {
-                format!("one of {}", tags.join(", "))
-            }
-        );
-    }
     let mut loaded = Vec::new();
     for &model in &args.models {
         let mut options =
@@ -108,20 +105,65 @@ async fn load_models(args: &Args) -> anyhow::Result<Vec<LoadedModel>> {
             .context("the loading thread panicked")?
             .with_context(|| format!("loading {model}"))?;
         tracing::info!(%model, parameters = ?m.parameters, "loaded");
-        loaded.push(m);
-    }
-    if args.echo {
-        loaded.push(LoadedModel::from_chat(Arc::new(EchoChatModel)));
-        loaded.push(LoadedModel::from_completion(Arc::new(EchoCompletionModel)));
-        loaded.push(LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)));
-        loaded.push(LoadedModel::from_transcription(Arc::new(
-            EchoTranscriptionModel,
-        )));
-        loaded.push(LoadedModel::from_speech(Arc::new(EchoSpeechModel)));
-        loaded.push(LoadedModel::from_moderation(Arc::new(EchoModerationModel)));
-        loaded.push(LoadedModel::from_images(Arc::new(EchoImageModel)));
+        loaded.push(m.into());
     }
     Ok(loaded)
+}
+
+/// The echo models of every API this build includes.
+fn echo_models() -> Vec<ServedModel> {
+    #[allow(unused_mut)]
+    let mut echo: Vec<ServedModel> = Vec::new();
+    #[cfg(feature = "llm")]
+    echo.extend(
+        [
+            LoadedModel::from_chat(Arc::new(EchoChatModel)),
+            LoadedModel::from_completion(Arc::new(EchoCompletionModel)),
+            LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)),
+            LoadedModel::from_moderation(Arc::new(EchoModerationModel)),
+        ]
+        .map(ServedModel::from),
+    );
+    #[cfg(feature = "audio")]
+    echo.extend([
+        ServedModel::from_transcription(Arc::new(EchoTranscriptionModel)),
+        ServedModel::from_speech(Arc::new(EchoSpeechModel)),
+    ]);
+    #[cfg(feature = "image")]
+    echo.push(ServedModel::from_images(Arc::new(EchoImageModel)));
+    echo
+}
+
+/// The models to serve: those `args` names, and the echo models with `--echo`.
+async fn served_models(args: &Args) -> anyhow::Result<Vec<ServedModel>> {
+    #[cfg(feature = "llm")]
+    let mut served = load_models(args).await?;
+    #[cfg(not(feature = "llm"))]
+    let mut served = Vec::new();
+    if args.echo {
+        served.extend(echo_models());
+    }
+    if served.is_empty() {
+        anyhow::bail!("nothing to serve: {}", nothing_to_serve());
+    }
+    Ok(served)
+}
+
+/// What to pass to serve something.
+fn nothing_to_serve() -> String {
+    #[cfg(feature = "llm")]
+    {
+        let tags = Model::tags();
+        if tags.is_empty() {
+            "pass --echo; this build includes no models (rebuild with a model feature, e.g. \
+             --features functiongemma3,cuda)"
+                .to_owned()
+        } else {
+            format!("pass --model <tag> (one of {}) or --echo", tags.join(", "))
+        }
+    }
+    #[cfg(not(feature = "llm"))]
+    "pass --echo".to_owned()
 }
 
 #[tokio::main]
@@ -135,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let addr = SocketAddr::new(args.host, args.port);
 
-    let engine: Arc<dyn Engine> = Arc::new(ModelEngine::new(load_models(&args).await?)?);
+    let engine: Arc<dyn Engine> = Arc::new(ModelEngine::new(served_models(&args).await?)?);
     let models: Vec<String> = engine.models().into_iter().map(|m| m.id).collect();
 
     let listener = tokio::net::TcpListener::bind(addr)

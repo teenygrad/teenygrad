@@ -29,7 +29,7 @@ impl Usage {
     }
 }
 
-/// A model an [`Engine`](crate::Engine) can serve.
+/// What a model is, as a frontend lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelInfo {
     pub id: String,

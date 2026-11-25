@@ -4,15 +4,16 @@
 throughput (see the [roadmap](../appendix/faq-and-roadmap.md)). It is split into two crates
 under `apps/`:
 
-| Crate              | Kind      | Role                                                                    |
-| ------------------ | --------- | ----------------------------------------------------------------------- |
-| `teeny-llm`   | library   | The API traits models implement (chat, completions, embeddings, transcription, speech, moderation, images), the model factory, and the `Engine` frontends drive |
-| `teeny-api` | lib + bin | OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/audio/*`, `/v1/moderations`, `/v1/images/*`, `/v1/models`) |
+| Crate       | Kind      | Role |
+| ----------- | --------- | ---- |
+| `teeny-llm` | library   | The LLM API traits models implement (chat, completions, embeddings, moderation; transcription, speech and images until they move to their own crates), and the model factory (`Model::load`) |
+| `teeny-api` | lib + bin | OpenAI-compatible HTTP API, one feature per domain (`llm` by default, `audio`, `image`), with the `Engine` its routes drive and the `ModelEngine` serving each domain's models |
 
 The binary serves the models it is built with; a model is a cargo feature, with the backend it
 runs on. `--model` takes a model by tag (`functiongemma3`, or `functiongemma3:270m`), loads its
 weights from the Hugging Face cache (or `--model-dir`), and serves it through `ModelEngine`,
-which routes each request to the API the model implements. `--echo` serves the echo models instead, which need no weights.
+which routes each request to the API the model implements. `--echo` serves the echo models
+instead, which need no weights.
 
 ```bash
 cargo install teeny-api --features functiongemma3,cuda

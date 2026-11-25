@@ -113,8 +113,7 @@ impl LoadOptions {
 /// One model can serve several APIs (chat and completions, say) from one set of weights,
 /// so each API is an optional handle rather than the model being one trait. Built by
 /// [`Model::load`], or by hand for models outside the factory (tests' echo models) with
-/// [`LoadedModel::from_chat`] and the `with_` methods; [`ModelEngine`](crate::ModelEngine)
-/// serves them.
+/// [`LoadedModel::from_chat`] and the `with_` methods; `teeny-api` serves them.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct LoadedModel {

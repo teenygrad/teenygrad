@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-/// Errors produced by an [`Engine`](crate::Engine) or a [`ChatModel`](crate::chat::ChatModel).
+/// Errors produced by a model, its API's `validate`, or the model factory.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("model `{requested}` is not loaded; available models: {available:?}")]
@@ -37,20 +37,6 @@ pub enum Error {
         model: String,
         parameter: String,
         detail: String,
-    },
-
-    #[error("engine `{engine}` does not support {operation}")]
-    Unsupported {
-        engine: &'static str,
-        operation: &'static str,
-    },
-
-    /// A model was asked for an API it does not serve (embeddings from a chat model, say).
-    #[error("model `{model}` does not serve {api}; it serves {serves}")]
-    ModelLacksApi {
-        model: String,
-        api: &'static str,
-        serves: String,
     },
 
     /// Text could not be tokenized, or token ids decoded.

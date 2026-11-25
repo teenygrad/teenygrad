@@ -20,15 +20,25 @@
 //! `deny_unknown_fields`: clients send many optional fields we don't act on yet, and OpenAI-
 //! compatible servers conventionally ignore them.
 
+#[cfg(feature = "audio")]
 pub mod audio;
+#[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
 mod base64;
+#[cfg(feature = "llm")]
 pub mod chat;
+#[cfg(feature = "llm")]
 pub mod completions;
+#[cfg(feature = "llm")]
 pub mod embeddings;
 pub mod error;
+#[cfg(any(feature = "audio", feature = "image"))]
+pub mod form;
+#[cfg(feature = "image")]
 pub mod images;
 pub mod models;
+#[cfg(feature = "llm")]
 pub mod moderations;
+#[cfg(feature = "audio")]
 pub mod speech;
 
 use serde::{Deserialize, Serialize};
@@ -78,6 +88,7 @@ pub struct CompletionTokensDetails {
     pub rejected_prediction_tokens: u32,
 }
 
+#[cfg(feature = "llm")]
 impl From<teeny_llm::Usage> for Usage {
     fn from(u: teeny_llm::Usage) -> Self {
         Self {
@@ -90,6 +101,7 @@ impl From<teeny_llm::Usage> for Usage {
     }
 }
 
+#[cfg(feature = "llm")]
 impl From<teeny_llm::chat::ChatUsage> for Usage {
     fn from(u: teeny_llm::chat::ChatUsage) -> Self {
         Self {

@@ -23,9 +23,9 @@ use teeny_llm::images::{
     InputFidelity,
 };
 
-use super::audio::FormPart;
 use super::base64;
 use super::error::ApiError;
+use super::form::FormPart;
 
 /// The parameters the three endpoints share, as sent; `CreateImageRequest` for
 /// generations, and what the edit and variation forms are read into.

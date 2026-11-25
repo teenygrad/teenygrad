@@ -27,6 +27,23 @@ chosen model cannot do (images for a text-only model, `n > 1`, sampling for a gr
 refused with an OpenAI-style `400` naming the parameter, never silently dropped. Fields that
 concern only the service (`store`, `service_tier`, ...) are ignored.
 
+## Features
+
+Each domain is a feature, bringing in its endpoints and the crate its models come from;
+`/v1/models` and `/health` are always served:
+
+| Feature | Endpoints |
+| ------- | --------- |
+| `llm` (default) | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations` |
+| `audio` | `/v1/audio/transcriptions`, `/v1/audio/translations`, `/v1/audio/speech` |
+| `image` | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` |
+
+The crate owns the serving layer: `Engine`, the trait the routes drive, and `ModelEngine`,
+which serves `ServedModel`s (each the API handles one domain crate's model implements, a
+teeny-llm `LoadedModel` converting into one) and routes each request to the model and
+API it names. Each domain crate's errors convert into `teeny_api::Error`, so they map to
+HTTP in one place.
+
 ## Getting started
 
 The binary serves the models it is built with. Each model is a feature, with the backend it
@@ -43,10 +60,10 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 `--model <tag>` (repeatable) picks the models; the weights come from the local Hugging Face
 cache, or `--model-dir` for a single model, and `--context` sets the KV-cache size. `--echo`
-serves the echo models (`teeny-echo` for chat, `teeny-echo-complete` for completions,
-`teeny-echo-embed` for embeddings, `teeny-echo-transcribe` for transcriptions,
-`teeny-echo-speak` for speech, `teeny-echo-moderate` for moderations, `teeny-echo-image` for
-images), for trying the API without weights. Each endpoint is answered by the models that
+serves the echo models of the domains built in (`teeny-echo` for chat, `teeny-echo-complete`
+for completions, `teeny-echo-embed` for embeddings, `teeny-echo-moderate` for moderations;
+`teeny-echo-transcribe` for transcriptions and `teeny-echo-speak` for speech with `audio`;
+`teeny-echo-image` for images with `image`), for trying the API without weights. Each endpoint is answered by the models that
 implement its API; a request to a model without it gets a `400` saying what the model does
 serve.
 

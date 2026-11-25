@@ -63,9 +63,16 @@ impl ApiError {
     }
 }
 
+#[cfg(feature = "llm")]
 impl From<teeny_llm::Error> for ApiError {
     fn from(e: teeny_llm::Error) -> Self {
-        use teeny_llm::Error as E;
+        crate::Error::from(e).into()
+    }
+}
+
+impl From<crate::Error> for ApiError {
+    fn from(e: crate::Error) -> Self {
+        use crate::Error as E;
         let message = e.to_string();
         let (status, kind, param, code) = match &e {
             E::ModelNotFound { .. } => (
@@ -99,7 +106,7 @@ impl From<teeny_llm::Error> for ApiError {
                 None,
                 Some("unsupported"),
             ),
-            E::Tokenizer(_) | E::Weights(_) | E::Inference(_) => (
+            E::Model(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "server_error",
                 None,

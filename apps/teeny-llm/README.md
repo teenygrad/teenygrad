@@ -16,8 +16,6 @@ HTTP API) serves:
 - `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)
 - `models::Model`: the models a build includes, by tag (`functiongemma3:270m`), and
   `Model::load`, which loads one as a `LoadedModel` exposing the APIs it serves
-- `ModelEngine`: loaded models served as one `Engine`, the trait frontends drive, routing each
-  request by model to the API it needs
 
 ## Models
 
