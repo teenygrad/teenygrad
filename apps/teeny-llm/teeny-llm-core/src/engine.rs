@@ -18,6 +18,7 @@ use std::pin::Pin;
 
 use futures::{Stream, StreamExt};
 
+use crate::chat::{ChatRequest, ChatStream};
 use crate::{Embeddings, Error, Generation, GenerationChunk, GenerationRequest, ModelInfo, Result};
 
 /// A stream of generated text increments; see [`GenerationChunk`].
@@ -38,6 +39,20 @@ pub trait Engine: Send + Sync + 'static {
     /// Validation errors (unknown model, bad parameters) are returned here, before streaming
     /// starts, so frontends can map them to a proper error response.
     fn generate_stream(&self, request: GenerationRequest) -> Result<TokenStream>;
+
+    /// Starts a chat completion with the full chat API (tools, structured output, content
+    /// parts, several choices). Engines that serve [`ChatModel`](crate::chat::ChatModel)s
+    /// implement it; the rest keep the default and are reached through
+    /// [`Engine::generate_stream`].
+    ///
+    /// As there, validation errors are returned before streaming starts.
+    fn chat_stream(&self, request: ChatRequest) -> Result<ChatStream> {
+        let _ = request;
+        Err(Error::Unsupported {
+            engine: self.name(),
+            operation: "chat requests",
+        })
+    }
 
     /// Embeds `inputs` with `model`. Engines without an embedding model keep the default.
     fn embed(&self, model: &str, inputs: &[String]) -> Result<Embeddings> {

@@ -24,7 +24,6 @@ functiongemma = [
   "dep:minijinja-contrib",
   "dep:safetensors",
   "dep:serde",
-  "dep:serde_json",
   "dep:teeny-kernels",
   "dep:teeny-test",
   "dep:tokenizers",
@@ -39,6 +38,7 @@ qemu = ["riscv", "teeny-test?/qemu", "teeny-kernels?/qemu"]
 
 [dependencies]
 futures = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true, features = ["std"] }
 
 # Model and kernel dependencies, all behind the features above.
@@ -48,7 +48,6 @@ minijinja = { workspace = true, optional = true }
 minijinja-contrib = { workspace = true, optional = true }
 safetensors = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 teeny-core = { workspace = true, features = ["std"], optional = true }
 teeny-macros = { workspace = true, optional = true }
 teeny-triton = { workspace = true, optional = true }

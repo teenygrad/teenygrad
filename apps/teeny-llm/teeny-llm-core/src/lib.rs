@@ -17,8 +17,9 @@
 //! `teeny-llm-core`: the transport-independent core of teenygrad's LLM inference stack.
 //!
 //! Frontends ([`teeny-llm-server`], [`teeny-llm-chat`]) translate their own wire formats into a
-//! [`GenerationRequest`] and drive an [`Engine`]. Nothing in this crate knows about HTTP or the
-//! terminal.
+//! [`GenerationRequest`] (or a [`chat::ChatRequest`]) and drive an [`Engine`]. Models implement
+//! [`chat::ChatModel`], and [`chat::ChatEngine`] serves them as an [`Engine`]. Nothing in this
+//! crate knows about HTTP or the terminal.
 //!
 //! Model implementations live in `models`, each behind a cargo feature named after it
 //! (`functiongemma`), with the kernels they share in `kernels`. Pick the backend with
@@ -27,6 +28,7 @@
 //! [`teeny-llm-server`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_server/
 //! [`teeny-llm-chat`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_chat/
 
+pub mod chat;
 mod echo;
 mod engine;
 mod error;

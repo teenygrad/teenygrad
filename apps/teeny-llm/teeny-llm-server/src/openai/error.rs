@@ -71,10 +71,22 @@ impl From<teeny_llm_core::Error> for ApiError {
             E::ModelNotFound { .. } => (
                 StatusCode::NOT_FOUND,
                 "invalid_request_error",
-                Some("model"),
+                Some("model".to_owned()),
                 Some("model_not_found"),
             ),
             E::InvalidRequest(_) => (StatusCode::BAD_REQUEST, "invalid_request_error", None, None),
+            E::InvalidParameter { parameter, .. } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                Some(parameter.clone()),
+                Some("invalid_value"),
+            ),
+            E::UnsupportedParameter { parameter, .. } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                Some(parameter.clone()),
+                Some("unsupported_parameter"),
+            ),
             E::Unsupported { .. } => (
                 StatusCode::NOT_IMPLEMENTED,
                 "invalid_request_error",
@@ -93,7 +105,7 @@ impl From<teeny_llm_core::Error> for ApiError {
             body: ErrorBody {
                 message,
                 kind: kind.to_owned(),
-                param: param.map(str::to_owned),
+                param,
                 code: code.map(str::to_owned),
             },
         }

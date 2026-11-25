@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn echoes_last_user_message() {
+    async fn test_echoes_last_user_message() {
         let engine: &dyn Engine = &EchoEngine::new();
         let prompt = Prompt::Chat(vec![
             ChatMessage::system("be brief"),
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn truncates_at_max_tokens() {
+    async fn test_truncates_at_max_tokens() {
         let engine: &dyn Engine = &EchoEngine::new();
         let out = engine
             .generate(request(Prompt::Text("a b c d".into()), Some(2)))
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_model() {
+    fn test_rejects_unknown_model() {
         let engine = EchoEngine::new();
         let mut req = request(Prompt::Text("x".into()), None);
         req.model = "gpt-4o".into();

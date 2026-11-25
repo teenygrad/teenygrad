@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-/// Errors produced by an [`Engine`](crate::Engine).
+/// Errors produced by an [`Engine`](crate::Engine) or a [`ChatModel`](crate::chat::ChatModel).
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("model `{requested}` is not loaded; available models: {available:?}")]
@@ -25,6 +25,19 @@ pub enum Error {
 
     #[error("invalid request: {0}")]
     InvalidRequest(String),
+
+    /// A request parameter is malformed or out of range, whatever the model.
+    #[error("invalid `{parameter}`: {detail}")]
+    InvalidParameter { parameter: String, detail: String },
+
+    /// The model cannot do what a request parameter asks for. Refused before generating,
+    /// rather than ignored.
+    #[error("model `{model}` does not support `{parameter}`: {detail}")]
+    UnsupportedParameter {
+        model: String,
+        parameter: String,
+        detail: String,
+    },
 
     #[error("engine `{engine}` does not support {operation}")]
     Unsupported {
