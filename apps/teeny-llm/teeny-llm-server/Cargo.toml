@@ -17,6 +17,15 @@ exclude = ["webapps/"]
 name = "teeny-llm-server"
 path = "src/main.rs"
 
+[features]
+# No model by default, so the binary builds anywhere (and its tests need no GPU driver).
+# Add a model and its backend: `--features functiongemma3,cuda` (or `riscv`, `qemu`).
+default = []
+functiongemma3 = ["teeny-llm-core/functiongemma3"]
+cuda = ["teeny-llm-core/cuda"]
+riscv = ["teeny-llm-core/riscv"]
+qemu = ["teeny-llm-core/qemu"]
+
 [dependencies]
 teeny-llm-core = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }

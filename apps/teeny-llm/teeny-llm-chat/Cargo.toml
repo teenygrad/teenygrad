@@ -15,9 +15,19 @@ categories = ["science", "command-line-utilities"]
 name = "teeny-llm-chat"
 path = "src/main.rs"
 
+[features]
+# No model by default, so the binary builds anywhere (and its tests need no GPU driver).
+# Add a model and its backend: `--features functiongemma3,cuda` (or `riscv`, `qemu`).
+default = []
+functiongemma3 = ["teeny-llm-core/functiongemma3"]
+cuda = ["teeny-llm-core/cuda"]
+riscv = ["teeny-llm-core/riscv"]
+qemu = ["teeny-llm-core/qemu"]
+
 [dependencies]
 teeny-llm-core = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }
 clap = { workspace = true }
 futures = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }

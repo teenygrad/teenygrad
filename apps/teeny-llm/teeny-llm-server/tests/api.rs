@@ -14,15 +14,26 @@
  * limitations under the License.
  */
 
-//! End-to-end tests of the OpenAI-compatible API against the placeholder `EchoEngine`.
+//! End-to-end tests of the OpenAI-compatible API: chat against the reference echo chat
+//! model served by `ModelEngine`, legacy completions and embeddings against `EchoEngine`
+//! until models implement those APIs.
 
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use teeny_llm_core::{EchoEngine, Engine};
+use teeny_llm_core::chat::EchoChatModel;
+use teeny_llm_core::models::LoadedModel;
+use teeny_llm_core::{EchoEngine, Engine, ModelEngine};
 
+const ECHO: &str = EchoChatModel::MODEL_ID;
+
+/// A server over the echo chat model.
 async fn spawn_server() -> String {
-    let engine: Arc<dyn Engine> = Arc::new(EchoEngine::new());
+    let echo = LoadedModel::from_chat(Arc::new(EchoChatModel));
+    spawn(Arc::new(ModelEngine::new(vec![echo]).unwrap())).await
+}
+
+async fn spawn(engine: Arc<dyn Engine>) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -70,7 +81,7 @@ async fn lists_and_retrieves_models() {
         .await
         .unwrap();
     assert_eq!(list["object"], "list");
-    assert_eq!(list["data"][0]["id"], EchoEngine::MODEL_ID);
+    assert_eq!(list["data"][0]["id"], ECHO);
     assert_eq!(list["data"][0]["object"], "model");
 
     let missing = reqwest::get(format!("{base}/v1/models/gpt-4o"))
@@ -89,12 +100,12 @@ async fn chat_completion() {
         &base,
         "/v1/chat/completions",
         json!({
-            "model": EchoEngine::MODEL_ID,
+            "model": ECHO,
             "messages": [
                 {"role": "developer", "content": "be brief"},
                 {"role": "user", "content": [{"type": "text", "text": "hello world"}]}
             ],
-            "logit_bias": {"50256": -100}
+            "store": false
         }),
     )
     .await;
@@ -117,7 +128,7 @@ async fn chat_completion_stream_with_usage() {
         &base,
         "/v1/chat/completions",
         json!({
-            "model": EchoEngine::MODEL_ID,
+            "model": ECHO,
             "messages": [{"role": "user", "content": "one two three"}],
             "max_completion_tokens": 2,
             "stream": true,
@@ -148,11 +159,11 @@ async fn chat_completion_stream_with_usage() {
 
 #[tokio::test]
 async fn completion_and_stream() {
-    let base = spawn_server().await;
+    let base = spawn(Arc::new(EchoEngine::new())).await;
     let (status, body) = post(
         &base,
         "/v1/completions",
-        json!({"model": EchoEngine::MODEL_ID, "prompt": ["a b", "c"]}),
+        json!({"model": ECHO, "prompt": ["a b", "c"]}),
     )
     .await;
     assert_eq!(status, 200, "{body}");
@@ -166,7 +177,7 @@ async fn completion_and_stream() {
     let (status, body) = post(
         &base,
         "/v1/completions",
-        json!({"model": EchoEngine::MODEL_ID, "prompt": "x y", "stream": true}),
+        json!({"model": ECHO, "prompt": "x y", "stream": true}),
     )
     .await;
     assert_eq!(status, 200, "{body}");
@@ -185,30 +196,43 @@ async fn completion_and_stream() {
 #[tokio::test]
 async fn rejects_unsupported_requests_with_openai_errors() {
     let base = spawn_server().await;
+    let user = json!([{"role": "user", "content": "hi"}]);
     let cases = [
         (
             "/v1/chat/completions",
-            json!({"model": EchoEngine::MODEL_ID, "messages": [], "n": 2}),
+            json!({"model": ECHO, "messages": []}),
+            400,
+            "messages",
+        ),
+        (
+            "/v1/chat/completions",
+            json!({"model": ECHO, "messages": user, "n": 9}),
             400,
             "n",
         ),
         (
             "/v1/chat/completions",
-            json!({"model": EchoEngine::MODEL_ID, "messages": [{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}}
-            ]}]}),
+            json!({"model": ECHO, "messages": user, "logit_bias": {"50256": -100}}),
             400,
-            "messages[0].content[0].type",
-        ),
-        (
-            "/v1/completions",
-            json!({"model": EchoEngine::MODEL_ID, "prompt": "x", "echo": true}),
-            400,
-            "echo",
+            "logit_bias",
         ),
         (
             "/v1/chat/completions",
-            json!({"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}),
+            json!({"model": ECHO, "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}}
+            ]}]}),
+            400,
+            "messages[0].content[0]",
+        ),
+        (
+            "/v1/chat/completions",
+            json!({"model": ECHO, "messages": user, "tool_choice": "sometimes"}),
+            400,
+            "tool_choice",
+        ),
+        (
+            "/v1/chat/completions",
+            json!({"model": "gpt-4o", "messages": user}),
             404,
             "model",
         ),
@@ -226,11 +250,110 @@ async fn rejects_unsupported_requests_with_openai_errors() {
     let v: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(v["error"]["type"], "invalid_request_error");
 
+    let echo = spawn(Arc::new(EchoEngine::new())).await;
     let (status, text) = post(
-        &base,
+        &echo,
+        "/v1/completions",
+        json!({"model": EchoEngine::MODEL_ID, "prompt": "x", "echo": true}),
+    )
+    .await;
+    assert_eq!(status, 400, "{text}");
+    let (status, text) = post(
+        &echo,
         "/v1/embeddings",
         json!({"model": EchoEngine::MODEL_ID, "input": "hi"}),
     )
     .await;
     assert_eq!(status, 501, "{text}");
+}
+
+#[tokio::test]
+async fn chat_completion_with_several_choices() {
+    let base = spawn_server().await;
+    let (status, body) = post(
+        &base,
+        "/v1/chat/completions",
+        json!({"model": ECHO, "messages": [{"role": "user", "content": "a b"}], "n": 2}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["choices"].as_array().unwrap().len(), 2);
+    assert_eq!(v["choices"][1]["index"], 1);
+    assert_eq!(v["choices"][1]["message"]["content"], "a b");
+}
+
+fn shout_tool() -> Value {
+    json!([{"type": "function", "function": {
+        "name": "shout", "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}
+    }}])
+}
+
+#[tokio::test]
+async fn chat_completion_with_a_tool_call() {
+    let base = spawn_server().await;
+    let (status, body) = post(
+        &base,
+        "/v1/chat/completions",
+        json!({"model": ECHO, "messages": [{"role": "user", "content": "hi"}],
+               "tools": shout_tool(), "tool_choice": "required"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    let choice = &v["choices"][0];
+    assert_eq!(choice["finish_reason"], "tool_calls");
+    assert!(choice["message"]["content"].is_null());
+    let call = &choice["message"]["tool_calls"][0];
+    assert_eq!(call["type"], "function");
+    assert_eq!(call["function"]["name"], "shout");
+    assert_eq!(call["function"]["arguments"], r#"{"text":"hi"}"#);
+
+    // The result goes back as a tool message, by the call's id.
+    let (status, body) = post(
+        &base,
+        "/v1/chat/completions",
+        json!({"model": ECHO, "tools": shout_tool(), "messages": [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": null, "tool_calls": [call]},
+            {"role": "tool", "tool_call_id": call["id"], "content": "HI"},
+            {"role": "user", "content": "thanks"}
+        ]}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["choices"][0]["message"]["content"], "thanks");
+}
+
+#[tokio::test]
+async fn chat_completion_streams_tool_call_deltas() {
+    let base = spawn_server().await;
+    let (status, body) = post(
+        &base,
+        "/v1/chat/completions",
+        json!({"model": ECHO, "messages": [{"role": "user", "content": "hello"}],
+               "tools": shout_tool(), "tool_choice": {"type": "function", "function": {"name": "shout"}},
+               "stream": true, "stream_options": {"include_usage": true}}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let chunks = sse_payloads(&body);
+    let calls: Vec<&Value> = chunks
+        .iter()
+        .filter_map(|c| c["choices"][0]["delta"]["tool_calls"].get(0))
+        .collect();
+    assert!(calls.len() >= 2, "the arguments arrive in pieces: {body}");
+    assert_eq!(calls[0]["id"], "call_echo_0");
+    assert_eq!(calls[0]["type"], "function");
+    assert_eq!(calls[0]["function"]["name"], "shout");
+    assert!(calls[1].get("id").is_none() && calls[1]["function"].get("name").is_none());
+    let arguments: String = calls
+        .iter()
+        .filter_map(|c| c["function"]["arguments"].as_str())
+        .collect();
+    assert_eq!(arguments, r#"{"text":"hello"}"#);
+    let n = chunks.len();
+    assert_eq!(chunks[n - 2]["choices"][0]["finish_reason"], "tool_calls");
+    assert!(chunks[n - 1]["usage"]["total_tokens"].as_u64().is_some());
 }

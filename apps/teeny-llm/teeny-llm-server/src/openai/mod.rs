@@ -20,6 +20,7 @@
 //! `deny_unknown_fields`: clients send many optional fields we don't act on yet, and OpenAI-
 //! compatible servers conventionally ignore them.
 
+mod base64;
 pub mod chat;
 pub mod completions;
 pub mod embeddings;
@@ -51,6 +52,26 @@ pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens_details: Option<PromptTokensDetails>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_tokens_details: Option<CompletionTokensDetails>,
+}
+
+/// `CompletionUsage.prompt_tokens_details`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptTokensDetails {
+    pub cached_tokens: u32,
+    pub audio_tokens: u32,
+}
+
+/// `CompletionUsage.completion_tokens_details`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletionTokensDetails {
+    pub reasoning_tokens: u32,
+    pub audio_tokens: u32,
+    pub accepted_prediction_tokens: u32,
+    pub rejected_prediction_tokens: u32,
 }
 
 impl From<teeny_llm_core::Usage> for Usage {
@@ -59,6 +80,28 @@ impl From<teeny_llm_core::Usage> for Usage {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens(),
+            prompt_tokens_details: None,
+            completion_tokens_details: None,
+        }
+    }
+}
+
+impl From<teeny_llm_core::chat::ChatUsage> for Usage {
+    fn from(u: teeny_llm_core::chat::ChatUsage) -> Self {
+        Self {
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens(),
+            prompt_tokens_details: Some(PromptTokensDetails {
+                cached_tokens: u.cached_prompt_tokens,
+                audio_tokens: u.audio_prompt_tokens,
+            }),
+            completion_tokens_details: Some(CompletionTokensDetails {
+                reasoning_tokens: u.reasoning_tokens,
+                audio_tokens: u.audio_completion_tokens,
+                accepted_prediction_tokens: u.accepted_prediction_tokens,
+                rejected_prediction_tokens: u.rejected_prediction_tokens,
+            }),
         }
     }
 }

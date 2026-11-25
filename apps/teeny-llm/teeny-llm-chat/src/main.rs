@@ -18,22 +18,44 @@
 
 use std::{
     io::{self, BufRead, Write},
+    path::PathBuf,
     sync::Arc,
 };
 
 use anyhow::Context;
 use clap::Parser;
 use futures::StreamExt;
-use teeny_llm_core::{
-    ChatMessage, EchoEngine, Engine, FinishReason, GenerationRequest, Prompt, SamplingParams,
+use serde_json::Value;
+use teeny_llm_core::chat::{
+    AssistantMessage, ChatEvent, ChatFinishReason, ChatRequest, EchoChatModel, Message, Tool,
+    ToolCall, ToolCallKind, ToolKind,
 };
+use teeny_llm_core::models::{LoadOptions, LoadedModel, Model};
+use teeny_llm_core::{Engine, ModelEngine};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Args {
-    /// Model to chat with.
-    #[arg(long, short, default_value = EchoEngine::MODEL_ID)]
-    model: String,
+    /// The model to chat with, by tag (`family:size`, or the family for its default
+    /// size); the choices are the models this build includes. Without it, `teeny-echo`,
+    /// which echoes what you type.
+    #[arg(long, short, ignore_case = true, value_parser = model_parser())]
+    model: Option<Model>,
+
+    /// The model's weights folder. Defaults to its snapshot in the local Hugging Face
+    /// cache.
+    #[arg(long)]
+    model_dir: Option<PathBuf>,
+
+    /// The longest conversation, in tokens, the model keeps. Defaults to the model's own.
+    #[arg(long)]
+    context: Option<u32>,
+
+    /// A JSON file of tool declarations, OpenAI style
+    /// (`[{"type": "function", "function": {"name": ..., "parameters": ...}}]`). The
+    /// model's calls are shown, and you type each result.
+    #[arg(long)]
+    tools: Option<PathBuf>,
 
     /// System prompt to start the conversation with.
     #[arg(long, short)]
@@ -43,52 +65,168 @@ struct Args {
     #[arg(long)]
     max_tokens: Option<u32>,
 
-    /// Sampling temperature.
+    /// Sampling temperature, for models that sample.
     #[arg(long)]
     temperature: Option<f32>,
 }
 
+fn model_parser() -> impl clap::builder::TypedValueParser<Value = Model> {
+    use clap::builder::{PossibleValuesParser, TypedValueParser};
+    PossibleValuesParser::new(Model::tags()).try_map(|tag| tag.parse::<Model>())
+}
+
 const HELP: &str = "commands: /clear  forget the conversation\n          /help   show this help\n          /exit   quit (or Ctrl-D)";
+
+/// The function declarations in an OpenAI-style `tools` array.
+fn read_tools(path: &PathBuf) -> anyhow::Result<Vec<Tool>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading the tools file {}", path.display()))?;
+    let json: Value =
+        serde_json::from_str(&text).with_context(|| format!("{} is not JSON", path.display()))?;
+    let items = json
+        .as_array()
+        .with_context(|| format!("{} must hold a JSON array of tools", path.display()))?;
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let f = t
+                .get("function")
+                .filter(|_| t["type"] == "function")
+                .with_context(|| format!("tools[{i}] is not a function tool"))?;
+            Ok(Tool {
+                name: f["name"]
+                    .as_str()
+                    .with_context(|| format!("tools[{i}].function.name must be a string"))?
+                    .to_owned(),
+                description: f["description"].as_str().map(str::to_owned),
+                kind: ToolKind::Function {
+                    parameters: f.get("parameters").filter(|p| !p.is_null()).cloned(),
+                    strict: false,
+                },
+            })
+        })
+        .collect()
+}
+
+fn load(args: &Args) -> anyhow::Result<LoadedModel> {
+    let Some(model) = args.model else {
+        return Ok(LoadedModel::from_chat(Arc::new(EchoChatModel)));
+    };
+    let mut options = LoadOptions::default().with_progress(|what| eprintln!("  [{what}]"));
+    if let Some(dir) = &args.model_dir {
+        options = options.with_model_dir(dir.clone());
+    }
+    if let Some(n) = args.context {
+        options = options.with_context_length(n);
+    }
+    eprintln!("loading {model}...");
+    model
+        .load(&options)
+        .with_context(|| format!("loading {model}"))
+}
+
+/// Reads a line, or `None` at end of input.
+fn read_line(prompt: &str) -> anyhow::Result<Option<String>> {
+    print!("{prompt}");
+    io::stdout().flush()?;
+    let mut line = String::new();
+    if io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .context("failed to read stdin")?
+        == 0
+    {
+        println!();
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_owned()))
+}
+
+/// Streams one reply to the terminal, returning it as an assistant message and why it
+/// ended.
+async fn reply(
+    engine: &dyn Engine,
+    request: ChatRequest,
+) -> anyhow::Result<(AssistantMessage, ChatFinishReason)> {
+    let mut events = engine.chat_stream(request)?;
+    let mut message = AssistantMessage::default();
+    let mut finish = ChatFinishReason::Stop;
+    let mut stdout = io::stdout();
+    while let Some(event) = events.next().await {
+        match event? {
+            ChatEvent::Delta { index: 0, delta } => {
+                if let Some(text) = delta.content {
+                    print!("{text}");
+                    stdout.flush()?;
+                    message.content.get_or_insert_default().push_str(&text);
+                }
+                for d in delta.tool_calls {
+                    let i = d.index as usize;
+                    if message.tool_calls.len() <= i {
+                        message.tool_calls.resize_with(i + 1, || ToolCall {
+                            id: String::new(),
+                            name: String::new(),
+                            kind: ToolCallKind::Function,
+                            input: String::new(),
+                        });
+                    }
+                    let call = &mut message.tool_calls[i];
+                    if let Some(id) = d.id {
+                        call.id = id;
+                    }
+                    if let Some(name) = d.name {
+                        call.name = name;
+                    }
+                    call.input.push_str(&d.input);
+                }
+            }
+            ChatEvent::Finish { index: 0, reason } => finish = reason,
+            _ => {}
+        }
+    }
+    if message.content.is_some() {
+        println!();
+    }
+    Ok((message, finish))
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let engine: Arc<dyn Engine> = Arc::new(EchoEngine::new());
-    // Fail fast on a bad --model rather than on the first message.
-    engine.model(&args.model)?;
+    let tools = args
+        .tools
+        .as_ref()
+        .map(read_tools)
+        .transpose()?
+        .unwrap_or_default();
+    let loaded = load(&args)?;
+    let model = loaded.info.id.clone();
+    let engine: Arc<dyn Engine> = Arc::new(ModelEngine::new(vec![loaded])?);
 
-    let initial: Vec<ChatMessage> = args.system.iter().map(ChatMessage::system).collect();
+    let initial: Vec<Message> = args.system.iter().map(Message::system).collect();
     let mut history = initial.clone();
-    let sampling = SamplingParams {
-        max_tokens: args.max_tokens,
-        temperature: args.temperature,
-        ..SamplingParams::default()
-    };
-
     eprintln!(
-        "teeny-llm-chat — model `{}` on engine `{}`. /help for commands.",
-        args.model,
-        engine.name()
+        "teeny-llm-chat: {model}{}. /help for commands.",
+        if tools.is_empty() {
+            String::new()
+        } else {
+            format!(
+                ", tools: {}",
+                tools
+                    .iter()
+                    .map(|t| t.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     );
 
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
-    let mut line = String::new();
     loop {
-        print!("> ");
-        stdout.flush()?;
-        line.clear();
-        if stdin
-            .lock()
-            .read_line(&mut line)
-            .context("failed to read stdin")?
-            == 0
-        {
-            println!();
+        let Some(input) = read_line("> ")? else {
             return Ok(());
-        }
-        let input = line.trim();
-        match input {
+        };
+        match input.as_str() {
             "" => continue,
             "/exit" | "/quit" => return Ok(()),
             "/help" => {
@@ -107,42 +245,49 @@ async fn main() -> anyhow::Result<()> {
             _ => {}
         }
 
-        history.push(ChatMessage::user(input));
-        let request = GenerationRequest {
-            model: args.model.clone(),
-            prompt: Prompt::Chat(history.clone()),
-            sampling: sampling.clone(),
-        };
-
-        let mut reply = String::new();
-        let result: anyhow::Result<Option<FinishReason>> = async {
-            let mut tokens = engine.generate_stream(request)?;
-            while let Some(chunk) = tokens.next().await {
-                let chunk = chunk?;
-                print!("{}", chunk.text);
-                stdout.flush()?;
-                reply.push_str(&chunk.text);
-                if chunk.finish_reason.is_some() {
-                    return Ok(chunk.finish_reason);
-                }
-            }
-            Ok(None)
-        }
-        .await;
-        println!();
-
-        match result {
-            Ok(finish_reason) => {
-                if finish_reason == Some(FinishReason::Length) {
+        let turn_start = history.len();
+        history.push(Message::user(input));
+        // A turn can take several replies: each round of tool calls is answered, then the
+        // model goes on.
+        let result: anyhow::Result<()> = async {
+            loop {
+                let request = ChatRequest {
+                    model: model.clone(),
+                    messages: history.clone(),
+                    tools: tools.clone(),
+                    max_completion_tokens: args.max_tokens,
+                    sampling: teeny_llm_core::chat::Sampling {
+                        temperature: args.temperature,
+                        ..Default::default()
+                    },
+                    ..ChatRequest::default()
+                };
+                let (message, finish) = reply(engine.as_ref(), request).await?;
+                let calls = message.tool_calls.clone();
+                history.push(Message::Assistant(message));
+                if finish == ChatFinishReason::Length {
                     eprintln!("(reply truncated at --max-tokens)");
                 }
-                history.push(ChatMessage::assistant(reply));
+                if calls.is_empty() {
+                    return Ok(());
+                }
+                for call in calls {
+                    println!("  call {}: {}({})", call.id, call.name, call.input);
+                    let Some(result) = read_line(&format!("  {} result> ", call.name))? else {
+                        return Ok(());
+                    };
+                    history.push(Message::Tool {
+                        tool_call_id: call.id,
+                        content: result,
+                    });
+                }
             }
-            Err(e) => {
-                // Drop the unanswered user turn so a retry doesn't send it twice.
-                history.pop();
-                eprintln!("error: {e:#}");
-            }
+        }
+        .await;
+        if let Err(e) = result {
+            // Drop the unanswered turn so a retry doesn't send it twice.
+            history.truncate(turn_start);
+            eprintln!("error: {e:#}");
         }
     }
 }

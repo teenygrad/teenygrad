@@ -112,10 +112,12 @@ jobs:
       # tested here with riscv instead. There the kernel tests (cuda or qemu only) compile out,
       # and the model tests need the gated weights and are ignored. Clippy covers both
       # backends with every target.
-      - name: Clippy teeny-llm-core models (cuda, riscv)
+      - name: Clippy teeny-llm models (cuda, riscv)
         run: |
           cargo clippy -p teeny-llm-core --all-targets -- -D warnings
           cargo clippy -p teeny-llm-core --all-targets --no-default-features --features functiongemma3,riscv -- -D warnings
+          cargo clippy -p teeny-llm-server -p teeny-llm-chat --all-targets --features functiongemma3,cuda -- -D warnings
+          cargo clippy -p teeny-llm-server -p teeny-llm-chat --all-targets --features functiongemma3,riscv -- -D warnings
 
       - name: Test teeny-llm-core (riscv)
         run: cargo test -p teeny-llm-core --no-default-features --features functiongemma3,riscv

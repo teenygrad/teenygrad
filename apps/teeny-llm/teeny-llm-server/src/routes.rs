@@ -30,16 +30,15 @@ use axum::{
     routing::{get, post},
 };
 use futures::{Stream, StreamExt, stream};
-use teeny_llm_core::{
-    ChatMessage, Engine, GenerationChunk, GenerationRequest, Prompt, SamplingParams,
-};
+use teeny_llm_core::chat::{self, ChatEvent};
+use teeny_llm_core::{Engine, GenerationRequest, Prompt, SamplingParams};
 
 use crate::openai::{
     FinishReason, OneOrMany, StreamOptions, Usage,
     chat::{
-        ChatCompletionChoice, ChatCompletionRequestMessage, ChatCompletionResponseMessage,
-        ChatCompletionStreamChoice, ChatCompletionStreamResponseDelta, CreateChatCompletionRequest,
-        CreateChatCompletionResponse, CreateChatCompletionStreamResponse, MessageContent, Role,
+        self as chat_wire, ChatCompletionStreamChoice, ChatCompletionStreamResponseDelta,
+        CreateChatCompletionRequest, CreateChatCompletionResponse,
+        CreateChatCompletionStreamResponse, Role, choice_from_core, delta_from_core,
     },
     completions::{CompletionChoice, CreateCompletionRequest, CreateCompletionResponse},
     embeddings::{CreateEmbeddingRequest, CreateEmbeddingResponse, Embedding, EmbeddingUsage},
@@ -121,166 +120,93 @@ async fn retrieve_model(
 
 // ---- chat completions ------------------------------------------------------------------------
 
-fn message_text(
-    index: usize,
-    message: ChatCompletionRequestMessage,
-) -> Result<ChatMessage, ApiError> {
-    let content = match message.content {
-        None => String::new(),
-        Some(MessageContent::Text(text)) => text,
-        Some(MessageContent::Parts(parts)) => {
-            let mut text = String::new();
-            for (p, part) in parts.into_iter().enumerate() {
-                match (part.kind.as_str(), part.text) {
-                    ("text", Some(t)) => text.push_str(&t),
-                    ("text", None) => {
-                        return Err(ApiError::invalid_request(
-                            "text content part is missing `text`",
-                            Some(&format!("messages[{index}].content[{p}].text")),
-                        ));
-                    }
-                    (kind, _) => {
-                        return Err(ApiError::invalid_request(
-                            format!(
-                                "content part type `{kind}` is not supported yet; only `text` is"
-                            ),
-                            Some(&format!("messages[{index}].content[{p}].type")),
-                        ));
-                    }
-                }
-            }
-            text
-        }
-    };
-    Ok(ChatMessage::new(message.role.into(), content))
-}
-
-fn chat_generation_request(
-    req: CreateChatCompletionRequest,
-) -> Result<GenerationRequest, ApiError> {
-    require_single_choice(req.n)?;
-    if req.messages.is_empty() {
-        return Err(ApiError::invalid_request(
-            "`messages` must contain at least one message",
-            Some("messages"),
-        ));
-    }
-    let messages = req
-        .messages
-        .into_iter()
-        .enumerate()
-        .map(|(i, m)| message_text(i, m))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(GenerationRequest {
-        model: req.model,
-        prompt: Prompt::Chat(messages),
-        sampling: SamplingParams {
-            max_tokens: req.max_completion_tokens.or(req.max_tokens),
-            temperature: req.temperature,
-            top_p: req.top_p,
-            presence_penalty: req.presence_penalty,
-            frequency_penalty: req.frequency_penalty,
-            seed: req.seed.map(i64::cast_unsigned),
-            stop: req.stop.map(OneOrMany::into_vec).unwrap_or_default(),
-        },
-    })
-}
-
 async fn chat_completions(
     State(engine): State<AppState>,
     body: Result<Json<CreateChatCompletionRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let Json(req) = body?;
-    let stream = req.stream.unwrap_or(false);
-    let include_usage = include_usage(req.stream_options.as_ref());
-    let generation = chat_generation_request(req)?;
-    let model = generation.model.clone();
+    let stream = req.streamed();
+    let request = req.into_core()?;
+    // The canonical id, whatever tag the request named the model by.
+    let model = engine.model(&request.model)?.id;
+    let (n, include_usage) = (request.n, request.include_usage);
+    let logprobs = request.logprobs.is_some();
+    let events = engine.chat_stream(request)?;
     let id = new_id("chatcmpl");
     let created = unix_now();
 
     if !stream {
-        let out = engine.generate(generation).await?;
+        let done = chat::collect(&model, n, events).await?;
         return Ok(Json(CreateChatCompletionResponse {
             id,
             object: "chat.completion".to_owned(),
             created,
             model,
-            choices: vec![ChatCompletionChoice {
-                index: 0,
-                message: ChatCompletionResponseMessage {
-                    role: Role::Assistant,
-                    content: Some(out.text),
-                    refusal: None,
-                },
-                logprobs: None,
-                finish_reason: out.finish_reason.into(),
-            }],
-            usage: Some(out.usage.into()),
+            choices: done
+                .choices
+                .into_iter()
+                .map(|c| choice_from_core(c, logprobs))
+                .collect(),
+            usage: Some(done.usage.into()),
         })
         .into_response());
     }
 
-    let tokens = engine.generate_stream(generation)?;
     let chunk = move |choices: Vec<ChatCompletionStreamChoice>, usage: Option<Usage>| {
-        CreateChatCompletionStreamResponse {
+        sse_event(&CreateChatCompletionStreamResponse {
             id: id.clone(),
             object: "chat.completion.chunk".to_owned(),
             created,
             model: model.clone(),
             choices,
             usage,
-        }
+        })
     };
-    let choice = |delta, finish_reason| ChatCompletionStreamChoice {
-        index: 0,
+    let choice = |index, delta, logprobs, finish_reason| ChatCompletionStreamChoice {
+        index,
         delta,
-        logprobs: None,
+        logprobs,
         finish_reason,
     };
-
-    let first = sse_event(&chunk(
-        vec![choice(
-            ChatCompletionStreamResponseDelta {
+    // Each choice opens with its role, as OpenAI's streams do.
+    let opening: Vec<Event> = (0..n)
+        .map(|index| {
+            let delta = ChatCompletionStreamResponseDelta {
                 role: Some(Role::Assistant),
                 content: Some(String::new()),
-            },
-            None,
-        )],
-        None,
-    ));
-    let rest = tokens.flat_map(move |item| {
-        let events = match item {
-            Err(e) => vec![sse_error(e)],
-            Ok(GenerationChunk {
-                text,
-                finish_reason,
-                usage,
-            }) => {
-                let mut events = Vec::with_capacity(3);
-                if !text.is_empty() {
-                    let delta = ChatCompletionStreamResponseDelta {
-                        role: None,
-                        content: Some(text),
-                    };
-                    events.push(sse_event(&chunk(vec![choice(delta, None)], None)));
-                }
-                if let Some(reason) = finish_reason {
-                    let delta = ChatCompletionStreamResponseDelta::default();
-                    events.push(sse_event(&chunk(
-                        vec![choice(delta, Some(FinishReason::from(reason)))],
-                        None,
-                    )));
-                    if include_usage {
-                        let usage = usage.unwrap_or_default().into();
-                        events.push(sse_event(&chunk(Vec::new(), Some(usage))));
-                    }
-                }
-                events
+                ..ChatCompletionStreamResponseDelta::default()
+            };
+            chunk(vec![choice(index, delta, None, None)], None)
+        })
+        .collect();
+    let rest = events.filter_map(move |item| {
+        let event = match item {
+            Err(e) => Some(sse_error(e)),
+            Ok(ChatEvent::Delta { index, delta }) => {
+                let lp = chat_wire::choice_logprobs(
+                    logprobs,
+                    delta.content_logprobs.clone(),
+                    delta.refusal_logprobs.clone(),
+                );
+                Some(chunk(
+                    vec![choice(index, delta_from_core(delta), lp, None)],
+                    None,
+                ))
             }
+            Ok(ChatEvent::Finish { index, reason }) => Some(chunk(
+                vec![choice(
+                    index,
+                    ChatCompletionStreamResponseDelta::default(),
+                    None,
+                    Some(FinishReason::from(reason)),
+                )],
+                None,
+            )),
+            Ok(ChatEvent::Usage(u)) => include_usage.then(|| chunk(Vec::new(), Some(u.into()))),
         };
-        stream::iter(events)
+        std::future::ready(event)
     });
-    Ok(sse_response(stream::once(async { first }).chain(rest)))
+    Ok(sse_response(stream::iter(opening).chain(rest)))
 }
 
 // ---- legacy completions ----------------------------------------------------------------------

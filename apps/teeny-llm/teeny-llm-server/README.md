@@ -14,23 +14,31 @@ OpenAI-compatible clients can talk to it.
 | POST   | `/v1/embeddings`              | `501` until the engine has an embedder   |
 | GET    | `/health`                     |                                          |
 
-Unknown request fields are ignored. Fields that change the semantics in ways not supported yet
-(`n > 1`, `echo`, `suffix`, non-text content parts, `encoding_format: "base64"`) are rejected with
-an OpenAI-style `400` error, not silently dropped.
-
-> ⚠️ Early scaffolding: the server currently runs the placeholder `EchoEngine`
-> (model `teeny-echo`), which echoes the last user message.
+The chat API is served whole: tools and tool calls (streamed as deltas), `tool_choice`,
+content parts, `n`, `logprobs`, `response_format`, `stream_options.include_usage`. What the
+chosen model cannot do (images for a text-only model, `n > 1`, sampling for a greedy one) is
+refused with an OpenAI-style `400` naming the parameter, never silently dropped. Fields that
+concern only the service (`store`, `service_tier`, ...) are ignored.
 
 ## Getting started
 
+The binary serves the models it is built with. Each model is a feature, with the backend it
+runs on:
+
 ```bash
-cargo install teeny-llm-server
-teeny-llm-server --port 8000
+cargo install teeny-llm-server --features functiongemma3,cuda
+teeny-llm-server --model functiongemma3 --port 8000
 
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model": "teeny-echo", "messages": [{"role": "user", "content": "hello"}]}'
+  -d '{"model": "functiongemma3", "messages": [{"role": "user", "content": "hello"}]}'
 ```
+
+`--model <tag>` (repeatable) picks the models; the weights come from the local Hugging Face
+cache, or `--model-dir` for a single model, and `--context` sets the KV-cache size. Without
+a model feature, `--echo` serves `teeny-echo`, which echoes the last user message, for trying
+the API without weights. Legacy `/v1/completions` and `/v1/embeddings` answer once models
+implement them.
 
 The Vue scaffolds in `webapps/` (chat UI, admin console) aren't wired up yet.
 
