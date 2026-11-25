@@ -18,8 +18,9 @@
 //!
 //! Frontends ([`teeny-llm-server`], [`teeny-llm-chat`]) translate their own wire formats into a
 //! [`GenerationRequest`] (or a [`chat::ChatRequest`]) and drive an [`Engine`]. Models implement
-//! [`chat::ChatModel`], and [`chat::ChatEngine`] serves them as an [`Engine`]. Nothing in this
-//! crate knows about HTTP or the terminal.
+//! [`chat::ChatModel`]; [`models::Model::load`] loads one as a [`models::LoadedModel`], and
+//! [`ModelEngine`] serves loaded models as an [`Engine`]. Nothing in this crate knows about
+//! HTTP or the terminal.
 //!
 //! Model implementations live in `models`, each behind a cargo feature named for the model
 //! and its version (`functiongemma3` for `models::functiongemma`), with the kernels they
@@ -34,6 +35,7 @@ pub mod chat;
 mod echo;
 mod engine;
 mod error;
+mod model_engine;
 pub mod tokenizer;
 mod types;
 
@@ -44,6 +46,7 @@ pub mod models;
 pub use echo::EchoEngine;
 pub use engine::{Engine, TokenStream};
 pub use error::{Error, Result};
+pub use model_engine::ModelEngine;
 pub use types::{
     ChatMessage, Embeddings, FinishReason, Generation, GenerationChunk, GenerationRequest,
     ModelInfo, Prompt, Role, SamplingParams, Usage,

@@ -90,3 +90,18 @@ impl KvCache {
         Ok(())
     }
 }
+
+/// Loads FunctionGemma for [`Model::load`](crate::models::Model::load).
+///
+/// Serving it as a [`ChatModel`](crate::chat::ChatModel) is teenygrad-1oui.2; until then
+/// the weights are located (so a missing download is reported) and loading is refused.
+pub(crate) fn load(
+    model: crate::models::Model,
+    options: &crate::models::LoadOptions,
+) -> crate::Result<crate::models::LoadedModel> {
+    let dir = model.locate(options.model_dir.as_deref())?;
+    Err(crate::Error::Weights(format!(
+        "{model} (from {}) cannot be served yet: it does not implement ChatModel",
+        dir.display()
+    )))
+}

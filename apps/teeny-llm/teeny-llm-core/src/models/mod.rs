@@ -25,6 +25,9 @@ use crate::{Error, Result};
 
 #[cfg(feature = "functiongemma3")]
 pub mod functiongemma;
+mod load;
+
+pub use load::{LoadOptions, LoadedModel, Progress};
 
 /// A model this build of teeny-llm-core can run: one variant per model family (and
 /// version) whose feature is enabled, so a binary only offers what it was built with.

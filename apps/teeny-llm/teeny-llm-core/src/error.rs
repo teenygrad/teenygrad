@@ -45,6 +45,14 @@ pub enum Error {
         operation: &'static str,
     },
 
+    /// A model was asked for an API it does not serve (embeddings from a chat model, say).
+    #[error("model `{model}` does not serve {api}; it serves {serves}")]
+    ModelLacksApi {
+        model: String,
+        api: &'static str,
+        serves: String,
+    },
+
     /// Text could not be tokenized, or token ids decoded.
     #[error("tokenizer: {0}")]
     Tokenizer(String),

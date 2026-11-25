@@ -87,6 +87,12 @@ impl From<teeny_llm_core::Error> for ApiError {
                 Some(parameter.clone()),
                 Some("unsupported_parameter"),
             ),
+            E::ModelLacksApi { .. } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                Some("model".to_owned()),
+                Some("model_not_supported"),
+            ),
             E::Unsupported { .. } => (
                 StatusCode::NOT_IMPLEMENTED,
                 "invalid_request_error",
