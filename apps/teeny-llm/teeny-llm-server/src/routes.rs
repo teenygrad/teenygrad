@@ -30,17 +30,20 @@ use axum::{
     routing::{get, post},
 };
 use futures::{Stream, StreamExt, stream};
+use teeny_llm_core::Engine;
 use teeny_llm_core::chat::{self, ChatEvent};
-use teeny_llm_core::{Engine, GenerationRequest, Prompt, SamplingParams};
+use teeny_llm_core::completion::{self, CompletionEvent};
 
 use crate::openai::{
-    FinishReason, OneOrMany, StreamOptions, Usage,
+    FinishReason, Usage,
     chat::{
         self as chat_wire, ChatCompletionStreamChoice, ChatCompletionStreamResponseDelta,
         CreateChatCompletionRequest, CreateChatCompletionResponse,
         CreateChatCompletionStreamResponse, Role, choice_from_core, delta_from_core,
     },
-    completions::{CompletionChoice, CreateCompletionRequest, CreateCompletionResponse},
+    completions::{
+        CompletionChoice, CompletionLogprobs, CreateCompletionRequest, CreateCompletionResponse,
+    },
     embeddings::{
         CreateEmbeddingRequest, CreateEmbeddingResponse, Embedding, EmbeddingUsage, EmbeddingVector,
     },
@@ -70,20 +73,6 @@ fn unix_now() -> u64 {
 
 fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
-}
-
-fn include_usage(opts: Option<&StreamOptions>) -> bool {
-    opts.and_then(|o| o.include_usage).unwrap_or(false)
-}
-
-fn require_single_choice(n: Option<u32>) -> Result<(), ApiError> {
-    match n {
-        None | Some(1) => Ok(()),
-        Some(n) => Err(ApiError::invalid_request(
-            format!("n={n} is not supported yet; only n=1 is"),
-            Some("n"),
-        )),
-    }
 }
 
 fn sse_event<T: serde::Serialize>(value: &T) -> Event {
@@ -218,105 +207,63 @@ async fn completions(
     body: Result<Json<CreateCompletionRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let Json(req) = body?;
-    require_single_choice(req.n)?;
-    if req.echo == Some(true) {
-        return Err(ApiError::invalid_request(
-            "`echo: true` is not supported yet",
-            Some("echo"),
-        ));
-    }
-    if req.suffix.is_some() {
-        return Err(ApiError::invalid_request(
-            "`suffix` is not supported yet",
-            Some("suffix"),
-        ));
-    }
-
-    let stream = req.stream.unwrap_or(false);
-    let include_usage = include_usage(req.stream_options.as_ref());
-    let sampling = SamplingParams {
-        max_tokens: req.max_tokens,
-        temperature: req.temperature,
-        top_p: req.top_p,
-        presence_penalty: req.presence_penalty,
-        frequency_penalty: req.frequency_penalty,
-        seed: req.seed.map(i64::cast_unsigned),
-        stop: req.stop.map(OneOrMany::into_vec).unwrap_or_default(),
-    };
-    let prompts = req.prompt.into_vec();
-    if prompts.is_empty() {
-        return Err(ApiError::invalid_request(
-            "`prompt` must not be an empty array",
-            Some("prompt"),
-        ));
-    }
-    let model = req.model;
-    let request = |prompt: String| GenerationRequest {
-        model: model.clone(),
-        prompt: Prompt::Text(prompt),
-        sampling: sampling.clone(),
-    };
+    let stream = req.streamed();
+    let request = req.into_core()?;
+    let model = engine.model(&request.model)?.id;
+    let choices = request.prompts.len() * request.n as usize;
+    let (include_usage, logprobs) = (request.include_usage, request.logprobs.is_some());
+    let events = engine.complete_stream(request).await?;
     let id = new_id("cmpl");
     let created = unix_now();
-    let response_model = model.clone();
     let response = move |choices, usage| CreateCompletionResponse {
         id: id.clone(),
         object: "text_completion".to_owned(),
         created,
-        model: response_model.clone(),
+        model: model.clone(),
         choices,
         usage,
     };
 
     if !stream {
-        let mut choices = Vec::with_capacity(prompts.len());
-        let mut usage = teeny_llm_core::Usage::default();
-        for (index, prompt) in prompts.into_iter().enumerate() {
-            let out = engine.generate(request(prompt)).await?;
-            usage.prompt_tokens += out.usage.prompt_tokens;
-            usage.completion_tokens += out.usage.completion_tokens;
-            choices.push(CompletionChoice {
-                index: u32::try_from(index).unwrap_or(u32::MAX),
-                text: out.text,
-                logprobs: None,
-                finish_reason: Some(out.finish_reason.into()),
-            });
-        }
-        return Ok(Json(response(choices, Some(usage.into()))).into_response());
+        let done = completion::collect(choices, events).await?;
+        let choices = done
+            .choices
+            .into_iter()
+            .map(|c| CompletionChoice::from_core(c, logprobs))
+            .collect();
+        return Ok(Json(response(choices, Some(done.usage.into()))).into_response());
     }
 
-    let [prompt] = <[String; 1]>::try_from(prompts).map_err(|p| {
-        ApiError::invalid_request(
-            format!(
-                "streaming supports a single prompt; got {} prompts",
-                p.len()
-            ),
-            Some("prompt"),
-        )
-    })?;
-    let tokens = engine.generate_stream(request(prompt))?;
-    let events = tokens.flat_map(move |item| {
-        let events = match item {
-            Err(e) => vec![sse_error(e)],
-            Ok(chunk) => {
-                let mut events = Vec::with_capacity(2);
-                if !chunk.text.is_empty() || chunk.finish_reason.is_some() {
-                    let choice = CompletionChoice {
-                        index: 0,
-                        text: chunk.text,
-                        logprobs: None,
-                        finish_reason: chunk.finish_reason.map(Into::into),
-                    };
-                    events.push(sse_event(&response(vec![choice], None)));
-                }
-                if chunk.finish_reason.is_some() && include_usage {
-                    let usage = chunk.usage.unwrap_or_default().into();
-                    events.push(sse_event(&response(Vec::new(), Some(usage))));
-                }
-                events
+    let events = events.filter_map(move |item| {
+        let event = match item {
+            Err(e) => Some(sse_error(e)),
+            Ok(CompletionEvent::Text {
+                index,
+                text,
+                logprobs: lp,
+            }) => {
+                let choice = CompletionChoice {
+                    index,
+                    text,
+                    logprobs: CompletionLogprobs::from_core(logprobs, lp),
+                    finish_reason: None,
+                };
+                Some(sse_event(&response(vec![choice], None)))
+            }
+            Ok(CompletionEvent::Finish { index, reason }) => {
+                let choice = CompletionChoice {
+                    index,
+                    text: String::new(),
+                    logprobs: None,
+                    finish_reason: Some(reason.into()),
+                };
+                Some(sse_event(&response(vec![choice], None)))
+            }
+            Ok(CompletionEvent::Usage(u)) => {
+                include_usage.then(|| sse_event(&response(Vec::new(), Some(u.into()))))
             }
         };
-        stream::iter(events)
+        std::future::ready(event)
     });
     Ok(sse_response(events))
 }

@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use super::Model;
 use crate::chat::ChatModel;
+use crate::completion::CompletionModel;
 use crate::embedding::EmbeddingModel;
 use crate::tokenizer::Tokenizer;
 use crate::{Error, ModelInfo, Result};
@@ -123,6 +124,8 @@ pub struct LoadedModel {
     pub tokenizer: Option<Arc<dyn Tokenizer>>,
     /// Chat completions.
     pub chat: Option<Arc<dyn ChatModel>>,
+    /// Text completions.
+    pub completion: Option<Arc<dyn CompletionModel>>,
     /// Embeddings.
     pub embedding: Option<Arc<dyn EmbeddingModel>>,
 }
@@ -135,6 +138,7 @@ impl fmt::Debug for LoadedModel {
             .field("parameters", &self.parameters)
             .field("tokenizer", &self.tokenizer.is_some())
             .field("chat", &self.chat.is_some())
+            .field("completion", &self.completion.is_some())
             .field("embedding", &self.embedding.is_some())
             .finish()
     }
@@ -149,6 +153,7 @@ impl LoadedModel {
             parameters: None,
             tokenizer: None,
             chat: None,
+            completion: None,
             embedding: None,
         }
     }
@@ -156,6 +161,11 @@ impl LoadedModel {
     /// A chat model, described by its own [`ChatModel::info`].
     pub fn from_chat(chat: Arc<dyn ChatModel>) -> Self {
         Self::new(chat.info()).with_chat(chat)
+    }
+
+    /// A completion model, described by its own [`CompletionModel::info`].
+    pub fn from_completion(completion: Arc<dyn CompletionModel>) -> Self {
+        Self::new(completion.info()).with_completion(completion)
     }
 
     /// An embedding model, described by its own [`EmbeddingModel::info`].
@@ -187,6 +197,12 @@ impl LoadedModel {
         self
     }
 
+    /// Serves text completions with `completion`.
+    pub fn with_completion(mut self, completion: Arc<dyn CompletionModel>) -> Self {
+        self.completion = Some(completion);
+        self
+    }
+
     /// Serves embeddings with `embedding`.
     pub fn with_embedding(mut self, embedding: Arc<dyn EmbeddingModel>) -> Self {
         self.embedding = Some(embedding);
@@ -198,6 +214,9 @@ impl LoadedModel {
         let mut apis = Vec::new();
         if self.chat.is_some() {
             apis.push("chat completions");
+        }
+        if self.completion.is_some() {
+            apis.push("text completions");
         }
         if self.embedding.is_some() {
             apis.push("embeddings");

@@ -20,6 +20,7 @@ use futures::future::BoxFuture;
 use futures::{Stream, StreamExt};
 
 use crate::chat::{ChatRequest, ChatStream};
+use crate::completion::{CompletionRequest, CompletionStream};
 use crate::embedding::{EmbeddingRequest, Embeddings};
 use crate::{Error, Generation, GenerationChunk, GenerationRequest, ModelInfo, Result};
 
@@ -53,6 +54,25 @@ pub trait Engine: Send + Sync + 'static {
         Err(Error::Unsupported {
             engine: self.name(),
             operation: "chat requests",
+        })
+    }
+
+    /// Starts a text completion (raw continuation of prompts). Engines that serve
+    /// [`CompletionModel`](crate::completion::CompletionModel)s implement it; the rest keep
+    /// the default.
+    ///
+    /// Validation errors resolve the future to `Err` before streaming starts.
+    fn complete_stream(
+        &self,
+        request: CompletionRequest,
+    ) -> BoxFuture<'_, Result<CompletionStream>> {
+        let _ = request;
+        let name = self.name();
+        Box::pin(async move {
+            Err(Error::Unsupported {
+                engine: name,
+                operation: "text completions",
+            })
         })
     }
 

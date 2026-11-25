@@ -14,24 +14,27 @@
  * limitations under the License.
  */
 
-//! End-to-end tests of the OpenAI-compatible API: chat against the reference echo chat
-//! model served by `ModelEngine`, legacy completions and embeddings against `EchoEngine`
-//! until models implement those APIs.
+//! End-to-end tests of the OpenAI-compatible API, against the reference echo models (chat,
+//! completions, embeddings) served by `ModelEngine`.
 
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 use teeny_llm_core::chat::EchoChatModel;
+use teeny_llm_core::completion::EchoCompletionModel;
 use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::LoadedModel;
-use teeny_llm_core::{EchoEngine, Engine, ModelEngine};
+use teeny_llm_core::{Engine, ModelEngine};
 
 const ECHO: &str = EchoChatModel::MODEL_ID;
 
-/// A server over the echo chat and embedding models.
+const COMPLETE: &str = EchoCompletionModel::MODEL_ID;
+
+/// A server over the echo chat, completion and embedding models.
 async fn spawn_server() -> String {
     let models = vec![
         LoadedModel::from_chat(Arc::new(EchoChatModel)),
+        LoadedModel::from_completion(Arc::new(EchoCompletionModel)),
         LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)),
     ];
     spawn(Arc::new(ModelEngine::new(models).unwrap())).await
@@ -163,11 +166,11 @@ async fn chat_completion_stream_with_usage() {
 
 #[tokio::test]
 async fn completion_and_stream() {
-    let base = spawn(Arc::new(EchoEngine::new())).await;
+    let base = spawn_server().await;
     let (status, body) = post(
         &base,
         "/v1/completions",
-        json!({"model": ECHO, "prompt": ["a b", "c"]}),
+        json!({"model": COMPLETE, "prompt": ["a b", "c"]}),
     )
     .await;
     assert_eq!(status, 200, "{body}");
@@ -181,7 +184,7 @@ async fn completion_and_stream() {
     let (status, body) = post(
         &base,
         "/v1/completions",
-        json!({"model": ECHO, "prompt": "x y", "stream": true}),
+        json!({"model": COMPLETE, "prompt": "x y", "stream": true}),
     )
     .await;
     assert_eq!(status, 200, "{body}");
@@ -254,21 +257,41 @@ async fn rejects_unsupported_requests_with_openai_errors() {
     let v: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(v["error"]["type"], "invalid_request_error");
 
-    let echo = spawn(Arc::new(EchoEngine::new())).await;
-    let (status, text) = post(
-        &echo,
+    for (body, param) in [
+        (
+            json!({"model": COMPLETE, "prompt": "x", "suffix": "}"}),
+            "suffix",
+        ),
+        (
+            json!({"model": COMPLETE, "prompt": "x", "best_of": 2, "stream": true}),
+            "best_of",
+        ),
+        (json!({"model": ECHO, "prompt": "x"}), "model"),
+    ] {
+        let (status, text) = post(&base, "/v1/completions", body).await;
+        assert_eq!(status, 400, "{text}");
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["error"]["param"], param, "{text}");
+    }
+}
+
+#[tokio::test]
+async fn completion_with_echo_n_and_logprobs() {
+    let base = spawn_server().await;
+    let (status, body) = post(
+        &base,
         "/v1/completions",
-        json!({"model": EchoEngine::MODEL_ID, "prompt": "x", "echo": true}),
+        json!({"model": COMPLETE, "prompt": [[5, 6]], "n": 2, "echo": true, "logprobs": 1}),
     )
     .await;
-    assert_eq!(status, 400, "{text}");
-    let (status, text) = post(
-        &echo,
-        "/v1/embeddings",
-        json!({"model": EchoEngine::MODEL_ID, "input": "hi"}),
-    )
-    .await;
-    assert_eq!(status, 501, "{text}");
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["choices"].as_array().unwrap().len(), 2);
+    assert_eq!(v["choices"][1]["text"], "5 6 5 6");
+    let lp = &v["choices"][0]["logprobs"];
+    assert_eq!(lp["tokens"], json!([" 5", " 6"]));
+    assert_eq!(lp["text_offset"], json!([3, 5]));
+    assert_eq!(lp["top_logprobs"][0], json!({" 5": 0.0}));
 }
 
 #[tokio::test]

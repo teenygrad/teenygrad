@@ -32,6 +32,7 @@
 //! [`teeny-llm-chat`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_chat/
 
 pub mod chat;
+pub mod completion;
 mod echo;
 pub mod embedding;
 mod engine;

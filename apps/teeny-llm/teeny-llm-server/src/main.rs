@@ -21,6 +21,7 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use anyhow::Context;
 use clap::Parser;
 use teeny_llm_core::chat::EchoChatModel;
+use teeny_llm_core::completion::EchoCompletionModel;
 use teeny_llm_core::embedding::EchoEmbeddingModel;
 use teeny_llm_core::models::{LoadOptions, LoadedModel, Model};
 use teeny_llm_core::{Engine, ModelEngine};
@@ -53,7 +54,8 @@ struct Args {
     context: Option<u32>,
 
     /// Also serve the echo models, for trying the API without weights: `teeny-echo` for
-    /// chat, which echoes the last user message, and `teeny-echo-embed` for embeddings.
+    /// chat, which echoes the last user message, `teeny-echo-complete` for text
+    /// completions, which repeats the prompt, and `teeny-echo-embed` for embeddings.
     #[arg(long)]
     echo: bool,
 }
@@ -102,6 +104,7 @@ async fn load_models(args: &Args) -> anyhow::Result<Vec<LoadedModel>> {
     }
     if args.echo {
         loaded.push(LoadedModel::from_chat(Arc::new(EchoChatModel)));
+        loaded.push(LoadedModel::from_completion(Arc::new(EchoCompletionModel)));
         loaded.push(LoadedModel::from_embedding(Arc::new(EchoEmbeddingModel)));
     }
     Ok(loaded)

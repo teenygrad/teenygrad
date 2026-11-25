@@ -24,6 +24,7 @@ use futures::{StreamExt, TryStreamExt};
 use crate::chat::{
     ChatEvent, ChatFinishReason, ChatModel, ChatRequest, ChatStream, Message, Sampling, validate,
 };
+use crate::completion::{self, CompletionModel, CompletionRequest, CompletionStream};
 use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
 use crate::models::{LoadedModel, Model};
 use crate::{
@@ -62,6 +63,7 @@ impl ModelEngine {
         for m in &models {
             let handles = [
                 ("chat", m.chat.as_ref().map(|c| c.info().id)),
+                ("completion", m.completion.as_ref().map(|c| c.info().id)),
                 ("embedding", m.embedding.as_ref().map(|e| e.info().id)),
             ];
             for (api, id) in handles {
@@ -108,6 +110,18 @@ impl ModelEngine {
 }
 
 impl ModelEngine {
+    /// The completion handle of the model `requested` names.
+    fn completion_model(
+        &self,
+        requested: &str,
+    ) -> Result<(&LoadedModel, &Arc<dyn CompletionModel>)> {
+        let m = self.find(requested)?;
+        match &m.completion {
+            Some(c) => Ok((m, c)),
+            None => Err(lacks(m, "text completions")),
+        }
+    }
+
     /// The embedding handle of the model `requested` names.
     fn embedding_model(&self, requested: &str) -> Result<(&LoadedModel, &Arc<dyn EmbeddingModel>)> {
         let m = self.find(requested)?;
@@ -181,6 +195,18 @@ impl Engine for ModelEngine {
         validate(&loaded.info.id, &model.capabilities(), &request)?;
         let started = async move { model.chat(request).await };
         Ok(Box::pin(futures::stream::once(started).try_flatten()))
+    }
+
+    fn complete_stream(
+        &self,
+        mut request: CompletionRequest,
+    ) -> BoxFuture<'_, Result<CompletionStream>> {
+        Box::pin(async move {
+            let (loaded, model) = self.completion_model(&request.model)?;
+            request.model.clone_from(&loaded.info.id);
+            completion::validate(&loaded.info.id, &model.capabilities(), &request)?;
+            model.complete(request).await
+        })
     }
 
     fn embed(&self, mut request: EmbeddingRequest) -> BoxFuture<'_, Result<Embeddings>> {
