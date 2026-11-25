@@ -471,10 +471,17 @@ fn test_a_whole_plan_resolves_against_the_real_index() {
         for (slot, src) in resolve(&slots, step.layer) {
             checked += 1;
             let needed: Vec<String> = match src {
-                Source::Tensor(n) => vec![n],
+                Source::Tensor(n) | Source::Transposed(n, _) => vec![n],
                 Source::ExpertScale(p) => {
                     vec![format!("{p}_amax"), format!("{p}_outer_scale_denominator")]
                 }
+                // The folded scale needs the block scale and both halves of the
+                // per-expert one, since the loader multiplies them together.
+                Source::FoldedScale(p) => vec![
+                    format!("{p}_scale"),
+                    format!("{p}_amax"),
+                    format!("{p}_outer_scale_denominator"),
+                ],
             };
             for n in needed {
                 if !names.contains(&n) {
@@ -581,4 +588,51 @@ fn test_the_real_checkpoint_satisfies_a_whole_plan() {
         s2.iter().all(|v| v.is_finite() && *v > 0.0),
         "the per-expert scales must be finite and positive"
     );
+}
+
+/// A converted checkpoint from a different format version is refused.
+///
+/// The converted tensors are a cache of how the loader packed and folded the
+/// originals. If that changes and the cache does not, nothing downstream can tell:
+/// the shapes still fit and the model just produces wrong output. The marker carries
+/// the format version so the mismatch is an error at open.
+#[test]
+fn test_a_stale_converted_checkpoint_is_refused() {
+    use safetensors::tensor::{Dtype, TensorView};
+    use teeny_llm::models::inkling2::weights::{CONVERTED_FORMAT, CONVERTED_MARKER};
+
+    let dir = std::env::temp_dir().join(format!("inkling2-stale-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    let write = |version: f32| {
+        let bytes: Vec<u8> = version.to_le_bytes().to_vec();
+        let mut t = std::collections::HashMap::new();
+        t.insert(
+            CONVERTED_MARKER.to_string(),
+            TensorView::new(Dtype::F32, vec![1], &bytes).expect("view"),
+        );
+        std::fs::write(
+            dir.join("model.safetensors"),
+            safetensors::serialize(&t, None).expect("serialize"),
+        )
+        .expect("write");
+    };
+
+    write(CONVERTED_FORMAT as f32);
+    assert!(
+        Checkpoint::open(&dir).is_ok(),
+        "the current format must open"
+    );
+
+    write(CONVERTED_FORMAT as f32 + 1.0);
+    let msg = match Checkpoint::open(&dir) {
+        Ok(_) => panic!("a newer format must be refused"),
+        Err(e) => format!("{e}"),
+    };
+    assert!(
+        msg.contains("inkling2_convert"),
+        "the error should say how to fix it, got: {msg}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
 }

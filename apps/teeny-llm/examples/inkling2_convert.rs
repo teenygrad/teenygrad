@@ -35,7 +35,9 @@ use std::path::PathBuf;
 use clap::Parser;
 use safetensors::tensor::{Dtype, TensorView};
 use teeny_llm::models::inkling2::Inkling2Config;
-use teeny_llm::models::inkling2::weights::{Checkpoint, e4m3_to_f32, pack_rows};
+use teeny_llm::models::inkling2::weights::{
+    CONVERTED_FORMAT, CONVERTED_MARKER, Checkpoint, e4m3_to_f32, pack_rows,
+};
 
 #[derive(Parser, Debug)]
 #[command(about = "Convert an Inkling-2 checkpoint to the engine's load-time form")]
@@ -150,12 +152,14 @@ fn main() -> anyhow::Result<()> {
         println!("  {shard}: {} tensors", owned.len());
     }
 
-    // A marker so the loader knows not to pack, fold or expand again.
-    let one = [1.0f32];
-    let bytes = bytes_of(&one);
+    // The marker tells the loader not to pack, fold or expand again, and which
+    // format it was written in, so a later change to any of that is an error rather
+    // than silently wrong output.
+    let version = [CONVERTED_FORMAT as f32];
+    let bytes = bytes_of(&version);
     let mut marker: HashMap<String, TensorView> = HashMap::new();
     marker.insert(
-        "__converted__".to_string(),
+        CONVERTED_MARKER.to_string(),
         TensorView::new(Dtype::F32, vec![1], &bytes)
             .map_err(|e| anyhow::anyhow!("marker: {e}"))?,
     );
@@ -164,7 +168,7 @@ fn main() -> anyhow::Result<()> {
         safetensors::serialize(&marker, None).map_err(|e| anyhow::anyhow!("marker: {e}"))?,
     )?;
     index.insert(
-        "__converted__".to_string(),
+        CONVERTED_MARKER.to_string(),
         "converted-marker.safetensors".to_string(),
     );
 
@@ -180,7 +184,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     println!(
-        "wrote {:.1} GB to {}",
+        "wrote {:.1} GB (format {CONVERTED_FORMAT}) to {}",
         total as f64 / 1e9,
         args.out.display()
     );
