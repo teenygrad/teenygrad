@@ -143,3 +143,89 @@ fn test_functiongemma_matches_pytorch() -> anyhow::Result<()> {
     println!("worst logit difference over {steps} steps: {worst:e}");
     Ok(())
 }
+
+/// FunctionGemma through the factory and the chat API: loaded with `Model::load`, served
+/// by `ModelEngine`, asked about the weather with one tool offered, it must call that tool
+/// for the city. A second turn with the tool's result must reuse the cached prompt.
+#[tokio::test]
+#[ignore = "needs GEMMA_MODEL_DIR (gated model)"]
+async fn test_functiongemma_serves_chat_with_tool_calls() -> anyhow::Result<()> {
+    use std::sync::Arc;
+
+    use teeny_llm_core::chat::{
+        AssistantMessage, ChatFinishReason, ChatRequest, Message, Tool, ToolKind, collect,
+    };
+    use teeny_llm_core::models::{LoadOptions, Model};
+    use teeny_llm_core::{Engine, ModelEngine};
+
+    let model_dir = PathBuf::from(std::env::var("GEMMA_MODEL_DIR").expect("set GEMMA_MODEL_DIR"));
+    let options = LoadOptions::default()
+        .with_model_dir(model_dir)
+        .with_context_length(512)
+        .with_progress(|s| eprintln!("  [{s}]"));
+    let loaded =
+        tokio::task::spawn_blocking(move || Model::FunctionGemma3.load(&options)).await??;
+    assert!(loaded.parameters.is_some_and(|p| p > 200_000_000));
+    let tokenizer = loaded
+        .tokenizer
+        .clone()
+        .expect("FunctionGemma has a tokenizer");
+    assert!(tokenizer.count("What is the weather in Paris?")? > 0);
+    let engine: Arc<dyn Engine> = Arc::new(ModelEngine::new(vec![loaded])?);
+
+    let weather = Tool {
+        name: "get_weather".into(),
+        description: Some("Get current weather".into()),
+        kind: ToolKind::Function {
+            parameters: Some(serde_json::json!({
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            })),
+            strict: false,
+        },
+    };
+    let mut request = ChatRequest {
+        model: "functiongemma3".into(),
+        messages: vec![Message::user("What is the weather in Paris?")],
+        tools: vec![weather],
+        max_completion_tokens: Some(64),
+        include_usage: true,
+        ..ChatRequest::default()
+    };
+    let first = collect(
+        Model::FunctionGemma3.tag(),
+        1,
+        engine.chat_stream(request.clone())?,
+    )
+    .await?;
+    let choice = &first.choices[0];
+    assert_eq!(
+        choice.finish_reason,
+        ChatFinishReason::ToolCalls,
+        "{choice:?}"
+    );
+    let call = &choice.message.tool_calls[0];
+    assert_eq!(call.name, "get_weather");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&call.input)?,
+        serde_json::json!({"city": "Paris"})
+    );
+
+    request.messages.push(Message::Assistant(AssistantMessage {
+        tool_calls: choice.message.tool_calls.clone(),
+        ..AssistantMessage::default()
+    }));
+    request.messages.push(Message::Tool {
+        tool_call_id: call.id.clone(),
+        content: r#"{"temperature_c": 18, "conditions": "sunny"}"#.into(),
+    });
+    let second = collect(Model::FunctionGemma3.tag(), 1, engine.chat_stream(request)?).await?;
+    println!("second turn: {:?}", second.choices[0].message.content);
+    assert!(
+        second.usage.cached_prompt_tokens >= first.usage.prompt_tokens / 2,
+        "the second turn should reuse the first's KV cache: {:?}",
+        second.usage
+    );
+    Ok(())
+}

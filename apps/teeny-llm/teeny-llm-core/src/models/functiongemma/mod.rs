@@ -38,10 +38,16 @@ pub mod kernels;
 pub mod model;
 #[cfg(any(feature = "cuda", feature = "riscv"))]
 pub mod runner;
+#[cfg(any(feature = "cuda", feature = "riscv"))]
+pub mod serve;
 pub mod tools;
 
 pub use crate::kernels::attention::PastLen;
 pub use config::GemmaConfig;
+#[cfg(any(feature = "cuda", feature = "riscv"))]
+pub use serve::FunctionGemmaChat;
+#[cfg(any(feature = "cuda", feature = "riscv"))]
+pub(crate) use serve::load;
 
 /// The host-side KV cache: per layer, `capacity` rows of `kv_heads * head_dim`, the
 /// first `len` valid.
@@ -89,19 +95,4 @@ impl KvCache {
         self.len += t;
         Ok(())
     }
-}
-
-/// Loads FunctionGemma for [`Model::load`](crate::models::Model::load).
-///
-/// Serving it as a [`ChatModel`](crate::chat::ChatModel) is teenygrad-1oui.2; until then
-/// the weights are located (so a missing download is reported) and loading is refused.
-pub(crate) fn load(
-    model: crate::models::Model,
-    options: &crate::models::LoadOptions,
-) -> crate::Result<crate::models::LoadedModel> {
-    let dir = model.locate(options.model_dir.as_deref())?;
-    Err(crate::Error::Weights(format!(
-        "{model} (from {}) cannot be served yet: it does not implement ChatModel",
-        dir.display()
-    )))
 }
