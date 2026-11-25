@@ -96,3 +96,25 @@ impl From<teeny_llm::Error> for Error {
         }
     }
 }
+
+#[cfg(feature = "audio")]
+impl From<teeny_audio::Error> for Error {
+    fn from(e: teeny_audio::Error) -> Self {
+        use teeny_audio::Error as E;
+        match e {
+            E::InvalidParameter { parameter, detail } => {
+                Self::InvalidParameter { parameter, detail }
+            }
+            E::UnsupportedParameter {
+                model,
+                parameter,
+                detail,
+            } => Self::UnsupportedParameter {
+                model,
+                parameter,
+                detail,
+            },
+            e @ E::Inference(_) => Self::Model(e.to_string()),
+        }
+    }
+}

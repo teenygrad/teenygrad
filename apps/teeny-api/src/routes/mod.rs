@@ -24,12 +24,11 @@ mod images;
 #[cfg(feature = "llm")]
 mod llm;
 
-use std::sync::Arc;
 #[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
-use std::{
-    convert::Infallible,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::convert::Infallible;
+use std::sync::Arc;
+#[cfg(any(feature = "llm", feature = "image"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(any(feature = "audio", feature = "image"))]
 use axum::extract::{
@@ -46,8 +45,10 @@ use axum::{
     extract::{Path, State},
     routing::get,
 };
+#[cfg(feature = "llm")]
+use futures::stream;
 #[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
-use futures::{Stream, StreamExt, stream};
+use futures::{Stream, StreamExt};
 
 use crate::Engine;
 #[cfg(any(feature = "audio", feature = "image"))]
@@ -74,7 +75,7 @@ pub fn router(engine: Arc<dyn Engine>) -> Router {
     router.with_state(engine)
 }
 
-#[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
+#[cfg(any(feature = "llm", feature = "image"))]
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

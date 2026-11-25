@@ -29,7 +29,8 @@ concern only the service (`store`, `service_tier`, ...) are ignored.
 
 ## Features
 
-Each domain is a feature, bringing in its endpoints and the crate its models come from;
+Each domain is a feature, bringing in its endpoints and the crate its models come from
+(`teeny-llm`, `teeny-audio`; images still come from `teeny-llm`);
 `/v1/models` and `/health` are always served:
 
 | Feature | Endpoints |

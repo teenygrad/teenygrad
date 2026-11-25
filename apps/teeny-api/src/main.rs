@@ -21,6 +21,8 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::Context;
 use clap::Parser;
 use teeny_api::{Engine, ModelEngine, ServedModel};
+#[cfg(feature = "audio")]
+use teeny_audio::{speech::EchoSpeechModel, transcription::EchoTranscriptionModel};
 #[cfg(feature = "image")]
 use teeny_llm::images::EchoImageModel;
 #[cfg(feature = "llm")]
@@ -31,8 +33,6 @@ use teeny_llm::{
     models::{LoadOptions, LoadedModel, Model},
     moderation::EchoModerationModel,
 };
-#[cfg(feature = "audio")]
-use teeny_llm::{speech::EchoSpeechModel, transcription::EchoTranscriptionModel};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]

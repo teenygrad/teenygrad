@@ -18,7 +18,7 @@
 //!
 //! A model implements [`SpeechModel`]: it declares its [`SpeechCapabilities`] and speaks
 //! the input as mono samples at its own rate ([`SpeechStream`]). Encoding them into the
-//! requested format is shared ([`encode_stream`], over [`crate::audio`]), so no model
+//! requested format is shared ([`encode_stream`], over [`crate::codec`]), so no model
 //! repeats it; [`validate`] refuses what the model cannot do first.
 //! [`EchoSpeechModel`] is the reference implementation.
 
@@ -31,7 +31,7 @@ use std::pin::Pin;
 use futures::future::BoxFuture;
 use futures::{Stream, StreamExt};
 
-use crate::audio::{self, AudioEncoding};
+use crate::codec::{self, AudioEncoding};
 use crate::{Error, ModelInfo, Result};
 
 /// The fastest and slowest speech any model is asked for.
@@ -220,12 +220,12 @@ pub fn encode_stream(
 ) -> AudioStream {
     if streamed {
         let mut header =
-            (format == AudioEncoding::Wav).then(|| audio::wav_header(sample_rate, 1, None));
+            (format == AudioEncoding::Wav).then(|| codec::wav_header(sample_rate, 1, None));
         return Box::pin(stream.map(move |event| {
             Ok(match event? {
                 SpeechEvent::Samples(s) => {
                     let mut bytes = header.take().unwrap_or_default();
-                    bytes.extend_from_slice(&audio::pcm16(&s));
+                    bytes.extend_from_slice(&codec::pcm16(&s));
                     SpeechChunk::Audio(bytes)
                 }
                 SpeechEvent::Done(u) => SpeechChunk::Done(u),
@@ -243,12 +243,12 @@ pub fn encode_stream(
                     SpeechEvent::Done(u) => usage = u,
                 }
             }
-            let pcm = audio::Pcm {
+            let pcm = codec::Pcm {
                 sample_rate,
                 channels: 1,
                 samples,
             };
-            Ok::<_, Error>((audio::encode(&pcm, format)?, usage))
+            Ok::<_, Error>((codec::encode(&pcm, format)?, usage))
         })
         .flat_map(|r| {
             futures::stream::iter(match r {
@@ -387,7 +387,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(usage.output_tokens, 2);
-        let pcm = audio::decode_wav(&whole).unwrap();
+        let pcm = codec::decode_wav(&whole).unwrap();
         assert_eq!((pcm.sample_rate, pcm.samples.len()), (8000, 5));
 
         let chunks: Vec<SpeechChunk> = encode_stream(samples(), AudioEncoding::Wav, 8000, true)
@@ -398,7 +398,7 @@ mod tests {
             panic!("audio first")
         };
         assert_eq!((&first[..4], first.len()), (&b"RIFF"[..], 44 + 6));
-        assert_eq!(chunks[1], SpeechChunk::Audio(audio::pcm16(&[-0.5; 2])));
+        assert_eq!(chunks[1], SpeechChunk::Audio(codec::pcm16(&[-0.5; 2])));
         let (raw, _) = collect(encode_stream(samples(), AudioEncoding::Pcm, 8000, true))
             .await
             .unwrap();

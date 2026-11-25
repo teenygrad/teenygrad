@@ -20,7 +20,7 @@
 //! A model implements [`TranscriptionModel`]: it declares its
 //! [`TranscriptionCapabilities`] and turns decoded audio into a [`TranscriptionStream`].
 //! The recording is decoded, mixed to mono and resampled to the model's rate by the
-//! engine (see [`crate::audio`]), so no model repeats that; [`validate`] refuses what the
+//! server (with [`crate::codec`]), so no model repeats that; [`validate`] refuses what the
 //! model cannot do first. Translation is the same call with English output.
 //! [`EchoTranscriptionModel`] is the reference implementation.
 
@@ -33,7 +33,7 @@ use std::pin::Pin;
 use futures::future::BoxFuture;
 use futures::{Stream, StreamExt};
 
-use crate::audio::{AudioContainer, Pcm};
+use crate::codec::{AudioContainer, Pcm};
 use crate::{Error, ModelInfo, Result};
 
 /// Transcribe in the spoken language, or translate into English.

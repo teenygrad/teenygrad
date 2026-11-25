@@ -27,6 +27,11 @@ use futures::future::BoxFuture;
 
 use crate::{Engine, Error, ModelInfo, Result};
 
+#[cfg(feature = "audio")]
+use teeny_audio::{
+    speech::{self, AudioStream, SpeechModel, SpeechRequest},
+    transcription::{self, TranscriptionModel, TranscriptionRequest, TranscriptionStream},
+};
 #[cfg(feature = "image")]
 use teeny_llm::images::{self, EncodedImageStream, ImageModel, ImageRequest};
 #[cfg(feature = "llm")]
@@ -36,11 +41,6 @@ use teeny_llm::{
     embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings},
     models::{LoadedModel, Model},
     moderation::{self, Moderation, ModerationModel, ModerationRequest},
-};
-#[cfg(feature = "audio")]
-use teeny_llm::{
-    speech::{self, AudioStream, SpeechModel, SpeechRequest},
-    transcription::{self, TranscriptionModel, TranscriptionRequest, TranscriptionStream},
 };
 
 /// A model being served: what describes it, and the APIs it implements, each a handle
@@ -249,7 +249,7 @@ impl ServedModel {
 }
 
 /// A teeny-llm model, serving the LLM APIs it implements (and, while they live in
-/// teeny-llm, its audio and image ones).
+/// teeny-llm, its image one).
 #[cfg(feature = "llm")]
 impl From<LoadedModel> for ServedModel {
     fn from(m: LoadedModel) -> Self {
@@ -262,11 +262,6 @@ impl From<LoadedModel> for ServedModel {
             moderation: m.moderation,
             ..Self::new(m.info.into())
         };
-        #[cfg(feature = "audio")]
-        {
-            served.transcription = m.transcription;
-            served.speech = m.speech;
-        }
         #[cfg(feature = "image")]
         {
             served.images = m.images;
@@ -452,7 +447,7 @@ impl Engine for ModelEngine {
                 parameter: "file".into(),
                 detail: "no audio format".into(),
             })?;
-            let audio = teeny_llm::audio::decode(container, &request.audio)?
+            let audio = teeny_audio::codec::decode(container, &request.audio)?
                 .resampled_mono(caps.sample_rate);
             transcription::check_duration(&caps, &audio)?;
             // The model has the samples; the upload is not needed twice.

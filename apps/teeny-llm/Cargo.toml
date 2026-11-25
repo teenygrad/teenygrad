@@ -2,7 +2,7 @@
 name = "teeny-llm"
 version.workspace = true
 edition.workspace = true
-description = "Core LLM inference engine for teenygrad: chat types, sampling parameters and the Engine trait served by teeny-api."
+description = "LLM inference for teenygrad: the chat, completion, embedding and moderation APIs models implement, the model factory, and the models, served by teeny-api."
 repository.workspace = true
 license.workspace = true
 homepage.workspace = true

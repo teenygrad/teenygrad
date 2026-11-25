@@ -24,8 +24,8 @@ path = "src/main.rs"
 default = ["llm"]
 # Chat, completions, embeddings and moderations, served by teeny-llm models.
 llm = ["dep:teeny-llm"]
-# Transcriptions, translations and speech. (Its models still live in teeny-llm.)
-audio = ["llm"]
+# Transcriptions, translations and speech, served by teeny-audio models.
+audio = ["dep:teeny-audio"]
 # Image generations, edits and variations. (Its models still live in teeny-llm.)
 image = ["llm"]
 functiongemma3 = ["llm", "teeny-llm/functiongemma3"]
@@ -35,6 +35,7 @@ qemu = ["teeny-llm?/qemu"]
 
 [dependencies]
 teeny-llm = { workspace = true, optional = true }
+teeny-audio = { workspace = true, optional = true }
 anyhow = { workspace = true, features = ["std"] }
 axum = { workspace = true, features = ["multipart"] }
 clap = { workspace = true }

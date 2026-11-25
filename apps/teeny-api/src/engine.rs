@@ -21,6 +21,11 @@ use futures::future::BoxFuture;
 
 use crate::{Error, Result};
 
+#[cfg(feature = "audio")]
+use teeny_audio::{
+    speech::{AudioStream, SpeechRequest},
+    transcription::{TranscriptionRequest, TranscriptionStream},
+};
 #[cfg(feature = "image")]
 use teeny_llm::images::{EncodedImageStream, ImageRequest};
 #[cfg(feature = "llm")]
@@ -29,11 +34,6 @@ use teeny_llm::{
     completion::{CompletionRequest, CompletionStream},
     embedding::{EmbeddingRequest, Embeddings},
     moderation::{Moderation, ModerationRequest},
-};
-#[cfg(feature = "audio")]
-use teeny_llm::{
-    speech::{AudioStream, SpeechRequest},
-    transcription::{TranscriptionRequest, TranscriptionStream},
 };
 
 /// A model an [`Engine`] serves, as `/v1/models` lists it.
@@ -45,15 +45,25 @@ pub struct ModelInfo {
     pub owned_by: String,
 }
 
-#[cfg(feature = "llm")]
-impl From<teeny_llm::ModelInfo> for ModelInfo {
-    fn from(m: teeny_llm::ModelInfo) -> Self {
-        Self {
-            id: m.id,
-            created: m.created,
-            owned_by: m.owned_by,
+/// A domain crate's `ModelInfo`, which has the same fields.
+macro_rules! model_info_from {
+    ($($feature:literal => $info:ty),* $(,)?) => {$(
+        #[cfg(feature = $feature)]
+        impl From<$info> for ModelInfo {
+            fn from(m: $info) -> Self {
+                Self {
+                    id: m.id,
+                    created: m.created,
+                    owned_by: m.owned_by,
+                }
+            }
         }
-    }
+    )*};
+}
+
+model_info_from! {
+    "llm" => teeny_llm::ModelInfo,
+    "audio" => teeny_audio::ModelInfo,
 }
 
 /// The future an engine method returns when it does not serve that API.

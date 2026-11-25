@@ -26,8 +26,8 @@ use axum::{
     routing::post,
 };
 use futures::StreamExt;
-use teeny_llm::speech::{self, SpeechChunk};
-use teeny_llm::transcription::{self, TranscriptionEvent, TranscriptionTask};
+use teeny_audio::speech::{self, SpeechChunk};
+use teeny_audio::transcription::{self, TranscriptionEvent, TranscriptionTask};
 
 use super::{AppState, read_form, sse_error, sse_event, sse_only};
 use crate::openai::{

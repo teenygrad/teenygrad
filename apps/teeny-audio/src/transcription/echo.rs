@@ -23,7 +23,7 @@ use super::{
     TranscriptionModel, TranscriptionRequest, TranscriptionStream, TranscriptionTask,
     TranscriptionUsage, Word,
 };
-use crate::audio::Pcm;
+use crate::codec::Pcm;
 use crate::{ModelInfo, Result};
 
 /// A transcription model without weights: it hears no words, and "transcribes" a

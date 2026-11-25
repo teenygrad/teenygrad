@@ -40,7 +40,8 @@ pub fn encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Decodes `text`, ignoring whitespace; padding is optional.
+/// Decodes `text`, ignoring whitespace; padding is optional. (Only chat takes base64 in.)
+#[cfg_attr(not(feature = "llm"), allow(dead_code))]
 pub fn decode(text: &str) -> Result<Vec<u8>, String> {
     let digits: Vec<u8> = text.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     let body = digits

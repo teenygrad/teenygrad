@@ -17,10 +17,9 @@
 //! `teeny-llm`: the transport-independent core of teenygrad's LLM inference stack.
 //!
 //! Frontends (such as [`teeny-api`]) translate their own wire formats into
-//! the requests of each API ([`chat`], [`completion`], [`embedding`], [`transcription`],
-//! [`speech`], [`moderation`], [`images`]). Models implement the API traits
-//! ([`chat::ChatModel`], [`completion::CompletionModel`], [`embedding::EmbeddingModel`],
-//! [`transcription::TranscriptionModel`], [`speech::SpeechModel`],
+//! the requests of each API ([`chat`], [`completion`], [`embedding`], [`moderation`],
+//! [`images`]). Models implement the API traits ([`chat::ChatModel`],
+//! [`completion::CompletionModel`], [`embedding::EmbeddingModel`],
 //! [`moderation::ModerationModel`], [`images::ImageModel`]), and [`models::Model::load`]
 //! loads one as a [`models::LoadedModel`], exposing the APIs it serves; each request is
 //! checked with its API's `validate` before the model sees it. Each API has an echo
@@ -35,15 +34,12 @@
 //!
 //! [`teeny-api`]: https://docs.teenygrad.org/api/teenygrad/teeny_api/
 
-pub mod audio;
 pub mod chat;
 pub mod completion;
 pub mod embedding;
 mod error;
 pub mod images;
-pub mod speech;
 pub mod tokenizer;
-pub mod transcription;
 mod types;
 
 #[cfg(feature = "kernels")]

@@ -24,9 +24,9 @@ use std::sync::Arc;
 use common::{BARE, post, spawn_server as spawn_with};
 use serde_json::{Value, json};
 use teeny_api::ServedModel;
-use teeny_llm::audio::{Pcm, encode_wav};
-use teeny_llm::speech::EchoSpeechModel;
-use teeny_llm::transcription::EchoTranscriptionModel;
+use teeny_audio::codec::{Pcm, encode_wav};
+use teeny_audio::speech::EchoSpeechModel;
+use teeny_audio::transcription::EchoTranscriptionModel;
 
 const TRANSCRIBE: &str = EchoTranscriptionModel::MODEL_ID;
 
@@ -227,7 +227,7 @@ async fn test_speaks_as_a_file_or_as_events() {
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(resp.headers()["content-type"], "audio/wav");
     let wav = resp.bytes().await.unwrap();
-    let pcm = teeny_llm::audio::decode_wav(&wav).unwrap();
+    let pcm = teeny_audio::codec::decode_wav(&wav).unwrap();
     // Three words of 0.2 s at 24 kHz.
     assert_eq!((pcm.sample_rate, pcm.samples.len()), (24_000, 3 * 4800));
 

@@ -27,9 +27,7 @@ use crate::completion::CompletionModel;
 use crate::embedding::EmbeddingModel;
 use crate::images::ImageModel;
 use crate::moderation::ModerationModel;
-use crate::speech::SpeechModel;
 use crate::tokenizer::Tokenizer;
-use crate::transcription::TranscriptionModel;
 use crate::{Error, ModelInfo, Result};
 
 /// Called with a line of loading progress (`"compiling the 1-token step"`), for frontends
@@ -131,10 +129,6 @@ pub struct LoadedModel {
     pub completion: Option<Arc<dyn CompletionModel>>,
     /// Embeddings.
     pub embedding: Option<Arc<dyn EmbeddingModel>>,
-    /// Speech to text.
-    pub transcription: Option<Arc<dyn TranscriptionModel>>,
-    /// Text to speech.
-    pub speech: Option<Arc<dyn SpeechModel>>,
     /// Content classification.
     pub moderation: Option<Arc<dyn ModerationModel>>,
     /// Image generation.
@@ -151,8 +145,6 @@ impl fmt::Debug for LoadedModel {
             .field("chat", &self.chat.is_some())
             .field("completion", &self.completion.is_some())
             .field("embedding", &self.embedding.is_some())
-            .field("transcription", &self.transcription.is_some())
-            .field("speech", &self.speech.is_some())
             .field("moderation", &self.moderation.is_some())
             .field("images", &self.images.is_some())
             .finish()
@@ -170,8 +162,6 @@ impl LoadedModel {
             chat: None,
             completion: None,
             embedding: None,
-            transcription: None,
-            speech: None,
             moderation: None,
             images: None,
         }
@@ -190,16 +180,6 @@ impl LoadedModel {
     /// An embedding model, described by its own [`EmbeddingModel::info`].
     pub fn from_embedding(embedding: Arc<dyn EmbeddingModel>) -> Self {
         Self::new(embedding.info()).with_embedding(embedding)
-    }
-
-    /// A transcription model, described by its own [`TranscriptionModel::info`].
-    pub fn from_transcription(transcription: Arc<dyn TranscriptionModel>) -> Self {
-        Self::new(transcription.info()).with_transcription(transcription)
-    }
-
-    /// A speech model, described by its own [`SpeechModel::info`].
-    pub fn from_speech(speech: Arc<dyn SpeechModel>) -> Self {
-        Self::new(speech.info()).with_speech(speech)
     }
 
     /// A moderation model, described by its own [`ModerationModel::info`].
@@ -248,18 +228,6 @@ impl LoadedModel {
         self
     }
 
-    /// Serves transcriptions with `transcription`.
-    pub fn with_transcription(mut self, transcription: Arc<dyn TranscriptionModel>) -> Self {
-        self.transcription = Some(transcription);
-        self
-    }
-
-    /// Serves speech with `speech`.
-    pub fn with_speech(mut self, speech: Arc<dyn SpeechModel>) -> Self {
-        self.speech = Some(speech);
-        self
-    }
-
     /// Serves moderations with `moderation`.
     pub fn with_moderation(mut self, moderation: Arc<dyn ModerationModel>) -> Self {
         self.moderation = Some(moderation);
@@ -283,12 +251,6 @@ impl LoadedModel {
         }
         if self.embedding.is_some() {
             apis.push("embeddings");
-        }
-        if self.transcription.is_some() {
-            apis.push("transcriptions");
-        }
-        if self.speech.is_some() {
-            apis.push("speech");
         }
         if self.moderation.is_some() {
             apis.push("moderations");

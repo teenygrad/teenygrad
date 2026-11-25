@@ -63,11 +63,21 @@ impl ApiError {
     }
 }
 
-#[cfg(feature = "llm")]
-impl From<teeny_llm::Error> for ApiError {
-    fn from(e: teeny_llm::Error) -> Self {
-        crate::Error::from(e).into()
-    }
+/// A domain crate's error, through [`crate::Error`].
+macro_rules! api_error_from {
+    ($($feature:literal => $error:ty),* $(,)?) => {$(
+        #[cfg(feature = $feature)]
+        impl From<$error> for ApiError {
+            fn from(e: $error) -> Self {
+                crate::Error::from(e).into()
+            }
+        }
+    )*};
+}
+
+api_error_from! {
+    "llm" => teeny_llm::Error,
+    "audio" => teeny_audio::Error,
 }
 
 impl From<crate::Error> for ApiError {

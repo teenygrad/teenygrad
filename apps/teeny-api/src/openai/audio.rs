@@ -18,8 +18,8 @@
 //! transcript in each `response_format`.
 
 use serde::Serialize;
-use teeny_llm::audio::AudioContainer;
-use teeny_llm::transcription::{
+use teeny_audio::codec::AudioContainer;
+use teeny_audio::transcription::{
     Segment, Timestamps, Transcription, TranscriptionRequest, TranscriptionTask, Word,
 };
 

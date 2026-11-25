@@ -17,8 +17,8 @@
 //! `/v1/audio/speech`: `CreateSpeechRequest` and the speech stream events.
 
 use serde::{Deserialize, Serialize};
-use teeny_llm::audio::AudioEncoding;
-use teeny_llm::speech::{SpeechRequest, SpeechUsage};
+use teeny_audio::codec::AudioEncoding;
+use teeny_audio::speech::{SpeechRequest, SpeechUsage};
 
 use super::base64;
 use super::error::ApiError;

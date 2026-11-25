@@ -93,7 +93,7 @@ impl SpeechModel for EchoSpeechModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::AudioEncoding;
+    use crate::codec::AudioEncoding;
     use crate::speech::{collect, encode_stream, validate};
 
     #[tokio::test]
