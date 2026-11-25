@@ -97,7 +97,7 @@ jobs:
           cargo test --workspace
           --exclude teeny-cuda
           --exclude teeny-kernels
-          --exclude teeny-llm-core
+          --exclude teeny-llm
           --exclude teeny-torch
           --exclude teeny-triton --exclude teeny-vision
 
@@ -107,20 +107,20 @@ jobs:
       - name: Test teeny-kernels (riscv)
         run: cargo test -p teeny-kernels --no-default-features --features riscv,training
 
-      # teeny-llm-core defaults to FunctionGemma on CUDA, so its test binaries link libcuda,
+      # teeny-llm defaults to FunctionGemma on CUDA, so its test binaries link libcuda,
       # which this driverless runner lacks: it is excluded from the workspace Test step and
       # tested here with riscv instead. There the kernel tests (cuda or qemu only) compile out,
       # and the model tests need the gated weights and are ignored. Clippy covers both
       # backends with every target.
       - name: Clippy teeny-llm models (cuda, riscv)
         run: |
-          cargo clippy -p teeny-llm-core --all-targets -- -D warnings
-          cargo clippy -p teeny-llm-core --all-targets --no-default-features --features functiongemma3,riscv -- -D warnings
-          cargo clippy -p teeny-llm-server -p teeny-llm-chat --all-targets --features functiongemma3,cuda -- -D warnings
-          cargo clippy -p teeny-llm-server -p teeny-llm-chat --all-targets --features functiongemma3,riscv -- -D warnings
+          cargo clippy -p teeny-llm --all-targets -- -D warnings
+          cargo clippy -p teeny-llm --all-targets --no-default-features --features functiongemma3,riscv -- -D warnings
+          cargo clippy -p teeny-api --all-targets --features functiongemma3,cuda -- -D warnings
+          cargo clippy -p teeny-api --all-targets --features functiongemma3,riscv -- -D warnings
 
-      - name: Test teeny-llm-core (riscv)
-        run: cargo test -p teeny-llm-core --no-default-features --features functiongemma3,riscv
+      - name: Test teeny-llm (riscv)
+        run: cargo test -p teeny-llm --no-default-features --features functiongemma3,riscv
 
       - name: Check formatting
         run: cargo fmt --all -- --check

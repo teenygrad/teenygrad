@@ -1,0 +1,43 @@
+[package]
+name = "teeny-api"
+version.workspace = true
+edition.workspace = true
+description = "OpenAI-compatible HTTP API server for teenygrad LLM inference (chat completions, completions, embeddings, models)."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_api/"
+keywords = ["llm", "inference", "server", "openai", "openapi"]
+categories = ["science", "web-programming::http-server"]
+# The Vue webapp scaffolds aren't part of the Rust build; keep them out of the published crate.
+exclude = ["webapps/"]
+
+[[bin]]
+name = "teeny-api"
+path = "src/main.rs"
+
+[features]
+# No model by default, so the binary builds anywhere (and its tests need no GPU driver).
+# Add a model and its backend: `--features functiongemma3,cuda` (or `riscv`, `qemu`).
+default = []
+functiongemma3 = ["teeny-llm/functiongemma3"]
+cuda = ["teeny-llm/cuda"]
+riscv = ["teeny-llm/riscv"]
+qemu = ["teeny-llm/qemu"]
+
+[dependencies]
+teeny-llm = { workspace = true }
+anyhow = { workspace = true, features = ["std"] }
+axum = { workspace = true, features = ["multipart"] }
+clap = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }

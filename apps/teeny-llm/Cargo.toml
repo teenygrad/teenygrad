@@ -1,0 +1,82 @@
+[package]
+name = "teeny-llm"
+version.workspace = true
+edition.workspace = true
+description = "Core LLM inference engine for teenygrad: chat types, sampling parameters and the Engine trait served by teeny-api."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_llm/"
+keywords = ["llm", "inference", "teenygrad"]
+categories = ["science"]
+
+[features]
+# FunctionGemma on CUDA. A model feature needs a backend, so build for RISC-V with
+# `--no-default-features --features functiongemma3,riscv` (or `qemu`).
+default = ["functiongemma3", "cuda"]
+# One feature per model; each turns on the shared kernels and its own dependencies.
+functiongemma3 = [
+  "kernels",
+  "dep:anyhow",
+  "dep:half",
+  "dep:minijinja",
+  "dep:minijinja-contrib",
+  "dep:safetensors",
+  "dep:serde",
+  "dep:teeny-kernels",
+  "dep:teeny-test",
+  "hf-tokenizer",
+]
+# Hugging Face tokenizers (`tokenizer::HfTokenizer`), for models that ship a tokenizer.json.
+hf-tokenizer = ["dep:tokenizers"]
+# The kernels shared between models (`teeny_llm::kernels`). Enabled by every model
+# feature; on its own it builds the kernels without any model.
+kernels = ["dep:teeny-core", "dep:teeny-macros", "dep:teeny-triton"]
+# The backend models compile and run on. Pick one, with a model feature.
+cuda = ["teeny-test?/cuda", "teeny-kernels?/cuda"]
+riscv = ["teeny-test?/riscv", "teeny-kernels?/riscv"]
+qemu = ["riscv", "teeny-test?/qemu", "teeny-kernels?/qemu"]
+
+[dependencies]
+futures = { workspace = true }
+# PNG encoding and decoding for the images API (pure Rust).
+image = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+# Model and kernel dependencies, all behind the features above.
+anyhow = { workspace = true, optional = true }
+half = { workspace = true, optional = true }
+minijinja = { workspace = true, optional = true }
+minijinja-contrib = { workspace = true, optional = true }
+safetensors = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+teeny-core = { workspace = true, features = ["std"], optional = true }
+teeny-macros = { workspace = true, optional = true }
+teeny-triton = { workspace = true, optional = true }
+# `training` only because teeny-kernels does not build warning-free without it (its graph
+# module's training-gated imports; see the riscv step in .github/workflows/ci.yml).
+teeny-kernels = { workspace = true, default-features = false, features = ["training"], optional = true }
+# The runner compiles and runs step graphs with teeny-test's `RuntimeModel`. Unlike the
+# rest of the workspace this is a normal dependency, so it needs a version requirement:
+# teeny-test is published, and must be released before this crate.
+teeny-test = { path = "../../testing/teeny-test", version = "0.3.2", optional = true }
+# Pure-Rust regex backend, so the crate cross-compiles for riscv64 without a C toolchain.
+tokenizers = { version = "0.22.2", default-features = false, features = ["fancy-regex"], optional = true }
+
+[dev-dependencies]
+clap = { workspace = true }
+tokio = { workspace = true }
+
+[[example]]
+name = "chat"
+required-features = ["functiongemma3"]
+
+[[test]]
+name = "test_functiongemma"
+required-features = ["functiongemma3"]
+
+[[test]]
+name = "test_llm_kernels"
+required-features = ["functiongemma3"]
