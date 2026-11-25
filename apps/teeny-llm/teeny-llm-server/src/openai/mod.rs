@@ -20,6 +20,7 @@
 //! `deny_unknown_fields`: clients send many optional fields we don't act on yet, and OpenAI-
 //! compatible servers conventionally ignore them.
 
+pub mod audio;
 mod base64;
 pub mod chat;
 pub mod completions;

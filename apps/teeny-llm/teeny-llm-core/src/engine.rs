@@ -19,6 +19,7 @@ use futures::future::BoxFuture;
 use crate::chat::{ChatRequest, ChatStream};
 use crate::completion::{CompletionRequest, CompletionStream};
 use crate::embedding::{EmbeddingRequest, Embeddings};
+use crate::transcription::{TranscriptionRequest, TranscriptionStream};
 use crate::{Error, ModelInfo, Result};
 
 /// An inference backend.
@@ -76,6 +77,26 @@ pub trait Engine: Send + Sync + 'static {
             Err(Error::Unsupported {
                 engine: name,
                 operation: "embeddings",
+            })
+        })
+    }
+
+    /// Transcribes (or translates) a recording. Engines that serve
+    /// [`TranscriptionModel`](crate::transcription::TranscriptionModel)s implement it; the
+    /// rest keep the default.
+    ///
+    /// Validation and audio decoding errors resolve the future to `Err` before the model
+    /// runs.
+    fn transcribe(
+        &self,
+        request: TranscriptionRequest,
+    ) -> BoxFuture<'_, Result<TranscriptionStream>> {
+        let _ = request;
+        let name = self.name();
+        Box::pin(async move {
+            Err(Error::Unsupported {
+                engine: name,
+                operation: "transcriptions",
             })
         })
     }

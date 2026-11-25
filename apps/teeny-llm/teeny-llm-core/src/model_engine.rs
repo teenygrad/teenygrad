@@ -25,6 +25,7 @@ use crate::chat::{ChatModel, ChatRequest, ChatStream, validate};
 use crate::completion::{self, CompletionModel, CompletionRequest, CompletionStream};
 use crate::embedding::{self, EmbeddingModel, EmbeddingRequest, Embeddings};
 use crate::models::{LoadedModel, Model};
+use crate::transcription::{self, TranscriptionModel, TranscriptionRequest, TranscriptionStream};
 use crate::{Engine, Error, ModelInfo, Result};
 
 /// Loaded models, served as one [`Engine`].
@@ -58,6 +59,10 @@ impl ModelEngine {
                 ("chat", m.chat.as_ref().map(|c| c.info().id)),
                 ("completion", m.completion.as_ref().map(|c| c.info().id)),
                 ("embedding", m.embedding.as_ref().map(|e| e.info().id)),
+                (
+                    "transcription",
+                    m.transcription.as_ref().map(|t| t.info().id),
+                ),
             ];
             for (api, id) in handles {
                 if let Some(id) = id.filter(|id| *id != m.info.id) {
@@ -123,6 +128,18 @@ impl ModelEngine {
             None => Err(lacks(m, "embeddings")),
         }
     }
+
+    /// The transcription handle of the model `requested` names.
+    fn transcription_model(
+        &self,
+        requested: &str,
+    ) -> Result<(&LoadedModel, &Arc<dyn TranscriptionModel>)> {
+        let m = self.find(requested)?;
+        match &m.transcription {
+            Some(t) => Ok((m, t)),
+            None => Err(lacks(m, "transcriptions")),
+        }
+    }
 }
 
 /// The error for a request to `model` for an API it does not serve.
@@ -180,6 +197,28 @@ impl Engine for ModelEngine {
             request.model.clone_from(&loaded.info.id);
             embedding::validate(&loaded.info.id, &model.capabilities(), &request)?;
             model.embed(request).await
+        })
+    }
+
+    fn transcribe(
+        &self,
+        mut request: TranscriptionRequest,
+    ) -> BoxFuture<'_, Result<TranscriptionStream>> {
+        Box::pin(async move {
+            let (loaded, model) = self.transcription_model(&request.model)?;
+            request.model.clone_from(&loaded.info.id);
+            let caps = model.capabilities();
+            transcription::validate(&loaded.info.id, &caps, &request)?;
+            let container = request.container.ok_or_else(|| Error::InvalidParameter {
+                parameter: "file".into(),
+                detail: "no audio format".into(),
+            })?;
+            let audio =
+                crate::audio::decode(container, &request.audio)?.resampled_mono(caps.sample_rate);
+            transcription::check_duration(&caps, &audio)?;
+            // The model has the samples; the upload is not needed twice.
+            request.audio = Vec::new();
+            model.transcribe(request, audio).await
         })
     }
 }

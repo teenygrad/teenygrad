@@ -12,6 +12,8 @@ OpenAI-compatible clients can talk to it.
 | POST   | `/v1/chat/completions`        | `stream: true` → server-sent events      |
 | POST   | `/v1/completions`             | `stream: true` → server-sent events      |
 | POST   | `/v1/embeddings`              | `encoding_format: "base64"` supported    |
+| POST   | `/v1/audio/transcriptions`    | multipart, WAV; all `response_format`s |
+| POST   | `/v1/audio/translations`      | as transcriptions, into English          |
 | GET    | `/health`                     |                                          |
 
 The chat API is served whole: tools and tool calls (streamed as deltas), `tool_choice`,
@@ -37,8 +39,8 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 `--model <tag>` (repeatable) picks the models; the weights come from the local Hugging Face
 cache, or `--model-dir` for a single model, and `--context` sets the KV-cache size. `--echo`
 serves the echo models (`teeny-echo` for chat, `teeny-echo-complete` for completions,
-`teeny-echo-embed` for embeddings), for trying the API without weights. Each endpoint is
-answered by the models that implement its API; a request to a model without it gets a `400`
+`teeny-echo-embed` for embeddings, `teeny-echo-transcribe` for transcriptions), for trying
+the API without weights. Each endpoint is answered by the models that implement its API; a request to a model without it gets a `400`
 saying what the model does serve.
 
 The Vue scaffolds in `webapps/` (chat UI, admin console) aren't wired up yet.

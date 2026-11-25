@@ -9,7 +9,10 @@ HTTP API) and [`teeny-llm-chat`](https://docs.teenygrad.org/api/teenygrad/teeny_
 - one module per OpenAI API, each with its request and response types, the capabilities a
   model declares, `validate` (refusing what a model cannot do, by parameter), the trait models
   implement, and an echo model as its reference implementation: `chat` (`ChatModel`),
-  `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`)
+  `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`), `transcription`
+  (`TranscriptionModel`)
+- `audio`: decoding uploads into PCM (WAV so far) and encoding PCM (WAV, raw), mixed and
+  resampled for the model, so no speech model repeats it
 - `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)
 - `models::Model`: the models a build includes, by tag (`functiongemma3:270m`), and
   `Model::load`, which loads one as a `LoadedModel` exposing the APIs it serves

@@ -22,7 +22,12 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{Path, State, rejection::JsonRejection},
+    extract::{
+        DefaultBodyLimit, Multipart, Path, State,
+        multipart::{MultipartError, MultipartRejection},
+        rejection::JsonRejection,
+    },
+    http::header,
     response::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -33,9 +38,11 @@ use futures::{Stream, StreamExt, stream};
 use teeny_llm_core::Engine;
 use teeny_llm_core::chat::{self, ChatEvent};
 use teeny_llm_core::completion::{self, CompletionEvent};
+use teeny_llm_core::transcription::{self, TranscriptionEvent, TranscriptionTask};
 
 use crate::openai::{
     FinishReason, Usage,
+    audio::{FormPart, Rendered, TextDeltaEvent, TextDoneEvent, parse_form, render},
     chat::{
         self as chat_wire, ChatCompletionStreamChoice, ChatCompletionStreamResponseDelta,
         CreateChatCompletionRequest, CreateChatCompletionResponse,
@@ -53,6 +60,10 @@ use crate::openai::{
 
 type AppState = Arc<dyn Engine>;
 
+/// The largest upload the audio endpoints take, as OpenAI's do (25 MiB), plus room for the
+/// form's other fields.
+const MAX_AUDIO_BYTES: usize = 26 * 1024 * 1024;
+
 /// Builds the OpenAI-compatible router (`/v1/...` plus `/health`) over `engine`.
 pub fn router(engine: Arc<dyn Engine>) -> Router {
     Router::new()
@@ -62,6 +73,14 @@ pub fn router(engine: Arc<dyn Engine>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
         .route("/v1/embeddings", post(embeddings))
+        .route(
+            "/v1/audio/transcriptions",
+            post(transcriptions).layer(DefaultBodyLimit::max(MAX_AUDIO_BYTES)),
+        )
+        .route(
+            "/v1/audio/translations",
+            post(translations).layer(DefaultBodyLimit::max(MAX_AUDIO_BYTES)),
+        )
         .with_state(engine)
 }
 
@@ -296,4 +315,79 @@ async fn embeddings(
             total_tokens: out.prompt_tokens,
         },
     }))
+}
+
+// ---- audio -----------------------------------------------------------------------------------
+
+fn multipart_error(status: axum::http::StatusCode, text: String) -> ApiError {
+    let mut e = ApiError::invalid_request(text, None);
+    e.status = status;
+    e
+}
+
+impl From<MultipartRejection> for ApiError {
+    fn from(r: MultipartRejection) -> Self {
+        multipart_error(r.status(), r.body_text())
+    }
+}
+
+impl From<MultipartError> for ApiError {
+    fn from(e: MultipartError) -> Self {
+        multipart_error(e.status(), e.body_text())
+    }
+}
+
+async fn read_form(mut form: Multipart) -> Result<Vec<FormPart>, ApiError> {
+    let mut parts = Vec::new();
+    while let Some(field) = form.next_field().await? {
+        let name = field.name().unwrap_or_default().to_owned();
+        let file_name = field.file_name().map(str::to_owned);
+        let data = field.bytes().await?.to_vec();
+        parts.push(FormPart {
+            name,
+            file_name,
+            data,
+        });
+    }
+    Ok(parts)
+}
+
+async fn transcriptions(
+    State(engine): State<AppState>,
+    form: Result<Multipart, MultipartRejection>,
+) -> Result<Response, ApiError> {
+    audio_to_text(engine, TranscriptionTask::Transcribe, form?).await
+}
+
+async fn translations(
+    State(engine): State<AppState>,
+    form: Result<Multipart, MultipartRejection>,
+) -> Result<Response, ApiError> {
+    audio_to_text(engine, TranscriptionTask::Translate, form?).await
+}
+
+async fn audio_to_text(
+    engine: AppState,
+    task: TranscriptionTask,
+    form: Multipart,
+) -> Result<Response, ApiError> {
+    let (request, format) = parse_form(task, read_form(form).await?)?;
+    let wanted_logprobs = request.logprobs;
+    if request.stream {
+        let stream = engine.transcribe(request).await?;
+        // Transcript streams end with their done event, without chat's `[DONE]`.
+        let events = stream.map(move |event| match event {
+            Ok(TranscriptionEvent::Delta(d)) => sse_event(&TextDeltaEvent::new(d)),
+            Ok(TranscriptionEvent::Done(t)) => sse_event(&TextDoneEvent::new(&t, wanted_logprobs)),
+            Err(e) => sse_error(e),
+        });
+        return Ok(Sse::new(events.map(Ok::<_, Infallible>))
+            .keep_alive(KeepAlive::default())
+            .into_response());
+    }
+    let transcript = transcription::collect(engine.transcribe(request.clone()).await?).await?;
+    Ok(match render(&transcript, &request, format) {
+        Rendered::Json(v) => Json(v).into_response(),
+        Rendered::Text { mime, body } => ([(header::CONTENT_TYPE, mime)], body).into_response(),
+    })
 }

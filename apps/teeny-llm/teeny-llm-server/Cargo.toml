@@ -29,7 +29,7 @@ qemu = ["teeny-llm-core/qemu"]
 [dependencies]
 teeny-llm-core = { workspace = true }
 anyhow = { workspace = true, features = ["std"] }
-axum = { workspace = true }
+axum = { workspace = true, features = ["multipart"] }
 clap = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
