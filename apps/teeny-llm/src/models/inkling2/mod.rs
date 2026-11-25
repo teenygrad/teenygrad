@@ -1,98 +1,128 @@
-/*
- * Copyright (c) 2026 teenygrad (https://teenygrad.org).
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 //! Inkling-2 (`Inkling2LoopForConditionalGeneration`), starting with Thinking
-//! Machines' Inkling-2-Mini (`thinkingmachines/Inkling-2-Mini`).
+//! Machines' Inkling-2-Mini (`thinkingmachines/Inkling-2-Mini`): a 26.4B multimodal
+//! mixture-of-experts model whose text path runs here on RISC-V.
 //!
-//! **Status: the MoE block runs; attention does not.** [`model::build_router`] and
-//! [`model::build_moe`] lower and run as graphs, and the seven kernels in [`kernels`]
-//! are tested one by one against the reference. A whole step graph is blocked on
-//! attention, which needs two things [`crate::kernels::attention::AttentionSpec`]
-//! does not have:
+//! # The model
 //!
-//! - a **relative position bias** added to the attention logits before the softmax
-//!   ([`kernels::rel_bias`] produces it, but nothing consumes it yet);
-//! - a per-query **attention sink**, one extra logit with a zero value that absorbs
-//!   probability mass, so the attention weights deliberately do not sum to one. This
-//!   is why the reference sets `_supports_sdpa = False` and cannot use flash
-//!   attention.
+//! 24 decoder layers, of which the middle twelve (`loop_config.core_start ..
+//! core_end`, 6..18) run **three times over the same weights**, so a token costs
+//! **48 layer executions from 24 sets of weights**. Each layer's feed-forward is a
+//! sparse MoE: a router picks **8 of 128 experts** per token, and only those run.
+//! 3.4B parameters are active per token, about 5.4B counting the extra passes.
 //!
-//! **The checkpoint does not use the reference's names.**
-//! `thinkingmachines/Inkling-2-Mini` ships the original tensor names, which
-//! transformers renames on load: `attn.wq_du.weight` is the query projection,
-//! `attn.wk_dv` / `attn.wv_dv` the key and value, `attn.wo_ud` the output,
-//! `attn.gate_attn` its gate, `attn.wr_du` the relative linear, `attn_norm` and
-//! `mlp_norm` the two layer norms. [`model`] names its slots the checkpoint's way,
-//! so weights load without a rename pass. The shapes confirm the mapping.
+//! Attention is hybrid. Twenty layers are sliding-window; layers 5, 11, 17 and 23 are
+//! full-attention and differ structurally -- separate q/k/v input norms instead of
+//! one `attn_norm`, convolutions whose taps are projected per token, and three
+//! attention-residual queries instead of one. There is no RoPE: position enters
+//! through a relative bias and short causal convolutions on the attention branch.
 //!
-//! **Slots that need renaming at load.** Most match the checkpoint exactly
-//! (`attn.wq_du.weight`, `attn.q_l2_clip.scale`, `mlp.gate.weight`,
-//! `mlp.gate.bias`, `attn_norm.weight`). These do not, because `Linear4Op` always
-//! names its parameter `weight` and `ExpertGatherOp` likewise:
+//! # How the runtime executes it
+//!
+//! [`engine::Engine`] compiles **one graph per layer, 24 in all, not one per layer
+//! execution**. A second graph for a core layer would mean a second copy of its
+//! 873 MB of expert weights, and the resident set is already ~26 GB against a 31 GB
+//! board. The three passes differ only in their inputs.
+//!
+//! [`session::actions`] turns [`runner::plan`] into the sequence the engine walks:
+//! run a layer, push a block state at a boundary, save the core's entry state before
+//! the first pass, build the cross-pass messages, restore, repeat. The host carries
+//! between layers what the graphs cannot: the hidden states, the block states, four
+//! convolution windows per cache slot and the KV cache. [`engine::block_counts`]
+//! checks the premise that makes one graph per layer sound -- that a core layer sees
+//! the same number of committed block states on every pass -- and fails loudly if it
+//! ever stops holding.
+//!
+//! Two subtleties in that walk, both of which produced plausible-looking wrong output
+//! before they were found:
+//!
+//! - A boundary commits the layer's **input**, not its output, and its MLP residual
+//!   attends over a stack one deeper than its attention did, because the append
+//!   happens between the two.
+//! - The cross-pass messages are retrieved from the state the **previous pass** ended
+//!   in, so they must be built *before* the restore overwrites it.
+//!
+//! # The MoE block
+//!
+//! Per layer per token: [`kernels::router`] scores all 128 experts
+//! (`sigmoid`, with `mlp.gate.bias` steering the choice but not the weights, then
+//! normalise and scale by `route_scale`), and the top 8 are gathered.
+//! [`kernels::expert_gather_nvfp4`] and [`kernels::expert_gather_mxfp8`] multiply the
+//! token by those experts' weights **straight out of their quantised form**, decoding
+//! each weight inside the matmul loop; [`kernels::swiglu`] applies the softcapped
+//! gate; [`kernels::scatter_add`] combines the eight results by their router weights.
+//!
+//! **This is where essentially all the time goes.** Per-node tracing on the board
+//! puts the two gathers at ~88% of a layer: 41 ms and 23 ms of 74 ms, against ~1.5 ms
+//! for each of attention's big projections. Two reasons compound. The MoE is ~64M
+//! MACs a layer against attention's ~26M, *and* each of its weights costs ~30
+//! operations to unpack where attention's are already f32 -- about 5x the time per
+//! MAC. Optimising anything else in the layer is not worth doing.
+//!
+//! ## Quantisation
+//!
+//! Layers 0..20 are **NVFP4**, layers 20..24 **MXFP8**; [`runner::quant_of`] decides.
+//!
+//! NVFP4 stores a weight as three factors: an E2M1 nibble, an E4M3 scale shared by 16
+//! weights, and a per-expert `amax / outer_scale_denominator` where the denominator
+//! is 2688 = 448 x 6, so that the largest representable product is exactly the stored
+//! `amax`. The last two are constant per block, so
+//! [`weights::Checkpoint::folded_scale`] multiplies them at load time and the kernel
+//! loads one f32 instead of decoding an E4M3 byte per weight. MXFP8 is one E4M3 byte
+//! per weight with an exponent-only E8M0 scale per 32, and is not folded.
+//!
+//! `mlp.experts.w13_weight` **interleaves the gate and up projections down its rows**
+//! -- gate, up, gate, up -- rather than storing two contiguous halves, which is why
+//! transformers converts it with `Interleave(dim=1)` rather than renaming it.
+//! [`kernels::swiglu`] reads alternating lanes accordingly. Splitting it into halves
+//! instead pairs every gate with the wrong up, and the model still emits fluent
+//! nonsense, so nothing short of a reference comparison catches it.
+//!
+//! # Checkpoint names
+//!
+//! The checkpoint ships Thinking Machines' own tensor names, not the reference's.
+//! **`transformers/conversion_mapping.py` is the authority** -- diff against it
+//! rather than inferring from names, which is how the interleave was missed.
+//! [`runner::checkpoint_name`] encodes the mapping; the non-obvious entries:
 //!
 //! | graph slot | checkpoint |
 //! |---|---|
-//! | `controllers.<x>.down.weight` | `controllers.<x>.down_weight` |
-//! | `controllers.<x>.forget.weight` | `controllers.<x>.forget_weight` |
-//! | `controllers.<x>.gain.weight` | `controllers.<x>.gain_weight` |
-//! | `attn.rel_logits_proj.weight` | `attn.rel_logits_proj.proj` |
-//! | `mlp.experts.weight` | `mlp.experts.w13_weight` |
+//! | `controllers.<x>.{down,forget,gain}.weight` | `controllers.<x>.*_weight` |
+//! | `attn.rel_logits_proj.weight` | `attn.rel_logits_proj.proj`, **transposed** |
+//! | `mlp.experts.weight` | `mlp.experts.w13_weight`, **interleaved** |
 //! | `mlp.experts_down.weight` | `mlp.experts.w2_weight` |
-//! | `attn_res.<x>_queries.query` | `attn_res.<x>_queries.{layer}` |
+//! | `attn_res.attn_queries_<n>.query` | `attn_res.attn_queries.{layer - 1}` |
+//! | `attn_res.output_query_0.query` | `attn_res.output_query` |
+//! | `cross_pass.{queries,kv_queries}_*` | `middle_cycle_cross_pass_*` |
 //!
-//! `test_controller_slot_names` pins the first three, so the map cannot drift
-//! unnoticed.
+//! `rel_logits_proj.proj` is `[d_rel, rel_extent]` because the reference uses it as
+//! `states @ proj`, not as a linear's weight; it has the same element count either
+//! way, so reading it untransposed loads cleanly and computes nonsense.
 //!
-//! **The layers are not uniform, and the port builds only the common shape.**
-//! Reading the shipped index showed six distinct layer shapes, not one.
-//! `test_the_checkpoint_layer_shapes_are_what_the_port_assumes` pins all of this:
+//! # Loading
 //!
-//! - **Layers 5, 11, 17 and 23** (the last of each six-layer block) have no
-//!   `attn_norm` and no plain `k_sconv.weight`. They carry `q_input_norm`,
-//!   `k_input_norm` and `v_input_norm` separately, and a *projected* convolution
-//!   (`k_sconv.weight_proj` with `static_w`), which is the reference's
-//!   `Inkling2LoopDynamicShortConvolution`. **Neither is implemented.**
-//! - **Layers 20 to 23 are MXFP8, not NVFP4** (no `_amax`, no
-//!   `_outer_scale_denominator`), matching `hf_quant_config`'s eight MXFP8 tensors.
-//!   [`kernels::expert_gather_nvfp4`] handles NVFP4 only.
-//! - `attn_res.attn_queries` stops at layer 22 while `mlp_queries` runs to 23, so the
-//!   last layer takes no attention message.
+//! The shipped checkpoint needs bf16 expanded, quantised tensors repacked four bytes
+//! to an f32 container, and the NVFP4 scales folded -- none of which depends on the
+//! run. The `inkling2_convert` example does it once and writes a converted
+//! checkpoint; [`weights::CONVERTED_FORMAT`] guards it against going stale. That
+//! takes the board's load from 195 s to 66 s for ~26 GB of parameters.
 //!
-//! So [`model::build_layer`] is right for 20 of 24 layers and wrong for four, and the
-//! expert gather is right for 20 of 24 and wrong for four. Both gaps are additions
-//! rather than corrections: the existing kernels keep working for the layers they
-//! cover.
+//! # Verification
 //!
-//! Still to come: those four layers, the MXFP8 path, the token loop, and the packed
-//! NVFP4 encoding (blocked on the `bitcast` flag, teenygrad#170).
+//! Every level is checked against `transformers`' own `inkling2_loop` modules rather
+//! than against a host reference written from the same reading of the model, because
+//! a shared misreading passes silently -- which it did, repeatedly. The kernels have
+//! recorded fixtures, individual layers are driven stage by stage with the real
+//! weights (`scripts/inkling2-ref-layer.py`), and a whole token is compared against
+//! `TextModel.forward` itself (`scripts/inkling2-ref-model.py`), which removes even
+//! the transcription of the loop as a variable.
 //!
-//! Four things make this a larger job than the Gemma port, which is why they are
-//! named in [`config`] rather than discovered later:
+//! # Speed
 //!
-//! - **Looped depth.** Layers 6..18 run three times over the same weights, gated by a
-//!   rank-64 projection, so 24 distinct layers execute as 60.
-//! - **Mixture of experts.** 8 of 128 experts fire per token per layer, and the expert
-//!   weights ship as NVFP4 with a few layers in MXFP8. Dequantisation is on the hot
-//!   path, not a load-time step.
-//! - **No RoPE.** Position enters through a relative scheme (`d_rel`, `rel_extent`)
-//!   together with short convolutions on the attention branch, so
-//!   [`crate::kernels::rope`] does not apply.
-//! - **Softcapping and L2 clipping**, which the Gemma port rejects outright, are used
-//!   on the MLP gate and up projections, the final logits, and the query and relative
-//!   terms.
+//! On a SpacemiT K3 board, confined to its eight X100 cores: ~62 ms a layer, 3.07 s
+//! a token, 0.32 tokens/s. Four rounds took that from 626 ms a layer: removing
+//! `exp2` from the dequant, unpacking with shifts, telling LLVM the vector width is
+//! 256 bits, and folding the scales. llama.cpp's Q4_0 build of the same model on the
+//! same cores does 4 tokens/s, and the gap is the per-weight unpacking.
 
 // The kernel tests lower through teeny-kernels and run through teeny-test, and the
 // runner will use both once it exists; without this the crate lints as not using the
