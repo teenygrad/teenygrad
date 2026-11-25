@@ -26,6 +26,9 @@ use crate::{Error, Result};
 #[cfg(feature = "functiongemma3")]
 pub mod functiongemma;
 mod load;
+// Only model graph builders use it.
+#[cfg(feature = "functiongemma3")]
+mod scope;
 
 pub use load::{LoadOptions, LoadedModel, Progress};
 

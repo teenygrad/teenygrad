@@ -36,7 +36,6 @@
 
 use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomData, DtypeRepr, Graph, Op, Shape, SymTensor};
-use teeny_core::name_scope::name_scope;
 
 use super::config::GemmaConfig;
 use super::kernels::{embed::GemmaEmbedOp, gelu_mul::GemmaGeluMulOp, rmsnorm::GemmaRmsNormOp};
@@ -46,6 +45,7 @@ use crate::kernels::{
     linear::Linear4Op,
     rope::RopeOp,
 };
+use crate::models::scope::Scope;
 
 /// Lanes along `K` in the linear kernel.
 ///
@@ -86,12 +86,11 @@ fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
 }
 
 fn linear<D: FloatBytes + Send + Sync + 'static>(
-    name: &str,
+    name: String,
     x: &SymTensor,
     k: usize,
     n: usize,
 ) -> SymTensor {
-    let _g = name_scope(name);
     let op = Linear4Op::<D>::new(k, n, LINEAR_BLOCK);
     // On RISC-V, number programs down the rows so a prompt chunk's rows reuse each
     // weight from cache (1.5-1.9x faster at 16-64 rows on a K3); a GPU wants the default.
@@ -100,16 +99,16 @@ fn linear<D: FloatBytes + Send + Sync + 'static>(
     } else {
         op.with_weight_reuse()
     };
-    x.record_custom(CustomData::new(op), &[], None)
+    x.record_custom(CustomData::new(op), &[], None).named(name)
 }
 
 fn rmsnorm<D: FloatBytes + Send + Sync + 'static>(
-    name: &str,
+    name: String,
     x: &SymTensor,
     row: usize,
 ) -> SymTensor {
-    let _g = name_scope(name);
     x.record_custom(CustomData::new(GemmaRmsNormOp::<D>::new(row)), &[], None)
+        .named(name)
 }
 
 /// The inputs of one step graph, in feed order.
@@ -164,19 +163,20 @@ pub fn build_step<D: FloatBytes + Send + Sync + 'static>(
     let (nh, nkv) = (cfg.num_attention_heads, cfg.num_key_value_heads);
     let mut outputs = Vec::new();
 
-    let _model = name_scope("model");
-    let mut x = {
-        let _g = name_scope("embed_tokens");
-        ids.record_custom(
+    // Nodes are named after the checkpoint's tensors (Hugging Face's layout), so the
+    // runner can load each weight into its parameter slot by name.
+    let model = Scope::root("model");
+    let mut x = ids
+        .record_custom(
             CustomData::new(GemmaEmbedOp::<D>::new(cfg.vocab_size, hid)),
             &[],
             None,
         )
-    };
+        .named(model.name("embed_tokens"));
 
     let mut kv_out = Vec::new();
     for l in 0..cfg.num_hidden_layers {
-        let _layer = name_scope(format!("layers.{l}"));
+        let layer = model.child(format!("layers.{l}"));
         let sliding = cfg.is_sliding(l);
         let (cos, sin) = if sliding {
             (cos_l, sin_l)
@@ -185,20 +185,24 @@ pub fn build_step<D: FloatBytes + Send + Sync + 'static>(
         };
 
         // Attention block.
-        let h = rmsnorm::<D>("input_layernorm", &x, hid);
+        let h = rmsnorm::<D>(layer.name("input_layernorm"), &x, hid);
         let attn = {
-            let _a = name_scope("self_attn");
-            let q = linear::<D>("q_proj", &h, hid, nh * hd);
-            let k = linear::<D>("k_proj", &h, hid, nkv * hd);
-            let v = linear::<D>("v_proj", &h, hid, nkv * hd);
-            let q = rmsnorm::<D>("q_norm", &q, hd);
-            let k = rmsnorm::<D>("k_norm", &k, hd);
-            let q = q.record_custom(CustomData::new(RopeOp::<D>::new(nh, hd)), &[cos, sin], None);
-            let k = k.record_custom(
-                CustomData::new(RopeOp::<D>::new(nkv, hd)),
-                &[cos, sin],
-                None,
-            );
+            let s = layer.child("self_attn");
+            let q = linear::<D>(s.name("q_proj"), &h, hid, nh * hd);
+            let k = linear::<D>(s.name("k_proj"), &h, hid, nkv * hd);
+            let v = linear::<D>(s.name("v_proj"), &h, hid, nkv * hd);
+            let q = rmsnorm::<D>(s.name("q_norm"), &q, hd);
+            let k = rmsnorm::<D>(s.name("k_norm"), &k, hd);
+            let q = q
+                .record_custom(CustomData::new(RopeOp::<D>::new(nh, hd)), &[cos, sin], None)
+                .named(s.name("q_rope"));
+            let k = k
+                .record_custom(
+                    CustomData::new(RopeOp::<D>::new(nkv, hd)),
+                    &[cos, sin],
+                    None,
+                )
+                .named(s.name("k_rope"));
             let spec = AttentionSpec {
                 heads: nh,
                 kv_heads: nkv,
@@ -206,39 +210,42 @@ pub fn build_step<D: FloatBytes + Send + Sync + 'static>(
                 window: sliding.then_some(cfg.sliding_window),
                 scale: cfg.query_pre_attn_scalar.powf(-0.5) as f32,
             };
-            let o = q.record_custom(
-                CustomData::new(GqaAttentionOp::<D>::new(spec, past.clone())),
-                &[&k, &v, &rest[4 + 2 * l], &rest[5 + 2 * l]],
-                None,
-            );
+            let o = q
+                .record_custom(
+                    CustomData::new(GqaAttentionOp::<D>::new(spec, past.clone())),
+                    &[&k, &v, &rest[4 + 2 * l], &rest[5 + 2 * l]],
+                    None,
+                )
+                .named(s.name("attention"));
             kv_out.push((format!("k_{l}"), k));
             kv_out.push((format!("v_{l}"), v));
-            linear::<D>("o_proj", &o, nh * hd, hid)
+            linear::<D>(s.name("o_proj"), &o, nh * hd, hid)
         };
-        let attn = rmsnorm::<D>("post_attention_layernorm", &attn, hid);
-        x = add(&x, &attn);
+        let attn = rmsnorm::<D>(layer.name("post_attention_layernorm"), &attn, hid);
+        x = add(&x, &attn).named(layer.name("attention_residual"));
 
         // MLP block.
-        let h = rmsnorm::<D>("pre_feedforward_layernorm", &x, hid);
+        let h = rmsnorm::<D>(layer.name("pre_feedforward_layernorm"), &x, hid);
         let mlp = {
-            let _m = name_scope("mlp");
-            let gate = linear::<D>("gate_proj", &h, hid, cfg.intermediate_size);
-            let up = linear::<D>("up_proj", &h, hid, cfg.intermediate_size);
-            let act = gate.record_custom(
-                CustomData::new(GemmaGeluMulOp::<D>::default()),
-                &[&up],
-                None,
-            );
-            linear::<D>("down_proj", &act, cfg.intermediate_size, hid)
+            let s = layer.child("mlp");
+            let gate = linear::<D>(s.name("gate_proj"), &h, hid, cfg.intermediate_size);
+            let up = linear::<D>(s.name("up_proj"), &h, hid, cfg.intermediate_size);
+            let act = gate
+                .record_custom(
+                    CustomData::new(GemmaGeluMulOp::<D>::default()),
+                    &[&up],
+                    None,
+                )
+                .named(s.name("act"));
+            linear::<D>(s.name("down_proj"), &act, cfg.intermediate_size, hid)
         };
-        let mlp = rmsnorm::<D>("post_feedforward_layernorm", &mlp, hid);
-        x = add(&x, &mlp);
+        let mlp = rmsnorm::<D>(layer.name("post_feedforward_layernorm"), &mlp, hid);
+        x = add(&x, &mlp).named(layer.name("mlp_residual"));
     }
 
-    let x = rmsnorm::<D>("norm", &x, hid);
-    drop(_model);
+    let x = rmsnorm::<D>(model.name("norm"), &x, hid);
     let last = x.record_custom(CustomData::new(LastRowOp::<D>::default()), &[], None);
-    let logits = linear::<D>("lm_head", &last, hid, cfg.vocab_size);
+    let logits = linear::<D>("lm_head".to_owned(), &last, hid, cfg.vocab_size);
 
     outputs.push(("logits".to_string(), logits));
     outputs.extend(kv_out);

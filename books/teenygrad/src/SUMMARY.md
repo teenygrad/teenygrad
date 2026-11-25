@@ -12,7 +12,7 @@
 - [Tensors & the Computational Graph](./core-concepts/tensors-and-graph.md)
 - [Compilation Flow](./core-concepts/compilation-flow.md)
 - [The Dtype System](./core-concepts/dtype-system.md)
-- [Name Scopes](./core-concepts/name-scopes.md)
+- [Node Names](./core-concepts/node-names.md)
 
 # Neural Network Layers
 

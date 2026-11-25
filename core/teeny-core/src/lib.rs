@@ -16,8 +16,8 @@
 
 //! Foundation crate of [teenygrad](https://teenygrad.org): tensor/graph types, the computational
 //! graph ([`graph::Graph`]/[`graph::Op`]/[`graph::Shape`]), neural network layers ([`nn`]), the
-//! dtype system ([`dtype`]), device abstraction ([`device`]), and name-scoping used by every
-//! other `teeny-*` crate.
+//! dtype system ([`dtype`]) and device abstraction ([`device`]) used by every other
+//! `teeny-*` crate.
 //!
 //! `no_std` by default (the `std` feature is not in the default feature set) — enable `std` if
 //! you need it. See the crate README for the full feature list.
@@ -40,9 +40,6 @@ pub mod graph;
 pub mod macros;
 /// Model execution traits (`Layer`, lowering, kernel-launch argument packing).
 pub mod model;
-/// Scoped naming for graph nodes/parameters (requires the `std` feature).
-#[cfg(feature = "std")]
-pub mod name_scope;
 /// Standard neural network layers.
 pub mod nn;
 /// Runtime execution traits.

@@ -26,7 +26,6 @@ use std::rc::Rc;
 
 use teeny_core::graph::{CustomData, CustomOp, DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
-use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm::kernels::{
     attention::{AttentionSpec, GqaAttentionOp, PastLen},
@@ -90,11 +89,11 @@ impl OneOp {
         feeds: &[&[f32]],
         params: &[&[f32]],
     ) -> Vec<f32> {
-        // Parameter slots are named after the node's scope, as the model names its weights.
-        let out = {
-            let _scope = name_scope("op");
-            self.first.record_custom(CustomData::new(op), others, None)
-        };
+        // Parameter slots are named after the node, as the model names its weights.
+        let out = self
+            .first
+            .record_custom(CustomData::new(op), others, None)
+            .named("op");
         let graph: &Graph = &self.graph.borrow();
         let lowering = TritonLowering::new();
         let (_, graph_to_dag) = lowering

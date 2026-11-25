@@ -168,7 +168,7 @@ impl CudaGraphCompiler {
             }
         }
 
-        // Propagate graph-level node names (from name_scope annotations) into the
+        // Propagate graph-level node names (see `Graph::names`) into the
         // compiled DAG using the graph_node → dag_node index mapping.
         let mut dag_names: HashMap<usize, String> = graph
             .names

@@ -17,4 +17,4 @@ layers and implementing `Layer` themselves by chaining calls to their fields' `c
 
 > **TODO**: document the parameter-management/initialization story once it's stable enough to
 > commit to in the book (constructing layers with random vs. loaded weights, interaction with
-> [name scopes](../core-concepts/name-scopes.md)).
+> [node names](../core-concepts/node-names.md)).

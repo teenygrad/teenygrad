@@ -68,6 +68,20 @@ impl SymTensor {
         (tensor, graph)
     }
 
+    /// Names this tensor's node in its graph ([`Graph::names`]), replacing any name it had.
+    ///
+    /// A model's builder names the nodes that hold its weights after the checkpoint's
+    /// tensors: a compiled model lists each parameter slot as `<node name>.<slot name>`
+    /// (`model.layers.0.self_attn.q_proj.weight`), which its loader looks up in the
+    /// checkpoint. Names also label nodes in traces.
+    pub fn named(self, name: impl Into<alloc::string::String>) -> Self {
+        self.graph
+            .borrow_mut()
+            .names
+            .insert(self.node_id, name.into());
+        self
+    }
+
     /// Number of dimensions of this tensor.
     pub fn rank(&self) -> usize {
         self.shape.len()
