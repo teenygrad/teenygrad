@@ -107,9 +107,10 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
 
     // Lane-invariant index arithmetic, hoisted out of the reduction.
     //
-    // `k` is `offs + i * BLOCK` and BLOCK is a multiple of 64, so each of these
-    // divisions distributes over the sum exactly: `k / 8` is `offs / 8 + i * BLOCK / 8`
-    // and so on. The lane-dependent part is therefore the same on every iteration, and
+    // `k` is `offs + i * BLOCK` and BLOCK is a multiple of 16, so each of these
+    // shifts distributes over the sum exactly: `k >> 3` is `(offs >> 3) + i * BLOCK / 8`
+    // and so on. 16 is what the arithmetic needs -- one scale per 16 weights, hence
+    // `BLOCK / 16` -- and not the 64 this comment used to claim. The lane-dependent part is therefore the same on every iteration, and
     // the byte and scale selectors do not depend on `i` at all. They used to be
     // recomputed for every element of every chunk.
     let o8 = offs >> 3;
@@ -210,7 +211,12 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-const BLOCK: i32 = 256;
+// 32 lanes, not a whole vector register file's worth. At `e32` with VLEN=256 a
+// 256-lane tensor is 32 vector registers, so each of the dequant's ~15 live
+// intermediates needs the entire register file and almost all of them spill: 229
+// whole-register spill/fill operations against ~27 arithmetic ones. At 32 that is 6.
+// Smaller still (16) saves little more and shortens the vector ops, so 32 it is.
+const BLOCK: i32 = 32;
 
 /// Graph-level expert gather. Inputs are `x` of `[T, K]` and the router's packed
 /// `[T, 2 * top_k]`; the output is `[T * top_k, N]`.
