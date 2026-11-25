@@ -1,5 +1,6 @@
 ---
 source: compiler/teeny-compiler/tests/test_compiler.rs
+assertion_line: 42
 expression: generated_ptx.trim()
 ---
 //
@@ -26,21 +27,21 @@ expression: generated_ptx.trim()
 	.reg .pred 	%p<9>;
 	.reg .b32 	%r<39>;
 	.reg .b64 	%rd<12>;
-	.loc	1 3220 0
+	.loc	1 3343 0
 $L__func_begin0:
-	.loc	1 3220 0
+	.loc	1 3343 0
 
 	ld.param.b64 	%rd7, [elemwise_add_forward_entry_point_param_0];
 	ld.param.b64 	%rd8, [elemwise_add_forward_entry_point_param_1];
 $L__tmp0:
-	.loc	1 3224 5
-	.loc	1 3204 15, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3347 5
+	.loc	1 3327 15, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 	%r25, %ctaid.x;
-	.loc	1 3204 61, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3327 61, function_name $L__info_string0, inlined_at 1 3347 5
 	shl.b32 	%r26, %r25, 10;
 	ld.param.b64 	%rd9, [elemwise_add_forward_entry_point_param_2];
 	ld.param.b32 	%r27, [elemwise_add_forward_entry_point_param_3];
-	.loc	1 3205 19, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3328 19, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 	%r28, %tid.x;
 	and.b32 	%r29, %r28, 127;
 	shl.b32 	%r30, %r29, 2;
@@ -52,7 +53,7 @@ $L__tmp0:
 	or.b32 	%r36, %r31, 513;
 	or.b32 	%r37, %r31, 514;
 	or.b32 	%r38, %r31, 515;
-	.loc	1 3206 13, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 13, function_name $L__info_string0, inlined_at 1 3347 5
 	setp.lt.s32 	%p1, %r31, %r27;
 	setp.lt.s32 	%p2, %r32, %r27;
 	setp.lt.s32 	%p3, %r33, %r27;
@@ -61,116 +62,116 @@ $L__tmp0:
 	setp.lt.s32 	%p6, %r36, %r27;
 	setp.lt.s32 	%p7, %r37, %r27;
 	setp.lt.s32 	%p8, %r38, %r27;
-	.loc	1 3207 16, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3330 16, function_name $L__info_string0, inlined_at 1 3347 5
 	mul.wide.s32 	%rd10, %r31, 4;
 	add.s64 	%rd1, %rd7, %rd10;
 	mul.wide.s32 	%rd11, %r35, 4;
 	add.s64 	%rd2, %rd7, %rd11;
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r1, 0x0;
 	@%p1 ld.global.b32 { %r1 }, [ %rd1 + 0 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r2, 0x0;
 	@%p2 ld.global.b32 { %r2 }, [ %rd1 + 4 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r3, 0x0;
 	@%p3 ld.global.b32 { %r3 }, [ %rd1 + 8 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r4, 0x0;
 	@%p4 ld.global.b32 { %r4 }, [ %rd1 + 12 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r5, 0x0;
 	@%p5 ld.global.b32 { %r5 }, [ %rd2 + 0 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r6, 0x0;
 	@%p6 ld.global.b32 { %r6 }, [ %rd2 + 4 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r7, 0x0;
 	@%p7 ld.global.b32 { %r7 }, [ %rd2 + 8 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3206 37, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3329 37, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r8, 0x0;
 	@%p8 ld.global.b32 { %r8 }, [ %rd2 + 12 ];
 
 	// end inline asm
-	.loc	1 3209 16, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3332 16, function_name $L__info_string0, inlined_at 1 3347 5
 	add.s64 	%rd3, %rd8, %rd10;
 	add.s64 	%rd4, %rd8, %rd11;
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r9, 0x0;
 	@%p1 ld.global.b32 { %r9 }, [ %rd3 + 0 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r10, 0x0;
 	@%p2 ld.global.b32 { %r10 }, [ %rd3 + 4 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r11, 0x0;
 	@%p3 ld.global.b32 { %r11 }, [ %rd3 + 8 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r12, 0x0;
 	@%p4 ld.global.b32 { %r12 }, [ %rd3 + 12 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r13, 0x0;
 	@%p5 ld.global.b32 { %r13 }, [ %rd4 + 0 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r14, 0x0;
 	@%p6 ld.global.b32 { %r14 }, [ %rd4 + 4 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r15, 0x0;
 	@%p7 ld.global.b32 { %r15 }, [ %rd4 + 8 ];
 
 	// end inline asm
 	// begin inline asm
-	.loc	1 3208 28, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3331 28, function_name $L__info_string0, inlined_at 1 3347 5
 	mov.u32 %r16, 0x0;
 	@%p8 ld.global.b32 { %r16 }, [ %rd4 + 12 ];
 
 	// end inline asm
-	.loc	1 3211 19, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3334 19, function_name $L__info_string0, inlined_at 1 3347 5
 	add.s64 	%rd5, %rd9, %rd10;
 	add.s64 	%rd6, %rd9, %rd11;
-	.loc	1 3211 41, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3334 41, function_name $L__info_string0, inlined_at 1 3347 5
 	add.rn.f32 	%r17, %r1, %r9;
 	add.rn.f32 	%r18, %r2, %r10;
 	add.rn.f32 	%r19, %r3, %r11;
@@ -179,7 +180,7 @@ $L__tmp0:
 	add.rn.f32 	%r22, %r6, %r14;
 	add.rn.f32 	%r23, %r7, %r15;
 	add.rn.f32 	%r24, %r8, %r16;
-	.loc	1 3210 20, function_name $L__info_string0, inlined_at 1 3224 5
+	.loc	1 3333 20, function_name $L__info_string0, inlined_at 1 3347 5
 	// begin inline asm
 	@%p1 st.global.b32 [ %rd5 + 0 ], { %r17 };
 
@@ -213,7 +214,7 @@ $L__tmp0:
 
 	// end inline asm
 $L__tmp1:
-	.loc	1 3225 2
+	.loc	1 3348 2
 	ret;
 $L__tmp2:
 $L__func_end0:
@@ -445,8 +446,8 @@ $L__func_end0:
 .b64 $L__tmp0
 .b64 $L__tmp1
 .b8 1
-.b8 152
-.b8 12
+.b8 19
+.b8 13
 .b8 5
 .b8 0
 .b8 0

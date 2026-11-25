@@ -654,6 +654,24 @@ pub mod core {
             }
         }
 
+        #[lang = "bitxor"]
+        pub trait BitXor<RHS = Self> {
+            type Output;
+            fn bitxor(self, rhs: RHS) -> Self::Output;
+        }
+
+        #[lang = "shl"]
+        pub trait Shl<RHS = Self> {
+            type Output;
+            fn shl(self, rhs: RHS) -> Self::Output;
+        }
+
+        #[lang = "shr"]
+        pub trait Shr<RHS = Self> {
+            type Output;
+            fn shr(self, rhs: RHS) -> Self::Output;
+        }
+
         #[lang = "deref"]
         pub trait Deref {
             // No `?Sized` here: `Sized` lives at the DSL crate root and is not
