@@ -91,7 +91,11 @@ fn main() -> anyhow::Result<()> {
     // The reference applies no muP scaling to the logits: it is the unembedding then
     // the softcap, so the multiplier is 1.
     let mut engine = Engine::load(&device, cfg, 1.0, &mut ck, args.context)?;
-    eprintln!("{:.1} s, {} executions per token", t0.elapsed().as_secs_f64(), engine.executions());
+    eprintln!(
+        "{:.1} s, {} executions per token",
+        t0.elapsed().as_secs_f64(),
+        engine.executions()
+    );
 
     let mut messages: Vec<serde_json::Value> = Vec::new();
     if let Some(system) = &args.system {

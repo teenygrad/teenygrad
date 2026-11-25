@@ -1009,10 +1009,12 @@ fn test_layer_zero_runs_on_real_weights() {
         let rms = (row.iter().map(|v| v * v).sum::<f32>() / hid as f32 + 1e-6).sqrt();
         let scaled: Vec<f32> = row.iter().map(|v| v / rms).collect();
         drop(embed);
-        let enorm = ck
-            .param("model.llm.embed_norm.weight")
-            .expect("embed_norm");
-        scaled.iter().zip(enorm.iter()).map(|(v, w)| v * w).collect()
+        let enorm = ck.param("model.llm.embed_norm.weight").expect("embed_norm");
+        scaled
+            .iter()
+            .zip(enorm.iter())
+            .map(|(v, w)| v * w)
+            .collect()
     };
 
     let zeros_kv = vec![0.0f32; kw * nkv * hd];
@@ -1150,7 +1152,7 @@ fn test_one_token_through_every_layer_once() {
             bias_width: None,
         };
         let out = build_layer::<f32>(&cfg, step.layer, &inputs, past.clone());
-    let out = out.out;
+        let out = out.out;
         let next = g.run_from_checkpoint(
             &out,
             &[
@@ -1324,10 +1326,19 @@ fn test_what_the_stack_does_to_a_few_tokens() {
                 bias_width: None,
             };
             let out = build_layer::<f32>(&cfg, step.layer, &inputs, past);
-    let out = out.out;
+            let out = out.out;
             let next = g.run_from_checkpoint(
                 &out,
-                &[&x, &block_input, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv],
+                &[
+                    &x,
+                    &block_input,
+                    &zeros_kv,
+                    &zeros_kv,
+                    &zeros_h,
+                    &zeros_h,
+                    &cache_kv,
+                    &cache_kv,
+                ],
                 &mut ck,
                 step.layer,
             );
@@ -1367,14 +1378,20 @@ fn test_what_the_stack_does_to_a_few_tokens() {
             mean,
             started.elapsed().as_secs_f32()
         );
-        assert!(x.iter().all(|v| v.is_finite()), "token {token} gave a non-finite state");
+        assert!(
+            x.iter().all(|v| v.is_finite()),
+            "token {token} gave a non-finite state"
+        );
         finals.push(x);
     }
 
     // Different inputs must give different final states, or the stack is ignoring
     // its input entirely.
     let across = cosine(&finals[0], &finals[1]);
-    println!("cos(final[{}], final[{}]) = {across:+.4}", tokens[0], tokens[1]);
+    println!(
+        "cos(final[{}], final[{}]) = {across:+.4}",
+        tokens[0], tokens[1]
+    );
     assert!(
         across < 0.999,
         "two different tokens produced near-identical states ({across}); the stack ignores its input"
@@ -1398,7 +1415,9 @@ fn test_chat_template_matches_apply_chat_template() {
 
     let base = std::env::var("INKLING2_FIXTURES")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"));
+        .unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+        });
     let raw = std::fs::read_to_string(base.join("reference/inkling2-chat.json"))
         .expect("the chat fixture");
 
@@ -1430,7 +1449,9 @@ fn test_chat_template_matches_apply_chat_template() {
     ]);
     // prompt() appends the token that opens the model's turn; the fixture is what
     // apply_chat_template renders, which stops before it.
-    let got = chat.prompt_raw(&messages, None).expect("rendering the prompt");
+    let got = chat
+        .prompt_raw(&messages, None)
+        .expect("rendering the prompt");
     assert_eq!(
         got, want_ids,
         "the rendered prompt must tokenize exactly as apply_chat_template does"
@@ -1525,9 +1546,22 @@ fn test_layer_stages_against_the_reference() {
     let zeros_h = vec![0.0f32; kw * hid];
     let cache_kv = vec![0.0f32; cache * nkv * hd];
     let got = g.run_many_from_checkpoint(
-        &[&layer.out, &layer.conv_in[2], &layer.conv_in[3], &layer.k, &layer.v],
         &[
-            &x, &blocks, &mlp_blocks, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv,
+            &layer.out,
+            &layer.conv_in[2],
+            &layer.conv_in[3],
+            &layer.k,
+            &layer.v,
+        ],
+        &[
+            &x,
+            &blocks,
+            &mlp_blocks,
+            &zeros_kv,
+            &zeros_kv,
+            &zeros_h,
+            &zeros_h,
+            &cache_kv,
             &cache_kv,
         ],
         &mut ck,
@@ -1697,7 +1731,10 @@ fn test_one_token_logits_against_the_reference() {
         let n = (want_trace.len() / hid).min(mine_trace.len() / hid);
         println!("tracing {n} layer executions");
         for e in 0..n {
-            let (a, b) = (&mine_trace[e * hid..(e + 1) * hid], &want_trace[e * hid..(e + 1) * hid]);
+            let (a, b) = (
+                &mine_trace[e * hid..(e + 1) * hid],
+                &want_trace[e * hid..(e + 1) * hid],
+            );
             let worst = a
                 .iter()
                 .zip(b)
@@ -1720,15 +1757,18 @@ fn test_one_token_logits_against_the_reference() {
         .map(|(g, w)| (g - w).abs() / w.abs().max(1.0))
         .fold(0.0f32, f32::max);
     let arg = |v: &[f32]| {
-        v[..n]
-            .iter()
-            .enumerate()
-            .fold((0usize, f32::MIN), |a, (i, &x)| if x > a.1 { (i, x) } else { a })
+        v[..n].iter().enumerate().fold(
+            (0usize, f32::MIN),
+            |a, (i, &x)| if x > a.1 { (i, x) } else { a },
+        )
     };
     let (mi, mv) = arg(&got);
     let (wi, wv) = arg(&want);
     println!("mine argmax {mi} ({mv:.4}); reference argmax {wi} ({wv:.4})");
     println!("worst relative error over {n} real logits: {worst:.6}");
-    assert_eq!(mi, wi, "the model must predict the same token as the reference");
+    assert_eq!(
+        mi, wi,
+        "the model must predict the same token as the reference"
+    );
     assert!(worst < 1e-2, "logits diverge by {worst}");
 }

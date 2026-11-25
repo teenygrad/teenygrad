@@ -160,8 +160,7 @@ fn main() -> anyhow::Result<()> {
     let mut marker: HashMap<String, TensorView> = HashMap::new();
     marker.insert(
         CONVERTED_MARKER.to_string(),
-        TensorView::new(Dtype::F32, vec![1], &bytes)
-            .map_err(|e| anyhow::anyhow!("marker: {e}"))?,
+        TensorView::new(Dtype::F32, vec![1], &bytes).map_err(|e| anyhow::anyhow!("marker: {e}"))?,
     );
     std::fs::write(
         args.out.join("converted-marker.safetensors"),
@@ -177,7 +176,12 @@ fn main() -> anyhow::Result<()> {
         args.out.join("model.safetensors.index.json"),
         serde_json::to_string_pretty(&idx)?,
     )?;
-    for f in ["config.json", "tokenizer.json", "chat_template.jinja", "special_tokens_map.json"] {
+    for f in [
+        "config.json",
+        "tokenizer.json",
+        "chat_template.jinja",
+        "special_tokens_map.json",
+    ] {
         let src = args.model.join(f);
         if src.exists() {
             std::fs::copy(&src, args.out.join(f))?;

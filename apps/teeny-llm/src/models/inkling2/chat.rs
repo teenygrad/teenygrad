@@ -108,7 +108,11 @@ impl Chat {
     /// `reasoning_effort` is passed through when given: a name the template knows
     /// (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) or a number. When
     /// `None` the template applies its own default, as Hugging Face does.
-    pub fn render(&self, messages: &Value, reasoning_effort: Option<&str>) -> anyhow::Result<String> {
+    pub fn render(
+        &self,
+        messages: &Value,
+        reasoning_effort: Option<&str>,
+    ) -> anyhow::Result<String> {
         Ok(self.env.get_template("chat")?.render(context! {
             messages => messages,
             reasoning_effort => reasoning_effort,

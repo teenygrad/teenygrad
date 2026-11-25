@@ -1576,7 +1576,11 @@ fn test_nvfp4_gather_equals_the_f32_gather() {
         .map(|i| e4m3(scales[i]) * s2[i / (k / 16) / n])
         .collect();
     assert_eq!(bytes.len(), rows * k / 8, "four weight bytes per element");
-    assert_eq!(sc.len(), rows * k / 16, "one folded scale per sixteen weights");
+    assert_eq!(
+        sc.len(),
+        rows * k / 16,
+        "one folded scale per sixteen weights"
+    );
 
     // The same weights, dequantised on the host, for the f32 gather.
     let w: Vec<f32> = (0..rows * k)

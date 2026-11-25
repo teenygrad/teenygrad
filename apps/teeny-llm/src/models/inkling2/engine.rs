@@ -87,11 +87,15 @@ impl<'d> Compiled<'d> {
             missing.is_empty(),
             "layer {layer} has no checkpoint tensor for {missing:?} \
              (resolved through checkpoint_name, e.g. {:?})",
-            missing.first().map(|(slot, _)| checkpoint_name(slot, layer)),
+            missing
+                .first()
+                .map(|(slot, _)| checkpoint_name(slot, layer)),
         );
         let values = super::load::read(ck, &names, layer)?;
-        let by_name: HashMap<&str, &[f32]> =
-            values.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+        let by_name: HashMap<&str, &[f32]> = values
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.as_slice()))
+            .collect();
         for (name, node, idx) in &slots {
             model
                 .load_param_f32(*node, *idx, by_name[name.as_str()])
@@ -226,9 +230,8 @@ impl<'d> Engine<'d> {
                 .contains(&layer)
                 .then(|| (0..4).map(|_| b.input(&[1, hid])).collect());
             let scale = msgs.as_ref().map(|_| b.input(&[1, hid]));
-            let msg_refs: Option<[&SymTensor; 4]> = msgs
-                .as_ref()
-                .map(|m| [&m[0], &m[1], &m[2], &m[3]]);
+            let msg_refs: Option<[&SymTensor; 4]> =
+                msgs.as_ref().map(|m| [&m[0], &m[1], &m[2], &m[3]]);
             let inputs = LayerInputs {
                 x: &b.first,
                 block_states: &block_states,
@@ -282,7 +285,8 @@ impl<'d> Engine<'d> {
         let head = {
             let b = Builder::new(&[head_states.max(1), hid]);
             let partial = b.input(&[1, hid]);
-            let out = build_head::<f32>(&cfg, &partial, &b.first, head_states, mup_width_multiplier);
+            let out =
+                build_head::<f32>(&cfg, &partial, &b.first, head_states, mup_width_multiplier);
             let g: &Graph = &b.graph.borrow();
             Compiled::new(device, g, &[&out], 1, ck, 0)?
         };
@@ -339,7 +343,9 @@ impl<'d> Engine<'d> {
             match action {
                 Action::SaveCore => saved = Some((x.clone(), self.state.blocks.clone())),
                 Action::RestoreCore => {
-                    let (hx, hb) = saved.clone().expect("the core was saved before a later pass");
+                    let (hx, hb) = saved
+                        .clone()
+                        .expect("the core was saved before a later pass");
                     x = hx;
                     self.state.reset_blocks(hb);
                 }
@@ -373,8 +379,7 @@ impl<'d> Engine<'d> {
                             let _ = std::fs::write(path.replace(".bin", suffix), bytes);
                         };
                         if messages.len() >= 4 {
-                            let flat: Vec<f32> =
-                                messages[..4].iter().flatten().copied().collect();
+                            let flat: Vec<f32> = messages[..4].iter().flatten().copied().collect();
                             dump(".msg.bin", &flat);
                         }
                         dump(".prevx.bin", &x);

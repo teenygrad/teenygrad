@@ -65,9 +65,7 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
                 // keep their own E8M0 bytes under the plain `scale`.
                 "mlp.experts.folded_scale" | "mlp.experts_down.folded_scale" => {
                     let name = checkpoint_name(slot, layer);
-                    Source::FoldedScale(
-                        name.strip_suffix("_scale").unwrap_or(&name).to_string(),
-                    )
+                    Source::FoldedScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
                 }
                 "mlp.experts.scale2" | "mlp.experts_down.scale2" => {
                     // checkpoint_name maps these to the amax tensor; the prefix is

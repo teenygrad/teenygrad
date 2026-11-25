@@ -559,7 +559,11 @@ pub fn build_messages<D: FloatBytes + Send + Sync + 'static>(
     let hid = cfg.hidden_size;
     let rows = 2 * (cfg.loop_config.core_end - cfg.loop_config.core_start);
     let norm = |x: &SymTensor| {
-        x.record_custom(CustomData::new(UnweightedRmsNormOp::<D>::new(hid)), &[], None)
+        x.record_custom(
+            CustomData::new(UnweightedRmsNormOp::<D>::new(hid)),
+            &[],
+            None,
+        )
     };
     let normed = norm(states);
     let normed_partial = norm(partial);
@@ -804,7 +808,11 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     // separate node: an identity scale, one elementwise pass over `hidden` floats.
     let lerp = |a: &SymTensor, b: &SymTensor, s: &SymTensor| {
         let s2 = s.record_custom(CustomData::new(ScaleOp::<D>::new(1.0)), &[], None);
-        a.record_custom(CustomData::new(MessageMixOp::<D>::default()), &[b, s, &s2], None)
+        a.record_custom(
+            CustomData::new(MessageMixOp::<D>::default()),
+            &[b, s, &s2],
+            None,
+        )
     };
     let gated: Vec<SymTensor> = match inputs.messages {
         None => qkv,
