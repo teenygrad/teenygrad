@@ -64,7 +64,34 @@ pub fn softcap_forward<T: Triton, D: Float, const BLOCK: i32>(
     let one = T::full(&[BLOCK], D::from_f64(1.0));
     let two = T::full(&[BLOCK], D::from_f64(2.0));
     let u = x / cap;
-    let th = two / (one + T::exp(zeros - two * u)) - one;
+
+    // exp(-2u) in lane. `T::exp` is one `expf` call per lane on RVV, which made this
+    // kernel 1024 calls in 7783 lines of assembly; the reduction and its pitfalls are
+    // documented in `gated_mul`.
+    let lo = T::full(&[BLOCK], D::from_f64(-87.0));
+    let hiclamp = T::full(&[BLOCK], D::from_f64(88.0));
+    let log2e = T::full(&[BLOCK], D::from_f64(1.442_695_040_888_963_4));
+    let magic = T::full(&[BLOCK], D::from_f64(12_582_912.0)); // 1.5 * 2^23
+
+    let a = zeros - two * u;
+    let a = T::where_(T::lt(a, lo), lo, a);
+    let a = T::where_(T::gt(a, hiclamp), hiclamp, a);
+    let y = a * log2e;
+    let r = (y + magic) - magic;
+    let f = y - r;
+
+    let pp = T::full(&[BLOCK], D::from_f64(0.000_154_035_303_933_816_09));
+    let pp = pp * f + T::full(&[BLOCK], D::from_f64(0.001_333_355_814_642_844_3));
+    let pp = pp * f + T::full(&[BLOCK], D::from_f64(0.009_618_129_107_628_477));
+    let pp = pp * f + T::full(&[BLOCK], D::from_f64(0.055_504_108_664_821_58));
+    let pp = pp * f + T::full(&[BLOCK], D::from_f64(0.240_226_506_959_100_7));
+    let pp = pp * f + T::full(&[BLOCK], D::from_f64(0.693_147_180_559_945_3));
+    let pp = pp * f + one;
+
+    let n = T::cast::<D, i32>(r, None, false);
+    let ea = pp * T::cast::<i32, D>((n + 127) * 8_388_608, None, true);
+
+    let th = two / (one + ea) - one;
     T::store(y_ptr.add_offsets(offs), th * cap, Some(m), &[], None, None);
 }
 
@@ -80,7 +107,9 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-const BLOCK: i32 = 1024;
+// 128 lanes. 1024 at `e32` with VLEN=256 is 128 vector registers, which only made
+// sense while a per-lane `expf` call dominated everything; see `gated_mul`.
+const BLOCK: i32 = 128;
 
 /// Graph-level softcap, shape preserving.
 pub struct SoftcapOp<D: FloatBytes + Send + Sync + 'static> {

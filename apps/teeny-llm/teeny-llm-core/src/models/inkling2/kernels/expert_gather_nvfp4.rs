@@ -35,11 +35,12 @@
 //! `T::cast` bitcasts one to an i32 and the byte is masked out of it. That is
 //! 0.5 bytes per weight, the true NVFP4 density.
 //!
-//! Which of the four bytes a lane wants varies along `k`, so all four are computed
-//! and selected rather than branched on. There are no shifts: `Shr` is not lowered
-//! by teenyc, and masking first is needed anyway because `Div` truncates towards
-//! zero, so the top byte has to be masked before it is divided down and its sign bit
-//! added back by hand.
+//! Which of the four bytes a lane wants varies along `k`, so it is shifted out with
+//! `wword >> (bsel * 8)` rather than branched on. That needed teenyc to lower `Shr`
+//! on tensors, which it now does; before that the kernel computed all four bytes
+//! with masks and divides and selected between them, and because `Div` truncates
+//! towards zero the top byte had to be masked before being divided down and its sign
+//! bit added back by hand.
 
 use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
 use teeny_macros::kernel;
