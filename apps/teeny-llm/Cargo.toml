@@ -90,6 +90,10 @@ name = "chat"
 required-features = ["functiongemma3"]
 
 [[example]]
+name = "inkling2_convert"
+required-features = ["inkling2"]
+
+[[example]]
 name = "inkling2"
 required-features = ["inkling2"]
 
