@@ -72,9 +72,57 @@ pub fn gated_mul_forward<T: Triton, D: Float, const BLOCK: i32>(
         false,
     );
     let one = T::full(&[BLOCK], D::from_f64(1.0));
+
+    // exp(-g) in lane, rather than `T::exp`.
+    //
+    // RVV has no exponential instruction, so `T::exp` lowers to one `expf` call per
+    // lane. At BLOCK = 1024 that was this whole kernel: 1024 `call expf` in 7867 lines
+    // of assembly, for two loads, a sigmoid and a store. So the usual range reduction,
+    //
+    //     e^x = 2^(x * log2 e) = 2^n * 2^f,   n integral, f in [-0.5, 0.5]
+    //
+    // with 2^f a degree-6 polynomial in f -- the coefficients are ln(2)^k / k!, the
+    // Taylor series of 2^f; a minimax fit would buy accuracy we do not need -- and 2^n
+    // built by putting n + 127 into an f32's exponent field. Two things that are easy
+    // to get wrong:
+    //
+    //   - n comes from the round-to-nearest trick `(y + 1.5 * 2^23) - 1.5 * 2^23`, not
+    //     `T::floor`, which is a libm call per lane too and would defeat the point. It
+    //     is exact for |y| < 2^22 and y is at most ~127 here.
+    //   - the input is clamped to [-87, 88] first. Past that the exponent field
+    //     overflows and 2^n is a NaN or an infinity instead of saturating.
+    //
+    // ~1e-7 relative, against the 1e-4 the tests ask of the sigmoid. It is written out
+    // here and in `swiglu` rather than shared because `#[kernel]` compiles the function
+    // body on its own, with no access to anything else in the crate -- not a helper
+    // function and not a macro.
+    let lo = T::full(&[BLOCK], D::from_f64(-87.0));
+    let hi = T::full(&[BLOCK], D::from_f64(88.0));
+    let ex = zeros - g;
+    let ex = T::where_(T::lt(ex, lo), lo, ex);
+    let ex = T::where_(T::gt(ex, hi), hi, ex);
+
+    let y = ex * T::full(&[BLOCK], D::from_f64(1.442_695_040_888_963_4));
+    let magic = T::full(&[BLOCK], D::from_f64(12_582_912.0)); // 1.5 * 2^23
+    let rounded = (y + magic) - magic;
+    let f = y - rounded;
+
+    let p = T::full(&[BLOCK], D::from_f64(0.000_154_035_303_933_816_09));
+    let p = p * f + T::full(&[BLOCK], D::from_f64(0.001_333_355_814_642_844_3));
+    let p = p * f + T::full(&[BLOCK], D::from_f64(0.009_618_129_107_628_477));
+    let p = p * f + T::full(&[BLOCK], D::from_f64(0.055_504_108_664_821_58));
+    let p = p * f + T::full(&[BLOCK], D::from_f64(0.240_226_506_959_100_7));
+    let p = p * f + T::full(&[BLOCK], D::from_f64(0.693_147_180_559_945_3));
+    let p = p * f + one;
+
+    // `* 8388608` is `<< 23`: n + 127 into the exponent field.
+    let n = T::cast::<D, i32>(rounded, None, false);
+    let scale = T::cast::<i32, D>((n + 127) * 8_388_608, None, true);
+    let eg = p * scale;
+
     T::store(
         y_ptr.add_offsets(offs),
-        x * (one / (one + T::exp(zeros - g))),
+        x * (one / (one + eg)),
         Some(m),
         &[],
         None,
@@ -94,7 +142,11 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-const BLOCK: i32 = 1024;
+// 128 lanes. With the exponential vectorised the tile no longer has to be large to
+// hide a per-lane libm call, and 1024 lanes at `e32` with VLEN=256 is 128 vector
+// registers: it spilled 199 times. 128 spills 10 and 64 only 2, but fewer lanes a
+// launch means more launches, whose cost is not measured here, so this takes the knee.
+const BLOCK: i32 = 128;
 
 /// Graph-level `x * sigmoid(g)`; inputs `x` and `g` of one shape, no weights.
 pub struct GatedMulOp<D: FloatBytes + Send + Sync + 'static> {

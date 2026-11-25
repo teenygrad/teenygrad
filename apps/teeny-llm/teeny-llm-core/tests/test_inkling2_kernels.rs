@@ -1164,6 +1164,47 @@ fn test_gated_mul_applies_a_sigmoid_gate() {
     assert_close("gated mul", &got, &want, 1e-5);
 }
 
+/// The sigmoid at the ends of the range, where the in-lane exponential saturates.
+///
+/// The kernel clamps its argument to [-87, 88] before putting `n + 127` into an f32's
+/// exponent field, because past that the field overflows and `2^n` comes back as a NaN
+/// or an infinity instead of saturating. `expf` had no such edge, so nothing in the
+/// other tests would notice if the clamp were dropped or mis-signed: they sample a
+/// gate of +-10 or so, and a sigmoid there is nowhere near either limit.
+#[test]
+fn test_gated_mul_saturates_at_the_extremes() {
+    // Both sides of the clamp, both sides of zero, and the boundaries themselves.
+    let gate: Vec<f32> = vec![
+        -400.0, -200.0, -120.0, -89.0, -88.0, -87.0, -86.0, -20.0, -1.0, -0.5, 0.0, 0.5, 1.0, 20.0,
+        86.0, 87.0, 88.0, 89.0, 120.0, 200.0, 400.0,
+    ];
+    let n = gate.len();
+    let x: Vec<f32> = (0..n).map(|i| 1.0 + (i as f32) * 0.25).collect();
+
+    // In f64, so the reference is not itself at the mercy of an f32 exponential.
+    let want: Vec<f32> = (0..n)
+        .map(|i| (x[i] as f64 / (1.0 + (-(gate[i] as f64)).exp())) as f32)
+        .collect();
+
+    let g = OneOp::new(&[n]);
+    let gin = g.input(&[n]);
+    let got = g.run(GatedMulOp::<f32>::default(), &[&gin], &[&x, &gate], &[]);
+
+    assert!(
+        got.iter().all(|v| v.is_finite()),
+        "the gate must not produce a NaN or an infinity: {got:?}"
+    );
+    // A large negative gate closes it and a large positive one opens it -- but not to
+    // exactly 0 and 1. The clamp turns a gate of -400 into -87, so the sigmoid comes out
+    // at ~1e-38 where the f64 reference underflows to a true zero. That is far below any
+    // tolerance here and the difference never reaches the model, but it is the clamp
+    // being visible, so assert the magnitude rather than equality.
+    assert!(got[0].abs() < 1e-30, "a gate of -400 closes it: {}", got[0]);
+    let open = got[n - 1] / x[n - 1];
+    assert!((open - 1.0).abs() < 1e-6, "a gate of +400 opens it: {open}");
+    assert_close("gated mul, saturated", &got, &want, 1e-6);
+}
+
 /// `[T, A]` and `[T, B]` to `[T, A + B]`.
 #[test]
 fn test_cat2_joins_two_rows() {

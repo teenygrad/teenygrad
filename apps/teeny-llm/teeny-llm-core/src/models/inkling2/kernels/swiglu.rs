@@ -90,11 +90,74 @@ pub fn swiglu_forward<T: Triton, D: Float, const BLOCK: i32>(
     let gcap = T::full(&[BLOCK], D::from_f64(GATE_CAP as f64));
     let ucap = T::full(&[BLOCK], D::from_f64(UP_CAP as f64));
 
+    // The three exponentials below are computed in lane. `T::exp` is one `expf` call
+    // per lane on RVV, which made this kernel 768 calls in 6489 lines of assembly; the
+    // reduction and its pitfalls are documented in `gated_mul`. Written out three times
+    // because `#[kernel]` compiles a function body with no access to the rest of the
+    // crate, so there is no helper to call and no macro to expand.
+    let lo = T::full(&[BLOCK], D::from_f64(-87.0));
+    let hi = T::full(&[BLOCK], D::from_f64(88.0));
+    let log2e = T::full(&[BLOCK], D::from_f64(1.442_695_040_888_963_4));
+    let magic = T::full(&[BLOCK], D::from_f64(12_582_912.0)); // 1.5 * 2^23
+    let k6 = T::full(&[BLOCK], D::from_f64(0.000_154_035_303_933_816_09));
+    let k5 = T::full(&[BLOCK], D::from_f64(0.001_333_355_814_642_844_3));
+    let k4 = T::full(&[BLOCK], D::from_f64(0.009_618_129_107_628_477));
+    let k3 = T::full(&[BLOCK], D::from_f64(0.055_504_108_664_821_58));
+    let k2 = T::full(&[BLOCK], D::from_f64(0.240_226_506_959_100_7));
+    let k1 = T::full(&[BLOCK], D::from_f64(0.693_147_180_559_945_3));
+
+    // exp(-2 * gate / gcap)
+    let a = zeros - two * (gate / gcap);
+    let a = T::where_(T::lt(a, lo), lo, a);
+    let a = T::where_(T::gt(a, hi), hi, a);
+    let ya = a * log2e;
+    let ra = (ya + magic) - magic;
+    let fa = ya - ra;
+    let pa = k6 * fa + k5;
+    let pa = pa * fa + k4;
+    let pa = pa * fa + k3;
+    let pa = pa * fa + k2;
+    let pa = pa * fa + k1;
+    let pa = pa * fa + one;
+    let na = T::cast::<D, i32>(ra, None, false);
+    let ea = pa * T::cast::<i32, D>((na + 127) * 8_388_608, None, true);
+
+    // exp(-2 * up / ucap)
+    let b = zeros - two * (up / ucap);
+    let b = T::where_(T::lt(b, lo), lo, b);
+    let b = T::where_(T::gt(b, hi), hi, b);
+    let yb = b * log2e;
+    let rb = (yb + magic) - magic;
+    let fb = yb - rb;
+    let pb = k6 * fb + k5;
+    let pb = pb * fb + k4;
+    let pb = pb * fb + k3;
+    let pb = pb * fb + k2;
+    let pb = pb * fb + k1;
+    let pb = pb * fb + one;
+    let nb = T::cast::<D, i32>(rb, None, false);
+    let eb = pb * T::cast::<i32, D>((nb + 127) * 8_388_608, None, true);
+
+    // exp(-gate), for the sigmoid, which sees the raw gate and not the capped one.
+    let c = zeros - gate;
+    let c = T::where_(T::lt(c, lo), lo, c);
+    let c = T::where_(T::gt(c, hi), hi, c);
+    let yc = c * log2e;
+    let rc = (yc + magic) - magic;
+    let fc = yc - rc;
+    let pc = k6 * fc + k5;
+    let pc = pc * fc + k4;
+    let pc = pc * fc + k3;
+    let pc = pc * fc + k2;
+    let pc = pc * fc + k1;
+    let pc = pc * fc + one;
+    let nc = T::cast::<D, i32>(rc, None, false);
+    let ec = pc * T::cast::<i32, D>((nc + 127) * 8_388_608, None, true);
+
     // tanh(u) = 2 / (1 + exp(-2u)) - 1
-    let gt = two / (one + T::exp(zeros - two * (gate / gcap))) - one;
-    let ut = two / (one + T::exp(zeros - two * (up / ucap))) - one;
-    // The sigmoid sees the raw gate, not the capped one.
-    let sig = one / (one + T::exp(zeros - gate));
+    let gt = two / (one + ea) - one;
+    let ut = two / (one + eb) - one;
+    let sig = one / (one + ec);
 
     T::store(
         y_ptr.add_offsets(offs + row * I),
@@ -118,7 +181,12 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-const BLOCK: i32 = 256;
+// 32 lanes. Three exponentials in flight means three times the live values of
+// `gated_mul`, so the tile that fits the register file is smaller: 256 spilled 153
+// times, 128 spills 49, 64 spills 15 and 32 none. The rule in both kernels is the
+// largest tile whose spills are down in the noise, which lands on 128 there and 32
+// here; which side of the launch-overhead trade that really sits on wants the board.
+const BLOCK: i32 = 32;
 
 /// Graph-level softcapped SwiGLU: `[S, 2 * I]` to `[S, I]`.
 pub struct SwigluOp<D: FloatBytes + Send + Sync + 'static> {
