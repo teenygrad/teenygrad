@@ -82,7 +82,8 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 ```
 
 `--model <tag>` (repeatable) picks the models; the weights come from the local Hugging Face
-cache, or `--model-dir` for a single model, and `--context` sets the KV-cache size. `--echo`
+cache, or `--model-dir` for a single model, and `--context` sets the KV-cache size. `--allow-origin <origin>` (repeatable)
+limits which browser origins may call the API; without it, any may. `--echo`
 serves the echo models of the domains built in (`teeny-echo` for chat, `teeny-echo-complete`
 for completions, `teeny-echo-embed` for embeddings, `teeny-echo-moderate` for moderations;
 `teeny-echo-transcribe` for transcriptions and `teeny-echo-speak` for speech with `audio`;
@@ -90,7 +91,13 @@ for completions, `teeny-echo-embed` for embeddings, `teeny-echo-moderate` for mo
 implement its API; a request to a model without it gets a `400` saying what the model does
 serve.
 
-The Vue scaffolds in `webapps/` (chat UI, admin console) aren't wired up yet.
+The webapp (chat and a console of `/v1/events`) is a separate binary, `teeny-webapp`, that
+talks to this server from the browser.
+
+```bash
+teeny-api --echo &
+cargo run -p teeny-webapp -- --api-url http://127.0.0.1:8000   # http://127.0.0.1:8080
+```
 
 ## License
 

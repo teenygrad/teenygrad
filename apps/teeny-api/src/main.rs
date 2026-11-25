@@ -19,6 +19,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context;
+use axum::http::{HeaderName, HeaderValue};
 use clap::Parser;
 #[cfg(feature = "llm")]
 use teeny_api::ServerEvent;
@@ -35,6 +36,7 @@ use teeny_llm::{
     models::{LoadOptions, LoadedModel, Model},
     moderation::EchoModerationModel,
 };
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -65,6 +67,12 @@ struct Args {
     #[cfg(feature = "llm")]
     #[arg(long)]
     context: Option<u32>,
+
+    /// A browser origin allowed to call the API (`http://localhost:8080`, teeny-webapp's
+    /// default). Repeat it for several. Without it, any origin may: the API takes no
+    /// credentials, so cross-origin calls can do nothing a direct one couldn't.
+    #[arg(long = "allow-origin", value_name = "ORIGIN")]
+    allow_origins: Vec<String>,
 
     /// Also serve the echo models of the APIs this build includes, for trying them without
     /// weights: `teeny-echo` for chat, which echoes the last user message,
@@ -156,6 +164,28 @@ fn echo_models() -> Vec<ServedModel> {
     echo
 }
 
+/// The CORS policy `args` asks for, so browser apps on other origins (teeny-webapp) can call
+/// the API. Responses expose `x-request-id`.
+fn cors(args: &Args) -> anyhow::Result<CorsLayer> {
+    let origins = if args.allow_origins.is_empty() {
+        AllowOrigin::any()
+    } else {
+        let parsed: Result<Vec<HeaderValue>, _> = args
+            .allow_origins
+            .iter()
+            .map(|o| HeaderValue::from_str(o.trim_end_matches('/')))
+            .collect();
+        AllowOrigin::list(
+            parsed.context("--allow-origin must be an origin, like http://localhost:8080")?,
+        )
+    };
+    Ok(CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods(AllowMethods::any())
+        .allow_headers(AllowHeaders::any())
+        .expose_headers([HeaderName::from_static("x-request-id")]))
+}
+
 /// Checks `args` names something to serve.
 fn check_args(args: &Args) -> anyhow::Result<()> {
     #[cfg(feature = "llm")]
@@ -215,11 +245,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(%addr, ?models, "teeny-api listening");
 
     let api: Arc<dyn Engine> = engine.clone();
-    let serve = axum::serve(listener, teeny_api::router(api, events.clone()))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("shutting down");
-        });
+    let app = teeny_api::router(api, events.clone()).layer(cors(&args)?);
+    let serve = axum::serve(listener, app).with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+        tracing::info!("shutting down");
+    });
     // The models load while the server listens, so `/v1/events` shows their progress;
     // one failing to load stops the server, as it would have before listening.
     #[cfg(feature = "llm")]

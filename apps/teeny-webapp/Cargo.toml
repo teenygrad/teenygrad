@@ -1,0 +1,33 @@
+[package]
+name = "teeny-webapp"
+version.workspace = true
+edition.workspace = true
+description = "Browser UI for teenygrad's teeny-api: a chat with tool calls, and a console of the server's live events, embedded in one self-contained binary."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_webapp/"
+keywords = ["llm", "chat", "webapp", "inference", "teenygrad"]
+categories = ["science", "web-programming"]
+# Its build script runs npm, which the release workflow doesn't have, so it is not
+# published yet; build it from the repository.
+publish = false
+# The UI's sources ship; what npm installs and builds does not.
+exclude = ["ui/node_modules/", "ui/dist/"]
+
+[[bin]]
+name = "teeny-webapp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true, features = ["std"] }
+axum = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
